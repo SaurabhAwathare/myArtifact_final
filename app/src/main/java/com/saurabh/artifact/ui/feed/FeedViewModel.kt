@@ -1,0 +1,510 @@
+package com.saurabh.artifact.ui.feed
+
+import android.content.ComponentCallbacks2
+import android.util.Log
+import androidx.collection.LruCache
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import androidx.paging.PagingData
+import androidx.paging.cachedIn
+import androidx.paging.map
+import com.saurabh.artifact.audio.AudioPlayer
+import com.saurabh.artifact.model.*
+import com.saurabh.artifact.repository.ArtifactRepository
+import com.saurabh.artifact.repository.AuthRepository
+import com.saurabh.artifact.repository.ReactionRepository
+import com.saurabh.artifact.service.AdManager
+import com.saurabh.artifact.service.FeedRanker
+import com.saurabh.artifact.service.PersonalizationEngine
+import com.saurabh.artifact.service.SafetyEvaluator
+import com.saurabh.artifact.startup.StartupCoordinator
+import com.saurabh.artifact.startup.StartupStage
+import com.saurabh.artifact.service.SafetyLevel
+import com.saurabh.artifact.startup.StartupMetrics
+import com.saurabh.artifact.data.local.RecordingStatus
+import com.saurabh.artifact.util.MemoryManager
+import com.saurabh.artifact.util.MemoryTrimable
+import com.saurabh.artifact.util.StartupTracer
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancel
+import javax.inject.Inject
+
+enum class HydrationLevel {
+    SHELL,      // Static frame, default fonts, no animations
+    METADATA,   // Adds reactions, counts, and tags
+    ENRICHED,   // Adds play button, static waveform
+    FULL        // Interactive waveform, atmospheric effects, comments
+}
+
+data class FeedUiState(
+    val rankedArtifactIds: List<String> = emptyList(),
+    val artifactCache: Map<String, Artifact> = emptyMap(),
+    val hydrationLevels: Map<String, HydrationLevel> = emptyMap(),
+    val artifactDetails: Map<String, ArtifactDetail> = emptyMap(),
+    val isRankedLoading: Boolean = false,
+    val selectedEmotion: String? = null,
+    val reflectionPrompt: ReflectionPrompt? = null,
+    val isPromptLoading: Boolean = false,
+    val safetyLevel: SafetyLevel = SafetyLevel.LOW,
+    val isCrisis: Boolean = false,
+    val isRefreshing: Boolean = false,
+    val error: String? = null
+)
+
+@HiltViewModel
+class FeedViewModel @Inject constructor(
+    private val artifactRepository: ArtifactRepository,
+    private val authRepository: AuthRepository,
+    private val reactionRepository: ReactionRepository,
+    private val personalizationEngine: PersonalizationEngine,
+    private val feedRanker: FeedRanker,
+    private val safetyEvaluator: SafetyEvaluator,
+    private val adManager: AdManager,
+    private val feedComposer: com.saurabh.artifact.service.FeedComposer,
+    private val feedRepository: com.saurabh.artifact.repository.FeedRepository,
+    private val memoryManager: MemoryManager,
+    private val startupCoordinator: StartupCoordinator,
+    val audioPlayer: AudioPlayer,
+    private val listeningProgressTracker: com.saurabh.artifact.audio.ListeningProgressTracker,
+    private val commentUnlockRepository: com.saurabh.artifact.repository.CommentUnlockRepository
+) : ViewModel(), MemoryTrimable {
+
+    private val _uiState = MutableStateFlow(FeedUiState())
+    val uiState: StateFlow<FeedUiState> = _uiState.asStateFlow()
+
+    private val _unlockedArtifactIds = MutableStateFlow<Set<String>>(emptySet())
+    val unlockedArtifactIds: StateFlow<Set<String>> = _unlockedArtifactIds.asStateFlow()
+
+    private val _currentlyPlayingCommentId = MutableStateFlow<String?>(null)
+    val currentlyPlayingCommentId: StateFlow<String?> = _currentlyPlayingCommentId.asStateFlow()
+
+    // LRU cache for artifact details to prevent unbounded memory growth
+    private val detailsCache = object : LruCache<String, ArtifactDetail>(10) {
+        override fun entryRemoved(evicted: Boolean, key: String, oldValue: ArtifactDetail, newValue: ArtifactDetail?) {
+            if (evicted) {
+                _uiState.update { current ->
+                    current.copy(artifactDetails = current.artifactDetails.toMutableMap().apply { remove(key) })
+                }
+            }
+        }
+    }
+
+    val currentlyPlayingArtifact: StateFlow<Artifact?> = audioPlayer.currentArtifact
+    val isPlaying = audioPlayer.isPlaying
+    val currentPosition = audioPlayer.currentPosition
+    val duration = audioPlayer.duration
+    val startupStage = startupCoordinator.stage
+    val currentUserId: String? get() = authRepository.currentUser.value?.uid
+
+    private val _refreshTrigger = MutableStateFlow(0)
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val artifacts: Flow<PagingData<Artifact>> = combine(
+        _uiState.map { it.selectedEmotion }.distinctUntilChanged(),
+        _refreshTrigger
+    ) { emotion, _ -> emotion }.flatMapLatest { emotion ->
+        artifactRepository.getArtifactsPager(emotion)
+    }.cachedIn(viewModelScope)
+
+    // Legacy compatibility accessors
+    val rankedArtifactIds = _uiState.map { it.rankedArtifactIds }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val isRankedLoading = _uiState.map { it.isRankedLoading }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    val selectedEmotion = _uiState.map { it.selectedEmotion }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    val reflectionPrompt = _uiState.map { it.reflectionPrompt }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    val isPromptLoading = _uiState.map { it.isPromptLoading }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    val safetyLevel = _uiState.map { it.safetyLevel }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.Eagerly, SafetyLevel.LOW)
+    val isCrisis = _uiState.map { it.isCrisis }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    val isRefreshing = _uiState.map { it.isRefreshing }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    val error = _uiState.map { it.error }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    val artifactDetails = _uiState.map { it.artifactDetails }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
+    init {
+        memoryManager.register(this)
+        start()
+
+        // Sync with persisted unlocks
+        viewModelScope.launch {
+            commentUnlockRepository.unlockedArtifactIds.collect { ids ->
+                _unlockedArtifactIds.value = ids
+            }
+        }
+    }
+
+    private val startupJob = kotlinx.coroutines.SupervisorJob()
+    private val startupScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO + startupJob)
+    private var started = false
+
+    fun start() {
+        if (started) return
+        started = true
+
+        Log.d("APP_FLOW", "FeedViewModel.start() - Staggered Hydration")
+        StartupTracer.mark("Feed Hydration Started")
+        StartupMetrics.onFeedHydrationStart()
+        
+        viewModelScope.launch {
+            kotlinx.coroutines.supervisorScope {
+                launch { 
+                    runCatching { 
+                        loadRankedFeed().join()
+                        StartupTracer.mark("Ranked Feed Loaded")
+                    }
+                        .onFailure { Log.e("FeedHydration", "Ranked feed load failed", it) }
+                }
+                
+                launch {
+                    runCatching { 
+                        refreshReflectionPrompt().join()
+                        StartupTracer.mark("Reflection Prompt Hydrated")
+                    }
+                        .onFailure { Log.e("FeedHydration", "Prompt refresh failed", it) }
+                }
+                
+                launch {
+                    delay(20000)
+                    Log.d("FeedViewModel", "Initializing Personalization (AppSearch) - Deferred")
+                    personalizationEngine.ensureInitialized()
+                }
+                
+                launch {
+                    observePlaybackCompletion()
+                }
+
+                launch {
+                    observePlaybackProgress()
+                }
+            }
+        }
+    }
+
+    private fun observePlaybackProgress() {
+        viewModelScope.launch {
+            listeningProgressTracker.sessionState.collect { session ->
+                if (session?.isThresholdMet == true) {
+                    if (!_unlockedArtifactIds.value.contains(session.artifactId)) {
+                        _unlockedArtifactIds.update { it + session.artifactId }
+                        commentUnlockRepository.unlockArtifact(session.artifactId)
+                        Log.d("FeedViewModel", "Artifact ${session.artifactId} unlocked via robust tracker")
+                    }
+                }
+            }
+        }
+    }
+
+    private fun observePlaybackCompletion() {
+        viewModelScope.launch {
+            audioPlayer.onPlaybackCompleted.collectLatest { completedUrl ->
+                if (_currentlyPlayingCommentId.value != null) {
+                    _currentlyPlayingCommentId.value = null
+                }
+
+                val current = audioPlayer.currentArtifact.value
+                if (current?.audioUrl == completedUrl) {
+                    _unlockedArtifactIds.update { set -> set + current.id }
+                    personalizationEngine.recordDetailedInteraction(
+                        emotion = current.emotion,
+                        completionRate = 1.0f
+                    )
+                    handlePostPlaybackAd()
+                }
+            }
+        }
+    }
+
+    private fun handlePostPlaybackAd() {
+        val state = _uiState.value
+        if (state.isCrisis || state.safetyLevel == SafetyLevel.HIGH) return
+
+        if (adManager.canPlayAudioAd()) {
+            adManager.recordAdShown()
+        }
+    }
+
+    fun refreshReflectionPrompt(context: String? = null): kotlinx.coroutines.Job {
+        return viewModelScope.launch {
+            if (_uiState.value.isPromptLoading) return@launch
+            
+            _uiState.update { it.copy(isPromptLoading = true) }
+            runCatching {
+                val assessment = withContext(Dispatchers.Default) {
+                    safetyEvaluator.evaluate(context)
+                }
+                _uiState.update { it.copy(safetyLevel = assessment.level, isCrisis = assessment.isCrisis) }
+                adManager.updateSafetyContext(assessment)
+
+                val prompt = artifactRepository.getSmartReflectionPrompt(
+                    emotion = _uiState.value.selectedEmotion,
+                    context = context,
+                    timeOfDay = getTimeOfDayContext()
+                )
+                _uiState.update { it.copy(reflectionPrompt = prompt) }
+            }.onFailure {
+                Log.e("FeedViewModel", "Error refreshing prompt", it)
+            }
+            _uiState.update { it.copy(isPromptLoading = false) }
+        }
+    }
+
+    private fun getTimeOfDayContext(): String {
+        return when (java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)) {
+            in 5..11 -> "Morning"
+            in 12..16 -> "Afternoon"
+            in 17..21 -> "Evening"
+            else -> "Night"
+        }
+    }
+
+    fun setEmotionFilter(emotion: String?) {
+        _uiState.update { it.copy(selectedEmotion = emotion) }
+        loadRankedFeed()
+    }
+
+    private val _unfinishedArtifacts = MutableStateFlow<List<FeedArtifact>>(emptyList())
+    val unfinishedArtifacts: StateFlow<List<FeedArtifact>> = _unfinishedArtifacts.asStateFlow()
+
+    fun loadRankedFeed(): kotlinx.coroutines.Job {
+        return viewModelScope.launch {
+            val userId = authRepository.currentUser.value?.uid ?: return@launch
+            _uiState.update { it.copy(isRankedLoading = true) }
+            runCatching {
+                val fullFeed = withContext(Dispatchers.Default) {
+                    feedComposer.composeFeed(userId)
+                }
+                
+                // STAGGERED HYDRATION: Process in batches to reduce main-thread pressure
+                val batch1Size = 10
+                
+                val (unfinished, rankedBatch1, remainingRanked) = withContext(Dispatchers.Default) {
+                    val unfinished = fullFeed.filter { it.isUnfinished }
+                    val ranked = fullFeed.filter { !it.isUnfinished }
+                    val b1 = ranked.take(batch1Size).map { it.artifact.slimForFeed() }
+                    val rem = ranked.drop(batch1Size).take(40) // Limit to 50 total for performance
+                    Triple(unfinished, b1, rem)
+                }
+
+                // Stage 1: Immediate update with unfinished and first 10 items
+                _unfinishedArtifacts.value = unfinished
+                
+                val b1Ids = rankedBatch1.map { it.id }
+                val b1Cache = rankedBatch1.associateBy { it.id }
+                
+                _uiState.update { current ->
+                    current.copy(
+                        rankedArtifactIds = b1Ids,
+                        artifactCache = current.artifactCache + b1Cache,
+                        hydrationLevels = current.hydrationLevels + b1Ids.filter { !current.hydrationLevels.containsKey(it) }.associateWith { HydrationLevel.SHELL }
+                    )
+                }
+                
+                // Allow UI to render the first batch
+                delay(100) 
+
+                // Stage 2: Process and append the remaining items
+                if (remainingRanked.isNotEmpty()) {
+                    val processedRemaining = withContext(Dispatchers.Default) {
+                        remainingRanked.map { it.artifact.slimForFeed() }
+                    }
+                    
+                    val remIds = processedRemaining.map { it.id }
+                    val remCache = processedRemaining.associateBy { it.id }
+                    
+                    _uiState.update { current ->
+                        current.copy(
+                            rankedArtifactIds = current.rankedArtifactIds + remIds,
+                            artifactCache = current.artifactCache + remCache,
+                            hydrationLevels = current.hydrationLevels + remIds.filter { !current.hydrationLevels.containsKey(it) }.associateWith { HydrationLevel.SHELL }
+                        )
+                    }
+                }
+            }.onFailure {
+                android.util.Log.e("FeedViewModel", "Error loading composed feed", it)
+            }
+            _uiState.update { it.copy(isRankedLoading = false) }
+        }
+    }
+
+    fun refreshFeed() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isRefreshing = true) }
+            
+            val rankedJob = loadRankedFeed()
+            val promptJob = refreshReflectionPrompt()
+            
+            // Trigger Recent feed refresh
+            _refreshTrigger.value += 1
+            
+            // Wait for both ranked feed and prompt to finish
+            rankedJob.join()
+            promptJob.join()
+            
+            // Optional: small delay to make the refresh feel "calm" and "soft"
+            delay(500)
+            
+            _uiState.update { it.copy(isRefreshing = false) }
+        }
+    }
+
+    fun updateHydrationLevels(updates: Map<String, HydrationLevel>) {
+        _uiState.update { it.copy(hydrationLevels = it.hydrationLevels + updates) }
+    }
+
+    fun getArtifactFlow(id: String): Flow<Artifact?> {
+        return _uiState.map { it.artifactCache[id] }.distinctUntilChanged()
+    }
+
+    fun getHydrationLevelFlow(id: String): Flow<HydrationLevel> {
+        return _uiState.map { it.hydrationLevels[id] ?: HydrationLevel.SHELL }.distinctUntilChanged()
+    }
+
+    fun clearError() {
+        _uiState.update { it.copy(error = null) }
+    }
+
+    fun playAudio(artifact: Artifact) {
+        adManager.recordInteraction(artifact.id)
+
+        try {
+            if (audioPlayer.currentArtifact.value?.id == artifact.id) {
+                audioPlayer.togglePlayPause()
+            } else {
+                _currentlyPlayingCommentId.value = null
+                audioPlayer.play(artifact)
+                viewModelScope.launch {
+                    artifactRepository.recordPlay(
+                        authRepository.currentUser.value?.uid,
+                        artifact.emotion
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("FeedViewModel", "Error playing audio", e)
+            _uiState.update { it.copy(error = "Unable to play this artifact.") }
+        }
+    }
+
+    fun playComment(comment: VoiceComment) {
+        try {
+            if (_currentlyPlayingCommentId.value == comment.id) {
+                audioPlayer.togglePlayPause()
+            } else {
+                _currentlyPlayingCommentId.value = comment.id
+                audioPlayer.play(comment.audioUrl)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("FeedViewModel", "Error playing comment", e)
+            _uiState.update { it.copy(error = "Unable to play this comment.") }
+        }
+    }
+
+    fun reportArtifact(artifactId: String, reason: com.saurabh.artifact.model.ReportReason, details: String) {
+        viewModelScope.launch {
+            val deviceId = authRepository.userData.value?.id?.hashCode() ?: 0
+            artifactRepository.submitReport(artifactId, reason, details, deviceId)
+                .onSuccess {
+                    _uiState.update { it.copy(error = "Report submitted anonymously. Thank you for keeping Artifact safe.") }
+                    loadRankedFeed()
+                }
+                .onFailure {
+                    _uiState.update { it.copy(error = "Failed to submit report. Please try again.") }
+                }
+        }
+    }
+
+    fun reactToArtifact(artifactId: String, type: ReactionType) {
+        val userId = authRepository.currentUser.value?.uid ?: run {
+            _uiState.update { it.copy(error = "Sign in to interact.") }
+            return
+        }
+        viewModelScope.launch {
+            artifactRepository.reactToArtifact(artifactId, userId, type).onFailure {
+                _uiState.update { it.copy(error = "Couldn't update reaction.") }
+            }
+        }
+    }
+
+    fun submitFeedback(artifactId: String, type: FeedbackType) {
+        val userId = authRepository.currentUser.value?.uid ?: run {
+            _uiState.update { it.copy(error = "Sign in to provide feedback.") }
+            return
+        }
+        viewModelScope.launch {
+            artifactRepository.submitPrivateFeedback(artifactId, userId, type).onSuccess {
+                if (type == FeedbackType.SAFETY_CONCERN) {
+                    _uiState.update { it.copy(error = "Thanks for your concern. We'll look into this immediately.") }
+                } else {
+                    _uiState.update { it.copy(error = "Feedback received. This helps improve your feed.") }
+                    if (type == FeedbackType.NOT_FOR_ME) {
+                        loadRankedFeed()
+                    }
+                }
+            }.onFailure {
+                _uiState.update { it.copy(error = "Couldn't submit feedback. Please try again.") }
+            }
+        }
+    }
+
+    fun updateArtifactVisibility(artifactId: String, mode: com.saurabh.artifact.model.ReactionVisibilityMode) {
+        viewModelScope.launch {
+            reactionRepository.setVisibilityMode(artifactId, mode).onFailure {
+                _uiState.update { it.copy(error = "Failed to update visibility.") }
+            }
+        }
+    }
+    fun sendReply(artifactId: String, message: String) {
+        if (message.isBlank()) return
+        viewModelScope.launch {
+            artifactRepository.sendReply(artifactId, message).onFailure {
+                _uiState.update { it.copy(error = "Failed to send reply. Please try again.") }
+            }
+        }
+    }
+
+    fun loadArtifactDetails(artifactId: String) {
+        if (detailsCache.get(artifactId) != null) {
+            return
+        }
+        
+        viewModelScope.launch {
+            try {
+                val detail = artifactRepository.getArtifactDetail(artifactId)
+                detailsCache.put(artifactId, detail)
+                _uiState.update { it.copy(artifactDetails = it.artifactDetails + (artifactId to detail)) }
+            } catch (e: Exception) {
+                android.util.Log.e("FeedViewModel", "Error loading details", e)
+            }
+        }
+    }
+
+    fun hydrateArtifact(artifactId: String) {
+        _uiState.update { it.copy(hydrationLevels = it.hydrationLevels + (artifactId to HydrationLevel.METADATA)) }
+    }
+
+    fun onArtifactFocused(artifactId: String) {
+        loadArtifactDetails(artifactId)
+    }
+
+    override fun trimMemory(level: Int) {
+        Log.d("FeedViewModel", "Trimming memory, level: $level")
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_COMPLETE ||
+            level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+            detailsCache.evictAll()
+            _uiState.update { it.copy(artifactDetails = emptyMap()) }
+            Log.d("FeedViewModel", "Cache cleared due to high memory pressure")
+        } else if (level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
+            detailsCache.trimToSize(2)
+            Log.d("FeedViewModel", "Cache reduced to 2 items")
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        startupJob.cancel()
+        memoryManager.unregister(this)
+        audioPlayer.stop()
+    }
+}

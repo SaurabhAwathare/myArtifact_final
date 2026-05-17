@@ -1,0 +1,385 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 14,
+    "identityHash": "f5b82eec5038a8fd0d4cfac6d7e0d2cb",
+    "entities": [
+      {
+        "tableName": "queued_uploads",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `userId` TEXT NOT NULL, `username` TEXT NOT NULL, `fileUri` TEXT NOT NULL, `title` TEXT NOT NULL, `isPublic` INTEGER NOT NULL, `duration` INTEGER NOT NULL, `emotion` TEXT NOT NULL, `emotionTag` TEXT NOT NULL, `emotionConfidence` REAL NOT NULL, `userEmoji` TEXT NOT NULL, `prompt` TEXT NOT NULL, `redactionFilter` TEXT NOT NULL, `amplitudeDataJson` TEXT NOT NULL, `createdAt` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "userId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "username",
+            "columnName": "username",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fileUri",
+            "columnName": "fileUri",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isPublic",
+            "columnName": "isPublic",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "duration",
+            "columnName": "duration",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "emotion",
+            "columnName": "emotion",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "emotionTag",
+            "columnName": "emotionTag",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "emotionConfidence",
+            "columnName": "emotionConfidence",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userEmoji",
+            "columnName": "userEmoji",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "prompt",
+            "columnName": "prompt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "redactionFilter",
+            "columnName": "redactionFilter",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "amplitudeDataJson",
+            "columnName": "amplitudeDataJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "artifact_drafts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `localAudioPath` TEXT NOT NULL, `localTranscriptPath` TEXT, `waveformPath` TEXT, `title` TEXT, `emotion` TEXT, `isPublic` INTEGER NOT NULL, `tags` TEXT NOT NULL, `durationMs` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `draftState` TEXT NOT NULL, `uploadStatus` TEXT NOT NULL, `syncState` TEXT NOT NULL, `uploadedBytes` INTEGER NOT NULL, `totalBytes` INTEGER NOT NULL, `uploadSessionUri` TEXT, `uploadAttemptCount` INTEGER NOT NULL, `isEncrypted` INTEGER NOT NULL, `encryptionIv` TEXT, `checksum` TEXT, `approvalToken` TEXT, `deviceFingerprint` TEXT, `cooldownExpiry` INTEGER, `publishApprovalTimestamp` INTEGER, `revocationTimestamp` INTEGER, `emotionalRiskScore` REAL NOT NULL, `publishConfidence` REAL NOT NULL, `isEmotionalReady` INTEGER NOT NULL, `deviceId` TEXT, `transcriptionState` TEXT NOT NULL, `remoteArtifactId` TEXT, `emotionalTone` TEXT, `safetyAnalysis` TEXT, `interruptionReason` TEXT, `lastCheckpointTs` INTEGER NOT NULL, `isCorrupted` INTEGER NOT NULL, `version` INTEGER NOT NULL, `mimeType` TEXT NOT NULL, `amplitudeData` TEXT NOT NULL, `reactionVisibility` TEXT, `frozenTranscriptJson` TEXT, `frozenAudioPath` TEXT, `frozenMetadataJson` TEXT, `snapshotHash` TEXT, `transcriptSegmentsJson` TEXT, `sensitiveEntitiesJson` TEXT, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "localAudioPath",
+            "columnName": "localAudioPath",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "localTranscriptPath",
+            "columnName": "localTranscriptPath",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "waveformPath",
+            "columnName": "waveformPath",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "emotion",
+            "columnName": "emotion",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "isPublic",
+            "columnName": "isPublic",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tags",
+            "columnName": "tags",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "durationMs",
+            "columnName": "durationMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "draftState",
+            "columnName": "draftState",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "uploadStatus",
+            "columnName": "uploadStatus",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncState",
+            "columnName": "syncState",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "uploadedBytes",
+            "columnName": "uploadedBytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "totalBytes",
+            "columnName": "totalBytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "uploadSessionUri",
+            "columnName": "uploadSessionUri",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "uploadAttemptCount",
+            "columnName": "uploadAttemptCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isEncrypted",
+            "columnName": "isEncrypted",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "encryptionIv",
+            "columnName": "encryptionIv",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "checksum",
+            "columnName": "checksum",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "approvalToken",
+            "columnName": "approvalToken",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "deviceFingerprint",
+            "columnName": "deviceFingerprint",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "cooldownExpiry",
+            "columnName": "cooldownExpiry",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "publishApprovalTimestamp",
+            "columnName": "publishApprovalTimestamp",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "revocationTimestamp",
+            "columnName": "revocationTimestamp",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "emotionalRiskScore",
+            "columnName": "emotionalRiskScore",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "publishConfidence",
+            "columnName": "publishConfidence",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isEmotionalReady",
+            "columnName": "isEmotionalReady",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deviceId",
+            "columnName": "deviceId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "transcriptionState",
+            "columnName": "transcriptionState",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "remoteArtifactId",
+            "columnName": "remoteArtifactId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "emotionalTone",
+            "columnName": "emotionalTone",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "safetyAnalysis",
+            "columnName": "safetyAnalysis",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "interruptionReason",
+            "columnName": "interruptionReason",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastCheckpointTs",
+            "columnName": "lastCheckpointTs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isCorrupted",
+            "columnName": "isCorrupted",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "version",
+            "columnName": "version",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mimeType",
+            "columnName": "mimeType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "amplitudeData",
+            "columnName": "amplitudeData",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reactionVisibility",
+            "columnName": "reactionVisibility",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "frozenTranscriptJson",
+            "columnName": "frozenTranscriptJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "frozenAudioPath",
+            "columnName": "frozenAudioPath",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "frozenMetadataJson",
+            "columnName": "frozenMetadataJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "snapshotHash",
+            "columnName": "snapshotHash",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "transcriptSegmentsJson",
+            "columnName": "transcriptSegmentsJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sensitiveEntitiesJson",
+            "columnName": "sensitiveEntitiesJson",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'f5b82eec5038a8fd0d4cfac6d7e0d2cb')"
+    ]
+  }
+}

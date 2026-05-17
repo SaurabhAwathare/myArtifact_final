@@ -1,0 +1,287 @@
+package com.saurabh.artifact.ui.recording.warning
+
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.saurabh.artifact.ui.theme.Obsidian950
+
+@Composable
+fun PreRecordingWarningScreen(
+    onContinue: (String?) -> Unit,
+    onCancel: () -> Unit,
+    initialPrompt: String? = null,
+    viewModel: PreRecordingViewModel = hiltViewModel()
+) {
+    val uiState by viewModel.uiState.collectAsState()
+
+    // Handle Bypassing if already active (events from ViewModel)
+    LaunchedEffect(Unit) {
+        viewModel.eventFlow.collect { event ->
+            if (event is PreRecordingWarningEvent.NavigateToRecording) {
+                onContinue(initialPrompt)
+            }
+        }
+    }
+
+    // Ambient cinematic glow
+    val infiniteTransition = rememberInfiniteTransition(label = "Atmosphere")
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.05f,
+        targetValue = 0.15f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(4000, easing = EaseInOutSine),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "GlowAlpha"
+    )
+
+    Scaffold(
+        containerColor = Obsidian950
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .background(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0xFFE91E63).copy(alpha = alpha), // Subtle ambient red
+                            Color.Transparent
+                        )
+                    )
+                )
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 40.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // 1. TOP BAR: Back Button
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp),
+                    horizontalArrangement = Arrangement.Start
+                ) {
+                    IconButton(onClick = onCancel) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Cancel",
+                            tint = Color.White.copy(alpha = 0.4f)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(32.dp))
+
+                // 2. WARNING ICON
+                Icon(
+                    imageVector = Icons.Default.Shield,
+                    contentDescription = null,
+                    tint = Color(0xFFE91E63).copy(alpha = 0.8f),
+                    modifier = Modifier.size(48.dp)
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // 3. HEADLINE
+                Text(
+                    text = "Before you record...",
+                    style = MaterialTheme.typography.displayMedium.copy(
+                        fontWeight = FontWeight.Light,
+                        fontSize = 42.sp,
+                        letterSpacing = (-1).sp
+                    ),
+                    color = Color.White,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // 4. SUBTEXT
+                Text(
+                    text = "Protect your safety and peace of mind.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = Color.White.copy(alpha = 0.4f),
+                    textAlign = TextAlign.Center,
+                    lineHeight = 24.sp
+                )
+
+                Spacer(modifier = Modifier.height(32.dp))
+
+                // 5. WARNING CARD
+                Surface(
+                    color = Color.White.copy(alpha = 0.03f),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.Start
+                    ) {
+                        Text(
+                            text = "Do not mention:",
+                            style = MaterialTheme.typography.titleLarge.copy(
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 24.sp
+                            ),
+                            color = Color(0xFFE91E63) // Warm emotional red
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        
+                        val sensitiveItems = listOf(
+                            "your full name",
+                            "your mobile number",
+                            "addresses",
+                            "workplace details",
+                            "your location"
+                        )
+                        
+                        sensitiveItems.forEach { item ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(vertical = 4.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .background(Color(0xFFE91E63).copy(alpha = 0.5f), CircleShape)
+                                )
+                                Spacer(modifier = Modifier.width(16.dp))
+                                Text(
+                                    text = item,
+                                    style = MaterialTheme.typography.bodyLarge.copy(
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.Light
+                                    ),
+                                    color = Color.White.copy(alpha = 0.7f)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(32.dp))
+
+                // 6. EMOTIONAL SECTION
+                Icon(
+                    imageVector = Icons.Default.Favorite,
+                    contentDescription = null,
+                    tint = Color(0xFFE91E63).copy(alpha = 0.4f),
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "Speak honestly. But protect yourself too.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = Color.White.copy(alpha = 0.5f),
+                    textAlign = TextAlign.Center,
+                    lineHeight = 28.sp,
+                    fontWeight = FontWeight.Light
+                )
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                // 7. COUNTDOWN CIRCLE
+                Box(contentAlignment = Alignment.Center) {
+                    val isReady = uiState.remainingSeconds == 0
+                    
+                    val pulseScale by infiniteTransition.animateFloat(
+                        initialValue = 1f,
+                        targetValue = 1.1f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(2000, easing = EaseInOutSine),
+                            repeatMode = RepeatMode.Reverse
+                        ),
+                        label = "Pulse"
+                    )
+
+                    // Soft radial glow behind timer
+                    Box(
+                        modifier = Modifier
+                            .size(140.dp)
+                            .scale(pulseScale)
+                            .background(
+                                brush = Brush.radialGradient(
+                                    colors = listOf(
+                                        Color(0xFFE91E63).copy(alpha = 0.15f),
+                                        Color.Transparent
+                                    )
+                                ),
+                                shape = CircleShape
+                            )
+                    )
+                    
+                    Text(
+                        text = if (isReady) "Ready" else uiState.remainingSeconds.toString(),
+                        style = MaterialTheme.typography.displayLarge.copy(
+                            fontSize = if (isReady) 32.sp else 96.sp,
+                            fontWeight = FontWeight.ExtraLight,
+                            letterSpacing = (-2).sp
+                        ),
+                        color = if (isReady) Color(0xFFE91E63).copy(alpha = 0.9f) else Color.White.copy(alpha = 0.9f),
+                        modifier = Modifier.scale(if (isReady) 1f else pulseScale)
+                    )
+                }
+                
+                Spacer(modifier = Modifier.height(20.dp))
+                
+                if (uiState.remainingSeconds > 0) {
+                    Text(
+                        text = "Take a moment",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = Color.White.copy(alpha = 0.2f),
+                        letterSpacing = 2.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(48.dp))
+
+                // 8. I UNDERSTAND BUTTON
+                val isReady = uiState.remainingSeconds == 0
+                Button(
+                    onClick = { onContinue(initialPrompt) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(64.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isReady) Color.White else Color.White.copy(alpha = 0.05f),
+                        contentColor = if (isReady) Obsidian950 else Color.White.copy(alpha = 0.1f)
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    enabled = isReady
+                ) {
+                    Text(
+                        text = "I Understand",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Normal,
+                        letterSpacing = 1.sp
+                    )
+                }
+                
+                Spacer(modifier = Modifier.height(48.dp))
+            }
+        }
+    }
+}

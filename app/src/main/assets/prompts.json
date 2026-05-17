@@ -1,0 +1,105 @@
+[
+  {
+    "id": "sr_1",
+    "question": "What has been on your mind lately?",
+    "category": "SELF_REFLECTION",
+    "tone": "REFLECTIVE"
+  },
+  {
+    "id": "sr_2",
+    "question": "What emotion have you been carrying silently?",
+    "category": "SELF_REFLECTION",
+    "tone": "REFLECTIVE"
+  },
+  {
+    "id": "sr_3",
+    "question": "What's something you never said out loud?",
+    "category": "SELF_REFLECTION",
+    "tone": "REFLECTIVE"
+  },
+  {
+    "id": "sr_4",
+    "question": "What exhausted you recently?",
+    "category": "SELF_REFLECTION",
+    "tone": "REFLECTIVE"
+  },
+  {
+    "id": "sr_5",
+    "question": "What have you been avoiding emotionally?",
+    "category": "SELF_REFLECTION",
+    "tone": "REFLECTIVE"
+  },
+  {
+    "id": "sr_6",
+    "question": "What made today feel meaningful?",
+    "category": "SELF_REFLECTION",
+    "tone": "GENTLE"
+  },
+  {
+    "id": "rel_1",
+    "question": "Who do you wish understood you better?",
+    "category": "RELATIONSHIPS",
+    "tone": "REFLECTIVE"
+  },
+  {
+    "id": "rel_2",
+    "question": "When was the last time you truly felt understood?",
+    "category": "RELATIONSHIPS",
+    "tone": "GENTLE"
+  },
+  {
+    "id": "anx_1",
+    "question": "What uncertainty has been weighing on you?",
+    "category": "ANXIETY",
+    "tone": "REFLECTIVE",
+    "mood": "Anxious"
+  },
+  {
+    "id": "lon_1",
+    "question": "What does loneliness feel like in your body right now?",
+    "category": "LONELINESS",
+    "tone": "REFLECTIVE"
+  },
+  {
+    "id": "gro_1",
+    "question": "What changed you recently?",
+    "category": "GROWTH",
+    "tone": "REFLECTIVE"
+  },
+  {
+    "id": "gra_1",
+    "question": "What small thing brought you a moment of peace today?",
+    "category": "GRATITUDE",
+    "tone": "GENTLE"
+  },
+  {
+    "id": "pur_1",
+    "question": "What makes you feel most like yourself?",
+    "category": "PURPOSE",
+    "tone": "REFLECTIVE"
+  },
+  {
+    "id": "cre_1",
+    "question": "If you could create anything without fear of judgment, what would it be?",
+    "category": "CREATIVITY",
+    "tone": "HOPEFUL"
+  },
+  {
+    "id": "com_1",
+    "question": "What’s something you wish people understood about you?",
+    "category": "COMFORT",
+    "tone": "GENTLE"
+  },
+  {
+    "id": "ima_1",
+    "question": "If your younger self met you today, what would they notice?",
+    "category": "IMAGINATION",
+    "tone": "REFLECTIVE"
+  },
+  {
+    "id": "fun_1",
+    "question": "What’s a weird thought you had recently?",
+    "category": "FUN",
+    "tone": "GENTLE"
+  }
+]

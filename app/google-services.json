@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "1002864539573",
+    "project_id": "myartifact-555e3",
+    "storage_bucket": "myartifact-555e3.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1002864539573:android:b517e49cf083dd97290bfc",
+        "android_client_info": {
+          "package_name": "com.saurabh.artifact"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1002864539573-rpat0e1al434r4c4sso314k1p5qpugbk.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.saurabh.artifact",
+            "certificate_hash": "ca8aedbef5078af2587b4586829bf29f7feb4695"
+          }
+        },
+        {
+          "client_id": "1002864539573-qftmoh7cis3rnbi6u646tlmri55v6ler.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCJ_IpeUwKviB3S0PthojttlKyW9vVds-4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1002864539573-qftmoh7cis3rnbi6u646tlmri55v6ler.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

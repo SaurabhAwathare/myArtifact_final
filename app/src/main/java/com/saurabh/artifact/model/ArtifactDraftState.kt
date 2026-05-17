@@ -1,0 +1,35 @@
+package com.saurabh.artifact.model
+
+import kotlinx.serialization.Serializable
+
+@Serializable
+enum class ArtifactDraftState {
+    RECORDING,
+    SAVING,
+    PROCESSING,
+    NORMALIZING,
+    WAVEFORM_GENERATION,
+    TRANSCRIBING,
+    PRIVACY_SCANNING,
+    SAFETY_CHECK,
+    READY_TO_REVIEW,
+    REVIEWING,
+    REVIEWED,
+    READY_TO_PUBLISH,
+    PRIVACY_CHECK,
+    EMOTIONAL_SELECTION,
+    FINAL_RITUAL,
+    EMOTIONAL_CONFIRMATION,
+    PENDING_APPROVAL,
+    APPROVED_FOR_PUBLISH,
+    UPLOADING,
+    PUBLISHED,
+    SAVED_LOCALLY,
+    WAITING_COOLDOWN,
+    WAITING_FOR_NETWORK,
+    APPROVAL_EXPIRED,
+    FAILED_UPLOAD,
+    ERROR,
+    ARCHIVED,
+    DELETED
+}

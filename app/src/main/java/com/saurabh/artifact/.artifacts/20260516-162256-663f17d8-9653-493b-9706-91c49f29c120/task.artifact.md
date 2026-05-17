@@ -1,0 +1,27 @@
+# Task Management
+
+- [x] Research and Planning
+	- [x] Audit existing feed implementation
+	- [x] Identify root causes for real identity exposure
+	- [x] Investigate audio playback failure points
+	- [x] Create implementation plan
+- [x] Refactor Anonymous Identity System (Priority 1)
+	- [x] Update `User` and `Artifact` models
+	- [x] Update `UserRepository` for anonymous profile generation
+	- [x] Update `PublishingWorker` to use anonymous identities
+	- [x] Implement name/identity migration logic
+- [x] Fix Audio Playback (Priority 2)
+	- [x] Improve `AudioPlayer` state management and error handling
+	- [x] Add loading/buffering indicators to `ArtifactCard`
+- [x] Refactor Reaction Chip Layout (Priority 3)
+	- [x] Implement `FlowRow` in `ArtifactCard`
+- [x] Implement Safety Reporting UX (Priority 4)
+	- [x] Update `ReportSheet` with multi-step categories
+- [x] Improve Comment Button UX (Priority 5)
+	- [x] Add "Coming Soon" feedback to comment interactions
+- [x] Redesign Feed Card (Priority 6)
+	- [x] Implement cinematic, calm layout for `ArtifactCard`
+- [x] Verification and Documentation
+	- [x] Run automated tests
+	- [x] Perform manual UI/UX verification
+	- [x] Update `walkthrough.artifact.md`

@@ -1,0 +1,131 @@
+package com.saurabh.artifact.repository
+
+import com.google.android.gms.auth.api.signin.GoogleSignInClient
+import com.google.firebase.auth.AuthCredential
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
+import com.saurabh.artifact.model.User
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.tasks.await
+import javax.inject.Inject
+import javax.inject.Singleton
+
+@Singleton
+class AuthRepository @Inject constructor(
+    private val firebaseAuth: FirebaseAuth,
+    private val firestore: FirebaseFirestore,
+    private val googleSignInClient: GoogleSignInClient
+) {
+    private val _currentUser = MutableStateFlow(firebaseAuth.currentUser)
+    val currentUser: StateFlow<FirebaseUser?> = _currentUser
+
+    private val _userData = MutableStateFlow<User?>(null)
+    val userData: StateFlow<User?> = _userData
+
+    private var userDataListener: ListenerRegistration? = null
+
+    val currentUserId: String
+        get() = firebaseAuth.currentUser?.uid ?: ""
+
+    init {
+        firebaseAuth.addAuthStateListener { auth ->
+            val user = auth.currentUser
+            _currentUser.value = user
+            if (user != null) {
+                observeUserData(user.uid)
+            } else {
+                cleanupListener()
+                _userData.value = null
+            }
+        }
+    }
+
+    private fun observeUserData(userId: String) {
+        // Prevent duplicate listeners
+        cleanupListener()
+
+        userDataListener = firestore.collection("users").document(userId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    // Production-Safety: PERMISSION_DENIED is expected for a few ms 
+                    // between anonymous sign-in and profile creation in Firestore.
+                    if (error.code == com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+                        android.util.Log.d("AuthRepository", "Waiting for profile creation... (Permission Denied)")
+                    } else {
+                        android.util.Log.e("AuthRepository", "Error observing user data: ${error.message}")
+                    }
+                    return@addSnapshotListener
+                }
+
+                if (snapshot != null && snapshot.exists()) {
+                    snapshot.toObject(User::class.java)?.let {
+                        _userData.value = it.copy(id = snapshot.id)
+                    }
+                } else {
+                    _userData.value = null
+                }
+            }
+    }
+
+    private fun cleanupListener() {
+        userDataListener?.remove()
+        userDataListener = null
+    }
+
+    suspend fun signInWithGoogle(idToken: String): Result<FirebaseUser?> {
+        return try {
+            val credential = GoogleAuthProvider.getCredential(idToken, null)
+            val result = firebaseAuth.signInWithCredential(credential).await()
+            Result.success(result.user)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun signInWithCredential(credential: AuthCredential): Result<FirebaseUser?> {
+        return try {
+            val result = firebaseAuth.signInWithCredential(credential).await()
+            Result.success(result.user)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun reauthenticateWithGoogle(idToken: String): Result<Unit> {
+        val user = firebaseAuth.currentUser ?: return Result.failure(Exception("No user logged in"))
+        return try {
+            val credential = GoogleAuthProvider.getCredential(idToken, null)
+            user.reauthenticate(credential).await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteCurrentUser(): Result<Unit> {
+        val user = firebaseAuth.currentUser ?: return Result.failure(Exception("No user logged in"))
+        return try {
+            user.delete().await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun signOut(): Result<Unit> {
+        return try {
+            // Sign out from Google
+            googleSignInClient.signOut().await()
+            // Sign out from Firebase
+            firebaseAuth.signOut()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+}
