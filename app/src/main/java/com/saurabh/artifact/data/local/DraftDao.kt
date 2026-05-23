@@ -80,11 +80,17 @@ interface DraftDao {
     @Query("UPDATE artifact_drafts SET uploadStatus = :status, updatedAt = :timestamp WHERE id = :id")
     suspend fun updateUploadStatus(id: String, status: com.saurabh.artifact.model.UploadStatus, timestamp: Long = System.currentTimeMillis())
 
-    @Query("UPDATE artifact_drafts SET maxReviewPositionMs = :positionMs, updatedAt = :timestamp WHERE id = :id")
-    suspend fun updateReviewProgress(id: String, positionMs: Long, timestamp: Long = System.currentTimeMillis())
+    @Query("UPDATE artifact_drafts SET maxReviewPositionMs = :positionMs, reviewCoverageBitmask = :coverage, updatedAt = :timestamp WHERE id = :id")
+    suspend fun updateReviewProgress(id: String, positionMs: Long, coverage: String, timestamp: Long = System.currentTimeMillis())
 
     @Query("UPDATE artifact_drafts SET lastPlaybackPositionMs = :positionMs, updatedAt = :timestamp WHERE id = :id")
     suspend fun updateLastPlaybackPosition(id: String, positionMs: Long, timestamp: Long = System.currentTimeMillis())
+
+    @Query("SELECT * FROM artifact_drafts WHERE remoteArtifactId = :artifactId")
+    suspend fun getDraftByArtifactId(artifactId: String): ArtifactDraftEntity?
+
+    @Query("DELETE FROM artifact_drafts WHERE id = :id")
+    suspend fun deleteById(id: String)
 
     @Query("DELETE FROM artifact_drafts")
     suspend fun deleteAll()

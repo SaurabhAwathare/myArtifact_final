@@ -53,7 +53,7 @@ class ReactionViewModel @Inject constructor(
         _uiState.update { state ->
             val updatedCounts = state.counts?.let { c ->
                 val newBreakdown = c.breakdown.toMutableMap()
-                newBreakdown[type.name] = (newBreakdown[type.name] ?: 0) + 1
+                newBreakdown[type.id] = (newBreakdown[type.id] ?: 0) + 1
                 c.copy(
                     totalCount = c.totalCount + 1,
                     breakdown = newBreakdown
@@ -61,7 +61,7 @@ class ReactionViewModel @Inject constructor(
             } ?: ArtifactReactionCounts(
                 artifactId = artifactId,
                 totalCount = 1,
-                breakdown = mapOf(type.name to 1)
+                breakdown = mapOf(type.id to 1)
             )
             
             state.copy(

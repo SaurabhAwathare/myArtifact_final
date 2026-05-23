@@ -51,6 +51,11 @@ val LocalArtifactColors = staticCompositionLocalOf {
 val LocalStartupStage = staticCompositionLocalOf { StartupStage.ARRIVAL }
 
 /**
+ * Provides the current authenticated user's profile globally.
+ */
+val LocalUserProfile = staticCompositionLocalOf<com.saurabh.artifact.model.User?> { null }
+
+/**
  * Provides a stable reference to the stability state to prevent tree-wide invalidations.
  */
 val LocalIsStable = staticCompositionLocalOf<State<Boolean>> { mutableStateOf(true) }
@@ -139,4 +144,8 @@ object ArtifactTheme {
     val isStable: Boolean
         @Composable
         get() = LocalStartupStage.current == StartupStage.STABLE
+
+    val currentUser: com.saurabh.artifact.model.User?
+        @Composable
+        get() = LocalUserProfile.current
 }

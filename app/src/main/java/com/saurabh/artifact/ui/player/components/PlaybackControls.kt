@@ -1,5 +1,6 @@
 package com.saurabh.artifact.ui.player.components
 
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -18,9 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 import androidx.compose.material.icons.rounded.Forward10
-import androidx.compose.material.icons.rounded.Pause
-import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.Replay
+import androidx.compose.material.icons.rounded.Replay10
 import com.saurabh.artifact.ui.theme.EmberGlow
 
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -36,6 +35,17 @@ fun PlaybackControls(
 ) {
     val haptic = LocalHapticFeedback.current
 
+    val infiniteTransition = rememberInfiniteTransition(label = "PlayButtonPulse")
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.05f,
+        targetValue = 0.2f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "PulseAlpha"
+    )
+
     Row(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.Center,
@@ -46,36 +56,50 @@ fun PlaybackControls(
             onRewind()
         }) {
             Icon(
-                Icons.Rounded.Replay,
-                contentDescription = "Rewind 15s",
-                modifier = Modifier.size(36.dp),
-                tint = Color.White.copy(alpha = 0.8f)
+                Icons.Rounded.Replay10,
+                contentDescription = "Rewind 10s",
+                modifier = Modifier.size(32.dp),
+                tint = Color.White.copy(alpha = 0.6f)
             )
         }
 
-        Spacer(modifier = Modifier.width(32.dp))
+        Spacer(modifier = Modifier.width(40.dp))
 
-        Surface(
-            modifier = Modifier.size(80.dp),
-            shape = CircleShape,
-            color = Color.White.copy(alpha = 0.1f),
-            onClick = {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                onTogglePlay()
-            },
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.size(96.dp)
         ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                    contentDescription = if (isPlaying) "Pause" else "Play",
-                    modifier = Modifier.size(44.dp),
-                    tint = EmberGlow
-                )
+            // Breathing Ripple
+            if (isPlaying) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    shape = CircleShape,
+                    color = EmberGlow.copy(alpha = pulseAlpha)
+                ) {}
+            }
+
+            Surface(
+                modifier = Modifier.size(72.dp),
+                shape = CircleShape,
+                color = Color.White.copy(alpha = 0.08f),
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onTogglePlay()
+                },
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                        contentDescription = if (isPlaying) "Pause" else "Play",
+                        modifier = Modifier.size(40.dp),
+                        tint = if (isPlaying) Color.White else EmberGlow
+                    )
+                }
             }
         }
 
-        Spacer(modifier = Modifier.width(32.dp))
+        Spacer(modifier = Modifier.width(40.dp))
 
         IconButton(onClick = {
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -83,9 +107,9 @@ fun PlaybackControls(
         }) {
             Icon(
                 Icons.Rounded.Forward10,
-                contentDescription = "Forward 15s",
-                modifier = Modifier.size(36.dp),
-                tint = Color.White.copy(alpha = 0.8f)
+                contentDescription = "Forward 10s",
+                modifier = Modifier.size(32.dp),
+                tint = Color.White.copy(alpha = 0.6f)
             )
         }
     }

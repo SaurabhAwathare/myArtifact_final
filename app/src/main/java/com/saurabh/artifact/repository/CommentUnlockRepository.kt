@@ -1,32 +1,42 @@
 package com.saurabh.artifact.repository
 
-import android.content.Context
-import androidx.datastore.core.DataStore
-import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.stringSetPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
-import dagger.hilt.android.qualifiers.ApplicationContext
+import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 
-private val Context.commentUnlockDataStore: DataStore<Preferences> by preferencesDataStore(name = "comment_unlocks")
-
 @Singleton
 class CommentUnlockRepository @Inject constructor(
-    @ApplicationContext private val context: Context
+    private val firestore: FirebaseFirestore,
+    private val authRepository: AuthRepository
 ) {
-    private val unlockedArtifactsKey = stringSetPreferencesKey("unlocked_artifact_ids")
-
     /**
      * Returns a flow of the set of artifact IDs that have been unlocked for commenting.
+     * Observed from the 'listening_sessions' collection in Firestore.
      */
-    val unlockedArtifactIds: Flow<Set<String>> = context.commentUnlockDataStore.data
-        .map { preferences ->
-            preferences[unlockedArtifactsKey] ?: emptySet()
+    val unlockedArtifactIds: Flow<Set<String>> = callbackFlow {
+        val userId = authRepository.currentUserId
+        if (userId.isEmpty()) {
+            trySend(emptySet())
+            return@callbackFlow
         }
+
+        val listener = firestore.collection("listening_sessions")
+            .whereEqualTo("userId", userId)
+            .whereEqualTo("isCompleted", true)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    return@addSnapshotListener
+                }
+                val ids = snapshot?.documents?.mapNotNull { it.getString("artifactId") }?.toSet() ?: emptySet()
+                trySend(ids)
+            }
+
+        awaitClose { listener.remove() }
+    }
 
     /**
      * Checks if a specific artifact is unlocked.
@@ -34,21 +44,15 @@ class CommentUnlockRepository @Inject constructor(
     fun isUnlocked(artifactId: String): Flow<Boolean> = unlockedArtifactIds.map { it.contains(artifactId) }
 
     /**
-     * Marks an artifact as unlocked.
+     * Marks an artifact as unlocked by updating the listening session in Firestore.
      */
-    suspend fun unlockArtifact(artifactId: String) {
-        context.commentUnlockDataStore.edit { preferences ->
-            val current = preferences[unlockedArtifactsKey] ?: emptySet()
-            preferences[unlockedArtifactsKey] = current + artifactId
-        }
-    }
-    
-    /**
-     * Clears all unlocks (useful for debugging or reset).
-     */
-    suspend fun clearAllUnlocks() {
-        context.commentUnlockDataStore.edit { preferences ->
-            preferences[unlockedArtifactsKey] = emptySet()
-        }
+    fun unlockArtifact(artifactId: String) {
+        val userId = authRepository.currentUserId
+        if (userId.isEmpty()) return
+
+        val sessionId = "${userId}_$artifactId"
+        firestore.collection("listening_sessions")
+            .document(sessionId)
+            .update("isCompleted", true)
     }
 }

@@ -19,7 +19,7 @@ enum class OnboardingStep {
 data class OnboardingState(
     val currentStep: OnboardingStep = OnboardingStep.WELCOME,
     val username: String = "",
-    val avatarConfig: AvatarConfig? = null,
+    val avatarSeed: String = "",
     val notificationsEnabled: Boolean = false,
     val isLoading: Boolean = false,
     val error: String? = null

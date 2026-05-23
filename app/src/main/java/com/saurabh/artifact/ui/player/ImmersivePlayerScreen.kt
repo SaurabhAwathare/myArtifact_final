@@ -3,6 +3,7 @@ package com.saurabh.artifact.ui.player
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -12,6 +13,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -20,8 +22,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.saurabh.artifact.model.Artifact
+import com.saurabh.artifact.ui.components.ResonanceDisplay
 import com.saurabh.artifact.ui.player.components.*
 import com.saurabh.artifact.ui.theme.GoldAura400
 import com.saurabh.artifact.ui.theme.Obsidian950
@@ -42,6 +46,9 @@ fun ImmersivePlayerScreen(
     onSeek: (Float) -> Unit,
     onShowAdvanced: () -> Unit,
     onCommentClick: () -> Unit,
+    onResonateClick: (com.saurabh.artifact.model.ReactionType) -> Unit = {},
+    onFollowClick: () -> Unit = {},
+    onSaveClick: () -> Unit = {},
     onEditClick: () -> Unit = {},
     onPublishClick: () -> Unit = {},
     onDeleteClick: () -> Unit = {}
@@ -116,7 +123,10 @@ fun ImmersivePlayerScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 8.dp)
+                    .padding(top = 8.dp, bottom = 16.dp)
+                    .clip(RoundedCornerShape(28.dp))
+                    .background(Color.White.copy(alpha = 0.05f))
+                    .padding(horizontal = 4.dp, vertical = 4.dp)
                     .zIndex(10f),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
@@ -128,19 +138,27 @@ fun ImmersivePlayerScreen(
                     Icon(
                         Icons.Rounded.KeyboardArrowDown, 
                         contentDescription = "Collapse", 
-                        tint = Color.White.copy(alpha = 0.6f),
+                        tint = Color.White.copy(alpha = 0.8f),
                         modifier = Modifier.size(32.dp)
                     )
                 }
+                
+                Text(
+                    text = if (showTranscript) "Transcript" else "Now Playing",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.White.copy(alpha = 0.4f),
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp
+                )
                 
                 IconButton(
                     onClick = { showTranscript = !showTranscript },
                     modifier = Modifier.size(48.dp)
                 ) {
                     Icon(
-                        if (showTranscript) Icons.Rounded.GraphicEq else Icons.Rounded.Description,
+                        if (showTranscript) Icons.Rounded.Audiotrack else Icons.Rounded.Description,
                         contentDescription = "Toggle Transcript",
-                        tint = if (showTranscript) GoldAura400 else Color.White.copy(alpha = 0.6f)
+                        tint = if (showTranscript) GoldAura400 else Color.White.copy(alpha = 0.8f)
                     )
                 }
             }
@@ -172,26 +190,43 @@ fun ImmersivePlayerScreen(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center
                         ) {
-                            ArtifactAvatar(
-                                emoji = artifact.userEmoji,
-                                avatarConfigJson = artifact.avatarConfigJson,
-                                modifier = Modifier
-                                    .size(240.dp)
-                                    .clip(RoundedCornerShape(56.dp))
-                                    .background(Color.White.copy(alpha = 0.03f))
-                            )
+                            if (artifact.isDraft) {
+                                EmotionalAudioSurface(
+                                    emotion = artifact.emotion,
+                                    isPlaying = uiState.isPlaying,
+                                    modifier = Modifier
+                                        .size(280.dp)
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier.size(280.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    // Keep a subtle emotional glow behind the avatar
+                                    EmotionalAudioSurface(
+                                        emotion = artifact.emotion,
+                                        isPlaying = uiState.isPlaying,
+                                        modifier = Modifier.fillMaxSize().alpha(0.3f)
+                                    )
+                                    
+                                    com.saurabh.artifact.ui.components.ArtifactAvatar(
+                                        config = artifact.authorAvatarConfig,
+                                        size = 180.dp
+                                    )
+                                }
+                            }
                             
-                            Spacer(modifier = Modifier.height(40.dp))
+                            Spacer(modifier = Modifier.height(32.dp))
                             
                             Text(
                                 text = artifact.title,
                                 style = MaterialTheme.typography.headlineMedium,
                                 color = Color.White,
-                                fontWeight = FontWeight.SemiBold,
+                                fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center
                             )
                             
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(12.dp))
                             
                             if (artifact.isDraft) {
                                 Text(
@@ -201,11 +236,23 @@ fun ImmersivePlayerScreen(
                                     fontWeight = FontWeight.Light
                                 )
                             } else {
-                                Text(
-                                    text = "from ${artifact.username}",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = Color.White.copy(alpha = 0.4f)
-                                )
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(
+                                        text = artifact.username,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = Color.White.copy(alpha = 0.5f),
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    
+                                    // Unified Metadata Display (Matches Feed)
+                                    ResonanceDisplay(
+                                        counts = com.saurabh.artifact.model.ArtifactReactionCounts(
+                                            artifactId = artifact.id,
+                                            totalCount = uiState.resonanceCount,
+                                            visibility = artifact.reactionVisibility
+                                        )
+                                    )
+                                }
                             }
                         }
                     }
@@ -235,7 +282,27 @@ fun ImmersivePlayerScreen(
                 onForward = onForward
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // 6. Interaction Layer
+            if (!artifact.isDraft) {
+                    PlayerInteractionBar(
+                        isResonated = uiState.isResonated,
+                        selectedReactionType = uiState.selectedReactionType,
+                        resonanceCount = uiState.resonanceCount,
+                        onResonateClick = onResonateClick,
+                        isFollowed = uiState.isFollowed,
+                        onFollowClick = onFollowClick,
+                        isSaved = uiState.isSaved,
+                        onSaveClick = onSaveClick,
+                        isCommentUnlocked = uiState.isCommentUnlocked,
+                        commentCount = uiState.commentCount,
+                        onCommentClick = onCommentClick,
+                        showFollow = true // Logic handled by visibility/enablement if needed
+                    )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
 
             PlaybackSpeedSelector(
                 currentSpeed = uiState.playbackSpeed,
@@ -244,7 +311,7 @@ fun ImmersivePlayerScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // 6. Context Actions
+            // 7. Context Actions
             if (artifact.isDraft) {
                 Row(
                     modifier = Modifier
@@ -272,20 +339,38 @@ fun ImmersivePlayerScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 16.dp)
+                        .padding(bottom = 24.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(Color.White.copy(alpha = 0.04f))
+                        .clickable(enabled = uiState.isCommentUnlocked, onClick = onCommentClick)
+                        .padding(horizontal = 20.dp, vertical = 16.dp)
                 ) {
+                    Icon(
+                        imageVector = Icons.Rounded.EditNote,
+                        contentDescription = null,
+                        tint = if (uiState.isCommentUnlocked) GoldAura400 else Color.White.copy(alpha = 0.2f),
+                        modifier = Modifier.size(24.dp).padding(end = 12.dp)
+                    )
+
+                    val message = if (uiState.isCommentUnlocked) {
+                        "Reflect and respond"
+                    } else {
+                        "Listen to unlock thoughts..."
+                    }
+                    
                     Text(
-                        text = if (uiState.isCommentUnlocked) "Ready to respond" else "Listen fully to respond...",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (uiState.isCommentUnlocked) GoldAura400 else Color.White.copy(alpha = 0.3f),
-                        fontStyle = if (uiState.isCommentUnlocked) androidx.compose.ui.text.font.FontStyle.Normal else androidx.compose.ui.text.font.FontStyle.Italic
+                        text = message,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (uiState.isCommentUnlocked) Color.White else Color.White.copy(alpha = 0.3f),
+                        fontWeight = if (uiState.isCommentUnlocked) FontWeight.Medium else FontWeight.Normal,
+                        letterSpacing = 0.3.sp
                     )
                     
                     Spacer(modifier = Modifier.weight(1f))
                     
                     IconButton(
                         onClick = onShowAdvanced,
-                        modifier = Modifier.size(48.dp)
+                        modifier = Modifier.size(32.dp)
                     ) {
                         Icon(
                             Icons.Rounded.MoreVert, 
@@ -314,7 +399,10 @@ fun ImmersiveDraftPlayerPreview() {
             ),
             uiState = PlayerUiState(
                 isPlaying = false,
-                listeningProgress = 0.4f
+                listeningProgress = 0.4f,
+                isResonated = false,
+                isFollowed = false,
+                isSaved = true
             ),
             onCollapse = {},
             onTogglePlayback = {},

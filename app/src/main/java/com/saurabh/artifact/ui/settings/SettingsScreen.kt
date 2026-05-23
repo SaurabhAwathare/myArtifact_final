@@ -68,6 +68,8 @@ fun SettingsScreen(
     var showDeleteConfirmation by remember { mutableStateOf(false) }
     var showReauthDialog by remember { mutableStateOf(false) }
     var showLogoutConfirmation by remember { mutableStateOf(false) }
+    var showExportConfirmation by remember { mutableStateOf(false) }
+    var showExportSuccess by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -81,11 +83,19 @@ fun SettingsScreen(
                 is SettingsUiEvent.ShowMessage -> {
                     snackbarHostState.showSnackbar(event.message)
                 }
-                is SettingsUiEvent.AccountDeleted, is SettingsUiEvent.LoggedOut -> {
+                is SettingsUiEvent.AccountDeleted -> {
+                    snackbarHostState.showSnackbar("Account deleted successfully")
+                    kotlinx.coroutines.delay(1000) // Brief delay to show snackbar
+                    onLogoutSuccess()
+                }
+                is SettingsUiEvent.LoggedOut -> {
                     onLogoutSuccess()
                 }
                 is SettingsUiEvent.ReauthRequired -> {
                     showReauthDialog = true
+                }
+                is SettingsUiEvent.ExportInitiated -> {
+                    showExportSuccess = true
                 }
             }
         }
@@ -135,27 +145,12 @@ fun SettingsScreen(
                     )
                 }
 
-                SettingsSection(title = "Appearance") {
-                    SettingsSwitch(
-                        title = "Dark Mode",
-                        subtitle = "Always dark by design",
-                        icon = Icons.Default.Brightness6,
-                        checked = true,
-                        onCheckedChange = { }
-                    )
-                    SettingsClickable(
-                        title = "Warm Theme Intensity",
-                        subtitle = "Adjust the amber glow",
-                        onClick = { }
-                    )
-                }
-
                 SettingsSection(title = "Data") {
                     SettingsClickable(
                         title = "Export Data",
                         subtitle = "Download your emotional archive",
                         icon = Icons.Default.Download,
-                        onClick = viewModel::exportData
+                        onClick = { showExportConfirmation = true }
                     )
                     SettingsClickable(
                         title = "Logout",
@@ -285,6 +280,42 @@ fun SettingsScreen(
             dismissButton = {
                 TextButton(onClick = { showLogoutConfirmation = false }) {
                     Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showExportConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showExportConfirmation = false },
+            title = { Text("Export Data?") },
+            text = { Text("Do you really want to export the data? This will initiate the process of collecting all your recorded artifacts.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showExportConfirmation = false
+                        viewModel.exportData()
+                    }
+                ) {
+                    Text("Confirm")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showExportConfirmation = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showExportSuccess) {
+        AlertDialog(
+            onDismissRequest = { showExportSuccess = false },
+            title = { Text("Export Initiated") },
+            text = { Text("We have started collecting all your data and artifacts. This process can take up to 72 hours. A download link will be sent to your registered email address once it's ready.") },
+            confirmButton = {
+                TextButton(onClick = { showExportSuccess = false }) {
+                    Text("OK")
                 }
             }
         )

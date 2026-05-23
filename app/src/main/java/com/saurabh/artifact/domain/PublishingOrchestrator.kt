@@ -51,7 +51,7 @@ class PublishingOrchestrator @Inject constructor(
         // 1. Check Cooldown if applicable
         val now = System.currentTimeMillis()
         if (draft.cooldownExpiry != null && now < draft.cooldownExpiry) {
-            draftDao.updateDraftState(draftId, ArtifactDraftState.ERROR)
+            // Don't set to ERROR state; the UI should handle the cooldown period gracefully.
             return@withContext
         }
 

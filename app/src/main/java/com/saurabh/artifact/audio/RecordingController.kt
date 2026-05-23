@@ -11,11 +11,10 @@ import javax.inject.Singleton
 class RecordingController @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
-    fun startInstantRecording(isComment: Boolean = false) {
-        android.util.Log.d("RecordingController", "startInstantRecording(isComment=$isComment)")
+    fun startInstantRecording() {
+        android.util.Log.d("RecordingController", "startInstantRecording()")
         val intent = Intent(context, RecordingService::class.java).apply {
             action = RecordingService.ACTION_START
-            putExtra(RecordingService.EXTRA_IS_COMMENT, isComment)
         }
         ContextCompat.startForegroundService(context, intent)
     }

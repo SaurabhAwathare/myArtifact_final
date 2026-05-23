@@ -3,6 +3,8 @@
 package com.saurabh.artifact.model
 
 import com.google.firebase.Timestamp
+import com.google.firebase.firestore.Exclude
+import com.google.firebase.firestore.PropertyName
 import com.saurabh.artifact.util.TimestampSerializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.UseSerializers
@@ -35,26 +37,24 @@ data class ArtifactComment(
     val artifactId: String = "",
     val authorId: String = "",
     val authorDisplayName: String? = null,
-    val authorEmoji: String = "✨",
+    val authorAvatarSeed: String = "",
     val content: String = "",
-    val audioUrl: String? = null,
     val visibility: CommentVisibilityMode = CommentVisibilityMode.HIDDEN,
     val emotionalMarkers: List<String> = emptyList(),
     val moderationState: CommentModerationState = CommentModerationState.PENDING,
-    val creatorReaction: ReactionType? = null,
+    @get:Exclude @set:Exclude
+    var creatorReaction: ReactionType? = null,
     val createdAt: Timestamp = Timestamp.now(),
     val revealAt: Timestamp? = null,
     val isAnonymous: Boolean = false
 ) {
-    fun toVoiceComment(): VoiceComment = VoiceComment(
-        id = id,
-        authorId = authorId,
-        authorName = authorDisplayName ?: "Anonymous Soul",
-        authorEmoji = authorEmoji,
-        audioUrl = audioUrl ?: "",
-        creatorReaction = creatorReaction,
-        createdAt = createdAt
-    )
+    @get:PropertyName("creatorReaction")
+    @set:PropertyName("creatorReaction")
+    var creatorReactionString: String?
+        get() = creatorReaction?.id
+        set(value) {
+            creatorReaction = value?.let { ReactionType.fromId(it) }
+        }
 }
 
 /**

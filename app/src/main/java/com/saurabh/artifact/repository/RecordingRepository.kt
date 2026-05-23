@@ -103,7 +103,8 @@ class RecordingRepository @Inject constructor(
     }
 
     suspend fun updateReviewProgress(id: String, positionMs: Long) = withContext(Dispatchers.IO) {
-        draftDao.updateReviewProgress(id, positionMs)
+        val draft = draftDao.getDraftById(id)
+        draftDao.updateReviewProgress(id, positionMs, draft?.reviewCoverageBitmask ?: "")
     }
 
     suspend fun updateLastPlaybackPosition(id: String, positionMs: Long) = withContext(Dispatchers.IO) {
@@ -192,14 +193,6 @@ class RecordingRepository @Inject constructor(
             .setInputData(inputData)
             .build()
 
-        val privacyWork = OneTimeWorkRequestBuilder<PrivacyScanWorker>()
-            .setInputData(inputData)
-            .build()
-
-        val safetyWork = OneTimeWorkRequestBuilder<SafetyAnalysisWorker>()
-            .setInputData(inputData)
-            .build()
-
         workManager.beginUniqueWork(
             "process_$draftId",
             ExistingWorkPolicy.REPLACE,
@@ -207,8 +200,6 @@ class RecordingRepository @Inject constructor(
         )
         .then(waveformWork)
         .then(transcriptionWork)
-        .then(privacyWork)
-        .then(safetyWork)
         .enqueue()
     }
 }

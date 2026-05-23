@@ -1,24 +1,28 @@
 package com.saurabh.artifact.repository
 
-import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.User
 import com.saurabh.artifact.util.NameGenerator
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
+import com.google.firebase.firestore.FirebaseFirestoreException
 
 @Singleton
 class UserRepository @Inject constructor(
     private val auth: FirebaseAuth,
     private val firestore: FirebaseFirestore,
+    private val notificationRepository: NotificationRepository
 ) {
     private val usersCollection = firestore.collection("users")
     private val usernamesCollection = firestore.collection("usernames")
@@ -28,14 +32,21 @@ class UserRepository @Inject constructor(
      * Custom usernames are disabled to prevent doxxing and maintain emotional safety.
      */
     suspend fun refreshAnonymousIdentity(userId: String): Result<User> {
+        if (userId.isBlank()) {
+            return Result.failure(AppError.InvalidInput("User ID cannot be blank"))
+        }
         return try {
             val newName = NameGenerator.generate()
             val safePalette = listOf("#FADADD", "#E6E6FA", "#D1EAF0", "#E2F0D9", "#FFF4E0")
             val newColor = safePalette.random()
             
+            val userRef = try {
+                usersCollection.document(userId.trim())
+            } catch (e: Exception) {
+                return Result.failure(AppError.from(e))
+            }
+            
             firestore.runTransaction { transaction ->
-                val userRef = usersCollection.document(userId)
-                
                 transaction.update(
                     userRef, mapOf(
                         "anonymousName" to newName,
@@ -46,9 +57,15 @@ class UserRepository @Inject constructor(
                 )
             }.await()
             
+            notificationRepository.createNotification(
+                userId = userId,
+                message = "You refreshed your anonymous identity 🎭"
+            )
+
             Result.success(getOrCreateProfile())
         } catch (e: Exception) {
-            Result.failure(e)
+            Log.e("UserRepository", "refreshAnonymousIdentity failed for $userId", e)
+            Result.failure(AppError.from(e))
         }
     }
 
@@ -57,18 +74,24 @@ class UserRepository @Inject constructor(
      * Uses a transaction to ensure uniqueness across the platform.
      */
     suspend fun createUsername(userId: String, username: String): Result<Unit> = withContext(Dispatchers.IO) {
+        if (userId.isBlank()) return@withContext Result.failure(AppError.InvalidInput("User ID cannot be blank"))
         val normalizedUsername = username.lowercase().trim()
         try {
+            val userRef = try {
+                usersCollection.document(userId.trim())
+            } catch (e: Exception) {
+                return@withContext Result.failure(AppError.from(e))
+            }
+
             firestore.runTransaction { transaction ->
                 val usernameRef = usernamesCollection.document(normalizedUsername)
-                val userRef = usersCollection.document(userId)
 
                 // 1. Check if the username is already taken
                 val usernameDoc = transaction.get(usernameRef)
                 if (usernameDoc.exists()) {
-                    val existingUserId = usernameDoc.getString("userId")
+                    val existingUserId = usernameDoc.getString("uid") ?: usernameDoc.getString("userId")
                     if (existingUserId != userId) {
-                        throw Exception("Username already taken")
+                        throw AppError.UsernameTaken(normalizedUsername)
                     }
                 }
 
@@ -78,7 +101,7 @@ class UserRepository @Inject constructor(
 
                 // 3. Reserve the new username
                 transaction.set(usernameRef, mapOf(
-                    "userId" to userId,
+                    "uid" to userId,
                     "createdAt" to FieldValue.serverTimestamp()
                 ))
 
@@ -95,9 +118,16 @@ class UserRepository @Inject constructor(
                     transaction.delete(usernamesCollection.document(oldUsername))
                 }
             }.await()
+
+            notificationRepository.createNotification(
+                userId = userId,
+                message = "You updated your username to $username ✨"
+            )
+
             Result.success(Unit)
         } catch (e: Exception) {
-            Result.failure(e)
+            Log.e("UserRepository", "createUsername failed: userId=$userId, username=$username", e)
+            Result.failure(AppError.from(e))
         }
     }
 
@@ -111,7 +141,7 @@ class UserRepository @Inject constructor(
             val doc = usernamesCollection.document(username.lowercase().trim()).get().await()
             !doc.exists()
         } catch (e: Exception) {
-            android.util.Log.e("UserRepository", "Error checking username availability", e)
+            Log.e("UserRepository", "Error checking username availability", e)
             // Default to false on error to be safe, or true if we want to allow retry on submit
             false
         }
@@ -122,8 +152,9 @@ class UserRepository @Inject constructor(
      * Used for first-time user detection and routing logic.
      */
     suspend fun isProfileCreated(userId: String): Boolean = withContext(Dispatchers.IO) {
+        if (userId.isBlank()) return@withContext false
         try {
-            val doc = usersCollection.document(userId).get().await()
+            val doc = usersCollection.document(userId.trim()).get().await()
             doc.exists()
         } catch (e: Exception) {
             android.util.Log.e("UserRepository", "Error checking profile existence", e)
@@ -165,7 +196,7 @@ class UserRepository @Inject constructor(
                     anonymousName = anonymousName,
                     displayName = anonymousName, // Sync for legacy compatibility if needed
                     email = currentUser.email ?: "",
-                    avatarColor = safePalette.random(),
+                    avatarSeed = safePalette.random(),
                     isAnonymous = true,
                     emotionalProfile = "New Soul"
                 )
@@ -177,41 +208,82 @@ class UserRepository @Inject constructor(
 
     /**
      * Streams the user profile in real-time from Firestore.
+     * Refactored for production stability and crash prevention.
      */
-    fun streamUserProfile(userId: String): Flow<User?> = callbackFlow {
-        val docRef = usersCollection.document(userId)
-        
+    fun streamUserProfile(userId: String?): Flow<User?> = callbackFlow {
+        // 1. Defensive Validation
+        if (userId.isNullOrBlank()) {
+            Log.w("UserRepository", "streamUserProfile: Received null/blank userId. Emitting null.")
+            trySend(null)
+            close()
+            return@callbackFlow
+        }
+
+        // 2. Resource Reference Validation
+        val docRef = try {
+            usersCollection.document(userId.trim())
+        } catch (e: Exception) {
+            Log.e("UserRepository", "streamUserProfile: Invalid path for userId: $userId", e)
+            trySend(null)
+            close(e)
+            return@callbackFlow
+        }
+
+        // 3. Listener Implementation
         val registration = docRef.addSnapshotListener { snapshot, error ->
             if (error != null) {
-                android.util.Log.e("UserRepository", "Error streaming user profile", error)
-                trySend(null)
+                Log.e("UserRepository", "Error streaming profile for $userId: ${error.code}", error)
+                // If it's a permanent error (Permission Denied), we emit null and close the flow.
+                if (error.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+                    trySend(null)
+                    close(error)
+                }
                 return@addSnapshotListener
             }
 
-            if (snapshot != null && (snapshot.exists())) {
-                val user = snapshot.toObject(User::class.java)?.copy(id = userId)
-                trySend(user)
+            if (snapshot != null && snapshot.exists()) {
+                try {
+                    val user = snapshot.toObject(User::class.java)?.copy(id = userId)
+                    if (user == null) {
+                        Log.e("UserRepository", "Stream error: Document exists but deserialization failed for $userId")
+                    }
+                    trySend(user)
+                } catch (e: Exception) {
+                    Log.e("UserRepository", "Parsing error for user $userId", e)
+                    trySend(null)
+                }
             } else {
+                Log.i("UserRepository", "User profile $userId does not exist or was deleted.")
                 trySend(null)
             }
         }
 
-        awaitClose { registration.remove() }
+        // 4. Graceful Cleanup
+        awaitClose {
+            Log.d("UserRepository", "Closing stream for $userId")
+            registration.remove()
+        }
+    }.catch { e ->
+        Log.e("UserRepository", "Flow crashed in streamUserProfile", e)
+        emit(null)
     }
 
     /**
      * Establishes a follow relationship between two users atomically.
      */
     suspend fun followUser(currentUserId: String, targetUserId: String): Result<Unit> {
+        if (currentUserId.isBlank() || targetUserId.isBlank()) {
+            return Result.failure(AppError.InvalidInput("User IDs cannot be blank"))
+        }
         if (currentUserId == targetUserId) return Result.failure(Exception("Cannot follow yourself"))
 
         return try {
+            val currentUserRef = usersCollection.document(currentUserId.trim())
+            val targetUserRef = usersCollection.document(targetUserId.trim())
+
             firestore.runTransaction { transaction ->
-                val currentUserRef = usersCollection.document(currentUserId)
-                val targetUserRef = usersCollection.document(targetUserId)
-                
-                val followingRef = currentUserRef.collection("following").document(targetUserId)
-                val followersRef = targetUserRef.collection("followers").document(currentUserId)
+                val followingRef = currentUserRef.collection("following").document(targetUserId.trim())
+                val followersRef = targetUserRef.collection("followers").document(currentUserId.trim())
 
                 val followingDoc = transaction.get(followingRef)
                 if (followingDoc.exists()) return@runTransaction // Already following
@@ -235,13 +307,16 @@ class UserRepository @Inject constructor(
      * Removes a follow relationship between two users atomically.
      */
     suspend fun unfollowUser(currentUserId: String, targetUserId: String): Result<Unit> {
+        if (currentUserId.isBlank() || targetUserId.isBlank()) {
+            return Result.failure(AppError.InvalidInput("User IDs cannot be blank"))
+        }
         return try {
+            val currentUserRef = usersCollection.document(currentUserId.trim())
+            val targetUserRef = usersCollection.document(targetUserId.trim())
+
             firestore.runTransaction { transaction ->
-                val currentUserRef = usersCollection.document(currentUserId)
-                val targetUserRef = usersCollection.document(targetUserId)
-                
-                val followingRef = currentUserRef.collection("following").document(targetUserId)
-                val followersRef = targetUserRef.collection("followers").document(currentUserId)
+                val followingRef = currentUserRef.collection("following").document(targetUserId.trim())
+                val followersRef = targetUserRef.collection("followers").document(currentUserId.trim())
 
                 val followingDoc = transaction.get(followingRef)
                 if (!followingDoc.exists()) return@runTransaction // Not following
@@ -267,16 +342,45 @@ class UserRepository @Inject constructor(
     }
 
     /**
+     * Streams the follow relationship status between two users.
+     */
+    fun observeIsFollowing(currentUserId: String, targetUserId: String): Flow<Boolean> = callbackFlow {
+        if (currentUserId.isBlank() || targetUserId.isBlank()) {
+            trySend(false)
+            close()
+            return@callbackFlow
+        }
+
+        val docRef = usersCollection.document(currentUserId.trim())
+            .collection("following").document(targetUserId.trim())
+
+        val registration = docRef.addSnapshotListener { snapshot, _ ->
+            trySend(snapshot?.exists() == true)
+        }
+
+        awaitClose { registration.remove() }
+    }
+
+    /**
      * Checks if the current user is following the target user.
      */
     suspend fun isFollowing(currentUserId: String, targetUserId: String): Boolean {
+        if (currentUserId.isBlank() || targetUserId.isBlank()) return false
         return try {
-            val doc = usersCollection.document(currentUserId)
-                .collection("following").document(targetUserId)
+            val doc = usersCollection.document(currentUserId.trim())
+                .collection("following").document(targetUserId.trim())
                 .get().await()
             doc.exists()
         } catch (_: Exception) {
             false
         }
+    }
+
+    suspend fun updateAvatarConfig(userId: String, config: com.saurabh.artifact.model.AvatarConfig) = withContext(Dispatchers.IO) {
+        usersCollection.document(userId).update("avatarConfig", config).await()
+        notificationRepository.createNotification(
+            userId = userId,
+            message = "You updated your avatar 🎨"
+        )
     }
 }

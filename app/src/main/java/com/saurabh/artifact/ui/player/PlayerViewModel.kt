@@ -2,10 +2,13 @@ package com.saurabh.artifact.ui.player
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.saurabh.artifact.audio.AudioPlayer
+import com.saurabh.artifact.audio.PlaybackSessionManager
 import com.saurabh.artifact.model.Artifact
-import com.saurabh.artifact.model.TranscriptSegment
+import com.saurabh.artifact.model.ReactionType
 import com.saurabh.artifact.repository.AuthRepository
+import com.saurabh.artifact.repository.UserRepository
+import com.saurabh.artifact.repository.ReactionRepository
+import com.saurabh.artifact.repository.SavedArtifactManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -15,24 +18,32 @@ import javax.inject.Inject
 
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
-    private val audioPlayer: AudioPlayer,
+    private val playbackSessionManager: PlaybackSessionManager,
     private val authRepository: AuthRepository,
+    private val userRepository: UserRepository,
+    private val reactionRepository: ReactionRepository,
+    private val savedArtifactManager: SavedArtifactManager,
     private val recordingRepository: com.saurabh.artifact.repository.RecordingRepository,
-    private val listeningProgressTracker: com.saurabh.artifact.audio.ListeningProgressTracker,
-    private val commentUnlockRepository: com.saurabh.artifact.repository.CommentUnlockRepository
+    private val commentUnlockRepository: com.saurabh.artifact.repository.CommentUnlockRepository,
+    private val reviewSessionManager: com.saurabh.artifact.audio.ReviewSessionManager
 ) : ViewModel() {
 
     private val _isExpanded = MutableStateFlow(false)
     private val _showAdvancedControls = MutableStateFlow(false)
     
-    // Tracks if the user has listened enough to unlock commenting (e.g., 80%)
     private val _isCommentUnlocked = MutableStateFlow(false)
+    private val _isResonated = MutableStateFlow(false)
+    private val _selectedReactionType = MutableStateFlow(ReactionType.I_HEAR_YOU)
+    private val _isFollowed = MutableStateFlow(false)
+    private val _isSaved = MutableStateFlow(false)
+    private val _resonanceCount = MutableStateFlow(0)
+    private val _commentCount = MutableStateFlow(0)
 
     private val _sleepTimerMillisRemaining = MutableStateFlow<Long?>(null)
     private var sleepTimerJob: Job? = null
 
     init {
-        // FIX 11: Reset player state on logout
+        // Reset player state on logout
         viewModelScope.launch {
             authRepository.currentUser.collect { user ->
                 if (user == null) {
@@ -41,29 +52,73 @@ class PlayerViewModel @Inject constructor(
             }
         }
 
-        // Update unlock state if threshold met
+        // Update interaction state when artifact changes
         viewModelScope.launch {
-            listeningProgressTracker.sessionState.collect { session ->
-                if (session?.isThresholdMet == true) {
-                    android.util.Log.d("ReviewDebug", "Threshold met for ${session.artifactId}")
-                    if (!_isCommentUnlocked.value) {
-                        android.util.Log.d("ReviewDebug", "Unlocking artifact: ${session.artifactId}")
-                        _isCommentUnlocked.value = true
-                        commentUnlockRepository.unlockArtifact(session.artifactId)
+            playbackSessionManager.currentArtifact.collectLatest { artifact ->
+                if (artifact != null) {
+                    val currentUserId = authRepository.currentUser.value?.uid
+                    
+                    if (currentUserId != null) {
+                        launch {
+                            reactionRepository.getArtifactReactions(artifact.id).collect { reactions ->
+                                val userReaction = reactions.find { it.userId == currentUserId }
+                                _isResonated.value = userReaction != null
+                                if (userReaction != null) {
+                                    _selectedReactionType.value = ReactionType.fromId(userReaction.typeId)
+                                }
+                            }
+                        }
+                        
+                        launch {
+                            reactionRepository.getReactionCounts(artifact.id).collect { counts ->
+                                _resonanceCount.value = counts?.totalCount ?: artifact.reactionCount
+                            }
+                        }
                     }
+
+                    if (currentUserId != null && artifact.userId != currentUserId) {
+                        launch {
+                            userRepository.observeIsFollowing(currentUserId, artifact.userId).collect {
+                                _isFollowed.value = it
+                            }
+                        }
+                    } else {
+                        _isFollowed.value = false
+                    }
+
+                    launch {
+                        savedArtifactManager.savedIds.collect { savedIds ->
+                            _isSaved.value = savedIds.contains(artifact.id)
+                        }
+                    }
+
+                    _commentCount.value = artifact.commentCount
+
+                    launch {
+                        commentUnlockRepository.isUnlocked(artifact.id).collect { unlocked ->
+                            _isCommentUnlocked.value = unlocked
+                        }
+                    }
+                } else {
+                    _isResonated.value = false
+                    _isFollowed.value = false
+                    _isSaved.value = false
+                    _resonanceCount.value = 0
+                    _commentCount.value = 0
+                    _isCommentUnlocked.value = false
                 }
             }
         }
 
-        // Sync local unlock state when artifact changes
+        // Update unlock state if threshold met
         viewModelScope.launch {
-            audioPlayer.currentArtifact.collect { artifact ->
-                if (artifact != null) {
-                    commentUnlockRepository.isUnlocked(artifact.id).collect { unlocked ->
-                        if (unlocked) _isCommentUnlocked.value = true
+            reviewSessionManager.reviewProgress.collect { session ->
+                if (session.isThresholdMet) {
+                    val artifactId = session.artifactId
+                    if (artifactId != null && !_isCommentUnlocked.value) {
+                        _isCommentUnlocked.value = true
+                        commentUnlockRepository.unlockArtifact(artifactId)
                     }
-                } else {
-                    _isCommentUnlocked.value = false
                 }
             }
         }
@@ -75,22 +130,28 @@ class PlayerViewModel @Inject constructor(
         _isCommentUnlocked.value = false
         _sleepTimerMillisRemaining.value = null
         sleepTimerJob?.cancel()
-        audioPlayer.stop()
+        playbackSessionManager.stop()
     }
     
     val uiState: StateFlow<PlayerUiState> = combine(
-        audioPlayer.currentArtifact,
-        audioPlayer.isPlaying,
-        audioPlayer.isBuffering,
-        audioPlayer.currentPosition,
-        audioPlayer.duration,
-        audioPlayer.playbackSpeed,
-        audioPlayer.isSkipSilenceEnabled,
+        playbackSessionManager.currentArtifact,
+        playbackSessionManager.isPlaying,
+        playbackSessionManager.isBuffering,
+        playbackSessionManager.currentPosition,
+        playbackSessionManager.duration,
+        playbackSessionManager.playbackSpeed,
+        playbackSessionManager.isSkipSilenceEnabled,
         _isCommentUnlocked,
         _isExpanded,
         _showAdvancedControls,
         _sleepTimerMillisRemaining,
-        listeningProgressTracker.sessionState
+        _isResonated,
+        _selectedReactionType,
+        _isFollowed,
+        _isSaved,
+        _resonanceCount,
+        _commentCount,
+        reviewSessionManager.reviewProgress
     ) { params: Array<Any?> ->
         val artifact = params[0] as Artifact?
         val isPlaying = params[1] as Boolean
@@ -103,10 +164,16 @@ class PlayerViewModel @Inject constructor(
         val expanded = params[8] as Boolean
         val showAdvanced = params[9] as Boolean
         val sleepTimer = params[10] as Long?
-        val sessionState = params[11] as com.saurabh.artifact.model.PlaybackSessionState?
+        val isResonated = params[11] as Boolean
+        val selectedReactionType = params[12] as ReactionType
+        val isFollowed = params[13] as Boolean
+        val isSaved = params[14] as Boolean
+        val resonanceCount = params[15] as Int
+        val commentCount = params[16] as Int
+        val reviewState = params[17] as com.saurabh.artifact.audio.ReviewState
 
         val progress = if (duration > 0) position.toFloat() / duration else 0f
-        val furthestProgress = sessionState?.progress ?: 0f
+        val furthestProgress = if (reviewState.artifactId == artifact?.id) reviewState.progress else 0f
 
         val currentSegment = artifact?.transcript?.find { position in it.startMs..it.endMs }
 
@@ -124,9 +191,15 @@ class PlayerViewModel @Inject constructor(
             duration = duration,
             playbackSpeed = speed,
             isCommentUnlocked = commentUnlocked,
-            listeningProgress = furthestProgress, // Use furthest progress for the "unlocking" feel
+            listeningProgress = furthestProgress, 
             isExpanded = expanded,
             playerMode = mode,
+            isResonated = isResonated,
+            selectedReactionType = selectedReactionType,
+            isFollowed = isFollowed,
+            isSaved = isSaved,
+            resonanceCount = resonanceCount,
+            commentCount = commentCount,
             isSilenceSkipEnabled = isSkipSilenceEnabled,
             sleepTimerMillisRemaining = sleepTimer,
             currentTranscriptSegment = currentSegment,
@@ -138,25 +211,63 @@ class PlayerViewModel @Inject constructor(
         initialValue = PlayerUiState()
     )
 
+    fun toggleResonate(type: ReactionType = _selectedReactionType.value) {
+        val artifact = uiState.value.currentArtifact ?: return
+        val userId = authRepository.currentUser.value?.uid ?: return
+        viewModelScope.launch {
+            reactionRepository.toggleReaction(artifact.id, userId, type)
+        }
+    }
+
+    fun setReactionType(type: ReactionType) {
+        _selectedReactionType.value = type
+        if (uiState.value.isResonated) {
+            toggleResonate(type)
+        }
+    }
+
+    fun toggleFollow() {
+        val artifact = uiState.value.currentArtifact ?: return
+        val currentUserId = authRepository.currentUser.value?.uid ?: return
+        if (artifact.userId == currentUserId) return
+
+        viewModelScope.launch {
+            if (uiState.value.isFollowed) {
+                userRepository.unfollowUser(currentUserId, artifact.userId)
+            } else {
+                userRepository.followUser(currentUserId, artifact.userId)
+            }
+        }
+    }
+
+    fun toggleSave() {
+        val artifact = uiState.value.currentArtifact ?: return
+        savedArtifactManager.toggleSave(artifact)
+    }
+
     fun playArtifact(artifact: Artifact) {
         _isCommentUnlocked.value = false // Reset for new artifact
-        audioPlayer.play(artifact)
+        _isExpanded.value = true // Auto-expand when play is triggered
+        playbackSessionManager.play(
+            artifact = artifact,
+            owner = PlaybackSessionManager.InteractionOwner.PUBLIC_PLAYER
+        )
     }
 
     fun togglePlayPause() {
-        audioPlayer.togglePlayPause()
+        playbackSessionManager.togglePlayPause()
     }
 
     fun seekTo(position: Long) {
-        audioPlayer.seekTo(position)
+        playbackSessionManager.seekTo(position)
     }
 
     fun setPlaybackSpeed(speed: Float) {
-        audioPlayer.setPlaybackSpeed(speed)
+        playbackSessionManager.setPlaybackSpeed(speed)
     }
 
     fun toggleSilenceSkipping() {
-        audioPlayer.setSkipSilenceEnabled(!audioPlayer.isSkipSilenceEnabled.value)
+        playbackSessionManager.setSkipSilenceEnabled(!playbackSessionManager.isSkipSilenceEnabled.value)
     }
 
     fun setExpanded(expanded: Boolean) {
@@ -168,26 +279,24 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun rewind() {
-        val newPos = (audioPlayer.currentPosition.value - 15000).coerceAtLeast(0)
-        audioPlayer.seekTo(newPos)
+        val newPos = (playbackSessionManager.currentPosition.value - 10000).coerceAtLeast(0)
+        playbackSessionManager.seekTo(newPos)
     }
 
     fun forward() {
-        val newPos = (audioPlayer.currentPosition.value + 15000).coerceAtMost(audioPlayer.duration.value)
-        audioPlayer.seekTo(newPos)
+        val newPos = (playbackSessionManager.currentPosition.value + 10000).coerceAtMost(playbackSessionManager.duration.value)
+        playbackSessionManager.seekTo(newPos)
     }
 
     fun deleteCurrentArtifact() {
         val artifact = uiState.value.currentArtifact ?: return
         if (artifact.isDraft) {
             viewModelScope.launch {
-                // Find the draft entity to delete
-                // Assuming artifact.id matches draft entity id
                 val draft = recordingRepository.getDraft(artifact.id)
                 if (draft != null) {
                     recordingRepository.deleteDraft(draft)
                 }
-                audioPlayer.stop()
+                playbackSessionManager.stop()
                 _isExpanded.value = false
             }
         }
@@ -209,18 +318,10 @@ class PlayerViewModel @Inject constructor(
                 delay(1000)
                 remaining -= 1000
                 _sleepTimerMillisRemaining.value = remaining
-                
-                if (!audioPlayer.isPlaying.value) continue // Only countdown when playing? Or always?
-                // Traditional sleep timers usually countdown always.
+                if (!playbackSessionManager.isPlaying.value) continue
             }
-            // Fade out and stop
-            fadeOutAndStop()
+            playbackSessionManager.stop()
             _sleepTimerMillisRemaining.value = null
         }
-    }
-
-    private suspend fun fadeOutAndStop() {
-        // Simple fade out if supported, otherwise just stop
-        audioPlayer.stop()
     }
 }

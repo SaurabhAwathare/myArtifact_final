@@ -107,6 +107,28 @@ fun PublishApprovalScreen(
                 }
             }
 
+            // 3. Metadata: Description
+            item {
+                Column {
+                    Text("Description (Optional)", style = MaterialTheme.typography.labelMedium, color = GoldAura500)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = uiState.description,
+                        onValueChange = { viewModel.onDescriptionChange(it) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = GoldAura500,
+                            unfocusedBorderColor = Color.White.copy(alpha = 0.1f),
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        ),
+                        placeholder = { Text("What is this artifact about?", color = Color.White.copy(alpha = 0.3f)) },
+                        shape = RoundedCornerShape(12.dp),
+                        minLines = 3
+                    )
+                }
+            }
+
             // 3. Emotion Tags
             item {
                 Column {
@@ -157,17 +179,28 @@ fun PublishApprovalScreen(
             }
 
             item {
-                Button(
-                    onClick = { viewModel.onApproveAndPublish() },
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = GoldAura500, contentColor = Obsidian950),
-                    shape = RoundedCornerShape(28.dp),
-                    enabled = uiState.canApprove
-                ) {
-                    if (uiState.isLoading) {
-                        CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Obsidian950)
-                    } else {
-                        Text("Publish Artifact", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    if (!uiState.isListened) {
+                        Text(
+                            text = "Please listen to the entire artifact before publishing.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                    }
+                    
+                    Button(
+                        onClick = { viewModel.onApproveAndPublish() },
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = GoldAura500, contentColor = Obsidian950),
+                        shape = RoundedCornerShape(28.dp),
+                        enabled = uiState.canApprove
+                    ) {
+                        if (uiState.isLoading) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Obsidian950)
+                        } else {
+                            Text("Publish Artifact", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }

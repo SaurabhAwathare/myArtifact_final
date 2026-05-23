@@ -31,14 +31,16 @@ class PublishApprovalRepository @Inject constructor(
         draftDao.getDraftById(id)
     }
 
+    suspend fun updateDraft(draft: ArtifactDraftEntity) = withContext(Dispatchers.IO) {
+        draftDao.update(draft)
+    }
+
     suspend fun validateDraft(draft: ArtifactDraftEntity, transcript: List<TranscriptSegment>): ValidationResult = withContext(Dispatchers.Default) {
-        val sensitiveFlags = sensitiveInfoScanner.scan(transcript)
-        val safetyResult = safetyEvaluator.evaluate(transcript.joinToString(" ") { it.text })
-        
+        // Automatic safety checks disabled per user request
         ValidationResult(
-            hasSensitiveInfo = sensitiveFlags.isNotEmpty(),
-            isHighRisk = safetyResult.isCrisis,
-            sensitiveFlagCount = sensitiveFlags.size
+            hasSensitiveInfo = false,
+            isHighRisk = false,
+            sensitiveFlagCount = 0
         )
     }
 

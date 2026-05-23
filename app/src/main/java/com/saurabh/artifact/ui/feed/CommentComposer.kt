@@ -2,13 +2,19 @@ package com.saurabh.artifact.ui.feed
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.saurabh.artifact.model.CommentVisibilityMode
 import com.saurabh.artifact.ui.components.HiddenCommentNotice
+import com.saurabh.artifact.ui.components.MindfulTextField
 import com.saurabh.artifact.ui.theme.GoldAura400
 import com.saurabh.artifact.ui.theme.Obsidian800
 import com.saurabh.artifact.ui.theme.ReflectionWhite
@@ -20,17 +26,51 @@ fun CommentComposer(
     onClose: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    var content by remember { mutableStateOf("") }
     var visibilityMode by remember { mutableStateOf(CommentVisibilityMode.HIDDEN) }
     var isAnonymous by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(16.dp),
+            .padding(16.dp)
+            .navigationBarsPadding()
+            .imePadding()
+            .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        // Header with Close
+        Box(modifier = Modifier.fillMaxWidth()) {
+            IconButton(
+                onClick = onClose,
+                modifier = Modifier.align(Alignment.TopEnd)
+            ) {
+                Icon(Icons.Default.Close, contentDescription = "Close", tint = ReflectionWhite)
+            }
+        }
+
         // Emotional Expectation Setting
         HiddenCommentNotice()
+
+        Spacer(Modifier.height(16.dp))
+
+        // Text Input
+        MindfulTextField(
+            value = content,
+            onValueChange = { content = it },
+            placeholder = "What does this artifact evoke in you?",
+            modifier = Modifier.fillMaxWidth(),
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                imeAction = ImeAction.Send
+            ),
+            keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                onSend = {
+                    if (content.isNotBlank() && !uiState.isSubmitting) {
+                        viewModel.submitReflection(artifactId, content, visibilityMode, isAnonymous)
+                    }
+                }
+            )
+        )
 
         Spacer(Modifier.height(24.dp))
 
@@ -63,8 +103,8 @@ fun CommentComposer(
 
         // Action Buttons
         Button(
-            onClick = { viewModel.submitReflection(artifactId, visibilityMode, isAnonymous) },
-            enabled = uiState.recordedFile != null && !uiState.isSubmitting,
+            onClick = { viewModel.submitReflection(artifactId, content, visibilityMode, isAnonymous) },
+            enabled = content.isNotBlank() && !uiState.isSubmitting,
             colors = ButtonDefaults.buttonColors(containerColor = GoldAura400)
         ) {
             if (uiState.isSubmitting) {

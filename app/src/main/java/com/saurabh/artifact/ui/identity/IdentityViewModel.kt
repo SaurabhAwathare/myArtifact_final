@@ -4,9 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.saurabh.artifact.repository.UserProfileManager
 import com.saurabh.artifact.util.UsernameGenerator
-import com.saurabh.artifact.model.UsernameUiState
-import com.saurabh.artifact.model.UsernameValidationResult
-import com.saurabh.artifact.model.ValidationReason
+import com.saurabh.artifact.model.*
+import android.util.Log
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -27,14 +26,8 @@ class IdentityViewModel @Inject constructor(
     private val userRepository: com.saurabh.artifact.repository.UserRepository,
 ) : ViewModel() {
 
-    private val _selectedEmoji = MutableStateFlow("✨")
-    val selectedEmoji: StateFlow<String> = _selectedEmoji.asStateFlow()
-
-    val avatarConfig = userProfileManager.activeAvatarConfig.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = null
-    )
+    private val _avatarConfig = MutableStateFlow(AvatarConfig())
+    val avatarConfig: StateFlow<AvatarConfig> = _avatarConfig.asStateFlow()
 
     private val _username = MutableStateFlow("")
     val username: StateFlow<String> = _username.asStateFlow()
@@ -69,8 +62,8 @@ class IdentityViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            userProfileManager.activeUserEmoji.collectLatest { emoji ->
-                _selectedEmoji.value = emoji
+            userProfileManager.activeAvatarConfig.collectLatest { config ->
+                _avatarConfig.value = config
             }
         }
         viewModelScope.launch {
@@ -129,8 +122,8 @@ class IdentityViewModel @Inject constructor(
         }
     }
 
-    fun selectEmoji(emoji: String) {
-        _selectedEmoji.value = emoji
+    fun randomizePresence() {
+        _avatarConfig.value = _avatarConfig.value.copy(seed = java.util.UUID.randomUUID().toString())
     }
 
     fun onUsernameChange(name: String) {
@@ -190,15 +183,22 @@ class IdentityViewModel @Inject constructor(
             if (userId != null) {
                 userRepository.createUsername(userId, name)
                     .onSuccess {
-                        userProfileManager.updateIdentityEmoji(_selectedEmoji.value)
+                        userProfileManager.updateAvatarConfig(_avatarConfig.value)
                         onSuccess()
                     }
                     .onFailure { e ->
-                        _uiState.value = IdentityUiState.Error(e.message ?: "Failed to save username")
+                        Log.e("IdentityViewModel", "Failed to save username", e)
+                        val message = when(e) {
+                            is AppError.UsernameTaken -> "This username is already claimed."
+                            is AppError.PermissionDenied -> "Permission error. Please check your account state."
+                            is AppError.NetworkFailure -> "Connection lost. Please try again."
+                            else -> "Something went wrong. Technical details: ${e.message}"
+                        }
+                        _uiState.value = IdentityUiState.Error(message)
                     }
             } else {
                 // Anonymous fallback
-                userProfileManager.updateIdentityEmoji(_selectedEmoji.value)
+                userProfileManager.updateAvatarConfig(_avatarConfig.value)
                 userProfileManager.updateUsername(name)
                 onSuccess()
             }

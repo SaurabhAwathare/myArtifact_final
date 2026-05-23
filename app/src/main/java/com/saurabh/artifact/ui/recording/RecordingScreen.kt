@@ -138,9 +138,11 @@ fun RecordingScreen(
         )
     }
 
-    // Navigation when finished
+    // Navigation when finished (Navigates to Decision Screen)
     LaunchedEffect(uiState.lastDraftId) {
-        uiState.lastDraftId?.let { onFinished(it) }
+        if (uiState.lastDraftId != null) {
+            onFinished(uiState.lastDraftId!!)
+        }
     }
 
     // Ambient background animation

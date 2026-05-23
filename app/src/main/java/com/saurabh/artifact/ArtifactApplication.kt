@@ -15,6 +15,10 @@ import com.saurabh.artifact.startup.StartupMetrics
 import com.saurabh.artifact.util.MemoryManager
 import com.saurabh.artifact.util.StartupTracer
 import dagger.hilt.android.HiltAndroidApp
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltAndroidApp
@@ -42,9 +46,14 @@ class ArtifactApplication : Application(), ImageLoaderFactory, Configuration.Pro
         StartupMetrics.onAppCreate()
         super.onCreate()
         
-        // Initialize Firebase early to ensure all services are ready
-        FirebaseApp.initializeApp(this)
-        StartupTracer.mark("Firebase Initialized")
+        // Use a dedicated scope for non-UI initialization to avoid blocking Main
+        val initScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+        
+        initScope.launch {
+            // Initialize Firebase in background - Firebase handles its own internal locking
+            FirebaseApp.initializeApp(this@ArtifactApplication)
+            StartupTracer.mark("Firebase Initialized (Background)")
+        }
 
         startupCoordinator.start()
         StartupTracer.mark("StartupCoordinator Launched")

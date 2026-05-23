@@ -22,7 +22,7 @@ fun ReactionSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         containerColor = MaterialTheme.colorScheme.surface,
-        dragHandle = { BottomSheetDefaults.DragHandle(color = MaterialTheme.colorScheme.outlineVariant) }
+        dragHandle = null
     ) {
         Column(
             modifier = Modifier

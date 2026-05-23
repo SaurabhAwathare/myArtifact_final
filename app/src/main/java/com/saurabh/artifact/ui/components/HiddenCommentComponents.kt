@@ -14,6 +14,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.saurabh.artifact.ui.theme.*
 
+import com.saurabh.artifact.model.ArtifactComment
+import java.text.SimpleDateFormat
+import java.util.*
+
 /**
  * Notice banner explaining the Hidden Comments Mode.
  * Obsidian + Amber theme for emotional safety.
@@ -47,6 +51,58 @@ fun HiddenCommentNotice(modifier: Modifier = Modifier) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = ReflectionWhite.copy(alpha = 0.8f)
             )
+        }
+    }
+}
+
+/**
+ * A simple text-based comment item.
+ */
+@Composable
+fun TextCommentItem(
+    comment: ArtifactComment,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = comment.authorDisplayName ?: "Anonymous Soul",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()).format(comment.createdAt.toDate()),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
+                }
+                
+                ArtifactAvatar(
+                    config = com.saurabh.artifact.model.AvatarConfig(seed = comment.authorAvatarSeed),
+                    size = 24.dp
+                )
+            }
+            
+            if (comment.content.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = comment.content,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
         }
     }
 }

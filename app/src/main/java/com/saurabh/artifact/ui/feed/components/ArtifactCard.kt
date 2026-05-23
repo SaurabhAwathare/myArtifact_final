@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -17,6 +18,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -26,6 +29,7 @@ import com.saurabh.artifact.ui.theme.Obsidian800
 
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.ReactionType
+import com.saurabh.artifact.ui.components.ArtifactAvatar
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -34,12 +38,15 @@ fun ArtifactCard(
     isPlaying: Boolean,
     modifier: Modifier = Modifier,
     isBuffering: Boolean = false,
+    isSaved: Boolean = false,
     onPlayClick: () -> Unit,
     onReactionClick: (ReactionType) -> Unit,
     onCommentClick: () -> Unit,
     onSaveClick: () -> Unit,
     onReportClick: () -> Unit
 ) {
+    val haptic = LocalHapticFeedback.current
+
     Card(
         modifier = modifier
             .fillMaxWidth()
@@ -57,23 +64,11 @@ fun ArtifactCard(
             Row(
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(
-                            try { Color(android.graphics.Color.parseColor(artifact.avatarColor)) }
-                            catch (e: Exception) { GoldAura500 }.copy(alpha = 0.8f)
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = artifact.username.take(1).uppercase(),
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp
-                    )
-                }
+                ArtifactAvatar(
+                    config = artifact.authorAvatarConfig,
+                    modifier = Modifier.size(40.dp),
+                    isStatic = false // Keep it breathing if AURIC
+                )
                 
                 Spacer(modifier = Modifier.width(12.dp))
                 
@@ -84,26 +79,26 @@ fun ArtifactCard(
                         fontWeight = FontWeight.SemiBold,
                         color = Color.White.copy(alpha = 0.9f)
                     )
-                    Text(
-                        text = "2h ago", // Mock timestamp
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.copy(alpha = 0.4f)
-                    )
-                }
-                
-                Spacer(modifier = Modifier.width(8.dp))
-                
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color.White.copy(alpha = 0.05f))
-                        .padding(horizontal = 8.dp, vertical = 2.dp)
-                ) {
-                    Text(
-                        text = artifact.emotion,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = GoldAura500.copy(alpha = 0.8f)
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "2h ago", // Mock timestamp
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White.copy(alpha = 0.4f)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(GoldAura500.copy(alpha = 0.1f))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = artifact.emotion.ifEmpty { "Neutral" },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = GoldAura500.copy(alpha = 0.8f)
+                            )
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.weight(1f))
@@ -229,11 +224,14 @@ fun ArtifactCard(
                         )
                     }
 
-                    IconButton(onClick = onSaveClick) {
+                    IconButton(onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onSaveClick()
+                    }) {
                         Icon(
-                            imageVector = Icons.Outlined.BookmarkBorder,
-                            contentDescription = "Save",
-                            tint = Color.White.copy(alpha = 0.6f),
+                            imageVector = if (isSaved) Icons.Rounded.Bookmark else Icons.Outlined.BookmarkBorder,
+                            contentDescription = if (isSaved) "Unsave" else "Save",
+                            tint = if (isSaved) GoldAura500 else Color.White.copy(alpha = 0.6f),
                             modifier = Modifier.size(20.dp)
                         )
                     }

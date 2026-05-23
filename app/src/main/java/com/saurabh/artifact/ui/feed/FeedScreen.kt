@@ -29,7 +29,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import kotlinx.coroutines.delay
-import com.saurabh.artifact.ui.feed.components.ArtifactCard
+import com.saurabh.artifact.ui.components.ArtifactCard
 import com.saurabh.artifact.ui.components.BottomPlayer
 import com.saurabh.artifact.ui.components.EmberLogo
 import com.saurabh.artifact.ui.components.CrisisSupportCard
@@ -48,6 +48,8 @@ import com.saurabh.artifact.startup.StartupStage
 import com.saurabh.artifact.startup.StartupMetrics
 import com.saurabh.artifact.ui.components.PetalChip
 import com.saurabh.artifact.ui.components.QuietTab
+import com.saurabh.artifact.ui.components.ArtifactAvatar
+import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.util.StartupTracer
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -186,6 +188,8 @@ private fun FeedTopBar(
     onNavigateToNotifications: () -> Unit,
     onNavigateToProfile: () -> Unit
 ) {
+    val currentUser = ArtifactTheme.currentUser
+
     CenterAlignedTopAppBar(
         title = {
             com.saurabh.artifact.ui.components.BrandTitle(
@@ -198,7 +202,15 @@ private fun FeedTopBar(
                 Icon(Icons.Rounded.Notifications, contentDescription = "Echoes")
             }
             IconButton(onClick = onNavigateToProfile) {
-                Icon(Icons.Rounded.Person, contentDescription = "Inner Space")
+                if (currentUser != null) {
+                    ArtifactAvatar(
+                        config = currentUser.avatarConfig,
+                        size = 32.dp,
+                        isStatic = true
+                    )
+                } else {
+                    Icon(Icons.Rounded.Person, contentDescription = "Inner Space")
+                }
             }
         },
         colors = TopAppBarDefaults.topAppBarColors(
@@ -416,10 +428,6 @@ fun ArtifactItem(
         viewModel.getArtifactFlow(artifactId)
     }.collectAsStateWithLifecycle(initialValue = null)
 
-    val isUnlocked by remember(viewModel, artifactId) {
-        viewModel.unlockedArtifactIds.map { it.contains(artifactId) }.distinctUntilChanged()
-    }.collectAsStateWithLifecycle(initialValue = false)
-    
     val playingArtifact by viewModel.currentlyPlayingArtifact.collectAsStateWithLifecycle()
     val isPlayingGlobal by viewModel.isPlaying.collectAsStateWithLifecycle()
     val isBuffering by viewModel.audioPlayer.isBuffering.collectAsStateWithLifecycle()
@@ -440,14 +448,8 @@ fun ArtifactItem(
                 viewModel.playAudio(it) 
                 viewModel.onArtifactFocused(artifactId)
             },
-            onReactionClick = { type -> viewModel.reactToArtifact(artifactId, type) },
-            onCommentClick = { 
-                if (isUnlocked) {
-                    // Navigate to comments or show them
-                }
-            },
-            onSaveClick = { /* Logic to save */ },
-            onReportClick = { onReportClick(artifactId) }
+            onReportClick = { onReportClick(artifactId) },
+            currentUserId = viewModel.currentUserId
         )
     }
 }

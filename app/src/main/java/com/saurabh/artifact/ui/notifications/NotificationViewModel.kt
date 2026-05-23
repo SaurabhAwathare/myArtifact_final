@@ -3,7 +3,7 @@ package com.saurabh.artifact.ui.notifications
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.saurabh.artifact.model.NotificationItem
-import com.saurabh.artifact.repository.ArtifactRepository
+import com.saurabh.artifact.repository.NotificationRepository
 import com.saurabh.artifact.repository.AuthRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -13,7 +13,7 @@ import javax.inject.Inject
 
 @HiltViewModel
 class NotificationViewModel @Inject constructor(
-    private val artifactRepository: ArtifactRepository,
+    private val notificationRepository: NotificationRepository,
     authRepository: AuthRepository
 ) : ViewModel() {
 
@@ -22,7 +22,7 @@ class NotificationViewModel @Inject constructor(
     val notifications: StateFlow<List<NotificationItem>> = authRepository.currentUser
         .flatMapLatest { user ->
             if (user != null) {
-                artifactRepository.listenNotifications(user.uid)
+                notificationRepository.listenNotifications(user.uid)
             } else {
                 flowOf(emptyList())
             }
@@ -34,7 +34,7 @@ class NotificationViewModel @Inject constructor(
      */
     fun markAsRead(notificationId: String) {
         viewModelScope.launch {
-            artifactRepository.markNotificationAsRead(notificationId)
+            notificationRepository.markNotificationAsRead(notificationId)
         }
     }
 }

@@ -85,10 +85,10 @@ class DraftSyncWorker @AssistedInject constructor(
                 // 4. Create Firestore Document
                 val firestoreResult = artifactRepository.createArtifactDocument(
                     userId = userId,
-                    username = user?.displayName ?: "Anonymous",
+                    username = user?.anonymousName ?: "Anonymous",
                     audioUrl = downloadUrl,
                     draft = draft,
-                    userEmoji = user?.identityEmoji ?: "✨"
+                    avatarSeed = user?.avatarSeed ?: ""
                 )
 
                 if (firestoreResult.isSuccess) {

@@ -1,7 +1,6 @@
 package com.saurabh.artifact.repository
 
 import com.saurabh.artifact.data.local.UserSessionManager
-import com.saurabh.artifact.model.AvatarConfig
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
@@ -15,59 +14,62 @@ import javax.inject.Singleton
 @Singleton
 class UserProfileManager @Inject constructor(
     private val sessionManager: UserSessionManager,
-    authRepository: AuthRepository,
+    private val authRepository: AuthRepository,
     private val userRepository: UserRepository,
 ) {
     /**
-     * Combined flow that prioritizes authenticated user data but falls back to anonymous.
+     * Combined flow for Avatar Seed.
      */
-    val activeUserEmoji: Flow<String> = combine(
+    val activeAvatarSeed: Flow<String> = combine(
         authRepository.userData,
         sessionManager.userProfile
     ) { authUser, anonProfile ->
-        // If logged in, use the cloud-synced emoji; otherwise, use local
-        authUser?.identityEmoji ?: anonProfile.identityEmoji
+        authUser?.avatarSeed ?: anonProfile.avatarSeed
     }
 
     /**
-     * Combined flow that prioritizes authenticated user data (displayName) but falls back to anonymous username.
+     * Combined flow for Avatar Config.
+     */
+    val activeAvatarConfig: Flow<com.saurabh.artifact.model.AvatarConfig> = combine(
+        authRepository.userData,
+        sessionManager.userProfile
+    ) { authUser, anonProfile ->
+        authUser?.avatarConfig ?: anonProfile.avatarConfig
+    }
+
+    /**
+     * Combined flow for the active username.
      */
     val activeUsername: Flow<String> = combine(
         authRepository.userData,
         sessionManager.userProfile
     ) { authUser, anonProfile ->
-        // Priority: 1. Firebase Auth User Data, 2. Local Anonymous Username
-        authUser?.displayName ?: anonProfile.username
+        authUser?.anonymousName ?: anonProfile.username
     }
 
     /**
-     * Combined flow for Avatar Configuration.
+     * Updates the user's avatar seed.
      */
-    val activeAvatarConfig: Flow<AvatarConfig?> = combine(
-        authRepository.userData,
-        sessionManager.userProfile
-    ) { authUser, anonProfile ->
-        // In the future, authUser might have avatar config as well
-        anonProfile.avatarConfig
+    suspend fun updateAvatarSeed(seed: String) {
+        sessionManager.updateAvatarSeed(seed)
+        // TODO: Sync to Firestore
     }
 
     /**
      * Updates the user's avatar configuration.
      */
-    suspend fun updateAvatarConfig(config: AvatarConfig) {
+    suspend fun updateAvatarConfig(config: com.saurabh.artifact.model.AvatarConfig) {
         sessionManager.updateAvatarConfig(config)
-        // TODO: Sync to Firestore
-    }
-
-    /**
-     * Updates the user's identity marker. 
-     * In the future, this will also trigger a sync to Firestore if authenticated.
-     */
-    suspend fun updateIdentityEmoji(emoji: String) {
-        // Update local session
-        sessionManager.updateEmoji(emoji)
         
-        // TODO: Trigger Firestore update if authRepository.currentUser is not null
+        // Sync to Firestore if authenticated
+        val userId = authRepository.currentUser.value?.uid
+        if (userId != null) {
+            try {
+                userRepository.updateAvatarConfig(userId, config)
+            } catch (e: Exception) {
+                android.util.Log.e("UserProfileManager", "Failed to sync avatar config to Firestore", e)
+            }
+        }
     }
 
     /**

@@ -20,14 +20,19 @@ fun LazyListScope.userArtifactsList(
     currentPosition: Long,
     duration: Long,
     isSelf: Boolean,
+    currentUserId: String? = null,
     onPlayClick: (Artifact) -> Unit,
     onRename: (Artifact, String) -> Unit,
     onDelete: (Artifact) -> Unit,
-    onViewComments: (Artifact) -> Unit
+    onViewComments: (Artifact) -> Unit,
+    onSaveClick: (Artifact) -> Unit = {},
+    savedIds: Set<String> = emptySet()
 ) {
     if (artifacts.isNotEmpty()) {
         items(artifacts, key = { it.id }) { artifact ->
             val isCurrent = currentlyPlayingArtifact?.id == artifact.id
+            val isSaved = savedIds.contains(artifact.id)
+            val isOwner = currentUserId != null && artifact.userId == currentUserId
             val progress by remember(isCurrent, currentPosition, duration) {
                 derivedStateOf { 
                     if (isCurrent && duration > 0) currentPosition.toFloat() / duration else 0f 
@@ -38,12 +43,15 @@ fun LazyListScope.userArtifactsList(
                 ProfileArtifactCard(
                     artifact = artifact,
                     isDraft = false,
+                    isOwner = isOwner || isSelf, // if isSelf is true, we assume ownership of published/draft lists
                     isPlaying = isCurrent && isPlaying,
                     isBuffering = isCurrent && isBuffering,
+                    isSaved = isSaved,
                     progress = progress,
                     onPlayClick = { onPlayClick(artifact) },
                     onRename = { newTitle -> onRename(artifact, newTitle) },
                     onDelete = { onDelete(artifact) },
+                    onUnsave = { onSaveClick(artifact) },
                     onViewComments = { onViewComments(artifact) }
                 )
             }

@@ -15,6 +15,7 @@ data class ArtifactDraftEntity(
     val localTranscriptPath: String? = null,
     val waveformPath: String? = null,
     val title: String? = null,
+    val description: String? = null,
     val emotion: String? = null,
     val isPublic: Boolean = true,
     val tags: List<String> = emptyList(),
@@ -49,6 +50,9 @@ data class ArtifactDraftEntity(
     val isEmotionalReady: Boolean = false,
     val maxReviewPositionMs: Long = 0L,
     val lastPlaybackPositionMs: Long = 0L,
+    val reviewCoverageBitmask: String? = null, // JSON/CSV string of heard segments
+    val isReviewLocked: Boolean = true,
+    val isListened: Boolean = false,
     
     // Metadata & Recovery
     val deviceId: String? = null,

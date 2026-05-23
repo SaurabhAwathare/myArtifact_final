@@ -4,30 +4,29 @@ import com.saurabh.artifact.model.ArtifactDraftState
 import com.saurabh.artifact.model.TranscriptSegment
 
 data class PublishApprovalUiState(
-    val isLoading: Boolean = false,
     val draftId: String = "",
     val title: String = "",
+    val description: String = "",
     val emotion: String = "",
     val tags: List<String> = emptyList(),
     val transcript: List<TranscriptSegment> = emptyList(),
     val audioDurationMs: Long = 0,
     val isPublic: Boolean = true,
+    val isListened: Boolean = false,
     
-    // Validation & Warnings
+    val isLoading: Boolean = false,
+    val isSuccess: Boolean = false,
+    val error: String? = null,
+    
     val hasSensitiveInfo: Boolean = false,
     val isHighRisk: Boolean = false,
     val sensitiveFlagCount: Int = 0,
     
-    // Checklist
     val confirmedComfortable: Boolean = false,
     val confirmedSensitiveRemoved: Boolean = false,
     val confirmedComplete: Boolean = false,
     
-    // Process State
-    val currentState: ArtifactDraftState = ArtifactDraftState.PENDING_APPROVAL,
-    val error: String? = null,
-    val isSuccess: Boolean = false
+    val currentState: ArtifactDraftState = ArtifactDraftState.READY_TO_REVIEW
 ) {
-    val canApprove: Boolean
-        get() = title.isNotBlank() && !isLoading
+    val canApprove: Boolean get() = title.isNotBlank() && isListened && !isLoading
 }

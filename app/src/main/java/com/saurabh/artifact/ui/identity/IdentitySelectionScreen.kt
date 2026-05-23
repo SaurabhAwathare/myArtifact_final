@@ -1,6 +1,8 @@
 package com.saurabh.artifact.ui.identity
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -10,14 +12,15 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
-import com.saurabh.artifact.ui.avatar.AvatarRenderer
-import com.saurabh.artifact.ui.identity.components.EmojiPicker
+import androidx.compose.material.icons.rounded.Refresh
+import com.saurabh.artifact.ui.components.ArtifactAvatar
 import com.saurabh.artifact.ui.identity.components.UsernameInput
 import com.saurabh.artifact.ui.identity.components.UsernameSuggestions
 
@@ -29,7 +32,6 @@ fun IdentitySelectionScreen(
     onEditAvatar: () -> Unit,
     viewModel: IdentityViewModel = hiltViewModel()
 ) {
-    val selectedEmoji by viewModel.selectedEmoji.collectAsState()
     val avatarConfig by viewModel.avatarConfig.collectAsState()
     val usernameUiState by viewModel.usernameUiState.collectAsState()
     val suggestions by viewModel.suggestions.collectAsState()
@@ -66,10 +68,40 @@ fun IdentitySelectionScreen(
                 .padding(horizontal = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            // Large Presence Preview
+            Box(
+                modifier = Modifier
+                    .size(160.dp)
+                    .clip(CircleShape)
+                    .clickable { onEditAvatar() },
+                contentAlignment = Alignment.Center
+            ) {
+                ArtifactAvatar(
+                    config = avatarConfig,
+                    size = 140.dp
+                )
+                
+                Surface(
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp),
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    tonalElevation = 2.dp
+                ) {
+                    Icon(
+                        Icons.Rounded.Refresh,
+                        contentDescription = "Refresh Presence",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(8.dp).size(20.dp).clickable { viewModel.randomizePresence() }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
             
             Text(
-                text = "Choose Your Marker",
+                text = "Shape Your Anonymous Identity",
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center
@@ -78,47 +110,19 @@ fun IdentitySelectionScreen(
             Spacer(modifier = Modifier.height(8.dp))
             
             Text(
-                text = "Pick an emoji and a name. This helps others recognize your voice without knowing your true identity.",
+                text = "Create a quiet presence that reflects your inner self while protecting your anonymity.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(48.dp))
 
-            // Avatar Preview & Name Input Row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                Surface(
-                    modifier = Modifier.size(80.dp),
-                    shape = RoundedCornerShape(24.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
-                    onClick = onEditAvatar
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        if (avatarConfig != null) {
-                            AvatarRenderer(
-                                config = avatarConfig!!,
-                                modifier = Modifier.size(60.dp)
-                            )
-                        } else {
-                            Text(
-                                text = selectedEmoji,
-                                fontSize = 40.sp
-                            )
-                        }
-                    }
-                }
-
-                UsernameInput(
-                    state = usernameUiState,
-                    onUsernameChange = { viewModel.onUsernameChange(it) },
-                    modifier = Modifier.weight(1f)
-                )
-            }
+            UsernameInput(
+                state = usernameUiState,
+                onUsernameChange = { viewModel.onUsernameChange(it) },
+                modifier = Modifier.fillMaxWidth()
+            )
 
             if (suggestions.isNotEmpty() && cooldownDays == 0) {
                 UsernameSuggestions(
@@ -158,52 +162,6 @@ fun IdentitySelectionScreen(
 
             Spacer(modifier = Modifier.weight(1f))
 
-            Text(
-                text = "Select an emoji marker",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.align(Alignment.Start).padding(bottom = 8.dp)
-            )
-
-            Box(modifier = Modifier.height(180.dp)) {
-                if (avatarConfig == null) {
-                    Column(
-                        modifier = Modifier.fillMaxSize(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Text(
-                            text = "Or create a custom anonymous avatar",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        OutlinedButton(
-                            onClick = onEditAvatar,
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Icon(Icons.Rounded.AutoAwesome, contentDescription = null)
-                            Spacer(Modifier.width(8.dp))
-                            Text("Avatar Builder")
-                        }
-                        
-                        Spacer(modifier = Modifier.height(24.dp))
-                        
-                        EmojiPicker(
-                            selectedEmoji = selectedEmoji,
-                            onEmojiSelected = { viewModel.selectEmoji(it) }
-                        )
-                    }
-                } else {
-                    EmojiPicker(
-                        selectedEmoji = selectedEmoji,
-                        onEmojiSelected = { viewModel.selectEmoji(it) }
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
             Button(
                 onClick = { viewModel.saveIdentity(onComplete) },
                 enabled = isUsernameValid && uiState !is IdentityUiState.Loading,
@@ -219,7 +177,7 @@ fun IdentitySelectionScreen(
                         strokeWidth = 2.dp
                     )
                 } else {
-                    Text("Confirm Identity", style = MaterialTheme.typography.titleMedium)
+                    Text("Seal Identity", style = MaterialTheme.typography.titleMedium)
                 }
             }
 

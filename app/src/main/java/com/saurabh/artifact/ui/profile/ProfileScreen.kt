@@ -27,35 +27,28 @@ fun ProfileScreen(
     onBack: () -> Unit,
     onEditIdentity: () -> Unit,
     onNavigateToSettings: () -> Unit,
-    onNavigateToDraftEdit: (String) -> Unit,
+    onNavigateToReview: (String) -> Unit,
     onNavigateToComments: (String, String) -> Unit = { _, _ -> },
     viewModel: ProfileViewModel = hiltViewModel()
 ) {
-    val artifacts by viewModel.publishedArtifacts.collectAsState()
-    val cloudDrafts by viewModel.cloudDrafts.collectAsState()
-    val likedArtifacts by viewModel.likedArtifacts.collectAsState()
-    val drafts by viewModel.drafts.collectAsState()
-    val selectedTab by viewModel.selectedTab.collectAsState()
-    val userProfile by viewModel.userProfile.collectAsState()
-    val identityEmoji by viewModel.identityEmoji.collectAsState()
-    val isSelf by viewModel.isSelf.collectAsState()
-    val isFollowing by viewModel.isFollowing.collectAsState()
-    
-    val currentlyPlayingArtifact by viewModel.currentlyPlayingArtifact.collectAsState()
-    val isPlaying by viewModel.isPlaying.collectAsState()
-    val isBuffering by viewModel.isBuffering.collectAsState()
-    val currentPosition by viewModel.currentPosition.collectAsState()
-    val duration by viewModel.duration.collectAsState()
-    val logoutState by viewModel.logoutState.collectAsState()
-
+    val uiState by viewModel.uiState.collectAsState()
+    val savedIds by viewModel.savedIds.collectAsState(emptySet())
     val showLogoutDialog = remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(userId) {
         viewModel.setTargetUser(userId)
     }
 
-    LaunchedEffect(logoutState) {
-        if (logoutState is LogoutState.Success) {
+    LaunchedEffect(uiState.message) {
+        uiState.message?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearMessage()
+        }
+    }
+
+    LaunchedEffect(uiState.logoutState) {
+        if (uiState.logoutState is LogoutState.Success) {
             onLogout()
             viewModel.resetLogoutState()
         }
@@ -66,7 +59,7 @@ fun ProfileScreen(
             CenterAlignedTopAppBar(
                 title = { 
                     Text(
-                        if (isSelf) "My Journey" else userProfile?.displayName ?: "Profile", 
+                        if (uiState.isSelf) "My Journey" else uiState.userProfile?.anonymousName ?: "Profile",
                         fontWeight = FontWeight.Bold
                     ) 
                 },
@@ -76,7 +69,7 @@ fun ProfileScreen(
                     }
                 },
                 actions = {
-                    if (isSelf) {
+                    if (uiState.isSelf) {
                         IconButton(onClick = onNavigateToSettings) {
                             Icon(Icons.Rounded.Settings, contentDescription = "Settings")
                         }
@@ -86,7 +79,8 @@ fun ProfileScreen(
                     containerColor = Color.Transparent
                 )
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(
@@ -96,11 +90,11 @@ fun ProfileScreen(
             ) {
                 item {
                     ProfileHeader(
-                        user = userProfile,
-                        identityEmoji = identityEmoji,
-                        postCount = artifacts.size,
-                        isSelf = isSelf,
-                        isFollowing = isFollowing,
+                        user = uiState.userProfile,
+                        avatarConfig = uiState.avatarConfig,
+                        postCount = uiState.publishedArtifacts.size,
+                        isSelf = uiState.isSelf,
+                        isFollowing = uiState.isFollowing,
                         onFollowClick = { viewModel.toggleFollow() },
                         onEditClick = onEditIdentity
                     )
@@ -108,22 +102,22 @@ fun ProfileScreen(
 
                 item {
                     SecondaryTabRow(
-                        selectedTabIndex = selectedTab.ordinal,
+                        selectedTabIndex = uiState.selectedTab.ordinal,
                         containerColor = Color.Transparent,
                         contentColor = MaterialTheme.colorScheme.primary,
                         divider = {},
                         modifier = Modifier.padding(horizontal = 4.dp)
                     ) {
                         ProfileTab.entries.forEach { tab ->
-                            if (tab != ProfileTab.DRAFTS || isSelf) {
+                            if (tab != ProfileTab.DRAFTS || uiState.isSelf) {
                                 Tab(
-                                    selected = selectedTab == tab,
+                                    selected = uiState.selectedTab == tab,
                                     onClick = { viewModel.selectTab(tab) },
                                     text = { 
                                         Text(
                                             tab.title,
                                             style = MaterialTheme.typography.titleSmall,
-                                            fontWeight = if (selectedTab == tab) FontWeight.Bold else FontWeight.Normal,
+                                            fontWeight = if (uiState.selectedTab == tab) FontWeight.Bold else FontWeight.Normal,
                                             modifier = Modifier.padding(vertical = 8.dp)
                                         ) 
                                     }
@@ -133,16 +127,18 @@ fun ProfileScreen(
                     }
                 }
 
-                when (selectedTab) {
+                when (uiState.selectedTab) {
                     ProfileTab.PUBLISHED -> {
                         userArtifactsList(
-                            artifacts = artifacts,
-                            currentlyPlayingArtifact = currentlyPlayingArtifact,
-                            isPlaying = isPlaying,
-                            isBuffering = isBuffering,
-                            currentPosition = currentPosition,
-                            duration = duration,
-                            isSelf = isSelf,
+                            artifacts = uiState.publishedArtifacts,
+                            currentlyPlayingArtifact = uiState.currentlyPlayingArtifact,
+                            isPlaying = uiState.isPlaying,
+                            isBuffering = uiState.isBuffering,
+                            currentPosition = uiState.currentPosition,
+                            duration = uiState.duration,
+                            isSelf = uiState.isSelf,
+                            currentUserId = viewModel.currentUserId,
+                            savedIds = savedIds,
                             onPlayClick = { viewModel.playAudio(it) },
                             onRename = { artifact, newTitle -> 
                                 viewModel.renamePublishedArtifact(artifact.id, newTitle)
@@ -150,19 +146,20 @@ fun ProfileScreen(
                             onDelete = { artifact -> 
                                 viewModel.deletePublishedArtifact(artifact.id)
                             },
+                            onSaveClick = { viewModel.toggleSave(it) },
                             onViewComments = { artifact -> 
                                 onNavigateToComments(artifact.id, artifact.userId)
                             }
                         )
                     }
                     ProfileTab.DRAFTS -> {
-                        if (isSelf) {
+                        if (uiState.isSelf) {
                             draftSection(
-                                drafts = drafts,
-                                currentlyPlayingId = currentlyPlayingArtifact?.id,
-                                isPlaying = isPlaying,
-                                isBuffering = isBuffering,
-                                onPlayClick = { draft -> viewModel.playDraft(draft) },
+                                drafts = uiState.localDrafts,
+                                currentlyPlayingId = uiState.currentlyPlayingArtifact?.id,
+                                isPlaying = uiState.isPlaying,
+                                isBuffering = uiState.isBuffering,
+                                onPlayClick = { draft -> onNavigateToReview(draft.id) },
                                 onRename = { draft, newTitle -> 
                                     viewModel.renameDraft(draft.id, newTitle)
                                 },
@@ -171,15 +168,16 @@ fun ProfileScreen(
                                 }
                             )
 
-                            if (cloudDrafts.isNotEmpty()) {
+                            if (uiState.cloudDrafts.isNotEmpty()) {
                                 userArtifactsList(
-                                    artifacts = cloudDrafts,
-                                    currentlyPlayingArtifact = currentlyPlayingArtifact,
-                                    isPlaying = isPlaying,
-                                    isBuffering = isBuffering,
-                                    currentPosition = currentPosition,
-                                    duration = duration,
-                                    isSelf = isSelf,
+                                    artifacts = uiState.cloudDrafts,
+                                    currentlyPlayingArtifact = uiState.currentlyPlayingArtifact,
+                                    isPlaying = uiState.isPlaying,
+                                    isBuffering = uiState.isBuffering,
+                                    currentPosition = uiState.currentPosition,
+                                    duration = uiState.duration,
+                                    isSelf = uiState.isSelf,
+                                    currentUserId = viewModel.currentUserId,
                                     onPlayClick = { viewModel.playAudio(it) },
                                     onRename = { artifact, newTitle -> 
                                         viewModel.renamePublishedArtifact(artifact.id, newTitle)
@@ -188,7 +186,7 @@ fun ProfileScreen(
                                         viewModel.deletePublishedArtifact(artifact.id)
                                     },
                                     onViewComments = { artifact -> 
-                                        onNavigateToComments(020993artifact.id, artifact.userId)
+                                        onNavigateToComments(artifact.id, artifact.userId)
                                     }
                                 )
                             }
@@ -196,16 +194,23 @@ fun ProfileScreen(
                     }
                     ProfileTab.SAVED -> {
                         userArtifactsList(
-                            artifacts = likedArtifacts,
-                            currentlyPlayingArtifact = currentlyPlayingArtifact,
-                            isPlaying = isPlaying,
-                            isBuffering = isBuffering,
-                            currentPosition = currentPosition,
-                            duration = duration,
-                            isSelf = isSelf,
+                            artifacts = uiState.savedArtifacts,
+                            currentlyPlayingArtifact = uiState.currentlyPlayingArtifact,
+                            isPlaying = uiState.isPlaying,
+                            isBuffering = uiState.isBuffering,
+                            currentPosition = uiState.currentPosition,
+                            duration = uiState.duration,
+                            isSelf = uiState.isSelf,
+                            currentUserId = viewModel.currentUserId,
+                            savedIds = savedIds,
                             onPlayClick = { viewModel.playAudio(it) },
-                            onRename = { _, _ -> },
-                            onDelete = { _ -> },
+                            onRename = { artifact, newTitle -> 
+                                viewModel.renamePublishedArtifact(artifact.id, newTitle)
+                            },
+                            onDelete = { artifact -> 
+                                viewModel.deletePublishedArtifact(artifact.id)
+                            },
+                            onSaveClick = { viewModel.toggleSave(it) },
                             onViewComments = { artifact -> 
                                 onNavigateToComments(artifact.id, artifact.userId)
                             }
@@ -218,12 +223,12 @@ fun ProfileScreen(
 
             // Persistent Player
             Box(modifier = Modifier.align(Alignment.BottomCenter)) {
-                currentlyPlayingArtifact?.let { artifact ->
+                uiState.currentlyPlayingArtifact?.let { artifact ->
                     BottomPlayer(
                         title = artifact.title.ifEmpty { "Reflective Moment" },
-                        isPlaying = isPlaying,
-                        progress = if (duration > 0) {
-                            currentPosition.toFloat() / duration.toFloat()
+                        isPlaying = uiState.isPlaying,
+                        progress = if (uiState.duration > 0) {
+                            uiState.currentPosition.toFloat() / uiState.duration.toFloat()
                         } else 0f,
                         onTogglePlayback = { viewModel.togglePlayback() },
                         onClick = { }
@@ -232,6 +237,7 @@ fun ProfileScreen(
             }
         }
     }
+
 
     if (showLogoutDialog.value) {
         AlertDialog(

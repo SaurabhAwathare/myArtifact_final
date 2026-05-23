@@ -35,7 +35,7 @@ class UploadWorker @AssistedInject constructor(
                 emotion = inputData.getString("emotion") ?: "",
                 emotionTag = inputData.getString("emotionTag") ?: "",
                 emotionConfidence = inputData.getFloat("emotionConfidence", 0f),
-                userEmoji = inputData.getString("userEmoji") ?: "✨",
+                avatarSeed = inputData.getString("avatarSeed") ?: "",
                 prompt = inputData.getString("prompt") ?: "",
                 redactionFilter = inputData.getString("redactionFilter") ?: "",
                 amplitudes = inputData.getFloatArray("amplitudes")?.toList() ?: emptyList()
@@ -58,7 +58,7 @@ class UploadWorker @AssistedInject constructor(
                 emotion = upload.emotion,
                 emotionTag = upload.emotionTag,
                 emotionConfidence = upload.emotionConfidence,
-                userEmoji = upload.userEmoji,
+                avatarSeed = upload.avatarSeed,
                 prompt = upload.prompt,
                 redactionFilter = upload.redactionFilter,
                 amplitudes = uploadRepository.jsonToAmplitudes(upload.amplitudeDataJson)
@@ -84,7 +84,7 @@ class UploadWorker @AssistedInject constructor(
         emotion: String,
         emotionTag: String = "",
         emotionConfidence: Float = 0f,
-        userEmoji: String,
+        avatarSeed: String,
         prompt: String,
         redactionFilter: String = "",
         amplitudes: List<Float>
@@ -118,7 +118,7 @@ class UploadWorker @AssistedInject constructor(
                 emotionConfidence = emotionConfidence,
                 prompt = prompt,
                 redactionFilter = redactionFilter,
-                userEmoji = userEmoji,
+                avatarSeed = avatarSeed,
                 amplitudeData = amplitudes
             )
 

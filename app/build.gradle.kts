@@ -98,7 +98,6 @@ dependencies {
 
     // Image loading
     implementation(libs.coil.compose)
-    implementation(libs.androidsvg)
 
     // Permissions
     implementation(libs.accompanist.permissions)

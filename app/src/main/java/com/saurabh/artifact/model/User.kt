@@ -1,42 +1,50 @@
 package com.saurabh.artifact.model
 
 import com.google.firebase.Timestamp
-
+import com.google.firebase.firestore.PropertyName
 import com.google.firebase.firestore.ServerTimestamp
 
 data class User(
-    val id: String = "",
-    val anonymousName: String = "",
-    val avatarColor: String = "#FFD700", // Default Gold
-    val emotionalProfile: String = "Quiet Observer",
+    var id: String = "",
+    var anonymousName: String = "",
+    var avatarSeed: String = "",
+    var avatarColor: String = "#FFD700",
+    var avatarConfig: AvatarConfig = AvatarConfig(),
+    var emotionalProfile: String = "Quiet Observer",
     @Deprecated("Use anonymousName for public display")
-    val displayName: String = "",
+    var displayName: String = "",
     @Deprecated("Do not display publicly")
-    val email: String = "",
-    /** @deprecated Use avatarConfigJson instead for anonymous identity */
-    val profilePictureUrl: String = "",
-    val avatarConfigJson: String? = null,
-    val identityEmoji: String = "✨",
-    val isAnonymous: Boolean = true,
-    val dominantEmotion: String? = null, // Matches Firestore field name
-    val usernameUpdatedAt: Timestamp? = null,
-    @ServerTimestamp val createdAt: Timestamp? = null,
-    @ServerTimestamp val lastSeen: Timestamp? = null,
-    val emotionPreferences: Map<String, Int> = emptyMap(), // emotion -> interaction count
+    var email: String = "",
+    /** @deprecated Use avatarSeed instead */
+    var profilePictureUrl: String = "",
+    /** @deprecated Use avatarConfig instead */
+    var avatarConfigJson: String? = null,
+    /** @deprecated Use avatarConfig instead */
+    var avatarConfigLegacy: String? = null,
+    @Deprecated("Use avatarSeed for anonymous identity")
+    var identityEmoji: String = "✨",
+    @get:PropertyName("isAnonymous")
+    @set:PropertyName("isAnonymous")
+    var isAnonymous: Boolean = true,
+    var dominantEmotion: String? = null, // Matches Firestore field name
+    var usernameUpdatedAt: Timestamp? = null,
+    @ServerTimestamp var createdAt: Timestamp? = null,
+    @ServerTimestamp var lastSeen: Timestamp? = null,
+    var emotionPreferences: Map<String, Int> = emptyMap(), // emotion -> interaction count
     
     // Social & Profile
-    val bio: String = "",
-    val followersCount: Int = 0,
-    val followingCount: Int = 0,
+    var bio: String = "",
+    var followersCount: Int = 0,
+    var followingCount: Int = 0,
 
     // Engagement & Retention (Ethical/Non-addictive)
-    val lastActivityTimestamp: Timestamp? = null,
-    val softStreakCount: Int = 0,
-    val totalContributions: Int = 0,
-    val lastPromptId: String = "",
-    val fcmToken: String? = null,
-    val isAdmin: Boolean = false,
-    val metadata: Map<String, Any> = emptyMap(),
+    var lastActivityTimestamp: Timestamp? = null,
+    var softStreakCount: Int = 0,
+    var totalContributions: Int = 0,
+    var lastPromptId: String = "",
+    var fcmToken: String? = null,
+    var isAdmin: Boolean = false,
+    var metadata: Map<String, Any> = emptyMap(),
 ) {
     /**
      * Derives the user's current dominant emotion based on interaction history.

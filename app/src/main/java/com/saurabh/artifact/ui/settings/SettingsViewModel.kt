@@ -14,6 +14,7 @@ sealed class SettingsUiEvent {
     object AccountDeleted : SettingsUiEvent()
     object LoggedOut : SettingsUiEvent()
     object ReauthRequired : SettingsUiEvent()
+    object ExportInitiated : SettingsUiEvent()
 }
 
 @HiltViewModel
@@ -129,8 +130,12 @@ class SettingsViewModel @Inject constructor(
     fun exportData() {
         viewModelScope.launch {
             repository.exportUserData()
-                .onSuccess { _events.emit(SettingsUiEvent.ShowMessage(it)) }
-                .onFailure { _events.emit(SettingsUiEvent.ShowMessage("Export failed: ${it.message}")) }
+                .onSuccess { 
+                    _events.emit(SettingsUiEvent.ExportInitiated) 
+                }
+                .onFailure { 
+                    _events.emit(SettingsUiEvent.ShowMessage("Export failed: ${it.message}")) 
+                }
         }
     }
 }

@@ -20,21 +20,21 @@ enum class ReportReason {
 }
 
 data class ModerationMetadata(
-    val status: ModerationStatus = ModerationStatus.SAFE,
-    val score: Float = 0f,
-    val categories: List<String> = emptyList(),
-    val updatedAt: Timestamp = Timestamp.now(),
-    val reviewId: String? = null
+    var status: ModerationStatus = ModerationStatus.SAFE,
+    var score: Float = 0f,
+    var categories: List<String> = emptyList(),
+    var updatedAt: Timestamp = Timestamp.now(),
+    var reviewId: String? = null
 )
 
 data class UserReport(
-    val id: String = "",
-    val artifactId: String = "",
-    val reporterDeviceId: Int = 0, // Hashed device ID for privacy
-    val reason: ReportReason = ReportReason.OTHER,
-    val details: String = "",
-    val createdAt: Timestamp = Timestamp.now(),
-    val status: ReportStatus = ReportStatus.PENDING
+    var id: String = "",
+    var artifactId: String = "",
+    var reporterDeviceId: Int = 0, // Hashed device ID for privacy
+    var reason: ReportReason = ReportReason.OTHER,
+    var details: String = "",
+    var createdAt: Timestamp = Timestamp.now(),
+    var status: ReportStatus = ReportStatus.PENDING
 )
 
 enum class ReportStatus {

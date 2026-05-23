@@ -25,6 +25,9 @@ import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.theme.GoldAura500
 import com.saurabh.artifact.ui.theme.Spacing
 
+import com.saurabh.artifact.ui.components.ArtifactAvatar
+import com.saurabh.artifact.model.AvatarConfig
+
 /**
  * Redesigned ProfileHeader: Compact, Dense, Instagram-style hierarchy.
  * [ Avatar ]   Posts   Followers   Following
@@ -33,7 +36,7 @@ import com.saurabh.artifact.ui.theme.Spacing
 @Composable
 fun ProfileHeader(
     user: User?,
-    identityEmoji: String,
+    avatarConfig: AvatarConfig,
     postCount: Int,
     isSelf: Boolean,
     isFollowing: Boolean,
@@ -48,24 +51,17 @@ fun ProfileHeader(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // Large Avatar
-        Surface(
+        Box(
             modifier = Modifier
                 .size(120.dp)
                 .clip(CircleShape)
                 .clickable(enabled = isSelf) { onEditClick() },
-            shape = CircleShape,
-            color = ArtifactTheme.colors.surfaceHearth,
-            border = androidx.compose.foundation.BorderStroke(
-                width = 2.dp,
-                color = GoldAura500.copy(alpha = 0.2f)
-            )
+            contentAlignment = Alignment.Center
         ) {
-            Box(contentAlignment = Alignment.Center) {
-                Text(
-                    text = if (isSelf) identityEmoji else user?.identityEmoji ?: "✨",
-                    fontSize = 64.sp
-                )
-            }
+            ArtifactAvatar(
+                config = if (isSelf) avatarConfig else user?.avatarConfig ?: AvatarConfig(seed = user?.avatarSeed ?: ""),
+                size = 110.dp
+            )
         }
 
         Spacer(modifier = Modifier.height(16.dp))

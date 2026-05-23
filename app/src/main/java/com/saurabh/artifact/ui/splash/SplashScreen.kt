@@ -25,18 +25,6 @@ import com.saurabh.artifact.ui.theme.Obsidian950
 import kotlinx.coroutines.delay
 
 @Composable
-fun SplashScreen(
-    onSplashFinished: () -> Unit
-) {
-    LaunchedEffect(Unit) {
-        delay(3000) // 3 seconds splash
-        onSplashFinished()
-    }
-
-    SplashUI()
-}
-
-@Composable
 fun SplashUI() {
     Box(
         modifier = Modifier

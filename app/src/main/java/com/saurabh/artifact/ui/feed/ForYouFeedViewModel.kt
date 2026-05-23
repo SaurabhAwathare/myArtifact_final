@@ -16,8 +16,10 @@ import javax.inject.Inject
 class ForYouFeedViewModel @Inject constructor(
     private val feedComposer: FeedComposer,
     private val feedRepository: FeedRepository,
+    private val artifactRepository: com.saurabh.artifact.repository.ArtifactRepository,
     private val authRepository: AuthRepository,
-    val audioPlayer: AudioPlayer
+    val audioPlayer: AudioPlayer,
+    private val reviewSessionManager: com.saurabh.artifact.audio.ReviewSessionManager
 ) : ViewModel() {
 
     private val _feedState = MutableStateFlow<FeedCompositionState>(FeedCompositionState.Loading)
@@ -56,7 +58,7 @@ class ForYouFeedViewModel @Inject constructor(
             
             // If it was unfinished, start from the last position
             val startPos = if (feedArtifact.isUnfinished) feedArtifact.lastPositionMs else 0L
-            audioPlayer.play(artifact.audioUrl)
+            reviewSessionManager.startListening(artifact)
             if (startPos > 0) {
                 audioPlayer.seekTo(startPos)
             }
@@ -87,6 +89,15 @@ class ForYouFeedViewModel @Inject constructor(
                     isCompleted = position >= (artifact.duration * 1000L * 0.95f) // 95% completion
                 )
             )
+        }
+    }
+
+    fun deleteArtifact(artifactId: String) {
+        viewModelScope.launch {
+            artifactRepository.deletePublishedArtifact(artifactId)
+                .onSuccess {
+                    loadFeed() // Refresh feed after deletion
+                }
         }
     }
 

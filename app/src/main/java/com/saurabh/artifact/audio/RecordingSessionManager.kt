@@ -7,12 +7,23 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class RecordingSessionManager @Inject constructor() {
+class RecordingSessionManager @Inject constructor(
+    private val playbackSessionManager: PlaybackSessionManager
+) {
 
     val recordingState = RecordingService.recordingState
 
     val isSessionActive: Flow<Boolean> = recordingState.map { 
         it.status == RecordingStatus.RECORDING || it.status == RecordingStatus.PAUSED 
+    }
+
+    /**
+     * Prepares for a new recording session by stopping any active playback.
+     */
+    fun prepareForRecording() {
+        if (playbackSessionManager.isPlaying.value) {
+            playbackSessionManager.stop()
+        }
     }
 
     fun isRecordingActive(): Boolean {

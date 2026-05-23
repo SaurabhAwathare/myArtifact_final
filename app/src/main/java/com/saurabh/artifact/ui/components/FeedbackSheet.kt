@@ -22,7 +22,7 @@ fun FeedbackSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        dragHandle = { BottomSheetDefaults.DragHandle() },
+        dragHandle = null,
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
         Column(

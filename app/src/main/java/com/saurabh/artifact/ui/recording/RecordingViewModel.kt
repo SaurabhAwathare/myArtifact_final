@@ -17,6 +17,8 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
 import java.util.UUID
 import javax.inject.Inject
 
@@ -68,15 +70,34 @@ class RecordingViewModel @Inject constructor(
                     promptList = allPrompts.shuffled()
                     
                     // Priority 1: Navigation Argument
-                    val navPrompt = savedStateHandle.get<String>("prompt")
+                    val navPromptEncoded = savedStateHandle.get<String>("prompt")
+                    val navPrompt = navPromptEncoded?.let {
+                        try {
+                            URLDecoder.decode(it, StandardCharsets.UTF_8.toString())
+                        } catch (_: Exception) {
+                            it
+                        }
+                    }
                     
                     // Priority 2: Session-active prompt
                     val activePromptId = userSessionManager.activePromptId.first()
                     
-                    val targetPrompt = when {
-                        navPrompt != null -> promptList.find { it.question.equals(navPrompt, ignoreCase = true) }
-                        activePromptId != null -> promptList.find { it.id == activePromptId }
-                        else -> null
+                    var targetPrompt = if (navPrompt != null) {
+                        promptList.find { it.question.equals(navPrompt.trim(), ignoreCase = true) }
+                    } else null
+
+                    if (targetPrompt == null && navPrompt != null) {
+                        // Create a temporary prompt for the one passed via navigation if not in DB
+                        targetPrompt = ReflectionPrompt(
+                            id = "nav_${System.currentTimeMillis()}",
+                            category = PromptCategory.AI_GUIDED,
+                            question = navPrompt.trim()
+                        )
+                        promptList = listOf(targetPrompt) + promptList
+                    }
+
+                    if (targetPrompt == null && activePromptId != null) {
+                        targetPrompt = promptList.find { it.id == activePromptId }
                     }
                     
                     if (targetPrompt != null) {
@@ -116,7 +137,10 @@ class RecordingViewModel @Inject constructor(
                     // Do NOT create fallbacks or redundant entries here.
                     if (state.draftId.isNotEmpty()) {
                         Log.d("RecordingViewModel", "Recording finalized. Draft ID: ${state.draftId}")
-                        _uiState.update { it.copy(lastDraftId = state.draftId) }
+                        _uiState.update { it.copy(
+                            lastDraftId = state.draftId,
+                            lastDraftPath = state.outputFile?.absolutePath
+                        ) }
                     }
                 }
             }
@@ -138,6 +162,7 @@ class RecordingViewModel @Inject constructor(
         if (_uiState.value.status == RecordingStatus.IDLE || _uiState.value.status == RecordingStatus.FAILED) {
             viewModelScope.launch {
                 Log.d("RecordingViewModel", "Auto-starting recording session via DraftSessionManager")
+                recordingSessionManager.prepareForRecording()
                 draftSessionManager.startNewSession()
             }
         }
@@ -219,6 +244,7 @@ data class RecordingUiState(
     val durationSeconds: Long = 0,
     val currentOutputFile: String? = null,
     val lastDraftId: String? = null,
+    val lastDraftPath: String? = null,
     val isPromptVisible: Boolean = true, // Always show by default for immediate reflection
     val currentPrompt: ReflectionPrompt? = null,
     val promptList: List<ReflectionPrompt> = emptyList(),

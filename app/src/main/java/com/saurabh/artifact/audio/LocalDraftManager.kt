@@ -1,6 +1,7 @@
 package com.saurabh.artifact.audio
 
 import android.content.Context
+import android.util.Log
 import com.saurabh.artifact.security.SecurityArchitecture
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
@@ -72,6 +73,21 @@ class LocalDraftManager @Inject constructor(
 
     fun draftExists(path: String): Boolean {
         return File(path).exists()
+    }
+
+    /**
+     * Securely deletes all physical files associated with a draft.
+     */
+    fun deleteDraftFiles(draft: com.saurabh.artifact.data.local.ArtifactDraftEntity) {
+        try {
+            File(draft.localAudioPath).delete()
+            draft.localTranscriptPath?.let { File(it).delete() }
+            draft.waveformPath?.let { File(it).delete() }
+            draft.frozenAudioPath?.let { File(it).delete() }
+            Log.d("LocalDraftManager", "Deleted files for draft: ${draft.id}")
+        } catch (e: Exception) {
+            Log.e("LocalDraftManager", "Failed to delete files for draft: ${draft.id}", e)
+        }
     }
 
     fun cleanupOrphans(knownPaths: Set<String>) {

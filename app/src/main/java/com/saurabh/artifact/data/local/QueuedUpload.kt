@@ -15,7 +15,7 @@ data class QueuedUpload(
     val emotion: String,
     val emotionTag: String = "",
     val emotionConfidence: Float = 0f,
-    val userEmoji: String = "✨",
+    val avatarSeed: String = "",
     val prompt: String = "",
     val redactionFilter: String = "",
     val amplitudeDataJson: String, // Store as JSON string or use TypeConverter

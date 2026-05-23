@@ -1,6 +1,5 @@
 package com.saurabh.artifact.repository
 
-import android.net.Uri
 import android.util.Log
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FieldValue
@@ -22,7 +21,7 @@ import javax.inject.Singleton
 @Singleton
 class CommentRepository @Inject constructor(
     private val firestore: FirebaseFirestore,
-    private val storage: FirebaseStorage
+    private val notificationRepository: NotificationRepository
 ) {
 
     /**
@@ -33,22 +32,15 @@ class CommentRepository @Inject constructor(
         artifactId: String,
         userId: String,
         content: String,
-        audioFilePath: String? = null,
         visibility: CommentVisibilityMode = CommentVisibilityMode.HIDDEN,
         isAnonymous: Boolean = false,
         authorName: String = "Anonymous Soul",
-        authorEmoji: String = "✨"
+        authorAvatarSeed: String = ""
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            var audioUrl: String? = null
-            
-            // 1. Upload audio if present
-            audioFilePath?.let { path ->
-                val fileUri = Uri.fromFile(File(path))
-                val storageRef = storage.reference.child("reflections/$artifactId/${UUID.randomUUID()}.m4a")
-                storageRef.putFile(fileUri).await()
-                audioUrl = storageRef.downloadUrl.await().toString()
-            }
+            val artifactRef = firestore.collection("artifacts").document(artifactId)
+            val artifactDoc = artifactRef.get().await()
+            val ownerId = artifactDoc.getString("userId")
 
             // 2. Create Comment Document
             val commentId = UUID.randomUUID().toString()
@@ -57,9 +49,8 @@ class CommentRepository @Inject constructor(
                 artifactId = artifactId,
                 authorId = userId,
                 authorDisplayName = if (isAnonymous) null else authorName,
-                authorEmoji = authorEmoji,
+                authorAvatarSeed = authorAvatarSeed,
                 content = content,
-                audioUrl = audioUrl,
                 visibility = visibility,
                 createdAt = Timestamp.now(),
                 isAnonymous = isAnonymous,
@@ -67,16 +58,21 @@ class CommentRepository @Inject constructor(
             )
 
             // 3. Atomically add comment and update artifact count
-            val artifactRef = firestore.collection("artifacts").document(artifactId)
             val commentRef = firestore.collection("comments").document(commentId)
             
             firestore.runTransaction { transaction ->
                 transaction.set(commentRef, comment)
                 transaction.update(artifactRef, "commentCount", FieldValue.increment(1))
-                
-                // Also add to creator's inbox (denormalized for fast access)
-                // Note: We'd normally get the artifact owner ID first
             }.await()
+
+            // Notify owner if it's not their own artifact
+            if (ownerId != null && ownerId != userId) {
+                notificationRepository.createNotification(
+                    userId = ownerId,
+                    message = "Someone shared a reflection on your artifact 🕯️",
+                    artifactId = artifactId
+                )
+            }
 
             Result.success(Unit)
         } catch (e: Exception) {

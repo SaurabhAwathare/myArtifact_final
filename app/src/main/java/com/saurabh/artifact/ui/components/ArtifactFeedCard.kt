@@ -24,8 +24,10 @@ fun ArtifactFeedCard(
     onPlayClick: () -> Unit,
     modifier: Modifier = Modifier,
     currentPosition: Long = 0,
-    onExpand: () -> Unit = {}
+    onDeleteClick: () -> Unit = {}
 ) {
+    val currentUser = ArtifactTheme.currentUser
+
     Column(modifier = modifier) {
         // Recommendation Context Label
         Row(
@@ -54,8 +56,8 @@ fun ArtifactFeedCard(
             onPlayClick = onPlayClick,
             currentPosition = if (feedArtifact.isUnfinished && !isPlaying) feedArtifact.lastPositionMs else currentPosition,
             duration = feedArtifact.artifact.duration * 1000L,
-            onExpand = onExpand,
-            isUnlocked = true // In feed, we allow expanded views
+            onDeleteClick = onDeleteClick,
+            currentUserId = currentUser?.id
         )
     }
 }

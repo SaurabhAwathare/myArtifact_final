@@ -8,6 +8,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.saurabh.artifact.ui.components.AmbientWaveform
 import com.saurabh.artifact.ui.components.WaveformContext
@@ -50,6 +54,25 @@ fun WaveformScrubber(
                         dragProgress = (change.position.x / size.width).coerceIn(0f, 1f)
                         change.consume()
                     }
+                )
+            }
+            .drawWithContent {
+                drawContent()
+                
+                // Draw Playhead
+                val currentProgress = if (isDragging) dragProgress else progress
+                val playheadX = currentProgress * size.width
+                
+                drawRect(
+                    color = Color.White,
+                    topLeft = Offset(playheadX - 1.dp.toPx(), 0f),
+                    size = Size(2.dp.toPx(), size.height)
+                )
+                
+                drawCircle(
+                    color = EmberGlow,
+                    radius = 6.dp.toPx(),
+                    center = Offset(playheadX, size.height / 2f)
                 )
             }
     ) {

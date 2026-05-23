@@ -38,6 +38,8 @@ class MainViewModel @Inject constructor(
 
     val startupStage = startupCoordinator.stage
 
+    val currentUserProfile = authRepository.userData
+
     val isStable = startupCoordinator.stage
         .map { it == StartupStage.STABLE }
         .distinctUntilChanged()

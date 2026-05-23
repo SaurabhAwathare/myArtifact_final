@@ -5,7 +5,6 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
-import com.saurabh.artifact.model.AvatarConfig
 import com.saurabh.artifact.model.UserProfile
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
@@ -25,11 +24,11 @@ class UserSessionManager @Inject constructor(
     @param:ApplicationContext private val context: Context,
 ) {
     private val anonymousIdKey = stringPreferencesKey("anonymous_id")
-    private val identityEmojiKey = stringPreferencesKey("identity_emoji")
+    private val avatarSeedKey = stringPreferencesKey("avatar_seed")
+    private val avatarConfigKey = stringPreferencesKey("avatar_config_json")
     private val usernameKey = stringPreferencesKey("username")
     private val activeDraftIdKey = stringPreferencesKey("active_draft_id")
     private val activePromptIdKey = stringPreferencesKey("active_prompt_id")
-    private val avatarConfigKey = stringPreferencesKey("avatar_config")
     private val artifactEpisodeCounterKey = stringPreferencesKey("artifact_episode_counter")
 
     /**
@@ -49,17 +48,25 @@ class UserSessionManager @Inject constructor(
                 ensureAnonymousId(newId)
                 newId
             }
-            val emoji = preferences[identityEmojiKey] ?: "✨"
+            // Migration logic: if seed is missing, use legacy emoji if present, else generate random
+            val seed = preferences[avatarSeedKey] ?: preferences[stringPreferencesKey("identity_emoji")] ?: UUID.randomUUID().toString()
             val username = preferences[usernameKey] ?: "Anonymous Soul"
-            val avatarJson = preferences[avatarConfigKey]
-            val avatarConfig = avatarJson?.let {
+            val configJson = preferences[avatarConfigKey]
+            val config = configJson?.let { 
                 try {
-                    Json.decodeFromString<AvatarConfig>(it)
+                    Json.decodeFromString<com.saurabh.artifact.model.AvatarConfig>(it)
                 } catch (e: Exception) {
-                    null
+                    com.saurabh.artifact.model.AvatarConfig(seed = seed)
                 }
-            }
-            UserProfile(id, emoji, username, avatarConfig)
+            } ?: com.saurabh.artifact.model.AvatarConfig(seed = seed)
+            
+            UserProfile(
+                anonymousId = id, 
+                identityEmoji = "✨", // Deprecated
+                username = username, 
+                avatarSeed = seed,
+                avatarConfig = config
+            )
         }
 
     val activeDraftId: Flow<String?> = context.sessionDataStore.data
@@ -89,11 +96,21 @@ class UserSessionManager @Inject constructor(
     }
 
     /**
-     * Updates the user's identity emoji.
+     * Updates the user's avatar seed.
      */
-    suspend fun updateEmoji(emoji: String) {
+    suspend fun updateAvatarSeed(seed: String) {
         context.sessionDataStore.edit { preferences ->
-            preferences[identityEmojiKey] = emoji
+            preferences[avatarSeedKey] = seed
+        }
+    }
+
+    /**
+     * Updates the user's avatar configuration.
+     */
+    suspend fun updateAvatarConfig(config: com.saurabh.artifact.model.AvatarConfig) {
+        context.sessionDataStore.edit { preferences ->
+            preferences[avatarConfigKey] = Json.encodeToString(config)
+            preferences[avatarSeedKey] = config.seed
         }
     }
 
@@ -103,15 +120,6 @@ class UserSessionManager @Inject constructor(
     suspend fun updateUsername(username: String) {
         context.sessionDataStore.edit { preferences ->
             preferences[usernameKey] = username
-        }
-    }
-
-    /**
-     * Updates the user's avatar configuration.
-     */
-    suspend fun updateAvatarConfig(config: AvatarConfig) {
-        context.sessionDataStore.edit { preferences ->
-            preferences[avatarConfigKey] = Json.encodeToString(config)
         }
     }
 

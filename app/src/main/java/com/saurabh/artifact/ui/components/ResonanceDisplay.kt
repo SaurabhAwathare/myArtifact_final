@@ -22,15 +22,34 @@ fun ResonanceDisplay(
     counts: ArtifactReactionCounts?,
     modifier: Modifier = Modifier
 ) {
-    if (counts == null || counts.totalCount == 0) return
+    val totalCount = counts?.totalCount ?: 0
+    val visibility = counts?.visibility ?: ReactionVisibilityMode.VISIBLE
 
-    val visibility = counts.visibility
+    if (totalCount == 0) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = modifier.padding(vertical = 8.dp)
+        ) {
+            Text(
+                text = "✨",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(end = 8.dp)
+            )
+            Text(
+                text = "Be the first to resonate",
+                style = MaterialTheme.typography.labelMedium,
+                color = MistGray.copy(alpha = 0.5f)
+            )
+        }
+        return
+    }
+
     val resonanceText = when (visibility) {
         ReactionVisibilityMode.APPROXIMATE -> {
-            getApproximateText(counts.totalCount)
+            getApproximateText(totalCount)
         }
         ReactionVisibilityMode.VISIBLE -> {
-            "${counts.totalCount} souls felt this deeply."
+            "$totalCount souls felt this deeply."
         }
         ReactionVisibilityMode.CREATOR_ONLY, ReactionVisibilityMode.HIDDEN -> {
             null // Handle based on context (creator sees breakdown elsewhere)

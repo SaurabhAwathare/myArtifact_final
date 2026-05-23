@@ -83,11 +83,11 @@ enum class EnergyLevel {
  */
 @Serializable
 data class ArtifactConversationMetadata(
-    val primaryStyle: ConversationStyle? = null,
-    val secondaryStyles: List<ConversationStyle> = emptyList(),
-    val aiSuggestions: List<StyleSuggestion> = emptyList(),
-    val moderationState: StyleModerationState = StyleModerationState.SAFE,
-    val isAIGenerated: Boolean = false
+    var primaryStyle: ConversationStyle? = null,
+    var secondaryStyles: List<ConversationStyle> = emptyList(),
+    var aiSuggestions: List<StyleSuggestion> = emptyList(),
+    var moderationState: StyleModerationState = StyleModerationState.SAFE,
+    var isAIGenerated: Boolean = false
 )
 
 /**
@@ -95,9 +95,9 @@ data class ArtifactConversationMetadata(
  */
 @Serializable
 data class StyleSuggestion(
-    val style: ConversationStyle,
-    val confidence: Float,
-    val reasoning: String? = null
+    var style: ConversationStyle,
+    var confidence: Float,
+    var reasoning: String? = null
 )
 
 /**

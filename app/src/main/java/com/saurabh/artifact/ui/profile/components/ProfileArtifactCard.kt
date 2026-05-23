@@ -33,11 +33,14 @@ import java.util.*
 fun ProfileArtifactCard(
     artifact: Artifact,
     isDraft: Boolean,
+    isOwner: Boolean,
     isPlaying: Boolean,
     onPlayClick: () -> Unit,
     onRename: (String) -> Unit,
     onDelete: () -> Unit,
     onViewComments: () -> Unit,
+    isSaved: Boolean = false,
+    onUnsave: () -> Unit = {},
     modifier: Modifier = Modifier,
     isBuffering: Boolean = false,
     progress: Float = 0f
@@ -189,9 +192,12 @@ fun ProfileArtifactCard(
 
     if (showMenu) {
         ArtifactManagementBottomSheet(
+            isOwner = isOwner,
             isDraft = isDraft,
+            isSaved = isSaved,
             onRenameClick = { showRenameDialog = true },
             onDeleteClick = { showDeleteDialog = true },
+            onUnsaveClick = onUnsave,
             onViewCommentsClick = onViewComments,
             onDismiss = { showMenu = false }
         )

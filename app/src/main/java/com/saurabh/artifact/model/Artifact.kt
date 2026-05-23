@@ -1,6 +1,8 @@
 package com.saurabh.artifact.model
 
 import com.google.firebase.Timestamp
+import com.google.firebase.firestore.Exclude
+import com.google.firebase.firestore.PropertyName
 import androidx.compose.runtime.Immutable
 import kotlinx.serialization.Serializable
 
@@ -14,38 +16,51 @@ enum class ArtifactStatus {
 
 @Immutable
 data class Artifact(
-    val id: String = "",
-    val userId: String = "",
-    val username: String = "", // This should be the anonymousName
-    val avatarColor: String = "#FFD700",
-    val audioUrl: String = "",
-    val createdAt: Timestamp = Timestamp.now(),
-    val isPublic: Boolean = true, // Legacy field, consider migration
-    val visibility: Visibility = Visibility.PUBLIC,
-    val status: ArtifactStatus = ArtifactStatus.DRAFT,
-    val isDraft: Boolean = false,
-    val duration: Long = 0,
-    val title: String = "",
-    val reactions: Map<String, Int> = emptyMap(),
-    val emotion: String = "",
-    val emotionTag: String = "",
-    val emotionConfidence: Float = 0f,
-    val prompt: String = "",
-    val playCount: Int = 0,
-    val reactionCount: Int = 0,
-    val userEmoji: String = "✨",
-    val avatarConfigJson: String? = null,
-    val commentCount: Int = 0,
-    val moderationStatus: String = "CLEAN",
-    val toxicityScore: Float = 0f,
-    val reportCount: Int = 0,
-    val reporterIds: List<String> = emptyList(),
-    val transcript: List<TranscriptSegment> = emptyList(),
-    val amplitudeData: List<Float> = emptyList(),
-    val flaggedSegments: List<FlaggedSegment> = emptyList(),
-    val moderation: ModerationMetadata = ModerationMetadata(),
-    val conversationMetadata: ArtifactConversationMetadata = ArtifactConversationMetadata(),
-    val reactionVisibility: ReactionVisibilityMode = ReactionVisibilityMode.APPROXIMATE
+    var id: String = "",
+    var userId: String = "",
+    var authorId: String = "",
+    var username: String = "", // Primary field for UI
+    var authorAnonymousName: String = "", // Synced field for Firestore consistency
+    var avatarColor: String = "#FFD700",
+    var audioUrl: String = "",
+    var createdAt: Timestamp = Timestamp.now(),
+    @get:PropertyName("isPublic")
+    @set:PropertyName("isPublic")
+    var isPublic: Boolean = true, // Explicitly mapped for Firestore
+    var visibility: Visibility = Visibility.PUBLIC,
+    var status: ArtifactStatus = ArtifactStatus.DRAFT,
+    @get:PropertyName("isDraft")
+    @set:PropertyName("isDraft")
+    var isDraft: Boolean = false, // Explicitly mapped for Firestore
+    var duration: Long = 0,
+    var title: String = "",
+    var description: String = "",
+    var reactions: Map<String, Int> = emptyMap(),
+    var emotion: String = "",
+    var emotionTag: String = "",
+    var emotionConfidence: Float = 0f,
+    var prompt: String = "",
+    var playCount: Int = 0,
+    var reactionCount: Int = 0,
+    var avatarSeed: String = "",
+    /** Snapshot of the author's identity at the time of publishing */
+    var authorAvatarConfig: AvatarConfig = AvatarConfig(),
+    /** @deprecated Use authorAvatarConfig.seed or avatarSeed */
+    var avatarConfig: String? = null,
+    /** @deprecated Use avatarSeed */
+    var avatarConfigJson: String? = null,
+    var commentCount: Int = 0,
+    var moderationStatus: String = "CLEAN",
+    var toxicityScore: Float = 0f,
+    var reportCount: Int = 0,
+    var safetyConcernCount: Int = 0,
+    var reporterIds: List<String> = emptyList(),
+    var transcript: List<TranscriptSegment> = emptyList(),
+    var amplitudeData: List<Float> = emptyList(),
+    var flaggedSegments: List<FlaggedSegment> = emptyList(),
+    var moderation: ModerationMetadata = ModerationMetadata(),
+    var conversationMetadata: ArtifactConversationMetadata = ArtifactConversationMetadata(),
+    var reactionVisibility: ReactionVisibilityMode = ReactionVisibilityMode.APPROXIMATE
 ) {
     /**
      * Returns a lightweight version of the artifact suitable for large lists (feed).
@@ -64,12 +79,12 @@ data class Artifact(
 @Immutable
 @Serializable
 data class TranscriptSegment(
-    val id: String = "",
-    val text: String,
-    val startMs: Long,
-    val endMs: Long,
-    val confidence: Float,
-    val words: List<WordToken> = emptyList()
+    var id: String = "",
+    var text: String = "",
+    var startMs: Long = 0,
+    var endMs: Long = 0,
+    var confidence: Float = 0f,
+    var words: List<WordToken> = emptyList()
 ) {
     /**
      * Removes per-word timing to save memory when only the segment text is needed.
@@ -80,22 +95,22 @@ data class TranscriptSegment(
 @Immutable
 @Serializable
 data class WordToken(
-    val word: String,
-    val startMs: Long,
-    val endMs: Long
+    var word: String = "",
+    var startMs: Long = 0,
+    var endMs: Long = 0
 )
 
 @Immutable
 @Serializable
 data class FlaggedSegment(
-    val id: String = "",
-    val type: PiiType, // e.g. "PHONE"
-    val startMs: Long,
-    val endMs: Long,
-    val originalText: String,
-    val confidence: Float,
-    val isRedacted: Boolean = true,
-    val userDecision: String = "PENDING" // "REDACT", "KEEP", "PENDING"
+    var id: String = "",
+    var type: PiiType = PiiType.OTHER, // e.g. "PHONE"
+    var startMs: Long = 0,
+    var endMs: Long = 0,
+    var originalText: String = "",
+    var confidence: Float = 0f,
+    var isRedacted: Boolean = true,
+    var userDecision: String = "PENDING" // "REDACT", "KEEP", "PENDING"
 )
 
 @Serializable
@@ -110,20 +125,8 @@ enum class PiiType {
 data class ArtifactDetail(
     val id: String = "",
     val amplitudeData: List<Float> = emptyList(),
-    val comments: List<VoiceComment> = emptyList(),
+    val comments: List<ArtifactComment> = emptyList(),
     val reactionCounts: ArtifactReactionCounts? = null
-)
-
-@Immutable
-data class VoiceComment(
-    val id: String = "",
-    val authorId: String = "",
-    val authorName: String = "Anonymous Soul",
-    val authorEmoji: String = "✨",
-    val authorAvatarConfigJson: String? = null,
-    val audioUrl: String = "",
-    val creatorReaction: ReactionType? = null,
-    val createdAt: Timestamp = Timestamp.now()
 )
 
 data class Reply(

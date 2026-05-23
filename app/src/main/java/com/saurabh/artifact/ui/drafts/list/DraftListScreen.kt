@@ -34,7 +34,7 @@ import java.util.*
 @Composable
 fun DraftListScreen(
     onBack: () -> Unit,
-    onEditDraft: (String) -> Unit,
+    onReviewDraft: (String) -> Unit,
     viewModel: DraftListViewModel = hiltViewModel()
 ) {
     val drafts by viewModel.drafts.collectAsState()
@@ -64,7 +64,7 @@ fun DraftListScreen(
                 items(drafts, key = { it.id }) { draft ->
                     DraftItem(
                         draft = draft,
-                        onClick = { onEditDraft(draft.localAudioPath) }
+                        onClick = { onReviewDraft(draft.id) }
                     )
                 }
             }

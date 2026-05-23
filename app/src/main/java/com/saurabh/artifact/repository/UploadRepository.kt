@@ -25,7 +25,7 @@ class UploadRepository @Inject constructor(
         emotion: String,
         emotionTag: String = "",
         emotionConfidence: Float = 0f,
-        userEmoji: String,
+        avatarSeed: String,
         prompt: String,
         redactionFilter: String = "",
         amplitudes: List<Float>
@@ -40,7 +40,7 @@ class UploadRepository @Inject constructor(
             emotion = emotion,
             emotionTag = emotionTag,
             emotionConfidence = emotionConfidence,
-            userEmoji = userEmoji,
+            avatarSeed = avatarSeed,
             prompt = prompt,
             redactionFilter = redactionFilter,
             amplitudeDataJson = adapter.toJson(amplitudes)

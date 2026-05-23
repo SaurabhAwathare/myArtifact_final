@@ -8,8 +8,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [QueuedUpload::class, ArtifactDraftEntity::class, PromptEntity::class],
-    version = 19,
-    exportSchema = true
+    version = 22,
+    exportSchema = true,
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
@@ -18,6 +18,195 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun promptDao(): PromptDao
 
     companion object {
+        val MIGRATION_21_22 = object : Migration(21, 22) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // 1. Structural change for artifact_drafts
+                // Re-creating the table to ensure ALL columns match exactly and in order
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `artifact_drafts_new` (
+                        `id` TEXT NOT NULL, 
+                        `localAudioPath` TEXT NOT NULL, 
+                        `localTranscriptPath` TEXT, 
+                        `waveformPath` TEXT, 
+                        `title` TEXT, 
+                        `description` TEXT, 
+                        `emotion` TEXT, 
+                        `isPublic` INTEGER NOT NULL DEFAULT 1, 
+                        `tags` TEXT NOT NULL, 
+                        `durationMs` INTEGER NOT NULL, 
+                        `createdAt` INTEGER NOT NULL, 
+                        `updatedAt` INTEGER NOT NULL, 
+                        `draftState` TEXT NOT NULL, 
+                        `uploadStatus` TEXT NOT NULL, 
+                        `syncState` TEXT NOT NULL, 
+                        `uploadedBytes` INTEGER NOT NULL DEFAULT 0, 
+                        `totalBytes` INTEGER NOT NULL DEFAULT 0, 
+                        `uploadSessionUri` TEXT, 
+                        `uploadAttemptCount` INTEGER NOT NULL DEFAULT 0, 
+                        `isEncrypted` INTEGER NOT NULL DEFAULT 0, 
+                        `encryptionIv` TEXT, 
+                        `checksum` TEXT, 
+                        `approvalToken` TEXT, 
+                        `deviceFingerprint` TEXT, 
+                        `cooldownExpiry` INTEGER, 
+                        `publishApprovalTimestamp` INTEGER, 
+                        `revocationTimestamp` INTEGER, 
+                        `emotionalRiskScore` REAL NOT NULL DEFAULT 0.0, 
+                        `publishConfidence` REAL NOT NULL DEFAULT 0.0, 
+                        `isEmotionalReady` INTEGER NOT NULL DEFAULT 0, 
+                        `maxReviewPositionMs` INTEGER NOT NULL DEFAULT 0, 
+                        `lastPlaybackPositionMs` INTEGER NOT NULL DEFAULT 0, 
+                        `reviewCoverageBitmask` TEXT, 
+                        `isReviewLocked` INTEGER NOT NULL DEFAULT 1, 
+                        `isListened` INTEGER NOT NULL DEFAULT 0, 
+                        `deviceId` TEXT, 
+                        `transcriptionState` TEXT NOT NULL DEFAULT 'IDLE', 
+                        `remoteArtifactId` TEXT, 
+                        `emotionalTone` TEXT, 
+                        `safetyAnalysis` TEXT, 
+                        `interruptionReason` TEXT, 
+                        `lastCheckpointTs` INTEGER NOT NULL DEFAULT 0, 
+                        `isCorrupted` INTEGER NOT NULL DEFAULT 0, 
+                        `version` INTEGER NOT NULL DEFAULT 1, 
+                        `mimeType` TEXT NOT NULL DEFAULT 'audio/mpeg', 
+                        `amplitudeData` TEXT NOT NULL DEFAULT '[]', 
+                        `reactionVisibility` TEXT, 
+                        `frozenTranscriptJson` TEXT, 
+                        `frozenAudioPath` TEXT, 
+                        `frozenMetadataJson` TEXT, 
+                        `snapshotHash` TEXT, 
+                        `transcriptSegmentsJson` TEXT, 
+                        `sensitiveEntitiesJson` TEXT, 
+                        PRIMARY KEY(`id`)
+                    )
+                """.trimIndent())
+
+                // Copy data from old artifact_drafts, mapping existing columns
+                db.execSQL("""
+                    INSERT INTO artifact_drafts_new (
+                        id, localAudioPath, localTranscriptPath, waveformPath, title, description, 
+                        emotion, isPublic, tags, durationMs, createdAt, updatedAt, 
+                        draftState, uploadStatus, syncState, uploadedBytes, totalBytes, 
+                        uploadSessionUri, uploadAttemptCount, isEncrypted, encryptionIv, 
+                        checksum, approvalToken, deviceFingerprint, cooldownExpiry, 
+                        publishApprovalTimestamp, revocationTimestamp, emotionalRiskScore, 
+                        publishConfidence, isEmotionalReady, maxReviewPositionMs, 
+                        lastPlaybackPositionMs, isListened, deviceId, transcriptionState, 
+                        remoteArtifactId, lastCheckpointTs, isCorrupted, version, 
+                        mimeType, amplitudeData, reactionVisibility, frozenTranscriptJson, 
+                        frozenAudioPath, frozenMetadataJson, snapshotHash, 
+                        transcriptSegmentsJson, sensitiveEntitiesJson
+                    )
+                    SELECT 
+                        id, localAudioPath, localTranscriptPath, waveformPath, title, description, 
+                        emotion, 1, tags, durationMs, createdAt, updatedAt, 
+                        draftState, uploadStatus, syncState, uploadedBytes, totalBytes, 
+                        uploadSessionUri, uploadAttemptCount, isEncrypted, encryptionIv, 
+                        checksum, approvalToken, deviceFingerprint, cooldownExpiry, 
+                        publishApprovalTimestamp, revocationTimestamp, emotionalRiskScore, 
+                        publishConfidence, isEmotionalReady, maxReviewPositionMs, 
+                        lastPlaybackPositionMs, isListened, deviceId, transcriptionState, 
+                        remoteArtifactId, lastCheckpointTs, isCorrupted, version, 
+                        mimeType, amplitudeData, reactionVisibility, frozenTranscriptJson, 
+                        frozenAudioPath, frozenMetadataJson, snapshotHash, 
+                        transcriptSegmentsJson, sensitiveEntitiesJson
+                    FROM artifact_drafts
+                """.trimIndent())
+
+                db.execSQL("DROP TABLE artifact_drafts")
+                db.execSQL("ALTER TABLE artifact_drafts_new RENAME TO artifact_drafts")
+
+                // 2. Structural change for queued_uploads
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `queued_uploads_new` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
+                        `userId` TEXT NOT NULL, 
+                        `username` TEXT NOT NULL, 
+                        `fileUri` TEXT NOT NULL, 
+                        `title` TEXT NOT NULL, 
+                        `isPublic` INTEGER NOT NULL, 
+                        `duration` INTEGER NOT NULL, 
+                        `emotion` TEXT NOT NULL, 
+                        `emotionTag` TEXT NOT NULL DEFAULT '', 
+                        `emotionConfidence` REAL NOT NULL DEFAULT 0.0, 
+                        `avatarSeed` TEXT NOT NULL DEFAULT '', 
+                        `prompt` TEXT NOT NULL, 
+                        `redactionFilter` TEXT NOT NULL DEFAULT '', 
+                        `amplitudeDataJson` TEXT NOT NULL, 
+                        `createdAt` INTEGER NOT NULL
+                    )
+                """.trimIndent())
+
+                db.execSQL("""
+                    INSERT INTO queued_uploads_new (
+                        id, userId, username, fileUri, title, isPublic, duration, 
+                        emotion, prompt, amplitudeDataJson, createdAt
+                    )
+                    SELECT 
+                        id, userId, username, fileUri, title, isPublic, duration, 
+                        emotion, prompt, amplitudeDataJson, createdAt
+                    FROM queued_uploads
+                """.trimIndent())
+
+                db.execSQL("DROP TABLE queued_uploads")
+                db.execSQL("ALTER TABLE queued_uploads_new RENAME TO queued_uploads")
+
+                // 3. Structural change for prompts
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `prompts_new` (
+                        `id` TEXT NOT NULL, 
+                        `question` TEXT NOT NULL, 
+                        `category` TEXT NOT NULL, 
+                        `tone` TEXT NOT NULL, 
+                        `mood` TEXT, 
+                        `isFavorite` INTEGER NOT NULL DEFAULT 0, 
+                        `usageCount` INTEGER NOT NULL DEFAULT 0, 
+                        `lastUsedTimestamp` INTEGER NOT NULL DEFAULT 0, 
+                        PRIMARY KEY(`id`)
+                    )
+                """.trimIndent())
+
+                // Based on log history, the field might be 'text' or 'question' depending on when it crashed
+                try {
+                    db.execSQL("""
+                        INSERT INTO prompts_new (id, question, category, tone, isFavorite, usageCount, lastUsedTimestamp)
+                        SELECT id, text, category, tone, isFavorite, usageCount, lastUsedTimestamp FROM prompts
+                    """.trimIndent())
+                } catch (e: Exception) {
+                    db.execSQL("""
+                        INSERT INTO prompts_new (id, question, category, tone, isFavorite, usageCount, lastUsedTimestamp)
+                        SELECT id, question, category, tone, isFavorite, usageCount, lastUsedTimestamp FROM prompts
+                    """.trimIndent())
+                }
+
+                db.execSQL("DROP TABLE prompts")
+                db.execSQL("ALTER TABLE prompts_new RENAME TO prompts")
+            }
+        }
+
+        val MIGRATION_20_21 = object : Migration(20, 21) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Safety migration for those already on "version 20" but missing columns
+                try {
+                    db.execSQL("ALTER TABLE artifact_drafts ADD COLUMN description TEXT")
+                } catch (e: Exception) {
+                    // Column might already exist
+                }
+                try {
+                    db.execSQL("ALTER TABLE artifact_drafts ADD COLUMN isListened INTEGER NOT NULL DEFAULT 0")
+                } catch (e: Exception) {
+                    // Column might already exist
+                }
+            }
+        }
+
+        val MIGRATION_19_20 = object : Migration(19, 20) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE artifact_drafts ADD COLUMN description TEXT")
+                db.execSQL("ALTER TABLE artifact_drafts ADD COLUMN isListened INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         val MIGRATION_14_15 = object : Migration(14, 15) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("""

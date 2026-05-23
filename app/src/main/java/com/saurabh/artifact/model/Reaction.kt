@@ -3,6 +3,8 @@
 package com.saurabh.artifact.model
 
 import com.google.firebase.Timestamp
+import com.google.firebase.firestore.Exclude
+import com.google.firebase.firestore.PropertyName
 import com.saurabh.artifact.util.TimestampSerializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.UseSerializers
@@ -12,18 +14,22 @@ import kotlinx.serialization.UseSerializers
  * Designed for resonance, shared understanding, and quiet support.
  */
 @Serializable
-enum class ReactionType(val label: String, val emoji: String, val semanticValue: Float) {
-    I_HEAR_YOU("I hear you", "🫂", 1.0f),
-    SENDING_STRENGTH("Sending strength", "💫", 1.2f),
-    RELATABLE("Relatable", "🐚", 0.9f),
-    STAY_STRONG("Stay strong", "🕯️", 1.1f),
-    HOLDING_SPACE("Holding space", "🕯️", 1.0f),
-    THANK_YOU("Thank you", "🙏", 0.8f),
-    FELT_DEEPLY("Felt deeply", "🌊", 1.3f),
-    RESPECTFUL_DISAGREEMENT("Respectfully disagree", "🧘", 0.5f);
+enum class ReactionType(val id: String, val label: String, val emoji: String, val semanticValue: Float) {
+    I_HEAR_YOU("i_hear_you", "I hear you", "🫂", 1.0f),
+    SENDING_STRENGTH("sending_strength", "Sending strength", "💫", 1.2f),
+    RELATABLE("relatable", "Relatable", "🐚", 0.9f),
+    STAY_STRONG("stay_strong", "Stay strong", "🕯️", 1.1f),
+    HOLDING_SPACE("holding_space", "Holding space", "🕯️", 1.0f),
+    THANK_YOU("thank_you", "Thank you", "🙏", 0.8f),
+    FELT_DEEPLY("felt_deeply", "Felt deeply", "🌊", 1.3f),
+    RESPECTFUL_DISAGREEMENT("respectfully_disagree", "Respectfully disagree", "🧘", 0.5f);
 
     companion object {
-        fun fromId(id: String): ReactionType = entries.find { it.name == id } ?: I_HEAR_YOU
+        fun fromId(id: String): ReactionType {
+            return entries.find { 
+                it.id.equals(id, ignoreCase = true) || it.name.equals(id, ignoreCase = true) 
+            } ?: I_HEAR_YOU
+        }
     }
 }
 
@@ -37,21 +43,32 @@ enum class ReactionVisibilityMode {
 
 @Serializable
 data class ArtifactReaction(
-    val id: String = "",
-    val artifactId: String = "",
-    val userId: String = "",
-    val type: ReactionType = ReactionType.I_HEAR_YOU,
-    val createdAt: Timestamp = Timestamp.now()
-)
+    var id: String = "",
+    var artifactId: String = "",
+    var userId: String = "",
+    @get:PropertyName("type")
+    @set:PropertyName("type")
+    var typeId: String = "i_hear_you",
+    var createdAt: Timestamp = Timestamp.now()
+) {
+    @get:Exclude @set:Exclude
+    var type: ReactionType
+        get() = ReactionType.fromId(typeId)
+        set(value) {
+            typeId = value.id
+        }
+}
 
 @Serializable
 data class ArtifactReactionCounts(
-    val artifactId: String = "",
-    val totalCount: Int = 0,
-    val breakdown: Map<String, Int> = emptyMap(),
-    val visibility: ReactionVisibilityMode = ReactionVisibilityMode.APPROXIMATE,
-    val aiSummary: String? = null,
-    val lastUpdated: Timestamp = Timestamp.now()
+    var artifactId: String = "",
+    var totalCount: Int = 0,
+    @get:PropertyName("breakdown")
+    @set:PropertyName("breakdown")
+    var breakdown: Map<String, Int> = mutableMapOf(),
+    var visibility: ReactionVisibilityMode = ReactionVisibilityMode.APPROXIMATE,
+    var aiSummary: String? = null,
+    var lastUpdated: Timestamp = Timestamp.now()
 )
 
 enum class FeedbackType(val label: String, val description: String) {

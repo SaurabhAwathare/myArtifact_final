@@ -19,13 +19,14 @@ import com.saurabh.artifact.ui.login.LoginScreen
 import com.saurabh.artifact.ui.notifications.NotificationScreen
 import com.saurabh.artifact.ui.profile.ProfileScreen
 import com.saurabh.artifact.ui.settings.SettingsScreen
-import com.saurabh.artifact.ui.drafts.DraftEditScreen
 import com.saurabh.artifact.ui.drafts.list.DraftListScreen
 import com.saurabh.artifact.ui.recording.RecordingScreen
+import com.saurabh.artifact.ui.recording.PostRecordingDecisionScreen
 import com.saurabh.artifact.ui.identity.IdentitySelectionScreen
-import com.saurabh.artifact.ui.record.RecordingReviewScreen
+import com.saurabh.artifact.ui.player.ReviewPlayerScreen
+import com.saurabh.artifact.ui.publish.PublishPreparationScreen
 import com.saurabh.artifact.ui.publish.PublishApprovalScreen
-import com.saurabh.artifact.ui.avatar.AvatarCreatorScreen
+import com.saurabh.artifact.ui.avatar.AvatarEditorScreen
 import com.saurabh.artifact.audio.RecordingSessionManager
 import com.saurabh.artifact.startup.StartupStage
 import com.saurabh.artifact.ui.theme.LocalStartupStage
@@ -87,15 +88,9 @@ fun NavGraph(
         }
     }
 
-    val onNavigateToAvatarCreator = remember(navController) {
+    val onNavigateToAvatarEditor = remember(navController) {
         {
-            navController.navigate(Screen.AvatarCreator.route)
-        }
-    }
-
-    val onNavigateToDraftEdit = remember(navController) {
-        { filePath: String ->
-            navController.navigate(Screen.DraftEdit.createRoute(filePath))
+            navController.navigate(Screen.AvatarEditor.route)
         }
     }
 
@@ -226,23 +221,10 @@ fun NavGraph(
                 onBack = onBack,
                 onEditIdentity = onNavigateToIdentity,
                 onNavigateToSettings = onNavigateToSettings,
-                onNavigateToDraftEdit = onNavigateToDraftEdit,
+                onNavigateToReview = { draftId ->
+                    navController.navigate(Screen.RecordingReview.createRoute(draftId))
+                },
                 onNavigateToComments = onNavigateToComments
-            )
-        }
-        composable(
-            route = Screen.DraftEdit.route,
-            arguments = listOf(navArgument("filePath") { type = NavType.StringType })
-        ) { backStackEntry ->
-            val filePath = URLDecoder.decode(backStackEntry.arguments?.getString("filePath") ?: "", StandardCharsets.UTF_8.toString())
-            DraftEditScreen(
-                draftFilePath = filePath,
-                onBack = onBack,
-                onPublished = {
-                    navController.navigate(Screen.Home.route) {
-                        popUpTo(Screen.Home.route) { inclusive = true }
-                    }
-                }
             )
         }
         composable(Screen.Settings.route) {
@@ -261,11 +243,17 @@ fun NavGraph(
             IdentitySelectionScreen(
                 onComplete = onBack,
                 onBack = onBack,
-                onEditAvatar = onNavigateToAvatarCreator
+                onEditAvatar = onNavigateToAvatarEditor
             )
         }
-        composable(Screen.AvatarCreator.route) {
-            AvatarCreatorScreen(
+        composable(Screen.AvatarEditor.route) {
+            AvatarEditorScreen(
+                onBack = onBack,
+                onComplete = onBack
+            )
+        }
+        composable(Screen.PresenceBuilder.route) {
+            com.saurabh.artifact.ui.avatar.PresenceBuilderScreen(
                 onBack = onBack,
                 onComplete = onBack
             )
@@ -281,7 +269,9 @@ fun NavGraph(
         composable(Screen.DraftList.route) {
             DraftListScreen(
                 onBack = onBack,
-                onEditDraft = onNavigateToDraftEdit
+                onReviewDraft = { draftId ->
+                    navController.navigate(Screen.RecordingReview.createRoute(draftId))
+                }
             )
         }
         composable(
@@ -294,7 +284,9 @@ fun NavGraph(
                 }
             )
         ) { backStackEntry ->
-            val prompt = backStackEntry.arguments?.getString("prompt")
+            val prompt = backStackEntry.arguments?.getString("prompt")?.let {
+                URLDecoder.decode(it, StandardCharsets.UTF_8.toString())
+            }
             com.saurabh.artifact.ui.recording.warning.PreRecordingWarningScreen(
                 onContinue = {
                     navController.navigate(Screen.InstantRecord.createRoute(prompt)) {
@@ -316,10 +308,12 @@ fun NavGraph(
                 }
             )
         ) { backStackEntry ->
-            val prompt = backStackEntry.arguments?.getString("prompt")
+            val prompt = backStackEntry.arguments?.getString("prompt")?.let {
+                URLDecoder.decode(it, StandardCharsets.UTF_8.toString())
+            }
             RecordingScreen(
                 onFinished = { draftId ->
-                    navController.navigate(Screen.DraftList.route) {
+                    navController.navigate(Screen.PostRecordingDecision.createRoute(draftId)) {
                         popUpTo(Screen.InstantRecord.route) { inclusive = true }
                     }
                 },
@@ -328,20 +322,55 @@ fun NavGraph(
         }
 
         composable(
+            route = Screen.PostRecordingDecision.route,
+            arguments = listOf(navArgument("draftId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            PostRecordingDecisionScreen(
+                onReview = { draftId ->
+                    navController.navigate(Screen.RecordingReview.createRoute(draftId)) {
+                        popUpTo(Screen.PostRecordingDecision.route) { inclusive = true }
+                    }
+                },
+                onSaveToDrafts = {
+                    navController.navigate(Screen.Home.route) {
+                        popUpTo(Screen.PostRecordingDecision.route) { inclusive = true }
+                    }
+                }
+            )
+        }
+
+        composable(
             route = Screen.RecordingReview.route,
             arguments = listOf(navArgument("draftId") { type = NavType.StringType })
         ) { backStackEntry ->
             val draftId = URLDecoder.decode(backStackEntry.arguments?.getString("draftId") ?: "", StandardCharsets.UTF_8.toString())
-            RecordingReviewScreen(
+            ReviewPlayerScreen(
                 draftId = draftId,
-                onPublished = {
-                    navController.navigate(Screen.PublishApproval.createRoute(draftId)) {
+                onReviewComplete = {
+                    navController.navigate(Screen.PublishPreparation.createRoute(draftId)) {
                         popUpTo(Screen.RecordingReview.route) { inclusive = true }
                     }
                 },
-                onDiscarded = onBack
+                onClose = onBack
             )
         }
+
+        composable(
+            route = Screen.PublishPreparation.route,
+            arguments = listOf(navArgument("draftId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val draftId = URLDecoder.decode(backStackEntry.arguments?.getString("draftId") ?: "", StandardCharsets.UTF_8.toString())
+            PublishPreparationScreen(
+                draftId = draftId,
+                onPublished = {
+                    navController.navigate(Screen.Home.route) {
+                        popUpTo(Screen.Home.route) { inclusive = true }
+                    }
+                },
+                onCancel = onBack
+            )
+        }
+
         composable(
             route = Screen.PublishApproval.route,
             arguments = listOf(navArgument("draftId") { type = NavType.StringType })

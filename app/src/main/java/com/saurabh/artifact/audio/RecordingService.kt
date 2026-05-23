@@ -51,6 +51,8 @@ class RecordingService : Service() {
     private var audioFocusRequest: AudioFocusRequest? = null
     private var wakeLock: PowerManager.WakeLock? = null
     
+    private var originalRingerMode: Int = -1
+
     private val stopMutex = Mutex()
 
     @Inject
@@ -101,17 +103,55 @@ class RecordingService : Service() {
             audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
                 .setAudioAttributes(attr)
                 .setAcceptsDelayedFocusGain(false)
-                .setOnAudioFocusChangeListener { /* Handle changes if needed */ }
+                .setOnAudioFocusChangeListener { focusChange ->
+                    if (focusChange == AudioManager.AUDIOFOCUS_LOSS || 
+                        focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
+                        Log.d("RecordingService", "Audio focus lost. Pausing recording.")
+                        pauseRecording()
+                    }
+                }
                 .build()
             
             return audioManager?.requestAudioFocus(audioFocusRequest!!) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
         } else {
             @Suppress("DEPRECATION")
             return audioManager?.requestAudioFocus(
-                { },
+                { focusChange ->
+                    if (focusChange == AudioManager.AUDIOFOCUS_LOSS || 
+                        focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
+                        Log.d("RecordingService", "Audio focus lost. Pausing recording.")
+                        pauseRecording()
+                    }
+                },
                 AudioManager.STREAM_MUSIC,
                 AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE
             ) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        }
+    }
+
+    private fun enableSilentMode() {
+        try {
+            audioManager?.let { am ->
+                originalRingerMode = am.ringerMode
+                am.ringerMode = AudioManager.RINGER_MODE_SILENT
+                Log.d("RecordingService", "Silent mode enabled (Original: $originalRingerMode)")
+            }
+        } catch (e: Exception) {
+            Log.e("RecordingService", "Failed to enable silent mode", e)
+        }
+    }
+
+    private fun restoreRingerMode() {
+        try {
+            audioManager?.let { am ->
+                if (originalRingerMode != -1) {
+                    am.ringerMode = originalRingerMode
+                    Log.d("RecordingService", "Ringer mode restored to $originalRingerMode")
+                    originalRingerMode = -1
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("RecordingService", "Failed to restore ringer mode", e)
         }
     }
 
@@ -124,7 +164,7 @@ class RecordingService : Service() {
         }
     }
 
-    private fun handleAction(action: String?, isComment: Boolean, draftId: String) {
+    private fun handleAction(action: String?, draftId: String) {
         when (action) {
             ACTION_START -> {
                 if (_recordingState.value.status == RecordingStatus.IDLE || 
@@ -136,7 +176,7 @@ class RecordingService : Service() {
                         Log.d("RecordingService", "Pacing: 1500ms intentional silence before capture")
                         _recordingState.value = RecordingState(status = RecordingStatus.PREPARING)
                         delay(1500)
-                        startRecording(isComment, draftId)
+                        startRecording(draftId)
                     }
                 } else {
                     Log.w("RecordingService", "Ignoring ACTION_START: Already in state ${_recordingState.value.status}")
@@ -148,7 +188,7 @@ class RecordingService : Service() {
             ACTION_CANCEL -> cancelRecording()
             else -> {
                 if (action == null && _recordingState.value.status == RecordingStatus.IDLE) {
-                    handleAction(ACTION_START, isComment, draftId)
+                    handleAction(ACTION_START, draftId)
                 }
             }
         }
@@ -156,10 +196,9 @@ class RecordingService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
-        val isComment = intent?.getBooleanExtra(EXTRA_IS_COMMENT, false) ?: false
         val draftId = intent?.getStringExtra("draft_id") ?: ""
 
-        Log.d("RecordingService", "onStartCommand: action=$action, isComment=$isComment")
+        Log.d("RecordingService", "onStartCommand: action=$action")
 
         // 1. Ensure Foreground immediately
         try {
@@ -177,12 +216,12 @@ class RecordingService : Service() {
         }
 
         // 2. Handle Actions
-        handleAction(action, isComment, draftId)
+        handleAction(action, draftId)
         
         return START_NOT_STICKY
     }
 
-    fun startRecording(isComment: Boolean = false, draftId: String = "") {
+    fun startRecording(draftId: String = "") {
         // Permission Check inside Service (Defense in Depth)
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             Log.e("RecordingService", "startRecording failed: Permission RECORD_AUDIO not granted")
@@ -219,6 +258,8 @@ class RecordingService : Service() {
             stopSelf()
             return
         }
+
+        enableSilentMode()
 
         // Set status to PREPARING immediately for UI responsiveness
         _recordingState.value = RecordingState(status = RecordingStatus.PREPARING)
@@ -265,9 +306,7 @@ class RecordingService : Service() {
                 )
                 
                 draftDao.updateSyncState(finalDraftId, SyncState.RECORDING)
-                if (!isComment) {
-                    userSessionManager.setActiveDraftId(finalDraftId)
-                }
+                userSessionManager.setActiveDraftId(finalDraftId)
 
                 startTimer()
                 updateNotification(0, RecordingStatus.RECORDING)
@@ -335,6 +374,7 @@ class RecordingService : Service() {
                     audioRecorder?.stop()
                     timerJob?.cancel()
                     abandonAudioFocus()
+                    restoreRingerMode()
                     
                     // CRITICAL: Allow MediaRecorder to flush and finalize M4A container metadata
                     // This prevents 'NoDeclaredBrand' / 'UnrecognizedInputFormatException' in ExoPlayer
@@ -449,6 +489,7 @@ class RecordingService : Service() {
             audioRecorder?.stop()
             timerJob?.cancel()
             abandonAudioFocus()
+            restoreRingerMode()
             
             if (wakeLock?.isHeld == true) {
                 wakeLock?.release()
@@ -648,7 +689,6 @@ class RecordingService : Service() {
         const val ACTION_CANCEL = "ACTION_CANCEL"
         const val ACTION_PAUSE = "ACTION_PAUSE"
         const val ACTION_RESUME = "ACTION_RESUME"
-        const val EXTRA_IS_COMMENT = "EXTRA_IS_COMMENT"
 
         private val _recordingState = MutableStateFlow(RecordingState())
         val recordingState: StateFlow<RecordingState> = _recordingState.asStateFlow()

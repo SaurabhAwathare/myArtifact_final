@@ -18,7 +18,8 @@ import javax.inject.Singleton
 
 @Singleton
 class ReactionRepository @Inject constructor(
-    private val firestore: FirebaseFirestore
+    private val firestore: FirebaseFirestore,
+    private val notificationRepository: NotificationRepository
 ) {
 
     /**
@@ -33,41 +34,62 @@ class ReactionRepository @Inject constructor(
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val reactionId = "${artifactId}_${userId}"
-            val reaction = ArtifactReaction(
-                id = reactionId,
-                artifactId = artifactId,
-                userId = userId,
-                type = type,
-                createdAt = Timestamp.now()
-            )
 
-            // 1. Save the individual reaction
-            firestore.collection("artifact_reactions").document(reactionId)
-                .set(reaction)
-                .await()
-
-            // 2. Optimistically update the aggregate (Local cache benefit)
-            // Note: In production, Cloud Functions would do the heavy lifting for global aggregation.
+            // 1. References for Atomic Update
+            // Migrated to top-level collection for consistency across the app
+            val reactionRef = firestore.collection("artifacts").document(artifactId)
+                .collection("reactions").document(userId)
+            
             val aggregateRef = firestore.collection("artifact_reaction_counts").document(artifactId)
             
+            val artifactRef = firestore.collection("artifacts").document(artifactId)
+            val artifactDoc = artifactRef.get().await()
+            val ownerId = artifactDoc.getString("userId")
+
             firestore.runTransaction { transaction ->
-                val snapshot = transaction.get(aggregateRef)
-                val currentTotal = snapshot.getLong("totalCount") ?: 0L
-                val currentBreakdown = (snapshot.get("breakdown") as? Map<String, Long>) ?: emptyMap()
-                
-                val newBreakdown = currentBreakdown.toMutableMap()
-                newBreakdown[type.name] = (newBreakdown[type.name] ?: 0L) + 1
-                
+                // A. Save the individual reaction in sub-collection
+                transaction.set(reactionRef, mapOf(
+                    "id" to reactionId,
+                    "artifactId" to artifactId,
+                    "userId" to userId,
+                    "type" to type.id, // Use stable ID
+                    "createdAt" to FieldValue.serverTimestamp()
+                ))
+
+                // B. Save a duplicate in top-level 'reactions_global' for profile feed
+                // and for allowing artifact owners to clean up even if they can't see private reactions.
+                val globalRef = firestore.collection("reactions_global").document(reactionId)
+                transaction.set(globalRef, mapOf(
+                    "artifactId" to artifactId,
+                    "userId" to userId,
+                    "artifactOwnerId" to ownerId,
+                    "type" to type.id,
+                    "createdAt" to FieldValue.serverTimestamp()
+                ))
+
+                // C. Update the aggregate counts
                 transaction.set(
                     aggregateRef,
                     mapOf(
-                        "totalCount" to currentTotal + 1,
-                        "breakdown" to newBreakdown,
+                        "totalCount" to FieldValue.increment(1),
+                        "breakdown.${type.id}" to FieldValue.increment(1),
                         "lastUpdated" to FieldValue.serverTimestamp()
                     ),
                     SetOptions.merge()
                 )
+
+                // C. Sync to main artifact document
+                transaction.update(artifactRef, "reactionCount", FieldValue.increment(1))
             }.await()
+
+            // Notify owner if it's not their own artifact
+            if (ownerId != null && ownerId != userId) {
+                notificationRepository.createNotification(
+                    userId = ownerId,
+                    message = notificationRepository.getEmpatheticMessage(type),
+                    artifactId = artifactId
+                )
+            }
 
             Result.success(Unit)
         } catch (e: Exception) {
@@ -92,6 +114,72 @@ class ReactionRepository @Inject constructor(
             trySend(counts)
         }
         awaitClose { subscription.remove() }
+    }
+
+    /**
+     * Returns a flow of all individual reactions for an artifact.
+     */
+    fun getArtifactReactions(artifactId: String): Flow<List<ArtifactReaction>> = callbackFlow {
+        val subscription = firestore.collection("artifacts").document(artifactId)
+            .collection("reactions")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    trySend(emptyList())
+                    return@addSnapshotListener
+                }
+                val reactions = snapshot?.documents?.mapNotNull { doc ->
+                    doc.toObject(ArtifactReaction::class.java)?.copy(id = doc.id)
+                } ?: emptyList()
+                trySend(reactions)
+            }
+        awaitClose { subscription.remove() }
+    }
+
+    /**
+     * Toggles a reaction for a user on an artifact.
+     */
+    suspend fun toggleReaction(artifactId: String, userId: String, type: ReactionType): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val reactionRef = firestore.collection("artifacts").document(artifactId)
+                .collection("reactions").document(userId)
+            val aggregateRef = firestore.collection("artifact_reaction_counts").document(artifactId)
+            val artifactRef = firestore.collection("artifacts").document(artifactId)
+
+            val existingReactionDoc = reactionRef.get().await()
+
+            if (existingReactionDoc.exists()) {
+                val existingTypeId = existingReactionDoc.getString("type") ?: ""
+                val reactionId = "${artifactId}_${userId}"
+                val globalRef = firestore.collection("reactions_global").document(reactionId)
+                
+                firestore.runTransaction { transaction ->
+                    // 1. Delete reaction from both places
+                    transaction.delete(reactionRef)
+                    transaction.delete(globalRef)
+
+                    // 2. Update counts aggregate
+                    transaction.set(
+                        aggregateRef,
+                        mapOf(
+                            "totalCount" to FieldValue.increment(-1),
+                            "breakdown.$existingTypeId" to FieldValue.increment(-1),
+                            "lastUpdated" to FieldValue.serverTimestamp()
+                        ),
+                        SetOptions.merge()
+                    )
+
+                    // 3. Update main artifact document
+                    transaction.update(artifactRef, "reactionCount", FieldValue.increment(-1))
+                }.await()
+            } else {
+                // Add reaction
+                reactToArtifact(artifactId, userId, type)
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("ReactionRepository", "Failed to toggle reaction", e)
+            Result.failure(e)
+        }
     }
 
     /**

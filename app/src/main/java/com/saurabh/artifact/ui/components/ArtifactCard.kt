@@ -9,11 +9,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Comment
 import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -37,11 +40,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.FeedbackType
 import com.saurabh.artifact.model.ReactionType
-import com.saurabh.artifact.model.VoiceComment
 import com.saurabh.artifact.ui.components.motion.PressableScale
+import com.saurabh.artifact.ui.components.TextCommentItem
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.theme.Spacing
 
@@ -65,21 +69,12 @@ fun ArtifactCard(
     onPlayClick: () -> Unit,
     modifier: Modifier = Modifier,
     isCompact: Boolean = false,
-    isUnlocked: Boolean = false,
     isBuffering: Boolean = false,
     hydrationLevel: com.saurabh.artifact.ui.feed.HydrationLevel = com.saurabh.artifact.ui.feed.HydrationLevel.FULL,
     currentPosition: Long = 0,
     duration: Long = 0,
-    comments: List<VoiceComment> = emptyList(),
-    currentlyPlayingCommentId: String? = null,
-    onCommentPlayClick: (VoiceComment) -> Unit = {},
-    onReplySend: (String) -> Unit = {},
-    onReactionSelect: (ReactionType) -> Unit = {},
-    onFeedbackSelect: (FeedbackType) -> Unit = {},
-    onVisibilityChange: (com.saurabh.artifact.model.ReactionVisibilityMode) -> Unit = {},
     onReportClick: () -> Unit = {},
-    onExpand: () -> Unit = {},
-    onSeek: (Float) -> Unit = {},
+    onDeleteClick: () -> Unit = {},
     currentUserId: String? = null
 ) {
     if (hydrationLevel == com.saurabh.artifact.ui.feed.HydrationLevel.SHELL && !isCompact) {
@@ -90,21 +85,27 @@ fun ArtifactCard(
     val isHydrated = hydrationLevel >= com.saurabh.artifact.ui.feed.HydrationLevel.METADATA
     val stage = com.saurabh.artifact.ui.theme.ArtifactTheme.stage
 
-    var replyText by remember { mutableStateOf("") }
-    var showReplies by remember { mutableStateOf(false) }
-    var showReactionSheet by remember { mutableStateOf(false) }
-    var showFeedbackSheet by remember { mutableStateOf(false) }
-    var showVisibilitySheet by remember { mutableStateOf(false) }
+    var showOptionsSheet by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
     val haptic = LocalHapticFeedback.current
     
-    val isOwner = artifact.userId == currentUserId
+    val currentUser = com.saurabh.artifact.ui.theme.ArtifactTheme.currentUser
+    val isOwner = artifact.userId == (currentUserId ?: currentUser?.id)
 
-    // Logic to handle on-demand fetching when expanded
-    LaunchedEffect(showReplies) {
-        if (showReplies) {
-            onExpand()
+    // Dynamic identity resolution: prefer live profile for the current user to fix sync issues
+    val displayArtifact = remember(artifact, currentUser) {
+        if (isOwner && currentUser != null) {
+            artifact.copy(
+                authorAvatarConfig = currentUser.avatarConfig,
+                username = currentUser.anonymousName.ifEmpty { artifact.username }
+            )
+        } else {
+            artifact
         }
     }
+
+    // Logic to handle on-demand fetching when expanded
+    // LaunchedEffect(showReplies) { ... } // Removed since interaction row is gone
 
     // Playback Haptic feedback
     LaunchedEffect(isPlaying) {
@@ -113,9 +114,9 @@ fun ArtifactCard(
         }
     }
 
-    val displayTitle = remember(artifact.title) { artifact.title.ifEmpty { "A quiet moment shared..." } }
-    val displayEmotion = remember(artifact.emotion) { artifact.emotion.ifEmpty { "reflective" }.lowercase() }
-    val displayUsername = remember(artifact.username) { artifact.username.ifEmpty { "anonymous soul" }.lowercase() }
+    val displayTitle = remember(displayArtifact.title) { displayArtifact.title.ifEmpty { "A quiet moment shared..." } }
+    val displayEmotion = remember(displayArtifact.emotion) { displayArtifact.emotion.ifEmpty { "reflective" }.lowercase() }
+    val displayUsername = remember(displayArtifact.username) { displayArtifact.username.ifEmpty { "anonymous soul" }.lowercase() }
 
     val progress by remember(currentPosition, duration) {
         derivedStateOf { if (duration > 0) currentPosition.toFloat() / duration else 0f }
@@ -133,17 +134,16 @@ fun ArtifactCard(
     }
 
     // Moderation Shield
-    val isHidden = artifact.moderation.status == com.saurabh.artifact.model.ModerationStatus.HIDDEN
+    val isHidden = displayArtifact.moderation.status == com.saurabh.artifact.model.ModerationStatus.HIDDEN
 
     if (isCompact) {
         CompactArtifactItem(
-            artifact = artifact,
+            artifact = displayArtifact,
             displayTitle = if (isHidden) "Content Hidden" else displayTitle,
             isPlaying = isPlaying,
             isBuffering = isBuffering,
             progress = progress,
             onPlayClick = if (isHidden) ({}) else onPlayClick,
-            onReactionClick = { showReactionSheet = true },
             modifier = modifier
         )
     } else {
@@ -189,46 +189,65 @@ fun ArtifactCard(
                 Column(modifier = Modifier.padding(Spacing.Large)) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         if (isHidden) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                                 Icon(Icons.Rounded.VisibilityOff, null, tint = MaterialTheme.colorScheme.error)
                                 Spacer(Modifier.width(Spacing.Small))
                                 Text("Content Hidden", style = ArtifactTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
                             }
                         } else {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                AuricAvatar(
+                                    seed = displayArtifact.authorAvatarConfig.seed
+                                        .ifEmpty { displayArtifact.avatarSeed }
+                                        .ifEmpty { displayArtifact.userId },
+                                    size = 32.dp
+                                )
+                                
+                                Spacer(modifier = Modifier.width(Spacing.Medium))
+                                
+                                Column {
+                                    Text(
+                                        text = displayUsername,
+                                        style = ArtifactTheme.typography.labelLarge.copy(
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 15.sp
+                                        ),
+                                        color = ArtifactTheme.colors.onSurfaceMain
+                                    )
+                                    Text(
+                                        text = "2h ago", // Mock timestamp for now
+                                        style = ArtifactTheme.typography.labelSmall,
+                                        color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.6f)
+                                    )
+                                }
+                                
+                                Spacer(modifier = Modifier.width(Spacing.Large))
+                                
                                 Box(
                                     modifier = Modifier
-                                        .size(6.dp)
-                                        .clip(CircleShape)
-                                        .background(ArtifactTheme.colors.waveformActive.copy(alpha = 0.6f))
-                                )
-                                Spacer(Modifier.width(Spacing.Small))
-                                Text(
-                                    text = displayEmotion,
-                                    style = ArtifactTheme.typography.labelLarge,
-                                    color = ArtifactTheme.colors.onSurfaceMuted,
-                                    modifier = Modifier.alpha(0.8f)
-                                )
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(ArtifactTheme.colors.waveformActive.copy(alpha = 0.05f))
+                                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = displayEmotion,
+                                        style = ArtifactTheme.typography.labelSmall,
+                                        color = ArtifactTheme.colors.waveformActive.copy(alpha = 0.8f)
+                                    )
+                                }
                             }
                         }
 
                         IconButton(
-                            onClick = { 
-                                if (isOwner) {
-                                    showVisibilitySheet = true
-                                } else {
-                                    showFeedbackSheet = true
-                                }
-                            },
+                            onClick = { showOptionsSheet = true },
                             modifier = Modifier.size(24.dp)
                         ) {
                             Icon(
-                                imageVector = if (isOwner) Icons.Rounded.Settings else Icons.Rounded.MoreVert,
-                                contentDescription = if (isOwner) "Settings" else "Options",
+                                imageVector = Icons.Rounded.MoreVert,
+                                contentDescription = "Options",
                                 tint = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.4f)
                             )
                         }
@@ -298,7 +317,7 @@ fun ArtifactCard(
                                     Spacer(modifier = Modifier.width(Spacing.Medium))
 
                                     AmbientWaveform(
-                                        amplitudes = artifact.amplitudeData.takeIf { it.isNotEmpty() } ?: listOf(0.4f, 0.6f, 0.5f, 0.8f, 0.3f, 0.7f, 0.5f, 0.4f, 0.6f, 0.9f, 0.5f, 0.4f),
+                                        amplitudes = displayArtifact.amplitudeData.takeIf { it.isNotEmpty() } ?: listOf(0.4f, 0.6f, 0.5f, 0.8f, 0.3f, 0.7f, 0.5f, 0.4f, 0.6f, 0.9f, 0.5f, 0.4f),
                                         progress = progress,
                                         modifier = Modifier.weight(1f).height(waveformHeight),
                                         isPaused = !isPlaying,
@@ -314,68 +333,11 @@ fun ArtifactCard(
                         if (hydrationLevel >= com.saurabh.artifact.ui.feed.HydrationLevel.METADATA && stage >= com.saurabh.artifact.startup.StartupStage.IMMERSION) {
                             ResonanceDisplay(
                                 counts = com.saurabh.artifact.model.ArtifactReactionCounts(
-                                    artifactId = artifact.id,
-                                    totalCount = artifact.reactionCount,
-                                    visibility = artifact.reactionVisibility
+                                    artifactId = displayArtifact.id,
+                                    totalCount = displayArtifact.reactionCount,
+                                    visibility = displayArtifact.reactionVisibility
                                 )
                             )
-                        }
-
-                        Spacer(modifier = Modifier.height(Spacing.Medium))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(Spacing.Small),
-                            ) {
-                                AuricAvatar(seed = artifact.userId, size = 24.dp)
-                                Text(
-                                    text = displayUsername,
-                                    style = ArtifactTheme.typography.labelMedium,
-                                    color = ArtifactTheme.colors.onSurfaceMuted,
-                                    modifier = Modifier.alpha(0.6f)
-                                )
-                            }
-
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(
-                                    onClick = { showReactionSheet = true },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Outlined.FavoriteBorder,
-                                        contentDescription = "Empathy",
-                                        modifier = Modifier.size(18.dp),
-                                        tint = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.6f)
-                                    )
-                                }
-                                
-                                Spacer(modifier = Modifier.width(Spacing.Small))
-
-                                IconButton(
-                                    onClick = { 
-                                        if (isUnlocked) {
-                                            showReplies = !showReplies 
-                                        }
-                                    },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Rounded.Comment,
-                                        contentDescription = "Replies",
-                                        modifier = Modifier.size(18.dp),
-                                        tint = when {
-                                            showReplies -> ArtifactTheme.colors.waveformActive
-                                            isUnlocked -> ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.6f)
-                                            else -> ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.2f)
-                                        }
-                                    )
-                                }
-                            }
                         }
                     }
                 }
@@ -383,71 +345,37 @@ fun ArtifactCard(
         }
     }
 
-    if (showReactionSheet) {
-        ReactionSheet(
-            onReactionSelected = onReactionSelect,
-            onDismiss = { showReactionSheet = false }
+    if (showOptionsSheet) {
+        ArtifactOptionsSheet(
+            isOwner = isOwner,
+            onReportClick = onReportClick,
+            onDismiss = { showOptionsSheet = false },
+            onDeleteClick = { showDeleteConfirm = true }
         )
     }
 
-    if (showFeedbackSheet) {
-        FeedbackSheet(
-            onFeedbackSelected = { type ->
-                if (type == FeedbackType.SAFETY_CONCERN) {
-                    onReportClick()
-                } else {
-                    onFeedbackSelect(type)
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Delete Reflection?") },
+            text = { Text("This will permanently remove this reflection and all associated resonances. This action cannot be undone.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDeleteClick()
+                        showDeleteConfirm = false
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Delete")
                 }
             },
-            onDismiss = { showFeedbackSheet = false }
-        )
-    }
-
-    if (showVisibilitySheet) {
-        ResonanceSettingsSheet(
-            currentMode = artifact.reactionVisibility,
-            onModeSelected = onVisibilityChange,
-            onDismiss = { showVisibilitySheet = false }
-        )
-    }
-
-    AnimatedVisibility(
-        visible = showReplies && isUnlocked,
-        enter = expandVertically() + fadeIn(),
-        exit = shrinkVertically() + fadeOut()
-    ) {
-        Column(modifier = Modifier.padding(top = Spacing.Large)) {
-            HorizontalDivider(
-                thickness = 0.5.dp,
-                color = ArtifactTheme.colors.waveformInactive.copy(alpha = 0.1f)
-            )
-            Spacer(modifier = Modifier.height(Spacing.Medium))
-            
-            if (comments.isNotEmpty()) {
-                comments.forEach { comment ->
-                    AudioCommentItem(
-                        comment = comment,
-                        isPlaying = currentlyPlayingCommentId == comment.id,
-                        onPlayClick = { onCommentPlayClick(comment) },
-                        modifier = Modifier.padding(bottom = Spacing.Small)
-                    )
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text("Cancel")
                 }
             }
-            
-            TextField(
-                value = replyText,
-                onValueChange = { replyText = it },
-                placeholder = { Text("speak kindly...", style = ArtifactTheme.typography.bodyMedium, modifier = Modifier.alpha(0.5f)) },
-                modifier = Modifier.fillMaxWidth(),
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent,
-                    focusedIndicatorColor = ArtifactTheme.colors.waveformActive.copy(alpha = 0.4f),
-                    unfocusedIndicatorColor = ArtifactTheme.colors.waveformInactive.copy(alpha = 0.1f)
-                ),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send)
-            )
-        }
+        )
     }
 }
 
@@ -529,7 +457,6 @@ private fun CompactArtifactItem(
     isBuffering: Boolean,
     progress: Float,
     onPlayClick: () -> Unit,
-    onReactionClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -592,27 +519,6 @@ private fun CompactArtifactItem(
                     )
                 }
             }
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            TextButton(
-                onClick = onReactionClick,
-                contentPadding = PaddingValues(horizontal = 8.dp),
-                modifier = Modifier.height(28.dp)
-            ) {
-                Icon(
-                    Icons.Outlined.FavoriteBorder,
-                    contentDescription = null,
-                    modifier = Modifier.size(14.dp),
-                    tint = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.5f)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = artifact.reactionCount.toString(),
-                    style = ArtifactTheme.typography.labelSmall,
-                    color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.5f)
-                )
-            }
         }
     }
 }
@@ -642,7 +548,6 @@ fun PreviewArtifactCardAtmospheric() {
             onPlayClick = {},
             currentPosition = 30000,
             duration = 120000,
-            isUnlocked = true,
             currentUserId = "user_1"
         )
     }

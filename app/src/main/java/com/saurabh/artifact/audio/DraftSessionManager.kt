@@ -25,9 +25,8 @@ class DraftSessionManager @Inject constructor(
     private val _activeDraft = MutableStateFlow<ArtifactDraftEntity?>(null)
     val activeDraft: StateFlow<ArtifactDraftEntity?> = _activeDraft.asStateFlow()
 
-    suspend fun startNewSession(isComment: Boolean = false) {
-        val extension = if (isComment) "m4a" else "m4a"
-        val file = localDraftManager.createDraftFile(extension)
+    suspend fun startNewSession() {
+        val file = localDraftManager.createDraftFile("m4a")
         val draftId = recordingRepository.createDraft(file.absolutePath, 0)
         val draft = draftDao.getDraftById(draftId)
         
@@ -36,7 +35,6 @@ class DraftSessionManager @Inject constructor(
         val intent = Intent(context, RecordingService::class.java).apply {
             action = RecordingService.ACTION_START
             putExtra("draft_id", draftId)
-            putExtra(RecordingService.EXTRA_IS_COMMENT, isComment)
         }
         ContextCompat.startForegroundService(context, intent)
     }

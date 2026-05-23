@@ -7,11 +7,13 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.work.ForegroundInfo
 import com.saurabh.artifact.MainActivity
 import com.saurabh.artifact.R
 
@@ -20,6 +22,7 @@ import com.saurabh.artifact.R
  * Focuses on centralized, reusable, and respectful engagement mechanics.
  */
 object NotificationHelper {
+    // ... rest of the imports ...
 
     const val CHANNEL_ID_INTERACTIONS = "interactions_channel"
     const val CHANNEL_NAME_INTERACTIONS = "Interactions"
@@ -32,6 +35,8 @@ object NotificationHelper {
     const val CHANNEL_ID_UPLOADS = "uploads_channel"
     const val CHANNEL_NAME_UPLOADS = "Upload Status"
     const val CHANNEL_DESC_UPLOADS = "Status updates for your artifact uploads."
+
+    const val UPLOAD_NOTIFICATION_ID = 3001
 
     /**
      * Initializes all notification channels for the app.
@@ -66,11 +71,10 @@ object NotificationHelper {
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = CHANNEL_DESC_UPLOADS
+                setShowBadge(false) // Uploads don't need badges
             }
             
             notificationManager.createNotificationChannels(listOf(interactionsChannel, remindersChannel, uploadsChannel))
-            
-            // Note: RecordingService manages its own foreground service channel (recording_channel)
         }
     }
 
@@ -82,6 +86,59 @@ object NotificationHelper {
             ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
         } else {
             true
+        }
+    }
+
+    /**
+     * Builds a progress notification for uploads.
+     */
+    fun buildUploadProgressNotification(
+        context: Context,
+        title: String,
+        progress: Int
+    ): android.app.Notification {
+        return NotificationCompat.Builder(context, CHANNEL_ID_UPLOADS)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("Uploading artifact...")
+            .setContentText("$title • $progress% complete")
+            .setProgress(100, progress, false)
+            .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+            .build()
+    }
+
+    /**
+     * Updates an existing upload progress notification.
+     */
+    fun updateUploadProgress(context: Context, title: String, progress: Int) {
+        if (!hasNotificationPermission(context)) {
+            Log.d("NotificationHelper", "Trace: Skipping progress update (no permission)")
+            return
+        }
+        
+        Log.d("NotificationHelper", "Trace: Updating upload progress for $title to $progress%")
+        val notification = buildUploadProgressNotification(context, title, progress)
+        try {
+            NotificationManagerCompat.from(context).notify(UPLOAD_NOTIFICATION_ID, notification)
+        } catch (e: SecurityException) {
+            Log.e("NotificationHelper", "SecurityException while updating upload progress", e)
+        }
+    }
+
+    /**
+     * Provides ForegroundInfo for WorkManager uploads.
+     */
+    fun getUploadForegroundInfo(context: Context, title: String, progress: Int): ForegroundInfo {
+        val notification = buildUploadProgressNotification(context, title, progress)
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ForegroundInfo(
+                UPLOAD_NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            )
+        } else {
+            ForegroundInfo(UPLOAD_NOTIFICATION_ID, notification)
         }
     }
 
@@ -183,9 +240,36 @@ object NotificationHelper {
             .setAutoCancel(true)
 
         try {
-            NotificationManagerCompat.from(context).notify(3001, builder.build())
+            NotificationManagerCompat.from(context).notify(UPLOAD_NOTIFICATION_ID, builder.build())
         } catch (e: SecurityException) {
             Log.e("NotificationHelper", "SecurityException while showing upload success notification", e)
         }
+    }
+
+    /**
+     * Shows a notification when an upload fails.
+     */
+    fun showUploadErrorNotification(context: Context, title: String) {
+        if (!hasNotificationPermission(context)) return
+
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID_UPLOADS)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("Upload Interrupted")
+            .setContentText("Something went wrong. \"$title\" is safely saved locally.")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+
+        try {
+            NotificationManagerCompat.from(context).notify(UPLOAD_NOTIFICATION_ID, builder.build())
+        } catch (e: SecurityException) {
+            Log.e("NotificationHelper", "SecurityException while showing upload error notification", e)
+        }
+    }
+
+    /**
+     * Cancels the upload notification.
+     */
+    fun cancelUploadNotification(context: Context) {
+        NotificationManagerCompat.from(context).cancel(UPLOAD_NOTIFICATION_ID)
     }
 }

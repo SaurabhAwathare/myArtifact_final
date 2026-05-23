@@ -26,6 +26,7 @@ import com.saurabh.artifact.util.MemoryManager
 import com.saurabh.artifact.util.MemoryTrimable
 import com.saurabh.artifact.util.StartupTracer
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.yield
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
@@ -69,8 +70,9 @@ class FeedViewModel @Inject constructor(
     private val feedRepository: com.saurabh.artifact.repository.FeedRepository,
     private val memoryManager: MemoryManager,
     private val startupCoordinator: StartupCoordinator,
+    private val savedArtifactManager: com.saurabh.artifact.repository.SavedArtifactManager,
     val audioPlayer: AudioPlayer,
-    private val listeningProgressTracker: com.saurabh.artifact.audio.ListeningProgressTracker,
+    private val reviewSessionManager: com.saurabh.artifact.audio.ReviewSessionManager,
     private val commentUnlockRepository: com.saurabh.artifact.repository.CommentUnlockRepository
 ) : ViewModel(), MemoryTrimable {
 
@@ -80,8 +82,7 @@ class FeedViewModel @Inject constructor(
     private val _unlockedArtifactIds = MutableStateFlow<Set<String>>(emptySet())
     val unlockedArtifactIds: StateFlow<Set<String>> = _unlockedArtifactIds.asStateFlow()
 
-    private val _currentlyPlayingCommentId = MutableStateFlow<String?>(null)
-    val currentlyPlayingCommentId: StateFlow<String?> = _currentlyPlayingCommentId.asStateFlow()
+    val savedIds = savedArtifactManager.savedIds
 
     // LRU cache for artifact details to prevent unbounded memory growth
     private val detailsCache = object : LruCache<String, ArtifactDetail>(10) {
@@ -133,6 +134,13 @@ class FeedViewModel @Inject constructor(
                 _unlockedArtifactIds.value = ids
             }
         }
+
+        // Listen for save messages
+        viewModelScope.launch {
+            savedArtifactManager.messages.collect { message ->
+                _uiState.update { it.copy(error = message) }
+            }
+        }
     }
 
     private val startupJob = kotlinx.coroutines.SupervisorJob()
@@ -143,53 +151,52 @@ class FeedViewModel @Inject constructor(
         if (started) return
         started = true
 
-        Log.d("APP_FLOW", "FeedViewModel.start() - Staggered Hydration")
+        Log.d("APP_FLOW", "FeedViewModel.start() - Production Staggered Hydration")
         StartupTracer.mark("Feed Hydration Started")
         StartupMetrics.onFeedHydrationStart()
         
         viewModelScope.launch {
-            kotlinx.coroutines.supervisorScope {
-                launch { 
-                    runCatching { 
-                        loadRankedFeed().join()
-                        StartupTracer.mark("Ranked Feed Loaded")
-                    }
-                        .onFailure { Log.e("FeedHydration", "Ranked feed load failed", it) }
-                }
-                
-                launch {
-                    runCatching { 
-                        refreshReflectionPrompt().join()
-                        StartupTracer.mark("Reflection Prompt Hydrated")
-                    }
-                        .onFailure { Log.e("FeedHydration", "Prompt refresh failed", it) }
-                }
-                
-                launch {
-                    delay(20000)
-                    Log.d("FeedViewModel", "Initializing Personalization (AppSearch) - Deferred")
-                    personalizationEngine.ensureInitialized()
-                }
-                
-                launch {
-                    observePlaybackCompletion()
-                }
-
-                launch {
-                    observePlaybackProgress()
-                }
+            // PHASE 1: Critical UI Path (Primary Feed Content)
+            // Run on Default dispatcher to keep Main thread free for first frame
+            // REMOVED blocking .join() to allow concurrent hydration of shell
+            val feedJob = launch(Dispatchers.Default) {
+                runCatching { 
+                    loadRankedFeed()
+                    StartupTracer.mark("Ranked Feed Loaded")
+                }.onFailure { Log.e("FeedHydration", "Ranked feed load failed", it) }
             }
+
+            // PHASE 2: Contextual Enrichment (Prompts & Personalization Init)
+            // Deferred intentionally to prioritize first artifact render and reduce system pressure
+            launch {
+                delay(1500) // Yield significantly to UI and Phase 1
+                runCatching { 
+                    refreshReflectionPrompt()
+                    StartupTracer.mark("Reflection Prompt Hydrated")
+                }.onFailure { Log.e("FeedHydration", "Prompt refresh failed", it) }
+            }
+
+            // PHASE 3: Background & Deferred (Low priority syncs)
+            launch {
+                delay(4000) // Well after UI is stable and user is likely interacting
+                personalizationEngine.ensureInitialized()
+                StartupTracer.mark("Personalization Engine Initialized")
+            }
+            
+            launch { observePlaybackCompletion() }
+            launch { observePlaybackProgress() }
         }
     }
 
     private fun observePlaybackProgress() {
         viewModelScope.launch {
-            listeningProgressTracker.sessionState.collect { session ->
-                if (session?.isThresholdMet == true) {
-                    if (!_unlockedArtifactIds.value.contains(session.artifactId)) {
-                        _unlockedArtifactIds.update { it + session.artifactId }
-                        commentUnlockRepository.unlockArtifact(session.artifactId)
-                        Log.d("FeedViewModel", "Artifact ${session.artifactId} unlocked via robust tracker")
+            reviewSessionManager.reviewProgress.collect { session ->
+                if (session.isThresholdMet) {
+                    val artifactId = session.artifactId
+                    if (artifactId != null && !_unlockedArtifactIds.value.contains(artifactId)) {
+                        _unlockedArtifactIds.update { it + artifactId }
+                        commentUnlockRepository.unlockArtifact(artifactId)
+                        Log.d("FeedViewModel", "Artifact $artifactId unlocked via robust tracker")
                     }
                 }
             }
@@ -199,10 +206,6 @@ class FeedViewModel @Inject constructor(
     private fun observePlaybackCompletion() {
         viewModelScope.launch {
             audioPlayer.onPlaybackCompleted.collectLatest { completedUrl ->
-                if (_currentlyPlayingCommentId.value != null) {
-                    _currentlyPlayingCommentId.value = null
-                }
-
                 val current = audioPlayer.currentArtifact.value
                 if (current?.audioUrl == completedUrl) {
                     _unlockedArtifactIds.update { set -> set + current.id }
@@ -271,23 +274,27 @@ class FeedViewModel @Inject constructor(
         return viewModelScope.launch {
             val userId = authRepository.currentUser.value?.uid ?: return@launch
             _uiState.update { it.copy(isRankedLoading = true) }
+            
             runCatching {
+                // Offload heavy composition and fetching to Default dispatcher
                 val fullFeed = withContext(Dispatchers.Default) {
                     feedComposer.composeFeed(userId)
                 }
                 
                 // STAGGERED HYDRATION: Process in batches to reduce main-thread pressure
-                val batch1Size = 10
+                val batch1Size = 5 // Reduced from 10 to minimize first frame delay
                 
                 val (unfinished, rankedBatch1, remainingRanked) = withContext(Dispatchers.Default) {
                     val unfinished = fullFeed.filter { it.isUnfinished }
                     val ranked = fullFeed.filter { !it.isUnfinished }
+                    
+                    // Optimization: Use slimForFeed during the mapping phase
                     val b1 = ranked.take(batch1Size).map { it.artifact.slimForFeed() }
-                    val rem = ranked.drop(batch1Size).take(40) // Limit to 50 total for performance
+                    val rem = ranked.drop(batch1Size).take(35) // Limit total to 40
                     Triple(unfinished, b1, rem)
                 }
 
-                // Stage 1: Immediate update with unfinished and first 10 items
+                // Stage 1: Immediate update with critical first batch
                 _unfinishedArtifacts.value = unfinished
                 
                 val b1Ids = rankedBatch1.map { it.id }
@@ -301,10 +308,11 @@ class FeedViewModel @Inject constructor(
                     )
                 }
                 
-                // Allow UI to render the first batch
-                delay(100) 
+                // Yield to UI to allow immediate rendering of the first 5 items
+                yield() 
+                delay(64) // roughly 4 frames at 60fps
 
-                // Stage 2: Process and append the remaining items
+                // Stage 2: Background processing for remaining items
                 if (remainingRanked.isNotEmpty()) {
                     val processedRemaining = withContext(Dispatchers.Default) {
                         remainingRanked.map { it.artifact.slimForFeed() }
@@ -322,7 +330,7 @@ class FeedViewModel @Inject constructor(
                     }
                 }
             }.onFailure {
-                android.util.Log.e("FeedViewModel", "Error loading composed feed", it)
+                Log.e("FeedViewModel", "Error loading composed feed", it)
             }
             _uiState.update { it.copy(isRankedLoading = false) }
         }
@@ -372,8 +380,7 @@ class FeedViewModel @Inject constructor(
             if (audioPlayer.currentArtifact.value?.id == artifact.id) {
                 audioPlayer.togglePlayPause()
             } else {
-                _currentlyPlayingCommentId.value = null
-                audioPlayer.play(artifact)
+                reviewSessionManager.startListening(artifact)
                 viewModelScope.launch {
                     artifactRepository.recordPlay(
                         authRepository.currentUser.value?.uid,
@@ -387,18 +394,8 @@ class FeedViewModel @Inject constructor(
         }
     }
 
-    fun playComment(comment: VoiceComment) {
-        try {
-            if (_currentlyPlayingCommentId.value == comment.id) {
-                audioPlayer.togglePlayPause()
-            } else {
-                _currentlyPlayingCommentId.value = comment.id
-                audioPlayer.play(comment.audioUrl)
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("FeedViewModel", "Error playing comment", e)
-            _uiState.update { it.copy(error = "Unable to play this comment.") }
-        }
+    fun toggleSave(artifact: Artifact) {
+        savedArtifactManager.toggleSave(artifact)
     }
 
     fun reportArtifact(artifactId: String, reason: com.saurabh.artifact.model.ReportReason, details: String) {
@@ -420,9 +417,37 @@ class FeedViewModel @Inject constructor(
             _uiState.update { it.copy(error = "Sign in to interact.") }
             return
         }
+        
+        // Optimistic UI for immediate feedback
+        val currentArtifact = _uiState.value.artifactCache[artifactId]
+        if (currentArtifact != null) {
+            val updatedArtifact = currentArtifact.copy(
+                reactionCount = currentArtifact.reactionCount + 1
+                // Note: We don't have a local 'userReaction' flag in Artifact model, 
+                // but incrementing the count provides immediate feedback.
+            )
+            _uiState.update { current ->
+                current.copy(artifactCache = current.artifactCache + (artifactId to updatedArtifact))
+            }
+        }
+
         viewModelScope.launch {
-            artifactRepository.reactToArtifact(artifactId, userId, type).onFailure {
-                _uiState.update { it.copy(error = "Couldn't update reaction.") }
+            reactionRepository.toggleReaction(artifactId, userId, type).onSuccess {
+                // Refresh local cache for final consistency
+                val updatedArtifact = artifactRepository.getArtifactById(artifactId)
+                if (updatedArtifact != null) {
+                    _uiState.update { current ->
+                        current.copy(artifactCache = current.artifactCache + (artifactId to updatedArtifact.slimForFeed()))
+                    }
+                }
+            }.onFailure {
+                // Rollback optimistic update on failure
+                if (currentArtifact != null) {
+                    _uiState.update { current ->
+                        current.copy(artifactCache = current.artifactCache + (artifactId to currentArtifact))
+                    }
+                }
+                _uiState.update { it.copy(error = "We couldn't share your resonance right now. Please try again.") }
             }
         }
     }

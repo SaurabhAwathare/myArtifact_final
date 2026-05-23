@@ -18,53 +18,22 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.saurabh.artifact.presentation.avatar.model.AvatarConfig
-import com.saurabh.artifact.presentation.avatar.renderer.AvatarRenderer
 import com.saurabh.artifact.ui.player.components.*
 import com.saurabh.artifact.ui.theme.EmberGlow
 import com.saurabh.artifact.ui.components.motion.MotionTokens
-import kotlinx.serialization.json.Json
-
-@Composable
-fun ArtifactAvatar(
-    emoji: String,
-    avatarConfigJson: String?,
-    modifier: Modifier = Modifier
-) {
-    Box(
-        modifier = modifier,
-        contentAlignment = Alignment.Center
-    ) {
-        if (!avatarConfigJson.isNullOrBlank()) {
-            val config = remember(avatarConfigJson) {
-                try {
-                    Json.decodeFromString<AvatarConfig>(avatarConfigJson)
-                } catch (e: Exception) {
-                    android.util.Log.e("ArtifactPlayerView", "Failed to decode avatar config", e)
-                    null
-                }
-            }
-            if (config != null) {
-                AvatarRenderer(
-                    config = config,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                Text(text = emoji, fontSize = 24.sp)
-            }
-        } else {
-            Text(text = emoji, fontSize = 24.sp)
-        }
-    }
-}
+import com.saurabh.artifact.ui.components.ArtifactAvatar
+import com.saurabh.artifact.model.AvatarConfig
 
 @Composable
 fun ArtifactPlayerView(
     isVisible: Boolean = true,
     onNavigateToDraftEdit: (String) -> Unit = {},
     onNavigateToPublish: (String) -> Unit = {},
+    onNavigateToComments: (String, String) -> Unit = { _, _ -> },
+    onReportArtifact: (String) -> Unit = {},
     viewModel: PlayerViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -81,6 +50,7 @@ fun ArtifactPlayerView(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
+                .zIndex(10f) // Lower than fullscreen but visible
         ) {
             MiniPlayer(
                 uiState = uiState,
@@ -99,7 +69,8 @@ fun ArtifactPlayerView(
             exit = slideOutVertically(
                 targetOffsetY = { it }, 
                 animationSpec = tween(MotionTokens.DURATION_LONG)
-            )
+            ),
+            modifier = Modifier.zIndex(50f) // Higher priority
         ) {
             val artifact = uiState.currentArtifact ?: return@AnimatedVisibility
             ImmersivePlayerScreen(
@@ -112,10 +83,16 @@ fun ArtifactPlayerView(
                 onSpeedChange = { viewModel.setPlaybackSpeed(it) },
                 onSeek = { viewModel.seekTo((it * uiState.duration).toLong()) },
                 onShowAdvanced = { viewModel.setShowAdvancedControls(true) },
-                onCommentClick = { /* Navigate to comments */ },
+                onCommentClick = { 
+                    val art = uiState.currentArtifact
+                    if (art != null) onNavigateToComments(art.id, art.userId)
+                },
+                onResonateClick = { viewModel.toggleResonate(it) },
+                onFollowClick = { viewModel.toggleFollow() },
+                onSaveClick = { viewModel.toggleSave() },
                 onEditClick = { 
                     viewModel.setExpanded(false)
-                    onNavigateToDraftEdit(artifact.audioUrl) 
+                    onNavigateToDraftEdit(artifact.id)
                 },
                 onPublishClick = {
                     viewModel.setExpanded(false)
@@ -136,6 +113,10 @@ fun ArtifactPlayerView(
                 onSleepTimerSelected = { viewModel.startSleepTimer(it) },
                 currentSpeed = uiState.playbackSpeed,
                 onSpeedSelected = { viewModel.setPlaybackSpeed(it) },
+                onReportClick = {
+                    uiState.currentArtifact?.let { onReportArtifact(it.id) }
+                    viewModel.setShowAdvancedControls(false)
+                },
                 onDismiss = { viewModel.setShowAdvancedControls(false) }
             )
         }
@@ -166,8 +147,7 @@ fun MiniPlayer(
             verticalAlignment = Alignment.CenterVertically
         ) {
             ArtifactAvatar(
-                emoji = artifact.userEmoji,
-                avatarConfigJson = artifact.avatarConfigJson,
+                config = artifact.authorAvatarConfig,
                 modifier = Modifier
                     .size(48.dp)
                     .clip(RoundedCornerShape(14.dp))

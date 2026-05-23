@@ -18,10 +18,13 @@ import com.saurabh.artifact.ui.theme.Spacing
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ArtifactManagementBottomSheet(
+    isOwner: Boolean,
     isDraft: Boolean,
     onRenameClick: () -> Unit,
     onDeleteClick: () -> Unit,
     onViewCommentsClick: () -> Unit,
+    isSaved: Boolean = false,
+    onUnsaveClick: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     ModalBottomSheet(
@@ -29,7 +32,7 @@ fun ArtifactManagementBottomSheet(
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = ArtifactTheme.colors.surfaceHearth,
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-        dragHandle = { BottomSheetDefaults.DragHandle(color = Color.White.copy(alpha = 0.1f)) }
+        dragHandle = null
     ) {
         Column(
             modifier = Modifier
@@ -37,14 +40,27 @@ fun ArtifactManagementBottomSheet(
                 .navigationBarsPadding()
                 .padding(bottom = Spacing.Large)
         ) {
-            ManagementActionItem(
-                icon = Icons.Rounded.Edit,
-                label = if (isDraft) "Rename Draft" else "Rename Artifact",
-                onClick = {
-                    onRenameClick()
-                    onDismiss()
-                }
-            )
+            if (isOwner) {
+                ManagementActionItem(
+                    icon = Icons.Rounded.Edit,
+                    label = if (isDraft) "Rename Draft" else "Rename Artifact",
+                    onClick = {
+                        onRenameClick()
+                        onDismiss()
+                    }
+                )
+            }
+
+            if (isSaved) {
+                ManagementActionItem(
+                    icon = Icons.Rounded.Bookmark,
+                    label = "Remove from Archive",
+                    onClick = {
+                        onUnsaveClick()
+                        onDismiss()
+                    }
+                )
+            }
 
             if (!isDraft) {
                 ManagementActionItem(
@@ -57,15 +73,17 @@ fun ArtifactManagementBottomSheet(
                 )
             }
 
-            ManagementActionItem(
-                icon = Icons.Rounded.DeleteOutline,
-                label = if (isDraft) "Delete Draft" else "Delete Artifact",
-                textColor = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
-                onClick = {
-                    onDeleteClick()
-                    onDismiss()
-                }
-            )
+            if (isOwner) {
+                ManagementActionItem(
+                    icon = Icons.Rounded.DeleteOutline,
+                    label = if (isDraft) "Delete Draft" else "Delete Artifact",
+                    textColor = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
+                    onClick = {
+                        onDeleteClick()
+                        onDismiss()
+                    }
+                )
+            }
         }
     }
 }

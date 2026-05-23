@@ -18,8 +18,19 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
+import androidx.compose.material3.Text
+import androidx.compose.material3.MaterialTheme
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.foundation.layout.*
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.startup.StartupStage
 import com.saurabh.artifact.ui.theme.LocalStartupStage
@@ -27,8 +38,10 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import com.saurabh.artifact.navigation.NavGraph
 import com.saurabh.artifact.audio.RecordingSessionManager
+import com.saurabh.artifact.audio.UploadSessionManager
 import com.saurabh.artifact.ui.player.ArtifactPlayerView
 import com.saurabh.artifact.ui.recording.components.MiniRecorder
+import com.saurabh.artifact.ui.components.AmbientUploadBar
 import com.saurabh.artifact.navigation.Screen
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -102,18 +115,34 @@ fun AppRoot(
 ) {
     // Only collect the essential stage at the root
     val stage by mainViewModel.startupStage.collectAsStateWithLifecycle()
+    val userProfile by mainViewModel.currentUserProfile.collectAsStateWithLifecycle()
 
     Log.d("PERF_DEBUG", "AppRoot Recomposed. Stage: $stage")
 
-    CompositionLocalProvider(LocalStartupStage provides stage) {
+    val uploadSessionManager = dagger.hilt.android.EntryPointAccessors.fromActivity(
+        androidx.compose.ui.platform.LocalContext.current as android.app.Activity,
+        MainActivityEntryPoint::class.java
+    ).uploadSessionManager()
+
+    CompositionLocalProvider(
+        LocalStartupStage provides stage,
+        com.saurabh.artifact.ui.theme.LocalUserProfile provides userProfile
+    ) {
         // Defer more expensive state collection until we are past Presence
         AuthenticatedIsland(
             stage = stage,
             mainViewModel = mainViewModel,
             recordingSessionManager = recordingSessionManager,
+            uploadSessionManager = uploadSessionManager,
             onboardingManager = onboardingManager
         )
     }
+}
+
+@dagger.hilt.EntryPoint
+@dagger.hilt.InstallIn(dagger.hilt.android.components.ActivityComponent::class)
+interface MainActivityEntryPoint {
+    fun uploadSessionManager(): UploadSessionManager
 }
 
 @Composable
@@ -121,6 +150,7 @@ fun AuthenticatedIsland(
     stage: StartupStage,
     mainViewModel: MainViewModel,
     recordingSessionManager: RecordingSessionManager,
+    uploadSessionManager: UploadSessionManager,
     onboardingManager: com.saurabh.artifact.util.OnboardingManager
 ) {
     val startupState by mainViewModel.startupState.collectAsStateWithLifecycle()
@@ -159,41 +189,93 @@ fun AuthenticatedIsland(
                     val recordingState by recordingSessionManager.recordingState.collectAsStateWithLifecycle()
                     val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
                     
+                    // Critical: Review screen MUST have absolute ownership.
+                    // If we are on RecordingReview, we COMPLETELY unmount the PublicPlayer.
                     val screensWithoutOverlays = listOf(
                         Screen.InstantRecord.route,
                         Screen.PreRecordingWarning.route,
-                        Screen.DraftEdit.route,
-                        Screen.RecordingReview.route,
+                        Screen.RecordingReview.route, // Added strictly here
+                        Screen.PublishPreparation.route,
                         Screen.PublishApproval.route,
                         Screen.IdentitySelection.route,
-                        Screen.AvatarCreator.route
+                        Screen.PresenceBuilder.route,
+                        Screen.PostRecordingDecision.route // Also added
                     )
-                    val showOverlays = currentRoute !in screensWithoutOverlays
+                    val showOverlays = currentRoute != null && currentRoute !in screensWithoutOverlays
 
                     if (showOverlays) {
-                        MiniRecorder(
-                            status = recordingState.status,
-                            durationSeconds = recordingState.durationSeconds,
-                            onClick = {
-                                navController.navigate(Screen.InstantRecord.route) {
-                                    launchSingleTop = true
+                        val uploadSession by uploadSessionManager.currentSession.collectAsStateWithLifecycle()
+                        
+                        Column(
+                            modifier = androidx.compose.ui.Modifier
+                                .align(androidx.compose.ui.Alignment.BottomCenter)
+                                .navigationBarsPadding()
+                                .zIndex(1000f) // Highest priority for essential overlays
+                        ) {
+                            AmbientUploadBar(
+                                session = uploadSession,
+                                onDismiss = { uploadSessionManager.dismissSession() }
+                            )
+
+                            MiniRecorder(
+                                status = recordingState.status,
+                                durationSeconds = recordingState.durationSeconds,
+                                onClick = {
+                                    navController.navigate(Screen.InstantRecord.route) {
+                                        launchSingleTop = true
+                                    }
                                 }
-                            },
-                            modifier = androidx.compose.ui.Modifier.align(androidx.compose.ui.Alignment.BottomCenter)
-                        )
+                            )
+                        }
+                    }
+
+                    // Debug Interaction Highlight Layer
+                    // Only active in debug builds to visualize touch interception zones.
+                    if (BuildConfig.DEBUG && false) { // Toggle to true to see invisible boxes
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Red.copy(alpha = 0.05f))
+                                .padding(16.dp)
+                        ) {
+                            Text(
+                                "DEBUG: Interaction Layer Active",
+                                color = Color.Red,
+                                style = androidx.compose.material3.MaterialTheme.typography.labelSmall
+                            )
+                        }
                     }
 
                     // Only render heavy media UI when in RITUAL stage or later
                     if (stage >= StartupStage.RITUAL) {
+                        var reportingArtifactId by remember { mutableStateOf<String?>(null) }
+                        
                         ArtifactPlayerView(
                             isVisible = showOverlays,
-                            onNavigateToDraftEdit = { filePath ->
-                                navController.navigate(Screen.DraftEdit.createRoute(filePath))
+                            onNavigateToDraftEdit = { draftId ->
+                                navController.navigate(Screen.RecordingReview.createRoute(draftId))
                             },
                             onNavigateToPublish = { draftId ->
-                                navController.navigate(Screen.PublishApproval.createRoute(draftId))
-                            }
+                                navController.navigate(Screen.PublishPreparation.createRoute(draftId))
+                            },
+                            onNavigateToComments = { artifactId, userId ->
+                                navController.navigate(Screen.Comments.createRoute(artifactId, userId))
+                            },
+                            onReportArtifact = { reportingArtifactId = it }
                         )
+
+                        if (reportingArtifactId != null) {
+                            val feedViewModel: com.saurabh.artifact.ui.feed.FeedViewModel = hiltViewModel()
+                            com.saurabh.artifact.ui.components.moderation.ReportSheet(
+                                onReportSubmitted = { reason, details ->
+                                    reportingArtifactId?.let { id ->
+                                        feedViewModel.reportArtifact(id, reason, details)
+                                    }
+                                    reportingArtifactId = null
+                                },
+                                onDismiss = { reportingArtifactId = null }
+                            )
+                        }
                     }
                 }
             }

@@ -26,7 +26,8 @@ sealed class Screen(val route: String) {
     object DraftList : Screen("draft_list")
     
     object IdentitySelection : Screen("identity_selection")
-    object AvatarCreator : Screen("avatar_creator")
+    object AvatarEditor : Screen("avatar_editor")
+    object PresenceBuilder : Screen("presence_builder")
 
     object PreRecordingWarning : Screen("pre_recording_warning?prompt={prompt}") {
         fun createRoute(prompt: String? = null): String {
@@ -50,6 +51,13 @@ sealed class Screen(val route: String) {
         }
     }
 
+    object PostRecordingDecision : Screen("post_recording_decision/{draftId}") {
+        fun createRoute(draftId: String): String {
+            val encodedId = URLEncoder.encode(draftId, StandardCharsets.UTF_8.toString())
+            return "post_recording_decision/$encodedId"
+        }
+    }
+
     object Moderation : Screen("moderation")
 
     object RecordingReview : Screen("recording_review/{draftId}") {
@@ -63,6 +71,13 @@ sealed class Screen(val route: String) {
         fun createRoute(draftId: String): String {
             val encodedId = URLEncoder.encode(draftId, StandardCharsets.UTF_8.toString())
             return "publish_approval/$encodedId"
+        }
+    }
+
+    object PublishPreparation : Screen("publish_preparation/{draftId}") {
+        fun createRoute(draftId: String): String {
+            val encodedId = URLEncoder.encode(draftId, StandardCharsets.UTF_8.toString())
+            return "publish_preparation/$encodedId"
         }
     }
 

@@ -35,6 +35,7 @@ fun LazyListScope.draftSection(
                 ProfileArtifactCard(
                     artifact = tempArtifact,
                     isDraft = true,
+                    isOwner = true,
                     isPlaying = isCurrent && isPlaying,
                     isBuffering = isCurrent && isBuffering,
                     onPlayClick = { onPlayClick(draft) },

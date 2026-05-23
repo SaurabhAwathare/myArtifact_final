@@ -19,5 +19,5 @@ data class ArtifactUiModel(
 ) {
     val id: String get() = artifact.id
     val duration: Long get() = artifact.duration
-    val comments: List<VoiceComment> get() = detail?.comments ?: emptyList()
+    val comments: List<ArtifactComment> get() = detail?.comments ?: emptyList()
 }

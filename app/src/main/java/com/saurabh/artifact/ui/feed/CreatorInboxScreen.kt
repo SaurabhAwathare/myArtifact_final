@@ -12,7 +12,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.saurabh.artifact.model.ArtifactComment
 import com.saurabh.artifact.model.ReactionType
-import com.saurabh.artifact.ui.components.AudioCommentItem
+import com.saurabh.artifact.ui.components.TextCommentItem
 import com.saurabh.artifact.ui.components.EmotionalInsightCard
 import com.saurabh.artifact.ui.components.EmptyHearthState
 import com.saurabh.artifact.ui.components.ReactionBar
@@ -83,10 +83,8 @@ fun CreatorInboxScreen(
                 ) {
                     items(uiState.reflections) { reflection ->
                         Column {
-                            AudioCommentItem(
-                                comment = reflection.toVoiceComment(),
-                                isPlaying = false, // Simplified for now
-                                onPlayClick = { /* Handle play */ }
+                            TextCommentItem(
+                                comment = reflection
                             )
                             
                             Spacer(Modifier.height(8.dp))

@@ -3,12 +3,15 @@ package com.saurabh.artifact.ui.comments
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AddCircle
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -18,12 +21,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.saurabh.artifact.ui.feed.CommentViewModel
+import com.saurabh.artifact.ui.feed.CommentComposer
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.theme.GoldAura500
 import com.saurabh.artifact.ui.theme.Obsidian950
 import com.saurabh.artifact.ui.theme.Obsidian900
+import com.saurabh.artifact.ui.components.ArtifactAvatar
+import com.saurabh.artifact.model.AvatarConfig
 
 @Composable
 fun CommentsScreen(
@@ -34,9 +41,10 @@ fun CommentsScreen(
 ) {
     android.util.Log.d("ReviewDebug", "CommentsScreen entering Composition for artifactId=$artifactId")
     val uiState by viewModel.uiState.collectAsState()
+    var showComposer by remember { mutableStateOf(false) }
 
     LaunchedEffect(uiState.isLocked) {
-        android.util.Log.d("ReviewDebug", "Compose observed isLocked=${uiState.isLocked}")
+        android.util.Log.d("ReviewDebug", "UI Compose observed isLocked change: ${uiState.isLocked}")
     }
 
     LaunchedEffect(artifactId, ownerId) {
@@ -64,6 +72,17 @@ fun CommentsScreen(
                     fontWeight = FontWeight.Bold
                 )
             }
+        },
+        floatingActionButton = {
+            if (!uiState.isLocked) {
+                FloatingActionButton(
+                    onClick = { showComposer = true },
+                    containerColor = GoldAura500,
+                    contentColor = Obsidian950
+                ) {
+                    Icon(Icons.Rounded.Add, contentDescription = "Add Reflection")
+                }
+            }
         }
     ) { innerPadding ->
         Column(
@@ -81,30 +100,57 @@ fun CommentsScreen(
                 if (isLocked) {
                     LockedCommentView(progress = uiState.listeningProgress)
                 } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(24.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        items(uiState.comments) { comment ->
-                            CommentCard(comment = comment)
-                        }
-                        
-                        if (uiState.comments.isEmpty()) {
-                            item {
-                                Box(
-                                    modifier = Modifier.fillMaxWidth().fillMaxHeight(),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        "No echoes yet. Be the first to respond.",
-                                        style = ArtifactTheme.typography.bodyMedium,
-                                        color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.5f)
-                                    )
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(24.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            items(uiState.comments) { comment ->
+                                CommentCard(comment = comment)
+                            }
+                            
+                            if (uiState.comments.isEmpty()) {
+                                item {
+                                    Box(
+                                        modifier = Modifier.fillParentMaxSize(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            "No echoes yet. Be the first to respond.",
+                                            style = ArtifactTheme.typography.bodyMedium,
+                                            color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.5f)
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
+                }
+            }
+        }
+
+        if (showComposer) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.6f))
+                    .clickable { showComposer = false }
+                    .zIndex(100f)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp))
+                        .background(ArtifactTheme.colors.surfaceHearth)
+                        .clickable(enabled = true, onClick = { /* Consumed */ })
+                ) {
+                    CommentComposer(
+                        artifactId = artifactId,
+                        viewModel = viewModel,
+                        onClose = { showComposer = false }
+                    )
                 }
             }
         }
@@ -121,7 +167,10 @@ fun CommentCard(comment: com.saurabh.artifact.model.ArtifactComment) {
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(comment.authorEmoji, fontSize = 20.sp)
+                ArtifactAvatar(
+                    config = AvatarConfig(seed = comment.authorAvatarSeed),
+                    size = 32.dp
+                )
                 Spacer(modifier = Modifier.width(12.dp))
                 Text(
                     text = comment.authorDisplayName ?: "Anonymous Soul",

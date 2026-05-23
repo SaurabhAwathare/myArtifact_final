@@ -70,6 +70,7 @@ fun ForYouFeedScreen(
                             isPlaying = isPlaying && currentlyPlayingArtifact?.id == feedArtifact.artifact.id,
                             onPlayClick = { viewModel.playArtifact(feedArtifact) },
                             currentPosition = if (currentlyPlayingArtifact?.id == feedArtifact.artifact.id) currentPosition else 0L,
+                            onDeleteClick = { viewModel.deleteArtifact(feedArtifact.artifact.id) },
                             modifier = Modifier.padding(horizontal = Spacing.Large)
                         )
                         
