@@ -2,9 +2,11 @@ package com.saurabh.artifact.model
 
 /**
  * Represents the rich, emotional states of an ambient upload session.
+ * Uses atmospheric language to reduce network anxiety.
  */
 sealed class AmbientUploadStatus {
     object Initializing : AmbientUploadStatus()
+    object WaitingQuietly : AmbientUploadStatus()
     data class UploadingAudio(val progress: Float) : AmbientUploadStatus()
     object SavingArtifact : AmbientUploadStatus()
     object UpdatingFeed : AmbientUploadStatus()
@@ -12,11 +14,12 @@ sealed class AmbientUploadStatus {
     data class Error(val message: String, val recoverable: Boolean = true) : AmbientUploadStatus()
 
     fun getDisplayText(): String = when (this) {
-        is Initializing -> "Preparing your artifact..."
-        is UploadingAudio -> "A thought entering the archive..."
-        is SavingArtifact -> "Safeguarding your voice..."
-        is UpdatingFeed -> "Sharing with the world..."
-        is Completed -> "Your artifact is now part of the archive."
+        is Initializing -> "Creating a calm space..."
+        is WaitingQuietly -> "Waiting quietly..."
+        is UploadingAudio -> "Releasing your reflection..."
+        is SavingArtifact -> "Securing your essence..."
+        is UpdatingFeed -> "Sharing gently..."
+        is Completed -> "Shared gently."
         is Error -> message
     }
 }

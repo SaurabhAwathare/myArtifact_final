@@ -6,6 +6,7 @@ import kotlinx.serialization.Serializable
 enum class ArtifactDraftState {
     RECORDING,
     SAVING,
+    TRANSCODING, // Converting durable raw to optimized AAC
     PROCESSING,
     NORMALIZING,
     WAVEFORM_GENERATION,

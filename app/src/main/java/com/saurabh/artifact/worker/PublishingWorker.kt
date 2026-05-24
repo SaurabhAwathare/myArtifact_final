@@ -85,7 +85,10 @@ class PublishingWorker @AssistedInject constructor(
                 username = userProfile.anonymousName,
                 audioUrl = downloadUrl,
                 draft = draft,
-                avatarSeed = userProfile.avatarSeed
+                avatarSeed = userProfile.avatarSeed,
+                avatarColor = userProfile.avatarColor,
+                avatarConfig = userProfile.avatarConfig,
+                anonymousId = userProfile.anonymousId
             )
 
             firestoreResult.getOrThrow()
@@ -98,9 +101,20 @@ class PublishingWorker @AssistedInject constructor(
             Result.success()
         } catch (e: Exception) {
             Log.e("PublishingWorker", "Publishing failed for $draftId", e)
-            draftDao.updateDraftState(draftId, ArtifactDraftState.ERROR)
-            NotificationHelper.showUploadErrorNotification(appContext, draft.title ?: "Artifact")
-            Result.retry()
+            
+            // Check if it's a transient failure or permanent
+            val isPermanent = e is com.google.firebase.storage.StorageException && 
+                (e.errorCode == com.google.firebase.storage.StorageException.ERROR_NOT_AUTHORIZED || 
+                 e.errorCode == com.google.firebase.storage.StorageException.ERROR_OBJECT_NOT_FOUND)
+
+            if (isPermanent) {
+                draftDao.updateDraftState(draftId, ArtifactDraftState.ERROR)
+                NotificationHelper.showUploadErrorNotification(appContext, draft.title ?: "Artifact")
+                Result.failure()
+            } else {
+                draftDao.updateDraftState(draftId, ArtifactDraftState.FAILED_UPLOAD)
+                Result.retry()
+            }
         }
     }
 

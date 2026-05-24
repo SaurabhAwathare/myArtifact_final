@@ -9,6 +9,7 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class AnonymousIdentity(
     val anonymousName: String,
+    val anonymousSigil: String = "", // Added for soft uniqueness
     val avatarSeed: String,
     val avatarPalette: List<Long>? = null,
     val avatarStyle: String = "AURIC",

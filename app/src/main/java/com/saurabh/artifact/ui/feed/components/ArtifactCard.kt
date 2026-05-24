@@ -65,7 +65,7 @@ fun ArtifactCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 ArtifactAvatar(
-                    config = artifact.authorAvatarConfig,
+                    config = artifact.author.avatarConfig,
                     modifier = Modifier.size(40.dp),
                     isStatic = false // Keep it breathing if AURIC
                 )
@@ -74,7 +74,7 @@ fun ArtifactCard(
                 
                 Column {
                     Text(
-                        text = artifact.username,
+                        text = artifact.author.name,
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.SemiBold,
                         color = Color.White.copy(alpha = 0.9f)
@@ -230,7 +230,7 @@ fun ArtifactCard(
                     }) {
                         Icon(
                             imageVector = if (isSaved) Icons.Rounded.Bookmark else Icons.Outlined.BookmarkBorder,
-                            contentDescription = if (isSaved) "Unsave" else "Save",
+                            contentDescription = if (isSaved) "Let go of reflection" else "Hold reflection",
                             tint = if (isSaved) GoldAura500 else Color.White.copy(alpha = 0.6f),
                             modifier = Modifier.size(20.dp)
                         )

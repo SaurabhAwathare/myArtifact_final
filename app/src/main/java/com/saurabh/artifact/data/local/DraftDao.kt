@@ -43,6 +43,12 @@ interface DraftDao {
     @Query("UPDATE artifact_drafts SET syncState = :state, updatedAt = :timestamp WHERE id = :id")
     suspend fun updateSyncState(id: String, state: SyncState, timestamp: Long = System.currentTimeMillis())
 
+    @Query("UPDATE artifact_drafts SET rawPcmPath = :path, updatedAt = :timestamp WHERE id = :id")
+    suspend fun updateRawPcmPath(id: String, path: String, timestamp: Long = System.currentTimeMillis())
+
+    @Query("UPDATE artifact_drafts SET interruptionReason = :reason, updatedAt = :timestamp WHERE id = :id")
+    suspend fun updateInterruptionReason(id: String, reason: String, timestamp: Long = System.currentTimeMillis())
+
     @Query("UPDATE artifact_drafts SET durationMs = :durationMs, amplitudeData = :amplitudes, lastCheckpointTs = :checkpointTs, updatedAt = :updatedAt WHERE id = :id")
     suspend fun updateRecordingCheckpoint(id: String, durationMs: Long, amplitudes: List<Float>, checkpointTs: Long, updatedAt: Long = System.currentTimeMillis())
 

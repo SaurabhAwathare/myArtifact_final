@@ -25,8 +25,8 @@ object NotificationHelper {
     // ... rest of the imports ...
 
     const val CHANNEL_ID_INTERACTIONS = "interactions_channel"
-    const val CHANNEL_NAME_INTERACTIONS = "Interactions"
-    const val CHANNEL_DESC_INTERACTIONS = "Notifications for reactions and replies to your artifacts."
+    const val CHANNEL_NAME_INTERACTIONS = "Resonances"
+    const val CHANNEL_DESC_INTERACTIONS = "Quiet notifications for reflections and reactions to your shared artifacts."
 
     const val CHANNEL_ID_REMINDERS = "reminders_channel"
     const val CHANNEL_NAME_REMINDERS = "Reminders"

@@ -16,6 +16,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.saurabh.artifact.ui.components.moderation.PrivacyNudgeDialog
 import com.saurabh.artifact.ui.theme.GoldAura500
 import com.saurabh.artifact.ui.theme.Obsidian950
 import com.saurabh.artifact.ui.theme.Obsidian900
@@ -33,6 +34,14 @@ fun PublishApprovalScreen(
         if (uiState.isSuccess) {
             onPublishSuccess()
         }
+    }
+
+    if (uiState.showPrivacyNudge) {
+        PrivacyNudgeDialog(
+            onDismiss = { viewModel.onDismissPrivacyNudge() },
+            onConfirm = { viewModel.onConfirmPublishAnyway() },
+            leaks = uiState.privacyWarnings
+        )
     }
 
     Scaffold(

@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.saurabh.artifact.model.Artifact
+import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.model.FeedbackType
 import com.saurabh.artifact.model.ReactionType
 import com.saurabh.artifact.ui.components.motion.PressableScale
@@ -96,8 +97,11 @@ fun ArtifactCard(
     val displayArtifact = remember(artifact, currentUser) {
         if (isOwner && currentUser != null) {
             artifact.copy(
-                authorAvatarConfig = currentUser.avatarConfig,
-                username = currentUser.anonymousName.ifEmpty { artifact.username }
+                author = artifact.author.copy(
+                    avatarConfig = currentUser.avatarConfig,
+                    name = currentUser.anonymousName.ifEmpty { artifact.author.name },
+                    sigil = currentUser.anonymousSigil.ifEmpty { artifact.author.sigil }
+                )
             )
         } else {
             artifact
@@ -116,7 +120,7 @@ fun ArtifactCard(
 
     val displayTitle = remember(displayArtifact.title) { displayArtifact.title.ifEmpty { "A quiet moment shared..." } }
     val displayEmotion = remember(displayArtifact.emotion) { displayArtifact.emotion.ifEmpty { "reflective" }.lowercase() }
-    val displayUsername = remember(displayArtifact.username) { displayArtifact.username.ifEmpty { "anonymous soul" }.lowercase() }
+    val displayUsername = remember(displayArtifact.author.name) { displayArtifact.author.name.ifEmpty { "anonymous soul" }.lowercase() }
 
     val progress by remember(currentPosition, duration) {
         derivedStateOf { if (duration > 0) currentPosition.toFloat() / duration else 0f }
@@ -200,8 +204,8 @@ fun ArtifactCard(
                         } else {
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                                 AuricAvatar(
-                                    seed = displayArtifact.authorAvatarConfig.seed
-                                        .ifEmpty { displayArtifact.avatarSeed }
+                                    seed = displayArtifact.author.avatarConfig.seed
+                                        .ifEmpty { displayArtifact.author.avatarSeed }
                                         .ifEmpty { displayArtifact.userId },
                                     size = 32.dp
                                 )
@@ -209,14 +213,30 @@ fun ArtifactCard(
                                 Spacer(modifier = Modifier.width(Spacing.Medium))
                                 
                                 Column {
-                                    Text(
-                                        text = displayUsername,
-                                        style = ArtifactTheme.typography.labelLarge.copy(
-                                            fontWeight = FontWeight.SemiBold,
-                                            fontSize = 15.sp
-                                        ),
-                                        color = ArtifactTheme.colors.onSurfaceMain
-                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = displayUsername,
+                                            style = ArtifactTheme.typography.labelLarge.copy(
+                                                fontWeight = FontWeight.SemiBold,
+                                                fontSize = 15.sp
+                                            ),
+                                            color = ArtifactTheme.colors.onSurfaceMain
+                                        )
+                                        if (displayArtifact.author.sigil.isNotEmpty()) {
+                                            Text(
+                                                text = " · ",
+                                                style = ArtifactTheme.typography.labelMedium,
+                                                color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.5f)
+                                            )
+                                            Text(
+                                                text = displayArtifact.author.sigil,
+                                                style = ArtifactTheme.typography.labelSmall.copy(
+                                                    fontWeight = FontWeight.Light
+                                                ),
+                                                color = ArtifactTheme.colors.onSurfaceMuted
+                                            )
+                                        }
+                                    }
                                     Text(
                                         text = "2h ago", // Mock timestamp for now
                                         style = ArtifactTheme.typography.labelSmall,
@@ -336,7 +356,8 @@ fun ArtifactCard(
                                     artifactId = displayArtifact.id,
                                     totalCount = displayArtifact.reactionCount,
                                     visibility = displayArtifact.reactionVisibility
-                                )
+                                ),
+                                isOwner = isOwner
                             )
                         }
                     }
@@ -536,7 +557,7 @@ fun PreviewArtifactCardAtmospheric() {
         val mockArtifact = Artifact(
             id = "1",
             userId = "user_1",
-            username = "QuietLoom",
+            author = AuthorSnapshot(name = "QuietLoom"),
             title = "A reflection on the evening rain and the sound of silence.",
             audioUrl = "",
             duration = 120,

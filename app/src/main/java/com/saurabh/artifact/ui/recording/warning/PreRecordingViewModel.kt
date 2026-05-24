@@ -28,13 +28,18 @@ class PreRecordingViewModel @Inject constructor(
     private var countdownJob: Job? = null
 
     init {
-        if (recordingSessionManager.isRecordingActive()) {
-            // Immediate bypass if session already active
-            viewModelScope.launch {
-                _eventFlow.emit(PreRecordingWarningEvent.NavigateToRecording)
+        observeRecordingState()
+        startCountdown()
+    }
+
+    private fun observeRecordingState() {
+        viewModelScope.launch {
+            recordingSessionManager.recordingState.collect { state ->
+                if (state.status == com.saurabh.artifact.data.local.RecordingStatus.RECORDING ||
+                    state.status == com.saurabh.artifact.data.local.RecordingStatus.PAUSED) {
+                    _eventFlow.emit(PreRecordingWarningEvent.NavigateToRecording)
+                }
             }
-        } else {
-            startCountdown()
         }
     }
 

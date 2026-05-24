@@ -182,9 +182,13 @@ fun NavGraph(
             FeedScreen(
                 onNavigateToRecord = { prompt ->
                     if (recordingSessionManager.isRecordingActive()) {
-                        navController.navigate(Screen.InstantRecord.createRoute(prompt))
+                        navController.navigate(Screen.InstantRecord.createRoute(prompt)) {
+                            launchSingleTop = true
+                        }
                     } else {
-                        navController.navigate(Screen.PreRecordingWarning.createRoute(prompt))
+                        navController.navigate(Screen.PreRecordingWarning.createRoute(prompt)) {
+                            launchSingleTop = true
+                        }
                     }
                 },
                 onNavigateToProfile = onNavigateToProfile,
@@ -195,9 +199,13 @@ fun NavGraph(
             FeedScreen(
                 onNavigateToRecord = { prompt ->
                     if (recordingSessionManager.isRecordingActive()) {
-                        navController.navigate(Screen.InstantRecord.createRoute(prompt))
+                        navController.navigate(Screen.InstantRecord.createRoute(prompt)) {
+                            launchSingleTop = true
+                        }
                     } else {
-                        navController.navigate(Screen.PreRecordingWarning.createRoute(prompt))
+                        navController.navigate(Screen.PreRecordingWarning.createRoute(prompt)) {
+                            launchSingleTop = true
+                        }
                     }
                 },
                 onNavigateToProfile = onNavigateToProfile,
@@ -291,6 +299,7 @@ fun NavGraph(
                 onContinue = {
                     navController.navigate(Screen.InstantRecord.createRoute(prompt)) {
                         popUpTo(Screen.PreRecordingWarning.route) { inclusive = true }
+                        launchSingleTop = true
                     }
                 },
                 onCancel = { navController.popBackStack() },

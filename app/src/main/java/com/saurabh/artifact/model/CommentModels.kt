@@ -15,12 +15,16 @@ import kotlinx.serialization.UseSerializers
  */
 
 @Serializable
-enum class CommentVisibilityMode {
-    PUBLIC,           // Standard visibility
-    HIDDEN,           // Private between author and creator
-    CREATOR_ONLY,     // Author cannot see it after posting (journal style)
-    REFLECTION_DELAY, // Revealed to author/others after X hours
-    MUTUAL_UNLOCK     // Visible only if both users have responded
+enum class VisibilityLayer {
+    SANCTUARY, // Private to author only
+    BRIDGE,    // Private between author and creator
+    RESONANCE  // Shared with other listeners who have unlocked the artifact
+}
+
+@Serializable
+enum class AuthorType {
+    PSEUDONYM,      // Uses the user's chosen pseudonym
+    QUIET_PRESENCE  // Complete anonymity
 }
 
 @Serializable
@@ -35,18 +39,19 @@ enum class CommentModerationState {
 data class ArtifactComment(
     val id: String = "",
     val artifactId: String = "",
-    val authorId: String = "",
-    val authorDisplayName: String? = null,
+    val authorId: String = "", // Internal UID
+    val artifactOwnerId: String = "", // Cache for security rule lookups
+    val authorAnonymousName: String? = null,
     val authorAvatarSeed: String = "",
     val content: String = "",
-    val visibility: CommentVisibilityMode = CommentVisibilityMode.HIDDEN,
+    val visibilityLayer: VisibilityLayer = VisibilityLayer.BRIDGE,
+    val authorType: AuthorType = AuthorType.PSEUDONYM,
     val emotionalMarkers: List<String> = emptyList(),
     val moderationState: CommentModerationState = CommentModerationState.PENDING,
     @get:Exclude @set:Exclude
     var creatorReaction: ReactionType? = null,
     val createdAt: Timestamp = Timestamp.now(),
     val revealAt: Timestamp? = null,
-    val isAnonymous: Boolean = false
 ) {
     @get:PropertyName("creatorReaction")
     @set:PropertyName("creatorReaction")
@@ -77,7 +82,7 @@ data class EmotionalResponseSummary(
 @Serializable
 data class ArtifactCommentSettings(
     val artifactId: String = "",
-    val defaultVisibility: CommentVisibilityMode = CommentVisibilityMode.HIDDEN,
+    val defaultVisibility: VisibilityLayer = VisibilityLayer.BRIDGE,
     val isCommentingEnabled: Boolean = true,
     val requireCompletionToComment: Boolean = true,
     val revealDelayHours: Int = 0

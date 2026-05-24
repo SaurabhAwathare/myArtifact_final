@@ -43,9 +43,16 @@ class TranscriptionWorker @AssistedInject constructor(
 
         var tempDecryptedFile: File? = null
         try {
+            // IDEMPOTENCY CHECK: If transcript already exists and repository knows about it, skip
+            if (draft.localTranscriptPath != null && File(draft.localTranscriptPath).exists()) {
+                Log.d("TranscriptionWorker", "Idempotency Trigger: Transcript already exists. Skipping.")
+                return@withContext Result.success()
+            }
+
             recordingRepository.updateDraft(draft.copy(draftState = ArtifactDraftState.TRANSCRIBING))
 
             // 1. Decrypt audio for processing with timeout
+            Log.d("TranscriptionWorker", "Atmospheric Step: Listening quietly to your words...")
             val audioFile = withTimeout(30000) {
                 if (draft.isEncrypted) {
                     val tempFile = File(applicationContext.cacheDir, "transcribe_${System.currentTimeMillis()}.m4a")

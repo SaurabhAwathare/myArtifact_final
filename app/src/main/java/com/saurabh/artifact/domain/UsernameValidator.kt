@@ -12,15 +12,17 @@ import javax.inject.Singleton
  * Protects anonymity, emotional safety, and platform atmosphere.
  */
 @Singleton
-class UsernameValidator @Inject constructor() {
+class UsernameValidator @Inject constructor(
+    private val identityScout: IdentityScout
+) {
 
-    private val reservedNames = setOf("admin", "moderator", "support", "official", "artifact", "system")
+    private val reservedNames = setOf("admin", "moderator", "support", "official", "artifact", "system", "anonymous")
     
-    // Heuristic lists for safety and atmosphere (Simplified for demo)
-    private val safetyBlocklist = listOf("kill", "hate", "hurt", "attack", "death", "die")
-    private val negativeToneList = listOf("loser", "ugly", "stupid", "worthless", "depressed")
+    // Heuristic lists for safety and atmosphere
+    private val safetyBlocklist = listOf("kill", "hate", "hurt", "attack", "death", "die", "murder", "blood")
+    private val negativeToneList = listOf("loser", "ugly", "stupid", "worthless", "depressed", "failure", "hate_myself")
 
-    fun validate(username: String): UsernameValidationResult {
+    fun validate(username: String, realName: String? = null, email: String? = null): UsernameValidationResult {
         if (username.isBlank()) return UsernameValidationResult(isValid = false)
 
         val normalized = username.lowercase(Locale.ROOT).trim()
@@ -30,8 +32,8 @@ class UsernameValidator @Inject constructor() {
 
         val warnings = mutableListOf<ModerationWarning>()
 
-        // Layer 2: Privacy Detection
-        checkPrivacy(normalized)?.let { warnings.add(it) }
+        // Layer 2: Privacy Detection (via IdentityScout)
+        warnings.addAll(identityScout.detectLeaks(username, realName, email))
 
         // Layer 3: Safety & Reserved Names
         checkSafety(normalized)?.let { warnings.add(it) }
@@ -39,10 +41,13 @@ class UsernameValidator @Inject constructor() {
         // Layer 4: Emotional Atmosphere
         checkAtmosphere(normalized)?.let { warnings.add(it) }
 
+        val riskScore = identityScout.calculateRiskScore(warnings)
+
         return UsernameValidationResult(
-            isValid = warnings.isEmpty(),
+            isValid = warnings.none { it.reason == ValidationReason.EMAIL_ADDRESS || it.reason == ValidationReason.PHONE_NUMBER || it.reason == ValidationReason.RESERVED_NAME },
             reason = warnings.firstOrNull()?.reason,
             warnings = warnings,
+            riskScore = riskScore
         )
     }
 
@@ -54,27 +59,6 @@ class UsernameValidator @Inject constructor() {
         if (!regex.matches(username)) {
             return UsernameValidationResult(isValid = false, reason = ValidationReason.INVALID_CHARACTERS)
         }
-        return null
-    }
-
-    private fun checkPrivacy(username: String): ModerationWarning? {
-        // Simple Email Regex
-        if (username.contains("@") || username.contains(".com") || username.contains(".net")) {
-            return ModerationWarning(
-                ValidationReason.EMAIL_ADDRESS,
-                "This name looks like an email. Try something more anonymous."
-            )
-        }
-
-        // Simple Phone Number Heuristic (sequences of numbers)
-        val digitSequence = username.filter { it.isDigit() }
-        if (digitSequence.length >= 7) {
-            return ModerationWarning(
-                ValidationReason.PHONE_NUMBER,
-                "This name contains too many digits. Avoid using phone numbers."
-            )
-        }
-
         return null
     }
 

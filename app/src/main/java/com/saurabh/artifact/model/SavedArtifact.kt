@@ -13,5 +13,9 @@ data class SavedArtifact(
     // Metadata for offline/local-first behavior
     val title: String = "",
     val authorName: String = "",
-    val audioUrl: String = ""
+    val audioUrl: String = "",
+    val emotionTag: String = "",
+    // Private archival context
+    val shelf: String = "Stayed With Me",
+    val personalNote: String? = null
 )

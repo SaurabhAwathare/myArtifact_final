@@ -46,6 +46,7 @@ class RecordingRepository @Inject constructor(
         val draft = ArtifactDraftEntity(
             id = draftId,
             localAudioPath = path,
+            rawPcmPath = path, // Track durable source
             durationMs = durationMs,
             checksum = checksum,
             isEncrypted = isEncrypted,
@@ -180,9 +181,13 @@ class RecordingRepository @Inject constructor(
 
         val inputData = workDataOf(AudioNormalizationWorker.KEY_DRAFT_ID to draftId)
 
-        val normalizationWork = OneTimeWorkRequestBuilder<AudioNormalizationWorker>()
+        val transcodingWork = OneTimeWorkRequestBuilder<com.saurabh.artifact.worker.TranscodingWorker>()
             .setInputData(inputData)
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+            .build()
+
+        val normalizationWork = OneTimeWorkRequestBuilder<AudioNormalizationWorker>()
+            .setInputData(inputData)
             .build()
 
         val waveformWork = OneTimeWorkRequestBuilder<WaveformWorker>()
@@ -193,13 +198,19 @@ class RecordingRepository @Inject constructor(
             .setInputData(inputData)
             .build()
 
+        val finalStateWork = OneTimeWorkRequestBuilder<com.saurabh.artifact.worker.ProcessingFinalizerWorker>()
+            .setInputData(inputData)
+            .build()
+
         workManager.beginUniqueWork(
             "process_$draftId",
             ExistingWorkPolicy.REPLACE,
-            normalizationWork
+            transcodingWork
         )
+        .then(normalizationWork)
         .then(waveformWork)
         .then(transcriptionWork)
+        .then(finalStateWork)
         .enqueue()
     }
 }

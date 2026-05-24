@@ -12,8 +12,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
-import com.saurabh.artifact.model.CommentVisibilityMode
+import com.google.firebase.Timestamp
+import com.saurabh.artifact.model.AuthorType
+import com.saurabh.artifact.model.VisibilityLayer
 import com.saurabh.artifact.ui.components.HiddenCommentNotice
+import java.util.Date
 import com.saurabh.artifact.ui.components.MindfulTextField
 import com.saurabh.artifact.ui.theme.GoldAura400
 import com.saurabh.artifact.ui.theme.Obsidian800
@@ -27,8 +30,9 @@ fun CommentComposer(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var content by remember { mutableStateOf("") }
-    var visibilityMode by remember { mutableStateOf(CommentVisibilityMode.HIDDEN) }
-    var isAnonymous by remember { mutableStateOf(false) }
+    var visibilityLayer by remember { mutableStateOf(VisibilityLayer.BRIDGE) }
+    var authorType by remember { mutableStateOf(AuthorType.PSEUDONYM) }
+    var isDelayed by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -66,7 +70,8 @@ fun CommentComposer(
             keyboardActions = androidx.compose.foundation.text.KeyboardActions(
                 onSend = {
                     if (content.isNotBlank() && !uiState.isSubmitting) {
-                        viewModel.submitReflection(artifactId, content, visibilityMode, isAnonymous)
+                        val revealAt = if (isDelayed) Timestamp(Date(System.currentTimeMillis() + (24 * 60 * 60 * 1000))) else null
+                        viewModel.submitReflection(artifactId, content, visibilityLayer, authorType, revealAt)
                     }
                 }
             )
@@ -75,42 +80,76 @@ fun CommentComposer(
         Spacer(Modifier.height(24.dp))
 
         // Visibility Selector
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Visible to:", color = ReflectionWhite, style = MaterialTheme.typography.labelMedium)
-            Spacer(Modifier.width(8.dp))
+        Text("Visibility Layer:", color = ReflectionWhite, style = MaterialTheme.typography.labelMedium)
+        Spacer(Modifier.height(8.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center
+        ) {
             FilterChip(
-                selected = visibilityMode == CommentVisibilityMode.HIDDEN,
-                onClick = { visibilityMode = CommentVisibilityMode.HIDDEN },
-                label = { Text("Private") }
+                selected = visibilityLayer == VisibilityLayer.SANCTUARY,
+                onClick = { visibilityLayer = VisibilityLayer.SANCTUARY },
+                label = { Text("Sanctuary") }
             )
             Spacer(Modifier.width(8.dp))
             FilterChip(
-                selected = visibilityMode == CommentVisibilityMode.PUBLIC,
-                onClick = { visibilityMode = CommentVisibilityMode.PUBLIC },
-                label = { Text("Public") }
+                selected = visibilityLayer == VisibilityLayer.BRIDGE,
+                onClick = { visibilityLayer = VisibilityLayer.BRIDGE },
+                label = { Text("Bridge") }
+            )
+            Spacer(Modifier.width(8.dp))
+            FilterChip(
+                selected = visibilityLayer == VisibilityLayer.RESONANCE,
+                onClick = { visibilityLayer = VisibilityLayer.RESONANCE },
+                label = { Text("Resonance") }
             )
         }
+        
+        Text(
+            text = when(visibilityLayer) {
+                VisibilityLayer.SANCTUARY -> "Private only to you."
+                VisibilityLayer.BRIDGE -> "Shared only with the creator."
+                VisibilityLayer.RESONANCE -> "Visible to other listeners."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = ReflectionWhite.copy(alpha = 0.6f),
+            modifier = Modifier.padding(top = 4.dp)
+        )
 
         Spacer(Modifier.height(16.dp))
 
-        // Anonymous Toggle
+        // Author Type Toggle
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(checked = isAnonymous, onCheckedChange = { isAnonymous = it })
-            Text("Share Anonymously", color = ReflectionWhite)
+            Checkbox(
+                checked = authorType == AuthorType.QUIET_PRESENCE, 
+                onCheckedChange = { 
+                    authorType = if (it) AuthorType.QUIET_PRESENCE else AuthorType.PSEUDONYM 
+                }
+            )
+            Text("Quiet Presence (Fully Anonymous)", color = ReflectionWhite)
+        }
+
+        // Delay Toggle
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(checked = isDelayed, onCheckedChange = { isDelayed = it })
+            Text("Release in 24 hours (Mindful Delay)", color = ReflectionWhite)
         }
 
         Spacer(Modifier.height(24.dp))
 
         // Action Buttons
         Button(
-            onClick = { viewModel.submitReflection(artifactId, content, visibilityMode, isAnonymous) },
+            onClick = { 
+                val revealAt = if (isDelayed) Timestamp(Date(System.currentTimeMillis() + (24 * 60 * 60 * 1000))) else null
+                viewModel.submitReflection(artifactId, content, visibilityLayer, authorType, revealAt) 
+            },
             enabled = content.isNotBlank() && !uiState.isSubmitting,
             colors = ButtonDefaults.buttonColors(containerColor = GoldAura400)
         ) {
             if (uiState.isSubmitting) {
                 CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Obsidian800)
             } else {
-                Text("Send Reflection", color = Obsidian800)
+                Text("Release into the Hearth", color = Obsidian800)
             }
         }
 

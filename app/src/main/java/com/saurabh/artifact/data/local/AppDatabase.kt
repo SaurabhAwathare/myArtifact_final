@@ -8,7 +8,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [QueuedUpload::class, ArtifactDraftEntity::class, PromptEntity::class],
-    version = 22,
+    version = 23,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -26,6 +26,7 @@ abstract class AppDatabase : RoomDatabase() {
                     CREATE TABLE IF NOT EXISTS `artifact_drafts_new` (
                         `id` TEXT NOT NULL, 
                         `localAudioPath` TEXT NOT NULL, 
+                        `rawPcmPath` TEXT, 
                         `localTranscriptPath` TEXT, 
                         `waveformPath` TEXT, 
                         `title` TEXT, 
@@ -84,7 +85,7 @@ abstract class AppDatabase : RoomDatabase() {
                 // Copy data from old artifact_drafts, mapping existing columns
                 db.execSQL("""
                     INSERT INTO artifact_drafts_new (
-                        id, localAudioPath, localTranscriptPath, waveformPath, title, description, 
+                        id, localAudioPath, rawPcmPath, localTranscriptPath, waveformPath, title, description, 
                         emotion, isPublic, tags, durationMs, createdAt, updatedAt, 
                         draftState, uploadStatus, syncState, uploadedBytes, totalBytes, 
                         uploadSessionUri, uploadAttemptCount, isEncrypted, encryptionIv, 
@@ -98,8 +99,8 @@ abstract class AppDatabase : RoomDatabase() {
                         transcriptSegmentsJson, sensitiveEntitiesJson
                     )
                     SELECT 
-                        id, localAudioPath, localTranscriptPath, waveformPath, title, description, 
-                        emotion, 1, tags, durationMs, createdAt, updatedAt, 
+                        id, localAudioPath, NULL, localTranscriptPath, waveformPath, title, description, 
+                        emotion, isPublic, tags, durationMs, createdAt, updatedAt, 
                         draftState, uploadStatus, syncState, uploadedBytes, totalBytes, 
                         uploadSessionUri, uploadAttemptCount, isEncrypted, encryptionIv, 
                         checksum, approvalToken, deviceFingerprint, cooldownExpiry, 
@@ -140,11 +141,11 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("""
                     INSERT INTO queued_uploads_new (
                         id, userId, username, fileUri, title, isPublic, duration, 
-                        emotion, prompt, amplitudeDataJson, createdAt
+                        emotion, emotionTag, emotionConfidence, avatarSeed, prompt, redactionFilter, amplitudeDataJson, createdAt
                     )
                     SELECT 
                         id, userId, username, fileUri, title, isPublic, duration, 
-                        emotion, prompt, amplitudeDataJson, createdAt
+                        emotion, emotionTag, emotionConfidence, avatarSeed, prompt, redactionFilter, amplitudeDataJson, createdAt
                     FROM queued_uploads
                 """.trimIndent())
 
@@ -169,13 +170,13 @@ abstract class AppDatabase : RoomDatabase() {
                 // Based on log history, the field might be 'text' or 'question' depending on when it crashed
                 try {
                     db.execSQL("""
-                        INSERT INTO prompts_new (id, question, category, tone, isFavorite, usageCount, lastUsedTimestamp)
-                        SELECT id, text, category, tone, isFavorite, usageCount, lastUsedTimestamp FROM prompts
+                        INSERT INTO prompts_new (id, question, category, tone, mood, isFavorite, usageCount, lastUsedTimestamp)
+                        SELECT id, text, category, tone, NULL, isFavorite, usageCount, lastUsedTimestamp FROM prompts
                     """.trimIndent())
                 } catch (e: Exception) {
                     db.execSQL("""
-                        INSERT INTO prompts_new (id, question, category, tone, isFavorite, usageCount, lastUsedTimestamp)
-                        SELECT id, question, category, tone, isFavorite, usageCount, lastUsedTimestamp FROM prompts
+                        INSERT INTO prompts_new (id, question, category, tone, mood, isFavorite, usageCount, lastUsedTimestamp)
+                        SELECT id, question, category, tone, mood, isFavorite, usageCount, lastUsedTimestamp FROM prompts
                     """.trimIndent())
                 }
 
@@ -183,6 +184,25 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE prompts_new RENAME TO prompts")
             }
         }
+
+        val MIGRATION_22_23 = object : Migration(22, 23) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Recover from broken version 22 schema if rawPcmPath is missing
+                val cursor = db.query("PRAGMA table_info(artifact_drafts)")
+                var exists = false
+                while (cursor.moveToNext()) {
+                    if (cursor.getString(cursor.getColumnIndexOrThrow("name")) == "rawPcmPath") {
+                        exists = true
+                        break
+                    }
+                }
+                cursor.close()
+                if (!exists) {
+                    db.execSQL("ALTER TABLE artifact_drafts ADD COLUMN rawPcmPath TEXT")
+                }
+            }
+        }
+
 
         val MIGRATION_20_21 = object : Migration(20, 21) {
             override fun migrate(db: SupportSQLiteDatabase) {

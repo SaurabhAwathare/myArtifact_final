@@ -19,7 +19,7 @@ import javax.inject.Inject
 enum class ProfileTab(val title: String) {
     PUBLISHED("Published"),
     DRAFTS("Drafts"),
-    SAVED("Saved")
+    SAVED("Archive")
 }
 
 data class ProfileUiState(

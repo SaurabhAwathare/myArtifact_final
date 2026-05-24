@@ -66,7 +66,7 @@ fun CommentsScreen(
                 }
                 Spacer(modifier = Modifier.width(16.dp))
                 Text(
-                    "Echoes", 
+                    "Reflections",
                     style = ArtifactTheme.typography.titleMedium, 
                     color = ArtifactTheme.colors.onSurfaceMain,
                     fontWeight = FontWeight.Bold
@@ -173,7 +173,7 @@ fun CommentCard(comment: com.saurabh.artifact.model.ArtifactComment) {
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Text(
-                    text = comment.authorDisplayName ?: "Anonymous Soul",
+                    text = comment.authorAnonymousName ?: "Quiet Presence",
                     style = ArtifactTheme.typography.labelLarge,
                     color = ArtifactTheme.colors.onSurfaceMuted,
                     fontWeight = FontWeight.SemiBold

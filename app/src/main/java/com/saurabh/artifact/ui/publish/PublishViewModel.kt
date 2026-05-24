@@ -3,6 +3,7 @@ package com.saurabh.artifact.ui.publish
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
+import com.saurabh.artifact.domain.IdentityScout
 import com.saurabh.artifact.domain.PublishArtifactUseCase
 import com.saurabh.artifact.model.Emotion
 import com.saurabh.artifact.repository.RecordingRepository
@@ -14,7 +15,9 @@ import javax.inject.Inject
 @HiltViewModel
 class PublishViewModel @Inject constructor(
     private val recordingRepository: RecordingRepository,
-    private val publishArtifactUseCase: PublishArtifactUseCase
+    private val publishArtifactUseCase: PublishArtifactUseCase,
+    private val identityScout: IdentityScout,
+    private val auth: com.google.firebase.auth.FirebaseAuth
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(PublishUiState())
@@ -44,7 +47,33 @@ class PublishViewModel @Inject constructor(
         _uiState.update { it.copy(emotion = emotion) }
     }
 
-    fun publish() {
+    fun onPublishClick() {
+        val title = _uiState.value.title
+        val realName = auth.currentUser?.displayName
+        val email = auth.currentUser?.email
+
+        val warnings = identityScout.detectLeaks(title, realName, email)
+        
+        if (warnings.isNotEmpty()) {
+            _uiState.update { it.copy(
+                showPrivacyNudge = true,
+                privacyWarnings = warnings.map { w -> w.message }
+            ) }
+        } else {
+            performPublish()
+        }
+    }
+
+    fun dismissPrivacyNudge() {
+        _uiState.update { it.copy(showPrivacyNudge = false) }
+    }
+
+    fun confirmPublishAnyway() {
+        _uiState.update { it.copy(showPrivacyNudge = false) }
+        performPublish()
+    }
+
+    private fun performPublish() {
         val draft = _uiState.value.draft ?: return
         if (_uiState.value.title.isBlank() || _uiState.value.emotion == null) return
 
@@ -74,5 +103,7 @@ data class PublishUiState(
     val emotion: Emotion? = null,
     val isPublishing: Boolean = false,
     val isSuccess: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    val showPrivacyNudge: Boolean = false,
+    val privacyWarnings: List<String> = emptyList()
 )

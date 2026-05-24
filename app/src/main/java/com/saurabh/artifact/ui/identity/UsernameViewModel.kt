@@ -19,6 +19,7 @@ import javax.inject.Inject
 @HiltViewModel
 class UsernameViewModel @Inject constructor(
     private val userRepository: UserRepository,
+    private val auth: com.google.firebase.auth.FirebaseAuth,
     private val validator: UsernameValidator
 ) : ViewModel() {
 
@@ -57,8 +58,11 @@ class UsernameViewModel @Inject constructor(
             return
         }
 
+        val realName = auth.currentUser?.displayName
+        val email = auth.currentUser?.email
+
         // Layer 1-4: Local Moderation
-        val localResult = validator.validate(username)
+        val localResult = validator.validate(username, realName, email)
         
         if (!localResult.isValid) {
             _uiState.update { it.copy(

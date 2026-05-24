@@ -20,7 +20,7 @@ class AudioRecorder(private val context: Context) {
 
     private var mediaRecorder: MediaRecorder? = null
     private var wavRecorder: WavRecorder? = null
-    private var currentMode: RecordingMode = RecordingMode.AAC_HIGH_BITRATE
+    private var currentMode: RecordingMode = RecordingMode.WAV_LOSSLESS
     private var isRecording = false
 
     /**
@@ -28,7 +28,7 @@ class AudioRecorder(private val context: Context) {
      * @param outputFile The destination file.
      * @param mode The recording format (AAC or WAV).
      */
-    fun start(outputFile: File, mode: RecordingMode = RecordingMode.AAC_HIGH_BITRATE) {
+    fun start(outputFile: File, mode: RecordingMode = RecordingMode.WAV_LOSSLESS) {
         if (isRecording) {
             Log.w("AudioRecorder", "Start called while already recording. Ignoring.")
             return

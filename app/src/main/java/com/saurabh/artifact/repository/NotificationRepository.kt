@@ -5,6 +5,7 @@ import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.saurabh.artifact.model.NotificationItem
+import com.saurabh.artifact.model.NotificationType
 import com.saurabh.artifact.model.ReactionType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
@@ -69,7 +70,8 @@ class NotificationRepository @Inject constructor(
     suspend fun createNotification(
         userId: String,
         message: String,
-        artifactId: String = ""
+        artifactId: String = "",
+        type: NotificationType = NotificationType.RESONANCE
     ): Result<Unit> = withContext(Dispatchers.IO) {
         return@withContext try {
             val notificationRef = notificationsCollection.document()
@@ -78,6 +80,7 @@ class NotificationRepository @Inject constructor(
                 userId = userId,
                 message = message,
                 artifactId = artifactId,
+                type = type,
                 createdAt = Timestamp.now(),
                 isRead = false
             )
@@ -89,16 +92,19 @@ class NotificationRepository @Inject constructor(
         }
     }
 
-    fun getEmpatheticMessage(type: ReactionType): String {
-        return when (type) {
-            ReactionType.I_HEAR_YOU -> "Someone is listening to your heart 👂"
-            ReactionType.RELATABLE -> "Someone found your words relatable 🐚"
-            ReactionType.SENDING_STRENGTH -> "Someone sent you strength 💫"
-            ReactionType.STAY_STRONG -> "Someone wants you to stay strong 🕯️"
-            ReactionType.HOLDING_SPACE -> "Someone is holding space for you 🕯️"
-            ReactionType.THANK_YOU -> "Someone is grateful you shared your voice 🙏"
-            ReactionType.FELT_DEEPLY -> "Someone felt your words deeply 🌊"
-            ReactionType.RESPECTFUL_DISAGREEMENT -> "Someone respectfully sees things differently 🧘"
+    /**
+     * Returns a poetic, atmospheric message based on the resonance type.
+     * Part of the "Calm Anonymous Resonance Architecture" to reduce social anxiety.
+     */
+    fun getAtmosphericMessage(type: ReactionType): String {
+        return "${type.atmosphericLabel} ${type.emoji}"
+    }
+
+    fun getReflectionMessage(artifactTitle: String? = null): String {
+        return if (artifactTitle != null) {
+            "A quiet reflection has arrived in your hearth for \"$artifactTitle\" 🕯️"
+        } else {
+            "Someone has shared a quiet reflection in your hearth 🕯️"
         }
     }
 }

@@ -25,16 +25,17 @@ class CommentRepository @Inject constructor(
 ) {
 
     /**
-     * Uploads a reflection (comment) to Storage and creates a document in Firestore.
-     * Enforces Hidden Comments Mode privacy rules.
+     * Uploads a reflection to Firestore.
+     * Enforces Intimacy-Centered Reflection System rules.
      */
     suspend fun submitReflection(
         artifactId: String,
         userId: String,
         content: String,
-        visibility: CommentVisibilityMode = CommentVisibilityMode.HIDDEN,
-        isAnonymous: Boolean = false,
-        authorName: String = "Anonymous Soul",
+        visibility: VisibilityLayer = VisibilityLayer.BRIDGE,
+        authorType: AuthorType = AuthorType.PSEUDONYM,
+        revealAt: Timestamp? = null,
+        authorName: String = "Quiet Presence",
         authorAvatarSeed: String = ""
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
@@ -42,26 +43,28 @@ class CommentRepository @Inject constructor(
             val artifactDoc = artifactRef.get().await()
             val ownerId = artifactDoc.getString("userId")
 
-            // 2. Create Comment Document
+            // 2. Create Reflection Document
             val commentId = UUID.randomUUID().toString()
-            val comment = ArtifactComment(
+            val reflection = ArtifactComment(
                 id = commentId,
                 artifactId = artifactId,
                 authorId = userId,
-                authorDisplayName = if (isAnonymous) null else authorName,
+                artifactOwnerId = ownerId ?: "", // Cached for security rules
+                authorAnonymousName = if (authorType == AuthorType.QUIET_PRESENCE) null else authorName,
                 authorAvatarSeed = authorAvatarSeed,
                 content = content,
-                visibility = visibility,
+                visibilityLayer = visibility,
+                authorType = authorType,
                 createdAt = Timestamp.now(),
-                isAnonymous = isAnonymous,
+                revealAt = revealAt,
                 moderationState = CommentModerationState.PENDING
             )
 
-            // 3. Atomically add comment and update artifact count
+            // 3. Atomically add reflection and update artifact count
             val commentRef = firestore.collection("comments").document(commentId)
             
             firestore.runTransaction { transaction ->
-                transaction.set(commentRef, comment)
+                transaction.set(commentRef, reflection)
                 transaction.update(artifactRef, "commentCount", FieldValue.increment(1))
             }.await()
 
@@ -69,8 +72,9 @@ class CommentRepository @Inject constructor(
             if (ownerId != null && ownerId != userId) {
                 notificationRepository.createNotification(
                     userId = ownerId,
-                    message = "Someone shared a reflection on your artifact 🕯️",
-                    artifactId = artifactId
+                    message = notificationRepository.getReflectionMessage(artifactDoc.getString("title")),
+                    artifactId = artifactId,
+                    type = NotificationType.REFLECTION
                 )
             }
 
@@ -101,10 +105,20 @@ class CommentRepository @Inject constructor(
             } ?: emptyList()
 
             // Client-side filtering as a secondary safety layer
+            val now = Timestamp.now()
             val filtered = allComments.filter { comment ->
-                comment.authorId == currentUserId || 
-                artifactOwnerId == currentUserId || 
-                comment.visibility == CommentVisibilityMode.PUBLIC
+                val isAuthor = comment.authorId == currentUserId
+                val isOwner = artifactOwnerId == currentUserId
+                
+                when (comment.visibilityLayer) {
+                    VisibilityLayer.SANCTUARY -> isAuthor
+                    VisibilityLayer.BRIDGE -> isAuthor || isOwner
+                    VisibilityLayer.RESONANCE -> {
+                        // Resonances are visible to all if revealed, otherwise only author/owner
+                        val isRevealed = comment.revealAt == null || comment.revealAt <= now
+                        isAuthor || isOwner || isRevealed
+                    }
+                }
             }
             
             trySend(filtered)

@@ -17,21 +17,18 @@ enum class ArtifactStatus {
 @Immutable
 data class Artifact(
     var id: String = "",
-    var userId: String = "",
-    var authorId: String = "",
-    var username: String = "", // Primary field for UI
-    var authorAnonymousName: String = "", // Synced field for Firestore consistency
-    var avatarColor: String = "#FFD700",
+    @get:Exclude var userId: String = "", // Internal UID - EXCLUDED FROM FIRESTORE PUBLIC
+    var author: AuthorSnapshot = AuthorSnapshot(),
     var audioUrl: String = "",
     var createdAt: Timestamp = Timestamp.now(),
     @get:PropertyName("isPublic")
     @set:PropertyName("isPublic")
-    var isPublic: Boolean = true, // Explicitly mapped for Firestore
+    var isPublic: Boolean = true,
     var visibility: Visibility = Visibility.PUBLIC,
     var status: ArtifactStatus = ArtifactStatus.DRAFT,
     @get:PropertyName("isDraft")
     @set:PropertyName("isDraft")
-    var isDraft: Boolean = false, // Explicitly mapped for Firestore
+    var isDraft: Boolean = false,
     var duration: Long = 0,
     var title: String = "",
     var description: String = "",
@@ -42,13 +39,6 @@ data class Artifact(
     var prompt: String = "",
     var playCount: Int = 0,
     var reactionCount: Int = 0,
-    var avatarSeed: String = "",
-    /** Snapshot of the author's identity at the time of publishing */
-    var authorAvatarConfig: AvatarConfig = AvatarConfig(),
-    /** @deprecated Use authorAvatarConfig.seed or avatarSeed */
-    var avatarConfig: String? = null,
-    /** @deprecated Use avatarSeed */
-    var avatarConfigJson: String? = null,
     var commentCount: Int = 0,
     var moderationStatus: String = "CLEAN",
     var toxicityScore: Float = 0f,
@@ -62,6 +52,10 @@ data class Artifact(
     var conversationMetadata: ArtifactConversationMetadata = ArtifactConversationMetadata(),
     var reactionVisibility: ReactionVisibilityMode = ReactionVisibilityMode.APPROXIMATE
 ) {
+    val authorAvatarConfig: AvatarConfig
+        get() = author.avatarConfig
+            .copy(seed = author.avatarConfig.seed.ifEmpty { author.avatarSeed.ifEmpty { userId } })
+
     /**
      * Returns a lightweight version of the artifact suitable for large lists (feed).
      * Strips heavy lists like transcript and original amplitude data to stay under Binder limits.
@@ -136,11 +130,20 @@ data class Reply(
     val createdAt: Timestamp = Timestamp.now()
 )
 
+enum class NotificationType {
+    RESONANCE,    // General reaction
+    REFLECTION,   // Comment/Reply
+    SUPPORT,      // Strength/Space
+    PRESENCE,     // Witnessed/Viewed (future)
+    SYSTEM        // Upload/Admin
+}
+
 data class NotificationItem(
     val id: String = "",
     val userId: String = "",
-    val message: String = "Someone replied to your artifact 💬",
+    val message: String = "Someone resonated with your artifact 💬",
     val artifactId: String = "",
+    val type: NotificationType = NotificationType.RESONANCE,
     val createdAt: Timestamp = Timestamp.now(),
     val isRead: Boolean = false
 )

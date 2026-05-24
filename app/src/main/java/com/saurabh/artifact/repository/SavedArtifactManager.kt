@@ -64,9 +64,9 @@ class SavedArtifactManager @Inject constructor(
 
             result.onSuccess {
                 val message = if (isSaved) {
-                    "Removed from your private archive"
+                    "Reflection released from archive"
                 } else {
-                    "Saved to your private archive"
+                    "This stayed with you."
                 }
                 _messages.emit(message)
             }.onFailure {

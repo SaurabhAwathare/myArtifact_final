@@ -77,7 +77,7 @@ fun TextCommentItem(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = comment.authorDisplayName ?: "Anonymous Soul",
+                        text = comment.authorAnonymousName ?: "Quiet Presence",
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface

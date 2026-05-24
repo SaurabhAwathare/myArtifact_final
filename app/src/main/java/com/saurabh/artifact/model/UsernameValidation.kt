@@ -15,6 +15,10 @@ enum class ValidationReason {
     EMAIL_ADDRESS,
     REAL_NAME,
     LOCATION_REFERENCE,
+    MOTIF_REUSE,
+    CONTACT_PIVOT,
+    INTRODUCTION_PATTERN,
+    TRIANGULATION_RISK,
 
     // Safety
     HARASSMENT,
@@ -47,7 +51,8 @@ data class UsernameValidationResult(
     val isValid: Boolean,
     val reason: ValidationReason? = null,
     val warnings: List<ModerationWarning> = emptyList(),
-    val suggestions: List<String> = emptyList()
+    val suggestions: List<String> = emptyList(),
+    val riskScore: Float = 0f
 )
 
 /**

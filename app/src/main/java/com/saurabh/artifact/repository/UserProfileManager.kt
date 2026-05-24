@@ -87,12 +87,12 @@ class UserProfileManager @Inject constructor(
     }
 
     /**
-     * Checks if the user is eligible to change their username based on the 7-day cooldown.
+     * Checks if the user is eligible to change their username based on the 30-day cooldown.
      * Returns the number of days remaining if blocked, or 0 if allowed.
      */
     fun getUsernameCooldownDays(user: com.saurabh.artifact.model.User?): Int {
         val lastUpdate = user?.usernameUpdatedAt ?: return 0
-        val cooldownMillis = 7 * 24 * 60 * 60 * 1000L
+        val cooldownMillis = 30 * 24 * 60 * 60 * 1000L
         val diff = com.google.firebase.Timestamp.now().toDate().time - lastUpdate.toDate().time
         
         return if (diff < cooldownMillis) {

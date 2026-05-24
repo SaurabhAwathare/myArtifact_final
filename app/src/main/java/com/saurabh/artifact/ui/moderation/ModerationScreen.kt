@@ -125,7 +125,7 @@ fun ReportCard(
                     style = MaterialTheme.typography.bodyLarge
                 )
                 Text(
-                    text = "Author: ${artifact.username}",
+                    text = "Author: ${artifact.author.name}",
                     style = MaterialTheme.typography.bodySmall
                 )
                 Text(

@@ -88,7 +88,10 @@ class DraftSyncWorker @AssistedInject constructor(
                     username = user?.anonymousName ?: "Anonymous",
                     audioUrl = downloadUrl,
                     draft = draft,
-                    avatarSeed = user?.avatarSeed ?: ""
+                    avatarSeed = user?.avatarSeed ?: "",
+                    avatarColor = user?.avatarColor ?: "#FFD700",
+                    avatarConfig = user?.avatarConfig ?: com.saurabh.artifact.model.AvatarConfig(),
+                    anonymousId = user?.anonymousId ?: ""
                 )
 
                 if (firestoreResult.isSuccess) {

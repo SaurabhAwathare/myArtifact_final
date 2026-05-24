@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.saurabh.artifact.model.Artifact
+import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.ui.components.ResonanceDisplay
 import com.saurabh.artifact.ui.player.components.*
 import com.saurabh.artifact.ui.theme.GoldAura400
@@ -237,20 +238,32 @@ fun ImmersivePlayerScreen(
                                 )
                             } else {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text(
-                                        text = artifact.username,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = Color.White.copy(alpha = 0.5f),
-                                        fontWeight = FontWeight.Medium
-                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = artifact.author.name,
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            color = Color.White.copy(alpha = 0.5f),
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        if (artifact.author.sigil.isNotEmpty()) {
+                                            Text(
+                                                text = " · ",
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                color = Color.White.copy(alpha = 0.2f)
+                                            )
+                                            Text(
+                                                text = artifact.author.sigil,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = Color.White.copy(alpha = 0.4f),
+                                                fontWeight = FontWeight.Light
+                                            )
+                                        }
+                                    }
                                     
                                     // Unified Metadata Display (Matches Feed)
                                     ResonanceDisplay(
-                                        counts = com.saurabh.artifact.model.ArtifactReactionCounts(
-                                            artifactId = artifact.id,
-                                            totalCount = uiState.resonanceCount,
-                                            visibility = artifact.reactionVisibility
-                                        )
+                                        summary = uiState.resonanceSummary,
+                                        isOwner = artifact.userId == uiState.currentArtifact?.userId
                                     )
                                 }
                             }
@@ -289,7 +302,6 @@ fun ImmersivePlayerScreen(
                     PlayerInteractionBar(
                         isResonated = uiState.isResonated,
                         selectedReactionType = uiState.selectedReactionType,
-                        resonanceCount = uiState.resonanceCount,
                         onResonateClick = onResonateClick,
                         isFollowed = uiState.isFollowed,
                         onFollowClick = onFollowClick,
@@ -392,7 +404,7 @@ fun ImmersiveDraftPlayerPreview() {
         ImmersivePlayerScreen(
             artifact = Artifact(
                 title = "Midnight Reflections",
-                username = "Silent Wanderer",
+                author = AuthorSnapshot(name = "Silent Wanderer", sigil = "A1"),
                 emotion = "Peaceful",
                 amplitudeData = List(100) { (it % 10) / 10f },
                 isDraft = true

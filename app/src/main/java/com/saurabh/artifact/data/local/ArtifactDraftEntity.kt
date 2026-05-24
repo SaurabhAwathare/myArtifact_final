@@ -12,6 +12,7 @@ data class ArtifactDraftEntity(
     @PrimaryKey
     val id: String,
     val localAudioPath: String,
+    val rawPcmPath: String? = null, // Durable source for crash resilience
     val localTranscriptPath: String? = null,
     val waveformPath: String? = null,
     val title: String? = null,

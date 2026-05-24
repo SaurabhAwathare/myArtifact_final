@@ -26,7 +26,7 @@ class SettingsViewModel @Inject constructor(
     val isAnonymous = authRepository.currentUser.map { it?.isAnonymous ?: true }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
 
-    val isAdmin = authRepository.userData.map { it?.isAdmin ?: false }
+    val isAdmin = authRepository.privateSettings.map { it?.isAdmin ?: false }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     val uiState: StateFlow<UserSettings> = repository.userSettings

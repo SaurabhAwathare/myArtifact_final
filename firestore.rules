@@ -2,116 +2,133 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper functions
-    function isAuthenticated() {
+    // --- HELPER FUNCTIONS ---
+    function isAuth() {
       return request.auth != null;
     }
 
     function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
+      return isAuth() && request.auth.uid == userId;
     }
 
-    // User profiles
-    match /users/{userId} {
-      allow read: if isAuthenticated();
-      allow write: if isOwner(userId);
+    function isAdmin() {
+      return isAuth() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)/private/settings).data.isAdmin == true;
+    }
 
-      // Private Saved Artifacts
+    // --- USERS & PROFILES ---
+    match /users/{uid} {
+      allow read: if isOwner(uid) ||
+                   (isAuth() && !resource.data.keys().hasAny(['email', 'displayName', 'realName']));
+
+      allow write: if isOwner(uid) &&
+                   !(request.resource.data.diff(resource.data).affectedKeys().hasAny(['isAdmin', 'accountStatus', 'email', 'realName']));
+
+      match /private/settings {
+        allow read: if isOwner(uid) || isAdmin();
+        allow write: if isOwner(uid) &&
+                     !(request.resource.data.diff(resource.data).affectedKeys().hasAny(['isAdmin', 'accountStatus']));
+        allow write: if isAdmin();
+      }
+
+      // Private Interaction State (The Pulse)
+      match /private/interactions/reactions/{artifactId} {
+        allow read, write: if isOwner(uid);
+      }
+
       match /savedArtifacts/{artifactId} {
-        allow read, write: if isOwner(userId);
+        allow read, write: if isOwner(uid);
+      }
+
+      // Ownership mapping for artifacts (Private)
+      match /private/published_artifacts/artifacts/{artifactId} {
+        allow read, write: if isOwner(uid);
       }
     }
 
-    // Usernames uniqueness check
-    match /usernames/{username} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid;
-      allow delete: if isAuthenticated() && resource.data.uid == request.auth.uid;
-    }
-
-    // Artifacts
+    // --- ARTIFACTS (The Hearth) ---
     match /artifacts/{artifactId} {
-      allow read: if isAuthenticated() && (
-        resource == null ||
-        resource.data.isPublic == true ||
-        resource.data.userId == request.auth.uid
-      );
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow update: if isOwner(resource.data.userId) || (
-        isAuthenticated() &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reportCount', 'safetyConcernCount', 'reactionCount', 'commentCount'])
-      );
-      allow delete: if isOwner(resource.data.userId);
+      // Ensure only sanitized artifacts (using AuthorSnapshot) are publicly readable
+      allow read: if (resource.data.isPublic == true && resource.data.keys().hasAll(['author'])) ||
+                   isOwner(resource.data.userId) ||
+                   isAdmin();
 
-      // Replies sub-collection
-      match /replies/{replyId} {
-        allow read: if isAuthenticated();
-        allow create: if isAuthenticated();
-        allow delete: if isAuthenticated() && (isOwner(resource.data.userId) || isOwner(get(/databases/$(database)/documents/artifacts/$(artifactId)).data.userId));
+      // Create: Enforce author snapshot integrity and no direct UID exposure if possible
+      allow create: if isAuth() &&
+                    request.resource.data.author.keys().hasAll(['anonymousId', 'name']);
+
+      allow update, delete: if isAdmin() || isOwner(resource.data.userId);
+
+      // Aggregate Resonance (The Echo)
+      match /stats/resonance {
+        allow read: if true;
+        allow write: if false; // Only Cloud Functions
       }
     }
 
-    // Standardized Comments
+    // --- REFLECTIONS (The Intimacy Layers) ---
     match /comments/{commentId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && request.resource.data.authorId == request.auth.uid;
-      allow delete: if isAuthenticated() && (
+      allow read: if isAuth() && (
+        // 1. Author Access (Sanctuary)
+        resource.data.authorId == request.auth.uid ||
+
+        // 2. Artifact Owner Access (Bridge)
+        // Note: Using cached artifactOwnerId for performance and reliability
+        resource.data.artifactOwnerId == request.auth.uid ||
+
+        // 3. Public Resonance (After Reveal)
+        (resource.data.visibilityLayer == 'RESONANCE' &&
+         resource.data.moderationState == 'APPROVED' &&
+         (resource.data.revealAt == null || resource.data.revealAt <= request.time))
+      );
+
+      allow create: if isAuth() && request.resource.data.authorId == request.auth.uid;
+
+      // Owners can delete any comment on their artifact
+      allow delete: if isAuth() && (
         resource.data.authorId == request.auth.uid ||
         resource.data.artifactOwnerId == request.auth.uid ||
-        get(/databases/$(database)/documents/artifacts/$(resource.data.artifactId)).data.userId == request.auth.uid
+        isAdmin()
       );
     }
 
-    // Reactions
-    match /reactions/{reactionId} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && request.auth.uid == request.resource.data.userId;
-      allow delete: if isAuthenticated() && (
-        request.auth.uid == resource.data.userId ||
-        resource.data.artifactOwnerId == request.auth.uid ||
-        get(/databases/$(database)/documents/artifacts/$(resource.data.artifactId)).data.userId == request.auth.uid
-      );
+    // --- REACTION COUNTS (Legacy Support & Aggregates) ---
+    match /artifact_reaction_counts/{artifactId} {
+      allow read: if true;
+      allow write: if false; // Only Cloud Functions or Admin
     }
 
-    // Global Reactions (for profile liked tab)
-    match /reactions_global/{reactionId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow delete: if isAuthenticated() && (
+    // --- IDENTITY & ANTI-ENUMERATION ---
+    match /usernames/{id} {
+      // Prevent enumeration: only allow existence check via specific document read if authenticated
+      allow read: if isAuth();
+      allow create: if isAuth() && request.resource.data.uid == request.auth.uid;
+      allow delete: if isAuth() && resource.data.uid == request.auth.uid;
+    }
+
+    // --- GLOBAL REACTIONS (DEPRECATED for Second-Order Privacy) ---
+    match /reactions_global/{id} {
+      // Only readable by the owner or the artifact owner
+      allow read: if isAuth() && (
+        resource.data.userId == request.auth.uid ||
+        resource.data.artifactOwnerId == request.auth.uid
+      );
+      allow write: if isAuth() && request.resource.data.userId == request.auth.uid;
+      allow delete: if isAuth() && (
         resource.data.userId == request.auth.uid ||
         resource.data.artifactOwnerId == request.auth.uid
       );
     }
 
-    // Reaction Aggregates
-    match /artifact_reaction_counts/{artifactId} {
-      allow read: if isAuthenticated();
-      allow create, update: if isAuthenticated();
+    // --- OTHER COLLECTIONS ---
+    match /notifications/{id} {
+      allow read, write: if isAuth() && request.auth.uid == resource.data.userId;
+      allow create: if isAuth();
     }
 
-    // Private Feedback
-    match /feedback_private/{feedbackId} {
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow read, update, delete: if false; // Only accessible via Admin SDK/Cloud Functions
-    }
-
-    // Reports
-    match /reports/{reportId} {
-      allow create: if isAuthenticated(); // Device hash is handled client-side
-      allow read, update, delete: if false; // Only accessible via Admin SDK/Moderation tools
-    }
-
-    // Notifications
-    match /notifications/{notificationId} {
-      allow read: if isAuthenticated() && (
-        resource == null ||
-        request.auth.uid == resource.data.userId
-      );
-      allow create: if isAuthenticated();
-      allow update, delete: if isAuthenticated() && (
-        resource == null ||
-        request.auth.uid == resource.data.userId
-      );
+    match /reports/{id} {
+      allow create: if isAuth();
+      allow read, write: if isAdmin();
     }
   }
 }

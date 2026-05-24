@@ -6,7 +6,7 @@ import org.junit.Test
 
 class UsernameValidatorTest {
 
-    private val validator = UsernameValidator()
+    private val validator = UsernameValidator(IdentityScout())
 
     @Test
     fun `test valid usernames`() {

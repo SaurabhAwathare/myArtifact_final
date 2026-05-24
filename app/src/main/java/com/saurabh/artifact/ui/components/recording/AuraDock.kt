@@ -48,6 +48,9 @@ fun AuraDock(
     val haptic = LocalHapticFeedback.current
     val infiniteTransition = rememberInfiniteTransition(label = "AuraBreathing")
     
+    // Throttling State
+    var lastClickTime by remember { mutableStateOf(0L) }
+    
     // Part 6 — Motion Restraint: Diaphragmatic Breathing
     // Slower, deeper, more stable than previous implementation.
     val breathingDuration = when (status) {
@@ -94,8 +97,12 @@ fun AuraDock(
         // The Core Interaction Surface
         Surface(
             onClick = {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                onInitiate()
+                val currentTime = System.currentTimeMillis()
+                if (currentTime - lastClickTime > 1000) { // 1 second debounce
+                    lastClickTime = currentTime
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onInitiate()
+                }
             },
             shape = CircleShape,
             color = if (status == RecordingStatus.RECORDING) Color(0xFFD96B5F) else Color(0xFFD96B5F),

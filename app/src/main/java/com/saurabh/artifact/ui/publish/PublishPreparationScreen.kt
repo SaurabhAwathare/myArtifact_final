@@ -25,6 +25,7 @@ import com.saurabh.artifact.ui.theme.Spacing
  */
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.saurabh.artifact.ui.components.moderation.PrivacyNudgeDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -44,6 +45,14 @@ fun PublishPreparationScreen(
         if (uiState.isSuccess) {
             onPublished()
         }
+    }
+
+    if (uiState.showPrivacyNudge) {
+        PrivacyNudgeDialog(
+            onDismiss = { viewModel.dismissPrivacyNudge() },
+            onConfirm = { viewModel.confirmPublishAnyway() },
+            leaks = uiState.privacyWarnings
+        )
     }
 
     Scaffold(
@@ -140,7 +149,7 @@ fun PublishPreparationScreen(
             Spacer(modifier = Modifier.height(Spacing.ExtraLarge))
 
             Button(
-                onClick = { viewModel.publish() },
+                onClick = { viewModel.onPublishClick() },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(64.dp),

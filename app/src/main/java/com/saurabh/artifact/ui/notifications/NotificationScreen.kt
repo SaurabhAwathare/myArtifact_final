@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -35,7 +36,13 @@ fun NotificationScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Activity") },
+                title = { 
+                    Text(
+                        "Resonances",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Light
+                    ) 
+                },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
@@ -53,16 +60,17 @@ fun NotificationScreen(
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(
-                        Icons.Rounded.Notifications,
+                        Icons.Rounded.AutoAwesome,
                         contentDescription = null,
                         modifier = Modifier.size(64.dp),
-                        tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                        tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        "No notifications yet",
+                        "The air is still",
                         style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.outline
+                        color = MaterialTheme.colorScheme.outline,
+                        fontWeight = FontWeight.Light
                     )
                 }
             }
@@ -97,40 +105,46 @@ fun NotificationCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() },
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (notification.isRead) 
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                MaterialTheme.colorScheme.surface
             else 
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f)
-        )
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.1f)
+        ),
+        border = if (!notification.isRead) 
+            null 
+        else 
+            androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
     ) {
         Row(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(20.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Indicator for unread
             if (!notification.isRead) {
                 Box(
                     modifier = Modifier
-                        .size(8.dp)
-                        .background(MaterialTheme.colorScheme.primary, CircleShape)
+                        .size(6.dp)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.6f), CircleShape)
                 )
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(16.dp))
             }
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = notification.message,
                     style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = if (notification.isRead) FontWeight.Normal else FontWeight.SemiBold
+                    fontWeight = if (notification.isRead) FontWeight.Light else FontWeight.Normal,
+                    lineHeight = androidx.compose.ui.unit.TextUnit.Unspecified
                 )
                 
                 Text(
                     text = formatTimestamp(notification.createdAt.toDate()),
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                    modifier = Modifier.padding(top = 4.dp)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.padding(top = 6.dp),
+                    fontWeight = FontWeight.Light
                 )
             }
         }

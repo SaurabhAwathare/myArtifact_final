@@ -60,8 +60,8 @@ export const onReplyCreated = functions.firestore
       // 5. Create notification payload
       const message: admin.messaging.Message = {
         notification: {
-          title: "New Reply 💬",
-          body: "Someone replied to your artifact",
+          title: "A Quiet Resonance 🕯️",
+          body: "A new reflection has gathered on your artifact",
         },
         token: fcmToken,
         android: {

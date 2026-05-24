@@ -75,8 +75,13 @@ class UploadSessionManager @Inject constructor(
                             }
                         }
                         ArtifactDraftState.PUBLISHED -> AmbientUploadStatus.Completed
+                        ArtifactDraftState.WAITING_FOR_NETWORK -> AmbientUploadStatus.WaitingQuietly
+                        ArtifactDraftState.FAILED_UPLOAD -> AmbientUploadStatus.Error(
+                            "Holding safely. We'll try sharing it again later.",
+                            recoverable = true
+                        )
                         ArtifactDraftState.ERROR -> AmbientUploadStatus.Error(
-                            "Something went wrong. Your artifact is still safely saved locally.",
+                            "Your reflection is safe. Something went wrong with the sync.",
                             recoverable = true
                         )
                         else -> AmbientUploadStatus.Initializing

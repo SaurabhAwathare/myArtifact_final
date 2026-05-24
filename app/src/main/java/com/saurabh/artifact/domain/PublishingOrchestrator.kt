@@ -15,7 +15,8 @@ import javax.inject.Singleton
 @Singleton
 class PublishingOrchestrator @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val draftDao: DraftDao
+    private val draftDao: DraftDao,
+    private val connectivityObserver: com.saurabh.artifact.util.ConnectivityObserver
 ) {
     private val workManager: WorkManager by lazy { WorkManager.getInstance(context) }
 
@@ -55,10 +56,14 @@ class PublishingOrchestrator @Inject constructor(
             return@withContext
         }
 
-        // 2. Transition to APPROVED_FOR_PUBLISH
-        draftDao.updateDraftState(draftId, ArtifactDraftState.APPROVED_FOR_PUBLISH)
+        // 2. Transition to APPROVED_FOR_PUBLISH or WAITING_FOR_NETWORK
+        if (connectivityObserver.isOnline()) {
+            draftDao.updateDraftState(draftId, ArtifactDraftState.APPROVED_FOR_PUBLISH)
+        } else {
+            draftDao.updateDraftState(draftId, ArtifactDraftState.WAITING_FOR_NETWORK)
+        }
         
-        // 3. Trigger Publishing Worker
+        // 3. Trigger Publishing Worker (WorkManager handles constraints)
         enqueuePublishingWork(draftId)
     }
 

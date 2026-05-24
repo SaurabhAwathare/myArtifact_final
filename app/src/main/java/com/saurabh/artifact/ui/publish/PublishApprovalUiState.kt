@@ -21,10 +21,15 @@ data class PublishApprovalUiState(
     val hasSensitiveInfo: Boolean = false,
     val isHighRisk: Boolean = false,
     val sensitiveFlagCount: Int = 0,
+    val identityRiskScore: Float = 0f,
     
     val confirmedComfortable: Boolean = false,
     val confirmedSensitiveRemoved: Boolean = false,
     val confirmedComplete: Boolean = false,
+    
+    val showPrivacyNudge: Boolean = false,
+    val privacyWarnings: List<String> = emptyList(),
+    val isPrivacyNudgeBypassed: Boolean = false,
     
     val currentState: ArtifactDraftState = ArtifactDraftState.READY_TO_REVIEW
 ) {

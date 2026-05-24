@@ -34,7 +34,7 @@ fun ReactionBar(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            text = "How does this make you feel?",
+            text = "Leave a quiet reflection of resonance...",
             style = MaterialTheme.typography.labelMedium,
             color = MistGray.copy(alpha = 0.6f),
             modifier = Modifier.padding(bottom = 12.dp)

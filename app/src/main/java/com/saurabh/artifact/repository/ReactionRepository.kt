@@ -35,29 +35,29 @@ class ReactionRepository @Inject constructor(
         try {
             val reactionId = "${artifactId}_${userId}"
 
-            // 1. References for Atomic Update
-            // Migrated to top-level collection for consistency across the app
-            val reactionRef = firestore.collection("artifacts").document(artifactId)
-                .collection("reactions").document(userId)
+            // 1. References for Second-Order Privacy (Pulse & Echo)
+            // Pulse: Private state at /users/{uid}/private/interactions/reactions/{artifactId}
+            val pulseRef = firestore.collection("users").document(userId)
+                .collection("private").document("interactions")
+                .collection("reactions").document(artifactId)
             
             val aggregateRef = firestore.collection("artifact_reaction_counts").document(artifactId)
-            
             val artifactRef = firestore.collection("artifacts").document(artifactId)
             val artifactDoc = artifactRef.get().await()
             val ownerId = artifactDoc.getString("userId")
 
             firestore.runTransaction { transaction ->
-                // A. Save the individual reaction in sub-collection
-                transaction.set(reactionRef, mapOf(
+                // A. Save the individual reaction in Private Pulse (OWNER ONLY)
+                transaction.set(pulseRef, mapOf(
                     "id" to reactionId,
                     "artifactId" to artifactId,
                     "userId" to userId,
-                    "type" to type.id, // Use stable ID
+                    "type" to type.id,
+                    "isPrivatePulse" to true,
                     "createdAt" to FieldValue.serverTimestamp()
                 ))
 
-                // B. Save a duplicate in top-level 'reactions_global' for profile feed
-                // and for allowing artifact owners to clean up even if they can't see private reactions.
+                // B. Maintain legacy 'reactions_global' but with restricted rules (for owner deletion support)
                 val globalRef = firestore.collection("reactions_global").document(reactionId)
                 transaction.set(globalRef, mapOf(
                     "artifactId" to artifactId,
@@ -67,7 +67,7 @@ class ReactionRepository @Inject constructor(
                     "createdAt" to FieldValue.serverTimestamp()
                 ))
 
-                // C. Update the aggregate counts
+                // C. Local Aggregate Update (Cloud Functions will handle global scaling)
                 transaction.set(
                     aggregateRef,
                     mapOf(
@@ -78,7 +78,7 @@ class ReactionRepository @Inject constructor(
                     SetOptions.merge()
                 )
 
-                // C. Sync to main artifact document
+                // D. Sync to main artifact document
                 transaction.update(artifactRef, "reactionCount", FieldValue.increment(1))
             }.await()
 
@@ -86,8 +86,9 @@ class ReactionRepository @Inject constructor(
             if (ownerId != null && ownerId != userId) {
                 notificationRepository.createNotification(
                     userId = ownerId,
-                    message = notificationRepository.getEmpatheticMessage(type),
-                    artifactId = artifactId
+                    message = notificationRepository.getAtmosphericMessage(type),
+                    artifactId = artifactId,
+                    type = NotificationType.RESONANCE
                 )
             }
 
@@ -118,20 +119,26 @@ class ReactionRepository @Inject constructor(
 
     /**
      * Returns a flow of all individual reactions for an artifact.
+     * DEPRECATED: For Second-Order Privacy, public listing of reactions is removed.
+     * This now only returns the current user's reaction if it exists.
      */
-    fun getArtifactReactions(artifactId: String): Flow<List<ArtifactReaction>> = callbackFlow {
-        val subscription = firestore.collection("artifacts").document(artifactId)
-            .collection("reactions")
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    trySend(emptyList())
-                    return@addSnapshotListener
-                }
-                val reactions = snapshot?.documents?.mapNotNull { doc ->
-                    doc.toObject(ArtifactReaction::class.java)?.copy(id = doc.id)
-                } ?: emptyList()
-                trySend(reactions)
+    fun getArtifactReactions(artifactId: String, userId: String): Flow<List<ArtifactReaction>> = callbackFlow {
+        val pulseRef = firestore.collection("users").document(userId)
+            .collection("private").document("interactions")
+            .collection("reactions").document(artifactId)
+        
+        val subscription = pulseRef.addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                trySend(emptyList())
+                return@addSnapshotListener
             }
+            val reactions = if (snapshot != null && snapshot.exists()) {
+                listOf(snapshot.toObject(ArtifactReaction::class.java)!!.copy(id = snapshot.id))
+            } else {
+                emptyList()
+            }
+            trySend(reactions)
+        }
         awaitClose { subscription.remove() }
     }
 
@@ -140,21 +147,23 @@ class ReactionRepository @Inject constructor(
      */
     suspend fun toggleReaction(artifactId: String, userId: String, type: ReactionType): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            val reactionRef = firestore.collection("artifacts").document(artifactId)
-                .collection("reactions").document(userId)
+            val pulseRef = firestore.collection("users").document(userId)
+                .collection("private").document("interactions")
+                .collection("reactions").document(artifactId)
+            
             val aggregateRef = firestore.collection("artifact_reaction_counts").document(artifactId)
             val artifactRef = firestore.collection("artifacts").document(artifactId)
 
-            val existingReactionDoc = reactionRef.get().await()
+            val existingPulseDoc = pulseRef.get().await()
 
-            if (existingReactionDoc.exists()) {
-                val existingTypeId = existingReactionDoc.getString("type") ?: ""
+            if (existingPulseDoc.exists()) {
+                val existingTypeId = existingPulseDoc.getString("type") ?: ""
                 val reactionId = "${artifactId}_${userId}"
                 val globalRef = firestore.collection("reactions_global").document(reactionId)
                 
                 firestore.runTransaction { transaction ->
                     // 1. Delete reaction from both places
-                    transaction.delete(reactionRef)
+                    transaction.delete(pulseRef)
                     transaction.delete(globalRef)
 
                     // 2. Update counts aggregate

@@ -50,7 +50,8 @@ class UserSessionManager @Inject constructor(
             }
             // Migration logic: if seed is missing, use legacy emoji if present, else generate random
             val seed = preferences[avatarSeedKey] ?: preferences[stringPreferencesKey("identity_emoji")] ?: UUID.randomUUID().toString()
-            val username = preferences[usernameKey] ?: "Anonymous Soul"
+            val username = preferences[usernameKey] ?: com.saurabh.artifact.util.UsernameGenerator.generate()
+            val sigil = com.saurabh.artifact.util.UsernameGenerator.deriveSigil(id)
             val configJson = preferences[avatarConfigKey]
             val config = configJson?.let { 
                 try {
@@ -64,6 +65,7 @@ class UserSessionManager @Inject constructor(
                 anonymousId = id, 
                 identityEmoji = "✨", // Deprecated
                 username = username, 
+                sigil = sigil,
                 avatarSeed = seed,
                 avatarConfig = config
             )

@@ -14,7 +14,9 @@ class RecordingSessionManager @Inject constructor(
     val recordingState = RecordingService.recordingState
 
     val isSessionActive: Flow<Boolean> = recordingState.map { 
-        it.status == RecordingStatus.RECORDING || it.status == RecordingStatus.PAUSED 
+        it.status == RecordingStatus.RECORDING || 
+        it.status == RecordingStatus.PAUSED ||
+        it.status == RecordingStatus.PREPARING
     }
 
     /**
@@ -28,7 +30,9 @@ class RecordingSessionManager @Inject constructor(
 
     fun isRecordingActive(): Boolean {
         val status = recordingState.value.status
-        return status == RecordingStatus.RECORDING || status == RecordingStatus.PAUSED
+        return status == RecordingStatus.RECORDING || 
+               status == RecordingStatus.PAUSED ||
+               status == RecordingStatus.PREPARING
     }
 
     fun shouldShowRitual(): Boolean {

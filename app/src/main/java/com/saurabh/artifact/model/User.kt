@@ -6,45 +6,32 @@ import com.google.firebase.firestore.ServerTimestamp
 
 data class User(
     var id: String = "",
+    var anonymousId: String = "", // Short ID like usr_9F3A2
     var anonymousName: String = "",
+    var anonymousSigil: String = "", // Added for soft uniqueness
     var avatarSeed: String = "",
     var avatarColor: String = "#FFD700",
     var avatarConfig: AvatarConfig = AvatarConfig(),
     var emotionalProfile: String = "Quiet Observer",
-    @Deprecated("Use anonymousName for public display")
-    var displayName: String = "",
-    @Deprecated("Do not display publicly")
-    var email: String = "",
-    /** @deprecated Use avatarSeed instead */
-    var profilePictureUrl: String = "",
-    /** @deprecated Use avatarConfig instead */
-    var avatarConfigJson: String? = null,
-    /** @deprecated Use avatarConfig instead */
-    var avatarConfigLegacy: String? = null,
-    @Deprecated("Use avatarSeed for anonymous identity")
-    var identityEmoji: String = "✨",
     @get:PropertyName("isAnonymous")
     @set:PropertyName("isAnonymous")
     var isAnonymous: Boolean = true,
-    var dominantEmotion: String? = null, // Matches Firestore field name
+    var dominantEmotion: String? = null,
     var usernameUpdatedAt: Timestamp? = null,
     @ServerTimestamp var createdAt: Timestamp? = null,
     @ServerTimestamp var lastSeen: Timestamp? = null,
-    var emotionPreferences: Map<String, Int> = emptyMap(), // emotion -> interaction count
+    var emotionPreferences: Map<String, Int> = emptyMap(),
     
     // Social & Profile
     var bio: String = "",
     var followersCount: Int = 0,
     var followingCount: Int = 0,
 
-    // Engagement & Retention (Ethical/Non-addictive)
+    // Engagement
     var lastActivityTimestamp: Timestamp? = null,
     var softStreakCount: Int = 0,
     var totalContributions: Int = 0,
-    var lastPromptId: String = "",
-    var fcmToken: String? = null,
-    var isAdmin: Boolean = false,
-    var metadata: Map<String, Any> = emptyMap(),
+    var lastPromptId: String = ""
 ) {
     /**
      * Derives the user's current dominant emotion based on interaction history.
@@ -53,3 +40,16 @@ data class User(
         return emotionPreferences.maxByOrNull { it.value }?.key
     }
 }
+
+/**
+ * Sensitive data stored in users/{uid}/private/settings
+ * This is NEVER exposed to other users via Firestore rules.
+ */
+data class UserPrivateSettings(
+    var email: String = "",
+    var realName: String = "", // Sourced from Google Auth, kept private
+    var fcmToken: String? = null,
+    var isAdmin: Boolean = false,
+    var accountStatus: String = "ACTIVE", // ACTIVE, SHADOW_BANNED, BANNED
+    var metadata: Map<String, Any> = emptyMap()
+)

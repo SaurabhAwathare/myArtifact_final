@@ -26,7 +26,11 @@ class AuthRepository @Inject constructor(
     private val _userData = MutableStateFlow<User?>(null)
     val userData: StateFlow<User?> = _userData
 
+    private val _privateSettings = MutableStateFlow<com.saurabh.artifact.model.UserPrivateSettings?>(null)
+    val privateSettings: StateFlow<com.saurabh.artifact.model.UserPrivateSettings?> = _privateSettings
+
     private var userDataListener: ListenerRegistration? = null
+    private var privateSettingsListener: ListenerRegistration? = null
 
     val currentUserId: String
         get() = firebaseAuth.currentUser?.uid ?: ""
@@ -37,22 +41,22 @@ class AuthRepository @Inject constructor(
             _currentUser.value = user
             if (user != null) {
                 observeUserData(user.uid)
+                observePrivateSettings(user.uid)
             } else {
-                cleanupListener()
+                cleanupListeners()
                 _userData.value = null
+                _privateSettings.value = null
             }
         }
     }
 
     private fun observeUserData(userId: String) {
         // Prevent duplicate listeners
-        cleanupListener()
+        userDataListener?.remove()
 
         userDataListener = firestore.collection("users").document(userId)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    // Production-Safety: PERMISSION_DENIED is expected for a few ms 
-                    // between anonymous sign-in and profile creation in Firestore.
                     if (error.code == com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED) {
                         android.util.Log.d("AuthRepository", "Waiting for profile creation... (Permission Denied)")
                     } else {
@@ -71,9 +75,30 @@ class AuthRepository @Inject constructor(
             }
     }
 
-    private fun cleanupListener() {
+    private fun observePrivateSettings(userId: String) {
+        privateSettingsListener?.remove()
+
+        privateSettingsListener = firestore.collection("users").document(userId)
+            .collection("private").document("settings")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    android.util.Log.e("AuthRepository", "Error observing private settings: ${error.message}")
+                    return@addSnapshotListener
+                }
+
+                if (snapshot != null && snapshot.exists()) {
+                    _privateSettings.value = snapshot.toObject(com.saurabh.artifact.model.UserPrivateSettings::class.java)
+                } else {
+                    _privateSettings.value = null
+                }
+            }
+    }
+
+    private fun cleanupListeners() {
         userDataListener?.remove()
         userDataListener = null
+        privateSettingsListener?.remove()
+        privateSettingsListener = null
     }
 
     suspend fun signInWithGoogle(idToken: String): Result<FirebaseUser?> {

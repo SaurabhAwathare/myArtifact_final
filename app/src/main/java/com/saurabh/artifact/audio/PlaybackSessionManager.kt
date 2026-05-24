@@ -137,7 +137,7 @@ class PlaybackSessionManager @Inject constructor(
                 .setMediaMetadata(
                     androidx.media3.common.MediaMetadata.Builder()
                         .setTitle(artifact.title)
-                        .setArtist(artifact.username)
+                        .setArtist(artifact.author.name)
                         .build()
                 )
                 .build()

@@ -54,7 +54,7 @@ fun ArtifactManagementBottomSheet(
             if (isSaved) {
                 ManagementActionItem(
                     icon = Icons.Rounded.Bookmark,
-                    label = "Remove from Archive",
+                    label = "Release from Archive",
                     onClick = {
                         onUnsaveClick()
                         onDismiss()
@@ -162,7 +162,7 @@ fun RenameDialog(
                 onClick = { onConfirm(title) },
                 enabled = title.isNotBlank()
             ) {
-                Text("Save", color = ArtifactTheme.colors.waveformActive)
+                Text("Update", color = ArtifactTheme.colors.waveformActive)
             }
         },
         dismissButton = {

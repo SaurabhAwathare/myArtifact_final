@@ -73,10 +73,19 @@ class WavRecorder(
             fos.write(ByteArray(44))
 
             try {
+                var bytesWritten = 0L
                 while (isRecording && coroutineContext.isActive) {
                     val read = audioRecord?.read(data, 0, bufferSize) ?: 0
                     if (read > 0) {
                         fos.write(data, 0, read)
+                        bytesWritten += read
+                        
+                        // Emotional Durability: Flush every 256KB to minimize loss on crash
+                        if (bytesWritten > 256 * 1024) {
+                            fos.flush()
+                            bytesWritten = 0
+                        }
+
                         calculateMaxAmplitude(data, read)
                     }
                 }

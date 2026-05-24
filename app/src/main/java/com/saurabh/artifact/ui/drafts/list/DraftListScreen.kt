@@ -64,7 +64,14 @@ fun DraftListScreen(
                 items(drafts, key = { it.id }) { draft ->
                     DraftItem(
                         draft = draft,
-                        onClick = { onReviewDraft(draft.id) }
+                        onClick = { 
+                            if (draft.syncState == com.saurabh.artifact.model.SyncState.INTERRUPTED) {
+                                // Trigger processing for interrupted draft
+                                viewModel.playDraft(draft) // This now triggers processing too
+                            } else {
+                                onReviewDraft(draft.id)
+                            }
+                        }
                     )
                 }
             }
@@ -83,6 +90,7 @@ fun DraftItem(
     
     val isProcessing = draft.draftState in listOf(
         ArtifactDraftState.SAVING,
+        ArtifactDraftState.TRANSCODING,
         ArtifactDraftState.PROCESSING,
         ArtifactDraftState.NORMALIZING,
         ArtifactDraftState.WAVEFORM_GENERATION,
@@ -116,12 +124,18 @@ fun DraftItem(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = date,
+                        text = if (draft.syncState == com.saurabh.artifact.model.SyncState.INTERRUPTED) {
+                            "Interrupted reflection • $date"
+                        } else date,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        color = if (draft.syncState == com.saurabh.artifact.model.SyncState.INTERRUPTED) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        }
                     )
                     
-                    StatusBadge(draft.draftState)
+                    StatusBadge(draft)
                 }
             }
         }
@@ -149,9 +163,13 @@ fun ShimmerBackground() {
 }
 
 @Composable
-fun StatusBadge(state: ArtifactDraftState) {
+fun StatusBadge(draft: ArtifactDraftEntity) {
+    val state = draft.draftState
+    val syncState = draft.syncState
+
     val isProcessing = state in listOf(
         ArtifactDraftState.SAVING,
+        ArtifactDraftState.TRANSCODING,
         ArtifactDraftState.PROCESSING,
         ArtifactDraftState.NORMALIZING,
         ArtifactDraftState.WAVEFORM_GENERATION,
@@ -159,20 +177,24 @@ fun StatusBadge(state: ArtifactDraftState) {
         ArtifactDraftState.SAFETY_CHECK
     )
 
+    val isInterrupted = syncState == com.saurabh.artifact.model.SyncState.INTERRUPTED
+
     val color = when {
-        isProcessing -> MaterialTheme.colorScheme.primary
+        isInterrupted -> MaterialTheme.colorScheme.primary
+        isProcessing -> MaterialTheme.colorScheme.secondary
         state == ArtifactDraftState.ERROR -> MaterialTheme.colorScheme.error
-        state == ArtifactDraftState.PUBLISHED -> MaterialTheme.colorScheme.secondary
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     
-    val text = when (state) {
-        ArtifactDraftState.SAVING -> "✨ Saving..."
-        ArtifactDraftState.NORMALIZING -> "✨ Normalizing audio..."
-        ArtifactDraftState.TRANSCRIBING -> "✨ Transcribing using AI..."
-        ArtifactDraftState.WAVEFORM_GENERATION -> "✨ Generating waveform..."
-        ArtifactDraftState.SAFETY_CHECK -> "✨ Safety check..."
-        ArtifactDraftState.PROCESSING -> "✨ Enhancing..."
+    val text = when {
+        isInterrupted -> "🌙 Held Safely"
+        state == ArtifactDraftState.TRANSCODING -> "✨ Preparing audio..."
+        state == ArtifactDraftState.SAVING -> "✨ Saving..."
+        state == ArtifactDraftState.NORMALIZING -> "✨ Normalizing audio..."
+        state == ArtifactDraftState.TRANSCRIBING -> "✨ Transcribing using AI..."
+        state == ArtifactDraftState.WAVEFORM_GENERATION -> "✨ Generating waveform..."
+        state == ArtifactDraftState.SAFETY_CHECK -> "✨ Safety check..."
+        state == ArtifactDraftState.PROCESSING -> "✨ Enhancing..."
         else -> state.name.replace("_", " ").lowercase().capitalize(Locale.ROOT)
     }
 

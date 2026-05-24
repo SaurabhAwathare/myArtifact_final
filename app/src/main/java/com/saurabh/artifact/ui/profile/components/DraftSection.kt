@@ -24,7 +24,7 @@ fun LazyListScope.draftSection(
             val tempArtifact = Artifact(
                 id = draft.id,
                 title = draft.title ?: "Unfinished Recording",
-                username = "Private Draft",
+                author = com.saurabh.artifact.model.AuthorSnapshot(name = "Private Draft"),
                 duration = draft.durationMs / 1000,
                 isDraft = true,
                 amplitudeData = draft.amplitudeData,

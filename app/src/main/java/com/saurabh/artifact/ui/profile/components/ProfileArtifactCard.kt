@@ -168,11 +168,15 @@ fun ProfileArtifactCard(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(Spacing.Large)
                     ) {
-                        StatItem(
-                            icon = Icons.Rounded.FavoriteBorder,
-                            count = artifact.reactionCount,
-                            label = "resonated"
+                        com.saurabh.artifact.ui.components.ResonanceDisplay(
+                            counts = com.saurabh.artifact.model.ArtifactReactionCounts(
+                                artifactId = artifact.id,
+                                totalCount = artifact.reactionCount,
+                                visibility = artifact.reactionVisibility
+                            ),
+                            isOwner = isOwner
                         )
+
                         StatItem(
                             icon = Icons.Rounded.ChatBubbleOutline,
                             count = artifact.commentCount,

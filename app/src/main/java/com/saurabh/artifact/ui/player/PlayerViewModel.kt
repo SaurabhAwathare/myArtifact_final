@@ -36,7 +36,7 @@ class PlayerViewModel @Inject constructor(
     private val _selectedReactionType = MutableStateFlow(ReactionType.I_HEAR_YOU)
     private val _isFollowed = MutableStateFlow(false)
     private val _isSaved = MutableStateFlow(false)
-    private val _resonanceCount = MutableStateFlow(0)
+    private val _resonanceSummary = MutableStateFlow("")
     private val _commentCount = MutableStateFlow(0)
 
     private val _sleepTimerMillisRemaining = MutableStateFlow<Long?>(null)
@@ -60,8 +60,8 @@ class PlayerViewModel @Inject constructor(
                     
                     if (currentUserId != null) {
                         launch {
-                            reactionRepository.getArtifactReactions(artifact.id).collect { reactions ->
-                                val userReaction = reactions.find { it.userId == currentUserId }
+                            reactionRepository.getArtifactReactions(artifact.id, currentUserId).collect { reactions ->
+                                val userReaction = reactions.firstOrNull()
                                 _isResonated.value = userReaction != null
                                 if (userReaction != null) {
                                     _selectedReactionType.value = ReactionType.fromId(userReaction.typeId)
@@ -71,7 +71,13 @@ class PlayerViewModel @Inject constructor(
                         
                         launch {
                             reactionRepository.getReactionCounts(artifact.id).collect { counts ->
-                                _resonanceCount.value = counts?.totalCount ?: artifact.reactionCount
+                                val isOwner = artifact.userId == currentUserId
+                                _resonanceSummary.value = counts?.getFuzzySummary(isOwner) 
+                                    ?: com.saurabh.artifact.model.ArtifactReactionCounts(
+                                        artifactId = artifact.id,
+                                        totalCount = artifact.reactionCount,
+                                        visibility = artifact.reactionVisibility
+                                    ).getFuzzySummary(isOwner)
                             }
                         }
                     }
@@ -103,7 +109,7 @@ class PlayerViewModel @Inject constructor(
                     _isResonated.value = false
                     _isFollowed.value = false
                     _isSaved.value = false
-                    _resonanceCount.value = 0
+                    _resonanceSummary.value = ""
                     _commentCount.value = 0
                     _isCommentUnlocked.value = false
                 }
@@ -149,7 +155,7 @@ class PlayerViewModel @Inject constructor(
         _selectedReactionType,
         _isFollowed,
         _isSaved,
-        _resonanceCount,
+        _resonanceSummary,
         _commentCount,
         reviewSessionManager.reviewProgress
     ) { params: Array<Any?> ->
@@ -168,7 +174,7 @@ class PlayerViewModel @Inject constructor(
         val selectedReactionType = params[12] as ReactionType
         val isFollowed = params[13] as Boolean
         val isSaved = params[14] as Boolean
-        val resonanceCount = params[15] as Int
+        val resonanceSummary = params[15] as String
         val commentCount = params[16] as Int
         val reviewState = params[17] as com.saurabh.artifact.audio.ReviewState
 
@@ -198,7 +204,7 @@ class PlayerViewModel @Inject constructor(
             selectedReactionType = selectedReactionType,
             isFollowed = isFollowed,
             isSaved = isSaved,
-            resonanceCount = resonanceCount,
+            resonanceSummary = resonanceSummary,
             commentCount = commentCount,
             isSilenceSkipEnabled = isSkipSilenceEnabled,
             sleepTimerMillisRemaining = sleepTimer,

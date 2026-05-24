@@ -1,6 +1,9 @@
 package com.saurabh.artifact.service
 
+import com.saurabh.artifact.domain.IdentityScout
 import com.saurabh.artifact.model.PiiType
+import io.mockk.every
+import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -8,16 +11,19 @@ import org.junit.Test
 
 class PrivacyAnalysisEngineTest {
 
-    private val scanner = SensitiveInfoScanner()
+    private val scout = IdentityScout()
+    private val auth = mockk<com.google.firebase.auth.FirebaseAuth>(relaxed = true)
+    private val scanner = SensitiveInfoScanner(scout, auth)
     private val engine = PrivacyAnalysisEngine(scanner)
 
     @Test
     fun `analyze correctly identifies PII using scanner`() = runBlocking {
-        // We use the default fallback transcript which contains "Rahul" and "Pune"
+        every { auth.currentUser?.displayName } returns "Rahul"
+        // The default fallback transcript contains "Rahul"
         val result = engine.analyze("dummy_path")
         
         assertEquals(SafetyLevel.MEDIUM, result.safetyLevel)
-        assertTrue(result.detectedRisks.any { it.contains("NAME") && it.contains("Rahul") })
+        assertTrue(result.detectedRisks.any { it.contains("NAME") && it.contains("real name") })
     }
 
     @Test

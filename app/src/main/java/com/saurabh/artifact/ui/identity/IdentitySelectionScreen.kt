@@ -37,9 +37,11 @@ fun IdentitySelectionScreen(
     val suggestions by viewModel.suggestions.collectAsState()
     val isUsernameValid by viewModel.isUsernameValid.collectAsState()
     val cooldownDays by viewModel.cooldownDays.collectAsState()
+    val userProfile by viewModel.userProfile.collectAsState()
     val uiState by viewModel.uiState.collectAsState()
-
+    
     val snackbarHostState = remember { SnackbarHostState() }
+    var showRefreshConfirmation by remember { mutableStateOf(false) }
 
     LaunchedEffect(uiState) {
         if (uiState is IdentityUiState.Error) {
@@ -71,37 +73,74 @@ fun IdentitySelectionScreen(
             Spacer(modifier = Modifier.height(16.dp))
             
             // Large Presence Preview
-            Box(
-                modifier = Modifier
-                    .size(160.dp)
-                    .clip(CircleShape)
-                    .clickable { onEditAvatar() },
-                contentAlignment = Alignment.Center
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                ArtifactAvatar(
-                    config = avatarConfig,
-                    size = 140.dp
-                )
-                
-                Surface(
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp),
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    tonalElevation = 2.dp
+                Box(
+                    modifier = Modifier
+                        .size(160.dp)
+                        .clip(CircleShape)
+                        .clickable { onEditAvatar() },
+                    contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        Icons.Rounded.Refresh,
-                        contentDescription = "Refresh Presence",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(8.dp).size(20.dp).clickable { viewModel.randomizePresence() }
+                    ArtifactAvatar(
+                        config = avatarConfig,
+                        size = 140.dp
                     )
+                    
+                    Surface(
+                        modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp),
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        tonalElevation = 2.dp
+                    ) {
+                        Icon(
+                            Icons.Rounded.Refresh,
+                            contentDescription = "Refresh Presence",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(8.dp).size(20.dp).clickable { 
+                                if (cooldownDays == 0) {
+                                    showRefreshConfirmation = true
+                                }
+                            }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Public Identity Preview
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = userProfile?.anonymousName ?: "Searching...",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Medium
+                    )
+                    userProfile?.anonymousSigil?.let { sigil ->
+                        if (sigil.isNotEmpty()) {
+                            Text(
+                                text = " · ",
+                                style = MaterialTheme.typography.titleLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                            )
+                            Text(
+                                text = sigil,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = FontWeight.Light
+                            )
+                        }
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(32.dp))
             
             Text(
-                text = "Shape Your Anonymous Identity",
+                text = "Shape Your Presence",
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center
@@ -110,7 +149,7 @@ fun IdentitySelectionScreen(
             Spacer(modifier = Modifier.height(8.dp))
             
             Text(
-                text = "Create a quiet presence that reflects your inner self while protecting your anonymity.",
+                text = "Create a quiet identity that reflects your inner self while protecting your anonymity in the archive.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
@@ -136,7 +175,7 @@ fun IdentitySelectionScreen(
                 Card(
                     modifier = Modifier.padding(top = 16.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                     ),
                     shape = RoundedCornerShape(12.dp)
                 ) {
@@ -147,14 +186,14 @@ fun IdentitySelectionScreen(
                         Icon(
                             Icons.Rounded.Info,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.error,
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            text = "You can change your name again in $cooldownDays days",
+                            text = "Your presence is settling. You can emerge again in $cooldownDays days.",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onErrorContainer
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -177,11 +216,38 @@ fun IdentitySelectionScreen(
                         strokeWidth = 2.dp
                     )
                 } else {
-                    Text("Seal Identity", style = MaterialTheme.typography.titleMedium)
+                    Text("Seal Presence", style = MaterialTheme.typography.titleMedium)
                 }
             }
 
             Spacer(modifier = Modifier.height(32.dp))
         }
+    }
+
+    if (showRefreshConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showRefreshConfirmation = false },
+            title = { Text("Refresh Presence?") },
+            text = { 
+                Text("You are about to shed your current presence and emerge with a new randomized identity. This ritual can only be performed once every 30 days.") 
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showRefreshConfirmation = false
+                        viewModel.refreshPresence {
+                            // Optionally navigate back or show success
+                        }
+                    }
+                ) {
+                    Text("Begin Ritual", color = MaterialTheme.colorScheme.primary)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRefreshConfirmation = false }) {
+                    Text("Stay as I am")
+                }
+            }
+        )
     }
 }

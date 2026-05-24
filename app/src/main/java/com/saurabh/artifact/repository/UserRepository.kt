@@ -5,7 +5,7 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.User
-import com.saurabh.artifact.util.NameGenerator
+import com.saurabh.artifact.util.UsernameGenerator
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
@@ -30,28 +30,46 @@ class UserRepository @Inject constructor(
     /**
      * Refreshes the user's anonymous identity with a new system-generated one.
      * Custom usernames are disabled to prevent doxxing and maintain emotional safety.
+     * Enforces a 30-day cooldown to prevent identity churn and maintain community stability.
      */
     suspend fun refreshAnonymousIdentity(userId: String): Result<User> {
         if (userId.isBlank()) {
             return Result.failure(AppError.InvalidInput("User ID cannot be blank"))
         }
         return try {
-            val newName = NameGenerator.generate()
-            val safePalette = listOf("#FADADD", "#E6E6FA", "#D1EAF0", "#E2F0D9", "#FFF4E0")
-            val newColor = safePalette.random()
-            
             val userRef = try {
                 usersCollection.document(userId.trim())
             } catch (e: Exception) {
                 return Result.failure(AppError.from(e))
             }
+
+            val userSnapshot = userRef.get().await()
+            val lastUpdate = userSnapshot.getTimestamp("usernameUpdatedAt")
+            
+            if (lastUpdate != null) {
+                val cooldownMillis = 30L * 24 * 60 * 60 * 1000 // 30 days
+                val nextUpdateAllowed = lastUpdate.toDate().time + cooldownMillis
+                if (System.currentTimeMillis() < nextUpdateAllowed) {
+                    val daysLeft = ((nextUpdateAllowed - System.currentTimeMillis()) / (24 * 60 * 60 * 1000)).toInt()
+                    return Result.failure(Exception("Your presence needs more time to settle. You can refresh again in $daysLeft days."))
+                }
+            }
+
+            val anonymousSnapshot = userSnapshot.toObject(User::class.java)
+            val anonymousId = anonymousSnapshot?.anonymousId ?: ""
+            val newName = UsernameGenerator.generate()
+            val newSigil = UsernameGenerator.deriveSigil(anonymousId)
+            
+            val safePalette = listOf("#FADADD", "#E6E6FA", "#D1EAF0", "#E2F0D9", "#FFF4E0")
+            val newColor = safePalette.random()
             
             firestore.runTransaction { transaction ->
                 transaction.update(
                     userRef, mapOf(
                         "anonymousName" to newName,
-                        "displayName" to newName,
+                        "anonymousSigil" to newSigil,
                         "avatarColor" to newColor,
+                        "avatarSeed" to java.util.UUID.randomUUID().toString(),
                         "usernameUpdatedAt" to FieldValue.serverTimestamp()
                     )
                 )
@@ -59,7 +77,7 @@ class UserRepository @Inject constructor(
             
             notificationRepository.createNotification(
                 userId = userId,
-                message = "You refreshed your anonymous identity 🎭"
+                message = "You have shed your old presence and emerged as $newName · $newSigil 🎭"
             )
 
             Result.success(getOrCreateProfile())
@@ -83,6 +101,18 @@ class UserRepository @Inject constructor(
                 return@withContext Result.failure(AppError.from(e))
             }
 
+            val userSnapshot = userRef.get().await()
+            val lastUpdate = userSnapshot.getTimestamp("usernameUpdatedAt")
+            
+            if (lastUpdate != null) {
+                val cooldownMillis = 30L * 24 * 60 * 60 * 1000 // 30 days
+                val nextUpdateAllowed = lastUpdate.toDate().time + cooldownMillis
+                if (System.currentTimeMillis() < nextUpdateAllowed) {
+                    val daysLeft = ((nextUpdateAllowed - System.currentTimeMillis()) / (24 * 60 * 60 * 1000)).toInt()
+                    return@withContext Result.failure(Exception("Your presence needs more time to settle. You can refresh again in $daysLeft days."))
+                }
+            }
+
             firestore.runTransaction { transaction ->
                 val usernameRef = usernamesCollection.document(normalizedUsername)
 
@@ -97,7 +127,7 @@ class UserRepository @Inject constructor(
 
                 // 2. Get current user to find old username for cleanup
                 val userDoc = transaction.get(userRef)
-                val oldUsername = userDoc.getString("displayName")?.lowercase()?.trim()
+                val oldUsername = userDoc.getString("anonymousName")?.lowercase()?.trim()
 
                 // 3. Reserve the new username
                 transaction.set(usernameRef, mapOf(
@@ -107,8 +137,7 @@ class UserRepository @Inject constructor(
 
                 // 4. Update the user profile
                 transaction.update(userRef, mapOf(
-                    "displayName" to username,
-                    "anonymousName" to username, // Sync for safety
+                    "anonymousName" to username, // This is the chosen "pseudonym"
                     "isAnonymous" to false, // They've chosen a name, though still "artifact" anonymous
                     "usernameUpdatedAt" to FieldValue.serverTimestamp()
                 ))
@@ -164,7 +193,6 @@ class UserRepository @Inject constructor(
 
     suspend fun getOrCreateProfile(): User {
         // 1. Ensure Auth
-        // If we have a user, try to reload to verify the session is still valid
         val initialUser = auth.currentUser ?: throw IllegalStateException("Firebase Auth failed to provide a valid user.")
         
         try {
@@ -177,6 +205,7 @@ class UserRepository @Inject constructor(
 
         val currentUser = auth.currentUser ?: throw IllegalStateException("Firebase Auth failed to provide a valid user after reload.")
         val userRef = usersCollection.document(currentUser.uid)
+        val privateRef = userRef.collection("private").document("settings")
 
         // 2. Atomic Check & Create via Transaction
         return firestore.runTransaction { transaction ->
@@ -188,19 +217,30 @@ class UserRepository @Inject constructor(
                     ?: throw IllegalStateException("User document exists but is malformed.")
             } else {
                 // Initialize new fully anonymous profile
-                val anonymousName = NameGenerator.generate()
+                val anonymousId = "usr_${java.util.UUID.randomUUID().toString().take(5).uppercase()}"
+                val anonymousName = UsernameGenerator.generate()
+                val anonymousSigil = UsernameGenerator.deriveSigil(anonymousId)
                 val safePalette = listOf("#FADADD", "#E6E6FA", "#D1EAF0", "#E2F0D9", "#FFF4E0")
                 
                 val newProfile = User(
                     id = currentUser.uid,
+                    anonymousId = anonymousId,
                     anonymousName = anonymousName,
-                    displayName = anonymousName, // Sync for legacy compatibility if needed
-                    email = currentUser.email ?: "",
+                    anonymousSigil = anonymousSigil,
                     avatarSeed = safePalette.random(),
                     isAnonymous = true,
                     emotionalProfile = "New Soul"
                 )
+
+                val privateSettings = com.saurabh.artifact.model.UserPrivateSettings(
+                    email = currentUser.email ?: "",
+                    realName = currentUser.displayName ?: "",
+                    isAdmin = false,
+                    accountStatus = "ACTIVE"
+                )
+
                 transaction.set(userRef, newProfile)
+                transaction.set(privateRef, privateSettings)
                 newProfile
             }
         }.await()

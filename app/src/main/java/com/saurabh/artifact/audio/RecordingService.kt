@@ -24,7 +24,6 @@ import com.saurabh.artifact.model.ArtifactDraftState
 import com.saurabh.artifact.model.SyncState
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.RecordingRepository
-import com.saurabh.artifact.security.SecurityArchitecture
 import com.saurabh.artifact.util.EncryptedStorageManager
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.*
@@ -395,74 +394,32 @@ class RecordingService : Service() {
                         
                         withContext(Dispatchers.IO) {
                             try {
-                                Log.d("RecordingService", "Starting finalization for draft: $draftId")
+                                Log.d("RecordingService", "Finalizing session for draft: $draftId")
                                 
-                                // 2. State Update: Mark as SAVING while we do metadata/checksum
+                                // State Update: Mark as SAVING while we hand off to workers
                                 draftDao.getDraftById(draftId)?.let {
-                                    draftDao.update(it.copy(draftState = ArtifactDraftState.SAVING))
+                                    draftDao.update(it.copy(
+                                        draftState = ArtifactDraftState.SAVING,
+                                        syncState = SyncState.STAGED,
+                                        updatedAt = System.currentTimeMillis()
+                                    ))
                                 }
 
-                                // 3. Metadata Extraction (Checksum)
-                                val checksum = artifactRepository.calculateChecksum(finalFile.absolutePath)
-                                Log.d("RecordingService", "Checksum calculated: $checksum")
+                                Log.d("RecordingService", "Atmospheric Handoff: Securing your reflection...")
                                 
-                                // 4. Encryption & DB Finalization
-                                val encryptedFile = localDraftManager.createEncryptedDraftFile(draftId)
-                                val episodeNumber = userSessionManager.getAndIncrementEpisodeNumber()
-                                val episodeTitle = "My Artifact Episode $episodeNumber"
-                                
-                                try {
-                                    localDraftManager.getEncryptedOutputStream(encryptedFile).use { output ->
-                                        finalFile.inputStream().use { input ->
-                                            input.copyTo(output)
-                                        }
-                                    }
-                                    // Securely delete the original unencrypted file
-                                    SecurityArchitecture.secureDelete(finalFile)
-                                    
-                                    Log.d("RecordingService", "Draft encrypted successfully: ${encryptedFile.absolutePath}")
-                                    
-                                    recordingRepository.finalizeRecording(
-                                        id = draftId,
-                                        audioPath = encryptedFile.absolutePath,
-                                        checksum = checksum,
-                                        isEncrypted = true,
-                                        title = episodeTitle
-                                    )
-
-                                    // 6. Emit final session state to UI
-                                    _recordingState.value = _recordingState.value.copy(
-                                        status = RecordingStatus.COMPLETED,
-                                        outputFile = encryptedFile,
-                                        checksum = checksum,
-                                        isEncrypted = true
-                                    )
-                                } catch (e: Exception) {
-                                    Log.e("RecordingService", "Encryption failed, falling back to unencrypted", e)
-                                    recordingRepository.finalizeRecording(
-                                        id = draftId,
-                                        audioPath = finalFile.absolutePath,
-                                        checksum = checksum,
-                                        isEncrypted = false,
-                                        title = episodeTitle
-                                    )
-                                    // 6. Emit final session state to UI
-                                    _recordingState.value = _recordingState.value.copy(
-                                        status = RecordingStatus.COMPLETED,
-                                        outputFile = finalFile,
-                                        checksum = checksum,
-                                        isEncrypted = false
-                                    )
-                                }
-
-                                // 5. Trigger enhancement pipeline
+                                // hand off to the enhancement pipeline (which now starts with Transcoding)
                                 recordingRepository.startProcessing(draftId)
 
-                                // 7. CENTRALIZED CLEANUP: This is the ONLY place we clear the active session
+                                // CENTRALIZED CLEANUP: Clear the active session
                                 userSessionManager.setActiveDraftId(null)
-                                Log.d("RecordingService", "Session cleared successfully.")
+                                Log.d("RecordingService", "Session handed off to processing pipeline.")
+                                
+                                // Emit final session state to UI
+                                _recordingState.value = _recordingState.value.copy(
+                                    status = RecordingStatus.COMPLETED
+                                )
                             } catch (e: Exception) {
-                                Log.e("RecordingService", "Post-processing failed", e)
+                                Log.e("RecordingService", "Hand-off failed", e)
                                 draftDao.updateSyncState(draftId, SyncState.STAGED)
                             }
                         }
@@ -539,9 +496,9 @@ class RecordingService : Service() {
                 if (_recordingState.value.status == RecordingStatus.RECORDING) {
                     internalAmplitudes.add(normalizedAmplitude)
 
-                    // Critical Storage Check during recording
-                    if (tick % 100 == 0 && storageManager.getAvailableStorageMb() < 10) { // Every 5s, check for < 10MB
-                        Log.e("RecordingService", "Emergency stop: Storage critically low")
+                    // Critical Storage Check during recording: Every 2s, check for < 50MB
+                    if (tick % 40 == 0 && storageManager.getAvailableStorageMb() < 50) { 
+                        Log.e("RecordingService", "Emergency stop: Storage critically low (< 50MB)")
                         withContext(Dispatchers.Main) {
                             stopRecording()
                         }
@@ -615,9 +572,11 @@ class RecordingService : Service() {
 
         val timeText = String.format(Locale.getDefault(), "%02d:%02d", seconds / 60, seconds % 60)
         val statusText = when (status) {
-            RecordingStatus.PREPARING -> "Preparing a calm space..."
-            RecordingStatus.PAUSED -> "Recording Paused"
-            else -> "Recording Reflection..."
+            RecordingStatus.PREPARING -> "Creating a calm space..."
+            RecordingStatus.PAUSED -> "Holding your reflection..."
+            RecordingStatus.RECORDING -> "Listening to your essence..."
+            RecordingStatus.COMPLETED -> "Reflection secured."
+            else -> "myArtifact"
         }
 
         return NotificationCompat.Builder(this, CHANNEL_ID)

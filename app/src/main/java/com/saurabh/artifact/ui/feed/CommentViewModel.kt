@@ -4,7 +4,8 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.saurabh.artifact.model.ArtifactComment
-import com.saurabh.artifact.model.CommentVisibilityMode
+import com.saurabh.artifact.model.AuthorType
+import com.saurabh.artifact.model.VisibilityLayer
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.CommentRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -42,7 +43,13 @@ class CommentViewModel @Inject constructor(
     /**
      * Submits the recorded text reflection.
      */
-    fun submitReflection(artifactId: String, content: String, visibility: CommentVisibilityMode, isAnonymous: Boolean) {
+    fun submitReflection(
+        artifactId: String, 
+        content: String, 
+        visibility: VisibilityLayer, 
+        authorType: AuthorType,
+        revealAt: com.google.firebase.Timestamp? = null
+    ) {
         if (content.isBlank()) return
         
         viewModelScope.launch {
@@ -53,7 +60,8 @@ class CommentViewModel @Inject constructor(
                 userId = auth.currentUserId,
                 content = content,
                 visibility = visibility,
-                isAnonymous = isAnonymous
+                authorType = authorType,
+                revealAt = revealAt
             )
 
             if (result.isSuccess) {

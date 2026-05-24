@@ -100,11 +100,13 @@ class ArtifactRepository @Inject constructor(
             val userProfile = userRepository.getOrCreateProfile()
             createArtifactDocument(
                 userId = userId,
-                username = userProfile.anonymousName.ifEmpty { "Anonymous Soul" },
+                username = userProfile.anonymousName.ifEmpty { "Quiet Presence" },
                 audioUrl = audioUrl,
                 draft = draft,
                 avatarSeed = userProfile.avatarSeed,
-                avatarConfig = userProfile.avatarConfig
+                avatarConfig = userProfile.avatarConfig,
+                anonymousId = userProfile.anonymousId,
+                anonymousSigil = userProfile.anonymousSigil
             ).onSuccess {
                 // 4. Cleanup local draft on success
                 deleteDraftLocally(draftId)
@@ -167,12 +169,14 @@ class ArtifactRepository @Inject constructor(
 
     private fun mapArtifactToFirestore(artifact: Artifact): Map<String, Any?> {
         return mapOf(
-            "userId" to artifact.userId,
-            "authorId" to artifact.authorId,
-            "username" to artifact.username,
-            "authorAnonymousName" to artifact.username, // Maintain sync for now
-            "avatarSeed" to artifact.avatarSeed,
-            "authorAvatarConfig" to artifact.authorAvatarConfig,
+            "author" to mapOf(
+                "anonymousId" to artifact.author.anonymousId,
+                "name" to artifact.author.name,
+                "sigil" to artifact.author.sigil,
+                "avatarSeed" to artifact.author.avatarSeed,
+                "avatarColor" to artifact.author.avatarColor,
+                "avatarConfig" to artifact.author.avatarConfig
+            ),
             "audioUrl" to artifact.audioUrl,
             "createdAt" to artifact.createdAt,
             "isPublic" to artifact.isPublic,
@@ -244,12 +248,18 @@ class ArtifactRepository @Inject constructor(
 
             val downloadUrl = fileRef.downloadUrl.await().toString()
 
+            val userProfile = userRepository.getOrCreateProfile()
+
             val artifact = Artifact(
                 userId = userId,
-                authorId = userId,
-                username = username,
-                authorAnonymousName = username,
-                avatarSeed = avatarSeed,
+                author = AuthorSnapshot(
+                    anonymousId = userProfile.anonymousId,
+                    name = username,
+                    sigil = userProfile.anonymousSigil,
+                    avatarSeed = avatarSeed,
+                    avatarColor = userProfile.avatarColor,
+                    avatarConfig = userProfile.avatarConfig
+                ),
                 audioUrl = downloadUrl,
                 createdAt = Timestamp.now(),
                 isPublic = isPublic,
@@ -276,8 +286,9 @@ class ArtifactRepository @Inject constructor(
                 // Create in-app notification for the user
                 notificationRepository.createNotification(
                     userId = userId,
-                    message = "You published a new artifact: $title ✨",
-                    artifactId = docRef.id
+                    message = "You released a new reflection into the world: $title ✨",
+                    artifactId = docRef.id,
+                    type = NotificationType.SYSTEM
                 )
                 
                 Result.success(Unit)
@@ -315,7 +326,7 @@ class ArtifactRepository @Inject constructor(
                 ArtifactComment(
                     id = map["id"] as? String ?: "",
                     authorId = map["authorId"] as? String ?: "",
-                    authorDisplayName = map["authorName"] as? String ?: "",
+                    authorAnonymousName = map["authorName"] as? String ?: "",
                     authorAvatarSeed = map["authorAvatarSeed"] as? String ?: "",
                     createdAt = map["createdAt"] as? Timestamp ?: Timestamp.now()
                 )
@@ -671,7 +682,11 @@ class ArtifactRepository @Inject constructor(
      * Persists a private emotional bookmark for an artifact.
      * Stored strictly under the user's private collection.
      */
-    suspend fun saveArtifact(userId: String, artifact: Artifact): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun saveArtifact(
+        userId: String,
+        artifact: Artifact,
+        shelf: String = "Stayed With Me"
+    ): Result<Unit> = withContext(Dispatchers.IO) {
         return@withContext try {
             val savedRef = firestore.collection("users").document(userId)
                 .collection("savedArtifacts").document(artifact.id)
@@ -681,14 +696,16 @@ class ArtifactRepository @Inject constructor(
                 "savedAt" to FieldValue.serverTimestamp(),
                 // Denormalized for quick list rendering in Saved tab
                 "title" to artifact.title,
-                "authorName" to artifact.username,
-                "audioUrl" to artifact.audioUrl
+                "authorName" to artifact.author.name,
+                "audioUrl" to artifact.audioUrl,
+                "emotionTag" to artifact.emotionTag,
+                "shelf" to shelf
             )
             
             savedRef.set(data).await()
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("ArtifactRepository", "Failed to save artifact ${artifact.id}", e)
+            Log.e("ArtifactRepository", "Failed to preserve artifact ${artifact.id}", e)
             Result.failure(e)
         }
     }
@@ -895,16 +912,22 @@ class ArtifactRepository @Inject constructor(
         audioUrl: String,
         draft: ArtifactDraftEntity,
         avatarSeed: String = "",
-        avatarConfig: AvatarConfig = AvatarConfig()
+        avatarColor: String = "#FFD700",
+        avatarConfig: AvatarConfig = AvatarConfig(),
+        anonymousId: String = "",
+        anonymousSigil: String = ""
     ): Result<Unit> = withContext(Dispatchers.IO) {
         return@withContext try {
             val artifact = Artifact(
                 userId = userId,
-                authorId = userId,
-                username = username,
-                authorAnonymousName = username,
-                avatarSeed = avatarSeed,
-                authorAvatarConfig = avatarConfig,
+                author = AuthorSnapshot(
+                    anonymousId = anonymousId,
+                    name = username,
+                    sigil = anonymousSigil,
+                    avatarSeed = avatarSeed,
+                    avatarColor = avatarColor,
+                    avatarConfig = avatarConfig
+                ),
                 audioUrl = audioUrl,
                 createdAt = Timestamp.now(),
                 isPublic = true,
@@ -925,6 +948,13 @@ class ArtifactRepository @Inject constructor(
             )
             val artifactData = mapArtifactToFirestore(artifact)
             val docRef = firestore.collection("artifacts").add(artifactData).await()
+            
+            // Record ownership in private collection for secure management
+            val ownershipRef = firestore.collection("users").document(userId)
+                .collection("private").document("published_artifacts")
+                .collection("artifacts").document(docRef.id)
+            
+            ownershipRef.set(mapOf("createdAt" to Timestamp.now())).await()
             
             // Create in-app notification for the user
             notificationRepository.createNotification(

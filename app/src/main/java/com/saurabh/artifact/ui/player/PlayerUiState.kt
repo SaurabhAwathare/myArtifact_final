@@ -25,7 +25,7 @@ data class PlayerUiState(
     val selectedReactionType: ReactionType = ReactionType.I_HEAR_YOU,
     val isFollowed: Boolean = false,
     val isSaved: Boolean = false,
-    val resonanceCount: Int = 0,
+    val resonanceSummary: String = "",
     val commentCount: Int = 0,
     
     // Advanced Controls State

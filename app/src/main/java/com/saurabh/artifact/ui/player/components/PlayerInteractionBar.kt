@@ -33,7 +33,6 @@ import com.saurabh.artifact.ui.theme.GoldAura400
 fun PlayerInteractionBar(
     isResonated: Boolean,
     selectedReactionType: ReactionType,
-    resonanceCount: Int,
     onResonateClick: (ReactionType) -> Unit,
     isFollowed: Boolean,
     onFollowClick: () -> Unit,
@@ -59,8 +58,8 @@ fun PlayerInteractionBar(
         ) {
             InteractionItem(
                 icon = if (isResonated) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                label = if (isResonated) selectedReactionType.label else "Resonated",
-                count = resonanceCount,
+                label = if (isResonated) selectedReactionType.label else "Resonate",
+                count = null,
                 isActive = isResonated,
                 activeColor = GoldAura400,
                 onClick = { 
@@ -89,7 +88,7 @@ fun PlayerInteractionBar(
 
         InteractionItem(
             icon = if (isSaved) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
-            label = "Save",
+            label = if (isSaved) "Held" else "Hold",
             isActive = isSaved,
             activeColor = GoldAura400,
             onClick = onSaveClick

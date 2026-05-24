@@ -24,6 +24,8 @@ class IdentityViewModel @Inject constructor(
     private val userProfileManager: UserProfileManager,
     private val authRepository: com.saurabh.artifact.repository.AuthRepository,
     private val userRepository: com.saurabh.artifact.repository.UserRepository,
+    private val validator: com.saurabh.artifact.domain.UsernameValidator,
+    private val auth: com.google.firebase.auth.FirebaseAuth
 ) : ViewModel() {
 
     private val _avatarConfig = MutableStateFlow(AvatarConfig())
@@ -83,8 +85,22 @@ class IdentityViewModel @Inject constructor(
         }
     }
 
+    private val _validationResult = MutableStateFlow<UsernameValidationResult?>(null)
+    val validationResult: StateFlow<UsernameValidationResult?> = _validationResult.asStateFlow()
+
     private fun validateUsername(name: String) {
-        _usernameError.value = UsernameGenerator.validate(name)
+        if (name.isEmpty()) {
+            _usernameError.value = null
+            _validationResult.value = null
+            return
+        }
+
+        val realName = auth.currentUser?.displayName
+        val email = auth.currentUser?.email
+        val result = validator.validate(name, realName, email)
+        
+        _validationResult.value = result
+        _usernameError.value = if (result.isValid) null else result.warnings.firstOrNull()?.message ?: "Invalid username"
     }
 
     private fun checkAvailability(name: String) {
@@ -140,10 +156,10 @@ class IdentityViewModel @Inject constructor(
     val usernameUiState: StateFlow<UsernameUiState> = combine(
         _username,
         _availability,
-        _usernameError,
+        _validationResult,
         _suggestions,
         _uiState
-    ) { name, avail, error, suggs, uiState ->
+    ) { name, avail, validation, suggs, uiState ->
         UsernameUiState(
             username = name,
             isValidating = avail == UsernameAvailability.CHECKING,
@@ -152,15 +168,9 @@ class IdentityViewModel @Inject constructor(
                 UsernameAvailability.TAKEN -> false
                 else -> null
             },
-            validationResult = UsernameValidationResult(
-                isValid = error == null && (avail == UsernameAvailability.AVAILABLE || avail == UsernameAvailability.NONE),
-                reason = when {
-                    error?.contains("at least 3") == true -> ValidationReason.TOO_SHORT
-                    error?.contains("20 characters") == true -> ValidationReason.TOO_LONG
-                    error?.contains("Only lowercase") == true -> ValidationReason.INVALID_CHARACTERS
-                    avail == UsernameAvailability.TAKEN -> ValidationReason.ALREADY_TAKEN
-                    else -> null
-                }
+            validationResult = validation?.copy(
+                isValid = validation.isValid && (avail == UsernameAvailability.AVAILABLE || avail == UsernameAvailability.NONE),
+                reason = if (avail == UsernameAvailability.TAKEN) ValidationReason.ALREADY_TAKEN else validation.reason
             ),
             suggestions = suggs,
             isProcessing = uiState is IdentityUiState.Loading
@@ -192,7 +202,7 @@ class IdentityViewModel @Inject constructor(
                             is AppError.UsernameTaken -> "This username is already claimed."
                             is AppError.PermissionDenied -> "Permission error. Please check your account state."
                             is AppError.NetworkFailure -> "Connection lost. Please try again."
-                            else -> "Something went wrong. Technical details: ${e.message}"
+                            else -> "Your presence needs more time to settle. ${e.message}"
                         }
                         _uiState.value = IdentityUiState.Error(message)
                     }
@@ -202,6 +212,27 @@ class IdentityViewModel @Inject constructor(
                 userProfileManager.updateUsername(name)
                 onSuccess()
             }
+        }
+    }
+
+    /**
+     * Sheds the current presence and emerges with a new randomized one.
+     * This is the "Identity Refresh Ritual".
+     */
+    fun refreshPresence(onSuccess: () -> Unit) {
+        val userId = authRepository.currentUser.value?.uid ?: return
+        
+        viewModelScope.launch {
+            _uiState.value = IdentityUiState.Loading
+            userRepository.refreshAnonymousIdentity(userId)
+                .onSuccess {
+                    _uiState.value = IdentityUiState.Idle
+                    onSuccess()
+                }
+                .onFailure { e ->
+                    Log.e("IdentityViewModel", "Failed to refresh presence", e)
+                    _uiState.value = IdentityUiState.Error(e.message ?: "The ritual could not be completed at this time.")
+                }
         }
     }
 }

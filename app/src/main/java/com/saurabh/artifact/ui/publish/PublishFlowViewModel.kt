@@ -3,6 +3,7 @@ package com.saurabh.artifact.ui.publish
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.saurabh.artifact.domain.IdentityScout
 import com.saurabh.artifact.model.ArtifactDraftState
 import com.saurabh.artifact.model.TranscriptSegment
 import com.saurabh.artifact.repository.PublishApprovalRepository
@@ -12,12 +13,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.Json
 import javax.inject.Inject
 
 @HiltViewModel
 class PublishFlowViewModel @Inject constructor(
     private val repository: PublishApprovalRepository,
+    private val identityScout: IdentityScout,
+    private val auth: com.google.firebase.auth.FirebaseAuth,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -107,6 +109,44 @@ class PublishFlowViewModel @Inject constructor(
     fun onApproveAndPublish() {
         if (!_uiState.value.canApprove) return
 
+        val realName = auth.currentUser?.displayName
+        val email = auth.currentUser?.email
+        val allWarnings = mutableListOf<com.saurabh.artifact.model.ModerationWarning>()
+
+        // 1. Scan Metadata & Transcript for Leaks
+        allWarnings.addAll(identityScout.detectLeaks(_uiState.value.title, realName, email))
+        allWarnings.addAll(identityScout.detectLeaks(_uiState.value.description, realName, email))
+        
+        _uiState.value.transcript.forEach { segment ->
+            allWarnings.addAll(identityScout.detectLeaks(segment.text, realName, email))
+        }
+
+        val uniqueWarnings = allWarnings.distinctBy { it.reason }
+        val riskScore = identityScout.calculateRiskScore(uniqueWarnings)
+
+        // 2. Reflective Intervention Logic
+        if (uniqueWarnings.isNotEmpty() && !_uiState.value.isPrivacyNudgeBypassed) {
+            _uiState.update { it.copy(
+                showPrivacyNudge = true,
+                privacyWarnings = uniqueWarnings.map { w -> w.message },
+                identityRiskScore = riskScore
+            ) }
+            return
+        }
+
+        performPublish()
+    }
+
+    fun onDismissPrivacyNudge() {
+        _uiState.update { it.copy(showPrivacyNudge = false) }
+    }
+
+    fun onConfirmPublishAnyway() {
+        _uiState.update { it.copy(showPrivacyNudge = false, isPrivacyNudgeBypassed = true) }
+        performPublish()
+    }
+
+    private fun performPublish() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
             

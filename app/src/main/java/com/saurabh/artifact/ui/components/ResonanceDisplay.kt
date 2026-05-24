@@ -8,7 +8,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.saurabh.artifact.model.ArtifactReactionCounts
-import com.saurabh.artifact.model.ReactionVisibilityMode
 import com.saurabh.artifact.ui.theme.GoldAura400
 import com.saurabh.artifact.ui.theme.ReflectionWhite
 import com.saurabh.artifact.ui.theme.MistGray
@@ -16,16 +15,19 @@ import com.saurabh.artifact.ui.theme.MistGray
 /**
  * RESONANCE DISPLAY
  * Converts raw counts into emotionally human summaries or exact counts based on visibility mode.
+ * Uses the "Calm Anonymous Resonance Architecture" to prioritize atmosphere over volume.
  */
 @Composable
 fun ResonanceDisplay(
-    counts: ArtifactReactionCounts?,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    counts: ArtifactReactionCounts? = null,
+    summary: String? = null,
+    isOwner: Boolean = false
 ) {
-    val totalCount = counts?.totalCount ?: 0
-    val visibility = counts?.visibility ?: ReactionVisibilityMode.VISIBLE
+    val finalSummary = summary ?: counts?.getFuzzySummary(isOwner) ?: ""
+    val isZero = finalSummary.isEmpty() && (counts == null || counts.totalCount == 0)
 
-    if (totalCount == 0) {
+    if (isZero) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = modifier.padding(vertical = 8.dp)
@@ -44,19 +46,7 @@ fun ResonanceDisplay(
         return
     }
 
-    val resonanceText = when (visibility) {
-        ReactionVisibilityMode.APPROXIMATE -> {
-            getApproximateText(totalCount)
-        }
-        ReactionVisibilityMode.VISIBLE -> {
-            "$totalCount souls felt this deeply."
-        }
-        ReactionVisibilityMode.CREATOR_ONLY, ReactionVisibilityMode.HIDDEN -> {
-            null // Handle based on context (creator sees breakdown elsewhere)
-        }
-    }
-
-    resonanceText?.let { text ->
+    if (finalSummary.isNotEmpty()) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = modifier.padding(vertical = 8.dp)
@@ -67,21 +57,11 @@ fun ResonanceDisplay(
                 modifier = Modifier.padding(end = 8.dp)
             )
             Text(
-                text = text,
+                text = finalSummary,
                 style = MaterialTheme.typography.labelMedium,
                 color = MistGray.copy(alpha = 0.8f)
             )
         }
-    }
-}
-
-private fun getApproximateText(total: Int): String {
-    return when {
-        total <= 0 -> ""
-        total == 1 -> "Another soul felt this."
-        total < 5 -> "A few people felt this."
-        total < 20 -> "Several people related to this."
-        else -> "Many listeners resonated with this."
     }
 }
 
@@ -103,7 +83,7 @@ fun EmotionalInsightCard(
         Spacer(Modifier.height(8.dp))
         
         Text(
-            text = counts.aiSummary ?: getApproximateText(counts.totalCount),
+            text = counts.aiSummary ?: counts.getFuzzySummary(isOwner = true),
             style = MaterialTheme.typography.bodyLarge,
             color = ReflectionWhite
         )

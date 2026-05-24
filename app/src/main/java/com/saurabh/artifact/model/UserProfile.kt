@@ -8,7 +8,8 @@ data class UserProfile(
     val anonymousId: String,
     @Deprecated("Use avatarConfig")
     val identityEmoji: String = "✨",
-    val username: String = "Anonymous Soul",
+    val username: String = "Quiet Presence",
+    val sigil: String = "",
     val avatarSeed: String = "",
     val avatarConfig: AvatarConfig = AvatarConfig(),
 )

@@ -68,7 +68,7 @@ fun ProfileHeader(
 
         // Username
         Text(
-            text = user?.displayName ?: "anonymous soul",
+            text = user?.anonymousName ?: "quiet presence",
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold,
             color = Color.White

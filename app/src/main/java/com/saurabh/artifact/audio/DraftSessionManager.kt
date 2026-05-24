@@ -26,7 +26,7 @@ class DraftSessionManager @Inject constructor(
     val activeDraft: StateFlow<ArtifactDraftEntity?> = _activeDraft.asStateFlow()
 
     suspend fun startNewSession() {
-        val file = localDraftManager.createDraftFile("m4a")
+        val file = localDraftManager.createDraftFile("wav")
         val draftId = recordingRepository.createDraft(file.absolutePath, 0)
         val draft = draftDao.getDraftById(draftId)
         
