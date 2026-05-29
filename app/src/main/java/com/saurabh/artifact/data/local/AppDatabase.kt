@@ -7,8 +7,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [QueuedUpload::class, ArtifactDraftEntity::class, PromptEntity::class],
-    version = 23,
+    entities = [QueuedUpload::class, ArtifactDraftEntity::class, PromptEntity::class, PlaybackPosition::class],
+    version = 25,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -16,6 +16,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun queuedUploadDao(): QueuedUploadDao
     abstract fun draftDao(): DraftDao
     abstract fun promptDao(): PromptDao
+    abstract fun playbackPositionDao(): PlaybackPositionDao
 
     companion object {
         val MIGRATION_21_22 = object : Migration(21, 22) {
@@ -182,6 +183,25 @@ abstract class AppDatabase : RoomDatabase() {
 
                 db.execSQL("DROP TABLE prompts")
                 db.execSQL("ALTER TABLE prompts_new RENAME TO prompts")
+            }
+        }
+
+        val MIGRATION_23_24 = object : Migration(23, 24) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `artifact_drafts` ADD COLUMN `durableBytes` INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        val MIGRATION_24_25 = object : Migration(24, 25) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `playback_positions` (
+                        `artifactId` TEXT NOT NULL, 
+                        `positionMs` INTEGER NOT NULL, 
+                        `updatedAt` INTEGER NOT NULL, 
+                        PRIMARY KEY(`artifactId`)
+                    )
+                """.trimIndent())
             }
         }
 

@@ -51,6 +51,17 @@ class ReviewViewModel @Inject constructor(
         playbackSessionManager.seekTo((progress * duration).toLong())
     }
 
+    fun rewind() {
+        val current = playbackSessionManager.currentPosition.value
+        playbackSessionManager.seekTo((current - 10000).coerceAtLeast(0))
+    }
+
+    fun forward() {
+        val current = playbackSessionManager.currentPosition.value
+        val duration = reviewState.value.durationMs
+        playbackSessionManager.seekTo((current + 10000).coerceAtMost(duration))
+    }
+
     override fun onCleared() {
         super.onCleared()
         reviewSessionManager.stopReview()

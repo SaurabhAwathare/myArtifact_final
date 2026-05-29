@@ -1,13 +1,13 @@
 package com.saurabh.artifact.repository
 
 import android.content.Context
+import android.util.Log
 import androidx.work.*
 import com.saurabh.artifact.audio.LocalDraftManager
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.model.ArtifactDraftState
 import com.saurabh.artifact.model.SyncState
-import com.saurabh.artifact.model.UploadStatus
 import com.saurabh.artifact.worker.AudioNormalizationWorker
 import com.saurabh.artifact.worker.PrivacyScanWorker
 import com.saurabh.artifact.worker.SafetyAnalysisWorker
@@ -26,11 +26,10 @@ import javax.inject.Singleton
 
 @Singleton
 class RecordingRepository @Inject constructor(
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
     private val draftDao: DraftDao,
     private val localDraftManager: LocalDraftManager,
-    private val uploadGuard: com.saurabh.artifact.security.UploadGuard,
-    private val authRepository: AuthRepository
+    private val wavRecoveryManager: com.saurabh.artifact.audio.WavRecoveryManager,
 ) {
     private val workManager: WorkManager by lazy { WorkManager.getInstance(context) }
     
@@ -40,7 +39,7 @@ class RecordingRepository @Inject constructor(
         path: String,
         durationMs: Long,
         checksum: String? = null,
-        isEncrypted: Boolean = false
+        isEncrypted: Boolean = false,
     ): String = withContext(Dispatchers.IO) {
         val draftId = UUID.randomUUID().toString()
         val draft = ArtifactDraftEntity(
@@ -62,13 +61,15 @@ class RecordingRepository @Inject constructor(
     suspend fun updateRecordingProgress(
         id: String,
         durationMs: Long,
-        amplitudes: List<Float>
+        amplitudes: List<Float>,
+        durableBytes: Long = 0
     ) = withContext(Dispatchers.IO) {
         draftDao.updateRecordingCheckpoint(
             id = id,
             durationMs = durationMs,
             amplitudes = amplitudes,
-            checkpointTs = System.currentTimeMillis()
+            checkpointTs = System.currentTimeMillis(),
+            durableBytes = durableBytes
         )
     }
 
@@ -80,12 +81,16 @@ class RecordingRepository @Inject constructor(
         title: String? = null
     ) = withContext(Dispatchers.IO) {
         val draft = draftDao.getDraftById(id) ?: return@withContext
+        val finalFile = File(audioPath)
+        val finalSize = if (finalFile.exists()) finalFile.length() else 0L
+        
         draftDao.update(draft.copy(
             localAudioPath = audioPath,
             syncState = SyncState.STAGED,
             checksum = checksum,
             isEncrypted = isEncrypted,
             durationMs = draft.durationMs,
+            durableBytes = finalSize, // Finalize durable bytes to full file size
             title = title ?: draft.title,
             updatedAt = System.currentTimeMillis()
         ))
@@ -123,51 +128,43 @@ class RecordingRepository @Inject constructor(
         draft.localTranscriptPath?.let { localDraftManager.deleteDraft(it) }
     }
 
-    suspend fun approveForUpload(draftId: String) {
-        val draft = draftDao.getDraftById(draftId) ?: return
-        val userId = authRepository.currentUser.value?.uid ?: "anonymous"
-        val timestamp = System.currentTimeMillis()
-        
-        val token = uploadGuard.generateApprovalToken(userId, draftId, timestamp)
-        val fingerprint = uploadGuard.getDeviceFingerprint()
-
-        draftDao.update(draft.copy(
-            draftState = ArtifactDraftState.READY_TO_PUBLISH,
-            approvalToken = token,
-            publishApprovalTimestamp = timestamp,
-            deviceFingerprint = fingerprint,
-            uploadStatus = UploadStatus.QUEUED,
-            syncState = SyncState.QUEUED,
-            updatedAt = System.currentTimeMillis()
-        ))
-    }
-
-    suspend fun revokeApproval(draftId: String) {
-        val draft = draftDao.getDraftById(draftId) ?: return
-        
-        workManager.cancelUniqueWork("sync_$draftId")
-
-        draftDao.update(draft.copy(
-            draftState = ArtifactDraftState.SAVED_LOCALLY,
-            revocationTimestamp = System.currentTimeMillis(),
-            uploadStatus = UploadStatus.LOCAL_ONLY,
-            syncState = SyncState.STAGED,
-            updatedAt = System.currentTimeMillis()
-        ))
-    }
-
     suspend fun recoverInterruptedDrafts(): List<ArtifactDraftEntity> {
         val recordings = draftDao.getActiveRecordings()
         val interrupted = mutableListOf<ArtifactDraftEntity>()
         
         recordings.forEach { draft ->
-            if (System.currentTimeMillis() - draft.lastCheckpointTs > 60_000) {
+            // If no checkpoint for > 60s, consider it interrupted
+            if ((System.currentTimeMillis() - draft.lastCheckpointTs) > 60_000) {
+                val file = File(draft.localAudioPath)
+                
+                // Durability Drift Logging
+                if (file.exists()) {
+                    val drift = file.length() - draft.durableBytes
+                    if (drift < 0) {
+                        Log.e("RecordingRepository", "CRITICAL: Silent truncation detected for draft ${draft.id}. Metadata expects ${draft.durableBytes} bytes, but file is ${file.length()} bytes.")
+                    } else {
+                        Log.d("RecordingRepository", "Recovery drift for ${draft.id}: $drift bytes (uncommitted Page Cache tail)")
+                    }
+                }
+
+                val recoveryResult = wavRecoveryManager.recover(file, lastDurableBytes = draft.durableBytes)
+                
+                val newState = when (recoveryResult) {
+                    com.saurabh.artifact.audio.WavRecoveryManager.RecoveryResult.REPAIRED,
+                    com.saurabh.artifact.audio.WavRecoveryManager.RecoveryResult.FULLY_RECOVERED,
+                    com.saurabh.artifact.audio.WavRecoveryManager.RecoveryResult.TRUNCATED -> SyncState.STAGED
+                    com.saurabh.artifact.audio.WavRecoveryManager.RecoveryResult.CORRUPTED,
+                    com.saurabh.artifact.audio.WavRecoveryManager.RecoveryResult.NOT_FOUND -> SyncState.FAILED_PERMANENT
+                }
+
                 val updated = draft.copy(
-                    syncState = SyncState.INTERRUPTED,
+                    syncState = newState,
                     updatedAt = System.currentTimeMillis()
                 )
                 draftDao.update(updated)
                 interrupted.add(updated)
+                
+                Log.d("RecordingRepository", "Recovery for ${draft.id}: $recoveryResult -> New State: $newState")
             }
         }
         return interrupted

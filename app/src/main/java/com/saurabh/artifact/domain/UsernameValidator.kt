@@ -44,7 +44,7 @@ class UsernameValidator @Inject constructor(
         val riskScore = identityScout.calculateRiskScore(warnings)
 
         return UsernameValidationResult(
-            isValid = warnings.none { it.reason == ValidationReason.EMAIL_ADDRESS || it.reason == ValidationReason.PHONE_NUMBER || it.reason == ValidationReason.RESERVED_NAME },
+            isValid = warnings.isEmpty(),
             reason = warnings.firstOrNull()?.reason,
             warnings = warnings,
             riskScore = riskScore

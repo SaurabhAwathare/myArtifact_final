@@ -31,7 +31,11 @@ data class User(
     var lastActivityTimestamp: Timestamp? = null,
     var softStreakCount: Int = 0,
     var totalContributions: Int = 0,
-    var lastPromptId: String = ""
+    var lastPromptId: String = "",
+    
+    // Missing fields causing warnings
+    var displayName: String = "",
+    var fcmToken: String? = null
 ) {
     /**
      * Derives the user's current dominant emotion based on interaction history.

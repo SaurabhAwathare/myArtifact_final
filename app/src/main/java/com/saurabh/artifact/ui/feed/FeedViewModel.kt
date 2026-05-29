@@ -79,8 +79,8 @@ class FeedViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(FeedUiState())
     val uiState: StateFlow<FeedUiState> = _uiState.asStateFlow()
 
-    private val _unlockedArtifactIds = MutableStateFlow<Set<String>>(emptySet())
-    val unlockedArtifactIds: StateFlow<Set<String>> = _unlockedArtifactIds.asStateFlow()
+    val unlockedArtifactIds: StateFlow<Set<String>> = commentUnlockRepository.unlockedArtifactIds
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
 
     val savedIds = savedArtifactManager.savedIds
 
@@ -127,13 +127,6 @@ class FeedViewModel @Inject constructor(
     init {
         memoryManager.register(this)
         start()
-
-        // Sync with persisted unlocks
-        viewModelScope.launch {
-            commentUnlockRepository.unlockedArtifactIds.collect { ids ->
-                _unlockedArtifactIds.value = ids
-            }
-        }
 
         // Listen for save messages
         viewModelScope.launch {
@@ -193,8 +186,7 @@ class FeedViewModel @Inject constructor(
             reviewSessionManager.reviewProgress.collect { session ->
                 if (session.isThresholdMet) {
                     val artifactId = session.artifactId
-                    if (artifactId != null && !_unlockedArtifactIds.value.contains(artifactId)) {
-                        _unlockedArtifactIds.update { it + artifactId }
+                    if (artifactId != null) {
                         commentUnlockRepository.unlockArtifact(artifactId)
                         Log.d("FeedViewModel", "Artifact $artifactId unlocked via robust tracker")
                     }
@@ -208,7 +200,7 @@ class FeedViewModel @Inject constructor(
             audioPlayer.onPlaybackCompleted.collectLatest { completedUrl ->
                 val current = audioPlayer.currentArtifact.value
                 if (current?.audioUrl == completedUrl) {
-                    _unlockedArtifactIds.update { set -> set + current.id }
+                    commentUnlockRepository.unlockArtifact(current.id)
                     personalizationEngine.recordDetailedInteraction(
                         emotion = current.emotion,
                         completionRate = 1.0f

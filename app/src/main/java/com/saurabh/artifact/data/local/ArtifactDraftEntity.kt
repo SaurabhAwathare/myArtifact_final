@@ -63,6 +63,7 @@ data class ArtifactDraftEntity(
     val safetyAnalysis: String? = null,
     val interruptionReason: String? = null,
     val lastCheckpointTs: Long = System.currentTimeMillis(),
+    val durableBytes: Long = 0, // Option A: Track bytes successfully synced to disk
     val isCorrupted: Boolean = false,
     val version: Int = 1,
 
@@ -70,6 +71,9 @@ data class ArtifactDraftEntity(
     val mimeType: String = "audio/mpeg",
     val amplitudeData: List<Float> = emptyList(),
     val reactionVisibility: ReactionVisibilityMode? = null,
+
+    // Upload Checkpoints
+    val uploadedAudioUrl: String? = null,
 
     // Immutable Snapshot for Publishing
     val frozenTranscriptJson: String? = null,

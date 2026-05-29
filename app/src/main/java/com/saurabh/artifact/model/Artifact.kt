@@ -50,7 +50,12 @@ data class Artifact(
     var flaggedSegments: List<FlaggedSegment> = emptyList(),
     var moderation: ModerationMetadata = ModerationMetadata(),
     var conversationMetadata: ArtifactConversationMetadata = ArtifactConversationMetadata(),
-    var reactionVisibility: ReactionVisibilityMode = ReactionVisibilityMode.APPROXIMATE
+    var reactionVisibility: ReactionVisibilityMode = ReactionVisibilityMode.APPROXIMATE,
+
+    // Missing fields causing warnings
+    var authorAnonymousName: String = "",
+    var authorId: String = "",
+    var username: String = ""
 ) {
     val authorAvatarConfig: AvatarConfig
         get() = author.avatarConfig

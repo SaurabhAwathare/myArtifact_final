@@ -220,21 +220,6 @@ fun ProfileScreen(
 
                 item { Spacer(modifier = Modifier.height(100.dp)) }
             }
-
-            // Persistent Player
-            Box(modifier = Modifier.align(Alignment.BottomCenter)) {
-                uiState.currentlyPlayingArtifact?.let { artifact ->
-                    BottomPlayer(
-                        title = artifact.title.ifEmpty { "Reflective Moment" },
-                        isPlaying = uiState.isPlaying,
-                        progress = if (uiState.duration > 0) {
-                            uiState.currentPosition.toFloat() / uiState.duration.toFloat()
-                        } else 0f,
-                        onTogglePlayback = { viewModel.togglePlayback() },
-                        onClick = { }
-                    )
-                }
-            }
         }
     }
 

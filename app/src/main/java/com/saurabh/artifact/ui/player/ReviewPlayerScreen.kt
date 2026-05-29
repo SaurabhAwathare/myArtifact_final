@@ -29,7 +29,7 @@ fun ReviewPlayerScreen(
     draftId: String,
     onReviewComplete: () -> Unit,
     onClose: () -> Unit,
-    viewModel: ReviewViewModel = hiltViewModel()
+    viewModel: ReviewViewModel = hiltViewModel(),
 ) {
     val reviewState by viewModel.reviewState.collectAsStateWithLifecycle()
     val playbackState by viewModel.playbackState.collectAsStateWithLifecycle()
@@ -147,7 +147,7 @@ fun ReviewPlayerScreen(
                                 onClick = { viewModel.setPlaybackSpeed(speed) },
                                 label = { 
                                     Text(
-                                        text = "${if (speed % 1 == 0f) speed.toInt() else speed}x",
+                                        text = "${if ((speed % 1) == 0f) speed.toInt() else speed}x",
                                         style = ArtifactTheme.typography.labelSmall
                                     ) 
                                 },
@@ -203,7 +203,7 @@ fun ReviewPlayerScreen(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = { /* Rewind */ }) {
+                IconButton(onClick = { viewModel.rewind() }) {
                     Icon(Icons.Rounded.Replay10, null, modifier = Modifier.size(32.dp))
                 }
 
@@ -223,7 +223,7 @@ fun ReviewPlayerScreen(
                     )
                 }
 
-                IconButton(onClick = { /* Forward */ }) {
+                IconButton(onClick = { viewModel.forward() }) {
                     Icon(Icons.Rounded.Forward30, null, modifier = Modifier.size(32.dp))
                 }
             }

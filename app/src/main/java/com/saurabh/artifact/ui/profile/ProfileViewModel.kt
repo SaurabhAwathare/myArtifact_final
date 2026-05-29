@@ -60,93 +60,87 @@ class ProfileViewModel @Inject constructor(
     val savedIds = savedArtifactManager.savedIds
 
     private val _targetUserId = MutableStateFlow<String?>(null)
+    private val _selectedTab = MutableStateFlow(ProfileTab.PUBLISHED)
+    private val _logoutState = MutableStateFlow<LogoutState>(LogoutState.Idle)
+    private val _message = MutableStateFlow<String?>(null)
 
-    private val _uiState = MutableStateFlow(ProfileUiState())
-    val uiState: StateFlow<ProfileUiState> = _uiState.asStateFlow()
+    val uiState: StateFlow<ProfileUiState> = combine(
+        _targetUserId,
+        userProfileManager.activeAvatarConfig,
+        authRepository.userData,
+        _selectedTab,
+        _logoutState,
+        _message,
+        playbackSessionManager.currentArtifact,
+        playbackSessionManager.isPlaying,
+        playbackSessionManager.isBuffering,
+        playbackSessionManager.currentPosition,
+        playbackSessionManager.duration
+    ) { params: Array<Any?> ->
+        val targetId = params[0] as String?
+        val avatarConfig = params[1] as AvatarConfig
+        val currentUser = params[2] as com.saurabh.artifact.model.User?
+        val selectedTab = params[3] as ProfileTab
+        val logoutState = params[4] as LogoutState
+        val message = params[5] as String?
+        
+        val currentlyPlaying = params[6] as Artifact?
+        val isPlaying = params[7] as Boolean
+        val isBuffering = params[8] as Boolean
+        val position = params[9] as Long
+        val duration = params[10] as Long
+
+        val isSelf = (targetId == null) || (targetId == currentUser?.id)
+        val finalId = targetId ?: currentUser?.id
+
+        // Note: These nested flows will be resolved in flatMapLatest below
+        finalId to ProfileUiState(
+            avatarConfig = avatarConfig,
+            isSelf = isSelf,
+            selectedTab = selectedTab,
+            logoutState = logoutState,
+            message = message,
+            currentlyPlayingArtifact = currentlyPlaying,
+            isPlaying = isPlaying,
+            isBuffering = isBuffering,
+            currentPosition = position,
+            duration = duration
+        )
+    }.flatMapLatest { (finalId, baseState) ->
+        val effectiveId = finalId ?: return@flatMapLatest flowOf(baseState)
+        
+        combine(
+            userRepository.streamUserProfile(effectiveId),
+            artifactRepository.getUserArtifacts(effectiveId),
+            artifactRepository.getSavedArtifacts(effectiveId),
+            recordingRepository.observeDrafts(),
+            userRepository.observeIsFollowing(authRepository.currentUserId, effectiveId)
+        ) { profile, allArtifacts, saved, localDrafts, isFollowing ->
+            baseState.copy(
+                userProfile = profile,
+                publishedArtifacts = allArtifacts.filter { !it.isDraft },
+                cloudDrafts = allArtifacts.filter { it.isDraft },
+                savedArtifacts = saved,
+                localDrafts = localDrafts,
+                isFollowing = isFollowing
+            )
+        }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = ProfileUiState()
+    )
 
     init {
         android.util.Log.d("ReviewDebug", "ProfileViewModel initialized")
-        observeState()
     }
 
-    private fun observeState() {
-        // 1. Identity & Profile
-        viewModelScope.launch {
-            combine(
-                _targetUserId,
-                userProfileManager.activeAvatarConfig,
-                authRepository.currentUser
-            ) { targetId, config, currentUser ->
-                val isSelf = (targetId == null) || (targetId == currentUser?.uid)
-                val finalId = targetId ?: currentUser?.uid
-                
-                Triple(isSelf, config, finalId)
-            }.flatMapLatest { (isSelf, config, finalId) ->
-                val profileFlow: Flow<User?> = finalId?.let { userRepository.streamUserProfile(it) } ?: flowOf(null)
-                profileFlow.map { profile ->
-                    _uiState.update { it.copy(
-                        isSelf = isSelf,
-                        avatarConfig = config,
-                        userProfile = profile
-                    ) }
-                }
-            }.collect()
-        }
-
-        // 2. Artifacts & Drafts
-        viewModelScope.launch {
-            _targetUserId.flatMapLatest { id ->
-                val finalId = id ?: authRepository.currentUser.value?.uid
-                if (finalId != null) {
-                    combine(
-                        artifactRepository.getUserArtifacts(finalId),
-                        artifactRepository.getSavedArtifacts(finalId),
-                        recordingRepository.observeDrafts()
-                    ) { allArtifacts, saved, localDrafts ->
-                        _uiState.update { it.copy(
-                            publishedArtifacts = allArtifacts.filter { a -> !a.isDraft },
-                            cloudDrafts = allArtifacts.filter { a -> a.isDraft },
-                            savedArtifacts = saved,
-                            localDrafts = localDrafts
-                        ) }
-                    }
-                } else flowOf(Unit)
-            }.collect()
-        }
-
-        // 3. Follow State
-        viewModelScope.launch {
-            _targetUserId.collect { id ->
-                val currentId = authRepository.currentUser.value?.uid
-                if (id != null && currentId != null && id != currentId) {
-                    val following = userRepository.isFollowing(currentId, id)
-                    _uiState.update { it.copy(isFollowing = following) }
-                }
-            }
-        }
-
-        // 4. Playback State mirroring
-        viewModelScope.launch {
-            combine(
-                playbackSessionManager.currentArtifact,
-                playbackSessionManager.isPlaying,
-                playbackSessionManager.isBuffering,
-                playbackSessionManager.currentPosition,
-                playbackSessionManager.duration
-            ) { artifact, playing, buffering, pos, dur ->
-                _uiState.update { it.copy(
-                    currentlyPlayingArtifact = artifact,
-                    isPlaying = playing,
-                    isBuffering = buffering,
-                    currentPosition = pos,
-                    duration = dur
-                ) }
-            }.collect()
-        }
+    private fun clearUnused() {
+        // Removed observeState
     }
 
     fun selectTab(tab: ProfileTab) {
-        _uiState.update { it.copy(selectedTab = tab) }
+        _selectedTab.value = tab
     }
 
     fun setTargetUser(userId: String?) {
@@ -159,12 +153,10 @@ class ProfileViewModel @Inject constructor(
         if (targetId == currentId) return
 
         viewModelScope.launch {
-            if (_uiState.value.isFollowing) {
+            if (uiState.value.isFollowing) {
                 userRepository.unfollowUser(currentId, targetId)
-                    .onSuccess { _uiState.update { it.copy(isFollowing = false) } }
             } else {
                 userRepository.followUser(currentId, targetId)
-                    .onSuccess { _uiState.update { it.copy(isFollowing = true) } }
             }
         }
     }
@@ -224,27 +216,27 @@ class ProfileViewModel @Inject constructor(
         viewModelScope.launch {
             artifactRepository.deletePublishedArtifact(artifactId)
                 .onSuccess {
-                    _uiState.update { it.copy(message = "Artifact deleted successfully") }
+                    _message.value = "Artifact deleted successfully"
                 }
                 .onFailure { e ->
-                    _uiState.update { it.copy(message = "Failed to delete: ${e.message}") }
+                    _message.value = "Failed to delete: ${e.message}"
                 }
         }
     }
 
     fun clearMessage() {
-        _uiState.update { it.copy(message = null) }
+        _message.value = null
     }
 
     fun logout() {
         viewModelScope.launch {
-            _uiState.update { it.copy(logoutState = LogoutState.Loading) }
+            _logoutState.value = LogoutState.Loading
             authRepository.signOut()
                 .onSuccess {
-                    _uiState.update { it.copy(logoutState = LogoutState.Success) }
+                    _logoutState.value = LogoutState.Success
                 }
                 .onFailure { e ->
-                    _uiState.update { it.copy(logoutState = LogoutState.Error(e.message ?: "Unknown error")) }
+                    _logoutState.value = LogoutState.Error(e.message ?: "Unknown error")
                 }
         }
     }
@@ -255,7 +247,7 @@ class ProfileViewModel @Inject constructor(
     }
 
     fun resetLogoutState() {
-        _uiState.update { it.copy(logoutState = LogoutState.Idle) }
+        _logoutState.value = LogoutState.Idle
     }
 }
 

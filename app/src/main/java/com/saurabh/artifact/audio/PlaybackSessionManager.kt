@@ -27,7 +27,8 @@ import javax.inject.Singleton
  */
 @Singleton
 class PlaybackSessionManager @Inject constructor(
-    @ApplicationContext private val context: Context
+    @param:ApplicationContext private val context: Context,
+    private val playbackPositionDao: com.saurabh.artifact.data.local.PlaybackPositionDao,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val controllerLock = Mutex()
@@ -43,7 +44,7 @@ class PlaybackSessionManager @Inject constructor(
     private val _currentArtifact = MutableStateFlow<Artifact?>(null)
     val currentArtifact: StateFlow<Artifact?> = _currentArtifact.asStateFlow()
 
-    private val _isPlaying = MutableStateFlow(false)
+    private val _isPlaying = MutableStateFlow(value = false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
 
     private val _currentPosition = MutableStateFlow(0L)
@@ -131,6 +132,14 @@ class PlaybackSessionManager @Inject constructor(
             
             _interactionOwner.value = owner
             _currentArtifact.value = artifact
+
+            // Restore position if not explicitly provided
+            val restoredPosition = if (initialPosition == 0L) {
+                playbackPositionDao.getPosition(artifact.id)?.positionMs ?: 0L
+            } else {
+                initialPosition
+            }
+
             val mediaItem = MediaItem.Builder()
                 .setUri(artifact.audioUrl)
                 .setMediaId(artifact.id)
@@ -144,7 +153,7 @@ class PlaybackSessionManager @Inject constructor(
             
             player.setMediaItem(mediaItem)
             player.setPlaybackSpeed(_playbackSpeed.value)
-            if (initialPosition > 0) player.seekTo(initialPosition)
+            if (restoredPosition > 0) player.seekTo(restoredPosition)
             player.prepare()
             player.play()
         }
@@ -195,14 +204,30 @@ class PlaybackSessionManager @Inject constructor(
     private fun startPositionUpdates() {
         positionUpdateJob?.cancel()
         positionUpdateJob = scope.launch {
+            var tick = 0
             while (isActive) {
                 controller?.let { p ->
                     val pos = p.currentPosition
                     val dur = p.duration.coerceAtLeast(0)
                     _currentPosition.value = pos
                     _duration.value = dur
+
+                    // Persist position periodically (every 5 seconds)
+                    if ((tick % 25) == 0) {
+                        _currentArtifact.value?.let { artifact ->
+                            if (!artifact.isDraft) { // Drafts have their own persistence in ReviewSessionManager
+                                playbackPositionDao.savePosition(
+                                    com.saurabh.artifact.data.local.PlaybackPosition(
+                                        artifactId = artifact.id,
+                                        positionMs = pos
+                                    )
+                                )
+                            }
+                        }
+                    }
                 }
                 delay(200)
+                tick++
             }
         }
     }

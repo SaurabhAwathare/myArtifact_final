@@ -26,7 +26,8 @@ class TranscodingWorker @AssistedInject constructor(
     @Assisted workerParams: WorkerParameters,
     private val draftDao: DraftDao,
     private val localDraftManager: LocalDraftManager,
-    private val artifactRepository: ArtifactRepository
+    private val artifactRepository: ArtifactRepository,
+    private val wavRecoveryManager: com.saurabh.artifact.audio.WavRecoveryManager,
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
@@ -42,13 +43,21 @@ class TranscodingWorker @AssistedInject constructor(
         try {
             // IDEMPOTENCY CHECK: If the encrypted file already exists and metadata is correct, skip
             val existingEncryptedFile = localDraftManager.createEncryptedDraftFile(draftId)
-            if (existingEncryptedFile.exists() && existingEncryptedFile.length() > 0 && draft.isEncrypted) {
+            if (existingEncryptedFile.exists() && (existingEncryptedFile.length() > 0) && draft.isEncrypted) {
                 Log.d("TranscodingWorker", "Idempotency Trigger: Optimized artifact already exists. Skipping.")
                 return@withContext Result.success()
             }
 
             updateDraftState(draftId, ArtifactDraftState.TRANSCODING)
             
+            // 0. Defense-in-Depth: Validate and repair WAV header before transcoding
+            val recoveryResult = wavRecoveryManager.recover(rawFile)
+            if (recoveryResult == com.saurabh.artifact.audio.WavRecoveryManager.RecoveryResult.CORRUPTED) {
+                Log.e("TranscodingWorker", "Unrecoverable WAV header: CORRUPTED")
+                updateDraftState(draftId, ArtifactDraftState.ERROR)
+                return@withContext Result.failure()
+            }
+
             // 1. Transcode raw WAV to temporary AAC
             val tempAacFile = localDraftManager.createDraftFile("m4a")
             Log.d("TranscodingWorker", "Atmospheric Step: Refining audio essence...")

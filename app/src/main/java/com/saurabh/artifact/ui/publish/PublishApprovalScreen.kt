@@ -1,5 +1,6 @@
 package com.saurabh.artifact.ui.publish
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -169,17 +170,20 @@ fun PublishApprovalScreen(
                 Column {
                     Text("Topic Tags (Optional)", style = MaterialTheme.typography.labelMedium, color = GoldAura500)
                     Spacer(modifier = Modifier.height(12.dp))
-                    val topics = listOf("relationships", "filmmaking", "anxiety", "family")
+                    val topics = listOf("relationships", "filmmaking", "anxiety", "family", "hope", "loss")
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         topics.forEach { topic ->
+                            val isSelected = uiState.tags.contains(topic)
                             FilterChip(
-                                selected = false,
-                                onClick = { },
+                                selected = isSelected,
+                                onClick = { viewModel.onToggleTag(topic) },
                                 label = { Text(topic) },
                                 colors = FilterChipDefaults.filterChipColors(
-                                    labelColor = Color.White.copy(alpha = 0.5f)
+                                    labelColor = if (isSelected) Color.White else Color.White.copy(alpha = 0.5f),
+                                    selectedLabelColor = Color.White,
+                                    selectedContainerColor = GoldAura500.copy(alpha = 0.3f)
                                 ),
-                                border = null,
+                                border = if (isSelected) BorderStroke(1.dp, GoldAura500) else null,
                                 shape = RoundedCornerShape(20.dp)
                             )
                         }

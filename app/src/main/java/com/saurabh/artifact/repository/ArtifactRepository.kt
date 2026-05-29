@@ -61,6 +61,20 @@ class ArtifactRepository @Inject constructor(
 ) {
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
+    suspend fun getArtifact(artifactId: String): Result<Artifact> = withContext(Dispatchers.IO) {
+        try {
+            val snapshot = firestore.collection("artifacts").document(artifactId).get().await()
+            val artifact = snapshot.toObject(Artifact::class.java)?.copy(id = snapshot.id)
+            if (artifact != null) {
+                Result.success(artifact)
+            } else {
+                Result.failure(Exception("Artifact not found"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     suspend fun deleteDraftLocally(draftId: String) = withContext(Dispatchers.IO) {
         val draft = draftDao.getDraftById(draftId) ?: return@withContext
         SecurityArchitecture.secureDelete(File(draft.localAudioPath))
@@ -199,7 +213,15 @@ class ArtifactRepository @Inject constructor(
             "playCount" to artifact.playCount,
             "reactionCount" to artifact.reactionCount,
             "commentCount" to artifact.commentCount,
-            "reportCount" to artifact.reportCount
+            "reportCount" to artifact.reportCount,
+            "transcript" to artifact.transcript.map { segment ->
+                mapOf(
+                    "text" to segment.text,
+                    "startMs" to segment.startMs,
+                    "endMs" to segment.endMs,
+                    "confidence" to segment.confidence
+                )
+            }
         )
     }
 
@@ -916,9 +938,20 @@ class ArtifactRepository @Inject constructor(
         avatarConfig: AvatarConfig = AvatarConfig(),
         anonymousId: String = "",
         anonymousSigil: String = ""
-    ): Result<Unit> = withContext(Dispatchers.IO) {
+    ): Result<String> = withContext(Dispatchers.IO) {
         return@withContext try {
+            // 1. Recover Transcript from Frozen Snapshot
+            val transcript = draft.frozenTranscriptJson?.let { json ->
+                try {
+                    kotlinx.serialization.json.Json.decodeFromString<List<TranscriptSegment>>(json)
+                } catch (e: Exception) {
+                    Log.e("ArtifactRepository", "Failed to decode frozen transcript", e)
+                    emptyList()
+                }
+            } ?: emptyList()
+
             val artifact = Artifact(
+                id = draft.id, // IDEMPOTENCY: Use draftId as the Firestore Document ID
                 userId = userId,
                 author = AuthorSnapshot(
                     anonymousId = anonymousId,
@@ -939,6 +972,7 @@ class ArtifactRepository @Inject constructor(
                 emotion = draft.emotion ?: "",
                 emotionTag = draft.emotion ?: "",
                 prompt = "",
+                transcript = transcript,
                 amplitudeData = draft.amplitudeData,
                 reactionVisibility = draft.reactionVisibility ?: ReactionVisibilityMode.APPROXIMATE,
                 moderation = ModerationMetadata(
@@ -947,12 +981,14 @@ class ArtifactRepository @Inject constructor(
                 )
             )
             val artifactData = mapArtifactToFirestore(artifact)
-            val docRef = firestore.collection("artifacts").add(artifactData).await()
+            
+            // 2. Deterministic Write (Idempotent)
+            firestore.collection("artifacts").document(draft.id).set(artifactData).await()
             
             // Record ownership in private collection for secure management
             val ownershipRef = firestore.collection("users").document(userId)
                 .collection("private").document("published_artifacts")
-                .collection("artifacts").document(docRef.id)
+                .collection("artifacts").document(draft.id)
             
             ownershipRef.set(mapOf("createdAt" to Timestamp.now())).await()
             
@@ -960,10 +996,10 @@ class ArtifactRepository @Inject constructor(
             notificationRepository.createNotification(
                 userId = userId,
                 message = "You published a new artifact: ${artifact.title} ✨",
-                artifactId = docRef.id
+                artifactId = draft.id
             )
 
-            Result.success(Unit)
+            Result.success(draft.id)
         } catch (e: Exception) {
             Log.e("ArtifactRepository", "Firestore write failed", e)
             Result.failure(e)

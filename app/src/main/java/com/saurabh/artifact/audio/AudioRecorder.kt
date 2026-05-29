@@ -28,7 +28,11 @@ class AudioRecorder(private val context: Context) {
      * @param outputFile The destination file.
      * @param mode The recording format (AAC or WAV).
      */
-    fun start(outputFile: File, mode: RecordingMode = RecordingMode.WAV_LOSSLESS) {
+    fun start(
+        outputFile: File,
+        mode: RecordingMode = RecordingMode.WAV_LOSSLESS,
+        onDurableSync: ((Long) -> Unit)? = null
+    ) {
         if (isRecording) {
             Log.w("AudioRecorder", "Start called while already recording. Ignoring.")
             return
@@ -40,7 +44,7 @@ class AudioRecorder(private val context: Context) {
         try {
             when (mode) {
                 RecordingMode.AAC_HIGH_BITRATE -> startAAC(outputFile)
-                RecordingMode.WAV_LOSSLESS -> startWAV(outputFile)
+                RecordingMode.WAV_LOSSLESS -> startWAV(outputFile, onDurableSync)
             }
             isRecording = true
             Log.d("AudioRecorder", "Recording started ($mode): ${outputFile.name}")
@@ -74,10 +78,11 @@ class AudioRecorder(private val context: Context) {
         }
     }
 
-    private fun startWAV(outputFile: File) {
-        wavRecorder = WavRecorder(outputFile).apply {
+    private fun startWAV(outputFile: File, onDurableSync: ((Long) -> Unit)? = null) {
+        wavRecorder = WavRecorder(outputFile, onDurableSync = onDurableSync).apply {
             start()
         }
+        isRecording = true
     }
 
     fun pause() {

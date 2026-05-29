@@ -24,23 +24,96 @@ class PlayerViewModel @Inject constructor(
     private val reactionRepository: ReactionRepository,
     private val savedArtifactManager: SavedArtifactManager,
     private val recordingRepository: com.saurabh.artifact.repository.RecordingRepository,
+    private val artifactRepository: com.saurabh.artifact.repository.ArtifactRepository,
     private val commentUnlockRepository: com.saurabh.artifact.repository.CommentUnlockRepository,
-    private val reviewSessionManager: com.saurabh.artifact.audio.ReviewSessionManager
+    reviewSessionManager: com.saurabh.artifact.audio.ReviewSessionManager
 ) : ViewModel() {
 
-    private val _isExpanded = MutableStateFlow(false)
+    private val _isExpanded = MutableStateFlow(value = false)
     private val _showAdvancedControls = MutableStateFlow(false)
-    
-    private val _isCommentUnlocked = MutableStateFlow(false)
-    private val _isResonated = MutableStateFlow(false)
-    private val _selectedReactionType = MutableStateFlow(ReactionType.I_HEAR_YOU)
-    private val _isFollowed = MutableStateFlow(false)
-    private val _isSaved = MutableStateFlow(false)
-    private val _resonanceSummary = MutableStateFlow("")
-    private val _commentCount = MutableStateFlow(0)
-
     private val _sleepTimerMillisRemaining = MutableStateFlow<Long?>(null)
     private var sleepTimerJob: Job? = null
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val isCommentUnlocked: StateFlow<Boolean> = playbackSessionManager.currentArtifact.flatMapLatest { artifact ->
+        if (artifact != null) {
+            commentUnlockRepository.isUnlocked(artifact.id)
+        } else {
+            flowOf(false)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val isResonated: StateFlow<Boolean> = combine(
+        playbackSessionManager.currentArtifact,
+        authRepository.currentUser
+    ) { artifact, user ->
+        if ((artifact != null) && (user != null)) {
+            reactionRepository.getArtifactReactions(artifact.id, user.uid)
+                .map { it.isNotEmpty() }
+        } else {
+            flowOf(false)
+        }
+    }.flatMapLatest { it }
+    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val selectedReactionType: StateFlow<ReactionType> = combine(
+        playbackSessionManager.currentArtifact,
+        authRepository.currentUser
+    ) { artifact, user ->
+        if ((artifact != null) && (user != null)) {
+            reactionRepository.getArtifactReactions(artifact.id, user.uid)
+                .map { reactions ->
+                    reactions.firstOrNull()?.let { ReactionType.fromId(it.typeId) } ?: ReactionType.I_HEAR_YOU
+                }
+        } else {
+            flowOf(ReactionType.I_HEAR_YOU)
+        }
+    }.flatMapLatest { it }
+    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ReactionType.I_HEAR_YOU)
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val isFollowed: StateFlow<Boolean> = combine(
+        playbackSessionManager.currentArtifact,
+        authRepository.currentUser
+    ) { artifact, user ->
+        if (artifact != null && user != null && artifact.userId != user.uid) {
+            userRepository.observeIsFollowing(user.uid, artifact.userId)
+        } else {
+            flowOf(false)
+        }
+    }.flatMapLatest { it }
+    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val isSaved: StateFlow<Boolean> = combine(
+        playbackSessionManager.currentArtifact,
+        savedArtifactManager.savedIds
+    ) { artifact, savedIds ->
+        artifact != null && savedIds.contains(artifact.id)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val resonanceSummary: StateFlow<String> = playbackSessionManager.currentArtifact.flatMapLatest { artifact ->
+        if (artifact != null) {
+            val currentUserId = authRepository.currentUser.value?.uid
+            reactionRepository.getReactionCounts(artifact.id).map { counts ->
+                val isOwner = artifact.userId == currentUserId
+                counts?.getFuzzySummary(isOwner) 
+                    ?: com.saurabh.artifact.model.ArtifactReactionCounts(
+                        artifactId = artifact.id,
+                        totalCount = artifact.reactionCount,
+                        visibility = artifact.reactionVisibility
+                    ).getFuzzySummary(isOwner)
+            }
+        } else {
+            flowOf("")
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
+
+    val commentCount: StateFlow<Int> = playbackSessionManager.currentArtifact.map { 
+        it?.commentCount ?: 0 
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     init {
         // Reset player state on logout
@@ -51,89 +124,11 @@ class PlayerViewModel @Inject constructor(
                 }
             }
         }
-
-        // Update interaction state when artifact changes
-        viewModelScope.launch {
-            playbackSessionManager.currentArtifact.collectLatest { artifact ->
-                if (artifact != null) {
-                    val currentUserId = authRepository.currentUser.value?.uid
-                    
-                    if (currentUserId != null) {
-                        launch {
-                            reactionRepository.getArtifactReactions(artifact.id, currentUserId).collect { reactions ->
-                                val userReaction = reactions.firstOrNull()
-                                _isResonated.value = userReaction != null
-                                if (userReaction != null) {
-                                    _selectedReactionType.value = ReactionType.fromId(userReaction.typeId)
-                                }
-                            }
-                        }
-                        
-                        launch {
-                            reactionRepository.getReactionCounts(artifact.id).collect { counts ->
-                                val isOwner = artifact.userId == currentUserId
-                                _resonanceSummary.value = counts?.getFuzzySummary(isOwner) 
-                                    ?: com.saurabh.artifact.model.ArtifactReactionCounts(
-                                        artifactId = artifact.id,
-                                        totalCount = artifact.reactionCount,
-                                        visibility = artifact.reactionVisibility
-                                    ).getFuzzySummary(isOwner)
-                            }
-                        }
-                    }
-
-                    if (currentUserId != null && artifact.userId != currentUserId) {
-                        launch {
-                            userRepository.observeIsFollowing(currentUserId, artifact.userId).collect {
-                                _isFollowed.value = it
-                            }
-                        }
-                    } else {
-                        _isFollowed.value = false
-                    }
-
-                    launch {
-                        savedArtifactManager.savedIds.collect { savedIds ->
-                            _isSaved.value = savedIds.contains(artifact.id)
-                        }
-                    }
-
-                    _commentCount.value = artifact.commentCount
-
-                    launch {
-                        commentUnlockRepository.isUnlocked(artifact.id).collect { unlocked ->
-                            _isCommentUnlocked.value = unlocked
-                        }
-                    }
-                } else {
-                    _isResonated.value = false
-                    _isFollowed.value = false
-                    _isSaved.value = false
-                    _resonanceSummary.value = ""
-                    _commentCount.value = 0
-                    _isCommentUnlocked.value = false
-                }
-            }
-        }
-
-        // Update unlock state if threshold met
-        viewModelScope.launch {
-            reviewSessionManager.reviewProgress.collect { session ->
-                if (session.isThresholdMet) {
-                    val artifactId = session.artifactId
-                    if (artifactId != null && !_isCommentUnlocked.value) {
-                        _isCommentUnlocked.value = true
-                        commentUnlockRepository.unlockArtifact(artifactId)
-                    }
-                }
-            }
-        }
     }
 
     private fun resetState() {
         _isExpanded.value = false
         _showAdvancedControls.value = false
-        _isCommentUnlocked.value = false
         _sleepTimerMillisRemaining.value = null
         sleepTimerJob?.cancel()
         playbackSessionManager.stop()
@@ -147,16 +142,16 @@ class PlayerViewModel @Inject constructor(
         playbackSessionManager.duration,
         playbackSessionManager.playbackSpeed,
         playbackSessionManager.isSkipSilenceEnabled,
-        _isCommentUnlocked,
+        isCommentUnlocked,
         _isExpanded,
         _showAdvancedControls,
         _sleepTimerMillisRemaining,
-        _isResonated,
-        _selectedReactionType,
-        _isFollowed,
-        _isSaved,
-        _resonanceSummary,
-        _commentCount,
+        isResonated,
+        selectedReactionType,
+        isFollowed,
+        isSaved,
+        resonanceSummary,
+        commentCount,
         reviewSessionManager.reviewProgress
     ) { params: Array<Any?> ->
         val artifact = params[0] as Artifact?
@@ -217,7 +212,7 @@ class PlayerViewModel @Inject constructor(
         initialValue = PlayerUiState()
     )
 
-    fun toggleResonate(type: ReactionType = _selectedReactionType.value) {
+    fun toggleResonate(type: ReactionType = selectedReactionType.value) {
         val artifact = uiState.value.currentArtifact ?: return
         val userId = authRepository.currentUser.value?.uid ?: return
         viewModelScope.launch {
@@ -226,7 +221,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun setReactionType(type: ReactionType) {
-        _selectedReactionType.value = type
+        // Local preference update if needed, but here we drive from Repo
         if (uiState.value.isResonated) {
             toggleResonate(type)
         }
@@ -252,12 +247,19 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun playArtifact(artifact: Artifact) {
-        _isCommentUnlocked.value = false // Reset for new artifact
         _isExpanded.value = true // Auto-expand when play is triggered
         playbackSessionManager.play(
             artifact = artifact,
             owner = PlaybackSessionManager.InteractionOwner.PUBLIC_PLAYER
         )
+    }
+
+    fun playArtifactById(artifactId: String) {
+        viewModelScope.launch {
+            artifactRepository.getArtifact(artifactId).onSuccess { artifact ->
+                playArtifact(artifact)
+            }
+        }
     }
 
     fun togglePlayPause() {

@@ -18,8 +18,11 @@ object AudioModule {
 
     @Provides
     @Singleton
-    fun providePlaybackSessionManager(@ApplicationContext context: Context): PlaybackSessionManager = 
-        PlaybackSessionManager(context)
+    fun providePlaybackSessionManager(
+        @ApplicationContext context: Context,
+        playbackPositionDao: com.saurabh.artifact.data.local.PlaybackPositionDao
+    ): PlaybackSessionManager = 
+        PlaybackSessionManager(context, playbackPositionDao)
 
     @Provides
     @Singleton
@@ -30,6 +33,11 @@ object AudioModule {
     @Singleton
     fun provideAudioRecorder(@ApplicationContext context: Context): AudioRecorder = 
         AudioRecorder(context)
+
+    @Provides
+    @Singleton
+    fun provideWavRecoveryManager(): com.saurabh.artifact.audio.WavRecoveryManager = 
+        com.saurabh.artifact.audio.WavRecoveryManager()
 
     @Provides
     @Singleton

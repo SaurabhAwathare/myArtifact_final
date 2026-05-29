@@ -3,7 +3,7 @@ package com.saurabh.artifact.repository
 import com.saurabh.artifact.data.local.UserSessionManager
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.first
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -22,7 +22,7 @@ class UserProfileManager @Inject constructor(
      */
     val activeAvatarSeed: Flow<String> = combine(
         authRepository.userData,
-        sessionManager.userProfile
+        sessionManager.userProfile,
     ) { authUser, anonProfile ->
         authUser?.avatarSeed ?: anonProfile.avatarSeed
     }
@@ -52,7 +52,16 @@ class UserProfileManager @Inject constructor(
      */
     suspend fun updateAvatarSeed(seed: String) {
         sessionManager.updateAvatarSeed(seed)
-        // TODO: Sync to Firestore
+        
+        // Sync to Firestore if authenticated
+        val userId = authRepository.currentUser.value?.uid
+        if (userId != null) {
+            try {
+                userRepository.updateAvatarConfig(userId, activeAvatarConfig.first().copy(seed = seed))
+            } catch (e: Exception) {
+                android.util.Log.e("UserProfileManager", "Failed to sync avatar seed to Firestore", e)
+            }
+        }
     }
 
     /**
@@ -79,7 +88,15 @@ class UserProfileManager @Inject constructor(
         // Update local session
         sessionManager.updateUsername(username)
         
-        // TODO: Trigger Firestore update if authRepository.currentUser is not null
+        // Sync to Firestore if authenticated
+        val userId = authRepository.currentUser.value?.uid
+        if (userId != null) {
+            try {
+                userRepository.createUsername(userId, username)
+            } catch (e: Exception) {
+                android.util.Log.e("UserProfileManager", "Failed to sync username to Firestore", e)
+            }
+        }
     }
 
     suspend fun isUsernameAvailable(username: String): Boolean {

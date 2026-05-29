@@ -49,11 +49,14 @@ interface DraftDao {
     @Query("UPDATE artifact_drafts SET interruptionReason = :reason, updatedAt = :timestamp WHERE id = :id")
     suspend fun updateInterruptionReason(id: String, reason: String, timestamp: Long = System.currentTimeMillis())
 
-    @Query("UPDATE artifact_drafts SET durationMs = :durationMs, amplitudeData = :amplitudes, lastCheckpointTs = :checkpointTs, updatedAt = :updatedAt WHERE id = :id")
-    suspend fun updateRecordingCheckpoint(id: String, durationMs: Long, amplitudes: List<Float>, checkpointTs: Long, updatedAt: Long = System.currentTimeMillis())
+    @Query("UPDATE artifact_drafts SET durationMs = :durationMs, amplitudeData = :amplitudes, lastCheckpointTs = :checkpointTs, durableBytes = :durableBytes, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateRecordingCheckpoint(id: String, durationMs: Long, amplitudes: List<Float>, checkpointTs: Long, durableBytes: Long, updatedAt: Long = System.currentTimeMillis())
 
     @Query("UPDATE artifact_drafts SET title = :title, updatedAt = :timestamp WHERE id = :id")
     suspend fun updateTitle(id: String, title: String, timestamp: Long = System.currentTimeMillis())
+
+    @Query("UPDATE artifact_drafts SET uploadedAudioUrl = :url, draftState = :state, updatedAt = :timestamp WHERE id = :id")
+    suspend fun updateUploadCheckpoint(id: String, url: String, state: ArtifactDraftState, timestamp: Long = System.currentTimeMillis())
 
     @Query("UPDATE artifact_drafts SET uploadedBytes = :uploadedBytes, totalBytes = :totalBytes, uploadSessionUri = :sessionUri WHERE id = :draftId")
     suspend fun updateSyncProgress(draftId: String, uploadedBytes: Long, totalBytes: Long, sessionUri: String?)

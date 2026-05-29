@@ -24,6 +24,7 @@ enum class ArtifactDraftState {
     WAITING_COOLDOWN,
     WAITING_FOR_NETWORK,
     UPLOADING,
+    AUDIO_UPLOADED,
     PUBLISHED,
     SAVED_LOCALLY,
     FAILED_UPLOAD,

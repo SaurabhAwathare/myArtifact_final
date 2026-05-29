@@ -28,6 +28,12 @@ class RecoveryEngine @Inject constructor(
                     
                     // HEAL: If it's a WAV file with an incomplete header (0s), fix it
                     if (file.extension.lowercase() == "wav") {
+                        val drift = file.length() - draft.durableBytes
+                        if (drift < 0) {
+                            Log.e("RecoveryEngine", "CRITICAL: Silent truncation detected for draft ${draft.id}. Physical file is ${-drift} bytes shorter than durable metadata.")
+                        } else {
+                            Log.d("RecoveryEngine", "Recovery drift for ${draft.id}: $drift bytes (Page Cache tail)")
+                        }
                         healWavHeader(file)
                     }
                     

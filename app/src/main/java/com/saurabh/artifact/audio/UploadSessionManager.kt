@@ -39,6 +39,7 @@ class UploadSessionManager @Inject constructor(
                     // Find the most relevant active upload
                     drafts.firstOrNull { 
                         it.draftState == ArtifactDraftState.UPLOADING || 
+                        it.draftState == ArtifactDraftState.AUDIO_UPLOADED ||
                         it.draftState == ArtifactDraftState.APPROVED_FOR_PUBLISH ||
                         it.draftState == ArtifactDraftState.ERROR // Keep error visible
                     }
@@ -74,6 +75,7 @@ class UploadSessionManager @Inject constructor(
                                 AmbientUploadStatus.SavingArtifact
                             }
                         }
+                        ArtifactDraftState.AUDIO_UPLOADED -> AmbientUploadStatus.SavingArtifact
                         ArtifactDraftState.PUBLISHED -> AmbientUploadStatus.Completed
                         ArtifactDraftState.WAITING_FOR_NETWORK -> AmbientUploadStatus.WaitingQuietly
                         ArtifactDraftState.FAILED_UPLOAD -> AmbientUploadStatus.Error(

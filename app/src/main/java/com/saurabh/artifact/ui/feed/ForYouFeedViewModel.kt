@@ -25,8 +25,7 @@ class ForYouFeedViewModel @Inject constructor(
     private val _feedState = MutableStateFlow<FeedCompositionState>(FeedCompositionState.Loading)
     val feedState: StateFlow<FeedCompositionState> = _feedState.asStateFlow()
 
-    private val _currentlyPlayingArtifact = MutableStateFlow<Artifact?>(null)
-    val currentlyPlayingArtifact: StateFlow<Artifact?> = _currentlyPlayingArtifact
+    val currentlyPlayingArtifact: StateFlow<Artifact?> = audioPlayer.currentArtifact
 
     val isPlaying = audioPlayer.isPlaying
     val currentPosition = audioPlayer.currentPosition
@@ -51,23 +50,19 @@ class ForYouFeedViewModel @Inject constructor(
 
     fun playArtifact(feedArtifact: FeedArtifact) {
         val artifact = feedArtifact.artifact
-        if (_currentlyPlayingArtifact.value?.id == artifact.id) {
+        if (currentlyPlayingArtifact.value?.id == artifact.id) {
             audioPlayer.togglePlayPause()
         } else {
-            _currentlyPlayingArtifact.value = artifact
-            
             // If it was unfinished, start from the last position
             val startPos = if (feedArtifact.isUnfinished) feedArtifact.lastPositionMs else 0L
+            audioPlayer.play(artifact, startPos)
             reviewSessionManager.startListening(artifact)
-            if (startPos > 0) {
-                audioPlayer.seekTo(startPos)
-            }
         }
     }
 
     private fun observePlayback() {
         viewModelScope.launch {
-            combine(currentPosition, isPlaying, _currentlyPlayingArtifact) { pos, playing, artifact ->
+            combine(currentPosition, isPlaying, currentlyPlayingArtifact) { pos, playing, artifact ->
                 Triple(pos, playing, artifact)
             }.collect { (pos, playing, artifact) ->
                 if (playing && artifact != null) {

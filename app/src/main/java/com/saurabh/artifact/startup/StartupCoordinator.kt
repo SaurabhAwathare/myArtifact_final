@@ -36,7 +36,7 @@ class StartupCoordinator @Inject constructor(
 ) {
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     
-    private val _stage = MutableStateFlow(StartupStage.STABLE)
+    private val _stage = MutableStateFlow(StartupStage.ARRIVAL)
     val stage = _stage.asStateFlow()
 
     private var isStarted = false
@@ -50,12 +50,17 @@ class StartupCoordinator @Inject constructor(
         isStarted = true
 
         scope.launch {
-            Log.d("Startup", "Starting Optimized Sequence: STABLE")
+            Log.d("Startup", "Starting Optimized Sequence: ARRIVAL")
             StartupTracer.mark("Startup Sequence Started")
             
             // PHASE 1: Immediate Core (Critical for UI availability)
             // Still on Main thread but kept minimal
             initializeCore()
+            
+            // STAGGER 1: Move to Presence after initial frame
+            delay(500)
+            _stage.value = StartupStage.PRESENCE
+            StartupTracer.mark("Transition: PRESENCE")
             
             // PHASE 2: Deferred & Background Initialization
             launch(Dispatchers.Default) {
@@ -68,6 +73,26 @@ class StartupCoordinator @Inject constructor(
                 
                 StartupTracer.mark("Non-critical Services Initialized (Background)")
             }
+
+            // STAGGER 2: Discovery (Partial Feed)
+            delay(1000)
+            _stage.value = StartupStage.DISCOVERY
+            StartupTracer.mark("Transition: DISCOVERY")
+
+            // STAGGER 3: Immersion (Social/Reactions)
+            delay(1000)
+            _stage.value = StartupStage.IMMERSION
+            StartupTracer.mark("Transition: IMMERSION")
+
+            // STAGGER 4: Ritual (Media/Player)
+            delay(1500)
+            _stage.value = StartupStage.RITUAL
+            StartupTracer.mark("Transition: RITUAL")
+
+            // STAGGER 5: Stable (Full Fidelity)
+            delay(2000)
+            _stage.value = StartupStage.STABLE
+            StartupTracer.mark("Transition: STABLE")
 
             // PHASE 4: Late Post-UI
             initializePostUI()

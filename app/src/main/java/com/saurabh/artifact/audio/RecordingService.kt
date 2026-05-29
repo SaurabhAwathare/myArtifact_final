@@ -90,6 +90,18 @@ class RecordingService : Service() {
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Artifact:RecordingWakeLock")
         
         createNotificationChannel()
+
+        // Recover any interrupted recordings from previous crashes
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                val recovered = recordingRepository.recoverInterruptedDrafts()
+                if (recovered.isNotEmpty()) {
+                    Log.i("RecordingService", "Recovered ${recovered.size} interrupted recordings")
+                }
+            } catch (e: Exception) {
+                Log.e("RecordingService", "Failed to recover interrupted drafts", e)
+            }
+        }
     }
 
     private fun requestAudioFocus(): Boolean {
@@ -282,7 +294,21 @@ class RecordingService : Service() {
                 // Initialize hardware on IO thread to prevent main-thread jank with a timeout
                 val started = withTimeoutOrNull(5000) {
                     withContext(Dispatchers.IO) {
-                        audioRecorder?.start(file)
+                        audioRecorder?.start(file, onDurableSync = { durableBytes ->
+                            // OPTION A: Update DB checkpoint ONLY when durable sync occurs
+                            val currentAmplitudes = _recordingState.value.amplitudes
+                            val currentDuration = _recordingState.value.durationSeconds * 1000
+                            
+                            serviceScope.launch {
+                                Log.d("RecordingService", "Durable Checkpoint: $durableBytes bytes persisted")
+                                recordingRepository.updateRecordingProgress(
+                                    id = finalDraftId,
+                                    durationMs = currentDuration,
+                                    amplitudes = currentAmplitudes,
+                                    durableBytes = durableBytes
+                                )
+                            }
+                        })
                     }
                     true
                 } ?: false
@@ -401,6 +427,7 @@ class RecordingService : Service() {
                                     draftDao.update(it.copy(
                                         draftState = ArtifactDraftState.SAVING,
                                         syncState = SyncState.STAGED,
+                                        durableBytes = finalFile.length(), // Option A: Final durability update
                                         updatedAt = System.currentTimeMillis()
                                     ))
                                 }
@@ -517,26 +544,11 @@ class RecordingService : Service() {
                             amplitudes = internalAmplitudes.toList() // Snapshot of the list
                         )
                         updateNotification(seconds, RecordingStatus.RECORDING)
-
-                        // Throttled Persistence: Metadata every 1s, Waveform every 5s
-                        val saveWaveform = tick % 100 == 0
-                        persistDraft(seconds, internalAmplitudes.toList(), saveWaveform)
                     } else if (shouldUpdateFullState) {
                         _recordingState.value = _recordingState.value.copy(amplitudes = internalAmplitudes.toList())
                     }
                 }
             }
-        }
-    }
-
-    private fun persistDraft(seconds: Long, amplitudes: List<Float>, includeWaveform: Boolean) {
-        val draftId = _recordingState.value.draftId
-        serviceScope.launch {
-            recordingRepository.updateRecordingProgress(
-                id = draftId,
-                durationMs = seconds * 1000,
-                amplitudes = amplitudes
-            )
         }
     }
 

@@ -18,9 +18,10 @@ import javax.inject.Inject
 @HiltViewModel
 class PublishFlowViewModel @Inject constructor(
     private val repository: PublishApprovalRepository,
+    private val publishSessionManager: com.saurabh.artifact.audio.PublishSessionManager,
     private val identityScout: IdentityScout,
     private val auth: com.google.firebase.auth.FirebaseAuth,
-    savedStateHandle: SavedStateHandle
+    savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
     private val draftId: String = savedStateHandle.get<String>("draftId") ?: ""
@@ -94,6 +95,17 @@ class PublishFlowViewModel @Inject constructor(
         _uiState.update { it.copy(emotion = emotion) }
     }
 
+    fun onToggleTag(tag: String) {
+        _uiState.update { state ->
+            val newTags = if (state.tags.contains(tag)) {
+                state.tags - tag
+            } else {
+                state.tags + tag
+            }
+            state.copy(tags = newTags)
+        }
+    }
+
     fun onConfirmComfortable(confirmed: Boolean) {
         _uiState.update { it.copy(confirmedComfortable = confirmed) }
     }
@@ -155,18 +167,20 @@ class PublishFlowViewModel @Inject constructor(
                 repository.updateDraft(draft.copy(
                     title = _uiState.value.title,
                     description = _uiState.value.description,
-                    emotion = _uiState.value.emotion
+                    emotion = _uiState.value.emotion,
+                    tags = _uiState.value.tags
                 ))
             }
             
             // 1. Psychological Pacing (Shortened for the ambient transition)
             kotlinx.coroutines.delay(1000)
 
-            // 2. Submit to repository (which triggers WorkManager)
-            val result = repository.approveAndFreeze(draftId, _uiState.value.transcript)
+            // 2. Submit to session manager (which triggers immutable freeze and WorkManager)
+            val result = publishSessionManager.approveAndPublish(draftId, _uiState.value.transcript)
             
             if (result.isSuccess) {
                 // 3. Signal immediate success to trigger navigation back
+                publishSessionManager.clearSession()
                 _uiState.update { it.copy(
                     isLoading = false, 
                     isSuccess = true, 

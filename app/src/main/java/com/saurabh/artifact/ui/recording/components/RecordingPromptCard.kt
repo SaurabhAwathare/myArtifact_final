@@ -92,33 +92,32 @@ fun RecordingPromptCard(
             Row(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                SuggestionChip(
-                    onClick = {},
-                    label = {
-                        Text(prompt.category.displayName)
-                    },
-                    colors = SuggestionChipDefaults.suggestionChipColors(
-                        labelColor = Color.White.copy(alpha = 0.7f)
-                    ),
-                    border = SuggestionChipDefaults.suggestionChipBorder(
-                        enabled = true,
-                        borderColor = Color.White.copy(alpha = 0.2f)
+                // Non-interactive tags to maintain the "Calm" philosophy (no dead clicks)
+                Surface(
+                    color = Color.White.copy(alpha = 0.05f),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+                ) {
+                    Text(
+                        text = prompt.category.displayName,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.7f),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                     )
-                )
+                }
 
-                SuggestionChip(
-                    onClick = {},
-                    label = {
-                        Text("Guided")
-                    },
-                    colors = SuggestionChipDefaults.suggestionChipColors(
-                        labelColor = Color.White.copy(alpha = 0.7f)
-                    ),
-                    border = SuggestionChipDefaults.suggestionChipBorder(
-                        enabled = true,
-                        borderColor = Color.White.copy(alpha = 0.2f)
+                Surface(
+                    color = Color.White.copy(alpha = 0.05f),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+                ) {
+                    Text(
+                        text = "Guided",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.7f),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                     )
-                )
+                }
             }
 
             Spacer(modifier = Modifier.height(28.dp))

@@ -18,6 +18,7 @@ import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -50,13 +51,21 @@ class ArtifactApplication : Application(), ImageLoaderFactory, Configuration.Pro
         val initScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
         
         initScope.launch {
-            // Initialize Firebase in background - Firebase handles its own internal locking
-            FirebaseApp.initializeApp(this@ArtifactApplication)
-            StartupTracer.mark("Firebase Initialized (Background)")
+            // Check if Firebase is already initialized (e.g., by FirebaseInitProvider)
+            if (FirebaseApp.getApps(this@ArtifactApplication).isEmpty()) {
+                FirebaseApp.initializeApp(this@ArtifactApplication)
+                StartupTracer.mark("Firebase Initialized (Background Explicit)")
+            } else {
+                StartupTracer.mark("Firebase Already Initialized")
+            }
         }
 
-        startupCoordinator.start()
-        StartupTracer.mark("StartupCoordinator Launched")
+        // Defer coordinator slightly to allow App onCreate to complete and UI to bind
+        initScope.launch(Dispatchers.Main) {
+            delay(100) 
+            startupCoordinator.start()
+            StartupTracer.mark("StartupCoordinator Launched (Deferred)")
+        }
     }
 
     /**

@@ -49,14 +49,28 @@ class ArtifactCleanupManager @Inject constructor(
                 scheduleLocalCleanup(artifactId)
             } else {
                 Log.e("CleanupManager", "Remote deletion failed for $artifactId", result.exceptionOrNull())
-                // In a production app, we might show a retry snackbar here
-                // but for emotional sensitivity, we often prioritize "disappearing" from UI
             }
             
-            // Keep in the deleting set for a moment to ensure UI stays "deleted" 
-            // even during synchronization lags.
             _deletingArtifactIds.value -= artifactId
         }
+    }
+
+    /**
+     * Schedules a delayed cleanup of local files for a published artifact.
+     * This ensures local storage doesn't grow indefinitely.
+     */
+    fun scheduleRetentionCleanup(artifactId: String) {
+        val inputData = Data.Builder()
+            .putString(CleanupWorker.KEY_ARTIFACT_ID, artifactId)
+            .build()
+
+        val cleanupRequest = OneTimeWorkRequestBuilder<CleanupWorker>()
+            .setInitialDelay(30, java.util.concurrent.TimeUnit.DAYS)
+            .setInputData(inputData)
+            .addTag("retention_cleanup_$artifactId")
+            .build()
+
+        workManager.enqueue(cleanupRequest)
     }
 
     private fun scheduleLocalCleanup(artifactId: String) {

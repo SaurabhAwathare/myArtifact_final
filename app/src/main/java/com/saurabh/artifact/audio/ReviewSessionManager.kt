@@ -4,6 +4,7 @@ import android.util.Log
 import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.ArtifactDraftState
+import com.saurabh.artifact.repository.CommentUnlockRepository
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import javax.inject.Inject
@@ -16,7 +17,8 @@ import javax.inject.Singleton
 @Singleton
 class ReviewSessionManager @Inject constructor(
     private val playbackSessionManager: PlaybackSessionManager,
-    private val draftDao: DraftDao
+    private val draftDao: DraftDao,
+    private val commentUnlockRepository: CommentUnlockRepository
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     
@@ -117,6 +119,7 @@ class ReviewSessionManager @Inject constructor(
                     // Debounced persistence or just persist key milestones
                     if (thresholdMet && !state.isThresholdMet) {
                         markReviewComplete(artifactId)
+                        commentUnlockRepository.unlockArtifact(artifactId)
                     }
                     
                     // Frequent persistence for recovery (Drafts only)

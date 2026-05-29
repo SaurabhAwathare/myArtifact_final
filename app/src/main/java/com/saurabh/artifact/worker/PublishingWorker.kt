@@ -26,7 +26,8 @@ class PublishingWorker @AssistedInject constructor(
     @Assisted workerParams: WorkerParameters,
     private val draftDao: DraftDao,
     private val artifactRepository: ArtifactRepository,
-    private val userRepository: com.saurabh.artifact.repository.UserRepository
+    private val userRepository: com.saurabh.artifact.repository.UserRepository,
+    private val cleanupManager: com.saurabh.artifact.audio.ArtifactCleanupManager
 ) : CoroutineWorker(appContext, workerParams) {
 
     private var startTime = System.currentTimeMillis()
@@ -51,7 +52,6 @@ class PublishingWorker @AssistedInject constructor(
 
         // 2. Use Frozen Snapshot if available
         val audioPath = draft.frozenAudioPath ?: draft.localAudioPath
-        val transcriptJson = draft.frozenTranscriptJson
         
         // 3. Authentication check
         val user = FirebaseAuth.getInstance().currentUser
@@ -64,17 +64,27 @@ class PublishingWorker @AssistedInject constructor(
             // 4. Update state to UPLOADING
             draftDao.updateDraftState(draftId, ArtifactDraftState.UPLOADING)
 
-            // 5. Upload Audio (Resumable)
-            val uploadResult = artifactRepository.uploadArtifactResumable(
-                userId = user.uid,
-                draft = draft.copy(localAudioPath = audioPath), // Use frozen path
-                onProgress = { transferred, total, sessionUri ->
-                    draftDao.updateSyncProgress(draftId, transferred, total, sessionUri?.toString())
-                    updateNotificationIfNeeded(draft.title ?: "Artifact", transferred, total)
-                }
-            )
+            // 5. Check if Audio is already uploaded (Checkpoint)
+            val downloadUrl = if (draft.uploadedAudioUrl != null) {
+                Log.i("PublishingWorker", "Using checkpointed audio URL for $draftId")
+                draft.uploadedAudioUrl
+            } else {
+                // Upload Audio (Resumable)
+                val uploadResult = artifactRepository.uploadArtifactResumable(
+                    userId = user.uid,
+                    draft = draft.copy(localAudioPath = audioPath), // Use frozen path
+                    onProgress = { transferred, total, sessionUri ->
+                        draftDao.updateSyncProgress(draftId, transferred, total, sessionUri?.toString())
+                        updateNotificationIfNeeded(draft.title ?: "Artifact", transferred, total)
+                    }
+                )
 
-            val downloadUrl = uploadResult.getOrThrow()
+                val url = uploadResult.getOrThrow()
+                
+                // Persist Checkpoint
+                draftDao.updateUploadCheckpoint(draftId, url, ArtifactDraftState.AUDIO_UPLOADED)
+                url
+            }
 
             // 6. Fetch Anonymous Identity from Firestore
             val userProfile = userRepository.getOrCreateProfile()
@@ -91,10 +101,13 @@ class PublishingWorker @AssistedInject constructor(
                 anonymousId = userProfile.anonymousId
             )
 
-            firestoreResult.getOrThrow()
+            val remoteId = firestoreResult.getOrThrow()
 
             // 7. Success - Atomically update state
-            draftDao.markAsPublished(draftId, downloadUrl) 
+            draftDao.markAsPublished(draftId, remoteId)
+
+            // 8. Schedule Automatic Cleanup (30 days)
+            cleanupManager.scheduleRetentionCleanup(remoteId)
 
             NotificationHelper.showUploadSuccessNotification(appContext, draft.title ?: "Artifact")
             Log.d("PublishingWorker", "Draft $draftId published successfully")
