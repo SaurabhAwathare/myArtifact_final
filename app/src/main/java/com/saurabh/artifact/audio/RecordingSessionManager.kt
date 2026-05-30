@@ -1,17 +1,35 @@
 package com.saurabh.artifact.audio
 
+import android.content.Context
+import android.content.Intent
+import android.util.Log
+import androidx.core.content.ContextCompat
+import com.saurabh.artifact.data.local.ArtifactDraftEntity
+import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.data.local.RecordingStatus
+import com.saurabh.artifact.repository.RecordingRepository
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class RecordingSessionManager @Inject constructor(
-    private val playbackSessionManager: PlaybackSessionManager
+    @ApplicationContext private val context: Context,
+    private val playbackSessionManager: PlaybackSessionManager,
+    private val recordingRepository: RecordingRepository,
+    private val localDraftManager: LocalDraftManager,
+    private val draftDao: DraftDao
 ) {
 
     val recordingState = RecordingService.recordingState
+
+    private val _activeDraft = MutableStateFlow<ArtifactDraftEntity?>(null)
+    val activeDraft: StateFlow<ArtifactDraftEntity?> = _activeDraft.asStateFlow()
 
     val isSessionActive: Flow<Boolean> = recordingState.map { 
         it.status == RecordingStatus.RECORDING || 
@@ -26,6 +44,57 @@ class RecordingSessionManager @Inject constructor(
         if (playbackSessionManager.isPlaying.value) {
             playbackSessionManager.stop()
         }
+    }
+
+    suspend fun startNewSession() {
+        val currentStatus = recordingState.value.status
+        if (currentStatus != RecordingStatus.IDLE && currentStatus != RecordingStatus.FAILED && currentStatus != RecordingStatus.COMPLETED) {
+            Log.w("RecordingSessionManager", "startNewSession ignored: Already in state $currentStatus")
+            return
+        }
+
+        prepareForRecording()
+
+        val file = localDraftManager.createDraftFile("wav")
+        val draftId = recordingRepository.createDraft(file.absolutePath, 0)
+        val draft = draftDao.getDraftById(draftId)
+        
+        _activeDraft.value = draft
+        
+        val intent = Intent(context, RecordingService::class.java).apply {
+            action = RecordingService.ACTION_START
+            putExtra("draft_id", draftId)
+        }
+        ContextCompat.startForegroundService(context, intent)
+    }
+
+    fun stopSession() {
+        val intent = Intent(context, RecordingService::class.java).apply {
+            action = RecordingService.ACTION_STOP
+        }
+        context.startService(intent)
+    }
+
+    fun pauseSession() {
+        val intent = Intent(context, RecordingService::class.java).apply {
+            action = RecordingService.ACTION_PAUSE
+        }
+        context.startService(intent)
+    }
+
+    fun resumeSession() {
+        val intent = Intent(context, RecordingService::class.java).apply {
+            action = RecordingService.ACTION_RESUME
+        }
+        context.startService(intent)
+    }
+
+    fun cancelSession() {
+        val intent = Intent(context, RecordingService::class.java).apply {
+            action = RecordingService.ACTION_CANCEL
+        }
+        context.startService(intent)
+        _activeDraft.value = null
     }
 
     fun isRecordingActive(): Boolean {

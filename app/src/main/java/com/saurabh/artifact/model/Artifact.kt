@@ -57,6 +57,7 @@ data class Artifact(
     var authorId: String = "",
     var username: String = ""
 ) {
+    @get:Exclude
     val authorAvatarConfig: AvatarConfig
         get() = author.avatarConfig
             .copy(seed = author.avatarConfig.seed.ifEmpty { author.avatarSeed.ifEmpty { userId } })

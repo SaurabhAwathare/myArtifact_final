@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.datastore.preferences.core.emptyPreferences
 import com.google.firebase.firestore.FirebaseFirestore
+import android.util.Log
 import com.saurabh.artifact.model.UserSettings
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -27,8 +28,7 @@ private val Context.dataStore by preferencesDataStore(name = "settings")
 class SettingsRepository @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val firestore: FirebaseFirestore,
-    private val authRepository: AuthRepository,
-    private val artifactRepository: ArtifactRepository
+    private val authRepository: AuthRepository
 ) {
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val anonymousModeKey = booleanPreferencesKey("anonymous_mode")
@@ -121,21 +121,24 @@ class SettingsRepository @Inject constructor(
         val userId = user.uid
         
         return try {
-            // 1. Comprehensive Cloud Cleanup
-            artifactRepository.deleteAllUserData(userId)
+            // HARDENING: Instead of client-side orchestration which is prone to failure,
+            // we rely on the server-side Cloud Function triggered by auth.user().onDelete().
+            // This ensures atomicity even if the app crashes or network is lost.
             
-            // 2. Delete Core Profile documents
-            firestore.collection("settings").document(userId).delete().await()
-            firestore.collection("users").document(userId).delete().await()
-            
-            // 3. Clear Local preferences
+            // 1. Mark account for deletion in Firestore (Optional: Provides UI feedback state)
+            firestore.collection("users").document(userId)
+                .update("accountStatus", "DELETION_PENDING")
+                .await()
+
+            // 2. Clear Local preferences immediately to protect privacy
             context.dataStore.edit { it.clear() }
             
-            // 4. Delete Auth account
+            // 3. Delete Auth account (This triggers the Cloud Function 'onUserDeleted')
             authRepository.deleteCurrentUser().getOrThrow()
 
             Result.success(Unit)
         } catch (e: Exception) {
+            Log.e("SettingsRepository", "Account deletion trigger failed", e)
             Result.failure(e)
         }
     }

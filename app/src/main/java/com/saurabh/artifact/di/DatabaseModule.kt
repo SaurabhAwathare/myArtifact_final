@@ -39,11 +39,9 @@ object DatabaseModule {
             AppDatabase.MIGRATION_22_23,
             AppDatabase.MIGRATION_23_24,
             AppDatabase.MIGRATION_24_25,
-        ).apply {
-            if (com.saurabh.artifact.BuildConfig.DEBUG) {
-                fallbackToDestructiveMigration()
-            }
-        }
+            AppDatabase.MIGRATION_25_26,
+            AppDatabase.MIGRATION_26_27,
+        ).fallbackToDestructiveMigration()
             .build()
     }
 

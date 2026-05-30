@@ -2,8 +2,7 @@ package com.saurabh.artifact.audio
 
 import android.util.Log
 import com.saurabh.artifact.data.local.DraftDao
-import com.saurabh.artifact.model.Artifact
-import com.saurabh.artifact.model.ArtifactDraftState
+import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.CommentUnlockRepository
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -139,7 +138,9 @@ class ReviewSessionManager @Inject constructor(
         withContext(Dispatchers.IO) {
             val draft = draftDao.getDraftById(artifactId)
             if (draft != null) {
-                draftDao.updateDraftState(artifactId, ArtifactDraftState.REVIEWED)
+                draftDao.update(draft.copy(
+                    status = draft.status.copy(lifecycle = ArtifactLifecycle.READY_TO_PUBLISH)
+                ))
             }
         }
     }

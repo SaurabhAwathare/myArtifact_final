@@ -1,7 +1,11 @@
 package com.saurabh.artifact.ui.recording
 
 import android.Manifest
+import android.app.Activity
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -52,6 +56,10 @@ fun RecordingScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val activity = context as? Activity
+
+    var showRationaleDialog by remember { mutableStateOf(false) }
+    var showPermanentDenialDialog by remember { mutableStateOf(false) }
 
     val pagerState = rememberPagerState(
         initialPage = uiState.currentPromptIndex,
@@ -75,18 +83,109 @@ fun RecordingScreen(
     ) { isGranted ->
         if (isGranted) {
             viewModel.startRecording()
+        } else {
+            val permission = Manifest.permission.RECORD_AUDIO
+            if (activity?.shouldShowRequestPermissionRationale(permission) == false) {
+                showPermanentDenialDialog = true
+            }
         }
     }
 
     val requestPermission = {
         val permission = Manifest.permission.RECORD_AUDIO
-        when (ContextCompat.checkSelfPermission(context, permission)) {
-            PackageManager.PERMISSION_GRANTED -> {
+        when {
+            ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED -> {
                 viewModel.startRecording()
+            }
+            activity?.shouldShowRequestPermissionRationale(permission) == true -> {
+                showRationaleDialog = true
             }
             else -> {
                 permissionLauncher.launch(permission)
             }
+        }
+    }
+
+    if (showRationaleDialog) {
+        AlertDialog(
+            onDismissRequest = { showRationaleDialog = false },
+            containerColor = Obsidian900,
+            title = {
+                Text(
+                    "Microphone Access",
+                    color = Color.White,
+                    style = MaterialTheme.typography.headlineSmall
+                )
+            },
+            text = {
+                Text(
+                    "To record your reflection and create an Artifact, we need access to your microphone. Your audio is processed locally and stays private.",
+                    color = Color.White.copy(alpha = 0.7f)
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showRationaleDialog = false
+                        permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = GoldAura500)
+                ) {
+                    Text("Allow Access")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRationaleDialog = false }) {
+                    Text("Not Now", color = Color.White.copy(alpha = 0.5f))
+                }
+            }
+        )
+    }
+
+    if (showPermanentDenialDialog) {
+        AlertDialog(
+            onDismissRequest = { showPermanentDenialDialog = false },
+            containerColor = Obsidian900,
+            title = {
+                Text(
+                    "Permission Required",
+                    color = Color.White,
+                    style = MaterialTheme.typography.headlineSmall
+                )
+            },
+            text = {
+                Text(
+                    "It looks like microphone permissions are permanently disabled. Please enable them in Settings to record your Artifacts.",
+                    color = Color.White.copy(alpha = 0.7f)
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showPermanentDenialDialog = false
+                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                            data = Uri.fromParts("package", context.packageName, null)
+                        }
+                        context.startActivity(intent)
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = GoldAura500)
+                ) {
+                    Text("Open Settings")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPermanentDenialDialog = false }) {
+                    Text("Cancel", color = Color.White.copy(alpha = 0.5f))
+                }
+            }
+        )
+    }
+
+    // Initial Start: Only start if we are in IDLE or FAILED state
+    // This prevents re-starting on configuration changes (rotation)
+    LaunchedEffect(Unit) {
+        if (uiState.status == RecordingStatus.IDLE || uiState.status == RecordingStatus.FAILED) {
+            requestPermission()
         }
     }
 
@@ -292,14 +391,31 @@ fun RecordingScreen(
                     )
 
                     // Live Timer
-                    Text(
-                        text = formatDuration(uiState.durationSeconds),
-                        style = MaterialTheme.typography.displaySmall.copy(
-                            fontWeight = FontWeight.ExtraLight,
-                            letterSpacing = 4.sp
-                        ),
-                        color = Color.White.copy(alpha = 0.9f)
-                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = formatDuration(uiState.durationSeconds),
+                            style = MaterialTheme.typography.displaySmall.copy(
+                                fontWeight = FontWeight.ExtraLight,
+                                letterSpacing = 4.sp
+                            ),
+                            color = Color.White.copy(alpha = 0.9f)
+                        )
+                        
+                        uiState.error?.let { error ->
+                            val errorMessage = when (error) {
+                                is RecordingError.PermissionDenied -> "Permission Denied"
+                                is RecordingError.HardwareInUse -> "Microphone in use by another app"
+                                is RecordingError.StorageFull -> "Storage is full"
+                                is RecordingError.Unknown -> "Recording failed"
+                            }
+                            Text(
+                                text = errorMessage,
+                                color = Color(0xFFE91E63),
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(top = 8.dp)
+                            )
+                        }
+                    }
 
                     Spacer(modifier = Modifier.height(48.dp))
 

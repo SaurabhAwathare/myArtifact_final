@@ -6,8 +6,7 @@ import androidx.work.*
 import com.saurabh.artifact.audio.LocalDraftManager
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.data.local.DraftDao
-import com.saurabh.artifact.model.ArtifactDraftState
-import com.saurabh.artifact.model.SyncState
+import com.saurabh.artifact.model.*
 import com.saurabh.artifact.worker.AudioNormalizationWorker
 import com.saurabh.artifact.worker.PrivacyScanWorker
 import com.saurabh.artifact.worker.SafetyAnalysisWorker
@@ -49,8 +48,10 @@ class RecordingRepository @Inject constructor(
             durationMs = durationMs,
             checksum = checksum,
             isEncrypted = isEncrypted,
-            syncState = if (durationMs > 0) SyncState.STAGED else SyncState.RECORDING,
-            draftState = ArtifactDraftState.RECORDING,
+            status = DraftStatus(
+                lifecycle = if (durationMs > 0) ArtifactLifecycle.PROCESSING else ArtifactLifecycle.RECORDING,
+                sync = SyncStatus.LocalOnly
+            ),
             createdAt = System.currentTimeMillis(),
             updatedAt = System.currentTimeMillis()
         )
@@ -86,7 +87,7 @@ class RecordingRepository @Inject constructor(
         
         draftDao.update(draft.copy(
             localAudioPath = audioPath,
-            syncState = SyncState.STAGED,
+            status = draft.status.copy(lifecycle = ArtifactLifecycle.PROCESSING),
             checksum = checksum,
             isEncrypted = isEncrypted,
             durationMs = draft.durationMs,
@@ -149,22 +150,24 @@ class RecordingRepository @Inject constructor(
 
                 val recoveryResult = wavRecoveryManager.recover(file, lastDurableBytes = draft.durableBytes)
                 
-                val newState = when (recoveryResult) {
+                val (newLifecycle, newProcessing) = when (recoveryResult) {
                     com.saurabh.artifact.audio.WavRecoveryManager.RecoveryResult.REPAIRED,
                     com.saurabh.artifact.audio.WavRecoveryManager.RecoveryResult.FULLY_RECOVERED,
-                    com.saurabh.artifact.audio.WavRecoveryManager.RecoveryResult.TRUNCATED -> SyncState.STAGED
+                    com.saurabh.artifact.audio.WavRecoveryManager.RecoveryResult.TRUNCATED -> 
+                        ArtifactLifecycle.PROCESSING to ProcessingStatus.Idle
                     com.saurabh.artifact.audio.WavRecoveryManager.RecoveryResult.CORRUPTED,
-                    com.saurabh.artifact.audio.WavRecoveryManager.RecoveryResult.NOT_FOUND -> SyncState.FAILED_PERMANENT
+                    com.saurabh.artifact.audio.WavRecoveryManager.RecoveryResult.NOT_FOUND -> 
+                        ArtifactLifecycle.DELETED to ProcessingStatus.Failed("Corruption detected")
                 }
 
                 val updated = draft.copy(
-                    syncState = newState,
+                    status = draft.status.copy(lifecycle = newLifecycle, processing = newProcessing),
                     updatedAt = System.currentTimeMillis()
                 )
                 draftDao.update(updated)
                 interrupted.add(updated)
                 
-                Log.d("RecordingRepository", "Recovery for ${draft.id}: $recoveryResult -> New State: $newState")
+                Log.d("RecordingRepository", "Recovery for ${draft.id}: $recoveryResult -> New Lifecycle: $newLifecycle")
             }
         }
         return interrupted
@@ -173,7 +176,12 @@ class RecordingRepository @Inject constructor(
     suspend fun startProcessing(draftId: String) = withContext(Dispatchers.IO) {
         // Optimistic state update
         draftDao.getDraftById(draftId)?.let {
-            draftDao.update(it.copy(draftState = ArtifactDraftState.PROCESSING))
+            draftDao.update(it.copy(
+                status = it.status.copy(
+                    lifecycle = ArtifactLifecycle.PROCESSING,
+                    processing = ProcessingStatus.Active(ProcessingStage.TRANSCODING)
+                )
+            ))
         }
 
         val inputData = workDataOf(AudioNormalizationWorker.KEY_DRAFT_ID to draftId)

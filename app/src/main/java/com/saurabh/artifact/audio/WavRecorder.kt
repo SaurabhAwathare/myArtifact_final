@@ -31,7 +31,10 @@ class WavRecorder(
     private val onDurableSync: ((Long) -> Unit)? = null,
 ) {
     private var audioRecord: AudioRecord? = null
+    @Volatile
     private var isRecording = false
+    @Volatile
+    private var isPaused = false
     
     // Coroutine control
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -52,7 +55,7 @@ class WavRecorder(
     private val audioChannel = Channel<ByteArray>(capacity = 100)
 
     // Durability Constants
-    private val syncIntervalBytes = 5 * 1024 * 1024L // 5MB Durability Barrier
+    private val syncIntervalBytes = 1 * 1024 * 1024L // 1MB Durability Barrier (reduced from 5MB)
     private var totalBytesWritten = 0L
     private var bytesSinceLastSync = 0L
 
@@ -64,8 +67,8 @@ class WavRecorder(
     }
 
     @SuppressLint("MissingPermission")
-    fun start() {
-        if (isRecording) return
+    fun start(isResume: Boolean = false) {
+        if (isRecording && !isPaused) return
 
         val minBufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
         if (minBufferSize == AudioRecord.ERROR_BAD_VALUE) {
@@ -88,7 +91,11 @@ class WavRecorder(
 
         audioRecord?.startRecording()
         isRecording = true
-        bufferPool = BufferPool(minBufferSize)
+        isPaused = false
+        
+        if (bufferPool == null) {
+            bufferPool = BufferPool(minBufferSize)
+        }
 
         // Launch Producer: Capture Loop (Highest Priority, Dedicated Thread)
         captureJob = scope.launch(captureDispatcher + CoroutineName("AudioCapture")) {
@@ -97,9 +104,11 @@ class WavRecorder(
             captureAudioLoop(minBufferSize)
         }
 
-        // Launch Consumer: Writer Loop (Background Priority)
-        writerJob = scope.launch(CoroutineName("StorageWriter")) {
-            writeAudioDataToFile()
+        // Only launch writer if it's not already running (e.g., during resume)
+        if (writerJob == null || !writerJob!!.isActive) {
+            writerJob = scope.launch(CoroutineName("StorageWriter")) {
+                writeAudioDataToFile(isResume)
+            }
         }
     }
 
@@ -109,7 +118,7 @@ class WavRecorder(
      */
     private suspend fun captureAudioLoop(bufferSize: Int) {
         try {
-            while (isRecording && yield().let { true }) {
+            while (isRecording && !isPaused && currentCoroutineContext().isActive) {
                 val data = bufferPool?.acquire() ?: ByteArray(bufferSize)
                 val read = audioRecord?.read(data, 0, bufferSize) ?: 0
                 if (read > 0) {
@@ -123,7 +132,10 @@ class WavRecorder(
         } catch (e: Exception) {
             Log.e("WavRecorder", "Capture loop error", e)
         } finally {
-            audioChannel.close()
+            // Only close channel if we are truly stopping, not just pausing
+            if (!isPaused) {
+                audioChannel.close()
+            }
         }
     }
 
@@ -131,13 +143,19 @@ class WavRecorder(
      * Background loop responsible for persistence and durability barriers.
      * Can survive transient storage stalls without affecting capture.
      */
-    private suspend fun writeAudioDataToFile() {
+    private suspend fun writeAudioDataToFile(append: Boolean = false) {
         withContext(Dispatchers.IO) {
-            val fos = FileOutputStream(outputFile)
+            val fos = FileOutputStream(outputFile, append)
             try {
-                // Placeholder for WAV header (44 bytes)
-                fos.write(ByteArray(44))
-                totalBytesWritten = 0
+                if (!append) {
+                    // Placeholder for WAV header (44 bytes)
+                    fos.write(ByteArray(44))
+                    totalBytesWritten = 0
+                } else {
+                    // If appending, we assume the file already exists and has a header (or at least 44 bytes)
+                    totalBytesWritten = outputFile.length() - 44
+                    if (totalBytesWritten < 0) totalBytesWritten = 0
+                }
 
                 for (audioData in audioChannel) {
                     try {
@@ -158,6 +176,8 @@ class WavRecorder(
                     } finally {
                         bufferPool?.release(audioData)
                     }
+                    
+                    if (isPaused) break // Exit loop if paused to flush current state
                 }
             } catch (e: Exception) {
                 Log.e("WavRecorder", "Writer loop error", e)
@@ -182,8 +202,22 @@ class WavRecorder(
         _maxAmplitude = max
     }
 
+    fun pause() {
+        if (!isRecording || isPaused) return
+        isPaused = true
+        audioRecord?.apply {
+            if (state == AudioRecord.STATE_INITIALIZED) {
+                stop()
+            }
+            release()
+        }
+        audioRecord = null
+        // Loops will terminate and flush via isPaused flag
+    }
+
     fun stop() {
         isRecording = false
+        isPaused = false
         // The loops will terminate gracefully via isRecording flag and channel closing
         audioRecord?.apply {
             if (state == AudioRecord.STATE_INITIALIZED) {

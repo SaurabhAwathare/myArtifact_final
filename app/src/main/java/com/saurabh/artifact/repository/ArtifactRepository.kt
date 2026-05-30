@@ -1125,8 +1125,9 @@ class ArtifactRepository @Inject constructor(
 
     /**
      * Deletes a published artifact from Firestore and removes the audio file from Storage.
-     * Cascading cleanup (reactions, comments) is now handled by Cloud Functions for 
-     * superior reliability and security.
+     * Hardening: Firestore anchor is deleted FIRST. If successful, the Cloud Function
+     * 'onArtifactDeleted' will handle cascading cleanup of reactions, comments, and storage.
+     * The client attempts a best-effort storage deletion here for immediate recovery.
      */
     suspend fun deletePublishedArtifact(artifactId: String): Result<Unit> = withContext(Dispatchers.IO) {
         return@withContext try {
@@ -1140,18 +1141,17 @@ class ArtifactRepository @Inject constructor(
             
             val audioUrl = doc.getString("audioUrl")
             
-            // 1. Immediate Storage cleanup (Prioritize user trust and storage recovery)
+            // 1. Delete Firestore anchor first (Authoritative state change)
+            artifactRef.delete().await()
+            Log.d("ArtifactRepository", "Artifact anchor $artifactId deleted. Cloud Function will handle cascading cleanup.")
+
+            // 2. Immediate best-effort Storage cleanup
             try {
                 if (audioUrl != null) deleteStorageFile(audioUrl)
             } catch (e: Exception) {
-                // Log but don't block; the file might already be gone (idempotency)
-                Log.e("ArtifactRepository", "Cleanup: Storage deletion failed or file missing", e)
+                // Log but don't fail; Cloud Function or eventual cleanup will catch this
+                Log.e("ArtifactRepository", "Cleanup: Immediate storage deletion failed (best-effort)", e)
             }
-
-            // 2. Delete Firestore anchor
-            // This triggers the 'onArtifactDeleted' Cloud Function for cascading cleanup
-            artifactRef.delete().await()
-            Log.d("ArtifactRepository", "Artifact anchor $artifactId deleted. Cloud Function will handle cascading cleanup.")
 
             Result.success(Unit)
         } catch (e: Exception) {

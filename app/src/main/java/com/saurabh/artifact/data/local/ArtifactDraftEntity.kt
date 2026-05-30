@@ -2,10 +2,7 @@ package com.saurabh.artifact.data.local
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
-import com.saurabh.artifact.model.ArtifactDraftState
-import com.saurabh.artifact.model.ReactionVisibilityMode
-import com.saurabh.artifact.model.SyncState
-import com.saurabh.artifact.model.UploadStatus
+import com.saurabh.artifact.model.*
 
 @Entity(tableName = "artifact_drafts")
 data class ArtifactDraftEntity(
@@ -24,10 +21,8 @@ data class ArtifactDraftEntity(
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
     
-    // Core State Machine
-    val draftState: ArtifactDraftState = ArtifactDraftState.RECORDING,
-    val uploadStatus: UploadStatus = UploadStatus.LOCAL_ONLY,
-    val syncState: SyncState = SyncState.INITIALIZING,
+    // Composite State Model
+    val status: DraftStatus = DraftStatus(),
     
     // Upload Progress
     val uploadedBytes: Long = 0,

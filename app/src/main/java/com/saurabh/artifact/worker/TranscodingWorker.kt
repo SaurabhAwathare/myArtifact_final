@@ -7,7 +7,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.saurabh.artifact.audio.LocalDraftManager
 import com.saurabh.artifact.data.local.DraftDao
-import com.saurabh.artifact.model.ArtifactDraftState
+import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.ArtifactRepository
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -48,7 +48,7 @@ class TranscodingWorker @AssistedInject constructor(
                 return@withContext Result.success()
             }
 
-            updateDraftState(draftId, ArtifactDraftState.TRANSCODING)
+            updateDraftStatus(draftId, ProcessingStage.TRANSCODING)
             
             // 0. Defense-in-Depth: Validate and repair WAV header before transcoding
             val recoveryResult = wavRecoveryManager.recover(rawFile)
@@ -93,7 +93,7 @@ class TranscodingWorker @AssistedInject constructor(
             Result.success()
         } catch (e: Exception) {
             Log.e("TranscodingWorker", "Transcoding failed", e)
-            updateDraftState(draftId, ArtifactDraftState.ERROR)
+            updateDraftStatus(draftId, null, "Transcoding failed: ${e.message}")
             Result.retry()
         }
     }
@@ -105,7 +105,16 @@ class TranscodingWorker @AssistedInject constructor(
         input.copyTo(output, overwrite = true)
     }
 
-    private suspend fun updateDraftState(id: String, state: ArtifactDraftState) {
-        draftDao.updateDraftState(id, state)
+    private suspend fun updateDraftStatus(id: String, stage: ProcessingStage?, error: String? = null) {
+        draftDao.getDraftById(id)?.let { draft ->
+            val newProcessing = when {
+                error != null -> ProcessingStatus.Failed(error)
+                stage != null -> ProcessingStatus.Active(stage)
+                else -> ProcessingStatus.Idle
+            }
+            draftDao.update(draft.copy(
+                status = draft.status.copy(processing = newProcessing)
+            ))
+        }
     }
 }

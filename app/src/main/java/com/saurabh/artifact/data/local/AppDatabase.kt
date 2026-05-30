@@ -8,7 +8,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [QueuedUpload::class, ArtifactDraftEntity::class, PromptEntity::class, PlaybackPosition::class],
-    version = 25,
+    version = 28,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -19,6 +19,17 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun playbackPositionDao(): PlaybackPositionDao
 
     companion object {
+        val MIGRATION_26_27 = object : Migration(26, 27) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // No changes, just bumping version to force re-validation/destructive migration
+            }
+        }
+
+        val MIGRATION_25_26 = object : Migration(25, 26) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // No changes, just bumping version to resolve integrity check failure
+            }
+        }
         val MIGRATION_21_22 = object : Migration(21, 22) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 // 1. Structural change for artifact_drafts

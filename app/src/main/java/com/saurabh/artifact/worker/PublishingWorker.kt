@@ -11,7 +11,7 @@ import androidx.work.WorkerParameters
 import com.google.firebase.auth.FirebaseAuth
 import com.saurabh.artifact.R
 import com.saurabh.artifact.data.local.DraftDao
-import com.saurabh.artifact.model.ArtifactDraftState
+import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.util.NotificationHelper
 import dagger.assisted.Assisted
@@ -46,7 +46,7 @@ class PublishingWorker @AssistedInject constructor(
         }
 
         // 1. Check if already published to prevent duplicates
-        if (draft.draftState == ArtifactDraftState.PUBLISHED) {
+        if (draft.status.lifecycle == ArtifactLifecycle.PUBLISHED) {
             return@withContext Result.success()
         }
 
@@ -56,13 +56,13 @@ class PublishingWorker @AssistedInject constructor(
         // 3. Authentication check
         val user = FirebaseAuth.getInstance().currentUser
         if (user == null) {
-            draftDao.updateDraftState(draftId, ArtifactDraftState.ERROR)
+            draftDao.update(draft.copy(status = draft.status.copy(sync = SyncStatus.Failed("User not authenticated"))))
             return@withContext Result.failure()
         }
 
         try {
             // 4. Update state to UPLOADING
-            draftDao.updateDraftState(draftId, ArtifactDraftState.UPLOADING)
+            draftDao.update(draft.copy(status = draft.status.copy(sync = SyncStatus.Uploading(0f))))
 
             // 5. Check if Audio is already uploaded (Checkpoint)
             val downloadUrl = if (draft.uploadedAudioUrl != null) {
@@ -74,6 +74,8 @@ class PublishingWorker @AssistedInject constructor(
                     userId = user.uid,
                     draft = draft.copy(localAudioPath = audioPath), // Use frozen path
                     onProgress = { transferred, total, sessionUri ->
+                        val progress = transferred.toFloat() / total.coerceAtLeast(1)
+                        draftDao.update(draft.copy(status = draft.status.copy(sync = SyncStatus.Uploading(progress))))
                         draftDao.updateSyncProgress(draftId, transferred, total, sessionUri?.toString())
                         updateNotificationIfNeeded(draft.title ?: "Artifact", transferred, total)
                     }
@@ -82,7 +84,7 @@ class PublishingWorker @AssistedInject constructor(
                 val url = uploadResult.getOrThrow()
                 
                 // Persist Checkpoint
-                draftDao.updateUploadCheckpoint(draftId, url, ArtifactDraftState.AUDIO_UPLOADED)
+                draftDao.updateUploadCheckpoint(draftId, url)
                 url
             }
 
@@ -121,11 +123,11 @@ class PublishingWorker @AssistedInject constructor(
                  e.errorCode == com.google.firebase.storage.StorageException.ERROR_OBJECT_NOT_FOUND)
 
             if (isPermanent) {
-                draftDao.updateDraftState(draftId, ArtifactDraftState.ERROR)
+                draftDao.update(draft.copy(status = draft.status.copy(sync = SyncStatus.Failed(e.message ?: "Permanent upload failure", recoverable = false))))
                 NotificationHelper.showUploadErrorNotification(appContext, draft.title ?: "Artifact")
                 Result.failure()
             } else {
-                draftDao.updateDraftState(draftId, ArtifactDraftState.FAILED_UPLOAD)
+                draftDao.update(draft.copy(status = draft.status.copy(sync = SyncStatus.Failed(e.message ?: "Transient upload failure", recoverable = true))))
                 Result.retry()
             }
         }

@@ -33,8 +33,8 @@ class AudioRecorder(private val context: Context) {
         mode: RecordingMode = RecordingMode.WAV_LOSSLESS,
         onDurableSync: ((Long) -> Unit)? = null
     ) {
-        if (isRecording) {
-            Log.w("AudioRecorder", "Start called while already recording. Ignoring.")
+        if (isRecording && mode == currentMode) {
+            Log.w("AudioRecorder", "Start called while already recording in same mode. Ignoring.")
             return
         }
 
@@ -51,7 +51,7 @@ class AudioRecorder(private val context: Context) {
         } catch (e: Exception) {
             Log.e("AudioRecorder", "Critical failure in start ($mode): ${e.message}", e)
             stop()
-            if (outputFile.exists()) outputFile.delete()
+            if (outputFile.exists() && mode == RecordingMode.AAC_HIGH_BITRATE) outputFile.delete()
             throw e
         }
     }
@@ -91,9 +91,7 @@ class AudioRecorder(private val context: Context) {
             if (currentMode == RecordingMode.AAC_HIGH_BITRATE) {
                 mediaRecorder?.pause()
             } else {
-                // WAV (AudioRecord) doesn't natively support pause in this implementation.
-                // For now, we'll log it as a limitation or implement it via file segmenting.
-                Log.w("AudioRecorder", "Pause not yet implemented for WAV mode.")
+                wavRecorder?.pause()
             }
         } catch (e: Exception) {
             Log.e("AudioRecorder", "Failed to pause: ${e.message}")
@@ -106,7 +104,7 @@ class AudioRecorder(private val context: Context) {
             if (currentMode == RecordingMode.AAC_HIGH_BITRATE) {
                 mediaRecorder?.resume()
             } else {
-                Log.w("AudioRecorder", "Resume not yet implemented for WAV mode.")
+                wavRecorder?.start(isResume = true)
             }
         } catch (e: Exception) {
             Log.e("AudioRecorder", "Failed to resume: ${e.message}")

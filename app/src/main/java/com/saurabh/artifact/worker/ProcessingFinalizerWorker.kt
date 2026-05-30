@@ -5,7 +5,7 @@ import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import com.saurabh.artifact.model.ArtifactDraftState
+import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.RecordingRepository
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -28,9 +28,12 @@ class ProcessingFinalizerWorker @AssistedInject constructor(
         try {
             val draft = recordingRepository.getDraft(draftId) ?: return@withContext Result.failure()
             
-            // Transition to READY_TO_REVIEW
+            // Transition to REVIEW_REQUIRED
             recordingRepository.updateDraft(draft.copy(
-                draftState = ArtifactDraftState.READY_TO_REVIEW,
+                status = draft.status.copy(
+                    lifecycle = ArtifactLifecycle.REVIEW_REQUIRED,
+                    processing = ProcessingStatus.Completed
+                ),
                 updatedAt = System.currentTimeMillis()
             ))
             

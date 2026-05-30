@@ -20,8 +20,7 @@ import com.saurabh.artifact.R
 import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.data.local.RecordingStatus
 import com.saurabh.artifact.data.local.UserSessionManager
-import com.saurabh.artifact.model.ArtifactDraftState
-import com.saurabh.artifact.model.SyncState
+import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.RecordingRepository
 import com.saurabh.artifact.util.EncryptedStorageManager
@@ -236,7 +235,7 @@ class RecordingService : Service() {
         // Permission Check inside Service (Defense in Depth)
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             Log.e("RecordingService", "startRecording failed: Permission RECORD_AUDIO not granted")
-            _recordingState.value = RecordingState(status = RecordingStatus.FAILED)
+            _recordingState.value = RecordingState(status = RecordingStatus.FAILED, errorCode = "PERMISSION_DENIED")
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return
@@ -245,7 +244,7 @@ class RecordingService : Service() {
         // Storage Check
         if (!storageManager.isStorageAvailable()) {
             Log.e("RecordingService", "startRecording failed: Low storage (${storageManager.getAvailableStorageMb()} MB available)")
-            _recordingState.value = RecordingState(status = RecordingStatus.FAILED)
+            _recordingState.value = RecordingState(status = RecordingStatus.FAILED, errorCode = "STORAGE_FULL")
             // Trigger emergency cleanup in background
             serviceScope.launch(Dispatchers.IO) {
                 val knownPaths = draftDao.getAllDrafts().map { it.localAudioPath }.toSet()
@@ -264,7 +263,7 @@ class RecordingService : Service() {
         // Audio Focus Management: Ensure we have the microphone path cleared
         if (!requestAudioFocus()) {
             Log.e("RecordingService", "Could not acquire audio focus. Recording aborted.")
-            _recordingState.value = RecordingState(status = RecordingStatus.FAILED)
+            _recordingState.value = RecordingState(status = RecordingStatus.FAILED, errorCode = "HARDWARE_IN_USE")
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return
@@ -294,7 +293,7 @@ class RecordingService : Service() {
                 // Initialize hardware on IO thread to prevent main-thread jank with a timeout
                 val started = withTimeoutOrNull(5000) {
                     withContext(Dispatchers.IO) {
-                        audioRecorder?.start(file, onDurableSync = { durableBytes ->
+                        audioRecorder?.start(file, mode = RecordingMode.WAV_LOSSLESS, onDurableSync = { durableBytes ->
                             // OPTION A: Update DB checkpoint ONLY when durable sync occurs
                             val currentAmplitudes = _recordingState.value.amplitudes
                             val currentDuration = _recordingState.value.durationSeconds * 1000
@@ -330,7 +329,11 @@ class RecordingService : Service() {
                     draftId = finalDraftId
                 )
                 
-                draftDao.updateSyncState(finalDraftId, SyncState.RECORDING)
+                draftDao.getDraftById(finalDraftId)?.let {
+                    draftDao.update(it.copy(
+                        status = it.status.copy(lifecycle = ArtifactLifecycle.RECORDING, sync = SyncStatus.LocalOnly)
+                    ))
+                }
                 userSessionManager.setActiveDraftId(finalDraftId)
 
                 startTimer()
@@ -356,7 +359,11 @@ class RecordingService : Service() {
         
         _recordingState.value.draftId.let { id ->
             serviceScope.launch {
-                draftDao.updateSyncState(id, SyncState.STAGED) // Temporarily staged while paused? Or just keep in RECORDING but update checkpoint
+                draftDao.getDraftById(id)?.let {
+                    draftDao.update(it.copy(
+                        status = it.status.copy(sync = SyncStatus.LocalOnly)
+                    ))
+                }
             }
         }
         updateNotification(_recordingState.value.durationSeconds, RecordingStatus.PAUSED)
@@ -373,7 +380,11 @@ class RecordingService : Service() {
         
         _recordingState.value.draftId.let { id ->
             serviceScope.launch {
-                draftDao.updateSyncState(id, SyncState.RECORDING)
+                draftDao.getDraftById(id)?.let {
+                    draftDao.update(it.copy(
+                        status = it.status.copy(lifecycle = ArtifactLifecycle.RECORDING)
+                    ))
+                }
             }
         }
         updateNotification(_recordingState.value.durationSeconds, RecordingStatus.RECORDING)
@@ -395,15 +406,18 @@ class RecordingService : Service() {
                 }
 
                 try {
+                    Log.d("RecordingService", "Finalizing session. State set to FINALIZING.")
+                    _recordingState.value = _recordingState.value.copy(status = RecordingStatus.PREPARING) // Use PREPARING as a proxy for FINALIZING if not available in enum, or add it
+
                     Log.d("RecordingService", "Stopping recording hardware...")
                     audioRecorder?.stop()
                     timerJob?.cancel()
                     abandonAudioFocus()
                     restoreRingerMode()
                     
-                    // CRITICAL: Allow MediaRecorder to flush and finalize M4A container metadata
-                    // This prevents 'NoDeclaredBrand' / 'UnrecognizedInputFormatException' in ExoPlayer
-                    delay(300)
+                    // CRITICAL: Allow file buffers to flush and OS to sync file descriptors.
+                    // Increased delay to ensure durability.
+                    delay(500)
                     
                     if (wakeLock?.isHeld == true) {
                         wakeLock?.release()
@@ -425,8 +439,10 @@ class RecordingService : Service() {
                                 // State Update: Mark as SAVING while we hand off to workers
                                 draftDao.getDraftById(draftId)?.let {
                                     draftDao.update(it.copy(
-                                        draftState = ArtifactDraftState.SAVING,
-                                        syncState = SyncState.STAGED,
+                                        status = it.status.copy(
+                                            lifecycle = ArtifactLifecycle.PROCESSING,
+                                            processing = ProcessingStatus.Active(ProcessingStage.SAVING)
+                                        ),
                                         durableBytes = finalFile.length(), // Option A: Final durability update
                                         updatedAt = System.currentTimeMillis()
                                     ))
@@ -447,14 +463,18 @@ class RecordingService : Service() {
                                 )
                             } catch (e: Exception) {
                                 Log.e("RecordingService", "Hand-off failed", e)
-                                draftDao.updateSyncState(draftId, SyncState.STAGED)
+                                // Handle error state if needed
                             }
                         }
                     } else {
                         Log.e("RecordingService", "Output file validation failed: file=${finalFile?.exists()}, length=${finalFile?.length()}")
                         _recordingState.value = _recordingState.value.copy(status = RecordingStatus.FAILED)
                         if (finalFile?.exists() == true) finalFile.delete()
-                        draftDao.updateSyncState(draftId, SyncState.FAILED_PERMANENT)
+                        draftDao.getDraftById(draftId)?.let {
+                            draftDao.update(it.copy(
+                                status = it.status.copy(processing = ProcessingStatus.Failed("File validation failed"))
+                            ))
+                        }
                     }
                 } catch (e: Exception) {
                     Log.e("RecordingService", "Error during stopRecording flow", e)
@@ -674,7 +694,8 @@ class RecordingService : Service() {
             val amplitudes: List<Float> = emptyList(),
             val checksum: String? = null,
             val isEncrypted: Boolean = false,
-            val draftId: String = ""
+            val draftId: String = "",
+            val errorCode: String? = null
         )
     }
 }

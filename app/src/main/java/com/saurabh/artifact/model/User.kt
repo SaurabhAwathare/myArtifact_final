@@ -34,6 +34,7 @@ data class User(
     var lastPromptId: String = "",
     
     // Missing fields causing warnings
+    // Missing fields causing warnings
     var displayName: String = "",
     var fcmToken: String? = null
 ) {

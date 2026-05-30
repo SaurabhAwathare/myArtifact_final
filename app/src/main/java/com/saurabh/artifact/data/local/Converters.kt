@@ -1,11 +1,7 @@
 package com.saurabh.artifact.data.local
 
 import androidx.room.TypeConverter
-import com.saurabh.artifact.model.ArtifactDraftState
-import com.saurabh.artifact.model.EmotionalTone
-import com.saurabh.artifact.model.PromptCategory
-import com.saurabh.artifact.model.SyncState
-import com.saurabh.artifact.model.UploadStatus
+import com.saurabh.artifact.model.*
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
@@ -26,33 +22,23 @@ class Converters {
     }
 
     @TypeConverter
-    fun fromSyncState(status: SyncState): String = status.name
+    fun fromDraftStatus(status: DraftStatus): String = Json.encodeToString(status)
 
     @TypeConverter
-    fun toSyncState(value: String): SyncState = try {
-        SyncState.valueOf(value)
+    fun toDraftStatus(value: String): DraftStatus = try {
+        Json.decodeFromString(value)
     } catch (_: Exception) {
-        SyncState.INITIALIZING
+        DraftStatus()
     }
 
     @TypeConverter
-    fun fromDraftState(status: ArtifactDraftState): String = status.name
+    fun fromArtifactLifecycle(value: ArtifactLifecycle): String = value.name
 
     @TypeConverter
-    fun toDraftState(value: String): ArtifactDraftState = try {
-        ArtifactDraftState.valueOf(value)
+    fun toArtifactLifecycle(value: String): ArtifactLifecycle = try {
+        ArtifactLifecycle.valueOf(value)
     } catch (_: Exception) {
-        ArtifactDraftState.ERROR
-    }
-
-    @TypeConverter
-    fun fromUploadStatus(status: UploadStatus): String = status.name
-
-    @TypeConverter
-    fun toUploadStatus(value: String): UploadStatus = try {
-        UploadStatus.valueOf(value)
-    } catch (_: Exception) {
-        UploadStatus.FAILED
+        ArtifactLifecycle.RECORDING
     }
 
     @TypeConverter

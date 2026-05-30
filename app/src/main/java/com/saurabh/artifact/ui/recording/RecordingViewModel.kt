@@ -4,8 +4,8 @@ import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.saurabh.artifact.audio.DraftSessionManager
 import com.saurabh.artifact.audio.RecordingService
+import com.saurabh.artifact.audio.RecordingSessionManager
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.data.local.RecordingStatus
 import com.saurabh.artifact.data.local.UserSessionManager
@@ -25,9 +25,8 @@ import javax.inject.Inject
 @HiltViewModel
 class RecordingViewModel @Inject constructor(
     private val promptRepository: PromptRepository,
-    private val draftSessionManager: DraftSessionManager,
     private val userSessionManager: UserSessionManager,
-    private val recordingSessionManager: com.saurabh.artifact.audio.RecordingSessionManager,
+    private val recordingSessionManager: RecordingSessionManager,
     private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -44,7 +43,8 @@ class RecordingViewModel @Inject constructor(
         
         // Immediate start for InstantRecord flow (Warning ritual handled in PreRecordingWarningScreen)
         _uiState.update { it.copy(flowState = RecordingFlowState.RECORDING) }
-        startRecording()
+        // REMOVED: startRecording() from init to prevent duplicate sessions on rotation.
+        // Screen should call startRecording() via LaunchedEffect or User Action if IDLE.
     }
 
     private fun onCountdownFinished() {
@@ -125,8 +125,17 @@ class RecordingViewModel @Inject constructor(
     private fun observeRecordingService() {
         RecordingService.recordingState
             .onEach { state ->
+                val error = when (state.errorCode) {
+                    "PERMISSION_DENIED" -> RecordingError.PermissionDenied
+                    "HARDWARE_IN_USE" -> RecordingError.HardwareInUse
+                    "STORAGE_FULL" -> RecordingError.StorageFull
+                    null -> if (state.status == RecordingStatus.FAILED) RecordingError.Unknown else null
+                    else -> RecordingError.Unknown
+                }
+
                 _uiState.update { it.copy(
                     status = state.status,
+                    error = error,
                     durationSeconds = state.durationSeconds,
                     currentOutputFile = state.outputFile?.absolutePath,
                     amplitudes = state.amplitudes
@@ -159,32 +168,29 @@ class RecordingViewModel @Inject constructor(
     }
 
     fun startRecording() {
-        if (_uiState.value.status == RecordingStatus.IDLE || _uiState.value.status == RecordingStatus.FAILED) {
-            viewModelScope.launch {
-                Log.d("RecordingViewModel", "Auto-starting recording session via DraftSessionManager")
-                recordingSessionManager.prepareForRecording()
-                draftSessionManager.startNewSession()
-            }
+        viewModelScope.launch {
+            Log.d("RecordingViewModel", "Auto-starting recording session via RecordingSessionManager")
+            recordingSessionManager.startNewSession()
         }
     }
 
     fun stopRecording() {
-        draftSessionManager.stopSession()
+        recordingSessionManager.stopSession()
         viewModelScope.launch {
             userSessionManager.setActivePromptId(null)
         }
     }
 
     fun pauseRecording() {
-        draftSessionManager.pauseSession()
+        recordingSessionManager.pauseSession()
     }
 
     fun resumeRecording() {
-        draftSessionManager.resumeSession()
+        recordingSessionManager.resumeSession()
     }
 
     fun cancelRecording() {
-        draftSessionManager.cancelSession()
+        recordingSessionManager.cancelSession()
         viewModelScope.launch {
             userSessionManager.setActivePromptId(null)
         }
@@ -240,6 +246,7 @@ class RecordingViewModel @Inject constructor(
 data class RecordingUiState(
     val status: RecordingStatus = RecordingStatus.IDLE,
     val flowState: RecordingFlowState = RecordingFlowState.IDLE,
+    val error: RecordingError? = null,
     val countdownSeconds: Int = 0,
     val durationSeconds: Long = 0,
     val currentOutputFile: String? = null,
@@ -255,4 +262,11 @@ data class RecordingUiState(
 
 enum class RecordingFlowState {
     IDLE, WARNING, RECORDING
+}
+
+sealed class RecordingError {
+    object PermissionDenied : RecordingError()
+    object HardwareInUse : RecordingError()
+    object StorageFull : RecordingError()
+    object Unknown : RecordingError()
 }

@@ -29,6 +29,7 @@ import javax.inject.Singleton
 class PlaybackSessionManager @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val playbackPositionDao: com.saurabh.artifact.data.local.PlaybackPositionDao,
+    private val cleanupManager: dagger.Lazy<ArtifactCleanupManager>
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val controllerLock = Mutex()
@@ -60,6 +61,7 @@ class PlaybackSessionManager @Inject constructor(
     val isSkipSilenceEnabled: StateFlow<Boolean> = _isSkipSilenceEnabled.asStateFlow()
 
     private var positionUpdateJob: Job? = null
+    private var cleanupSyncJob: Job? = null
     
     private val _isBuffering = MutableStateFlow(false)
     val isBuffering: StateFlow<Boolean> = _isBuffering.asStateFlow()
@@ -93,6 +95,10 @@ class PlaybackSessionManager @Inject constructor(
 
     private suspend fun getController(): MediaController? {
         if (controller != null) return controller
+        
+        // Start cleanup synchronization once the manager is active
+        startCleanupSync()
+
         return controllerLock.withLock {
             if (controller != null) return@withLock controller
             
@@ -232,11 +238,25 @@ class PlaybackSessionManager @Inject constructor(
         }
     }
 
+    private fun startCleanupSync() {
+        if (cleanupSyncJob?.isActive == true) return
+        cleanupSyncJob = scope.launch {
+            cleanupManager.get().deletingArtifactIds.collect { deletingIds ->
+                val currentId = _currentArtifact.value?.id ?: return@collect
+                if (currentId in deletingIds) {
+                    Log.d("PlaybackSessionManager", "Stopping playback for $currentId as it is being deleted.")
+                    stop()
+                }
+            }
+        }
+    }
+
     private fun stopPositionUpdates() {
         positionUpdateJob?.cancel()
     }
 
     fun release() {
+        cleanupSyncJob?.cancel()
         controller?.removeListener(playerListener)
         controllerFuture?.let { MediaController.releaseFuture(it) }
         controller = null

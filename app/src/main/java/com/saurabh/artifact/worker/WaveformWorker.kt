@@ -5,7 +5,7 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.saurabh.artifact.data.local.DraftDao
-import com.saurabh.artifact.model.ArtifactDraftState
+import com.saurabh.artifact.model.*
 import com.saurabh.artifact.model.ProcessingStage
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -24,14 +24,14 @@ class WaveformWorker @AssistedInject constructor(
         val draftId = inputData.getString(KEY_DRAFT_ID) ?: return@withContext Result.failure()
         
         try {
-            updateSubState(draftId, ArtifactDraftState.WAVEFORM_GENERATION)
+            updateSubState(draftId, ProcessingStage.WAVEFORM_GENERATION)
             
             // Simulation of waveform extraction
             delay(1500)
             
             Result.success()
         } catch (e: Exception) {
-            updateSubState(draftId, ArtifactDraftState.ERROR)
+            updateSubState(draftId, null, "Waveform generation failed: ${e.message}")
             Result.retry()
         }
     }

@@ -5,7 +5,7 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.saurabh.artifact.data.local.DraftDao
-import com.saurabh.artifact.model.ArtifactDraftState
+import com.saurabh.artifact.model.*
 import com.saurabh.artifact.model.ProcessingStage
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -24,24 +24,29 @@ class AudioNormalizationWorker @AssistedInject constructor(
         val draftId = inputData.getString(KEY_DRAFT_ID) ?: return@withContext Result.failure()
         
         try {
-            updateSubState(draftId, ArtifactDraftState.NORMALIZING)
+            updateSubState(draftId, ProcessingStage.NORMALIZING)
             
             // Simulation of audio normalization
             delay(2000) 
             
             Result.success()
         } catch (e: Exception) {
-            updateSubState(draftId, ArtifactDraftState.ERROR)
+            updateSubState(draftId, null, "Normalization failed: ${e.message}")
             Result.retry()
         }
     }
 
-    private suspend fun updateSubState(id: String, state: ArtifactDraftState) {
-        val draft = draftDao.getDraftById(id) ?: return
-        draftDao.update(draft.copy(
-            draftState = state,
-            updatedAt = System.currentTimeMillis()
-        ))
+    private suspend fun updateSubState(id: String, stage: ProcessingStage?, error: String? = null) {
+        draftDao.getDraftById(id)?.let { draft ->
+            val newProcessing = when {
+                error != null -> ProcessingStatus.Failed(error)
+                stage != null -> ProcessingStatus.Active(stage)
+                else -> ProcessingStatus.Idle
+            }
+            draftDao.update(draft.copy(
+                status = draft.status.copy(processing = newProcessing)
+            ))
+        }
     }
 
     companion object {

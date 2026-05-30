@@ -1,10 +1,12 @@
 package com.saurabh.artifact.di
 
 import android.content.Context
+import com.saurabh.artifact.audio.ArtifactCleanupManager
 import com.saurabh.artifact.audio.AudioPlayer
 import com.saurabh.artifact.audio.AudioRecorder
 import com.saurabh.artifact.audio.PlaybackSessionManager
 import com.saurabh.artifact.nlp.EmotionAnalyzer
+import dagger.Lazy
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -20,9 +22,10 @@ object AudioModule {
     @Singleton
     fun providePlaybackSessionManager(
         @ApplicationContext context: Context,
-        playbackPositionDao: com.saurabh.artifact.data.local.PlaybackPositionDao
+        playbackPositionDao: com.saurabh.artifact.data.local.PlaybackPositionDao,
+        cleanupManager: Lazy<ArtifactCleanupManager>
     ): PlaybackSessionManager = 
-        PlaybackSessionManager(context, playbackPositionDao)
+        PlaybackSessionManager(context, playbackPositionDao, cleanupManager)
 
     @Provides
     @Singleton
