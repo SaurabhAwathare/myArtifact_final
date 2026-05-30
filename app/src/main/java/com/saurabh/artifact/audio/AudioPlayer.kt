@@ -30,7 +30,7 @@ class AudioPlayer @Inject constructor(
     val isPlaying = playbackSessionManager.isPlaying
     val isBuffering = playbackSessionManager.isBuffering
     val currentPosition = playbackSessionManager.currentPosition
-    val duration = playbackSessionManager.duration
+    val durationMs = playbackSessionManager.durationMs
     val playbackSpeed = playbackSessionManager.playbackSpeed
     val error = playbackSessionManager.error
 

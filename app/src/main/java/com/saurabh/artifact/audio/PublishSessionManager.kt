@@ -2,7 +2,6 @@ package com.saurabh.artifact.audio
 
 import android.util.Log
 import com.saurabh.artifact.data.local.DraftDao
-import com.saurabh.artifact.model.ArtifactDraftState
 import com.saurabh.artifact.model.TranscriptSegment
 import com.saurabh.artifact.repository.PublishApprovalRepository
 import kotlinx.coroutines.CoroutineScope

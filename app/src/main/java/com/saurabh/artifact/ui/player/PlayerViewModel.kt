@@ -139,7 +139,7 @@ class PlayerViewModel @Inject constructor(
         playbackSessionManager.isPlaying,
         playbackSessionManager.isBuffering,
         playbackSessionManager.currentPosition,
-        playbackSessionManager.duration,
+        playbackSessionManager.durationMs,
         playbackSessionManager.playbackSpeed,
         playbackSessionManager.isSkipSilenceEnabled,
         isCommentUnlocked,
@@ -189,7 +189,7 @@ class PlayerViewModel @Inject constructor(
             isPlaying = isPlaying,
             isBuffering = isBuffering,
             currentPosition = position,
-            duration = duration,
+            durationMs = duration,
             playbackSpeed = speed,
             isCommentUnlocked = commentUnlocked,
             listeningProgress = furthestProgress, 
@@ -292,7 +292,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun forward() {
-        val newPos = (playbackSessionManager.currentPosition.value + 10000).coerceAtMost(playbackSessionManager.duration.value)
+        val newPos = (playbackSessionManager.currentPosition.value + 10000).coerceAtMost(playbackSessionManager.durationMs.value)
         playbackSessionManager.seekTo(newPos)
     }
 

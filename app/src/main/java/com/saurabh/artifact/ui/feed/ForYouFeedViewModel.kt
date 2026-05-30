@@ -19,7 +19,8 @@ class ForYouFeedViewModel @Inject constructor(
     private val artifactRepository: com.saurabh.artifact.repository.ArtifactRepository,
     private val authRepository: AuthRepository,
     val audioPlayer: AudioPlayer,
-    private val reviewSessionManager: com.saurabh.artifact.audio.ReviewSessionManager
+    private val reviewSessionManager: com.saurabh.artifact.audio.ReviewSessionManager,
+    private val reviewAuthorityService: com.saurabh.artifact.audio.ReviewAuthorityService
 ) : ViewModel() {
 
     private val _feedState = MutableStateFlow<FeedCompositionState>(FeedCompositionState.Loading)
@@ -74,14 +75,17 @@ class ForYouFeedViewModel @Inject constructor(
 
     private fun updateSession(artifact: Artifact, position: Long) {
         val userId = authRepository.currentUser.value?.uid ?: return
+        val currentProgress = reviewAuthorityService.currentProgress.value
+        val isValidated = currentProgress?.artifactId == artifact.id && currentProgress.isValidationMet
+        
         viewModelScope.launch {
             feedRepository.updateListeningSession(
                 ListeningSession(
                     userId = userId,
                     artifactId = artifact.id,
                     lastPositionMs = position,
-                    totalDurationMs = artifact.duration * 1000L,
-                    isCompleted = position >= (artifact.duration * 1000L * 0.95f) // 95% completion
+                    totalDurationMs = artifact.durationMs,
+                    isCompleted = isValidated
                 )
             )
         }

@@ -29,7 +29,7 @@ data class Artifact(
     @get:PropertyName("isDraft")
     @set:PropertyName("isDraft")
     var isDraft: Boolean = false,
-    var duration: Long = 0,
+    var durationMs: Long = 0,
     var title: String = "",
     var description: String = "",
     var reactions: Map<String, Int> = emptyMap(),

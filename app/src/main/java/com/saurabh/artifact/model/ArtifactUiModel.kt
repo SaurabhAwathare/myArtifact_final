@@ -18,6 +18,6 @@ data class ArtifactUiModel(
     val isPlaceholder: Boolean = false
 ) {
     val id: String get() = artifact.id
-    val duration: Long get() = artifact.duration
+    val durationMs: Long get() = artifact.durationMs
     val comments: List<ArtifactComment> get() = detail?.comments ?: emptyList()
 }

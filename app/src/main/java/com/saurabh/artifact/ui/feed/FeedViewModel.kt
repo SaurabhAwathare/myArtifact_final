@@ -98,7 +98,7 @@ class FeedViewModel @Inject constructor(
     val currentlyPlayingArtifact: StateFlow<Artifact?> = audioPlayer.currentArtifact
     val isPlaying = audioPlayer.isPlaying
     val currentPosition = audioPlayer.currentPosition
-    val duration = audioPlayer.duration
+    val durationMs = audioPlayer.durationMs
     val startupStage = startupCoordinator.stage
     val currentUserId: String? get() = authRepository.currentUser.value?.uid
 

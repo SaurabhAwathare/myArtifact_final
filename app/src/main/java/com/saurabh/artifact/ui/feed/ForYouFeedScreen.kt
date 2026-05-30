@@ -135,7 +135,7 @@ fun ContinueListeningSection(
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            "${session.lastPositionMs / 1000}s / ${session.artifact.duration}s",
+                            "${session.lastPositionMs / 1000}s / ${session.artifact.durationMs / 1000}s",
                             style = MaterialTheme.typography.labelSmall,
                             color = ArtifactTheme.colors.onSurfaceMuted
                         )
@@ -144,7 +144,7 @@ fun ContinueListeningSection(
                         
                         // Small Progress Bar
                         LinearProgressIndicator(
-                            progress = { session.lastPositionMs.toFloat() / (session.artifact.duration * 1000L) },
+                            progress = { session.lastPositionMs.toFloat() / (session.artifact.durationMs).coerceAtLeast(1) },
                             modifier = Modifier.fillMaxWidth().height(2.dp),
                             color = ArtifactTheme.colors.waveformActive,
                             trackColor = ArtifactTheme.colors.waveformInactive.copy(alpha = 0.1f)

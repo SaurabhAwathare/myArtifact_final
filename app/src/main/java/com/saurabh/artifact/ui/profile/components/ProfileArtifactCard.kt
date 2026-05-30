@@ -186,7 +186,7 @@ fun ProfileArtifactCard(
                 }
 
                 Text(
-                    text = formatDuration(artifact.duration),
+                    text = formatDuration(artifact.durationMs),
                     style = ArtifactTheme.typography.labelSmall,
                     color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.4f)
                 )
@@ -252,8 +252,9 @@ private fun StatItem(
     }
 }
 
-private fun formatDuration(seconds: Long): String {
-    val mins = seconds / 60
-    val secs = seconds % 60
+private fun formatDuration(millis: Long): String {
+    val totalSeconds = millis / 1000
+    val mins = totalSeconds / 60
+    val secs = totalSeconds % 60
     return "%d:%02d".format(mins, secs)
 }

@@ -55,7 +55,7 @@ fun ArtifactFeedCard(
             isPlaying = isPlaying,
             onPlayClick = onPlayClick,
             currentPosition = if (feedArtifact.isUnfinished && !isPlaying) feedArtifact.lastPositionMs else currentPosition,
-            duration = feedArtifact.artifact.duration * 1000L,
+            durationMs = feedArtifact.artifact.durationMs,
             onDeleteClick = onDeleteClick,
             currentUserId = currentUser?.id
         )

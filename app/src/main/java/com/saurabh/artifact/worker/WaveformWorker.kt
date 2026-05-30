@@ -24,22 +24,23 @@ class WaveformWorker @AssistedInject constructor(
         val draftId = inputData.getString(KEY_DRAFT_ID) ?: return@withContext Result.failure()
         
         try {
-            updateSubState(draftId, ProcessingStage.WAVEFORM_GENERATION)
+            updateSubState(draftId, ArtifactDraftState.WAVEFORM_GENERATION)
             
             // Simulation of waveform extraction
             delay(1500)
             
             Result.success()
         } catch (e: Exception) {
-            updateSubState(draftId, null, "Waveform generation failed: ${e.message}")
+            updateSubState(draftId, ArtifactDraftState.ERROR, "Waveform generation failed: ${e.message}")
             Result.retry()
         }
     }
 
-    private suspend fun updateSubState(id: String, state: ArtifactDraftState) {
+    private suspend fun updateSubState(id: String, state: ArtifactDraftState, reason: String? = null) {
         val draft = draftDao.getDraftById(id) ?: return
         draftDao.update(draft.copy(
             draftState = state,
+            interruptionReason = reason,
             updatedAt = System.currentTimeMillis()
         ))
     }

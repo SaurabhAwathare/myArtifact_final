@@ -41,6 +41,8 @@ object DatabaseModule {
             AppDatabase.MIGRATION_24_25,
             AppDatabase.MIGRATION_25_26,
             AppDatabase.MIGRATION_26_27,
+            AppDatabase.MIGRATION_28_29,
+            AppDatabase.MIGRATION_30_31,
         ).fallbackToDestructiveMigration()
             .build()
     }
@@ -63,5 +65,10 @@ object DatabaseModule {
     @Provides
     fun providePlaybackPositionDao(database: AppDatabase): com.saurabh.artifact.data.local.PlaybackPositionDao {
         return database.playbackPositionDao()
+    }
+
+    @Provides
+    fun provideReviewDao(database: AppDatabase): com.saurabh.artifact.data.local.ReviewDao {
+        return database.reviewDao()
     }
 }

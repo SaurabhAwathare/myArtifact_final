@@ -51,10 +51,6 @@ fun ReviewPlayerScreen(
     val progressPercent = if (currentDraft.durationMs > 0) {
         playbackState.currentPositionMs.toFloat() / currentDraft.durationMs
     } else 0f
-    
-    val reviewProgress = if (currentDraft.durationMs > 0) {
-        reviewState.furthestPositionMs.toFloat() / currentDraft.durationMs
-    } else 0f
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -123,67 +119,99 @@ fun ReviewPlayerScreen(
             Spacer(modifier = Modifier.weight(1f))
 
             // Review Progress Indicator
-            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.Medium)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = Spacing.Medium)
+                    .background(
+                        ArtifactTheme.colors.surfaceHearth.copy(alpha = 0.3f),
+                        MaterialTheme.shapes.medium
+                    )
+                    .padding(Spacing.Medium)
+            ) {
+                Text(
+                    text = "Review Progress",
+                    style = ArtifactTheme.typography.labelSmall,
+                    color = ArtifactTheme.colors.onSurfaceMuted,
+                    modifier = Modifier.padding(bottom = Spacing.Small)
+                )
+
+                // 1. Coverage
+                ProgressRow(
+                    label = "Coverage",
+                    percent = reviewState.coveragePercent,
+                    color = ArtifactTheme.colors.waveformActive
+                )
+
+                Spacer(modifier = Modifier.height(Spacing.Small))
+
+                // 2. Effort
+                ProgressRow(
+                    label = "Effort",
+                    percent = reviewState.effortPercent,
+                    color = Color(0xFF64B5F6) // Soft Blue
+                )
+
+                Spacer(modifier = Modifier.height(Spacing.Small))
+
+                // 3. Reached End
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Review Progress",
+                        text = "Reached End",
                         style = ArtifactTheme.typography.labelSmall,
                         color = ArtifactTheme.colors.onSurfaceMuted
                     )
-                    
-                    // Playback Speed Controls
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(Spacing.Small),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        listOf(1f, 1.25f, 1.5f, 2f).forEach { speed ->
-                            val isSelected = playbackState.playbackSpeed == speed
-                            FilterChip(
-                                selected = isSelected,
-                                onClick = { viewModel.setPlaybackSpeed(speed) },
-                                label = { 
-                                    Text(
-                                        text = "${if ((speed % 1) == 0f) speed.toInt() else speed}x",
-                                        style = ArtifactTheme.typography.labelSmall
-                                    ) 
-                                },
-                                shape = CircleShape,
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = ArtifactTheme.colors.waveformActive,
-                                    selectedLabelColor = Color.White,
-                                    containerColor = Color.Transparent,
-                                    labelColor = ArtifactTheme.colors.onSurfaceMuted
-                                ),
-                                border = if (!isSelected) FilterChipDefaults.filterChipBorder(
-                                    borderColor = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.2f),
-                                    borderWidth = 1.dp,
-                                    enabled = true,
-                                    selected = false
-                                ) else null
-                            )
-                        }
-                    }
-
-                    Text(
-                        text = "${(reviewProgress * 100).toInt()}%",
-                        style = ArtifactTheme.typography.labelSmall,
-                        color = ArtifactTheme.colors.waveformActive
+                    Icon(
+                        imageVector = if (reviewState.isPlaybackEnded) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = if (reviewState.isPlaybackEnded) ArtifactTheme.colors.waveformActive else ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.3f)
                     )
                 }
-                Spacer(modifier = Modifier.height(Spacing.Small))
-                LinearProgressIndicator(
-                    progress = { reviewProgress },
-                    modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape),
-                    color = ArtifactTheme.colors.waveformActive,
-                    trackColor = ArtifactTheme.colors.waveformInactive.copy(alpha = 0.3f)
-                )
             }
 
             Spacer(modifier = Modifier.height(Spacing.Large))
+
+            // Playback Speed Controls
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.Medium),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                listOf(1f, 1.25f, 1.5f, 2f).forEach { speed ->
+                    val isSelected = playbackState.playbackSpeed == speed
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { viewModel.setPlaybackSpeed(speed) },
+                        label = { 
+                            Text(
+                                text = "${if ((speed % 1) == 0f) speed.toInt() else speed}x",
+                                style = ArtifactTheme.typography.labelSmall
+                            ) 
+                        },
+                        shape = CircleShape,
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = ArtifactTheme.colors.waveformActive,
+                            selectedLabelColor = Color.White,
+                            containerColor = Color.Transparent,
+                            labelColor = ArtifactTheme.colors.onSurfaceMuted
+                        ),
+                        border = if (!isSelected) FilterChipDefaults.filterChipBorder(
+                            borderColor = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.2f),
+                            borderWidth = 1.dp,
+                            enabled = true,
+                            selected = false
+                        ) else null,
+                        modifier = Modifier.padding(horizontal = 4.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(Spacing.Small))
 
             // Waveform & Controls
             AmbientWaveform(
@@ -230,6 +258,39 @@ fun ReviewPlayerScreen(
 
             Spacer(modifier = Modifier.height(Spacing.ExtraLarge))
         }
+    }
+}
+
+@Composable
+private fun ProgressRow(
+    label: String,
+    percent: Float,
+    color: Color
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = label,
+                style = ArtifactTheme.typography.labelSmall,
+                color = ArtifactTheme.colors.onSurfaceMuted
+            )
+            Text(
+                text = "${(percent * 100).toInt()}%",
+                style = ArtifactTheme.typography.labelSmall,
+                color = color
+            )
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        LinearProgressIndicator(
+            progress = { percent },
+            modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape),
+            color = color,
+            trackColor = ArtifactTheme.colors.waveformInactive.copy(alpha = 0.2f)
+        )
     }
 }
 

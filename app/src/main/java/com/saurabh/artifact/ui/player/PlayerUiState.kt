@@ -12,7 +12,7 @@ data class PlayerUiState(
     val isPlaying: Boolean = false,
     val isBuffering: Boolean = false,
     val currentPosition: Long = 0L,
-    val duration: Long = 0L,
+    val durationMs: Long = 0L,
     val playbackSpeed: Float = 1.0f,
     val isCommentUnlocked: Boolean = false,
     val listeningProgress: Float = 0f, // 0.0 to 1.0

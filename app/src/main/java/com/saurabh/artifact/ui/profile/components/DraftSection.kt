@@ -25,7 +25,7 @@ fun LazyListScope.draftSection(
                 id = draft.id,
                 title = draft.title ?: "Unfinished Recording",
                 author = com.saurabh.artifact.model.AuthorSnapshot(name = "Private Draft"),
-                duration = draft.durationMs / 1000,
+                durationMs = draft.durationMs,
                 isDraft = true,
                 amplitudeData = draft.amplitudeData,
                 createdAt = com.google.firebase.Timestamp(java.util.Date(draft.createdAt))

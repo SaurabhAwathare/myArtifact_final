@@ -23,6 +23,9 @@ data class ArtifactDraftEntity(
     
     // Composite State Model
     val status: DraftStatus = DraftStatus(),
+    val draftState: ArtifactDraftState = ArtifactDraftState.SAVED_LOCALLY,
+    val uploadStatus: UploadStatus = UploadStatus.IDLE,
+    val syncState: SyncState = SyncState.LOCAL_ONLY,
     
     // Upload Progress
     val uploadedBytes: Long = 0,
@@ -46,9 +49,13 @@ data class ArtifactDraftEntity(
     val isEmotionalReady: Boolean = false,
     val maxReviewPositionMs: Long = 0L,
     val lastPlaybackPositionMs: Long = 0L,
-    val reviewCoverageBitmask: String? = null, // JSON/CSV string of heard segments
+    val reviewCoverageBitmask: Long = 0L, // Legacy 64-bit mask
+    val coveragePart1: Long = 0L, // 100-segment mask (bits 0-63)
+    val coveragePart2: Long = 0L, // 100-segment mask (bits 64-99)
+    val totalTimeListenedMs: Long = 0L,
     val isReviewLocked: Boolean = true,
     val isListened: Boolean = false,
+    val isPlaybackEnded: Boolean = false, // Track if Player.STATE_ENDED was reached
     
     // Metadata & Recovery
     val deviceId: String? = null,

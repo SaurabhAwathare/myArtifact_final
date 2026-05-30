@@ -39,7 +39,7 @@ data class ProfileUiState(
     val isPlaying: Boolean = false,
     val isBuffering: Boolean = false,
     val currentPosition: Long = 0,
-    val duration: Long = 0
+    val durationMs: Long = 0
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -75,7 +75,7 @@ class ProfileViewModel @Inject constructor(
         playbackSessionManager.isPlaying,
         playbackSessionManager.isBuffering,
         playbackSessionManager.currentPosition,
-        playbackSessionManager.duration
+        playbackSessionManager.durationMs
     ) { params: Array<Any?> ->
         val targetId = params[0] as String?
         val avatarConfig = params[1] as AvatarConfig
@@ -104,7 +104,7 @@ class ProfileViewModel @Inject constructor(
             isPlaying = isPlaying,
             isBuffering = isBuffering,
             currentPosition = position,
-            duration = duration
+            durationMs = duration
         )
     }.flatMapLatest { (finalId, baseState) ->
         val effectiveId = finalId ?: return@flatMapLatest flowOf(baseState)

@@ -111,7 +111,7 @@ class RecordingRepository @Inject constructor(
 
     suspend fun updateReviewProgress(id: String, positionMs: Long) = withContext(Dispatchers.IO) {
         val draft = draftDao.getDraftById(id)
-        draftDao.updateReviewProgress(id, positionMs, draft?.reviewCoverageBitmask ?: "")
+        draftDao.updateReviewProgress(id, positionMs, draft?.reviewCoverageBitmask ?: 0L)
     }
 
     suspend fun updateLastPlaybackPosition(id: String, positionMs: Long) = withContext(Dispatchers.IO) {

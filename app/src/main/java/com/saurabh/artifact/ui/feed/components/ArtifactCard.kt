@@ -188,7 +188,7 @@ fun ArtifactCard(
                 Spacer(modifier = Modifier.width(12.dp))
                 
                 Text(
-                    text = formatDuration(artifact.duration),
+                    text = formatDuration(artifact.durationMs),
                     style = MaterialTheme.typography.labelSmall,
                     color = Color.White.copy(alpha = 0.4f)
                 )
@@ -241,9 +241,10 @@ fun ArtifactCard(
     }
 }
 
-private fun formatDuration(seconds: Long): String {
-    val mins = seconds / 60
-    val secs = seconds % 60
+private fun formatDuration(millis: Long): String {
+    val totalSeconds = millis / 1000
+    val mins = totalSeconds / 60
+    val secs = totalSeconds % 60
     return "%d:%02d".format(mins, secs)
 }
 

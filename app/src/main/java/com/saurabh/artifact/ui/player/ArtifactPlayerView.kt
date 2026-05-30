@@ -81,7 +81,7 @@ fun ArtifactPlayerView(
                 onRewind = { viewModel.rewind() },
                 onForward = { viewModel.forward() },
                 onSpeedChange = { viewModel.setPlaybackSpeed(it) },
-                onSeek = { viewModel.seekTo((it * uiState.duration).toLong()) },
+                onSeek = { viewModel.seekTo((it * uiState.durationMs).toLong()) },
                 onShowAdvanced = { viewModel.setShowAdvancedControls(true) },
                 onCommentClick = { 
                     val art = uiState.currentArtifact

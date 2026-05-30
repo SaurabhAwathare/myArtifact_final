@@ -54,7 +54,7 @@ class TranscodingWorker @AssistedInject constructor(
             val recoveryResult = wavRecoveryManager.recover(rawFile)
             if (recoveryResult == com.saurabh.artifact.audio.WavRecoveryManager.RecoveryResult.CORRUPTED) {
                 Log.e("TranscodingWorker", "Unrecoverable WAV header: CORRUPTED")
-                updateDraftState(draftId, ArtifactDraftState.ERROR)
+                draftDao.updateDraftState(draftId, ArtifactDraftState.ERROR)
                 return@withContext Result.failure()
             }
 

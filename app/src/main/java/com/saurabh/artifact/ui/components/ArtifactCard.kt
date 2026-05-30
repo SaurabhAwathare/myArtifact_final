@@ -73,7 +73,7 @@ fun ArtifactCard(
     isBuffering: Boolean = false,
     hydrationLevel: com.saurabh.artifact.ui.feed.HydrationLevel = com.saurabh.artifact.ui.feed.HydrationLevel.FULL,
     currentPosition: Long = 0,
-    duration: Long = 0,
+    durationMs: Long = 0,
     onReportClick: () -> Unit = {},
     onDeleteClick: () -> Unit = {},
     currentUserId: String? = null
@@ -122,8 +122,8 @@ fun ArtifactCard(
     val displayEmotion = remember(displayArtifact.emotion) { displayArtifact.emotion.ifEmpty { "reflective" }.lowercase() }
     val displayUsername = remember(displayArtifact.author.name) { displayArtifact.author.name.ifEmpty { "anonymous soul" }.lowercase() }
 
-    val progress by remember(currentPosition, duration) {
-        derivedStateOf { if (duration > 0) currentPosition.toFloat() / duration else 0f }
+    val progress by remember(currentPosition, durationMs) {
+        derivedStateOf { if (durationMs > 0) currentPosition.toFloat() / durationMs else 0f }
     }
 
     // Atmospheric Waveform Height Animation - GUARDED BY isPlaying and hydrationLevel
@@ -534,7 +534,7 @@ private fun CompactArtifactItem(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = formatDuration(artifact.duration),
+                        text = formatDuration(artifact.durationMs),
                         style = ArtifactTheme.typography.labelSmall,
                         color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.6f)
                     )
@@ -544,9 +544,10 @@ private fun CompactArtifactItem(
     }
 }
 
-private fun formatDuration(seconds: Long): String {
-    val mins = seconds / 60
-    val secs = seconds % 60
+private fun formatDuration(millis: Long): String {
+    val totalSeconds = millis / 1000
+    val mins = totalSeconds / 60
+    val secs = totalSeconds % 60
     return "%d:%02d".format(mins, secs)
 }
 
@@ -560,7 +561,7 @@ fun PreviewArtifactCardAtmospheric() {
             author = AuthorSnapshot(name = "QuietLoom"),
             title = "A reflection on the evening rain and the sound of silence.",
             audioUrl = "",
-            duration = 120,
+            durationMs = 120000,
             emotion = "Peaceful"
         )
         ArtifactCard(
@@ -568,7 +569,7 @@ fun PreviewArtifactCardAtmospheric() {
             isPlaying = true,
             onPlayClick = {},
             currentPosition = 30000,
-            duration = 120000,
+            durationMs = 120000,
             currentUserId = "user_1"
         )
     }

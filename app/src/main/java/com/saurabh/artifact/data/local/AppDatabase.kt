@@ -7,8 +7,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [QueuedUpload::class, ArtifactDraftEntity::class, PromptEntity::class, PlaybackPosition::class],
-    version = 28,
+    entities = [QueuedUpload::class, ArtifactDraftEntity::class, PromptEntity::class, PlaybackPosition::class, ArtifactReviewEvidence::class],
+    version = 31,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -17,8 +17,40 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun draftDao(): DraftDao
     abstract fun promptDao(): PromptDao
     abstract fun playbackPositionDao(): PlaybackPositionDao
+    abstract fun reviewDao(): ReviewDao
 
     companion object {
+        val MIGRATION_30_31 = object : Migration(30, 31) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `artifact_review_evidence` (
+                        `artifactId` TEXT NOT NULL, 
+                        `durationMs` INTEGER NOT NULL, 
+                        `coverageP1` INTEGER NOT NULL, 
+                        `coverageP2` INTEGER NOT NULL, 
+                        `cumulativeEffortMs` INTEGER NOT NULL, 
+                        `furthestPositionMs` INTEGER NOT NULL,
+                        `hasReachedEnd` INTEGER NOT NULL, 
+                        `lastUpdated` INTEGER NOT NULL, 
+                        PRIMARY KEY(`artifactId`)
+                    )
+                """.trimIndent())
+            }
+        }
+        val MIGRATION_28_29 = object : Migration(28, 29) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // 1. Add column to current table first
+                db.execSQL("ALTER TABLE `artifact_drafts` ADD COLUMN `totalTimeListenedMs` INTEGER NOT NULL DEFAULT 0")
+                
+                // 2. Recreate to change reviewCoverageBitmask type
+                db.execSQL("CREATE TABLE `artifact_drafts_temp` (`id` TEXT NOT NULL, `localAudioPath` TEXT NOT NULL, `rawPcmPath` TEXT, `localTranscriptPath` TEXT, `waveformPath` TEXT, `title` TEXT, `description` TEXT, `emotion` TEXT, `isPublic` INTEGER NOT NULL, `tags` TEXT NOT NULL, `durationMs` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `status` TEXT NOT NULL, `draftState` TEXT NOT NULL, `uploadStatus` TEXT NOT NULL, `syncState` TEXT NOT NULL, `uploadedBytes` INTEGER NOT NULL, `totalBytes` INTEGER NOT NULL, `uploadSessionUri` TEXT, `uploadAttemptCount` INTEGER NOT NULL, `isEncrypted` INTEGER NOT NULL, `encryptionIv` TEXT, `checksum` TEXT, `approvalToken` TEXT, `deviceFingerprint` TEXT, `cooldownExpiry` INTEGER, `publishApprovalTimestamp` INTEGER, `revocationTimestamp` INTEGER, `emotionalRiskScore` REAL NOT NULL, `publishConfidence` REAL NOT NULL, `isEmotionalReady` INTEGER NOT NULL, `maxReviewPositionMs` INTEGER NOT NULL, `lastPlaybackPositionMs` INTEGER NOT NULL, `reviewCoverageBitmask` INTEGER NOT NULL, `totalTimeListenedMs` INTEGER NOT NULL, `isReviewLocked` INTEGER NOT NULL, `isListened` INTEGER NOT NULL, `deviceId` TEXT, `transcriptionState` TEXT NOT NULL, `remoteArtifactId` TEXT, `emotionalTone` TEXT, `safetyAnalysis` TEXT, `interruptionReason` TEXT, `lastCheckpointTs` INTEGER NOT NULL, `durableBytes` INTEGER NOT NULL, `isCorrupted` INTEGER NOT NULL, `version` INTEGER NOT NULL, `mimeType` TEXT NOT NULL, `amplitudeData` TEXT NOT NULL, `reactionVisibility` TEXT, `uploadedAudioUrl` TEXT, `frozenTranscriptJson` TEXT, `frozenAudioPath` TEXT, `frozenMetadataJson` TEXT, `snapshotHash` TEXT, `transcriptSegmentsJson` TEXT, `sensitiveEntitiesJson` TEXT, PRIMARY KEY(`id`))")
+                
+                db.execSQL("INSERT INTO artifact_drafts_temp SELECT id, localAudioPath, rawPcmPath, localTranscriptPath, waveformPath, title, description, emotion, isPublic, tags, durationMs, createdAt, updatedAt, status, draftState, uploadStatus, syncState, uploadedBytes, totalBytes, uploadSessionUri, uploadAttemptCount, isEncrypted, encryptionIv, checksum, approvalToken, deviceFingerprint, cooldownExpiry, publishApprovalTimestamp, revocationTimestamp, emotionalRiskScore, publishConfidence, isEmotionalReady, maxReviewPositionMs, lastPlaybackPositionMs, 0, totalTimeListenedMs, isReviewLocked, isListened, deviceId, transcriptionState, remoteArtifactId, emotionalTone, safetyAnalysis, interruptionReason, lastCheckpointTs, durableBytes, isCorrupted, version, mimeType, amplitudeData, reactionVisibility, uploadedAudioUrl, frozenTranscriptJson, frozenAudioPath, frozenMetadataJson, snapshotHash, transcriptSegmentsJson, sensitiveEntitiesJson FROM artifact_drafts")
+                
+                db.execSQL("DROP TABLE artifact_drafts")
+                db.execSQL("ALTER TABLE artifact_drafts_temp RENAME TO artifact_drafts")
+            }
+        }
         val MIGRATION_26_27 = object : Migration(26, 27) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 // No changes, just bumping version to force re-validation/destructive migration

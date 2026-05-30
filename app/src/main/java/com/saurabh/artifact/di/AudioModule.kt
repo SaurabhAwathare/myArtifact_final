@@ -45,4 +45,9 @@ object AudioModule {
     @Provides
     @Singleton
     fun provideEmotionAnalyzer(): EmotionAnalyzer = EmotionAnalyzer()
+
+    @Provides
+    @Singleton
+    fun provideReviewValidator(): com.saurabh.artifact.audio.validation.ReviewValidator = 
+        com.saurabh.artifact.audio.validation.DefaultReviewValidator()
 }

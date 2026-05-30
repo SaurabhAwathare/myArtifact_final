@@ -51,8 +51,11 @@ class PlaybackSessionManager @Inject constructor(
     private val _currentPosition = MutableStateFlow(0L)
     val currentPosition: StateFlow<Long> = _currentPosition.asStateFlow()
 
-    private val _duration = MutableStateFlow(0L)
-    val duration: StateFlow<Long> = _duration.asStateFlow()
+    private val _playbackState = MutableStateFlow(Player.STATE_IDLE)
+    val playbackState: StateFlow<Int> = _playbackState.asStateFlow()
+
+    private val _durationMs = MutableStateFlow(0L)
+    val durationMs: StateFlow<Long> = _durationMs.asStateFlow()
 
     private val _playbackSpeed = MutableStateFlow(1.0f)
     val playbackSpeed: StateFlow<Float> = _playbackSpeed.asStateFlow()
@@ -66,6 +69,9 @@ class PlaybackSessionManager @Inject constructor(
     private val _isBuffering = MutableStateFlow(false)
     val isBuffering: StateFlow<Boolean> = _isBuffering.asStateFlow()
 
+    private val _seekEvent = MutableSharedFlow<Long>()
+    val seekEvent: SharedFlow<Long> = _seekEvent.asSharedFlow()
+
     private val _error = MutableSharedFlow<String>(replay = 0)
     val error: SharedFlow<String> = _error.asSharedFlow()
 
@@ -76,9 +82,10 @@ class PlaybackSessionManager @Inject constructor(
         }
 
         override fun onPlaybackStateChanged(state: Int) {
+            _playbackState.value = state
             _isBuffering.value = state == Player.STATE_BUFFERING
             if (state == Player.STATE_READY) {
-                _duration.value = controller?.duration?.coerceAtLeast(0) ?: 0
+                _durationMs.value = controller?.duration?.coerceAtLeast(0) ?: 0
             }
         }
 
@@ -121,7 +128,7 @@ class PlaybackSessionManager @Inject constructor(
                 controller = completer.await()
                 controllerFuture = future
                 _isPlaying.value = controller?.isPlaying ?: false
-                _duration.value = controller?.duration?.coerceAtLeast(0) ?: 0
+                _durationMs.value = controller?.duration?.coerceAtLeast(0) ?: 0
                 controller
             } catch (e: Exception) {
                 null
@@ -195,6 +202,7 @@ class PlaybackSessionManager @Inject constructor(
         scope.launch {
             getController()?.seekTo(position)
             _currentPosition.value = position
+            _seekEvent.emit(position)
         }
     }
 
@@ -216,7 +224,7 @@ class PlaybackSessionManager @Inject constructor(
                     val pos = p.currentPosition
                     val dur = p.duration.coerceAtLeast(0)
                     _currentPosition.value = pos
-                    _duration.value = dur
+                    _durationMs.value = dur
 
                     // Persist position periodically (every 5 seconds)
                     if ((tick % 25) == 0) {

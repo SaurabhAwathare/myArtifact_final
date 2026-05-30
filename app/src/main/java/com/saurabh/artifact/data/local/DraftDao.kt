@@ -39,6 +39,15 @@ interface DraftDao {
     @Query("UPDATE artifact_drafts SET status = :status, updatedAt = :timestamp WHERE id = :id")
     suspend fun updateStatus(id: String, status: DraftStatus, timestamp: Long = System.currentTimeMillis())
 
+    @Query("UPDATE artifact_drafts SET draftState = :state, updatedAt = :timestamp WHERE id = :id")
+    suspend fun updateDraftState(id: String, state: ArtifactDraftState, timestamp: Long = System.currentTimeMillis())
+
+    @Query("UPDATE artifact_drafts SET uploadStatus = :status, updatedAt = :timestamp WHERE id = :id")
+    suspend fun updateUploadStatus(id: String, status: UploadStatus, timestamp: Long = System.currentTimeMillis())
+
+    @Query("UPDATE artifact_drafts SET syncState = :state, updatedAt = :timestamp WHERE id = :id")
+    suspend fun updateSyncState(id: String, state: SyncState, timestamp: Long = System.currentTimeMillis())
+
     @Query("UPDATE artifact_drafts SET rawPcmPath = :path, updatedAt = :timestamp WHERE id = :id")
     suspend fun updateRawPcmPath(id: String, path: String, timestamp: Long = System.currentTimeMillis())
 
@@ -82,14 +91,27 @@ interface DraftDao {
     @Query("UPDATE artifact_drafts SET status = :status, publishApprovalTimestamp = :timestamp, updatedAt = :timestamp WHERE id = :id")
     suspend fun markAsApproved(id: String, status: DraftStatus, timestamp: Long = System.currentTimeMillis())
 
+    @Transaction
+    suspend fun markAsApproved(id: String) {
+        val draft = getDraftById(id) ?: return
+        val newStatus = draft.status.copy(lifecycle = ArtifactLifecycle.READY_TO_PUBLISH)
+        markAsApproved(id, newStatus)
+    }
+
     @Query("UPDATE artifact_drafts SET frozenTranscriptJson = :transcriptJson, frozenAudioPath = :audioPath, frozenMetadataJson = :metadataJson, snapshotHash = :hash, updatedAt = :timestamp WHERE id = :id")
     suspend fun freezeSnapshot(id: String, transcriptJson: String, audioPath: String, metadataJson: String, hash: String, timestamp: Long = System.currentTimeMillis())
 
     @Query("UPDATE artifact_drafts SET status = :status, updatedAt = :timestamp WHERE id = :id")
     suspend fun updateSyncStatus(id: String, status: DraftStatus, timestamp: Long = System.currentTimeMillis())
 
+    @Query("UPDATE artifact_drafts SET maxReviewPositionMs = :positionMs, coveragePart1 = :p1, coveragePart2 = :p2, isPlaybackEnded = :isEnded, updatedAt = :timestamp WHERE id = :id")
+    suspend fun updateReviewEvidence(id: String, positionMs: Long, p1: Long, p2: Long, isEnded: Boolean, timestamp: Long = System.currentTimeMillis())
+
     @Query("UPDATE artifact_drafts SET maxReviewPositionMs = :positionMs, reviewCoverageBitmask = :coverage, updatedAt = :timestamp WHERE id = :id")
-    suspend fun updateReviewProgress(id: String, positionMs: Long, coverage: String, timestamp: Long = System.currentTimeMillis())
+    suspend fun updateReviewProgress(id: String, positionMs: Long, coverage: Long, timestamp: Long = System.currentTimeMillis())
+
+    @Query("UPDATE artifact_drafts SET totalTimeListenedMs = :timeMs, updatedAt = :timestamp WHERE id = :id")
+    suspend fun updateTotalTimeListened(id: String, timeMs: Long, timestamp: Long = System.currentTimeMillis())
 
     @Query("UPDATE artifact_drafts SET lastPlaybackPositionMs = :positionMs, updatedAt = :timestamp WHERE id = :id")
     suspend fun updateLastPlaybackPosition(id: String, positionMs: Long, timestamp: Long = System.currentTimeMillis())
@@ -99,6 +121,9 @@ interface DraftDao {
 
     @Query("SELECT * FROM artifact_drafts WHERE status LIKE :query")
     suspend fun getDraftsByLifecycle(query: String): List<ArtifactDraftEntity>
+
+    @Query("SELECT * FROM artifact_drafts WHERE draftState = :state")
+    suspend fun getDraftsByState(state: ArtifactDraftState): List<ArtifactDraftEntity>
 
     @Query("DELETE FROM artifact_drafts WHERE id = :id")
     suspend fun deleteById(id: String)
