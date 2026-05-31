@@ -3,6 +3,7 @@ package com.saurabh.artifact.audio
 import android.content.Context
 import android.util.Log
 import com.saurabh.artifact.security.SecurityArchitecture
+import com.saurabh.artifact.util.StorageManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.io.InputStream
@@ -12,12 +13,11 @@ import javax.inject.Singleton
 
 @Singleton
 class LocalDraftManager @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val storageManager: StorageManager
 ) {
     private val draftDir by lazy {
-        File(context.filesDir, "draft_audio").apply {
-            if (!exists()) mkdirs()
-        }
+        storageManager.getDraftsRootDirectory()
     }
 
     private val encryptedDir by lazy {
@@ -38,12 +38,14 @@ class LocalDraftManager @Inject constructor(
         }
     }
 
-    fun createDraftFile(extension: String = "m4a"): File {
-        return File(draftDir, "draft_${System.currentTimeMillis()}.$extension")
+    fun createDraftFile(draftId: String, extension: String = "m4a"): File {
+        val dir = storageManager.getDraftDirectory(draftId)
+        return File(dir, "audio.$extension")
     }
 
     fun createEncryptedDraftFile(draftId: String, extension: String = "m4a"): File {
-        return File(encryptedDir, "enc_${draftId}.$extension")
+        val dir = storageManager.getDraftDirectory(draftId)
+        return File(dir, "audio_enc.$extension")
     }
 
     fun getEncryptedOutputStream(file: File): OutputStream {
@@ -55,16 +57,23 @@ class LocalDraftManager @Inject constructor(
     }
 
     fun createWaveformFile(draftId: String): File {
-        return File(waveformDir, "waveform_$draftId.json")
+        val dir = storageManager.getDraftDirectory(draftId)
+        return File(dir, "waveform.json")
     }
 
     fun createTranscriptFile(draftId: String): File {
-        return File(transcriptDir, "transcript_$draftId.txt")
+        val dir = storageManager.getDraftDirectory(draftId)
+        return File(dir, "transcript.txt")
+    }
+
+    fun createTempFile(draftId: String, prefix: String, extension: String): File {
+        val dir = storageManager.getDraftDirectory(draftId)
+        return File(dir, "${prefix}_${System.currentTimeMillis()}.$extension")
     }
 
     fun deleteDraft(path: String): Boolean {
         val file = File(path)
-        if (file.absolutePath.contains("encrypted_drafts")) {
+        if (file.absolutePath.contains("audio_enc")) {
             SecurityArchitecture.secureDelete(file)
             return true
         }

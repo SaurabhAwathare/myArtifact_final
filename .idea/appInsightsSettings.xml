@@ -21,14 +21,6 @@
         <entry key="Firebase Crashlytics">
           <value>
             <InsightsFilterSettings>
-              <option name="connection">
-                <ConnectionSetting>
-                  <option name="appId" value="com.saurabh.artifact" />
-                  <option name="mobileSdkAppId" value="1:1002864539573:android:b517e49cf083dd97290bfc" />
-                  <option name="projectId" value="myartifact-555e3" />
-                  <option name="projectNumber" value="1002864539573" />
-                </ConnectionSetting>
-              </option>
               <option name="signal" value="SIGNAL_UNSPECIFIED" />
               <option name="timeIntervalDays" value="THIRTY_DAYS" />
               <option name="visibilityType" value="ALL" />

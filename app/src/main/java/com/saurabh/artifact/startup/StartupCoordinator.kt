@@ -14,6 +14,7 @@ import com.saurabh.artifact.util.NotificationHelper
 import com.saurabh.artifact.util.StartupTracer
 import com.saurabh.artifact.worker.ReminderWorker
 import com.saurabh.artifact.worker.RecoveryWorker
+import com.saurabh.artifact.worker.CleanupOrphanFilesWorker
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
@@ -156,6 +157,7 @@ class StartupCoordinator @Inject constructor(
     private fun initializeBackground() {
         Log.d("Startup", "Initializing Background Services")
         scheduleDailyReminder()
+        scheduleOrphanCleanup()
         StartupTracer.mark("Background Services Ready")
     }
 
@@ -169,6 +171,20 @@ class StartupCoordinator @Inject constructor(
             "daily_reflection_reminder",
             ExistingPeriodicWorkPolicy.KEEP,
             reminderRequest
+        )
+    }
+
+    private fun scheduleOrphanCleanup() {
+        // Run orphan cleanup every 24 hours
+        val cleanupRequest = PeriodicWorkRequestBuilder<CleanupOrphanFilesWorker>(24, TimeUnit.HOURS)
+            .setInitialDelay(30, TimeUnit.SECONDS) // Run soon after startup
+            .addTag("orphan_cleanup")
+            .build()
+
+        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+            "orphan_media_cleanup",
+            ExistingPeriodicWorkPolicy.KEEP,
+            cleanupRequest
         )
     }
 

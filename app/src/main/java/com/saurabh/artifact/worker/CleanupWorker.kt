@@ -5,7 +5,6 @@ import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import com.saurabh.artifact.audio.LocalDraftManager
 import com.saurabh.artifact.data.local.DraftDao
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -19,7 +18,7 @@ class CleanupWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted params: WorkerParameters,
     private val draftDao: DraftDao,
-    private val localDraftManager: LocalDraftManager
+    private val deletionManager: com.saurabh.artifact.audio.DraftDeletionManager
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
@@ -32,11 +31,8 @@ class CleanupWorker @AssistedInject constructor(
             val draft = draftDao.getDraftByArtifactId(artifactId)
             
             if (draft != null) {
-                // 2. Delete local files
-                localDraftManager.deleteDraftFiles(draft)
-                
-                // 3. Delete from database
-                draftDao.deleteById(draft.id)
+                // 2. Authoritative delete
+                deletionManager.deleteDraft(draft.id)
                 Log.d("CleanupWorker", "Successfully cleaned up local data for $artifactId")
             } else {
                 Log.w("CleanupWorker", "No local draft found for artifact $artifactId")

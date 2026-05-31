@@ -16,10 +16,10 @@ sealed class Screen(val route: String) {
         }
     }
     object Settings : Screen("settings")
-    object DraftEdit : Screen("draft_edit/{filePath}") {
-        fun createRoute(filePath: String): String {
-            val encodedPath = URLEncoder.encode(filePath, StandardCharsets.UTF_8.toString())
-            return "draft_edit/$encodedPath"
+    object DraftEdit : Screen("draft_edit/{draftId}") {
+        fun createRoute(draftId: String): String {
+            val encodedId = URLEncoder.encode(draftId, StandardCharsets.UTF_8.toString())
+            return "draft_edit/$encodedId"
         }
     }
     object Notifications : Screen("notifications")

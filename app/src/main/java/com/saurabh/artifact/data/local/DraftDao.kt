@@ -61,7 +61,10 @@ interface DraftDao {
     suspend fun updateRecordingCheckpoint(id: String, durationMs: Long, amplitudes: List<Float>, checkpointTs: Long, durableBytes: Long, updatedAt: Long = System.currentTimeMillis())
 
     @Query("UPDATE artifact_drafts SET title = :title, updatedAt = :timestamp WHERE id = :id")
-    suspend fun updateTitle(id: String, title: String, timestamp: Long = System.currentTimeMillis())
+    suspend fun updateTitle(id: String, title: String?, timestamp: Long = System.currentTimeMillis())
+
+    @Query("UPDATE artifact_drafts SET title = :title, emotion = :emotion, updatedAt = :timestamp WHERE id = :id")
+    suspend fun updateMetadata(id: String, title: String?, emotion: String?, timestamp: Long = System.currentTimeMillis())
 
     @Query("UPDATE artifact_drafts SET uploadedAudioUrl = :url, updatedAt = :timestamp WHERE id = :id")
     suspend fun updateUploadCheckpoint(id: String, url: String, timestamp: Long = System.currentTimeMillis())
@@ -118,6 +121,9 @@ interface DraftDao {
 
     @Query("UPDATE artifact_drafts SET lastPlaybackPositionMs = :positionMs, updatedAt = :timestamp WHERE id = :id")
     suspend fun updateLastPlaybackPosition(id: String, positionMs: Long, timestamp: Long = System.currentTimeMillis())
+
+    @Query("SELECT id FROM artifact_drafts")
+    suspend fun getAllDraftIds(): List<String>
 
     @Query("SELECT * FROM artifact_drafts WHERE remoteArtifactId = :artifactId")
     suspend fun getDraftByArtifactId(artifactId: String): ArtifactDraftEntity?

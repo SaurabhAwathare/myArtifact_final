@@ -279,6 +279,25 @@ fun NavGraph(
                 onBack = onBack,
                 onReviewDraft = { draftId ->
                     navController.navigate(Screen.RecordingReview.createRoute(draftId))
+                },
+                onEditDraft = { draftId ->
+                    navController.navigate(Screen.DraftEdit.createRoute(draftId))
+                }
+            )
+        }
+        composable(
+            route = Screen.DraftEdit.route,
+            arguments = listOf(navArgument("draftId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val draftId = URLDecoder.decode(backStackEntry.arguments?.getString("draftId") ?: "", StandardCharsets.UTF_8.toString())
+            com.saurabh.artifact.ui.drafts.edit.DraftEditScreen(
+                draftId = draftId,
+                onBack = onBack,
+                onReview = {
+                    navController.navigate(Screen.RecordingReview.createRoute(draftId))
+                },
+                onPublish = {
+                    navController.navigate(Screen.PublishPreparation.createRoute(draftId))
                 }
             )
         }

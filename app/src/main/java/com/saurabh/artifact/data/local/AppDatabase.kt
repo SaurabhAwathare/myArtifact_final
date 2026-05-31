@@ -7,20 +7,41 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [QueuedUpload::class, ArtifactDraftEntity::class, PromptEntity::class, PlaybackPosition::class, ArtifactReviewEvidence::class, ArtifactEntity::class],
-    version = 34,
+    entities = [QueuedUpload::class, ArtifactDraftEntity::class, PromptEntity::class, PlaybackPosition::class, ArtifactReviewEvidence::class, ArtifactEntity::class, UploadTaskEntity::class],
+    version = 35,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun queuedUploadDao(): QueuedUploadDao
     abstract fun draftDao(): DraftDao
+    abstract fun uploadTaskDao(): UploadTaskDao
     abstract fun promptDao(): PromptDao
     abstract fun playbackPositionDao(): PlaybackPositionDao
     abstract fun reviewDao(): ReviewDao
     abstract fun artifactDao(): ArtifactDao
 
     companion object {
+        val MIGRATION_34_35 = object : Migration(34, 35) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `upload_tasks` (
+                        `draftId` TEXT NOT NULL, 
+                        `workerId` TEXT, 
+                        `status` TEXT NOT NULL, 
+                        `uploadedBytes` INTEGER NOT NULL, 
+                        `totalBytes` INTEGER NOT NULL, 
+                        `sessionUri` TEXT, 
+                        `audioUrl` TEXT, 
+                        `lastUpdated` INTEGER NOT NULL, 
+                        PRIMARY KEY(`draftId`), 
+                        FOREIGN KEY(`draftId`) REFERENCES `artifact_drafts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE 
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_upload_tasks_draftId` ON `upload_tasks` (`draftId`)")
+            }
+        }
+
         val MIGRATION_33_34 = object : Migration(33, 34) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("""

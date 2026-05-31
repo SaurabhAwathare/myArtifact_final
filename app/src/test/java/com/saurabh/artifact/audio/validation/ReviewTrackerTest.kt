@@ -13,7 +13,7 @@ class ReviewTrackerTest {
     fun `test normal playback completion`() {
         val duration = 10000L // 10s
         val evidence = ReviewEvidence("art1", "v1", duration)
-        val policy = ReviewPolicy(segmentSizeMs = 1000) // 1s segments for test
+        val policy = ReviewPolicy()
         val tracker = DefaultReviewTracker(evidence, policy, ruleEngine)
         
         // Simulating ticks every 100ms

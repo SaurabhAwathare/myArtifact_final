@@ -90,4 +90,14 @@ class Converters {
     } catch (_: Exception) {
         emptyMap()
     }
+
+    @TypeConverter
+    fun fromSyncStatus(status: SyncStatus): String = Json.encodeToString(status)
+
+    @TypeConverter
+    fun toSyncStatus(value: String): SyncStatus = try {
+        Json.decodeFromString(value)
+    } catch (_: Exception) {
+        SyncStatus.Queued
+    }
 }

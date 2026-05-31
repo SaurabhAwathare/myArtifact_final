@@ -3,9 +3,10 @@ package com.saurabh.artifact.ui.drafts.list
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.saurabh.artifact.audio.AudioPlayer
-import com.saurabh.artifact.data.local.ArtifactDraftEntity
-import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.domain.PublishingOrchestrator
+import com.saurabh.artifact.model.Artifact
+import com.saurabh.artifact.repository.DraftRepository
+import com.saurabh.artifact.repository.DraftWithUpload
 import com.saurabh.artifact.repository.RecordingRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
@@ -18,23 +19,24 @@ import javax.inject.Inject
 @HiltViewModel
 class DraftListViewModel @Inject constructor(
     private val recordingRepository: RecordingRepository,
+    private val draftRepository: DraftRepository,
     private val publishingOrchestrator: PublishingOrchestrator,
     val audioPlayer: AudioPlayer
 ) : ViewModel() {
 
-    val drafts: StateFlow<List<ArtifactDraftEntity>> = recordingRepository.observeDrafts()
+    val drafts: StateFlow<List<DraftWithUpload>> = draftRepository.observeDraftsWithUploads()
         .map { list -> 
             list.filter { 
-                it.status.lifecycle != com.saurabh.artifact.model.ArtifactLifecycle.PUBLISHED &&
-                it.status.lifecycle != com.saurabh.artifact.model.ArtifactLifecycle.READY_TO_PUBLISH
+                it.draft.status.lifecycle != com.saurabh.artifact.model.ArtifactLifecycle.PUBLISHED &&
+                it.draft.status.lifecycle != com.saurabh.artifact.model.ArtifactLifecycle.READY_TO_PUBLISH
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val publishingDrafts: StateFlow<List<ArtifactDraftEntity>> = recordingRepository.observeDrafts()
+    val publishingDrafts: StateFlow<List<DraftWithUpload>> = draftRepository.observeDraftsWithUploads()
         .map { list -> 
             list.filter { 
-                it.status.lifecycle == com.saurabh.artifact.model.ArtifactLifecycle.READY_TO_PUBLISH 
+                it.draft.status.lifecycle == com.saurabh.artifact.model.ArtifactLifecycle.READY_TO_PUBLISH 
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -42,7 +44,8 @@ class DraftListViewModel @Inject constructor(
     val isPlaying = audioPlayer.isPlaying
     val currentlyPlayingArtifact = audioPlayer.currentArtifact
 
-    fun playDraft(draft: ArtifactDraftEntity) {
+    fun playDraft(draftWithUpload: DraftWithUpload) {
+        val draft = draftWithUpload.draft
         if (draft.status.sync is com.saurabh.artifact.model.SyncStatus.Recovering || 
             draft.syncState == com.saurabh.artifact.model.SyncState.RECOVERING) {
             // If recovering, we should first try to process it before playing
@@ -68,32 +71,33 @@ class DraftListViewModel @Inject constructor(
         }
     }
 
-    fun deleteDraft(draft: ArtifactDraftEntity) {
+    fun deleteDraft(draftWithUpload: DraftWithUpload) {
+        val draft = draftWithUpload.draft
         viewModelScope.launch {
             if (audioPlayer.currentArtifact.value?.id == draft.id.toString()) {
                 audioPlayer.stop()
             }
-            recordingRepository.deleteDraft(draft)
+            draftRepository.deleteDraftCompletely(draft.id)
         }
     }
 
-    fun retryPublish(draft: ArtifactDraftEntity) {
+    fun retryPublish(draftWithUpload: DraftWithUpload) {
         viewModelScope.launch {
-            publishingOrchestrator.retryPublishing(draft.id)
+            publishingOrchestrator.retryPublishing(draftWithUpload.draft.id)
         }
     }
 
-    fun cancelPublish(draft: ArtifactDraftEntity) {
+    fun cancelPublish(draftWithUpload: DraftWithUpload) {
+        val draft = draftWithUpload.draft
         viewModelScope.launch {
             // Move back to review required and cancel work
+            draftRepository.updateUploadStatus(draft.id, com.saurabh.artifact.model.SyncStatus.LocalOnly)
             recordingRepository.updateDraft(draft.copy(
                 status = draft.status.copy(
                     lifecycle = com.saurabh.artifact.model.ArtifactLifecycle.REVIEW_REQUIRED,
                     sync = com.saurabh.artifact.model.SyncStatus.LocalOnly
                 )
             ))
-            // WorkManager will handle the cancellation via tag if we implement it, 
-            // but for now updating lifecycle removes it from the publishing queue view.
         }
     }
 

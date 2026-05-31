@@ -9,12 +9,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -29,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.model.ArtifactDraftState
+import com.saurabh.artifact.repository.DraftWithUpload
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -37,11 +35,12 @@ import java.util.*
 fun DraftListScreen(
     onBack: () -> Unit,
     onReviewDraft: (String) -> Unit,
+    onEditDraft: (String) -> Unit,
     viewModel: DraftListViewModel = hiltViewModel()
 ) {
     val drafts by viewModel.drafts.collectAsState()
     val publishingDrafts by viewModel.publishingDrafts.collectAsState()
-    var draftToDelete by remember { mutableStateOf<ArtifactDraftEntity?>(null) }
+    var draftToDelete by remember { mutableStateOf<DraftWithUpload?>(null) }
 
     Scaffold(
         topBar = {
@@ -74,11 +73,11 @@ fun DraftListScreen(
                             modifier = Modifier.padding(bottom = 8.dp)
                         )
                     }
-                    items(publishingDrafts, key = { "pub_${it.id}" }) { draft ->
+                    items(publishingDrafts, key = { "pub_${it.draft.id}" }) { draftWithUpload ->
                         PublishingItem(
-                            draft = draft,
-                            onRetry = { viewModel.retryPublish(draft) },
-                            onCancel = { viewModel.cancelPublish(draft) }
+                            draftWithUpload = draftWithUpload,
+                            onRetry = { viewModel.retryPublish(draftWithUpload) },
+                            onCancel = { viewModel.cancelPublish(draftWithUpload) }
                         )
                     }
                     item { Spacer(Modifier.height(8.dp)) }
@@ -95,19 +94,20 @@ fun DraftListScreen(
                             modifier = Modifier.padding(bottom = 8.dp)
                         )
                     }
-                    items(drafts, key = { it.id }) { draft ->
+                    items(drafts, key = { it.draft.id }) { draftWithUpload ->
                         DraftItem(
-                            draft = draft,
+                            draftWithUpload = draftWithUpload,
                             onClick = { 
-                                if (draft.syncState == com.saurabh.artifact.model.SyncState.RECOVERING) {
+                                if (draftWithUpload.draft.syncState == com.saurabh.artifact.model.SyncState.RECOVERING) {
                                     // Trigger processing for interrupted draft
-                                    viewModel.playDraft(draft) // This now triggers processing too
+                                    viewModel.playDraft(draftWithUpload) // This now triggers processing too
                                 } else {
-                                    onReviewDraft(draft.id)
+                                    onReviewDraft(draftWithUpload.draft.id)
                                 }
                             },
+                            onEdit = { onEditDraft(draftWithUpload.draft.id) },
                             onDelete = {
-                                draftToDelete = draft
+                                draftToDelete = draftWithUpload
                             }
                         )
                     }
@@ -115,7 +115,7 @@ fun DraftListScreen(
             }
         }
 
-        draftToDelete?.let { draft ->
+        draftToDelete?.let { draftWithUpload ->
             AlertDialog(
                 onDismissRequest = { draftToDelete = null },
                 title = { Text("Delete Draft") },
@@ -123,7 +123,7 @@ fun DraftListScreen(
                 confirmButton = {
                     TextButton(
                         onClick = {
-                            viewModel.deleteDraft(draft)
+                            viewModel.deleteDraft(draftWithUpload)
                             draftToDelete = null
                         },
                         colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
@@ -143,12 +143,22 @@ fun DraftListScreen(
 
 @Composable
 fun PublishingItem(
-    draft: ArtifactDraftEntity,
+    draftWithUpload: DraftWithUpload,
     onRetry: () -> Unit,
     onCancel: () -> Unit
 ) {
-    val syncStatus = draft.status.sync
-    val progress = if (syncStatus is com.saurabh.artifact.model.SyncStatus.Uploading) syncStatus.progress else 0f
+    val draft = draftWithUpload.draft
+    val task = draftWithUpload.uploadTask
+    
+    val syncStatus = task?.status ?: draft.status.sync
+    val progress = when (syncStatus) {
+        is com.saurabh.artifact.model.SyncStatus.Uploading -> {
+            if (task != null && task.totalBytes > 0) {
+                task.uploadedBytes.toFloat() / task.totalBytes
+            } else syncStatus.progress
+        }
+        else -> 0f
+    }
     val isFailed = syncStatus is com.saurabh.artifact.model.SyncStatus.Failed
     val isWaiting = syncStatus is com.saurabh.artifact.model.SyncStatus.WaitingForNetwork || 
                    syncStatus is com.saurabh.artifact.model.SyncStatus.Queued
@@ -213,14 +223,18 @@ fun PublishingItem(
 
 @Composable
 fun DraftItem(
-    draft: ArtifactDraftEntity,
+    draftWithUpload: DraftWithUpload,
     onClick: () -> Unit,
+    onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val draft = draftWithUpload.draft
     val configuration = LocalConfiguration.current
     val locale = configuration.locales[0]
     val date = SimpleDateFormat("MMM dd, yyyy HH:mm", locale).format(Date(draft.createdAt))
     
+    var showMenu by remember { mutableStateOf(false) }
+
     val isProcessing = draft.status.processing is com.saurabh.artifact.model.ProcessingStatus.Active || 
         draft.draftState in listOf(
             ArtifactDraftState.SAVING,
@@ -274,12 +288,44 @@ fun DraftItem(
                     StatusBadge(draft)
                 }
 
-                IconButton(onClick = onDelete) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = "Delete Draft",
-                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
-                    )
+                Box {
+                    IconButton(onClick = { showMenu = true }) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "More Options",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Continue Review") },
+                            onClick = {
+                                showMenu = false
+                                onClick()
+                            },
+                            leadingIcon = { Icon(Icons.Default.PlayArrow, null) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Edit Draft") },
+                            onClick = {
+                                showMenu = false
+                                onEdit()
+                            },
+                            leadingIcon = { Icon(Icons.Default.Edit, null) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Delete Draft") },
+                            onClick = {
+                                showMenu = false
+                                onDelete()
+                            },
+                            leadingIcon = { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) }
+                        )
+                    }
                 }
             }
         }

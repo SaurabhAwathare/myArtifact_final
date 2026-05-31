@@ -14,6 +14,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -23,7 +25,8 @@ class RecordingSessionManager @Inject constructor(
     private val playbackSessionManager: PlaybackSessionManager,
     private val recordingRepository: RecordingRepository,
     private val localDraftManager: LocalDraftManager,
-    private val draftDao: DraftDao
+    private val draftDao: DraftDao,
+    private val deletionManager: DraftDeletionManager
 ) {
 
     val recordingState = RecordingService.recordingState
@@ -55,8 +58,9 @@ class RecordingSessionManager @Inject constructor(
 
         prepareForRecording()
 
-        val file = localDraftManager.createDraftFile("wav")
-        val draftId = recordingRepository.createDraft(file.absolutePath, 0)
+        val draftId = UUID.randomUUID().toString()
+        val file = localDraftManager.createDraftFile(draftId, "wav")
+        recordingRepository.createDraft(draftId, file.absolutePath, 0)
         val draft = draftDao.getDraftById(draftId)
         
         _activeDraft.value = draft
@@ -94,6 +98,15 @@ class RecordingSessionManager @Inject constructor(
             action = RecordingService.ACTION_CANCEL
         }
         context.startService(intent)
+        
+        val draftId = _activeDraft.value?.id
+        if (draftId != null) {
+            // Use background scope to avoid blocking UI during cancellation purge
+            @OptIn(kotlinx.coroutines.DelicateCoroutinesApi::class)
+            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                deletionManager.deleteDraft(draftId)
+            }
+        }
         _activeDraft.value = null
     }
 

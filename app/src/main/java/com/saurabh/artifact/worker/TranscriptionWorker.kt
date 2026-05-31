@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.saurabh.artifact.audio.LocalDraftManager
 import com.saurabh.artifact.repository.RecordingRepository
 import com.saurabh.artifact.util.EncryptedStorageManager
 import com.saurabh.artifact.util.StorageManager
@@ -26,7 +27,8 @@ class TranscriptionWorker @AssistedInject constructor(
     @Assisted workerParams: WorkerParameters,
     private val recordingRepository: RecordingRepository,
     private val storageManager: StorageManager,
-    private val encryptedStorageManager: EncryptedStorageManager
+    private val encryptedStorageManager: EncryptedStorageManager,
+    private val localDraftManager: LocalDraftManager
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
@@ -54,7 +56,7 @@ class TranscriptionWorker @AssistedInject constructor(
             Log.d("TranscriptionWorker", "Atmospheric Step: Listening quietly to your words...")
             val audioFile = withTimeout(30000) {
                 if (draft.isEncrypted) {
-                    val tempFile = File(applicationContext.cacheDir, "transcribe_${System.currentTimeMillis()}.m4a")
+                    val tempFile = localDraftManager.createTempFile(draftId, "transcribe", "m4a")
                     encryptedStorageManager.getEncryptedInputStream(file).use { input ->
                         tempFile.outputStream().use { output ->
                             input.copyTo(output)
@@ -74,7 +76,7 @@ class TranscriptionWorker @AssistedInject constructor(
             }
 
             // Save transcript to file
-            val transcriptFile = File(applicationContext.filesDir, "transcript_$draftId.txt")
+            val transcriptFile = localDraftManager.createTranscriptFile(draftId)
             transcriptFile.writeText(transcriptText)
             val transcriptPath = transcriptFile.absolutePath
 

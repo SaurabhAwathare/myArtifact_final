@@ -23,5 +23,8 @@ enum class ArtifactLifecycle {
     PUBLISHED,
     
     /** Marked for deletion but not yet purged from storage. */
-    DELETED
+    DELETED,
+
+    /** Actively being purged from storage and database. */
+    DELETING
 }

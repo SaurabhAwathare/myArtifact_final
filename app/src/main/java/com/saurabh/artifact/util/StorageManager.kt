@@ -84,6 +84,40 @@ class StorageManager @Inject constructor(
     }
 
     /**
+     * Resolves the root directory for all drafts.
+     */
+    fun getDraftsRootDirectory(): File {
+        return File(context.filesDir, "drafts").apply {
+            if (!exists()) mkdirs()
+        }
+    }
+
+    /**
+     * Resolves a specific directory for a draft ID.
+     */
+    fun getDraftDirectory(draftId: String): File {
+        return File(getDraftsRootDirectory(), "draft_$draftId").apply {
+            if (!exists()) mkdirs()
+        }
+    }
+
+    /**
+     * Deletes a directory and all its contents recursively.
+     */
+    fun deleteDirectoryRecursively(dir: File): Boolean {
+        if (!dir.exists()) return true
+        if (dir.isDirectory) {
+            val children = dir.listFiles()
+            if (children != null) {
+                for (child in children) {
+                    deleteDirectoryRecursively(child)
+                }
+            }
+        }
+        return dir.delete()
+    }
+
+    /**
      * Securely deletes a file from internal storage.
      */
     fun deleteSecurely(file: File): Boolean {
@@ -91,15 +125,21 @@ class StorageManager @Inject constructor(
         
         // Overwriting with zeros before deletion for basic anti-forensics (best effort)
         try {
-            if (file.canWrite()) {
+            if (file.canWrite() && file.isFile) {
                 val length = file.length()
                 val fos = file.outputStream()
-                fos.write(ByteArray(length.toInt().coerceAtMost(1024 * 1024)))
+                val buffer = ByteArray(4096)
+                var remaining = length
+                while (remaining > 0) {
+                    val toWrite = remaining.coerceAtMost(buffer.size.toLong()).toInt()
+                    fos.write(buffer, 0, toWrite)
+                    remaining -= toWrite
+                }
                 fos.flush()
                 fos.close()
             }
         } catch (e: Exception) {
-            // Ignore errors during overwrite
+            Log.e("StorageManager", "Failed to securely overwrite file: ${file.path}", e)
         }
         
         return file.delete()

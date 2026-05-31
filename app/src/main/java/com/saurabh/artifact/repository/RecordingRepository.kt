@@ -29,20 +29,24 @@ class RecordingRepository @Inject constructor(
     private val draftDao: DraftDao,
     private val localDraftManager: LocalDraftManager,
     private val wavRecoveryManager: com.saurabh.artifact.audio.WavRecoveryManager,
+    private val deletionManager: com.saurabh.artifact.audio.DraftDeletionManager
 ) {
     private val workManager: WorkManager by lazy { WorkManager.getInstance(context) }
     
-    suspend fun startDraft(file: File) = createDraft(file.absolutePath, 0)
+    suspend fun startDraft(draftId: String = UUID.randomUUID().toString()) = withContext(Dispatchers.IO) {
+        val file = localDraftManager.createDraftFile(draftId)
+        createDraft(draftId, file.absolutePath, 0)
+    }
 
     suspend fun createDraft(
+        id: String,
         path: String,
         durationMs: Long,
         checksum: String? = null,
         isEncrypted: Boolean = false,
     ): String = withContext(Dispatchers.IO) {
-        val draftId = UUID.randomUUID().toString()
         val draft = ArtifactDraftEntity(
-            id = draftId,
+            id = id,
             localAudioPath = path,
             rawPcmPath = path, // Track durable source
             durationMs = durationMs,
@@ -56,7 +60,7 @@ class RecordingRepository @Inject constructor(
             updatedAt = System.currentTimeMillis()
         )
         draftDao.insert(draft)
-        draftId
+        id
     }
 
     suspend fun updateRecordingProgress(
@@ -118,20 +122,20 @@ class RecordingRepository @Inject constructor(
         draftDao.updateLastPlaybackPosition(id, positionMs)
     }
 
-    suspend fun renameDraft(id: String, newTitle: String) = withContext(Dispatchers.IO) {
+    suspend fun renameDraft(id: String, newTitle: String?) = withContext(Dispatchers.IO) {
         draftDao.updateTitle(id, newTitle)
     }
 
+    suspend fun updateDraftMetadata(id: String, title: String?, emotion: String?) = withContext(Dispatchers.IO) {
+        draftDao.updateMetadata(id, title, emotion)
+    }
+
     suspend fun deleteDraft(draft: ArtifactDraftEntity) {
-        draftDao.delete(draft)
-        localDraftManager.deleteDraft(draft.localAudioPath)
-        draft.waveformPath?.let { localDraftManager.deleteDraft(it) }
-        draft.localTranscriptPath?.let { localDraftManager.deleteDraft(it) }
+        deletionManager.deleteDraft(draft.id)
     }
 
     suspend fun deleteDraftById(id: String) = withContext(Dispatchers.IO) {
-        val draft = draftDao.getDraftById(id) ?: return@withContext
-        deleteDraft(draft)
+        deletionManager.deleteDraft(id)
     }
 
     suspend fun recoverInterruptedDrafts(): List<ArtifactDraftEntity> {

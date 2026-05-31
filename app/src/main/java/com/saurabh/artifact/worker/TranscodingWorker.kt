@@ -40,6 +40,7 @@ class TranscodingWorker @AssistedInject constructor(
             return@withContext Result.failure()
         }
 
+        var tempAacFile: File? = null
         try {
             // IDEMPOTENCY CHECK: If the encrypted file already exists and metadata is correct, skip
             val existingEncryptedFile = localDraftManager.createEncryptedDraftFile(draftId)
@@ -59,7 +60,7 @@ class TranscodingWorker @AssistedInject constructor(
             }
 
             // 1. Transcode raw WAV to temporary AAC
-            val tempAacFile = localDraftManager.createDraftFile("m4a")
+            tempAacFile = localDraftManager.createTempFile(draftId, "temp", "m4a")
             Log.d("TranscodingWorker", "Atmospheric Step: Refining audio essence...")
             transcodeWavToAac(rawFile, tempAacFile)
             
@@ -75,10 +76,8 @@ class TranscodingWorker @AssistedInject constructor(
             val checksum = artifactRepository.calculateChecksum(encryptedFile.absolutePath)
             
             // 4. Securely delete intermediate files
-            tempAacFile.delete()
-            // We keep raw WAV until normalization and transcription are done? 
-            // Or delete it now? Let's delete it now to save space, 
-            // the encrypted AAC is our new source of truth.
+            // rawFile deletion moved to finally for safety if needed, 
+            // but here we specifically want to delete it on success.
             rawFile.delete()
 
             // 5. Finalize paths in DB
@@ -95,6 +94,8 @@ class TranscodingWorker @AssistedInject constructor(
             Log.e("TranscodingWorker", "Transcoding failed", e)
             updateDraftStatus(draftId, null, "Transcoding failed: ${e.message}")
             Result.retry()
+        } finally {
+            tempAacFile?.delete()
         }
     }
 

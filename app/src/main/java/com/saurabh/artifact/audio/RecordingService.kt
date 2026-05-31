@@ -33,6 +33,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.util.Locale
+import java.util.UUID
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -262,18 +263,15 @@ class RecordingService : Service() {
         _recordingState.value = RecordingState(status = RecordingStatus.PREPARING)
 
         serviceScope.launch {
-            val draft = if (draftId.isNotEmpty()) {
-                draftDao.getDraftById(draftId)
-            } else {
-                null
-            }
-
+            val finalDraftId = if (draftId.isNotEmpty()) draftId else UUID.randomUUID().toString()
+            
+            val draft = draftDao.getDraftById(finalDraftId)
             val file = draft?.let { File(it.localAudioPath) } ?: run {
-                localDraftManager.createDraftFile("m4a")
+                localDraftManager.createDraftFile(finalDraftId, "m4a")
             }
 
-            val finalDraftId = draftId.ifEmpty {
-                recordingRepository.startDraft(file)
+            if (draft == null) {
+                recordingRepository.createDraft(finalDraftId, file.absolutePath, 0)
             }
 
             try {

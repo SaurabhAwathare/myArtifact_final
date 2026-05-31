@@ -24,7 +24,7 @@ import kotlinx.coroutines.withContext
 class PublishingWorker @AssistedInject constructor(
     @Assisted private val appContext: Context,
     @Assisted workerParams: WorkerParameters,
-    private val draftDao: DraftDao,
+    private val draftRepository: com.saurabh.artifact.repository.DraftRepository,
     private val artifactRepository: ArtifactRepository,
     private val userRepository: com.saurabh.artifact.repository.UserRepository,
     private val cleanupManager: com.saurabh.artifact.audio.ArtifactCleanupManager
@@ -34,7 +34,7 @@ class PublishingWorker @AssistedInject constructor(
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val draftId = inputData.getString(KEY_DRAFT_ID) ?: return@withContext Result.failure()
-        val draft = draftDao.getDraftById(draftId) ?: return@withContext Result.failure()
+        val draft = draftRepository.getDraft(draftId) ?: return@withContext Result.failure()
         
         startTime = System.currentTimeMillis()
 
@@ -56,13 +56,13 @@ class PublishingWorker @AssistedInject constructor(
         // 3. Authentication check
         val user = FirebaseAuth.getInstance().currentUser
         if (user == null) {
-            draftDao.update(draft.copy(status = draft.status.copy(sync = SyncStatus.Failed("User not authenticated"))))
+            draftRepository.updateUploadStatus(draftId, SyncStatus.Failed("User not authenticated"))
             return@withContext Result.failure()
         }
 
         try {
             // 4. Update state to UPLOADING
-            draftDao.update(draft.copy(status = draft.status.copy(sync = SyncStatus.Uploading(0f))))
+            draftRepository.updateUploadStatus(draftId, SyncStatus.Uploading(0f))
 
             // 5. Check if Audio is already uploaded (Checkpoint)
             val downloadUrl = if (draft.uploadedAudioUrl != null) {
@@ -74,17 +74,12 @@ class PublishingWorker @AssistedInject constructor(
                     userId = user.uid,
                     draft = draft.copy(localAudioPath = audioPath), // Use frozen path
                     onProgress = { transferred, total, sessionUri ->
-                        val progress = transferred.toFloat() / total.coerceAtLeast(1)
-                        draftDao.update(draft.copy(status = draft.status.copy(sync = SyncStatus.Uploading(progress))))
-                        draftDao.updateSyncProgress(draftId, transferred, total, sessionUri?.toString())
+                        draftRepository.updateUploadProgress(draftId, transferred, total, sessionUri?.toString())
                         updateNotificationIfNeeded(draft.title ?: "Artifact", transferred, total)
                     }
                 )
 
                 val url = uploadResult.getOrThrow()
-                
-                // Persist Checkpoint
-                draftDao.updateUploadCheckpoint(draftId, url)
                 url
             }
 
@@ -106,7 +101,9 @@ class PublishingWorker @AssistedInject constructor(
             val remoteId = firestoreResult.getOrThrow()
 
             // 7. Success - Atomically update state
-            draftDao.markAsPublished(draftId, remoteId)
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                draftRepository.markAsPublished(draftId, remoteId)
+            }
 
             // 8. Schedule Automatic Cleanup (30 days)
             cleanupManager.scheduleRetentionCleanup(remoteId)
@@ -122,21 +119,22 @@ class PublishingWorker @AssistedInject constructor(
                 (e.errorCode == com.google.firebase.storage.StorageException.ERROR_NOT_AUTHORIZED || 
                  e.errorCode == com.google.firebase.storage.StorageException.ERROR_OBJECT_NOT_FOUND)
 
-            if (isPermanent) {
-                draftDao.update(draft.copy(status = draft.status.copy(sync = SyncStatus.Failed(e.message ?: "Permanent upload failure", recoverable = false))))
-                NotificationHelper.showUploadErrorNotification(appContext, draft.title ?: "Artifact")
-                Result.failure()
-            } else {
-                // If it's a network error or transient, set to WaitingForNetwork or Queued
-                val isNetworkError = e is java.io.IOException || 
-                                   (e is com.google.firebase.storage.StorageException && 
-                                    e.errorCode == com.google.firebase.storage.StorageException.ERROR_RETRY_LIMIT_EXCEEDED)
-                
-                val nextStatus = if (isNetworkError) SyncStatus.WaitingForNetwork else SyncStatus.Queued
-                draftDao.update(draft.copy(status = draft.status.copy(sync = nextStatus)))
-
-                Result.retry()
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                if (isPermanent) {
+                    draftRepository.updateUploadStatus(draftId, SyncStatus.Failed(e.message ?: "Permanent upload failure", recoverable = false))
+                    NotificationHelper.showUploadErrorNotification(appContext, draft.title ?: "Artifact")
+                } else {
+                    // If it's a network error or transient, set to WaitingForNetwork or Queued
+                    val isNetworkError = e is java.io.IOException || 
+                                       (e is com.google.firebase.storage.StorageException && 
+                                        e.errorCode == com.google.firebase.storage.StorageException.ERROR_RETRY_LIMIT_EXCEEDED)
+                    
+                    val nextStatus = if (isNetworkError) SyncStatus.WaitingForNetwork else SyncStatus.Queued
+                    draftRepository.updateUploadStatus(draftId, nextStatus)
+                }
             }
+
+            if (isPermanent) Result.failure() else Result.retry()
         }
     }
 

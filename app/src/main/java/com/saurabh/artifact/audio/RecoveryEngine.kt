@@ -12,10 +12,13 @@ import javax.inject.Singleton
 class RecoveryEngine @Inject constructor(
     private val draftDao: DraftDao,
     private val localDraftManager: LocalDraftManager,
-    private val wavRecoveryManager: WavRecoveryManager
+    private val wavRecoveryManager: WavRecoveryManager,
+    private val deletionManager: DraftDeletionManager
 ) {
     suspend fun runRecovery() {
         Log.d("RecoveryEngine", "Starting recovery check...")
+        
+        // 1. Recover interrupted recordings
         val recordings = draftDao.getActiveRecordings()
         recordings.forEach { draft ->
             val pcmPath = draft.rawPcmPath ?: draft.localAudioPath
@@ -65,11 +68,17 @@ class RecoveryEngine @Inject constructor(
             
             localDraftManager.cleanupOrphans(knownPaths)
             
+            // 3. Authoritative cleanup for DELETING and PUBLISHED drafts
+            val deletingDrafts = draftDao.getDraftsByLifecycle("{\"lifecycle\":\"DELETING\"%}")
+            deletingDrafts.forEach { draft ->
+                Log.d("RecoveryEngine", "Resuming deletion for draft: ${draft.id}")
+                deletionManager.deleteDraft(draft.id)
+            }
+
             val publishedDrafts = draftDao.getDraftsByState(ArtifactDraftState.PUBLISHED)
             publishedDrafts.forEach { draft ->
                 Log.d("RecoveryEngine", "Belated cleanup for published draft: ${draft.id}")
-                localDraftManager.deleteDraftFiles(draft)
-                draftDao.deleteById(draft.id)
+                deletionManager.deleteDraft(draft.id)
             }
         } catch (e: Exception) {
             Log.e("RecoveryEngine", "Cleanup orphans/published failed", e)
