@@ -6,6 +6,7 @@ import com.saurabh.artifact.data.local.AppDatabase
 import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.data.local.PromptDao
 import com.saurabh.artifact.data.local.QueuedUploadDao
+import com.saurabh.artifact.security.DatabaseEncryptionManager
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -19,12 +20,16 @@ object DatabaseModule {
 
     @Provides
     @Singleton
-    fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase {
+    fun provideAppDatabase(
+        @ApplicationContext context: Context,
+        encryptionManager: DatabaseEncryptionManager
+    ): AppDatabase {
         return Room.databaseBuilder(
             context,
             AppDatabase::class.java,
             "artifact_db",
-        ).addMigrations(
+        ).openHelperFactory(encryptionManager.getEncryptionFactory())
+            .addMigrations(
             AppDatabase.MIGRATION_1_2,
             AppDatabase.MIGRATION_2_3,
             AppDatabase.MIGRATION_3_4,

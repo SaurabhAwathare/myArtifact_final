@@ -42,6 +42,8 @@ kotlinxCoroutinesGuava = "1.10.2"
 playServicesBase = "18.10.0"
 securityCrypto = "1.1.0"
 androidsvg = "1.4"
+bip39 = "1.0.9"
+sqlcipher = "4.16.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -83,8 +85,10 @@ mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
 kotlinx-coroutines-guava = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-guava", version.ref = "kotlinxCoroutinesGuava" }
 play-services-base = { group = "com.google.android.gms", name = "play-services-base", version.ref = "playServicesBase" }
 androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
+bip39 = { group = "cash.z.ecc.android", name = "kotlin-bip39", version.ref = "bip39" }
 androidsvg = { group = "com.caverock", name = "androidsvg-aar", version.ref = "androidsvg" }
 androidx-startup = { group = "androidx.startup", name = "startup-runtime", version.ref = "startup" }
+sqlcipher = { group = "net.zetetic", name = "sqlcipher-android", version.ref = "sqlcipher" }
 
 # Paging
 androidx-paging-runtime = { group = "androidx.paging", name = "paging-runtime", version.ref = "paging" }

@@ -1,0 +1,828 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 35,
+    "identityHash": "0d9b7f2fb087443fc30f07f21b4488ca",
+    "entities": [
+      {
+        "tableName": "queued_uploads",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `userId` TEXT NOT NULL, `username` TEXT NOT NULL, `fileUri` TEXT NOT NULL, `title` TEXT NOT NULL, `isPublic` INTEGER NOT NULL, `duration` INTEGER NOT NULL, `emotion` TEXT NOT NULL, `emotionTag` TEXT NOT NULL, `emotionConfidence` REAL NOT NULL, `avatarSeed` TEXT NOT NULL, `prompt` TEXT NOT NULL, `redactionFilter` TEXT NOT NULL, `amplitudeDataJson` TEXT NOT NULL, `createdAt` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "userId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "username",
+            "columnName": "username",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fileUri",
+            "columnName": "fileUri",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isPublic",
+            "columnName": "isPublic",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "duration",
+            "columnName": "duration",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "emotion",
+            "columnName": "emotion",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "emotionTag",
+            "columnName": "emotionTag",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "emotionConfidence",
+            "columnName": "emotionConfidence",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "avatarSeed",
+            "columnName": "avatarSeed",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "prompt",
+            "columnName": "prompt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "redactionFilter",
+            "columnName": "redactionFilter",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "amplitudeDataJson",
+            "columnName": "amplitudeDataJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "artifact_drafts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `localAudioPath` TEXT NOT NULL, `rawPcmPath` TEXT, `localTranscriptPath` TEXT, `waveformPath` TEXT, `title` TEXT, `description` TEXT, `emotion` TEXT, `isPublic` INTEGER NOT NULL, `tags` TEXT NOT NULL, `durationMs` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `status` TEXT NOT NULL, `draftState` TEXT NOT NULL, `uploadStatus` TEXT NOT NULL, `syncState` TEXT NOT NULL, `uploadedBytes` INTEGER NOT NULL, `totalBytes` INTEGER NOT NULL, `uploadSessionUri` TEXT, `uploadAttemptCount` INTEGER NOT NULL, `isEncrypted` INTEGER NOT NULL, `encryptionIv` TEXT, `checksum` TEXT, `approvalToken` TEXT, `deviceFingerprint` TEXT, `cooldownExpiry` INTEGER, `publishApprovalTimestamp` INTEGER, `revocationTimestamp` INTEGER, `emotionalRiskScore` REAL NOT NULL, `publishConfidence` REAL NOT NULL, `isEmotionalReady` INTEGER NOT NULL, `maxReviewPositionMs` INTEGER NOT NULL, `lastPlaybackPositionMs` INTEGER NOT NULL, `reviewCoverageBitmask` INTEGER NOT NULL, `coveragePart1` INTEGER NOT NULL, `coveragePart2` INTEGER NOT NULL, `totalTimeListenedMs` INTEGER NOT NULL, `isReviewLocked` INTEGER NOT NULL, `isListened` INTEGER NOT NULL, `isPlaybackEnded` INTEGER NOT NULL, `deviceId` TEXT, `transcriptionState` TEXT NOT NULL, `remoteArtifactId` TEXT, `emotionalTone` TEXT, `safetyAnalysis` TEXT, `interruptionReason` TEXT, `lastCheckpointTs` INTEGER NOT NULL, `durableBytes` INTEGER NOT NULL, `isCorrupted` INTEGER NOT NULL, `version` INTEGER NOT NULL, `mimeType` TEXT NOT NULL, `amplitudeData` TEXT NOT NULL, `reactionVisibility` TEXT, `uploadedAudioUrl` TEXT, `frozenTranscriptJson` TEXT, `frozenAudioPath` TEXT, `frozenMetadataJson` TEXT, `snapshotHash` TEXT, `transcriptSegmentsJson` TEXT, `sensitiveEntitiesJson` TEXT, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "localAudioPath",
+            "columnName": "localAudioPath",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rawPcmPath",
+            "columnName": "rawPcmPath",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "localTranscriptPath",
+            "columnName": "localTranscriptPath",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "waveformPath",
+            "columnName": "waveformPath",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "description",
+            "columnName": "description",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "emotion",
+            "columnName": "emotion",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "isPublic",
+            "columnName": "isPublic",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tags",
+            "columnName": "tags",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "durationMs",
+            "columnName": "durationMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "draftState",
+            "columnName": "draftState",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "uploadStatus",
+            "columnName": "uploadStatus",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncState",
+            "columnName": "syncState",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "uploadedBytes",
+            "columnName": "uploadedBytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "totalBytes",
+            "columnName": "totalBytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "uploadSessionUri",
+            "columnName": "uploadSessionUri",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "uploadAttemptCount",
+            "columnName": "uploadAttemptCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isEncrypted",
+            "columnName": "isEncrypted",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "encryptionIv",
+            "columnName": "encryptionIv",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "checksum",
+            "columnName": "checksum",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "approvalToken",
+            "columnName": "approvalToken",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "deviceFingerprint",
+            "columnName": "deviceFingerprint",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "cooldownExpiry",
+            "columnName": "cooldownExpiry",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "publishApprovalTimestamp",
+            "columnName": "publishApprovalTimestamp",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "revocationTimestamp",
+            "columnName": "revocationTimestamp",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "emotionalRiskScore",
+            "columnName": "emotionalRiskScore",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "publishConfidence",
+            "columnName": "publishConfidence",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isEmotionalReady",
+            "columnName": "isEmotionalReady",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "maxReviewPositionMs",
+            "columnName": "maxReviewPositionMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastPlaybackPositionMs",
+            "columnName": "lastPlaybackPositionMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reviewCoverageBitmask",
+            "columnName": "reviewCoverageBitmask",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "coveragePart1",
+            "columnName": "coveragePart1",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "coveragePart2",
+            "columnName": "coveragePart2",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "totalTimeListenedMs",
+            "columnName": "totalTimeListenedMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isReviewLocked",
+            "columnName": "isReviewLocked",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isListened",
+            "columnName": "isListened",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isPlaybackEnded",
+            "columnName": "isPlaybackEnded",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deviceId",
+            "columnName": "deviceId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "transcriptionState",
+            "columnName": "transcriptionState",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "remoteArtifactId",
+            "columnName": "remoteArtifactId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "emotionalTone",
+            "columnName": "emotionalTone",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "safetyAnalysis",
+            "columnName": "safetyAnalysis",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "interruptionReason",
+            "columnName": "interruptionReason",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastCheckpointTs",
+            "columnName": "lastCheckpointTs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "durableBytes",
+            "columnName": "durableBytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isCorrupted",
+            "columnName": "isCorrupted",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "version",
+            "columnName": "version",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mimeType",
+            "columnName": "mimeType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "amplitudeData",
+            "columnName": "amplitudeData",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reactionVisibility",
+            "columnName": "reactionVisibility",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "uploadedAudioUrl",
+            "columnName": "uploadedAudioUrl",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "frozenTranscriptJson",
+            "columnName": "frozenTranscriptJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "frozenAudioPath",
+            "columnName": "frozenAudioPath",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "frozenMetadataJson",
+            "columnName": "frozenMetadataJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "snapshotHash",
+            "columnName": "snapshotHash",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "transcriptSegmentsJson",
+            "columnName": "transcriptSegmentsJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sensitiveEntitiesJson",
+            "columnName": "sensitiveEntitiesJson",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "prompts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `question` TEXT NOT NULL, `category` TEXT NOT NULL, `tone` TEXT NOT NULL, `mood` TEXT, `isFavorite` INTEGER NOT NULL, `usageCount` INTEGER NOT NULL, `lastUsedTimestamp` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "question",
+            "columnName": "question",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "category",
+            "columnName": "category",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tone",
+            "columnName": "tone",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mood",
+            "columnName": "mood",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "isFavorite",
+            "columnName": "isFavorite",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "usageCount",
+            "columnName": "usageCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastUsedTimestamp",
+            "columnName": "lastUsedTimestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "playback_positions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`artifactId` TEXT NOT NULL, `positionMs` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`artifactId`))",
+        "fields": [
+          {
+            "fieldPath": "artifactId",
+            "columnName": "artifactId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "positionMs",
+            "columnName": "positionMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "artifactId"
+          ]
+        }
+      },
+      {
+        "tableName": "artifact_review_evidence",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`artifactId` TEXT NOT NULL, `versionTag` TEXT NOT NULL, `durationMs` INTEGER NOT NULL, `audioChecksum` TEXT NOT NULL, `coverage` BLOB NOT NULL, `effortMap` TEXT NOT NULL, `furthestPositionMs` INTEGER NOT NULL, `hasReachedEnd` INTEGER NOT NULL, `lastUpdated` INTEGER NOT NULL, PRIMARY KEY(`artifactId`))",
+        "fields": [
+          {
+            "fieldPath": "artifactId",
+            "columnName": "artifactId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "versionTag",
+            "columnName": "versionTag",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "durationMs",
+            "columnName": "durationMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "audioChecksum",
+            "columnName": "audioChecksum",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "coverage",
+            "columnName": "coverage",
+            "affinity": "BLOB",
+            "notNull": true
+          },
+          {
+            "fieldPath": "effortMap",
+            "columnName": "effortMap",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "furthestPositionMs",
+            "columnName": "furthestPositionMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hasReachedEnd",
+            "columnName": "hasReachedEnd",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastUpdated",
+            "columnName": "lastUpdated",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "artifactId"
+          ]
+        }
+      },
+      {
+        "tableName": "artifacts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `userId` TEXT NOT NULL, `authorAnonymousId` TEXT NOT NULL, `authorName` TEXT NOT NULL, `authorSigil` TEXT NOT NULL, `authorAvatarSeed` TEXT NOT NULL, `authorAvatarColor` TEXT NOT NULL, `authorAvatarConfigJson` TEXT NOT NULL, `audioUrl` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `durationMs` INTEGER NOT NULL, `title` TEXT NOT NULL, `description` TEXT NOT NULL, `emotion` TEXT NOT NULL, `emotionTag` TEXT NOT NULL, `playCount` INTEGER NOT NULL, `reactionCount` INTEGER NOT NULL, `commentCount` INTEGER NOT NULL, `amplitudeData` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "userId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "authorAnonymousId",
+            "columnName": "authorAnonymousId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "authorName",
+            "columnName": "authorName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "authorSigil",
+            "columnName": "authorSigil",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "authorAvatarSeed",
+            "columnName": "authorAvatarSeed",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "authorAvatarColor",
+            "columnName": "authorAvatarColor",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "authorAvatarConfigJson",
+            "columnName": "authorAvatarConfigJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "audioUrl",
+            "columnName": "audioUrl",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "durationMs",
+            "columnName": "durationMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "description",
+            "columnName": "description",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "emotion",
+            "columnName": "emotion",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "emotionTag",
+            "columnName": "emotionTag",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "playCount",
+            "columnName": "playCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reactionCount",
+            "columnName": "reactionCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "commentCount",
+            "columnName": "commentCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "amplitudeData",
+            "columnName": "amplitudeData",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "upload_tasks",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`draftId` TEXT NOT NULL, `workerId` TEXT, `status` TEXT NOT NULL, `uploadedBytes` INTEGER NOT NULL, `totalBytes` INTEGER NOT NULL, `sessionUri` TEXT, `audioUrl` TEXT, `lastUpdated` INTEGER NOT NULL, PRIMARY KEY(`draftId`), FOREIGN KEY(`draftId`) REFERENCES `artifact_drafts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "draftId",
+            "columnName": "draftId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "workerId",
+            "columnName": "workerId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "uploadedBytes",
+            "columnName": "uploadedBytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "totalBytes",
+            "columnName": "totalBytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sessionUri",
+            "columnName": "sessionUri",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "audioUrl",
+            "columnName": "audioUrl",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastUpdated",
+            "columnName": "lastUpdated",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "draftId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_upload_tasks_draftId",
+            "unique": false,
+            "columnNames": [
+              "draftId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_upload_tasks_draftId` ON `${TABLE_NAME}` (`draftId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "artifact_drafts",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "draftId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '0d9b7f2fb087443fc30f07f21b4488ca')"
+    ]
+  }
+}

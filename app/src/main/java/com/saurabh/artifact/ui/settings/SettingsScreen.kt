@@ -1,5 +1,7 @@
 package com.saurabh.artifact.ui.settings
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -76,6 +78,13 @@ fun SettingsScreen(
     val serverClientId = stringResource(R.string.default_web_client_id)
     
     val credentialManager = remember { CredentialManager.create(context) }
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/zip"),
+        onResult = { uri ->
+            uri?.let { viewModel.exportData(it) }
+        }
+    )
 
     LaunchedEffect(Unit) {
         viewModel.events.collectLatest { event ->
@@ -289,15 +298,15 @@ fun SettingsScreen(
         AlertDialog(
             onDismissRequest = { showExportConfirmation = false },
             title = { Text("Export Data?") },
-            text = { Text("Do you really want to export the data? This will initiate the process of collecting all your recorded artifacts.") },
+            text = { Text("Do you really want to export all your local drafts? This will create a ZIP archive of your audio and metadata.") },
             confirmButton = {
                 TextButton(
                     onClick = {
                         showExportConfirmation = false
-                        viewModel.exportData()
+                        exportLauncher.launch("artifact_export_${System.currentTimeMillis()}.zip")
                     }
                 ) {
-                    Text("Confirm")
+                    Text("Export")
                 }
             },
             dismissButton = {

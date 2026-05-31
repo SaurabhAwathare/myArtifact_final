@@ -161,6 +161,8 @@ dependencies {
 
     // Security
     implementation(libs.androidx.security.crypto)
+    implementation(libs.bip39)
+    implementation(libs.sqlcipher)
 
     // Testing
     testImplementation(libs.junit)

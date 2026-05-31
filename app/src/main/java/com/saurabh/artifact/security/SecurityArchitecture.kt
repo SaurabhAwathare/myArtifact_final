@@ -2,24 +2,43 @@ package com.saurabh.artifact.security
 
 import android.content.Context
 import androidx.security.crypto.EncryptedFile
-import androidx.security.crypto.MasterKeys
+import androidx.security.crypto.MasterKey
 import java.io.File
 import java.security.SecureRandom
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.PBEKeySpec
 
 object SecurityArchitecture {
 
     /**
      * Creates an EncryptedFile instance for secure local storage of audio drafts.
+     * Prefers hardware-backed security (StrongBox or TEE).
      */
     fun getEncryptedFile(context: Context, file: File): EncryptedFile {
-        val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
+        val masterKey = MasterKey.Builder(context)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .setRequestStrongBoxBacked(true) // Prefer StrongBox for hardware-level security
+            .build()
         
         return EncryptedFile.Builder(
-            file,
             context,
-            masterKeyAlias,
+            file,
+            masterKey,
             EncryptedFile.FileEncryptionScheme.AES256_GCM_HKDF_4KB
         ).build()
+    }
+
+    /**
+     * Derives a high-entropy key from a user passphrase using PBKDF2WithHmacSHA256.
+     * We use a high iteration count (600,000) to ensure brute-force resistance.
+     * This is used for Tier 2 Secure Backup.
+     */
+    fun deriveBackupKey(passphrase: String, salt: ByteArray): ByteArray {
+        val iterations = 600000
+        val keyLength = 256
+        val spec = PBEKeySpec(passphrase.toCharArray(), salt, iterations, keyLength)
+        val skf = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+        return skf.generateSecret(spec).encoded
     }
 
     /**

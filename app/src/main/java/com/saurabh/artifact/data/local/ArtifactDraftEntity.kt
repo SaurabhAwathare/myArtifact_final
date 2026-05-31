@@ -3,7 +3,9 @@ package com.saurabh.artifact.data.local
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.saurabh.artifact.model.*
+import kotlinx.serialization.Serializable
 
+@Serializable
 @Entity(tableName = "artifact_drafts")
 data class ArtifactDraftEntity(
     @PrimaryKey

@@ -1,5 +1,6 @@
 package com.saurabh.artifact.ui.settings
 
+import com.saurabh.artifact.security.DataExportManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.saurabh.artifact.model.UserSettings
@@ -20,7 +21,8 @@ sealed class SettingsUiEvent {
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val repository: SettingsRepository,
-    private val authRepository: com.saurabh.artifact.repository.AuthRepository
+    private val authRepository: com.saurabh.artifact.repository.AuthRepository,
+    private val dataExportManager: DataExportManager
 ) : ViewModel() {
 
     val isAnonymous = authRepository.currentUser.map { it?.isAnonymous ?: true }
@@ -127,14 +129,14 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun exportData() {
+    fun exportData(outputUri: android.net.Uri) {
         viewModelScope.launch {
-            repository.exportUserData()
-                .onSuccess { 
-                    _events.emit(SettingsUiEvent.ExportInitiated) 
+            dataExportManager.exportAllDrafts(outputUri)
+                .onSuccess {
+                    _events.emit(SettingsUiEvent.ShowMessage("Export complete! Check your files."))
                 }
-                .onFailure { 
-                    _events.emit(SettingsUiEvent.ShowMessage("Export failed: ${it.message}")) 
+                .onFailure {
+                    _events.emit(SettingsUiEvent.ShowMessage("Export failed: ${it.message}"))
                 }
         }
     }
