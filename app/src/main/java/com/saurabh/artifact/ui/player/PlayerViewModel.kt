@@ -34,6 +34,14 @@ class PlayerViewModel @Inject constructor(
     private val _sleepTimerMillisRemaining = MutableStateFlow<Long?>(null)
     private var sleepTimerJob: Job? = null
 
+    // Interaction Reliability (Zero Dead Interactions)
+    private val _interactionError = MutableSharedFlow<String>(replay = 0)
+    val interactionError: SharedFlow<String> = _interactionError.asSharedFlow()
+
+    private val _optimisticResonanceConnection = MutableStateFlow<Boolean?>(null)
+    private val _optimisticSave = MutableStateFlow<Boolean?>(null)
+    private val _optimisticResonate = MutableStateFlow<Boolean?>(null)
+
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val isCommentUnlocked: StateFlow<Boolean> = playbackSessionManager.currentArtifact.flatMapLatest { artifact ->
         if (artifact != null) {
@@ -74,12 +82,14 @@ class PlayerViewModel @Inject constructor(
     .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ReactionType.I_HEAR_YOU)
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val isFollowed: StateFlow<Boolean> = combine(
+    val isResonating: StateFlow<Boolean> = combine(
         playbackSessionManager.currentArtifact,
-        authRepository.currentUser
-    ) { artifact, user ->
+        authRepository.currentUser,
+        _optimisticResonanceConnection
+    ) { artifact, user, optimistic ->
+        if (optimistic != null) return@combine flowOf(optimistic)
         if (artifact != null && user != null && artifact.userId != user.uid) {
-            userRepository.observeIsFollowing(user.uid, artifact.userId)
+            userRepository.observeIsResonating(user.uid, artifact.userId)
         } else {
             flowOf(false)
         }
@@ -88,8 +98,10 @@ class PlayerViewModel @Inject constructor(
 
     val isSaved: StateFlow<Boolean> = combine(
         playbackSessionManager.currentArtifact,
-        savedArtifactManager.savedIds
-    ) { artifact, savedIds ->
+        savedArtifactManager.savedIds,
+        _optimisticSave
+    ) { artifact, savedIds, optimistic ->
+        if (optimistic != null) return@combine optimistic
         artifact != null && savedIds.contains(artifact.id)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
@@ -148,7 +160,7 @@ class PlayerViewModel @Inject constructor(
         _sleepTimerMillisRemaining,
         isResonated,
         selectedReactionType,
-        isFollowed,
+        isResonating,
         isSaved,
         resonanceSummary,
         commentCount,
@@ -167,7 +179,7 @@ class PlayerViewModel @Inject constructor(
         val sleepTimer = params[10] as Long?
         val isResonated = params[11] as Boolean
         val selectedReactionType = params[12] as ReactionType
-        val isFollowed = params[13] as Boolean
+        val isResonating = params[13] as Boolean
         val isSaved = params[14] as Boolean
         val resonanceSummary = params[15] as String
         val commentCount = params[16] as Int
@@ -197,7 +209,7 @@ class PlayerViewModel @Inject constructor(
             playerMode = mode,
             isResonated = isResonated,
             selectedReactionType = selectedReactionType,
-            isFollowed = isFollowed,
+            isResonating = isResonating,
             isSaved = isSaved,
             resonanceSummary = resonanceSummary,
             commentCount = commentCount,
@@ -215,35 +227,58 @@ class PlayerViewModel @Inject constructor(
     fun toggleResonate(type: ReactionType = selectedReactionType.value) {
         val artifact = uiState.value.currentArtifact ?: return
         val userId = authRepository.currentUser.value?.uid ?: return
+        
+        val wasResonated = uiState.value.isResonated
+        _optimisticResonate.value = !wasResonated
+
         viewModelScope.launch {
-            reactionRepository.toggleReaction(artifact.id, userId, type)
+            reactionRepository.toggleReaction(artifact.id, userId, type).onFailure { error ->
+                _optimisticResonate.value = null
+                _interactionError.emit("Could not resonate: ${error.message}")
+            }.onSuccess {
+                _optimisticResonate.value = null
+            }
         }
     }
 
-    fun setReactionType(type: ReactionType) {
-        // Local preference update if needed, but here we drive from Repo
-        if (uiState.value.isResonated) {
-            toggleResonate(type)
-        }
-    }
-
-    fun toggleFollow() {
+    fun toggleResonanceConnection() {
         val artifact = uiState.value.currentArtifact ?: return
         val currentUserId = authRepository.currentUser.value?.uid ?: return
         if (artifact.userId == currentUserId) return
 
+        val wasResonating = uiState.value.isResonating
+        _optimisticResonanceConnection.value = !wasResonating
+
         viewModelScope.launch {
-            if (uiState.value.isFollowed) {
-                userRepository.unfollowUser(currentUserId, artifact.userId)
+            val result = if (wasResonating) {
+                userRepository.stopResonatingWithUser(currentUserId, artifact.userId)
             } else {
-                userRepository.followUser(currentUserId, artifact.userId)
+                userRepository.resonateWithUser(currentUserId, artifact.userId)
+            }
+            
+            result.onFailure { error ->
+                _optimisticResonanceConnection.value = null
+                _interactionError.emit("Resonance failed: ${error.message}")
+            }.onSuccess {
+                _optimisticResonanceConnection.value = null
             }
         }
     }
 
     fun toggleSave() {
         val artifact = uiState.value.currentArtifact ?: return
-        savedArtifactManager.toggleSave(artifact)
+        val wasSaved = uiState.value.isSaved
+        _optimisticSave.value = !wasSaved
+        
+        viewModelScope.launch {
+            try {
+                savedArtifactManager.toggleSave(artifact)
+                _optimisticSave.value = null
+            } catch (e: Exception) {
+                _optimisticSave.value = null
+                _interactionError.emit("Could not save: ${e.message}")
+            }
+        }
     }
 
     fun playArtifact(artifact: Artifact) {

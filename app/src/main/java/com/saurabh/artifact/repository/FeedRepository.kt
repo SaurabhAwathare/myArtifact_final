@@ -18,21 +18,22 @@ class FeedRepository @Inject constructor(
 ) {
 
     /**
-     * Fetches artifacts from creators the user follows.
+     * Fetches artifacts from presences that the user resonates with.
      */
-    suspend fun getFollowedArtifacts(userId: String, limit: Long = 20): List<Artifact> = withContext(Dispatchers.IO) {
+    suspend fun getResonatingArtifacts(userId: String, limit: Long = 20): List<Artifact> = withContext(Dispatchers.IO) {
         return@withContext try {
-            val followedUserIds = firestore.collection("follows")
-                .whereEqualTo("followerId", userId)
+            val resonatedUserIds = firestore.collection("users")
+                .document(userId)
+                .collection("resonance_out")
                 .get()
                 .await()
                 .documents
-                .mapNotNull { it.getString("followingId") }
+                .map { it.id }
 
-            if (followedUserIds.isEmpty()) return@withContext emptyList()
+            if (resonatedUserIds.isEmpty()) return@withContext emptyList()
 
             // Firestore 'whereIn' is limited to 10-30 items.
-            val chunks = followedUserIds.chunked(10)
+            val chunks = resonatedUserIds.chunked(10)
             val allArtifacts = mutableListOf<Artifact>()
             for (chunk in chunks) {
                 val snapshot = firestore.collection("artifacts")

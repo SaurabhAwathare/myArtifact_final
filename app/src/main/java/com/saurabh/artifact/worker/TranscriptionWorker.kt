@@ -5,7 +5,6 @@ import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import com.saurabh.artifact.model.ArtifactDraftState
 import com.saurabh.artifact.repository.RecordingRepository
 import com.saurabh.artifact.util.EncryptedStorageManager
 import com.saurabh.artifact.util.StorageManager
@@ -37,7 +36,7 @@ class TranscriptionWorker @AssistedInject constructor(
 
         if (!file.exists()) {
             Log.e("TranscriptionWorker", "File not found: ${draft.localAudioPath}")
-            recordingRepository.updateDraft(draft.copy(draftState = ArtifactDraftState.ERROR))
+            updateSubState(draftId, null, "File not found")
             return@withContext Result.failure()
         }
 
@@ -49,7 +48,7 @@ class TranscriptionWorker @AssistedInject constructor(
                 return@withContext Result.success()
             }
 
-            recordingRepository.updateDraft(draft.copy(draftState = ArtifactDraftState.TRANSCRIBING))
+            updateSubState(draftId, com.saurabh.artifact.model.ProcessingStage.TRANSCRIBING)
 
             // 1. Decrypt audio for processing with timeout
             Log.d("TranscriptionWorker", "Atmospheric Step: Listening quietly to your words...")
@@ -93,10 +92,23 @@ class TranscriptionWorker @AssistedInject constructor(
             Result.success()
         } catch (e: Exception) {
             Log.e("TranscriptionWorker", "Error during transcription: ${e.message}", e)
-            recordingRepository.updateDraft(draft.copy(draftState = ArtifactDraftState.ERROR))
+            updateSubState(draftId, null, "Transcription failed: ${e.message}")
             Result.retry()
         } finally {
             tempDecryptedFile?.delete()
+        }
+    }
+
+    private suspend fun updateSubState(id: String, stage: com.saurabh.artifact.model.ProcessingStage?, error: String? = null) {
+        recordingRepository.getDraft(id)?.let { draft ->
+            val newProcessing = when {
+                error != null -> com.saurabh.artifact.model.ProcessingStatus.Failed(error)
+                stage != null -> com.saurabh.artifact.model.ProcessingStatus.Active(stage)
+                else -> com.saurabh.artifact.model.ProcessingStatus.Idle
+            }
+            recordingRepository.updateDraft(draft.copy(
+                status = draft.status.copy(processing = newProcessing)
+            ))
         }
     }
 

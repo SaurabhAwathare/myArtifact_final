@@ -94,8 +94,8 @@ fun ProfileScreen(
                         avatarConfig = uiState.avatarConfig,
                         postCount = uiState.publishedArtifacts.size,
                         isSelf = uiState.isSelf,
-                        isFollowing = uiState.isFollowing,
-                        onFollowClick = { viewModel.toggleFollow() },
+                        isResonating = uiState.isResonating,
+                        onResonateClick = { viewModel.toggleResonance() },
                         onEditClick = onEditIdentity
                     )
                 }

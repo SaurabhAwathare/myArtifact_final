@@ -48,7 +48,7 @@ fun ImmersivePlayerScreen(
     onShowAdvanced: () -> Unit,
     onCommentClick: () -> Unit,
     onResonateClick: (com.saurabh.artifact.model.ReactionType) -> Unit = {},
-    onFollowClick: () -> Unit = {},
+    onResonateConnectionClick: () -> Unit = {},
     onSaveClick: () -> Unit = {},
     onEditClick: () -> Unit = {},
     onPublishClick: () -> Unit = {},
@@ -303,14 +303,14 @@ fun ImmersivePlayerScreen(
                         isResonated = uiState.isResonated,
                         selectedReactionType = uiState.selectedReactionType,
                         onResonateClick = onResonateClick,
-                        isFollowed = uiState.isFollowed,
-                        onFollowClick = onFollowClick,
+                        isResonating = uiState.isResonating,
+                        onResonateConnectionClick = onResonateConnectionClick,
                         isSaved = uiState.isSaved,
                         onSaveClick = onSaveClick,
                         isCommentUnlocked = uiState.isCommentUnlocked,
                         commentCount = uiState.commentCount,
                         onCommentClick = onCommentClick,
-                        showFollow = true // Logic handled by visibility/enablement if needed
+                        showResonance = true // Logic handled by visibility/enablement if needed
                     )
             }
 
@@ -413,7 +413,7 @@ fun ImmersiveDraftPlayerPreview() {
                 isPlaying = false,
                 listeningProgress = 0.4f,
                 isResonated = false,
-                isFollowed = false,
+                isResonating = false,
                 isSaved = true
             ),
             onCollapse = {},

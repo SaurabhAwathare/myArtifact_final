@@ -22,6 +22,9 @@ import com.saurabh.artifact.security.SecurityArchitecture
 import com.saurabh.artifact.service.ReflectionAIService
 import com.saurabh.artifact.service.SafetyEvaluator
 import com.saurabh.artifact.service.SafetyLevel
+import com.saurabh.artifact.service.SafetyResult
+import com.saurabh.artifact.data.local.toEntity
+import com.saurabh.artifact.data.local.toDomainModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineScope
@@ -35,6 +38,10 @@ import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import com.saurabh.artifact.data.local.ArtifactEntity
+import androidx.paging.map
+import com.saurabh.artifact.data.paging.ArtifactRemoteMediator
+import kotlinx.coroutines.flow.map
 import java.io.File
 import java.io.FileInputStream
 import java.security.MessageDigest
@@ -57,7 +64,10 @@ class ArtifactRepository @Inject constructor(
     private val aiService: dagger.Lazy<ReflectionAIService>,
     private val safetyEvaluator: dagger.Lazy<SafetyEvaluator>,
     private val personalizationEngine: dagger.Lazy<com.saurabh.artifact.service.PersonalizationEngine>,
-    private val notificationRepository: NotificationRepository
+    private val notificationRepository: NotificationRepository,
+    private val artifactDao: com.saurabh.artifact.data.local.ArtifactDao,
+    private val database: com.saurabh.artifact.data.local.AppDatabase,
+    private val promptDao: com.saurabh.artifact.data.local.PromptDao
 ) {
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -140,6 +150,7 @@ class ArtifactRepository @Inject constructor(
     /**
      * Fetches a smart, context-aware reflection prompt with real-time safety evaluation.
      * Prioritizes safety overrides for high-risk emotional signals.
+     * Implements local caching and offline fallbacks.
      */
     suspend fun getSmartReflectionPrompt(
         emotion: String?,
@@ -162,20 +173,43 @@ class ArtifactRepository @Inject constructor(
                 val safeText = withContext(Dispatchers.Default) {
                     safetyEvaluator.get().filterAIOutput(aiResponse.question)
                 }
-                aiResponse.copy(question = safeText)
-            } else {
-                // 3. Fallback based on safety level
-                if ((safetyResult.level == SafetyLevel.MEDIUM) && (safetyResult.suggestedPrompt != null)) {
-                    safetyResult.suggestedPrompt
-                } else {
-                    ReflectionPromptProvider.getRandomPrompt()
+                val finalPrompt = aiResponse.copy(question = safeText)
+                
+                // 3. Cache the successful prompt locally
+                repositoryScope.launch(Dispatchers.IO) {
+                    promptDao.insertPrompts(listOf(finalPrompt.toEntity()))
                 }
+                
+                finalPrompt
+            } else {
+                fetchFallbackPrompt(emotion, safetyResult)
             }
         } catch (e: Exception) {
             Log.e("ArtifactRepository", "AI prompt generation failed, falling back", e)
-            if ((safetyResult.level == SafetyLevel.MEDIUM) && (safetyResult.suggestedPrompt != null)) {
-                safetyResult.suggestedPrompt
+            fetchFallbackPrompt(emotion, safetyResult)
+        }
+    }
+
+    private suspend fun fetchFallbackPrompt(emotion: String?, safetyResult: SafetyResult): ReflectionPrompt {
+        // A. Priority Fallback: Safety suggestions
+        if ((safetyResult.level == SafetyLevel.MEDIUM) && (safetyResult.suggestedPrompt != null)) {
+            return safetyResult.suggestedPrompt
+        }
+
+        // B. Local Cache Fallback: Fetch from Room
+        return withContext(Dispatchers.IO) {
+            val localPrompts = if (emotion != null) {
+                // Simplified: search by tone or mood if possible, otherwise all
+                // For now, we'll just get a random one from recent usage
+                promptDao.getRecentPrompts(limit = 10)
             } else {
+                promptDao.getRecentPrompts(limit = 10)
+            }
+
+            if (localPrompts.isNotEmpty()) {
+                localPrompts.random().toDomainModel()
+            } else {
+                // C. Hardcoded Fallback
                 ReflectionPromptProvider.getRandomPrompt()
             }
         }
@@ -576,6 +610,7 @@ class ArtifactRepository @Inject constructor(
         }
     }
 
+    @OptIn(androidx.paging.ExperimentalPagingApi::class)
     fun getArtifactsPager(emotion: String?): Flow<PagingData<Artifact>> {
         return Pager(
             config = PagingConfig(
@@ -583,10 +618,43 @@ class ArtifactRepository @Inject constructor(
                 prefetchDistance = 2,
                 initialLoadSize = 5,
                 enablePlaceholders = false,
-                maxSize = 30 // Ensure old pages are evicted from memory
+                maxSize = 30
             ),
-            pagingSourceFactory = { ArtifactPagingSource(firestore, emotion) }
-        ).flow
+            remoteMediator = ArtifactRemoteMediator(firestore, database, emotion),
+            pagingSourceFactory = { artifactDao.getArtifactsPaged() }
+        ).flow.map { pagingData ->
+            pagingData.map { entity -> mapEntityToArtifact(entity) }
+        }
+    }
+
+    private fun mapEntityToArtifact(entity: ArtifactEntity): Artifact {
+        return Artifact(
+            id = entity.id,
+            userId = entity.userId,
+            author = AuthorSnapshot(
+                anonymousId = entity.authorAnonymousId,
+                name = entity.authorName,
+                sigil = entity.authorSigil,
+                avatarSeed = entity.authorAvatarSeed,
+                avatarColor = entity.authorAvatarColor,
+                avatarConfig = try {
+                    kotlinx.serialization.json.Json.decodeFromString(entity.authorAvatarConfigJson)
+                } catch (e: Exception) {
+                    AvatarConfig(seed = entity.authorAvatarSeed)
+                }
+            ),
+            audioUrl = entity.audioUrl,
+            createdAt = com.google.firebase.Timestamp(java.util.Date(entity.createdAt)),
+            durationMs = entity.durationMs,
+            title = entity.title,
+            description = entity.description,
+            emotion = entity.emotion,
+            emotionTag = entity.emotionTag,
+            playCount = entity.playCount,
+            reactionCount = entity.reactionCount,
+            commentCount = entity.commentCount,
+            amplitudeData = entity.amplitudeData
+        )
     }
 
     /**
@@ -1046,6 +1114,12 @@ class ArtifactRepository @Inject constructor(
 
             // 3. Delete user sub-collections (Best effort for orphaning)
             val userRef = firestore.collection("users").document(userId)
+            
+            val resonanceOut = userRef.collection("resonance_out").get().await()
+            resonanceOut.documents.forEach { it.reference.delete().await() }
+
+            val resonanceIn = userRef.collection("resonance_in").get().await()
+            resonanceIn.documents.forEach { it.reference.delete().await() }
             
             val following = userRef.collection("following").get().await()
             following.documents.forEach { it.reference.delete().await() }

@@ -32,7 +32,7 @@ class PrivacyScanWorker @AssistedInject constructor(
         val draftId = inputData.getString(KEY_DRAFT_ID) ?: return@withContext Result.failure()
         
         try {
-            updateState(draftId, ArtifactDraftState.PRIVACY_SCANNING)
+            updateState(draftId, com.saurabh.artifact.model.ProcessingStage.PRIVACY_SCANNING)
             
             val draft = draftDao.getDraftById(draftId) ?: return@withContext Result.failure()
             
@@ -62,7 +62,6 @@ class PrivacyScanWorker @AssistedInject constructor(
             
             // Finalizing scan
             draftDao.update(draft.copy(
-                draftState = ArtifactDraftState.SAFETY_CHECK,
                 sensitiveEntitiesJson = sensitiveJson,
                 updatedAt = System.currentTimeMillis()
             ))
@@ -70,17 +69,23 @@ class PrivacyScanWorker @AssistedInject constructor(
             Result.success()
         } catch (e: Exception) {
             Log.e("PrivacyScanWorker", "Error during privacy scan", e)
-            updateState(draftId, ArtifactDraftState.ERROR)
+            updateState(draftId, null, "Privacy scan failed: ${e.message}")
             Result.retry()
         }
     }
 
-    private suspend fun updateState(id: String, state: ArtifactDraftState) {
-        val draft = draftDao.getDraftById(id) ?: return
-        draftDao.update(draft.copy(
-            draftState = state,
-            updatedAt = System.currentTimeMillis()
-        ))
+    private suspend fun updateState(id: String, stage: com.saurabh.artifact.model.ProcessingStage?, error: String? = null) {
+        draftDao.getDraftById(id)?.let { draft ->
+            val newProcessing = when {
+                error != null -> com.saurabh.artifact.model.ProcessingStatus.Failed(error)
+                stage != null -> com.saurabh.artifact.model.ProcessingStatus.Active(stage)
+                else -> com.saurabh.artifact.model.ProcessingStatus.Idle
+            }
+            draftDao.update(draft.copy(
+                status = draft.status.copy(processing = newProcessing),
+                updatedAt = System.currentTimeMillis()
+            ))
+        }
     }
 
     companion object {

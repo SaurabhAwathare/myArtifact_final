@@ -8,6 +8,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import androidx.media3.session.DefaultMediaNotificationProvider
 import dagger.hilt.android.AndroidEntryPoint
 
 import androidx.media3.common.util.UnstableApi
@@ -26,6 +27,9 @@ class PlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         Log.d("PlaybackService", "onCreate - Deferring player initialization")
+        
+        // Ensure the service is recognized as a foreground-capable media service
+        setMediaNotificationProvider(DefaultMediaNotificationProvider.Builder(this).build())
     }
 
     private fun initializeSession() {
@@ -42,6 +46,8 @@ class PlaybackService : MediaSessionService() {
                     .build(),
                 true
             )
+            .setHandleAudioBecomingNoisy(true) // Pause on headphone unplug
+            .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
 
         val callback = object : MediaSession.Callback {
@@ -70,6 +76,11 @@ class PlaybackService : MediaSessionService() {
                 return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                     .setAvailableSessionCommands(sessionCommands)
                     .build()
+            }
+            
+            override fun onPostConnect(session: MediaSession, controller: MediaSession.ControllerInfo) {
+                super.onPostConnect(session, controller)
+                Log.d("PlaybackService", "Controller connected: ${controller.packageName}")
             }
         }
 

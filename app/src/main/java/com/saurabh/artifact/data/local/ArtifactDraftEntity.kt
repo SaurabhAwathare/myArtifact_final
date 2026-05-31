@@ -23,8 +23,11 @@ data class ArtifactDraftEntity(
     
     // Composite State Model
     val status: DraftStatus = DraftStatus(),
+    @Deprecated("Use status.lifecycle and status.processing instead")
     val draftState: ArtifactDraftState = ArtifactDraftState.SAVED_LOCALLY,
+    @Deprecated("Use status.sync instead")
     val uploadStatus: UploadStatus = UploadStatus.IDLE,
+    @Deprecated("Use status.sync instead")
     val syncState: SyncState = SyncState.LOCAL_ONLY,
     
     // Upload Progress

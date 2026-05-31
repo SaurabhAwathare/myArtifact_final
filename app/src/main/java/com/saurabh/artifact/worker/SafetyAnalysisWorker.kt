@@ -5,7 +5,6 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.saurabh.artifact.data.local.DraftDao
-import com.saurabh.artifact.model.ArtifactDraftState
 import com.saurabh.artifact.service.SafetyEvaluator
 import com.saurabh.artifact.service.SafetyLevel
 import dagger.assisted.Assisted
@@ -27,7 +26,7 @@ class SafetyAnalysisWorker @AssistedInject constructor(
         val draftId = inputData.getString(KEY_DRAFT_ID) ?: return@withContext Result.failure()
         
         try {
-            updateSubState(draftId, ArtifactDraftState.SAFETY_CHECK)
+            updateSubState(draftId, com.saurabh.artifact.model.ProcessingStage.SAFETY_CHECK)
             
             val draft = draftDao.getDraftById(draftId) ?: return@withContext Result.failure()
             
@@ -49,7 +48,6 @@ class SafetyAnalysisWorker @AssistedInject constructor(
             delay(500)
             
             draftDao.update(draft.copy(
-                draftState = ArtifactDraftState.READY_TO_REVIEW,
                 safetyAnalysis = safetyResult?.level?.name ?: "UNKNOWN",
                 emotionalRiskScore = if (safetyResult?.level == SafetyLevel.HIGH) 1.0f else 0.0f,
                 updatedAt = System.currentTimeMillis()
@@ -57,17 +55,23 @@ class SafetyAnalysisWorker @AssistedInject constructor(
             
             Result.success()
         } catch (e: Exception) {
-            updateSubState(draftId, ArtifactDraftState.ERROR)
+            updateSubState(draftId, null, "Safety analysis failed: ${e.message}")
             Result.retry()
         }
     }
 
-    private suspend fun updateSubState(id: String, state: ArtifactDraftState) {
-        val draft = draftDao.getDraftById(id) ?: return
-        draftDao.update(draft.copy(
-            draftState = state,
-            updatedAt = System.currentTimeMillis()
-        ))
+    private suspend fun updateSubState(id: String, stage: com.saurabh.artifact.model.ProcessingStage?, error: String? = null) {
+        draftDao.getDraftById(id)?.let { draft ->
+            val newProcessing = when {
+                error != null -> com.saurabh.artifact.model.ProcessingStatus.Failed(error)
+                stage != null -> com.saurabh.artifact.model.ProcessingStatus.Active(stage)
+                else -> com.saurabh.artifact.model.ProcessingStatus.Idle
+            }
+            draftDao.update(draft.copy(
+                status = draft.status.copy(processing = newProcessing),
+                updatedAt = System.currentTimeMillis()
+            ))
+        }
     }
 
     companion object {

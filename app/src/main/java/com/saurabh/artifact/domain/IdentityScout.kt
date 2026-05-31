@@ -169,19 +169,120 @@ class IdentityScout @Inject constructor() {
     }
 
     /**
-     * Detects phonetic similarity using a simplified Levenshtein-style approach 
-     * or partial matches. (Placeholder for more advanced phonetic algorithms).
+     * Detects phonetic similarity using the Metaphone algorithm.
+     * This catches names that sound similar even if spelled differently.
      */
     fun isPhoneticallySimilar(a: String, b: String): Boolean {
-        // For production, we'd use Metaphone or Double Metaphone.
-        // For this implementation, we'll use a distance threshold.
         val normA = normalize(a)
         val normB = normalize(b)
         
         if (normA.contains(normB) || normB.contains(normA)) return true
         
-        // Simple Levenshtein check for small distances
+        val codeA = metaphone(normA)
+        val codeB = metaphone(normB)
+        
+        if (codeA.isNotEmpty() && codeB.isNotEmpty() && codeA == codeB) return true
+        
+        // Fallback to Levenshtein check for small distances if Metaphone doesn't match
         return levenshteinDistance(normA, normB) <= 2
+    }
+
+    /**
+     * Simplified Metaphone algorithm for phonetic name matching.
+     */
+    fun metaphone(input: String): String {
+        var txt = input.uppercase(Locale.ROOT).filter { it.isLetter() }
+        if (txt.isEmpty()) return ""
+
+        val sb = StringBuilder()
+        
+        // 1. Drop duplicate adjacent letters (except C)
+        val cleanTxt = StringBuilder()
+        for (i in txt.indices) {
+            if (i == 0 || txt[i] != txt[i-1] || txt[i] == 'C') {
+                cleanTxt.append(txt[i])
+            }
+        }
+        txt = cleanTxt.toString()
+
+        var i = 0
+        while (i < txt.length) {
+            val c = txt[i]
+            
+            // Basic Metaphone rules
+            when (c) {
+                'A', 'E', 'I', 'O', 'U' -> if (i == 0) sb.append(c) // Only keep vowels at the start
+                'B' -> sb.append('B')
+                'C' -> {
+                    // C -> X (SH) if followed by IA or H, else S if followed by I, E, Y, else K
+                    if (i + 1 < txt.length) {
+                        val next = txt[i+1]
+                        if (next == 'H') {
+                            sb.append('X')
+                            i++
+                        } else if (next == 'I' || next == 'E' || next == 'Y') {
+                            sb.append('S')
+                        } else {
+                            sb.append('K')
+                        }
+                    } else {
+                        sb.append('K')
+                    }
+                }
+                'D' -> {
+                    if (i + 1 < txt.length && txt[i+1] == 'G' && (i + 2 < txt.length && (txt[i+2] == 'E' || txt[i+2] == 'I' || txt[i+2] == 'Y'))) {
+                        sb.append('J')
+                        i++
+                    } else {
+                        sb.append('T')
+                    }
+                }
+                'F', 'J', 'L', 'M', 'N', 'R' -> sb.append(c)
+                'G' -> {
+                    if (i + 1 < txt.length && (txt[i+1] == 'I' || txt[i+1] == 'E' || txt[i+1] == 'Y')) {
+                        sb.append('J')
+                    } else {
+                        sb.append('K')
+                    }
+                }
+                'H' -> {
+                    // Skip 'H' unless it's at the start or follows a vowel (very basic heuristic)
+                    if (i == 0 || "AEIOU".contains(txt[i-1])) {
+                        // Do nothing (H is silent in many phonetic cases unless it modifies previous letter)
+                        // But for simplicity in this name-leak detector, we treat it as potentially significant if at start
+                        if (i == 0) sb.append('H')
+                    }
+                }
+                'K' -> if (i > 0 && txt[i-1] == 'C') { /* Skip */ } else sb.append('K')
+                'P' -> if (i + 1 < txt.length && txt[i+1] == 'H') { sb.append('F'); i++ } else sb.append('P')
+                'Q' -> sb.append('K')
+                'S' -> {
+                    if (i + 1 < txt.length && txt[i+1] == 'H') {
+                        sb.append('X')
+                        i++
+                    } else {
+                        sb.append('S')
+                    }
+                }
+                'T' -> {
+                    if (i + 1 < txt.length && txt[i+1] == 'H') {
+                        sb.append('0') // Theta
+                        i++
+                    } else if (i + 1 < txt.length && txt[i+1] == 'I' && (i + 2 < txt.length && (txt[i+2] == 'A' || txt[i+2] == 'O'))) {
+                        sb.append('X')
+                    } else {
+                        sb.append('T')
+                    }
+                }
+                'V' -> sb.append('F')
+                'W', 'Y' -> if (i + 1 < txt.length && "AEIOU".contains(txt[i+1])) sb.append(c)
+                'X' -> { sb.append('K'); sb.append('S') }
+                'Z' -> sb.append('S')
+            }
+            i++
+        }
+        
+        return sb.toString()
     }
 
     private fun levenshteinDistance(s1: String, s2: String): Int {

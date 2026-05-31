@@ -23,7 +23,7 @@ data class PlayerUiState(
     // Interaction State
     val isResonated: Boolean = false,
     val selectedReactionType: ReactionType = ReactionType.I_HEAR_YOU,
-    val isFollowed: Boolean = false,
+    val isResonating: Boolean = false,
     val isSaved: Boolean = false,
     val resonanceSummary: String = "",
     val commentCount: Int = 0,

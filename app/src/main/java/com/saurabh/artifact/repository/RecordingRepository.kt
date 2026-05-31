@@ -129,6 +129,11 @@ class RecordingRepository @Inject constructor(
         draft.localTranscriptPath?.let { localDraftManager.deleteDraft(it) }
     }
 
+    suspend fun deleteDraftById(id: String) = withContext(Dispatchers.IO) {
+        val draft = draftDao.getDraftById(id) ?: return@withContext
+        deleteDraft(draft)
+    }
+
     suspend fun recoverInterruptedDrafts(): List<ArtifactDraftEntity> {
         val recordings = draftDao.getActiveRecordings()
         val interrupted = mutableListOf<ArtifactDraftEntity>()
@@ -203,6 +208,14 @@ class RecordingRepository @Inject constructor(
             .setInputData(inputData)
             .build()
 
+        val privacyWork = OneTimeWorkRequestBuilder<PrivacyScanWorker>()
+            .setInputData(inputData)
+            .build()
+
+        val safetyWork = OneTimeWorkRequestBuilder<SafetyAnalysisWorker>()
+            .setInputData(inputData)
+            .build()
+
         val finalStateWork = OneTimeWorkRequestBuilder<com.saurabh.artifact.worker.ProcessingFinalizerWorker>()
             .setInputData(inputData)
             .build()
@@ -215,6 +228,8 @@ class RecordingRepository @Inject constructor(
         .then(normalizationWork)
         .then(waveformWork)
         .then(transcriptionWork)
+        .then(privacyWork)
+        .then(safetyWork)
         .then(finalStateWork)
         .enqueue()
     }

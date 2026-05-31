@@ -259,6 +259,12 @@ class FeedViewModel @Inject constructor(
         loadRankedFeed()
     }
 
+    private fun preCacheTopArtifacts(artifacts: List<Artifact>) {
+        artifacts.take(3).forEach { artifact ->
+            audioPlayer.preCache(artifact)
+        }
+    }
+
     private val _unfinishedArtifacts = MutableStateFlow<List<FeedArtifact>>(emptyList())
     val unfinishedArtifacts: StateFlow<List<FeedArtifact>> = _unfinishedArtifacts.asStateFlow()
 
@@ -300,6 +306,9 @@ class FeedViewModel @Inject constructor(
                     )
                 }
                 
+                // Pre-cache top items for "Instant Play"
+                preCacheTopArtifacts(rankedBatch1)
+
                 // Yield to UI to allow immediate rendering of the first 5 items
                 yield() 
                 delay(64) // roughly 4 frames at 60fps

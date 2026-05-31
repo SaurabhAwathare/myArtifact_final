@@ -64,6 +64,20 @@ class UserRepository @Inject constructor(
             val newColor = safePalette.random()
             
             firestore.runTransaction { transaction ->
+                // 1. Audit Log: Store the transition history
+                val historyRef = userRef.collection("private").document("identity_history")
+                    .collection("log").document()
+                
+                transaction.set(historyRef, mapOf(
+                    "oldName" to (anonymousSnapshot?.anonymousName ?: "Unknown"),
+                    "newName" to newName,
+                    "oldSigil" to (anonymousSnapshot?.anonymousSigil ?: ""),
+                    "newSigil" to newSigil,
+                    "timestamp" to FieldValue.serverTimestamp(),
+                    "reason" to "USER_REFRESH"
+                ))
+
+                // 2. Update Profile
                 transaction.update(
                     userRef, mapOf(
                         "anonymousName" to newName,
@@ -309,34 +323,44 @@ class UserRepository @Inject constructor(
     }
 
     /**
-     * Establishes a follow relationship between two users atomically.
+     * Establishes a resonance relationship between two presences atomically.
      */
-    suspend fun followUser(currentUserId: String, targetUserId: String): Result<Unit> {
+    suspend fun resonateWithUser(currentUserId: String, targetUserId: String): Result<Unit> {
         if (currentUserId.isBlank() || targetUserId.isBlank()) {
             return Result.failure(AppError.InvalidInput("User IDs cannot be blank"))
         }
-        if (currentUserId == targetUserId) return Result.failure(Exception("Cannot follow yourself"))
+        if (currentUserId == targetUserId) return Result.failure(Exception("Cannot resonate with yourself"))
 
         return try {
             val currentUserRef = usersCollection.document(currentUserId.trim())
             val targetUserRef = usersCollection.document(targetUserId.trim())
 
             firestore.runTransaction { transaction ->
-                val followingRef = currentUserRef.collection("following").document(targetUserId.trim())
-                val followersRef = targetUserRef.collection("followers").document(currentUserId.trim())
+                val resonanceOutRef = currentUserRef.collection("resonance_out").document(targetUserId.trim())
+                val resonanceInRef = targetUserRef.collection("resonance_in").document(currentUserId.trim())
 
-                val followingDoc = transaction.get(followingRef)
-                if (followingDoc.exists()) return@runTransaction // Already following
+                val resonanceDoc = transaction.get(resonanceOutRef)
+                if (resonanceDoc.exists()) return@runTransaction // Already resonating
 
                 // 1. Create relationship markers
                 val timestamp = FieldValue.serverTimestamp()
-                transaction.set(followingRef, mapOf("createdAt" to timestamp))
-                transaction.set(followersRef, mapOf("createdAt" to timestamp))
+                transaction.set(resonanceOutRef, mapOf("createdAt" to timestamp))
+                transaction.set(resonanceInRef, mapOf("createdAt" to timestamp))
 
                 // 2. Increment counters
+                transaction.update(currentUserRef, "resonanceOutCount", FieldValue.increment(1))
+                transaction.update(targetUserRef, "resonanceInCount", FieldValue.increment(1))
+                
+                // Legacy support
                 transaction.update(currentUserRef, "followingCount", FieldValue.increment(1))
                 transaction.update(targetUserRef, "followersCount", FieldValue.increment(1))
             }.await()
+            
+            notificationRepository.createNotification(
+                userId = targetUserId,
+                message = "Someone's presence resonated with your artifacts ✨"
+            )
+            
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
@@ -344,9 +368,9 @@ class UserRepository @Inject constructor(
     }
 
     /**
-     * Removes a follow relationship between two users atomically.
+     * Removes a resonance relationship between two presences atomically.
      */
-    suspend fun unfollowUser(currentUserId: String, targetUserId: String): Result<Unit> {
+    suspend fun stopResonatingWithUser(currentUserId: String, targetUserId: String): Result<Unit> {
         if (currentUserId.isBlank() || targetUserId.isBlank()) {
             return Result.failure(AppError.InvalidInput("User IDs cannot be blank"))
         }
@@ -355,25 +379,29 @@ class UserRepository @Inject constructor(
             val targetUserRef = usersCollection.document(targetUserId.trim())
 
             firestore.runTransaction { transaction ->
-                val followingRef = currentUserRef.collection("following").document(targetUserId.trim())
-                val followersRef = targetUserRef.collection("followers").document(currentUserId.trim())
+                val resonanceOutRef = currentUserRef.collection("resonance_out").document(targetUserId.trim())
+                val resonanceInRef = targetUserRef.collection("resonance_in").document(currentUserId.trim())
 
-                val followingDoc = transaction.get(followingRef)
-                if (!followingDoc.exists()) return@runTransaction // Not following
+                val resonanceDoc = transaction.get(resonanceOutRef)
+                if (!resonanceDoc.exists()) return@runTransaction // Not resonating
 
                 // 1. Remove relationship markers
-                transaction.delete(followingRef)
-                transaction.delete(followersRef)
+                transaction.delete(resonanceOutRef)
+                transaction.delete(resonanceInRef)
 
                 // 2. Decrement counters (safely)
                 val currentUserDoc = transaction.get(currentUserRef)
                 val targetUserDoc = transaction.get(targetUserRef)
 
-                val currentFollowingCount = currentUserDoc.getLong("followingCount") ?: 0L
-                val targetFollowersCount = targetUserDoc.getLong("followersCount") ?: 0L
+                val outCount = currentUserDoc.getLong("resonanceOutCount") ?: currentUserDoc.getLong("followingCount") ?: 0L
+                val inCount = targetUserDoc.getLong("resonanceInCount") ?: targetUserDoc.getLong("followersCount") ?: 0L
 
-                transaction.update(currentUserRef, "followingCount", (currentFollowingCount - 1).coerceAtLeast(0))
-                transaction.update(targetUserRef, "followersCount", (targetFollowersCount - 1).coerceAtLeast(0))
+                transaction.update(currentUserRef, "resonanceOutCount", (outCount - 1).coerceAtLeast(0))
+                transaction.update(targetUserRef, "resonanceInCount", (inCount - 1).coerceAtLeast(0))
+                
+                // Legacy support
+                transaction.update(currentUserRef, "followingCount", (outCount - 1).coerceAtLeast(0))
+                transaction.update(targetUserRef, "followersCount", (inCount - 1).coerceAtLeast(0))
             }.await()
             Result.success(Unit)
         } catch (e: Exception) {
@@ -382,35 +410,50 @@ class UserRepository @Inject constructor(
     }
 
     /**
-     * Streams the follow relationship status between two users.
+     * Streams the resonance relationship status between two users.
      */
-    fun observeIsFollowing(currentUserId: String, targetUserId: String): Flow<Boolean> = callbackFlow {
+    fun observeIsResonating(currentUserId: String, targetUserId: String): Flow<Boolean> = callbackFlow {
         if (currentUserId.isBlank() || targetUserId.isBlank()) {
             trySend(false)
             close()
             return@callbackFlow
         }
 
+        // Check both collections for migration safety
         val docRef = usersCollection.document(currentUserId.trim())
-            .collection("following").document(targetUserId.trim())
+            .collection("resonance_out").document(targetUserId.trim())
 
         val registration = docRef.addSnapshotListener { snapshot, _ ->
-            trySend(snapshot?.exists() == true)
+            if (snapshot?.exists() == true) {
+                trySend(true)
+            } else {
+                // Fallback to legacy check
+                usersCollection.document(currentUserId.trim())
+                    .collection("following").document(targetUserId.trim())
+                    .get().addOnSuccessListener { legacySnapshot ->
+                        trySend(legacySnapshot.exists())
+                    }
+            }
         }
 
         awaitClose { registration.remove() }
     }
 
     /**
-     * Checks if the current user is following the target user.
+     * Checks if the current user is resonating with the target user.
      */
-    suspend fun isFollowing(currentUserId: String, targetUserId: String): Boolean {
+    suspend fun isResonating(currentUserId: String, targetUserId: String): Boolean {
         if (currentUserId.isBlank() || targetUserId.isBlank()) return false
         return try {
             val doc = usersCollection.document(currentUserId.trim())
-                .collection("following").document(targetUserId.trim())
+                .collection("resonance_out").document(targetUserId.trim())
                 .get().await()
-            doc.exists()
+            if (doc.exists()) return true
+            
+            // Fallback to legacy
+            usersCollection.document(currentUserId.trim())
+                .collection("following").document(targetUserId.trim())
+                .get().await().exists()
         } catch (_: Exception) {
             false
         }

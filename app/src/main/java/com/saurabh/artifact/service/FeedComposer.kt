@@ -17,12 +17,12 @@ class FeedComposer @Inject constructor(
      * Composes a personalized feed for the user.
      */
     suspend fun composeFeed(userId: String): List<FeedArtifact> = coroutineScope {
-        val followedJob = async { repository.getFollowedArtifacts(userId) }
+        val resonatedJob = async { repository.getResonatingArtifacts(userId) }
         val unfinishedJob = async { repository.getUnfinishedSessions(userId) }
         val discoveryJob = async { repository.getDiscoveryCandidates() }
         val profileJob = async { repository.getEmotionalProfile(userId) }
 
-        val followed = followedJob.await()
+        val resonated = resonatedJob.await()
         val unfinishedSessions = unfinishedJob.await()
         val discovery = discoveryJob.await()
         val profile = profileJob.await() ?: EmotionalCompatibilityProfile(userId = userId)
@@ -38,18 +38,18 @@ class FeedComposer @Inject constructor(
             )
         }
 
-        // 2. Map Followed to FeedArtifacts
-        val followedItems = followed.map { artifact ->
+        // 2. Map Resonated to FeedArtifacts
+        val resonatedItems = resonated.map { artifact ->
             FeedArtifact(
                 artifact = artifact,
-                reason = FeedRecommendationReason.FOLLOWED_CREATOR,
+                reason = FeedRecommendationReason.RESONATING_PRESENCE,
                 compatibilityScore = calculateEmotionalAlignment(artifact, profile)
             )
         }
 
         // 3. Map Discovery to FeedArtifacts
         val discoveryItems = discovery
-            .filter { disc -> followed.none { it.id == disc.id } && unfinishedSessions.none { it.artifactId == disc.id } }
+            .filter { disc -> resonated.none { it.id == disc.id } && unfinishedSessions.none { it.artifactId == disc.id } }
             .map { artifact ->
                 val alignment = calculateEmotionalAlignment(artifact, profile)
                 FeedArtifact(
@@ -60,9 +60,9 @@ class FeedComposer @Inject constructor(
             }
 
         // 4. Blend & Rank
-        val combined = (unfinishedItems + followedItems + discoveryItems)
+        val combined = (unfinishedItems + resonatedItems + discoveryItems)
             .sortedWith(compareByDescending<FeedArtifact> { it.isUnfinished }
-                .thenByDescending { it.reason == FeedRecommendationReason.FOLLOWED_CREATOR }
+                .thenByDescending { it.reason == FeedRecommendationReason.RESONATING_PRESENCE }
                 .thenByDescending { it.compatibilityScore }
             )
 

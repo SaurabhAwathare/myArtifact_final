@@ -39,12 +39,15 @@ interface DraftDao {
     @Query("UPDATE artifact_drafts SET status = :status, updatedAt = :timestamp WHERE id = :id")
     suspend fun updateStatus(id: String, status: DraftStatus, timestamp: Long = System.currentTimeMillis())
 
+    @Deprecated("Use updateStatus instead")
     @Query("UPDATE artifact_drafts SET draftState = :state, updatedAt = :timestamp WHERE id = :id")
     suspend fun updateDraftState(id: String, state: ArtifactDraftState, timestamp: Long = System.currentTimeMillis())
 
+    @Deprecated("Use updateStatus instead")
     @Query("UPDATE artifact_drafts SET uploadStatus = :status, updatedAt = :timestamp WHERE id = :id")
     suspend fun updateUploadStatus(id: String, status: UploadStatus, timestamp: Long = System.currentTimeMillis())
 
+    @Deprecated("Use updateStatus instead")
     @Query("UPDATE artifact_drafts SET syncState = :state, updatedAt = :timestamp WHERE id = :id")
     suspend fun updateSyncState(id: String, state: SyncState, timestamp: Long = System.currentTimeMillis())
 

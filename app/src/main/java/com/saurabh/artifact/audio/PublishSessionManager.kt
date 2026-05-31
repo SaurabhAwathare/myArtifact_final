@@ -1,7 +1,7 @@
 package com.saurabh.artifact.audio
 
 import android.util.Log
-import com.saurabh.artifact.data.local.DraftDao
+import com.saurabh.artifact.domain.PublishingOrchestrator
 import com.saurabh.artifact.model.TranscriptSegment
 import com.saurabh.artifact.repository.PublishApprovalRepository
 import kotlinx.coroutines.CoroutineScope
@@ -19,7 +19,7 @@ import javax.inject.Singleton
 @Singleton
 class PublishSessionManager @Inject constructor(
     private val approvalRepository: PublishApprovalRepository,
-    private val draftDao: DraftDao
+    private val publishingOrchestrator: PublishingOrchestrator
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -39,7 +39,8 @@ class PublishSessionManager @Inject constructor(
         return try {
             val result = approvalRepository.approveAndFreeze(draftId, transcript)
             if (result.isSuccess) {
-                Log.i("PublishSessionManager", "Draft $draftId approved and frozen. Handoff to WorkManager complete.")
+                Log.i("PublishSessionManager", "Draft $draftId approved and frozen. Handoff to Orchestrator.")
+                publishingOrchestrator.approvePublishing(draftId)
                 Result.success(Unit)
             } else {
                 _activePublishingId.value = null

@@ -34,14 +34,14 @@ fun PlayerInteractionBar(
     isResonated: Boolean,
     selectedReactionType: ReactionType,
     onResonateClick: (ReactionType) -> Unit,
-    isFollowed: Boolean,
-    onFollowClick: () -> Unit,
+    isResonating: Boolean,
+    onResonateConnectionClick: () -> Unit,
     isSaved: Boolean,
     onSaveClick: () -> Unit,
     isCommentUnlocked: Boolean,
     commentCount: Int,
     onCommentClick: () -> Unit,
-    showFollow: Boolean = true,
+    showResonance: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     var showReactionPicker by remember { mutableStateOf(false) }
@@ -76,13 +76,13 @@ fun PlayerInteractionBar(
             onClick = onCommentClick
         )
 
-        if (showFollow) {
+        if (showResonance) {
             InteractionItem(
-                icon = if (isFollowed) Icons.Rounded.Person else Icons.Rounded.PersonAdd,
-                label = if (isFollowed) "Connected" else "Connect",
-                isActive = isFollowed,
+                icon = if (isResonating) Icons.Rounded.Person else Icons.Rounded.PersonAdd,
+                label = if (isResonating) "Resonating" else "Resonate",
+                isActive = isResonating,
                 activeColor = GoldAura400,
-                onClick = onFollowClick
+                onClick = onResonateConnectionClick
             )
         }
 

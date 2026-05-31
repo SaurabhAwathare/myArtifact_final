@@ -127,7 +127,14 @@ class PublishingWorker @AssistedInject constructor(
                 NotificationHelper.showUploadErrorNotification(appContext, draft.title ?: "Artifact")
                 Result.failure()
             } else {
-                draftDao.update(draft.copy(status = draft.status.copy(sync = SyncStatus.Failed(e.message ?: "Transient upload failure", recoverable = true))))
+                // If it's a network error or transient, set to WaitingForNetwork or Queued
+                val isNetworkError = e is java.io.IOException || 
+                                   (e is com.google.firebase.storage.StorageException && 
+                                    e.errorCode == com.google.firebase.storage.StorageException.ERROR_RETRY_LIMIT_EXCEEDED)
+                
+                val nextStatus = if (isNetworkError) SyncStatus.WaitingForNetwork else SyncStatus.Queued
+                draftDao.update(draft.copy(status = draft.status.copy(sync = nextStatus)))
+
                 Result.retry()
             }
         }

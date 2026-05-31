@@ -62,11 +62,11 @@ class PublishingOrchestrator @Inject constructor(
             return@withContext
         }
 
-        // 2. Transition to READY_TO_PUBLISH + SyncStatus.Queued or SyncStatus.Failed (offline)
+        // 2. Transition to READY_TO_PUBLISH + SyncStatus.Queued or SyncStatus.WaitingForNetwork
         val newSyncStatus = if (connectivityObserver.isOnline()) {
             SyncStatus.Queued
         } else {
-            SyncStatus.Failed("Waiting for network", recoverable = true)
+            SyncStatus.WaitingForNetwork
         }
         
         draftDao.update(draft.copy(

@@ -1,5 +1,9 @@
 package com.saurabh.artifact.audio.validation
 
+import com.saurabh.artifact.domain.review.ReviewEvidence
+import com.saurabh.artifact.domain.review.ReviewPolicy
+import java.util.BitSet
+
 interface ReviewTracker {
     /** Called periodically during playback. */
     fun onPlaybackTick(currentPosMs: Long, realElapsedMs: Long, playbackSpeed: Float)
@@ -15,51 +19,53 @@ interface ReviewTracker {
 }
 
 class DefaultReviewTracker(
-    private val artifactId: String,
-    private val durationMs: Long,
-    private val validator: ReviewValidator,
-    initialP1: Long = 0L,
-    initialP2: Long = 0L,
-    initialEffortMs: Long = 0L,
-    initialReachedEnd: Boolean = false,
-    initialFurthestMs: Long = 0L
+    initialEvidence: ReviewEvidence,
+    private val policy: ReviewPolicy,
+    private val validator: ReviewValidator
 ) : ReviewTracker {
 
-    private var p1: Long = initialP1
-    private var p2: Long = initialP2
-    private var totalTimeListenedMs: Long = initialEffortMs
-    private var hasReachedEnd: Boolean = initialReachedEnd
-    private var furthestPositionMs: Long = initialFurthestMs
-    
+    private var currentEvidence = initialEvidence
     private var lastPlaybackPositionMs: Long = -1L
-    private val NUM_SEGMENTS = 100
 
     override fun onPlaybackTick(currentPosMs: Long, realElapsedMs: Long, playbackSpeed: Float) {
-        if (durationMs <= 0) return
+        if (currentEvidence.durationMs <= 0) return
 
-        // 1. Effort Tracking (Wall clock time)
-        // Only count if playback is forward and speed is reasonable
+        // 1. Effort Tracking (Wall clock time categorized by speed)
         if (realElapsedMs > 0 && realElapsedMs < 5000) {
-            totalTimeListenedMs += realElapsedMs
+            val updatedEffortMap = currentEvidence.effortMap.toMutableMap()
+            val currentEffort = updatedEffortMap.getOrDefault(playbackSpeed, 0L)
+            updatedEffortMap[playbackSpeed] = currentEffort + realElapsedMs
+            currentEvidence = currentEvidence.copy(effortMap = updatedEffortMap)
         }
 
         // 2. Coverage Tracking with Adaptive Scrub Tolerance
         val expectedDelta = (realElapsedMs * playbackSpeed).toLong()
-        val tolerance = getScrubTolerance(durationMs)
+        val tolerance = getScrubTolerance(currentEvidence.durationMs)
         
         val isAdvancingNormally = lastPlaybackPositionMs != -1L &&
                 currentPosMs >= lastPlaybackPositionMs &&
                 currentPosMs <= lastPlaybackPositionMs + expectedDelta + tolerance
 
+        // Mark coverage if advancing normally or if tick is significant enough to trust
         if (isAdvancingNormally || realElapsedMs > 500) {
-            val segmentIndex = (currentPosMs * NUM_SEGMENTS / durationMs).toInt().coerceIn(0, NUM_SEGMENTS - 1)
-            if (segmentIndex < 64) {
-                p1 = p1 or (1L shl segmentIndex)
-            } else {
-                p2 = p2 or (1L shl (segmentIndex - 64))
-            }
-            if (currentPosMs > furthestPositionMs) {
-                furthestPositionMs = currentPosMs
+            val segmentSize = policy.getSegmentSizeMs(currentEvidence.durationMs)
+            val segmentIndex = (currentPosMs / segmentSize).toInt()
+            val totalSegments = (currentEvidence.durationMs / segmentSize).toInt().coerceAtLeast(1)
+            
+            if (segmentIndex < totalSegments) {
+                val updatedCoverage = currentEvidence.coverage.clone() as BitSet
+                updatedCoverage.set(segmentIndex)
+                
+                var updatedFurthest = currentEvidence.furthestPositionMs
+                if (currentPosMs > updatedFurthest) {
+                    updatedFurthest = currentPosMs
+                }
+                
+                currentEvidence = currentEvidence.copy(
+                    coverage = updatedCoverage,
+                    furthestPositionMs = updatedFurthest,
+                    lastUpdated = System.currentTimeMillis()
+                )
             }
         }
 
@@ -71,32 +77,20 @@ class DefaultReviewTracker(
     }
 
     override fun onPlaybackEnded() {
-        hasReachedEnd = true
+        currentEvidence = currentEvidence.copy(hasReachedEnd = true)
     }
 
     override fun getProgress(): ReviewProgress {
-        val coverageCount = java.lang.Long.bitCount(p1) + java.lang.Long.bitCount(p2)
-        val coveragePercent = coverageCount.toFloat() / NUM_SEGMENTS
-        val effortPercent = totalTimeListenedMs.toFloat() / durationMs.coerceAtLeast(1)
-        
-        val result = validator.validate(
-            coveragePercent = coveragePercent,
-            effortPercent = effortPercent,
-            reachedEnd = hasReachedEnd,
-            durationMs = durationMs
-        )
+        val result = validator.validate(currentEvidence, policy)
 
         return ReviewProgress(
-            artifactId = artifactId,
-            durationMs = durationMs,
-            coveragePercent = coveragePercent,
-            effortPercent = effortPercent,
-            hasReachedEnd = hasReachedEnd,
+            artifactId = currentEvidence.artifactId,
+            durationMs = currentEvidence.durationMs,
+            coveragePercent = result.coveragePercent,
+            effortPercent = result.effortPercent,
+            hasReachedEnd = currentEvidence.hasReachedEnd,
             isValidationMet = result.isValid,
-            rawP1 = p1,
-            rawP2 = p2,
-            totalTimeListenedMs = totalTimeListenedMs,
-            furthestPositionMs = furthestPositionMs,
+            evidence = currentEvidence,
             reviewResult = result
         )
     }

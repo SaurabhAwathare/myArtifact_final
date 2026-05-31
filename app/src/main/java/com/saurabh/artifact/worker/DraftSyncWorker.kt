@@ -44,6 +44,7 @@ class DraftSyncWorker @AssistedInject constructor(
         }
 
         if (draft.syncState == SyncState.SYNCED) return Result.success()
+        if (draft.syncState == SyncState.FAILED_PERMANENT) return Result.failure()
 
         // 3. Integrity Validation
         val currentChecksum = artifactRepository.calculateChecksum(draft.localAudioPath)

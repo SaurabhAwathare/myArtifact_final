@@ -30,6 +30,7 @@ data class Artifact(
     @set:PropertyName("isDraft")
     var isDraft: Boolean = false,
     var durationMs: Long = 0,
+    var checksum: String = "", // Added for tamper resistance and deduplication
     var title: String = "",
     var description: String = "",
     var reactions: Map<String, Int> = emptyMap(),

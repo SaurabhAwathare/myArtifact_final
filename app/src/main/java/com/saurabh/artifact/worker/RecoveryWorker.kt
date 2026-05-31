@@ -1,0 +1,38 @@
+package com.saurabh.artifact.worker
+
+import android.content.Context
+import android.util.Log
+import androidx.hilt.work.HiltWorker
+import androidx.work.CoroutineWorker
+import androidx.work.WorkerParameters
+import com.saurabh.artifact.repository.RecordingRepository
+import dagger.assisted.Assisted
+import dagger.assisted.AssistedInject
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+/**
+ * Decoupled recovery engine for interrupted recordings.
+ * Triggered on app start to ensure service stays lean and durable.
+ */
+@HiltWorker
+class RecoveryWorker @AssistedInject constructor(
+    @Assisted appContext: Context,
+    @Assisted workerParams: WorkerParameters,
+    private val recordingRepository: RecordingRepository
+) : CoroutineWorker(appContext, workerParams) {
+
+    override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        try {
+            Log.d("RecoveryWorker", "Starting automated recovery scan...")
+            val recovered = recordingRepository.recoverInterruptedDrafts()
+            if (recovered.isNotEmpty()) {
+                Log.i("RecoveryWorker", "Successfully recovered ${recovered.size} interrupted recordings")
+            }
+            Result.success()
+        } catch (e: Exception) {
+            Log.e("RecoveryWorker", "Recovery scan failed", e)
+            Result.retry()
+        }
+    }
+}

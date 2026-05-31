@@ -9,12 +9,18 @@ sealed class SyncStatus {
     
     @Serializable
     object Queued : SyncStatus()
+
+    @Serializable
+    object WaitingForNetwork : SyncStatus()
     
     @Serializable
     data class Uploading(val progress: Float) : SyncStatus()
     
     @Serializable
     object Synced : SyncStatus()
+
+    @Serializable
+    object Recovering : SyncStatus()
     
     @Serializable
     data class Failed(val error: String, val recoverable: Boolean = true) : SyncStatus()

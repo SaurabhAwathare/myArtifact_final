@@ -80,4 +80,14 @@ class Converters {
     } catch (_: Exception) {
         emptyList()
     }
+
+    @TypeConverter
+    fun fromEffortMap(value: Map<Float, Long>): String = Json.encodeToString(value)
+
+    @TypeConverter
+    fun toEffortMap(value: String): Map<Float, Long> = try {
+        Json.decodeFromString(value)
+    } catch (_: Exception) {
+        emptyMap()
+    }
 }

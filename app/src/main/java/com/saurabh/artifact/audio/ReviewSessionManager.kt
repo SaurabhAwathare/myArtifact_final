@@ -23,17 +23,19 @@ class ReviewSessionManager @Inject constructor(
     val reviewProgress: StateFlow<ReviewState> = reviewAuthorityService.currentProgress
         .map { progress ->
             if (progress == null) ReviewState()
-            else ReviewState(
-                artifactId = progress.artifactId,
-                durationMs = progress.durationMs,
-                furthestPositionMs = progress.furthestPositionMs,
-                coveragePart1 = progress.rawP1,
-                coveragePart2 = progress.rawP2,
-                totalTimeListenedMs = progress.totalTimeListenedMs,
-                isThresholdMet = progress.isValidationMet,
-                isPlaybackEnded = progress.hasReachedEnd,
-                reviewResult = progress.reviewResult
-            )
+            else {
+                val evidence = progress.evidence
+                ReviewState(
+                    artifactId = progress.artifactId,
+                    durationMs = progress.durationMs,
+                    furthestPositionMs = evidence.furthestPositionMs,
+                    coveragePercent = progress.coveragePercent,
+                    effortPercent = progress.effortPercent,
+                    isThresholdMet = progress.isValidationMet,
+                    isPlaybackEnded = progress.hasReachedEnd,
+                    reviewResult = progress.reviewResult
+                )
+            }
         }.stateIn(scope, SharingStarted.WhileSubscribed(5000), ReviewState())
 
     init {
@@ -98,19 +100,12 @@ data class ReviewState(
     val artifactId: String? = null,
     val durationMs: Long = 0L,
     val furthestPositionMs: Long = 0L,
-    val coveragePart1: Long = 0L,
-    val coveragePart2: Long = 0L,
-    val totalTimeListenedMs: Long = 0L,
+    val coveragePercent: Float = 0f,
+    val effortPercent: Float = 0f,
     val isThresholdMet: Boolean = false,
     val isPlaybackEnded: Boolean = false,
     val reviewResult: ReviewResult? = null
 ) {
     val progress: Float
         get() = if (durationMs > 0) furthestPositionMs.toFloat() / durationMs else 0f
-
-    val coveragePercent: Float
-        get() = (java.lang.Long.bitCount(coveragePart1) + java.lang.Long.bitCount(coveragePart2)).toFloat() / 100f
-
-    val effortPercent: Float
-        get() = if (durationMs > 0) totalTimeListenedMs.toFloat() / durationMs else 0f
 }

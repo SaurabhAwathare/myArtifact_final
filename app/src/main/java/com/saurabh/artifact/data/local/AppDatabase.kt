@@ -7,8 +7,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [QueuedUpload::class, ArtifactDraftEntity::class, PromptEntity::class, PlaybackPosition::class, ArtifactReviewEvidence::class],
-    version = 31,
+    entities = [QueuedUpload::class, ArtifactDraftEntity::class, PromptEntity::class, PlaybackPosition::class, ArtifactReviewEvidence::class, ArtifactEntity::class],
+    version = 34,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -18,8 +18,91 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun promptDao(): PromptDao
     abstract fun playbackPositionDao(): PlaybackPositionDao
     abstract fun reviewDao(): ReviewDao
+    abstract fun artifactDao(): ArtifactDao
 
     companion object {
+        val MIGRATION_33_34 = object : Migration(33, 34) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `artifacts` (
+                        `id` TEXT NOT NULL, 
+                        `userId` TEXT NOT NULL, 
+                        `authorAnonymousId` TEXT NOT NULL,
+                        `authorName` TEXT NOT NULL, 
+                        `authorSigil` TEXT NOT NULL, 
+                        `authorAvatarSeed` TEXT NOT NULL, 
+                        `authorAvatarColor` TEXT NOT NULL, 
+                        `authorAvatarConfigJson` TEXT NOT NULL,
+                        `audioUrl` TEXT NOT NULL, 
+                        `createdAt` INTEGER NOT NULL, 
+                        `durationMs` INTEGER NOT NULL, 
+                        `title` TEXT NOT NULL, 
+                        `description` TEXT NOT NULL, 
+                        `emotion` TEXT NOT NULL, 
+                        `emotionTag` TEXT NOT NULL, 
+                        `playCount` INTEGER NOT NULL, 
+                        `reactionCount` INTEGER NOT NULL, 
+                        `commentCount` INTEGER NOT NULL, 
+                        `amplitudeData` TEXT NOT NULL, 
+                        PRIMARY KEY(`id`)
+                    )
+                """.trimIndent())
+            }
+        }
+        val MIGRATION_32_33 = object : Migration(32, 33) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Fix artifact_review_evidence: audioChecksum was missing from previous migration
+                val cursorEvidence = db.query("PRAGMA table_info(`artifact_review_evidence`)")
+                var hasAudioChecksum = false
+                while (cursorEvidence.moveToNext()) {
+                    if (cursorEvidence.getString(cursorEvidence.getColumnIndexOrThrow("name")) == "audioChecksum") {
+                        hasAudioChecksum = true
+                    }
+                }
+                cursorEvidence.close()
+                if (!hasAudioChecksum) {
+                    db.execSQL("ALTER TABLE `artifact_review_evidence` ADD COLUMN `audioChecksum` TEXT NOT NULL DEFAULT ''")
+                }
+                
+                // Fix artifact_drafts: missing columns from recent entity updates
+                val cursorDrafts = db.query("PRAGMA table_info(`artifact_drafts`)")
+                val existingColumns = mutableSetOf<String>()
+                while (cursorDrafts.moveToNext()) {
+                    existingColumns.add(cursorDrafts.getString(cursorDrafts.getColumnIndexOrThrow("name")))
+                }
+                cursorDrafts.close()
+
+                if ("coveragePart1" !in existingColumns) {
+                    db.execSQL("ALTER TABLE `artifact_drafts` ADD COLUMN `coveragePart1` INTEGER NOT NULL DEFAULT 0")
+                }
+                if ("coveragePart2" !in existingColumns) {
+                    db.execSQL("ALTER TABLE `artifact_drafts` ADD COLUMN `coveragePart2` INTEGER NOT NULL DEFAULT 0")
+                }
+                if ("isPlaybackEnded" !in existingColumns) {
+                    db.execSQL("ALTER TABLE `artifact_drafts` ADD COLUMN `isPlaybackEnded` INTEGER NOT NULL DEFAULT 0")
+                }
+            }
+        }
+        val MIGRATION_31_32 = object : Migration(31, 32) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Recreate the table with new structure
+                db.execSQL("DROP TABLE IF EXISTS `artifact_review_evidence`")
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `artifact_review_evidence` (
+                        `artifactId` TEXT NOT NULL, 
+                        `versionTag` TEXT NOT NULL,
+                        `durationMs` INTEGER NOT NULL, 
+                        `audioChecksum` TEXT NOT NULL DEFAULT '',
+                        `coverage` BLOB NOT NULL, 
+                        `effortMap` TEXT NOT NULL, 
+                        `furthestPositionMs` INTEGER NOT NULL,
+                        `hasReachedEnd` INTEGER NOT NULL, 
+                        `lastUpdated` INTEGER NOT NULL, 
+                        PRIMARY KEY(`artifactId`)
+                    )
+                """.trimIndent())
+            }
+        }
         val MIGRATION_30_31 = object : Migration(30, 31) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("""
@@ -43,9 +126,9 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE `artifact_drafts` ADD COLUMN `totalTimeListenedMs` INTEGER NOT NULL DEFAULT 0")
                 
                 // 2. Recreate to change reviewCoverageBitmask type
-                db.execSQL("CREATE TABLE `artifact_drafts_temp` (`id` TEXT NOT NULL, `localAudioPath` TEXT NOT NULL, `rawPcmPath` TEXT, `localTranscriptPath` TEXT, `waveformPath` TEXT, `title` TEXT, `description` TEXT, `emotion` TEXT, `isPublic` INTEGER NOT NULL, `tags` TEXT NOT NULL, `durationMs` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `status` TEXT NOT NULL, `draftState` TEXT NOT NULL, `uploadStatus` TEXT NOT NULL, `syncState` TEXT NOT NULL, `uploadedBytes` INTEGER NOT NULL, `totalBytes` INTEGER NOT NULL, `uploadSessionUri` TEXT, `uploadAttemptCount` INTEGER NOT NULL, `isEncrypted` INTEGER NOT NULL, `encryptionIv` TEXT, `checksum` TEXT, `approvalToken` TEXT, `deviceFingerprint` TEXT, `cooldownExpiry` INTEGER, `publishApprovalTimestamp` INTEGER, `revocationTimestamp` INTEGER, `emotionalRiskScore` REAL NOT NULL, `publishConfidence` REAL NOT NULL, `isEmotionalReady` INTEGER NOT NULL, `maxReviewPositionMs` INTEGER NOT NULL, `lastPlaybackPositionMs` INTEGER NOT NULL, `reviewCoverageBitmask` INTEGER NOT NULL, `totalTimeListenedMs` INTEGER NOT NULL, `isReviewLocked` INTEGER NOT NULL, `isListened` INTEGER NOT NULL, `deviceId` TEXT, `transcriptionState` TEXT NOT NULL, `remoteArtifactId` TEXT, `emotionalTone` TEXT, `safetyAnalysis` TEXT, `interruptionReason` TEXT, `lastCheckpointTs` INTEGER NOT NULL, `durableBytes` INTEGER NOT NULL, `isCorrupted` INTEGER NOT NULL, `version` INTEGER NOT NULL, `mimeType` TEXT NOT NULL, `amplitudeData` TEXT NOT NULL, `reactionVisibility` TEXT, `uploadedAudioUrl` TEXT, `frozenTranscriptJson` TEXT, `frozenAudioPath` TEXT, `frozenMetadataJson` TEXT, `snapshotHash` TEXT, `transcriptSegmentsJson` TEXT, `sensitiveEntitiesJson` TEXT, PRIMARY KEY(`id`))")
+                db.execSQL("CREATE TABLE `artifact_drafts_temp` (`id` TEXT NOT NULL, `localAudioPath` TEXT NOT NULL, `rawPcmPath` TEXT, `localTranscriptPath` TEXT, `waveformPath` TEXT, `title` TEXT, `description` TEXT, `emotion` TEXT, `isPublic` INTEGER NOT NULL, `tags` TEXT NOT NULL, `durationMs` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `status` TEXT NOT NULL, `draftState` TEXT NOT NULL, `uploadStatus` TEXT NOT NULL, `syncState` TEXT NOT NULL, `uploadedBytes` INTEGER NOT NULL, `totalBytes` INTEGER NOT NULL, `uploadSessionUri` TEXT, `uploadAttemptCount` INTEGER NOT NULL, `isEncrypted` INTEGER NOT NULL, `encryptionIv` TEXT, `checksum` TEXT, `approvalToken` TEXT, `deviceFingerprint` TEXT, `cooldownExpiry` INTEGER, `publishApprovalTimestamp` INTEGER, `revocationTimestamp` INTEGER, `emotionalRiskScore` REAL NOT NULL, `publishConfidence` REAL NOT NULL, `isEmotionalReady` INTEGER NOT NULL, `maxReviewPositionMs` INTEGER NOT NULL, `lastPlaybackPositionMs` INTEGER NOT NULL, `reviewCoverageBitmask` INTEGER NOT NULL, `coveragePart1` INTEGER NOT NULL DEFAULT 0, `coveragePart2` INTEGER NOT NULL DEFAULT 0, `totalTimeListenedMs` INTEGER NOT NULL, `isReviewLocked` INTEGER NOT NULL, `isListened` INTEGER NOT NULL, `isPlaybackEnded` INTEGER NOT NULL DEFAULT 0, `deviceId` TEXT, `transcriptionState` TEXT NOT NULL, `remoteArtifactId` TEXT, `emotionalTone` TEXT, `safetyAnalysis` TEXT, `interruptionReason` TEXT, `lastCheckpointTs` INTEGER NOT NULL, `durableBytes` INTEGER NOT NULL, `isCorrupted` INTEGER NOT NULL, `version` INTEGER NOT NULL, `mimeType` TEXT NOT NULL, `amplitudeData` TEXT NOT NULL, `reactionVisibility` TEXT, `uploadedAudioUrl` TEXT, `frozenTranscriptJson` TEXT, `frozenAudioPath` TEXT, `frozenMetadataJson` TEXT, `snapshotHash` TEXT, `transcriptSegmentsJson` TEXT, `sensitiveEntitiesJson` TEXT, PRIMARY KEY(`id`))")
                 
-                db.execSQL("INSERT INTO artifact_drafts_temp SELECT id, localAudioPath, rawPcmPath, localTranscriptPath, waveformPath, title, description, emotion, isPublic, tags, durationMs, createdAt, updatedAt, status, draftState, uploadStatus, syncState, uploadedBytes, totalBytes, uploadSessionUri, uploadAttemptCount, isEncrypted, encryptionIv, checksum, approvalToken, deviceFingerprint, cooldownExpiry, publishApprovalTimestamp, revocationTimestamp, emotionalRiskScore, publishConfidence, isEmotionalReady, maxReviewPositionMs, lastPlaybackPositionMs, 0, totalTimeListenedMs, isReviewLocked, isListened, deviceId, transcriptionState, remoteArtifactId, emotionalTone, safetyAnalysis, interruptionReason, lastCheckpointTs, durableBytes, isCorrupted, version, mimeType, amplitudeData, reactionVisibility, uploadedAudioUrl, frozenTranscriptJson, frozenAudioPath, frozenMetadataJson, snapshotHash, transcriptSegmentsJson, sensitiveEntitiesJson FROM artifact_drafts")
+                db.execSQL("INSERT INTO artifact_drafts_temp SELECT id, localAudioPath, rawPcmPath, localTranscriptPath, waveformPath, title, description, emotion, isPublic, tags, durationMs, createdAt, updatedAt, status, draftState, uploadStatus, syncState, uploadedBytes, totalBytes, uploadSessionUri, uploadAttemptCount, isEncrypted, encryptionIv, checksum, approvalToken, deviceFingerprint, cooldownExpiry, publishApprovalTimestamp, revocationTimestamp, emotionalRiskScore, publishConfidence, isEmotionalReady, maxReviewPositionMs, lastPlaybackPositionMs, 0, 0, 0, totalTimeListenedMs, isReviewLocked, isListened, 0, deviceId, transcriptionState, remoteArtifactId, emotionalTone, safetyAnalysis, interruptionReason, lastCheckpointTs, durableBytes, isCorrupted, version, mimeType, amplitudeData, reactionVisibility, uploadedAudioUrl, frozenTranscriptJson, frozenAudioPath, frozenMetadataJson, snapshotHash, transcriptSegmentsJson, sensitiveEntitiesJson FROM artifact_drafts")
                 
                 db.execSQL("DROP TABLE artifact_drafts")
                 db.execSQL("ALTER TABLE artifact_drafts_temp RENAME TO artifact_drafts")
@@ -102,8 +185,11 @@ abstract class AppDatabase : RoomDatabase() {
                         `maxReviewPositionMs` INTEGER NOT NULL DEFAULT 0, 
                         `lastPlaybackPositionMs` INTEGER NOT NULL DEFAULT 0, 
                         `reviewCoverageBitmask` TEXT, 
+                        `coveragePart1` INTEGER NOT NULL DEFAULT 0,
+                        `coveragePart2` INTEGER NOT NULL DEFAULT 0,
                         `isReviewLocked` INTEGER NOT NULL DEFAULT 1, 
                         `isListened` INTEGER NOT NULL DEFAULT 0, 
+                        `isPlaybackEnded` INTEGER NOT NULL DEFAULT 0,
                         `deviceId` TEXT, 
                         `transcriptionState` TEXT NOT NULL DEFAULT 'IDLE', 
                         `remoteArtifactId` TEXT, 
@@ -136,7 +222,7 @@ abstract class AppDatabase : RoomDatabase() {
                         checksum, approvalToken, deviceFingerprint, cooldownExpiry, 
                         publishApprovalTimestamp, revocationTimestamp, emotionalRiskScore, 
                         publishConfidence, isEmotionalReady, maxReviewPositionMs, 
-                        lastPlaybackPositionMs, isListened, deviceId, transcriptionState, 
+                        lastPlaybackPositionMs, 0, 0, isListened, deviceId, transcriptionState, 
                         remoteArtifactId, lastCheckpointTs, isCorrupted, version, 
                         mimeType, amplitudeData, reactionVisibility, frozenTranscriptJson, 
                         frozenAudioPath, frozenMetadataJson, snapshotHash, 
@@ -150,7 +236,7 @@ abstract class AppDatabase : RoomDatabase() {
                         checksum, approvalToken, deviceFingerprint, cooldownExpiry, 
                         publishApprovalTimestamp, revocationTimestamp, emotionalRiskScore, 
                         publishConfidence, isEmotionalReady, maxReviewPositionMs, 
-                        lastPlaybackPositionMs, isListened, deviceId, transcriptionState, 
+                        lastPlaybackPositionMs, 0, 0, isListened, deviceId, transcriptionState,
                         remoteArtifactId, lastCheckpointTs, isCorrupted, version, 
                         mimeType, amplitudeData, reactionVisibility, frozenTranscriptJson, 
                         frozenAudioPath, frozenMetadataJson, snapshotHash, 

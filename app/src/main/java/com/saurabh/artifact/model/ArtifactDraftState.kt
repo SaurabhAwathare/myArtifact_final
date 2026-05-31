@@ -4,6 +4,7 @@ package com.saurabh.artifact.model
  * Represents the various states an artifact draft can be in during its lifecycle.
  * Note: This is a legacy flattened state model being gradually replaced by [DraftStatus].
  */
+@Deprecated("Use DraftStatus instead. Legacy state model.")
 enum class ArtifactDraftState {
     SAVED_LOCALLY,
     READY_TO_REVIEW,

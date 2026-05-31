@@ -26,7 +26,7 @@ data class ProfileUiState(
     val userProfile: User? = null,
     val avatarConfig: AvatarConfig = AvatarConfig(),
     val isSelf: Boolean = true,
-    val isFollowing: Boolean = false,
+    val isResonating: Boolean = false,
     val selectedTab: ProfileTab = ProfileTab.PUBLISHED,
     val publishedArtifacts: List<Artifact> = emptyList(),
     val cloudDrafts: List<Artifact> = emptyList(),
@@ -114,15 +114,15 @@ class ProfileViewModel @Inject constructor(
             artifactRepository.getUserArtifacts(effectiveId),
             artifactRepository.getSavedArtifacts(effectiveId),
             recordingRepository.observeDrafts(),
-            userRepository.observeIsFollowing(authRepository.currentUserId, effectiveId)
-        ) { profile, allArtifacts, saved, localDrafts, isFollowing ->
+            userRepository.observeIsResonating(authRepository.currentUserId, effectiveId)
+        ) { profile, allArtifacts, saved, localDrafts, isResonating ->
             baseState.copy(
                 userProfile = profile,
                 publishedArtifacts = allArtifacts.filter { !it.isDraft },
                 cloudDrafts = allArtifacts.filter { it.isDraft },
                 savedArtifacts = saved,
                 localDrafts = localDrafts,
-                isFollowing = isFollowing
+                isResonating = isResonating
             )
         }
     }.stateIn(
@@ -147,16 +147,16 @@ class ProfileViewModel @Inject constructor(
         _targetUserId.value = userId
     }
 
-    fun toggleFollow() {
+    fun toggleResonance() {
         val targetId = _targetUserId.value ?: return
         val currentId = authRepository.currentUser.value?.uid ?: return
         if (targetId == currentId) return
 
         viewModelScope.launch {
-            if (uiState.value.isFollowing) {
-                userRepository.unfollowUser(currentId, targetId)
+            if (uiState.value.isResonating) {
+                userRepository.stopResonatingWithUser(currentId, targetId)
             } else {
-                userRepository.followUser(currentId, targetId)
+                userRepository.resonateWithUser(currentId, targetId)
             }
         }
     }

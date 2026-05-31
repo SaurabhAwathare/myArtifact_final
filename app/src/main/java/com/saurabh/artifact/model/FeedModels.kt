@@ -18,7 +18,7 @@ data class FeedArtifact(
  * Reasons why an artifact was recommended to the user.
  */
 enum class FeedRecommendationReason(val label: String) {
-    FOLLOWED_CREATOR("From someone you follow"),
+    RESONATING_PRESENCE("From a presence you resonate with"),
     EMOTIONAL_RESONANCE("Resonates with your mood"),
     SIMILAR_TOPIC("A topic you've explored"),
     CONTINUE_LISTENING("Pick up where you left off"),
@@ -49,11 +49,11 @@ data class EmotionalCompatibilityProfile(
 )
 
 /**
- * Represents a follow relationship (Private by design).
+ * Represents a resonance relationship (Private by design).
  */
-data class FollowRelation(
-    val followerId: String,
-    val followingId: String,
+data class ResonanceRelation(
+    val resonatingId: String,
+    val resonatedId: String,
     val createdAt: Timestamp = Timestamp.now()
 )
 

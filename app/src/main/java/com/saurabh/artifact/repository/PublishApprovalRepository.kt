@@ -69,7 +69,7 @@ class PublishApprovalRepository @Inject constructor(
                 .digest(contentToHash.toByteArray())
                 .joinToString("") { "%02x".format(it) }
 
-            // 3. Persist Snapshot and Update State
+            // 3. Persist Snapshot
             draftDao.freezeSnapshot(
                 id = draftId,
                 transcriptJson = transcriptJson,
@@ -78,11 +78,8 @@ class PublishApprovalRepository @Inject constructor(
                 hash = hash
             )
             
-            draftDao.markAsApproved(draftId)
-            draftDao.updateUploadStatus(draftId, UploadStatus.QUEUED)
-            
-            // 4. Update state to WAITING_FOR_NETWORK (WorkManager will handle the rest)
-            draftDao.updateDraftState(draftId, ArtifactDraftState.WAITING_FOR_NETWORK)
+            // Note: We don't update lifecycle here anymore, 
+            // the PublishingOrchestrator will do it.
             
             Result.success(Unit)
         } catch (e: Exception) {

@@ -33,10 +33,7 @@ class AudioPlayer @Inject constructor(
     val durationMs = playbackSessionManager.durationMs
     val playbackSpeed = playbackSessionManager.playbackSpeed
     val error = playbackSessionManager.error
-
-    // Keep the flows for backward compatibility if needed, though they now delegate
-    private val _onPlaybackCompleted = MutableSharedFlow<String>(replay = 0)
-    val onPlaybackCompleted: SharedFlow<String> = _onPlaybackCompleted.asSharedFlow()
+    val onPlaybackCompleted = playbackSessionManager.playbackCompletedEvent
 
     fun play(artifact: Artifact, initialPosition: Long = 0L) {
         playbackSessionManager.play(
@@ -52,6 +49,18 @@ class AudioPlayer @Inject constructor(
 
     fun seekTo(position: Long) {
         playbackSessionManager.seekTo(position)
+    }
+
+    fun skipForward() {
+        playbackSessionManager.skipForward()
+    }
+
+    fun skipBackward() {
+        playbackSessionManager.skipBackward()
+    }
+
+    fun preCache(artifact: Artifact) {
+        playbackSessionManager.preCache(artifact)
     }
 
     fun stop() {

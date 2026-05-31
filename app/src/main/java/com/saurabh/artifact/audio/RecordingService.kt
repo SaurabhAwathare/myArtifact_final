@@ -88,18 +88,6 @@ class RecordingService : Service() {
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Artifact:RecordingWakeLock")
         
         createNotificationChannel()
-
-        // Recover any interrupted recordings from previous crashes
-        serviceScope.launch(Dispatchers.IO) {
-            try {
-                val recovered = recordingRepository.recoverInterruptedDrafts()
-                if (recovered.isNotEmpty()) {
-                    Log.i("RecordingService", "Recovered ${recovered.size} interrupted recordings")
-                }
-            } catch (e: Exception) {
-                Log.e("RecordingService", "Failed to recover interrupted drafts", e)
-            }
-        }
     }
 
     private fun requestAudioFocus(): Boolean {

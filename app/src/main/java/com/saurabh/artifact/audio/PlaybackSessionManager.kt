@@ -38,7 +38,7 @@ class PlaybackSessionManager @Inject constructor(
     private var controllerFuture: ListenableFuture<MediaController>? = null
 
     // Tracking which system owns the current playback session
-    enum class InteractionOwner { NONE, PUBLIC_PLAYER, REVIEW_PLAYER }
+    enum class InteractionOwner { NONE, PUBLIC_PLAYER, REVIEW_PLAYER, SERVICE }
     private val _interactionOwner = MutableStateFlow(InteractionOwner.NONE)
     val interactionOwner: StateFlow<InteractionOwner> = _interactionOwner.asStateFlow()
     
@@ -69,6 +69,9 @@ class PlaybackSessionManager @Inject constructor(
     private val _isBuffering = MutableStateFlow(false)
     val isBuffering: StateFlow<Boolean> = _isBuffering.asStateFlow()
 
+    private val _playbackCompletedEvent = MutableSharedFlow<String>(replay = 0)
+    val playbackCompletedEvent: SharedFlow<String> = _playbackCompletedEvent.asSharedFlow()
+
     private val _seekEvent = MutableSharedFlow<Long>()
     val seekEvent: SharedFlow<Long> = _seekEvent.asSharedFlow()
 
@@ -86,6 +89,13 @@ class PlaybackSessionManager @Inject constructor(
             _isBuffering.value = state == Player.STATE_BUFFERING
             if (state == Player.STATE_READY) {
                 _durationMs.value = controller?.duration?.coerceAtLeast(0) ?: 0
+            }
+            if (state == Player.STATE_ENDED) {
+                _currentArtifact.value?.let { artifact ->
+                    scope.launch {
+                        _playbackCompletedEvent.emit(artifact.id)
+                    }
+                }
             }
         }
 
@@ -153,16 +163,7 @@ class PlaybackSessionManager @Inject constructor(
                 initialPosition
             }
 
-            val mediaItem = MediaItem.Builder()
-                .setUri(artifact.audioUrl)
-                .setMediaId(artifact.id)
-                .setMediaMetadata(
-                    androidx.media3.common.MediaMetadata.Builder()
-                        .setTitle(artifact.title)
-                        .setArtist(artifact.author.name)
-                        .build()
-                )
-                .build()
+            val mediaItem = createMediaItem(artifact)
             
             player.setMediaItem(mediaItem)
             player.setPlaybackSpeed(_playbackSpeed.value)
@@ -170,6 +171,41 @@ class PlaybackSessionManager @Inject constructor(
             player.prepare()
             player.play()
         }
+    }
+
+    /**
+     * Pre-loads an artifact into the player without starting playback.
+     * Used to reduce latency for "Recent Reflections" or next-in-feed items.
+     */
+    fun preCache(artifact: Artifact) {
+        scope.launch {
+            val player = getController() ?: return@launch
+            if (player.isPlaying) return@launch // Don't interrupt active playback
+            
+            val mediaItem = createMediaItem(artifact)
+            player.addMediaItem(mediaItem)
+            player.prepare()
+            Log.d("PlaybackSessionManager", "Pre-cached artifact: ${artifact.id}")
+        }
+    }
+
+    private fun createMediaItem(artifact: Artifact): MediaItem {
+        return MediaItem.Builder()
+            .setUri(artifact.audioUrl)
+            .setMediaId(artifact.id)
+            .setMediaMetadata(
+                androidx.media3.common.MediaMetadata.Builder()
+                    .setTitle(artifact.title)
+                    .setArtist(artifact.author.name)
+                    .setAlbumTitle("Reflections")
+                    .setGenre(artifact.emotion)
+                    .setExtras(android.os.Bundle().apply {
+                        putString("author_sigil", artifact.author.sigil)
+                        putString("avatar_seed", artifact.author.avatarSeed)
+                    })
+                    .build()
+            )
+            .build()
     }
 
     fun setPlaybackSpeed(speed: Float) {
@@ -204,6 +240,16 @@ class PlaybackSessionManager @Inject constructor(
             _currentPosition.value = position
             _seekEvent.emit(position)
         }
+    }
+
+    fun skipForward(millis: Long = 10_000L) {
+        val newPos = (_currentPosition.value + millis).coerceAtMost(_durationMs.value)
+        seekTo(newPos)
+    }
+
+    fun skipBackward(millis: Long = 10_000L) {
+        val newPos = (_currentPosition.value - millis).coerceAtLeast(0L)
+        seekTo(newPos)
     }
 
     fun stop() {

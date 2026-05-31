@@ -88,7 +88,7 @@ fun ArtifactPlayerView(
                     if (art != null) onNavigateToComments(art.id, art.userId)
                 },
                 onResonateClick = { viewModel.toggleResonate(it) },
-                onFollowClick = { viewModel.toggleFollow() },
+                onResonateConnectionClick = { viewModel.toggleResonanceConnection() },
                 onSaveClick = { viewModel.toggleSave() },
                 onEditClick = { 
                     viewModel.setExpanded(false)
@@ -167,6 +167,24 @@ fun MiniPlayer(
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
+                
+                if (uiState.sleepTimerMillisRemaining != null) {
+                    val minutes = (uiState.sleepTimerMillisRemaining / 60000).toInt()
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Rounded.Timer,
+                            contentDescription = null,
+                            modifier = Modifier.size(12.dp),
+                            tint = EmberGlow.copy(alpha = 0.7f)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "${minutes}m",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = EmberGlow.copy(alpha = 0.7f)
+                        )
+                    }
+                }
                 
                 Spacer(modifier = Modifier.height(4.dp))
                 

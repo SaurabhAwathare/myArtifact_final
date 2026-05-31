@@ -13,9 +13,12 @@ import com.saurabh.artifact.audio.RecoveryEngine
 import com.saurabh.artifact.util.NotificationHelper
 import com.saurabh.artifact.util.StartupTracer
 import com.saurabh.artifact.worker.ReminderWorker
+import com.saurabh.artifact.worker.RecoveryWorker
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.ExistingWorkPolicy
 import dagger.Lazy
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
@@ -172,7 +175,20 @@ class StartupCoordinator @Inject constructor(
     private suspend fun initializePostUI() {
         Log.d("Startup", "Initializing Post-UI Services (Deferred 5s)")
         delay(5000)
-        // Run recovery engine only when stable and well after first frame
+        
+        // Trigger automated recovery worker
+        val recoveryRequest = OneTimeWorkRequestBuilder<RecoveryWorker>()
+            .setInitialDelay(5, TimeUnit.SECONDS)
+            .addTag("startup_recovery")
+            .build()
+            
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            "startup_recovery_job",
+            ExistingWorkPolicy.KEEP,
+            recoveryRequest
+        )
+        
+        // Legacy recovery engine
         recoveryEngine.get().runRecovery()
     }
 }

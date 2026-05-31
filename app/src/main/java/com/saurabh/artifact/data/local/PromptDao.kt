@@ -29,4 +29,7 @@ interface PromptDao {
 
     @Query("SELECT COUNT(*) FROM prompts")
     suspend fun getPromptCount(): Int
+
+    @Query("SELECT * FROM prompts ORDER BY lastUsedTimestamp DESC LIMIT :limit")
+    suspend fun getRecentPrompts(limit: Int): List<PromptEntity>
 }

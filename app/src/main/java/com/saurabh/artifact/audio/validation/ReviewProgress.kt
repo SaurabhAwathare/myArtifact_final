@@ -1,5 +1,7 @@
 package com.saurabh.artifact.audio.validation
 
+import com.saurabh.artifact.domain.review.ReviewEvidence
+
 /**
  * Immutable snapshot of the review state for a specific artifact.
  */
@@ -10,9 +12,6 @@ data class ReviewProgress(
     val effortPercent: Float,
     val hasReachedEnd: Boolean,
     val isValidationMet: Boolean,
-    val rawP1: Long,
-    val rawP2: Long,
-    val totalTimeListenedMs: Long,
-    val furthestPositionMs: Long,
+    val evidence: ReviewEvidence,
     val reviewResult: ReviewResult? = null
 )

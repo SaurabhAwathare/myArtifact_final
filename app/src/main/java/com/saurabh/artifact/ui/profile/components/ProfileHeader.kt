@@ -30,7 +30,7 @@ import com.saurabh.artifact.model.AvatarConfig
 
 /**
  * Redesigned ProfileHeader: Compact, Dense, Instagram-style hierarchy.
- * [ Avatar ]   Posts   Followers   Following
+ * [ Avatar ]   Posts   Resonating   Resonators
  * @username
  */
 @Composable
@@ -39,8 +39,8 @@ fun ProfileHeader(
     avatarConfig: AvatarConfig,
     postCount: Int,
     isSelf: Boolean,
-    isFollowing: Boolean,
-    onFollowClick: () -> Unit,
+    isResonating: Boolean,
+    onResonateClick: () -> Unit,
     onEditClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -82,9 +82,24 @@ fun ProfileHeader(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            StatItem(label = "followers", count = user?.followersCount ?: 0)
-            StatItem(label = "following", count = user?.followingCount ?: 0)
-            StatItem(label = "streak", count = 5) // Mock streak for now
+            StatItem(label = "resonators", count = user?.resonanceInCount ?: user?.followersCount ?: 0)
+            StatItem(label = "resonating", count = user?.resonanceOutCount ?: user?.followingCount ?: 0)
+            StatItem(label = "streak", count = user?.softStreakCount ?: 0)
+        }
+
+        if (!isSelf) {
+            Spacer(modifier = Modifier.height(24.dp))
+            Button(
+                onClick = onResonateClick,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (isResonating) ArtifactTheme.colors.surfaceHearth else MaterialTheme.colorScheme.primary,
+                    contentColor = if (isResonating) ArtifactTheme.colors.onSurfaceMain else MaterialTheme.colorScheme.onPrimary
+                ),
+                shape = MaterialTheme.shapes.medium,
+                modifier = Modifier.fillMaxWidth(0.6f)
+            ) {
+                Text(if (isResonating) "Resonating" else "Resonate")
+            }
         }
     }
 }

@@ -9,10 +9,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -38,6 +40,8 @@ fun DraftListScreen(
     viewModel: DraftListViewModel = hiltViewModel()
 ) {
     val drafts by viewModel.drafts.collectAsState()
+    val publishingDrafts by viewModel.publishingDrafts.collectAsState()
+    var draftToDelete by remember { mutableStateOf<ArtifactDraftEntity?>(null) }
 
     Scaffold(
         topBar = {
@@ -51,7 +55,7 @@ fun DraftListScreen(
             )
         }
     ) { padding ->
-        if (drafts.isEmpty()) {
+        if (drafts.isEmpty() && publishingDrafts.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 Text("No drafts found", style = MaterialTheme.typography.bodyLarge)
             }
@@ -61,19 +65,147 @@ fun DraftListScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(drafts, key = { it.id }) { draft ->
-                    DraftItem(
-                        draft = draft,
-                        onClick = { 
-                            if (draft.syncState == com.saurabh.artifact.model.SyncState.INTERRUPTED) {
-                                // Trigger processing for interrupted draft
-                                viewModel.playDraft(draft) // This now triggers processing too
-                            } else {
-                                onReviewDraft(draft.id)
+                if (publishingDrafts.isNotEmpty()) {
+                    item {
+                        Text(
+                            "Publishing",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                    }
+                    items(publishingDrafts, key = { "pub_${it.id}" }) { draft ->
+                        PublishingItem(
+                            draft = draft,
+                            onRetry = { viewModel.retryPublish(draft) },
+                            onCancel = { viewModel.cancelPublish(draft) }
+                        )
+                    }
+                    item { Spacer(Modifier.height(8.dp)) }
+                    item { HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)) }
+                    item { Spacer(Modifier.height(8.dp)) }
+                }
+
+                if (drafts.isNotEmpty()) {
+                    item {
+                        Text(
+                            "Local Drafts",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                    }
+                    items(drafts, key = { it.id }) { draft ->
+                        DraftItem(
+                            draft = draft,
+                            onClick = { 
+                                if (draft.syncState == com.saurabh.artifact.model.SyncState.RECOVERING) {
+                                    // Trigger processing for interrupted draft
+                                    viewModel.playDraft(draft) // This now triggers processing too
+                                } else {
+                                    onReviewDraft(draft.id)
+                                }
+                            },
+                            onDelete = {
+                                draftToDelete = draft
                             }
-                        }
+                        )
+                    }
+                }
+            }
+        }
+
+        draftToDelete?.let { draft ->
+            AlertDialog(
+                onDismissRequest = { draftToDelete = null },
+                title = { Text("Delete Draft") },
+                text = { Text("Are you sure you want to delete this draft? This action cannot be undone.") },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            viewModel.deleteDraft(draft)
+                            draftToDelete = null
+                        },
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text("Delete")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { draftToDelete = null }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+    }
+}
+
+@Composable
+fun PublishingItem(
+    draft: ArtifactDraftEntity,
+    onRetry: () -> Unit,
+    onCancel: () -> Unit
+) {
+    val syncStatus = draft.status.sync
+    val progress = if (syncStatus is com.saurabh.artifact.model.SyncStatus.Uploading) syncStatus.progress else 0f
+    val isFailed = syncStatus is com.saurabh.artifact.model.SyncStatus.Failed
+    val isWaiting = syncStatus is com.saurabh.artifact.model.SyncStatus.WaitingForNetwork || 
+                   syncStatus is com.saurabh.artifact.model.SyncStatus.Queued
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+        )
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = draft.title?.ifBlank { "Publishing..." } ?: "Publishing...",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = when {
+                            isFailed -> "Upload failed"
+                            syncStatus is com.saurabh.artifact.model.SyncStatus.WaitingForNetwork -> "Waiting for network..."
+                            syncStatus is com.saurabh.artifact.model.SyncStatus.Uploading -> "Uploading reflection..."
+                            else -> "Queued for upload..."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (isFailed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+
+                if (isFailed && !isWaiting) {
+                    IconButton(onClick = onRetry) {
+                        Icon(Icons.Default.Refresh, "Retry", tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
+                
+                IconButton(onClick = onCancel) {
+                    Icon(Icons.Default.Close, "Cancel", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            if (isFailed && !isWaiting) {
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.fillMaxWidth().clip(CircleShape),
+                    color = MaterialTheme.colorScheme.error,
+                    trackColor = MaterialTheme.colorScheme.error.copy(alpha = 0.1f)
+                )
+            } else {
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.fillMaxWidth().clip(CircleShape),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                )
             }
         }
     }
@@ -82,21 +214,23 @@ fun DraftListScreen(
 @Composable
 fun DraftItem(
     draft: ArtifactDraftEntity,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onDelete: () -> Unit
 ) {
     val configuration = LocalConfiguration.current
     val locale = configuration.locales[0]
     val date = SimpleDateFormat("MMM dd, yyyy HH:mm", locale).format(Date(draft.createdAt))
     
-    val isProcessing = draft.draftState in listOf(
-        ArtifactDraftState.SAVING,
-        ArtifactDraftState.TRANSCODING,
-        ArtifactDraftState.PROCESSING,
-        ArtifactDraftState.NORMALIZING,
-        ArtifactDraftState.WAVEFORM_GENERATION,
-        ArtifactDraftState.TRANSCRIBING,
-        ArtifactDraftState.SAFETY_CHECK
-    )
+    val isProcessing = draft.status.processing is com.saurabh.artifact.model.ProcessingStatus.Active || 
+        draft.draftState in listOf(
+            ArtifactDraftState.SAVING,
+            ArtifactDraftState.TRANSCODING,
+            ArtifactDraftState.PROCESSING,
+            ArtifactDraftState.NORMALIZING,
+            ArtifactDraftState.WAVEFORM_GENERATION,
+            ArtifactDraftState.TRANSCRIBING,
+            ArtifactDraftState.SAFETY_CHECK
+        )
 
     Card(
         modifier = Modifier
@@ -124,11 +258,13 @@ fun DraftItem(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = if (draft.syncState == com.saurabh.artifact.model.SyncState.INTERRUPTED) {
-                            "Interrupted reflection • $date"
+                        text = if (draft.status.sync is com.saurabh.artifact.model.SyncStatus.Recovering || 
+                            draft.syncState == com.saurabh.artifact.model.SyncState.RECOVERING) {
+                            "Recovering reflection • $date"
                         } else date,
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (draft.syncState == com.saurabh.artifact.model.SyncState.INTERRUPTED) {
+                        color = if (draft.status.sync is com.saurabh.artifact.model.SyncStatus.Recovering || 
+                            draft.syncState == com.saurabh.artifact.model.SyncState.RECOVERING) {
                             MaterialTheme.colorScheme.primary
                         } else {
                             MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
@@ -136,6 +272,14 @@ fun DraftItem(
                     )
                     
                     StatusBadge(draft)
+                }
+
+                IconButton(onClick = onDelete) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Delete Draft",
+                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
+                    )
                 }
             }
         }
@@ -164,38 +308,55 @@ fun ShimmerBackground() {
 
 @Composable
 fun StatusBadge(draft: ArtifactDraftEntity) {
-    val state = draft.draftState
+    val state = draft.status.processing
+    val draftState = draft.draftState
+    val syncStatus = draft.status.sync
     val syncState = draft.syncState
 
-    val isProcessing = state in listOf(
-        ArtifactDraftState.SAVING,
-        ArtifactDraftState.TRANSCODING,
-        ArtifactDraftState.PROCESSING,
-        ArtifactDraftState.NORMALIZING,
-        ArtifactDraftState.WAVEFORM_GENERATION,
-        ArtifactDraftState.TRANSCRIBING,
-        ArtifactDraftState.SAFETY_CHECK
-    )
+    val isProcessing = state is com.saurabh.artifact.model.ProcessingStatus.Active || 
+        draftState in listOf(
+            ArtifactDraftState.SAVING,
+            ArtifactDraftState.TRANSCODING,
+            ArtifactDraftState.PROCESSING,
+            ArtifactDraftState.NORMALIZING,
+            ArtifactDraftState.WAVEFORM_GENERATION,
+            ArtifactDraftState.TRANSCRIBING,
+            ArtifactDraftState.SAFETY_CHECK
+        )
 
-    val isInterrupted = syncState == com.saurabh.artifact.model.SyncState.INTERRUPTED
+    val isInterrupted = syncStatus is com.saurabh.artifact.model.SyncStatus.Recovering || 
+        syncState == com.saurabh.artifact.model.SyncState.RECOVERING
 
     val color = when {
         isInterrupted -> MaterialTheme.colorScheme.primary
         isProcessing -> MaterialTheme.colorScheme.secondary
-        state == ArtifactDraftState.ERROR -> MaterialTheme.colorScheme.error
+        state is com.saurabh.artifact.model.ProcessingStatus.Failed || draftState == ArtifactDraftState.ERROR -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     
     val text = when {
         isInterrupted -> "🌙 Held Safely"
-        state == ArtifactDraftState.TRANSCODING -> "✨ Preparing audio..."
-        state == ArtifactDraftState.SAVING -> "✨ Saving..."
-        state == ArtifactDraftState.NORMALIZING -> "✨ Normalizing audio..."
-        state == ArtifactDraftState.TRANSCRIBING -> "✨ Transcribing using AI..."
-        state == ArtifactDraftState.WAVEFORM_GENERATION -> "✨ Generating waveform..."
-        state == ArtifactDraftState.SAFETY_CHECK -> "✨ Safety check..."
-        state == ArtifactDraftState.PROCESSING -> "✨ Enhancing..."
-        else -> state.name.replace("_", " ").lowercase().capitalize(Locale.ROOT)
+        state is com.saurabh.artifact.model.ProcessingStatus.Active -> {
+            when (state.stage) {
+                com.saurabh.artifact.model.ProcessingStage.TRANSCODING -> "✨ Preparing audio..."
+                com.saurabh.artifact.model.ProcessingStage.SAVING -> "✨ Saving..."
+                com.saurabh.artifact.model.ProcessingStage.NORMALIZING -> "✨ Normalizing audio..."
+                com.saurabh.artifact.model.ProcessingStage.TRANSCRIBING -> "✨ Transcribing using AI..."
+                com.saurabh.artifact.model.ProcessingStage.WAVEFORM_GENERATION -> "✨ Generating waveform..."
+                com.saurabh.artifact.model.ProcessingStage.SAFETY_CHECK -> "✨ Safety check..."
+                com.saurabh.artifact.model.ProcessingStage.PRIVACY_SCANNING -> "✨ Privacy scan..."
+                else -> "✨ Enhancing..."
+            }
+        }
+        draftState == ArtifactDraftState.TRANSCODING -> "✨ Preparing audio..."
+        draftState == ArtifactDraftState.SAVING -> "✨ Saving..."
+        draftState == ArtifactDraftState.NORMALIZING -> "✨ Normalizing audio..."
+        draftState == ArtifactDraftState.TRANSCRIBING -> "✨ Transcribing using AI..."
+        draftState == ArtifactDraftState.WAVEFORM_GENERATION -> "✨ Generating waveform..."
+        draftState == ArtifactDraftState.SAFETY_CHECK -> "✨ Safety check..."
+        draftState == ArtifactDraftState.PROCESSING -> "✨ Enhancing..."
+        else -> if (state is com.saurabh.artifact.model.ProcessingStatus.Failed) "❌ Error" 
+                else draftState.name.replace("_", " ").lowercase().capitalize(java.util.Locale.ROOT)
     }
 
     Surface(

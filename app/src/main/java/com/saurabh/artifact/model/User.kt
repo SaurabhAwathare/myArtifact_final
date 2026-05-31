@@ -22,10 +22,12 @@ data class User(
     @ServerTimestamp var lastSeen: Timestamp? = null,
     var emotionPreferences: Map<String, Int> = emptyMap(),
     
-    // Social & Profile
+    // Resonance & Profile
     var bio: String = "",
-    var followersCount: Int = 0,
-    var followingCount: Int = 0,
+    var resonanceInCount: Int = 0,
+    var resonanceOutCount: Int = 0,
+    var followersCount: Int = 0, // Keep for backward compatibility/migration
+    var followingCount: Int = 0, // Keep for backward compatibility/migration
 
     // Engagement
     var lastActivityTimestamp: Timestamp? = null,
