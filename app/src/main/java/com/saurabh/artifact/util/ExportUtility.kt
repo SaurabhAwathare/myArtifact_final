@@ -14,8 +14,7 @@ import javax.inject.Singleton
 
 @Singleton
 class ExportUtility @Inject constructor(
-    private val draftDao: DraftDao,
-    private val encryptedStorageManager: EncryptedStorageManager
+    private val draftDao: DraftDao
 ) {
 
     /**
@@ -29,11 +28,11 @@ class ExportUtility @Inject constructor(
             drafts.forEach { draft ->
                 val audioFile = File(draft.localAudioPath)
                 if (audioFile.exists()) {
-                    val decryptedBytes = encryptedStorageManager.getEncryptedInputStream(audioFile).use { it.readBytes() }
+                    val audioBytes = audioFile.readBytes()
                     
-                    val entry = ZipEntry("drafts/${draft.id}/audio.mp3")
+                    val entry = ZipEntry("drafts/${draft.id}/audio.m4a")
                     zipOut.putNextEntry(entry)
-                    zipOut.write(decryptedBytes)
+                    zipOut.write(audioBytes)
                     zipOut.closeEntry()
                     
                     // Metadata as JSON

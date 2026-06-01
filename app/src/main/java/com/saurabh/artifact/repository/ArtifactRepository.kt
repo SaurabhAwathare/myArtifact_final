@@ -885,27 +885,10 @@ class ArtifactRepository @Inject constructor(
         val originalFile = File(draft.localAudioPath)
         if (!originalFile.exists()) return@withContext Result.failure(Exception("File missing"))
 
-        // HARDENING: Handle Encryption - Decrypt if necessary before upload
-        val (fileToUpload, isTemp) = if (draft.isEncrypted) {
-            try {
-                val decryptedFile = SecurityArchitecture.createSecureTempFile(context, ".m4a")
-                localDraftManager.getEncryptedInputStream(originalFile).use { input ->
-                    decryptedFile.outputStream().use { output ->
-                        input.copyTo(output)
-                    }
-                }
-                Log.d("ArtifactRepository", "Decrypted encrypted draft for upload: ${decryptedFile.length()} bytes")
-                decryptedFile to true
-            } catch (e: Exception) {
-                Log.e("ArtifactRepository", "Failed to decrypt draft for upload, attempting raw upload", e)
-                originalFile to false
-            }
-        } else {
-            originalFile to false
-        }
+        val fileToUpload = originalFile
+        val isTemp = false
 
         if (fileToUpload.length() == 0L) {
-            if (isTemp) fileToUpload.delete()
             return@withContext Result.failure(Exception("File is empty, aborting upload"))
         }
 

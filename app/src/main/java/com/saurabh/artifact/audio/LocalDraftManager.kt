@@ -1,8 +1,8 @@
 package com.saurabh.artifact.audio
 
 import android.content.Context
+import android.os.Environment
 import android.util.Log
-import com.saurabh.artifact.security.SecurityArchitecture
 import com.saurabh.artifact.util.StorageManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
@@ -18,12 +18,6 @@ class LocalDraftManager @Inject constructor(
 ) {
     private val draftDir by lazy {
         storageManager.getDraftsRootDirectory()
-    }
-
-    private val encryptedDir by lazy {
-        File(context.filesDir, "encrypted_drafts").apply {
-            if (!exists()) mkdirs()
-        }
     }
 
     private val waveformDir by lazy {
@@ -43,18 +37,9 @@ class LocalDraftManager @Inject constructor(
         return File(dir, "audio.$extension")
     }
 
-    fun createEncryptedDraftFile(draftId: String, extension: String = "m4a"): File {
-        val dir = storageManager.getDraftDirectory(draftId)
-        return File(dir, "audio_enc.$extension")
-    }
+    fun getOutputStream(file: File): OutputStream = file.outputStream()
 
-    fun getEncryptedOutputStream(file: File): OutputStream {
-        return SecurityArchitecture.getEncryptedFile(context, file).openFileOutput()
-    }
-
-    fun getEncryptedInputStream(file: File): InputStream {
-        return SecurityArchitecture.getEncryptedFile(context, file).openFileInput()
-    }
+    fun getInputStream(file: File): InputStream = file.inputStream()
 
     fun createWaveformFile(draftId: String): File {
         val dir = storageManager.getDraftDirectory(draftId)
@@ -73,10 +58,6 @@ class LocalDraftManager @Inject constructor(
 
     fun deleteDraft(path: String): Boolean {
         val file = File(path)
-        if (file.absolutePath.contains("audio_enc")) {
-            SecurityArchitecture.secureDelete(file)
-            return true
-        }
         return file.delete()
     }
 
@@ -107,14 +88,10 @@ class LocalDraftManager @Inject constructor(
             legacyDir.delete()
         }
 
-        listOf(draftDir, encryptedDir, waveformDir, transcriptDir).forEach { dir ->
+        listOf(draftDir, waveformDir, transcriptDir).forEach { dir ->
             dir.listFiles()?.forEach { file ->
                 if (file.absolutePath !in knownPaths) {
-                    if (dir == encryptedDir) {
-                        SecurityArchitecture.secureDelete(file)
-                    } else {
-                        file.delete()
-                    }
+                    file.delete()
                 }
             }
         }

@@ -109,4 +109,10 @@ class ArtifactApplication : Application(), ImageLoaderFactory, Configuration.Pro
             _imageLoader?.memoryCache?.clear()
         }
     }
+
+    companion object {
+        init {
+            System.loadLibrary("sqlcipher")
+        }
+    }
 }

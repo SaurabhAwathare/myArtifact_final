@@ -66,9 +66,6 @@ class RecordingService : Service() {
     lateinit var userSessionManager: UserSessionManager
 
     @Inject
-    lateinit var encryptedStorageManager: EncryptedStorageManager
-
-    @Inject
     lateinit var storageManager: com.saurabh.artifact.util.StorageManager
 
     @Inject

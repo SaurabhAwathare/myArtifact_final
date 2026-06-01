@@ -124,6 +124,7 @@ dependencies {
     implementation(libs.googleid)
     implementation(libs.play.services.auth)
     implementation(libs.play.services.base)
+    implementation("com.google.android.gms:play-services-auth-blockstore:16.4.0")
 
     // Media3
     implementation(libs.androidx.media3.exoplayer)

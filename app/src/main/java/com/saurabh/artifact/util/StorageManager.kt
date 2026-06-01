@@ -1,10 +1,9 @@
 package com.saurabh.artifact.util
 
 import android.content.Context
+import android.os.Environment
 import android.os.StatFs
 import android.util.Log
-import androidx.security.crypto.EncryptedFile
-import androidx.security.crypto.MasterKeys
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.io.InputStream
@@ -13,14 +12,13 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Manages secure file storage using Android Security Crypto library.
- * Provides EncryptedFile instances for audio and transcript storage.
+ * Manages file storage for the application.
+ * Optimized for draft survival by using persistent locations.
  */
 @Singleton
 class StorageManager @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
-    private val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
 
     companion object {
         private const val MIN_STORAGE_REQUIRED_MB = 100L
@@ -49,45 +47,17 @@ class StorageManager @Inject constructor(
         }
     }
 
-    /**
-     * Creates an EncryptedFile for writing.
-     */
-    fun getEncryptedFile(file: File): EncryptedFile {
-        return EncryptedFile.Builder(
-            file,
-            context,
-            masterKeyAlias,
-            EncryptedFile.FileEncryptionScheme.AES256_GCM_HKDF_4KB
-        ).build()
-    }
-
-    /**
-     * Writes data to an encrypted file.
-     */
-    fun writeEncrypted(file: File, data: ByteArray) {
-        val encryptedFile = getEncryptedFile(file)
-        val outputStream: OutputStream = encryptedFile.openFileOutput()
-        outputStream.write(data)
-        outputStream.flush()
-        outputStream.close()
-    }
-
-    /**
-     * Reads data from an encrypted file.
-     */
-    fun readEncrypted(file: File): ByteArray {
-        val encryptedFile = getEncryptedFile(file)
-        val inputStream: InputStream = encryptedFile.openFileInput()
-        val data = inputStream.readBytes()
-        inputStream.close()
-        return data
-    }
 
     /**
      * Resolves the root directory for all drafts.
+     * Uses External Files Dir (Music) to ensure durability after reinstall if possible.
      */
     fun getDraftsRootDirectory(): File {
-        return File(context.filesDir, "drafts").apply {
+        val persistentDir = context.getExternalFilesDir(Environment.DIRECTORY_MUSIC)?.let { 
+            File(it, "Artifact/Drafts") 
+        } ?: File(context.filesDir, "Artifact/Drafts")
+        
+        return persistentDir.apply {
             if (!exists()) mkdirs()
         }
     }

@@ -27,7 +27,6 @@ class TranscriptionWorker @AssistedInject constructor(
     @Assisted workerParams: WorkerParameters,
     private val recordingRepository: RecordingRepository,
     private val storageManager: StorageManager,
-    private val encryptedStorageManager: EncryptedStorageManager,
     private val localDraftManager: LocalDraftManager
 ) : CoroutineWorker(appContext, workerParams) {
 
@@ -52,22 +51,9 @@ class TranscriptionWorker @AssistedInject constructor(
 
             updateSubState(draftId, com.saurabh.artifact.model.ProcessingStage.TRANSCRIBING)
 
-            // 1. Decrypt audio for processing with timeout
+            // 1. Prepare audio for processing with timeout
             Log.d("TranscriptionWorker", "Atmospheric Step: Listening quietly to your words...")
-            val audioFile = withTimeout(30000) {
-                if (draft.isEncrypted) {
-                    val tempFile = localDraftManager.createTempFile(draftId, "transcribe", "m4a")
-                    encryptedStorageManager.getEncryptedInputStream(file).use { input ->
-                        tempFile.outputStream().use { output ->
-                            input.copyTo(output)
-                        }
-                    }
-                    tempDecryptedFile = tempFile
-                    tempFile
-                } else {
-                    file
-                }
-            }
+            val audioFile = file
             
             // 2. Perform Transcription with timeout
             Log.d("TranscriptionWorker", "Starting transcription for: ${audioFile.absolutePath}")

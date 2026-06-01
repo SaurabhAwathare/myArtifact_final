@@ -82,7 +82,6 @@ class RecordingRepository @Inject constructor(
         id: String,
         audioPath: String,
         checksum: String? = null,
-        isEncrypted: Boolean = false,
         title: String? = null
     ) = withContext(Dispatchers.IO) {
         val draft = draftDao.getDraftById(id) ?: return@withContext
@@ -93,7 +92,7 @@ class RecordingRepository @Inject constructor(
             localAudioPath = audioPath,
             status = draft.status.copy(lifecycle = ArtifactLifecycle.PROCESSING),
             checksum = checksum,
-            isEncrypted = isEncrypted,
+            isEncrypted = false,
             durationMs = draft.durationMs,
             durableBytes = finalSize, // Finalize durable bytes to full file size
             title = title ?: draft.title,

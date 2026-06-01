@@ -22,6 +22,7 @@ private val Context.sessionDataStore by preferencesDataStore(name = "user_sessio
 @Singleton
 class UserSessionManager @Inject constructor(
     @param:ApplicationContext private val context: Context,
+    private val blockStoreManager: BlockStoreManager
 ) {
     private val anonymousIdKey = stringPreferencesKey("anonymous_id")
     private val avatarSeedKey = stringPreferencesKey("avatar_seed")
@@ -44,9 +45,10 @@ class UserSessionManager @Inject constructor(
         }
         .map { preferences ->
             val id = preferences[anonymousIdKey] ?: run {
-                val newId = UUID.randomUUID().toString()
-                ensureAnonymousId(newId)
-                newId
+                val blockStoreId = kotlinx.coroutines.runBlocking { blockStoreManager.getAnonymousId() }
+                val idToUse = blockStoreId ?: UUID.randomUUID().toString()
+                ensureAnonymousId(idToUse)
+                idToUse
             }
             // Migration logic: if seed is missing, use legacy emoji if present, else generate random
             val seed = preferences[avatarSeedKey] ?: preferences[stringPreferencesKey("identity_emoji")] ?: UUID.randomUUID().toString()
@@ -143,6 +145,7 @@ class UserSessionManager @Inject constructor(
         context.sessionDataStore.edit { preferences ->
             if (preferences[anonymousIdKey] == null) {
                 preferences[anonymousIdKey] = id
+                blockStoreManager.saveAnonymousId(id)
             }
         }
     }

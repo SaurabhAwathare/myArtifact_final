@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import com.saurabh.artifact.data.local.AppDatabase
 import com.saurabh.artifact.data.local.DraftDao
+import com.saurabh.artifact.data.local.DraftsDatabase
 import com.saurabh.artifact.data.local.PromptDao
 import com.saurabh.artifact.data.local.QueuedUploadDao
 import com.saurabh.artifact.security.DatabaseEncryptionManager
@@ -52,7 +53,20 @@ object DatabaseModule {
             AppDatabase.MIGRATION_32_33,
             AppDatabase.MIGRATION_33_34,
             AppDatabase.MIGRATION_34_35,
-        ).fallbackToDestructiveMigration()
+        ).fallbackToDestructiveMigration(false)
+            .build()
+    }
+
+    @Provides
+    @Singleton
+    fun provideDraftsDatabase(
+        @ApplicationContext context: Context
+    ): DraftsDatabase {
+        return Room.databaseBuilder(
+            context,
+            DraftsDatabase::class.java,
+            "drafts_db",
+        ).fallbackToDestructiveMigration(false)
             .build()
     }
 
@@ -62,7 +76,7 @@ object DatabaseModule {
     }
 
     @Provides
-    fun provideDraftDao(database: AppDatabase): DraftDao {
+    fun provideDraftDao(database: DraftsDatabase): DraftDao {
         return database.draftDao()
     }
 
@@ -87,7 +101,7 @@ object DatabaseModule {
     }
 
     @Provides
-    fun provideUploadTaskDao(database: AppDatabase): com.saurabh.artifact.data.local.UploadTaskDao {
+    fun provideUploadTaskDao(database: DraftsDatabase): com.saurabh.artifact.data.local.UploadTaskDao {
         return database.uploadTaskDao()
     }
 }

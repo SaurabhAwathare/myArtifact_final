@@ -4,8 +4,8 @@ import android.content.Context
 import android.util.Log
 import androidx.room.withTransaction
 import androidx.work.*
-import com.saurabh.artifact.data.local.AppDatabase
 import com.saurabh.artifact.data.local.DraftDao
+import com.saurabh.artifact.data.local.DraftsDatabase
 import com.saurabh.artifact.data.local.UploadTaskDao
 import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.util.StorageManager
@@ -22,7 +22,7 @@ class DraftDeletionManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val draftDao: DraftDao,
     private val uploadTaskDao: UploadTaskDao,
-    private val database: AppDatabase,
+    private val draftsDatabase: DraftsDatabase,
     private val storageManager: StorageManager
 ) {
     private val workManager: WorkManager by lazy { WorkManager.getInstance(context) }
@@ -67,7 +67,7 @@ class DraftDeletionManager @Inject constructor(
 
             if (success) {
                 // 3. Hard Delete: Success! Remove the DB record.
-                database.withTransaction {
+                draftsDatabase.withTransaction {
                     uploadTaskDao.deleteByDraftId(draftId)
                     draftDao.deleteById(draftId)
                 }

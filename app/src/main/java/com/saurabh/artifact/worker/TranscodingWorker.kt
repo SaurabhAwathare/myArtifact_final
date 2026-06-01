@@ -42,9 +42,9 @@ class TranscodingWorker @AssistedInject constructor(
 
         var tempAacFile: File? = null
         try {
-            // IDEMPOTENCY CHECK: If the encrypted file already exists and metadata is correct, skip
-            val existingEncryptedFile = localDraftManager.createEncryptedDraftFile(draftId)
-            if (existingEncryptedFile.exists() && (existingEncryptedFile.length() > 0) && draft.isEncrypted) {
+            // IDEMPOTENCY CHECK: If the artifact already exists and metadata is correct, skip
+            val existingFile = File(draft.localAudioPath)
+            if (existingFile.exists() && existingFile.length() > 0 && !draft.isEncrypted) {
                 Log.d("TranscodingWorker", "Idempotency Trigger: Optimized artifact already exists. Skipping.")
                 return@withContext Result.success()
             }
@@ -59,36 +59,26 @@ class TranscodingWorker @AssistedInject constructor(
                 return@withContext Result.failure()
             }
 
-            // 1. Transcode raw WAV to temporary AAC
-            tempAacFile = localDraftManager.createTempFile(draftId, "temp", "m4a")
+            // 1. Transcode raw WAV to finalized location
+            val finalAudioFile = localDraftManager.createDraftFile(draftId, "m4a")
             Log.d("TranscodingWorker", "Atmospheric Step: Refining audio essence...")
-            transcodeWavToAac(rawFile, tempAacFile)
+            transcodeWavToAac(rawFile, finalAudioFile)
             
-            // 2. Encrypt the finalized AAC
-            val encryptedFile = localDraftManager.createEncryptedDraftFile(draftId)
-            localDraftManager.getEncryptedOutputStream(encryptedFile).use { output ->
-                tempAacFile.inputStream().use { input ->
-                    input.copyTo(output)
-                }
-            }
+            // 2. Metadata Extraction (Checksum)
+            val checksum = artifactRepository.calculateChecksum(finalAudioFile.absolutePath)
             
-            // 3. Metadata Extraction (Checksum)
-            val checksum = artifactRepository.calculateChecksum(encryptedFile.absolutePath)
-            
-            // 4. Securely delete intermediate files
-            // rawFile deletion moved to finally for safety if needed, 
-            // but here we specifically want to delete it on success.
+            // 3. Securely delete intermediate files
             rawFile.delete()
 
-            // 5. Finalize paths in DB
+            // 4. Finalize paths in DB
             draftDao.update(draft.copy(
-                localAudioPath = encryptedFile.absolutePath,
+                localAudioPath = finalAudioFile.absolutePath,
                 checksum = checksum,
-                isEncrypted = true,
+                isEncrypted = false,
                 updatedAt = System.currentTimeMillis()
             ))
 
-            Log.d("TranscodingWorker", "Transcoding and Encryption complete: ${encryptedFile.name}")
+            Log.d("TranscodingWorker", "Transcoding complete: ${finalAudioFile.name}")
             Result.success()
         } catch (e: Exception) {
             Log.e("TranscodingWorker", "Transcoding failed", e)

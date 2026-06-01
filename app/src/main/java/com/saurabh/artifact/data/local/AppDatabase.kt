@@ -7,15 +7,13 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [QueuedUpload::class, ArtifactDraftEntity::class, PromptEntity::class, PlaybackPosition::class, ArtifactReviewEvidence::class, ArtifactEntity::class, UploadTaskEntity::class],
-    version = 35,
+    entities = [QueuedUpload::class, PromptEntity::class, PlaybackPosition::class, ArtifactReviewEvidence::class, ArtifactEntity::class],
+    version = 36,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun queuedUploadDao(): QueuedUploadDao
-    abstract fun draftDao(): DraftDao
-    abstract fun uploadTaskDao(): UploadTaskDao
     abstract fun promptDao(): PromptDao
     abstract fun playbackPositionDao(): PlaybackPositionDao
     abstract fun reviewDao(): ReviewDao

@@ -16,7 +16,7 @@ import javax.inject.Singleton
 class DraftRepository @Inject constructor(
     private val draftDao: DraftDao,
     private val uploadTaskDao: UploadTaskDao,
-    private val database: AppDatabase,
+    private val draftsDatabase: DraftsDatabase,
     private val storageManager: StorageManager,
     private val deletionManager: com.saurabh.artifact.audio.DraftDeletionManager
 ) {
@@ -43,7 +43,7 @@ class DraftRepository @Inject constructor(
     }
 
     suspend fun prepareForPublishing(draftId: String, initialStatus: SyncStatus) = withContext(Dispatchers.IO) {
-        database.withTransaction {
+        draftsDatabase.withTransaction {
             val draft = draftDao.getDraftById(draftId) ?: return@withTransaction
             
             // 1. Update Draft lifecycle to locking state
@@ -74,7 +74,7 @@ class DraftRepository @Inject constructor(
     }
 
     suspend fun markAsPublished(draftId: String, remoteId: String) = withContext(Dispatchers.IO) {
-        database.withTransaction {
+        draftsDatabase.withTransaction {
             draftDao.markAsPublished(draftId, remoteId)
             uploadTaskDao.deleteByDraftId(draftId)
         }
