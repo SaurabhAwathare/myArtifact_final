@@ -1,5 +1,6 @@
 package com.saurabh.artifact.audio
 
+import android.app.PendingIntent
 import android.content.Intent
 import android.util.Log
 import androidx.media3.common.AudioAttributes
@@ -9,12 +10,12 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaLibraryService
-import androidx.media3.session.MediaLibraryService.MediaLibrarySession
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MediaItem
 import androidx.media3.session.LibraryResult
 import com.google.common.collect.ImmutableList
 import androidx.media3.session.DefaultMediaNotificationProvider
+import com.saurabh.artifact.MainActivity
 import dagger.hilt.android.AndroidEntryPoint
 
 import androidx.media3.common.util.UnstableApi
@@ -23,23 +24,39 @@ import androidx.media3.session.SessionError
 import androidx.media3.session.SessionResult
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.saurabh.artifact.repository.ArtifactRepository
+import com.saurabh.artifact.repository.EngagementRepository
+import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
 class PlaybackService : MediaLibraryService() {
 
-    private var mediaSession: MediaLibrarySession? = null
+    @Inject lateinit var artifactRepository: ArtifactRepository
+    @Inject lateinit var engagementRepository: EngagementRepository
+    @Inject lateinit var settingsDataStore: PlaybackSettingsDataStore
 
-    @OptIn(UnstableApi::class)
+    private var mediaSession: MediaLibrarySession? = null
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    @androidx.annotation.OptIn(UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
-        Log.d("PlaybackService", "onCreate - Deferring player initialization")
+        Log.d("PlaybackService", "onCreate - Initializing MediaSession")
         
         // Ensure the service is recognized as a foreground-capable media service
         setMediaNotificationProvider(DefaultMediaNotificationProvider.Builder(this).build())
+        
+        initializeSession()
     }
 
+    @androidx.annotation.OptIn(UnstableApi::class)
     private fun initializeSession() {
-        Log.d("PlaybackService", "Initializing ExoPlayer and MediaSession lazily")
+        Log.d("PlaybackService", "Initializing ExoPlayer and MediaSession")
         
         val dataSourceFactory = SmartDataSourceFactory(this)
         
@@ -50,10 +67,12 @@ class PlaybackService : MediaLibraryService() {
                     .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
                     .setUsage(C.USAGE_MEDIA)
                     .build(),
-                true
+                true,
             )
             .setHandleAudioBecomingNoisy(true) // Pause on headphone unplug
             .setWakeMode(C.WAKE_MODE_NETWORK)
+            .setSeekBackIncrementMs(10000)
+            .setSeekForwardIncrementMs(10000)
             .build()
 
         val callback = object : MediaLibrarySession.Callback {
@@ -84,6 +103,51 @@ class PlaybackService : MediaLibraryService() {
                     .build()
             }
 
+            @Suppress("DEPRECATION")
+            @UnstableApi
+            override fun onPlaybackResumption(
+                mediaSession: MediaSession,
+                controller: MediaSession.ControllerInfo
+            ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+                val completer = com.google.common.util.concurrent.SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
+                
+                serviceScope.launch {
+                    try {
+                        val lastIds = settingsDataStore.currentQueueIds.first()
+                        val lastIndex = settingsDataStore.currentQueueIndex.first()
+                        val lastArtifactId = settingsDataStore.lastArtifactId.first()
+
+                        val artifacts = if (lastIds.isNotEmpty()) {
+                            lastIds.mapNotNull { artifactRepository.getArtifactById(it) }
+                        } else if (lastArtifactId != null) {
+                            listOfNotNull(artifactRepository.getArtifactById(lastArtifactId))
+                        } else {
+                            emptyList()
+                        }
+
+                        if (artifacts.isNotEmpty()) {
+                            val mediaItems = artifacts.map { createMediaItem(it) }
+                            val currentArtifact = artifacts.getOrNull(lastIndex) ?: artifacts.first()
+                            val pos = engagementRepository.getEngagement(currentArtifact.id)?.lastPositionMs ?: 0L
+                            
+                            completer.set(
+                                MediaSession.MediaItemsWithStartPosition(
+                                    mediaItems,
+                                    lastIndex,
+                                    pos
+                                )
+                            )
+                        } else {
+                            completer.setException(Exception("No items to resume"))
+                        }
+                    } catch (e: Exception) {
+                        completer.setException(e)
+                    }
+                }
+                
+                return completer
+            }
+
             override fun onGetLibraryRoot(
                 session: MediaLibrarySession,
                 browser: MediaSession.ControllerInfo,
@@ -110,8 +174,6 @@ class PlaybackService : MediaLibraryService() {
                 pageSize: Int,
                 params: LibraryParams?
             ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
-                // For production, we'd fetch from repository here.
-                // For now, providing a simple "Now Playing" view if requested.
                 return if (parentId == "ROOT") {
                     val nowPlaying = MediaItem.Builder()
                         .setMediaId("NOW_PLAYING")
@@ -136,19 +198,42 @@ class PlaybackService : MediaLibraryService() {
         }
 
         mediaSession = MediaLibrarySession.Builder(this, player, callback)
+            .setSessionActivity(createSessionActivityPendingIntent())
             .build()
     }
 
+    private fun createMediaItem(artifact: com.saurabh.artifact.model.Artifact): MediaItem {
+        return MediaItem.Builder()
+            .setUri(artifact.audioUrl)
+            .setMediaId(artifact.id)
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(artifact.title)
+                    .setArtist(artifact.author.name)
+                    .setAlbumTitle("Reflections")
+                    .setGenre(artifact.emotion)
+                    .build()
+            )
+            .build()
+    }
+
+    private fun createSessionActivityPendingIntent(): PendingIntent {
+        val intent = Intent(this, MainActivity::class.java)
+        return PendingIntent.getActivity(
+            this,
+            0,
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+    }
+
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? {
-        if (mediaSession == null) {
-            initializeSession()
-        }
         return mediaSession
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         val player = mediaSession?.player
-        if (player == null || !player.playWhenReady || player.mediaItemCount == 0 || player.playbackState == Player.STATE_IDLE) {
+        if (player == null || (!player.playWhenReady) || (player.mediaItemCount == 0) || (player.playbackState == Player.STATE_IDLE)) {
             stopSelf()
         }
     }

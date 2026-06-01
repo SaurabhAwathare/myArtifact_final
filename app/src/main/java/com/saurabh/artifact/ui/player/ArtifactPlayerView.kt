@@ -17,7 +17,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -25,7 +24,7 @@ import com.saurabh.artifact.ui.player.components.*
 import com.saurabh.artifact.ui.theme.EmberGlow
 import com.saurabh.artifact.ui.components.motion.MotionTokens
 import com.saurabh.artifact.ui.components.ArtifactAvatar
-import com.saurabh.artifact.model.AvatarConfig
+import com.saurabh.artifact.ui.theme.ZIndexTokens
 
 @Composable
 fun ArtifactPlayerView(
@@ -34,29 +33,31 @@ fun ArtifactPlayerView(
     onNavigateToPublish: (String) -> Unit = {},
     onNavigateToComments: (String, String) -> Unit = { _, _ -> },
     onReportArtifact: (String) -> Unit = {},
-    viewModel: PlayerViewModel = hiltViewModel()
+    viewModel: PlayerViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     
     // Safety check: if nothing is playing and we're hidden, render nothing.
-    if (uiState.currentArtifact == null && uiState.playerMode == PlayerMode.HIDDEN) return
+    if ((uiState.currentArtifact == null) && (uiState.playerMode == PlayerMode.HIDDEN)) return
 
     Box(modifier = Modifier.fillMaxSize()) {
         // 1. MINI PLAYER
-        AnimatedVisibility(
-            visible = uiState.playerMode == PlayerMode.MINI && isVisible,
-            enter = slideInVertically(initialOffsetY = { it }),
-            exit = slideOutVertically(targetOffsetY = { it }),
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .zIndex(10f) // Lower than fullscreen but visible
-        ) {
-            MiniPlayer(
-                uiState = uiState,
-                onExpand = { viewModel.setExpanded(true) },
-                onTogglePlay = { viewModel.togglePlayPause() }
-            )
+        if (isVisible) {
+            AnimatedVisibility(
+                visible = uiState.playerMode == PlayerMode.MINI,
+                enter = slideInVertically { it },
+                exit = slideOutVertically { it },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .zIndex(ZIndexTokens.MINI_OVERLAYS),
+            ) {
+                MiniPlayer(
+                    uiState = uiState,
+                    onExpand = { viewModel.setExpanded(expanded = true) },
+                    onTogglePlay = { viewModel.togglePlayPause() },
+                )
+            }
         }
 
         // 2. FULLSCREEN IMMERSIVE PLAYER
@@ -70,13 +71,13 @@ fun ArtifactPlayerView(
                 targetOffsetY = { it }, 
                 animationSpec = tween(MotionTokens.DURATION_LONG)
             ),
-            modifier = Modifier.zIndex(50f) // Higher priority
+            modifier = Modifier.zIndex(ZIndexTokens.FULL_SCREEN_OVERLAYS)
         ) {
             val artifact = uiState.currentArtifact ?: return@AnimatedVisibility
             ImmersivePlayerScreen(
                 artifact = artifact,
                 uiState = uiState,
-                onCollapse = { viewModel.setExpanded(false) },
+                onCollapse = { viewModel.setExpanded(expanded = false) },
                 onTogglePlayback = { viewModel.togglePlayPause() },
                 onRewind = { viewModel.rewind() },
                 onForward = { viewModel.forward() },
@@ -84,8 +85,9 @@ fun ArtifactPlayerView(
                 onSeek = { viewModel.seekTo((it * uiState.durationMs).toLong()) },
                 onShowAdvanced = { viewModel.setShowAdvancedControls(true) },
                 onCommentClick = { 
-                    val art = uiState.currentArtifact
-                    if (art != null) onNavigateToComments(art.id, art.userId)
+                    uiState.currentArtifact?.let { art ->
+                        onNavigateToComments(art.id, art.userId)
+                    }
                 },
                 onResonateClick = { viewModel.toggleResonate(it) },
                 onResonateConnectionClick = { viewModel.toggleResonanceConnection() },
@@ -106,19 +108,21 @@ fun ArtifactPlayerView(
 
         // 3. ADVANCED CONTROLS
         if (uiState.showAdvancedControls) {
-            AdvancedControlsSheet(
-                isSilenceSkipEnabled = uiState.isSilenceSkipEnabled,
-                onSilenceSkipToggle = { viewModel.toggleSilenceSkipping() },
-                sleepTimerMillisRemaining = uiState.sleepTimerMillisRemaining,
-                onSleepTimerSelected = { viewModel.startSleepTimer(it) },
-                currentSpeed = uiState.playbackSpeed,
-                onSpeedSelected = { viewModel.setPlaybackSpeed(it) },
-                onReportClick = {
-                    uiState.currentArtifact?.let { onReportArtifact(it.id) }
-                    viewModel.setShowAdvancedControls(false)
-                },
-                onDismiss = { viewModel.setShowAdvancedControls(false) }
-            )
+            Box(modifier = Modifier.zIndex(ZIndexTokens.MODAL_OVERLAYS)) {
+                AdvancedControlsSheet(
+                    isSilenceSkipEnabled = uiState.isSilenceSkipEnabled,
+                    onSilenceSkipToggle = { viewModel.toggleSilenceSkipping() },
+                    sleepTimerMillisRemaining = uiState.sleepTimerMillisRemaining,
+                    onSleepTimerSelected = { viewModel.startSleepTimer(it) },
+                    currentSpeed = uiState.playbackSpeed,
+                    onSpeedSelected = { viewModel.setPlaybackSpeed(it) },
+                    onReportClick = {
+                        uiState.currentArtifact?.let { onReportArtifact(it.id) }
+                        viewModel.setShowAdvancedControls(false)
+                    },
+                    onDismiss = { viewModel.setShowAdvancedControls(false) }
+                )
+            }
         }
     }
 }

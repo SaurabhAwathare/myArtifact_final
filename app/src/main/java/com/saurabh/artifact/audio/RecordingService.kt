@@ -47,6 +47,16 @@ class RecordingService : Service() {
     
     private var audioManager: AudioManager? = null
     private var audioFocusRequest: AudioFocusRequest? = null
+    private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
+        when (focusChange) {
+            AudioManager.AUDIOFOCUS_LOSS,
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                Log.d("RecordingService", "Audio focus lost ($focusChange). Pausing recording.")
+                pauseRecording()
+            }
+        }
+    }
     private var wakeLock: PowerManager.WakeLock? = null
     
     private var originalRingerMode: Int = -1
@@ -98,26 +108,14 @@ class RecordingService : Service() {
             audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
                 .setAudioAttributes(attr)
                 .setAcceptsDelayedFocusGain(false)
-                .setOnAudioFocusChangeListener { focusChange ->
-                    if (focusChange == AudioManager.AUDIOFOCUS_LOSS || 
-                        focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
-                        Log.d("RecordingService", "Audio focus lost. Pausing recording.")
-                        pauseRecording()
-                    }
-                }
+                .setOnAudioFocusChangeListener(audioFocusChangeListener)
                 .build()
             
             return audioManager?.requestAudioFocus(audioFocusRequest!!) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
         } else {
             @Suppress("DEPRECATION")
             return audioManager?.requestAudioFocus(
-                { focusChange ->
-                    if (focusChange == AudioManager.AUDIOFOCUS_LOSS || 
-                        focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
-                        Log.d("RecordingService", "Audio focus lost. Pausing recording.")
-                        pauseRecording()
-                    }
-                },
+                audioFocusChangeListener,
                 AudioManager.STREAM_MUSIC,
                 AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE
             ) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
@@ -127,6 +125,13 @@ class RecordingService : Service() {
     private fun enableSilentMode() {
         try {
             audioManager?.let { am ->
+                // Check for Do Not Disturb access
+                val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+                if (!notificationManager.isNotificationPolicyAccessGranted) {
+                    Log.w("RecordingService", "Cannot enable silent mode: DND access not granted")
+                    return
+                }
+
                 originalRingerMode = am.ringerMode
                 am.ringerMode = AudioManager.RINGER_MODE_SILENT
                 Log.d("RecordingService", "Silent mode enabled (Original: $originalRingerMode)")
@@ -155,7 +160,7 @@ class RecordingService : Service() {
             audioFocusRequest?.let { audioManager?.abandonAudioFocusRequest(it) }
         } else {
             @Suppress("DEPRECATION")
-            audioManager?.abandonAudioFocus { }
+            audioManager?.abandonAudioFocus(audioFocusChangeListener)
         }
     }
 

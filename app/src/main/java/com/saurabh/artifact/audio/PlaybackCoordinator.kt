@@ -12,7 +12,8 @@ import javax.inject.Singleton
 @Singleton
 class PlaybackCoordinator @Inject constructor(
     private val playbackSessionManager: PlaybackSessionManager,
-    private val reviewSessionManager: ReviewSessionManager
+    private val reviewSessionManager: ReviewSessionManager,
+    private val transientPlayerManager: TransientPlayerManager
 ) {
     val currentArtifact = playbackSessionManager.currentArtifact
     val isPlaying = playbackSessionManager.isPlaying
@@ -23,6 +24,8 @@ class PlaybackCoordinator @Inject constructor(
     val isSkipSilenceEnabled = playbackSessionManager.isSkipSilenceEnabled
     val playbackCompletedEvent = playbackSessionManager.playbackCompletedEvent
     val activePlayback = playbackSessionManager.activePlayback
+
+    val isAmbientPlaying = transientPlayerManager.isPlaying
 
     /**
      * Start playing a persistent artifact (e.g., from the main feed).
@@ -43,6 +46,17 @@ class PlaybackCoordinator @Inject constructor(
      */
     fun playDraftPreview(draftId: String) {
         reviewSessionManager.startReview(draftId)
+    }
+
+    /**
+     * Plays an ambient sound layer simultaneously with the main audio.
+     */
+    fun playAmbient(url: String, loop: Boolean = true, volume: Float = 0.3f) {
+        transientPlayerManager.play(url, loop, volume)
+    }
+
+    fun stopAmbient() {
+        transientPlayerManager.stop()
     }
 
     /**
@@ -70,6 +84,13 @@ class PlaybackCoordinator @Inject constructor(
      */
     fun requestStop(type: PlaybackType) {
         playbackSessionManager.stopIfType(type)
+    }
+
+    /**
+     * Requests to stop playback only if it's owned by a certain interaction owner.
+     */
+    fun requestStop(owner: PlaybackSessionManager.InteractionOwner) {
+        playbackSessionManager.stopIfOwner(owner)
     }
 
     fun seekTo(position: Long) {

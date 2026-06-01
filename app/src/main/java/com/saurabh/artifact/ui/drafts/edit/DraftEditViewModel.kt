@@ -88,6 +88,7 @@ class DraftEditViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
-        // Playback ownership is now handled by the Coordinator.
+        // Stop draft preview playback when exiting the edit screen
+        playbackCoordinator.requestStop(PlaybackType.DRAFT_PREVIEW)
     }
 }

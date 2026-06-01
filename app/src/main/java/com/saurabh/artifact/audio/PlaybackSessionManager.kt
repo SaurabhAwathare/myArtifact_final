@@ -217,11 +217,35 @@ class PlaybackSessionManager @Inject constructor(
                 // Attempt to restore previous playback state if current player is idle
                 if (controller?.playbackState == Player.STATE_IDLE) {
                     restorePlaybackState(controller!!)
+                } else {
+                    controller?.let { syncWithController(it) }
                 }
                 
                 controller
             } catch (e: Exception) {
                 null
+            }
+        }
+    }
+
+    private fun syncWithController(controller: MediaController) {
+        val currentMediaItem = controller.currentMediaItem
+        _isPlaying.value = controller.isPlaying
+        _playbackState.value = controller.playbackState
+        _durationMs.value = controller.duration.coerceAtLeast(0)
+        _currentPosition.value = controller.currentPosition
+
+        if (currentMediaItem != null) {
+            scope.launch {
+                val artifact = artifactRepository.get().getArtifactById(currentMediaItem.mediaId)
+                _currentArtifact.value = artifact
+                
+                val queueItems = mutableListOf<Artifact>()
+                for (i in 0 until controller.mediaItemCount) {
+                    val item = controller.getMediaItemAt(i)
+                    artifactRepository.get().getArtifactById(item.mediaId)?.let { queueItems.add(it) }
+                }
+                _queue.value = queueItems
             }
         }
     }
@@ -437,6 +461,12 @@ class PlaybackSessionManager @Inject constructor(
 
     fun stopIfType(type: PlaybackType) {
         if (_activePlayback.value?.playbackType == type) {
+            stop()
+        }
+    }
+
+    fun stopIfOwner(owner: InteractionOwner) {
+        if (_interactionOwner.value == owner) {
             stop()
         }
     }

@@ -185,73 +185,14 @@ fun AuthenticatedIsland(
                         onboardingManager = onboardingManager
                     )
 
-                    // Mini Recorder (Floating Trust Indicator)
-                    val recordingState by recordingSessionManager.recordingState.collectAsStateWithLifecycle()
-                    val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
-                    
-                    // Critical: Review screen MUST have absolute ownership.
-                    // If we are on RecordingReview, we COMPLETELY unmount the PublicPlayer.
-                    val screensWithoutOverlays = listOf(
-                        Screen.InstantRecord.route,
-                        Screen.PreRecordingWarning.route,
-                        Screen.RecordingReview.route, // Added strictly here
-                        Screen.PublishPreparation.route,
-                        Screen.PublishApproval.route,
-                        Screen.IdentitySelection.route,
-                        Screen.PresenceBuilder.route,
-                        Screen.PostRecordingDecision.route // Also added
-                    )
-                    val showOverlays = currentRoute != null && currentRoute !in screensWithoutOverlays
-
-                    if (showOverlays) {
-                        val uploadSession by uploadSessionManager.currentSession.collectAsStateWithLifecycle()
-                        
-                        Column(
-                            modifier = androidx.compose.ui.Modifier
-                                .align(androidx.compose.ui.Alignment.BottomCenter)
-                                .navigationBarsPadding()
-                                .zIndex(1000f) // Highest priority for essential overlays
-                        ) {
-                            AmbientUploadBar(
-                                session = uploadSession,
-                                onDismiss = { uploadSessionManager.dismissSession() }
-                            )
-
-                            MiniRecorder(
-                                status = recordingState.status,
-                                durationSeconds = recordingState.durationSeconds,
-                                onClick = {
-                                    navController.navigate(Screen.InstantRecord.route) {
-                                        launchSingleTop = true
-                                    }
-                                }
-                            )
-                        }
-                    }
-
-                    // Debug Interaction Highlight Layer
-                    // Only active in debug builds to visualize touch interception zones.
-                    if (BuildConfig.DEBUG && false) { // Toggle to true to see invisible boxes
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color.Red.copy(alpha = 0.05f))
-                                .padding(16.dp)
-                        ) {
-                            Text(
-                                "DEBUG: Interaction Layer Active",
-                                color = Color.Red,
-                                style = androidx.compose.material3.MaterialTheme.typography.labelSmall
-                            )
-                        }
-                    }
-
-                    // Only render heavy media UI when in RITUAL stage or later
+                    // Global Overlay Management
                     if (stage >= StartupStage.RITUAL) {
                         var reportingArtifactId by remember { mutableStateOf<String?>(null) }
                         
-                        ArtifactPlayerView(
-                            isVisible = showOverlays,
+                        com.saurabh.artifact.ui.components.GlobalOverlayHost(
+                            navController = navController,
+                            recordingSessionManager = recordingSessionManager,
+                            uploadSessionManager = uploadSessionManager,
                             onNavigateToDraftEdit = { draftId ->
                                 navController.navigate(Screen.RecordingReview.createRoute(draftId))
                             },

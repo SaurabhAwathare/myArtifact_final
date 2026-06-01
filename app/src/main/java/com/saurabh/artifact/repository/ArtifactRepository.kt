@@ -391,6 +391,11 @@ class ArtifactRepository @Inject constructor(
     }
 
     suspend fun getArtifactById(artifactId: String): Artifact? = withContext(Dispatchers.IO) {
+        // 1. Try local cache first
+        val local = artifactDao.getArtifactById(artifactId)
+        if (local != null) return@withContext mapEntityToArtifact(local)
+
+        // 2. Fallback to Firestore
         return@withContext try {
             val doc = firestore.collection("artifacts").document(artifactId).get().await()
             if (doc.exists()) {

@@ -64,7 +64,8 @@ class ReviewViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
-        // Playback ownership is now handled by the Coordinator.
+        // Stop draft preview playback when the review screen is dismissed
+        playbackCoordinator.requestStop(com.saurabh.artifact.audio.PlaybackType.DRAFT_PREVIEW)
     }
 }
 

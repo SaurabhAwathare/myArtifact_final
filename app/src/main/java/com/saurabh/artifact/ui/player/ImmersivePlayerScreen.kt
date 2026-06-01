@@ -1,10 +1,12 @@
 package com.saurabh.artifact.ui.player
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -57,6 +59,11 @@ fun ImmersivePlayerScreen(
     var showTranscript by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     
+    // 0. System Back Handling
+    BackHandler {
+        onCollapse()
+    }
+    
     // Gesture State for swipe-down to collapse
     var offsetY by remember { mutableStateOf(0f) }
 
@@ -90,26 +97,34 @@ fun ImmersivePlayerScreen(
             .fillMaxSize()
             .background(Obsidian950)
             .offset { IntOffset(0, offsetY.roundToInt()) }
+            .pointerInput(Unit) {
+                // EXPLICIT TOUCH INTERCEPTION: Prevent pass-through to underlying Feed/Screens
+                detectTapGestures { /* Consumed and ignored */ }
+            }
+            .pointerInput(Unit) {
+                detectVerticalDragGestures(
+                    onDragStart = { /* Optional haptic */ },
+                    onVerticalDrag = { change, dragAmount ->
+                        change.consume()
+                        // Only allow downward drag
+                        offsetY = (offsetY + dragAmount).coerceAtLeast(0f)
+                    },
+                    onDragEnd = {
+                        if (offsetY > 300f) {
+                            onCollapse()
+                        }
+                        offsetY = 0f
+                    },
+                    onDragCancel = {
+                        offsetY = 0f
+                    }
+                )
+            }
     ) {
         // 1. Emotional Background Engine
         EmotionalBackground(
             emotion = artifact.emotion,
-            modifier = Modifier
-                .fillMaxSize()
-                .pointerInput(Unit) {
-                    detectDragGestures(
-                        onDrag = { change, dragAmount ->
-                            change.consume()
-                            offsetY = (offsetY + dragAmount.y).coerceAtLeast(0f)
-                        },
-                        onDragEnd = {
-                            if (offsetY > 300f) {
-                                onCollapse()
-                            }
-                            offsetY = 0f
-                        }
-                    )
-                }
+            modifier = Modifier.fillMaxSize()
         )
 
         Column(
