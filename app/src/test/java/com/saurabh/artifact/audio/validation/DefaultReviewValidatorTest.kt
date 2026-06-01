@@ -1,6 +1,6 @@
 package com.saurabh.artifact.audio.validation
 
-import com.saurabh.artifact.domain.review.ReviewEvidence
+import com.saurabh.artifact.domain.review.EngagementEvidence
 import com.saurabh.artifact.domain.review.ReviewPolicy
 import org.junit.Assert.*
 import org.junit.Test
@@ -12,27 +12,28 @@ class DefaultReviewValidatorTest {
 
     @Test
     fun `test valid production rules`() {
-        val evidence = ReviewEvidence(
+        // Duration 30s, Segment size 500ms -> 60 segments
+        val evidence = EngagementEvidence(
             artifactId = "a",
             versionTag = "v",
             durationMs = 30000L,
-            coverage = BitSet(6).apply { set(0, 6) }, // 100% coverage
+            coverage = BitSet(60).apply { set(0, 60) }, // 100% coverage
             effortMap = mapOf(1.0f to 25000L), // 83% effort
             hasReachedEnd = true
         )
         val policy = ReviewPolicy()
         
         val result = validator.validate(evidence, policy)
-        assertTrue(result.isValid)
+        assertTrue("Validation failed. Coverage: ${result.coveragePercent}, Effort: ${result.effortPercent}", result.isValid)
     }
 
     @Test
     fun `test invalid coverage`() {
-        val evidence = ReviewEvidence(
+        val evidence = EngagementEvidence(
             artifactId = "a",
             versionTag = "v",
             durationMs = 30000L,
-            coverage = BitSet(6).apply { set(0, 3) }, // 50% coverage
+            coverage = BitSet(60).apply { set(0, 30) }, // 50% coverage (need 95%)
             effortMap = mapOf(1.0f to 25000L),
             hasReachedEnd = true
         )
@@ -44,11 +45,11 @@ class DefaultReviewValidatorTest {
 
     @Test
     fun `test speed penalized effort`() {
-        val evidence = ReviewEvidence(
+        val evidence = EngagementEvidence(
             artifactId = "a",
             versionTag = "v",
             durationMs = 30000L,
-            coverage = BitSet(6).apply { set(0, 6) },
+            coverage = BitSet(60).apply { set(0, 60) },
             effortMap = mapOf(4.0f to 7500L), // 30s at 4x = 7.5s wall clock
             hasReachedEnd = true
         )
@@ -63,11 +64,11 @@ class DefaultReviewValidatorTest {
 
     @Test
     fun `test end not reached`() {
-        val evidence = ReviewEvidence(
+        val evidence = EngagementEvidence(
             artifactId = "a",
             versionTag = "v",
             durationMs = 30000L,
-            coverage = BitSet(6).apply { set(0, 6) },
+            coverage = BitSet(60).apply { set(0, 60) },
             effortMap = mapOf(1.0f to 25000L),
             hasReachedEnd = false
         )

@@ -1,6 +1,6 @@
 package com.saurabh.artifact.audio.validation
 
-import com.saurabh.artifact.domain.review.ReviewEvidence
+import com.saurabh.artifact.domain.review.EngagementEvidence
 import com.saurabh.artifact.domain.review.ReviewPolicy
 
 /**
@@ -12,7 +12,7 @@ interface ReviewValidator {
      * Validates the collected evidence against a specific policy.
      */
     fun validate(
-        evidence: ReviewEvidence,
+        evidence: EngagementEvidence,
         policy: ReviewPolicy
     ): ReviewResult
 }

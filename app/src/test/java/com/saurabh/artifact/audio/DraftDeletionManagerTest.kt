@@ -5,9 +5,9 @@ import android.util.Log
 import androidx.room.withTransaction
 import androidx.work.OneTimeWorkRequest
 import androidx.work.WorkManager
-import com.saurabh.artifact.data.local.AppDatabase
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.data.local.DraftDao
+import com.saurabh.artifact.data.local.DraftsDatabase
 import com.saurabh.artifact.data.local.UploadTaskDao
 import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.util.StorageManager
@@ -18,10 +18,12 @@ import org.junit.Test
 import java.io.File
 
 class DraftDeletionManagerTest {
-    private val context = mockk<Context>(relaxed = true)
+    private val context = mockk<Context>(relaxed = true) {
+        every { applicationContext } returns this
+    }
     private val draftDao = mockk<DraftDao>(relaxed = true)
     private val uploadTaskDao = mockk<UploadTaskDao>(relaxed = true)
-    private val database = mockk<AppDatabase>(relaxed = true)
+    private val database = mockk<DraftsDatabase>(relaxed = true)
     private val storageManager = mockk<StorageManager>(relaxed = true)
     private val workManager = mockk<WorkManager>(relaxed = true)
 
@@ -35,26 +37,23 @@ class DraftDeletionManagerTest {
         every { Log.e(any<String>(), any<String>()) } returns 0
         every { Log.e(any<String>(), any<String>(), any<Throwable>()) } returns 0
 
-        mockkStatic(WorkManager::class)
+        // Try mocking WorkManager companion object
+        mockkObject(WorkManager.Companion)
         every { WorkManager.getInstance(any()) } returns workManager
         
         deletionManager = DraftDeletionManager(
             context = context,
             draftDao = draftDao,
             uploadTaskDao = uploadTaskDao,
-            database = database,
+            draftsDatabase = database,
             storageManager = storageManager
         )
-        // Ensure getDraftById returns null by default to avoid AbstractMethodError if it's called accidentally
-        coEvery { draftDao.getDraftById(any()) } returns null
         
-        // Final attempt: Mock the DAO methods specifically used in deleteDraft directory recursively check
+        coEvery { draftDao.getDraftById(any()) } returns null
         coEvery { draftDao.updateStatus(any(), any(), any()) } returns Unit
         coEvery { draftDao.deleteById(any()) } returns Unit
         coEvery { uploadTaskDao.deleteByDraftId(any()) } returns Unit
         
-        // Simplify database mock: remove withTransaction mock and avoid it in the code if needed?
-        // No, I'll try one more way to mock it
         mockkStatic("androidx.room.RoomDatabaseKt")
         coEvery { 
             database.withTransaction<Any>(any())
@@ -84,8 +83,8 @@ class DraftDeletionManagerTest {
 
         deletionManager.deleteDraft(draftId)
 
-        coVerifyOrder {
-            draftDao.updateStatus(draftId, any())
+        coVerify {
+            draftDao.updateStatus(draftId, any(), any())
             storageManager.deleteDirectoryRecursively(draftDir)
             draftDao.deleteById(draftId)
         }
@@ -104,7 +103,7 @@ class DraftDeletionManagerTest {
 
         coEvery { draftDao.getDraftById(draftId) } returns draft
         every { storageManager.getDraftDirectory(draftId) } returns draftDir
-        every { storageManager.deleteDirectoryRecursively(any()) } returns false // Simulation failure
+        every { storageManager.deleteDirectoryRecursively(any()) } returns false
 
         deletionManager.deleteDraft(draftId)
 

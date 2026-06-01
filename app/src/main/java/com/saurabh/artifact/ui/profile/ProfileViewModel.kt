@@ -2,7 +2,8 @@ package com.saurabh.artifact.ui.profile
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.saurabh.artifact.audio.PlaybackSessionManager
+import com.saurabh.artifact.audio.PlaybackCoordinator
+import com.saurabh.artifact.audio.PlaybackType
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.AvatarConfig
@@ -52,7 +53,7 @@ class ProfileViewModel @Inject constructor(
     private val recordingRepository: RecordingRepository,
     private val reactionRepository: ReactionRepository,
     private val savedArtifactManager: SavedArtifactManager,
-    private val playbackSessionManager: PlaybackSessionManager,
+    private val playbackCoordinator: PlaybackCoordinator,
     private val reviewSessionManager: com.saurabh.artifact.audio.ReviewSessionManager
 ) : ViewModel() {
 
@@ -71,11 +72,11 @@ class ProfileViewModel @Inject constructor(
         _selectedTab,
         _logoutState,
         _message,
-        playbackSessionManager.currentArtifact,
-        playbackSessionManager.isPlaying,
-        playbackSessionManager.isBuffering,
-        playbackSessionManager.currentPosition,
-        playbackSessionManager.durationMs
+        playbackCoordinator.currentArtifact,
+        playbackCoordinator.isPlaying,
+        playbackCoordinator.isBuffering,
+        playbackCoordinator.currentPosition,
+        playbackCoordinator.durationMs
     ) { params: Array<Any?> ->
         val targetId = params[0] as String?
         val avatarConfig = params[1] as AvatarConfig
@@ -162,15 +163,15 @@ class ProfileViewModel @Inject constructor(
     }
 
     fun playAudio(artifact: Artifact) {
-        reviewSessionManager.startListening(artifact)
+        playbackCoordinator.playArtifact(artifact)
     }
 
     fun playDraft(draft: ArtifactDraftEntity) {
-        reviewSessionManager.startReview(draft.id)
+        playbackCoordinator.playDraftPreview(draft.id)
     }
 
     fun togglePlayback() {
-        playbackSessionManager.togglePlayPause()
+        playbackCoordinator.togglePlayPause()
     }
 
     fun reactToArtifact(artifactId: String, type: ReactionType) {
@@ -243,7 +244,7 @@ class ProfileViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
-        playbackSessionManager.stop()
+        // Playback ownership is now handled by the Coordinator.
     }
 
     fun resetLogoutState() {

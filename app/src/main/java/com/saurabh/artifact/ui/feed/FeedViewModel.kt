@@ -8,7 +8,8 @@ import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import androidx.paging.map
-import com.saurabh.artifact.audio.AudioPlayer
+import com.saurabh.artifact.audio.PlaybackCoordinator
+import com.saurabh.artifact.audio.PlaybackType
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.AuthRepository
@@ -71,7 +72,7 @@ class FeedViewModel @Inject constructor(
     private val memoryManager: MemoryManager,
     private val startupCoordinator: StartupCoordinator,
     private val savedArtifactManager: com.saurabh.artifact.repository.SavedArtifactManager,
-    val audioPlayer: AudioPlayer,
+    val audioPlayer: PlaybackCoordinator,
     private val reviewSessionManager: com.saurabh.artifact.audio.ReviewSessionManager,
     private val commentUnlockRepository: com.saurabh.artifact.repository.CommentUnlockRepository
 ) : ViewModel(), MemoryTrimable {
@@ -197,7 +198,7 @@ class FeedViewModel @Inject constructor(
 
     private fun observePlaybackCompletion() {
         viewModelScope.launch {
-            audioPlayer.onPlaybackCompleted.collectLatest { completedUrl ->
+            audioPlayer.playbackCompletedEvent.collectLatest { completedUrl ->
                 val current = audioPlayer.currentArtifact.value
                 if (current?.audioUrl == completedUrl) {
                     commentUnlockRepository.unlockArtifact(current.id)
@@ -381,7 +382,7 @@ class FeedViewModel @Inject constructor(
             if (audioPlayer.currentArtifact.value?.id == artifact.id) {
                 audioPlayer.togglePlayPause()
             } else {
-                reviewSessionManager.startListening(artifact)
+                audioPlayer.playArtifact(artifact)
                 viewModelScope.launch {
                     artifactRepository.recordPlay(
                         authRepository.currentUser.value?.uid,
@@ -531,6 +532,6 @@ class FeedViewModel @Inject constructor(
         super.onCleared()
         startupJob.cancel()
         memoryManager.unregister(this)
-        audioPlayer.stop()
+        // Playback ownership is now handled by the Coordinator.
     }
 }

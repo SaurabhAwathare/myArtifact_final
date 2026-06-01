@@ -6,28 +6,25 @@ import com.saurabh.artifact.audio.validation.DefaultReviewTracker
 import com.saurabh.artifact.audio.validation.ReviewProgress
 import com.saurabh.artifact.audio.validation.ReviewTracker
 import com.saurabh.artifact.audio.validation.ReviewValidator
-import com.saurabh.artifact.data.local.ArtifactReviewEvidence
-import com.saurabh.artifact.data.local.ReviewDao
-import com.saurabh.artifact.domain.review.ReviewEvidence
+import com.saurabh.artifact.domain.review.EngagementEvidence
 import com.saurabh.artifact.domain.review.ReviewPolicy
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.repository.CommentUnlockRepository
+import com.saurabh.artifact.repository.EngagementRepository
 import kotlinx.coroutines.*
-import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.*
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Authoritative service for review validation.
- * Unifies logic for Draft Publication and Comment Unlocking.
- * Upgraded with debounced persistence and policy-based validation.
+ * Authoritative service for review validation and engagement tracking.
+ * Unifies logic for Draft Publication, Comment Unlocking, and Resume-Play.
+ * Upgraded with event-driven updates and unified persistence via EngagementRepository.
  */
 @Singleton
-@OptIn(FlowPreview::class)
 class ReviewAuthorityService @Inject constructor(
     private val playbackSessionManager: PlaybackSessionManager,
-    private val reviewDao: ReviewDao,
+    private val engagementRepository: EngagementRepository,
     private val commentUnlockRepository: CommentUnlockRepository,
     private val validator: ReviewValidator
 ) {
@@ -39,24 +36,12 @@ class ReviewAuthorityService @Inject constructor(
     private val _currentProgress = MutableStateFlow<ReviewProgress?>(null)
     val currentProgress: StateFlow<ReviewProgress?> = _currentProgress.asStateFlow()
 
-    private val persistenceTrigger = MutableSharedFlow<ReviewProgress>(extraBufferCapacity = 1)
-
     init {
         observePlayback()
-        setupPersistence()
-    }
-
-    private fun setupPersistence() {
-        scope.launch {
-            persistenceTrigger
-                .debounce(5000L) // Persist at most every 5 seconds during active playback
-                .collect { progress ->
-                    persistProgress(progress)
-                }
-        }
     }
 
     private fun observePlayback() {
+        // Session Lifecycle
         scope.launch {
             playbackSessionManager.currentArtifact.collect { artifact ->
                 if (artifact == null) {
@@ -67,36 +52,48 @@ class ReviewAuthorityService @Inject constructor(
             }
         }
 
-        // Periodic Update Loop (Ticking)
+        // Event-driven Ticking
         scope.launch {
-            while (isActive) {
-                if (playbackSessionManager.isPlaying.value) {
+            combine(
+                playbackSessionManager.currentPosition,
+                playbackSessionManager.isPlaying,
+                playbackSessionManager.playbackSpeed
+            ) { pos, isPlaying, speed ->
+                Triple(pos, isPlaying, speed)
+            }.collect { (pos, isPlaying, speed) ->
+                if (isPlaying) {
                     val now = SystemClock.elapsedRealtime()
                     val delta = if (lastTickTime == 0L) 0L else now - lastTickTime
                     lastTickTime = now
-                    
+
                     activeTracker?.let { tracker ->
-                        tracker.onPlaybackTick(
-                            currentPosMs = playbackSessionManager.currentPosition.value,
-                            realElapsedMs = delta,
-                            playbackSpeed = playbackSessionManager.playbackSpeed.value
-                        )
+                        tracker.onPlaybackTick(pos, delta, speed)
                         val progress = tracker.getProgress()
                         _currentProgress.value = progress
                         
-                        // Buffer for debounced persistence
-                        persistenceTrigger.emit(progress)
-                        
-                        // Check for completion
                         if (progress.isValidationMet) {
                             handleCompletion(progress)
                         }
                     }
                 } else {
                     lastTickTime = 0L
+                    // Save last position immediately when paused
+                    activeTracker?.let { tracker ->
+                         engagementRepository.updateLastPosition(tracker.getProgress().artifactId, pos)
+                    }
                 }
-                delay(1000) // 1 second resolution for state updates
             }
+        }
+
+        // Periodic debounced persistence (for coverage/effort)
+        scope.launch {
+            @OptIn(FlowPreview::class)
+            _currentProgress
+                .filterNotNull()
+                .sample(5000L) // Persist at most every 5 seconds
+                .collect { progress ->
+                    engagementRepository.saveEngagement(progress.evidence)
+                }
         }
 
         // Observe State for End Events
@@ -106,7 +103,10 @@ class ReviewAuthorityService @Inject constructor(
                     activeTracker?.onPlaybackEnded()
                     val progress = activeTracker?.getProgress()
                     _currentProgress.value = progress
-                    progress?.let { if (it.isValidationMet) handleCompletion(it) }
+                    progress?.let { 
+                        engagementRepository.saveEngagement(it.evidence)
+                        if (it.isValidationMet) handleCompletion(it) 
+                    }
                 }
             }
         }
@@ -120,31 +120,16 @@ class ReviewAuthorityService @Inject constructor(
     }
 
     private suspend fun initializeSession(artifact: Artifact) {
-        val dbEvidence = reviewDao.getEvidence(artifact.id)
-        val domainEvidence = if (dbEvidence != null) {
-            ReviewEvidence(
-                artifactId = dbEvidence.artifactId,
-                versionTag = dbEvidence.versionTag,
-                durationMs = dbEvidence.durationMs,
-                audioChecksum = dbEvidence.audioChecksum,
-                coverage = java.util.BitSet.valueOf(dbEvidence.coverage),
-                effortMap = dbEvidence.effortMap,
-                furthestPositionMs = dbEvidence.furthestPositionMs,
-                hasReachedEnd = dbEvidence.hasReachedEnd,
-                lastUpdated = dbEvidence.lastUpdated
-            )
-        } else {
-            ReviewEvidence(
-                artifactId = artifact.id,
-                versionTag = "v1", // Default version
-                durationMs = artifact.durationMs,
-                audioChecksum = artifact.checksum ?: ""
-            )
-        }
+        val evidence = engagementRepository.getEngagement(artifact.id) ?: EngagementEvidence(
+            artifactId = artifact.id,
+            versionTag = "v1",
+            durationMs = artifact.durationMs,
+            audioChecksum = artifact.checksum ?: ""
+        )
 
         activeTracker = DefaultReviewTracker(
-            initialEvidence = domainEvidence,
-            policy = ReviewPolicy(), // Policy can be injected or resolved per artifact type
+            initialEvidence = evidence,
+            policy = ReviewPolicy(),
             validator = validator
         )
         _currentProgress.value = activeTracker?.getProgress()
@@ -153,38 +138,15 @@ class ReviewAuthorityService @Inject constructor(
 
     private suspend fun finalizeSession() {
         val progress = activeTracker?.getProgress() ?: return
-        persistProgress(progress) // Immediate final persistence
+        engagementRepository.saveEngagement(progress.evidence)
         activeTracker = null
         _currentProgress.value = null
     }
 
     private fun handleCompletion(progress: ReviewProgress) {
         scope.launch(Dispatchers.IO) {
-            persistProgress(progress)
+            engagementRepository.saveEngagement(progress.evidence)
             commentUnlockRepository.unlockArtifact(progress.artifactId)
         }
-    }
-
-    private suspend fun persistProgress(progress: ReviewProgress) {
-        withContext(Dispatchers.IO) {
-            val evidence = progress.evidence
-            reviewDao.insertEvidence(
-                ArtifactReviewEvidence(
-                    artifactId = evidence.artifactId,
-                    versionTag = evidence.versionTag,
-                    durationMs = evidence.durationMs,
-                    audioChecksum = evidence.audioChecksum,
-                    coverage = evidence.coverage.toByteArray(),
-                    effortMap = evidence.effortMap,
-                    furthestPositionMs = evidence.furthestPositionMs,
-                    hasReachedEnd = evidence.hasReachedEnd,
-                    lastUpdated = evidence.lastUpdated
-                )
-            )
-        }
-    }
-
-    fun onSeekPerformed(targetMs: Long) {
-        activeTracker?.onSeekPerformed(targetMs)
     }
 }

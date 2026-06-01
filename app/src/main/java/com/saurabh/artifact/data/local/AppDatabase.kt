@@ -7,19 +7,77 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [QueuedUpload::class, PromptEntity::class, PlaybackPosition::class, ArtifactReviewEvidence::class, ArtifactEntity::class],
-    version = 36,
+    entities = [QueuedUpload::class, PromptEntity::class, ArtifactEngagement::class, ArtifactEntity::class],
+    version = 37,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun queuedUploadDao(): QueuedUploadDao
     abstract fun promptDao(): PromptDao
-    abstract fun playbackPositionDao(): PlaybackPositionDao
-    abstract fun reviewDao(): ReviewDao
+    abstract fun engagementDao(): EngagementDao
     abstract fun artifactDao(): ArtifactDao
 
     companion object {
+        val MIGRATION_36_37 = object : Migration(36, 37) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `artifact_engagement` (
+                        `artifactId` TEXT NOT NULL, 
+                        `versionTag` TEXT NOT NULL,
+                        `durationMs` INTEGER NOT NULL, 
+                        `audioChecksum` TEXT NOT NULL,
+                        `coverage` BLOB NOT NULL, 
+                        `effortMap` TEXT NOT NULL, 
+                        `lastPositionMs` INTEGER NOT NULL,
+                        `furthestPositionMs` INTEGER NOT NULL,
+                        `hasReachedEnd` INTEGER NOT NULL, 
+                        `lastUpdated` INTEGER NOT NULL, 
+                        PRIMARY KEY(`artifactId`)
+                    )
+                """.trimIndent())
+
+                // Migrate from artifact_review_evidence
+                db.execSQL("""
+                    INSERT OR IGNORE INTO artifact_engagement (
+                        artifactId, versionTag, durationMs, audioChecksum, coverage, 
+                        effortMap, lastPositionMs, furthestPositionMs, hasReachedEnd, lastUpdated
+                    )
+                    SELECT 
+                        artifactId, versionTag, durationMs, audioChecksum, coverage, 
+                        effortMap, 0, furthestPositionMs, hasReachedEnd, lastUpdated
+                    FROM artifact_review_evidence
+                """.trimIndent())
+
+                // Update lastPositionMs from playback_positions
+                db.execSQL("""
+                    UPDATE artifact_engagement 
+                    SET lastPositionMs = (
+                        SELECT positionMs FROM playback_positions 
+                        WHERE playback_positions.artifactId = artifact_engagement.artifactId
+                    )
+                    WHERE EXISTS (
+                        SELECT 1 FROM playback_positions 
+                        WHERE playback_positions.artifactId = artifact_engagement.artifactId
+                    )
+                """.trimIndent())
+
+                // Insert remaining from playback_positions
+                db.execSQL("""
+                    INSERT OR IGNORE INTO artifact_engagement (
+                        artifactId, versionTag, durationMs, audioChecksum, coverage, 
+                        effortMap, lastPositionMs, furthestPositionMs, hasReachedEnd, lastUpdated
+                    )
+                    SELECT 
+                        artifactId, 'v1', 0, '', x'00', '{}', positionMs, 0, 0, updatedAt
+                    FROM playback_positions
+                """.trimIndent())
+
+                db.execSQL("DROP TABLE IF EXISTS `playback_positions`")
+                db.execSQL("DROP TABLE IF EXISTS `artifact_review_evidence`")
+            }
+        }
+
         val MIGRATION_34_35 = object : Migration(34, 35) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("""

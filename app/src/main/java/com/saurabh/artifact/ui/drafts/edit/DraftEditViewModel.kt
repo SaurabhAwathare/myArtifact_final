@@ -2,7 +2,8 @@ package com.saurabh.artifact.ui.drafts.edit
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.saurabh.artifact.audio.PlaybackSessionManager
+import com.saurabh.artifact.audio.PlaybackCoordinator
+import com.saurabh.artifact.audio.PlaybackType
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.AuthorSnapshot
@@ -16,7 +17,7 @@ import javax.inject.Inject
 @HiltViewModel
 class DraftEditViewModel @Inject constructor(
     private val recordingRepository: RecordingRepository,
-    private val playbackSessionManager: PlaybackSessionManager
+    private val playbackCoordinator: PlaybackCoordinator
 ) : ViewModel() {
 
     private val _draft = MutableStateFlow<ArtifactDraftEntity?>(null)
@@ -28,8 +29,8 @@ class DraftEditViewModel @Inject constructor(
     private val _emotion = MutableStateFlow<Emotion?>(null)
     val emotion: StateFlow<Emotion?> = _emotion.asStateFlow()
 
-    val isPlaying = playbackSessionManager.isPlaying
-    val currentPosition = playbackSessionManager.currentPosition
+    val isPlaying = playbackCoordinator.isPlaying
+    val currentPosition = playbackCoordinator.currentPosition
 
     fun loadDraft(draftId: String) {
         viewModelScope.launch {
@@ -65,28 +66,20 @@ class DraftEditViewModel @Inject constructor(
 
     fun togglePlayback() {
         val currentDraft = _draft.value ?: return
-        val currentPlaying = playbackSessionManager.currentArtifact.value
+        val currentPlaying = playbackCoordinator.currentArtifact.value
         
         if (currentPlaying?.id == currentDraft.id) {
-            playbackSessionManager.togglePlayPause()
+            playbackCoordinator.togglePlayPause()
         } else {
-            val artifact = Artifact(
-                id = currentDraft.id,
-                title = _title.value.ifBlank { "Draft Preview" },
-                audioUrl = currentDraft.localAudioPath,
-                author = AuthorSnapshot(name = "Local Draft"),
-                isDraft = true,
-                amplitudeData = currentDraft.amplitudeData
-            )
-            playbackSessionManager.play(artifact)
+            playbackCoordinator.playDraftPreview(currentDraft.id)
         }
     }
 
     fun deleteDraft(onDeleted: () -> Unit) {
         val currentDraft = _draft.value ?: return
         viewModelScope.launch {
-            if (playbackSessionManager.currentArtifact.value?.id == currentDraft.id) {
-                playbackSessionManager.stop()
+            if (playbackCoordinator.currentArtifact.value?.id == currentDraft.id) {
+                playbackCoordinator.stop()
             }
             recordingRepository.deleteDraft(currentDraft)
             onDeleted()
@@ -95,8 +88,6 @@ class DraftEditViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
-        // We don't necessarily want to stop playback when leaving the edit screen 
-        // if the user wants to keep listening, but usually for "Edit" screens it's safer.
-        playbackSessionManager.stop()
+        // Playback ownership is now handled by the Coordinator.
     }
 }

@@ -3,6 +3,7 @@ package com.saurabh.artifact.audio
 import android.content.ComponentName
 import android.content.Context
 import android.util.Log
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
@@ -10,6 +11,8 @@ import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import com.saurabh.artifact.model.Artifact
+import com.saurabh.artifact.repository.EngagementRepository
+import dagger.Lazy
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -24,12 +27,16 @@ import javax.inject.Singleton
  * - ExoPlayer/MediaController lifecycle
  * - Global playback state
  * - Ensuring only one audio source plays at a time
+ * - Queue management and persistence
  */
 @Singleton
 class PlaybackSessionManager @Inject constructor(
     @param:ApplicationContext private val context: Context,
-    private val playbackPositionDao: com.saurabh.artifact.data.local.PlaybackPositionDao,
-    private val cleanupManager: dagger.Lazy<ArtifactCleanupManager>
+    private val engagementRepository: EngagementRepository,
+    private val cleanupManager: Lazy<ArtifactCleanupManager>,
+    private val settingsDataStore: PlaybackSettingsDataStore,
+    private val analytics: PlaybackAnalyticsManager,
+    private val artifactRepository: Lazy<com.saurabh.artifact.repository.ArtifactRepository>
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val controllerLock = Mutex()
@@ -41,6 +48,9 @@ class PlaybackSessionManager @Inject constructor(
     enum class InteractionOwner { NONE, PUBLIC_PLAYER, REVIEW_PLAYER, SERVICE }
     private val _interactionOwner = MutableStateFlow(InteractionOwner.NONE)
     val interactionOwner: StateFlow<InteractionOwner> = _interactionOwner.asStateFlow()
+    
+    private val _activePlayback = MutableStateFlow<ActivePlayback?>(null)
+    val activePlayback: StateFlow<ActivePlayback?> = _activePlayback.asStateFlow()
     
     private val _currentArtifact = MutableStateFlow<Artifact?>(null)
     val currentArtifact: StateFlow<Artifact?> = _currentArtifact.asStateFlow()
@@ -66,6 +76,9 @@ class PlaybackSessionManager @Inject constructor(
     private var positionUpdateJob: Job? = null
     private var cleanupSyncJob: Job? = null
     
+    private var errorRetryCount = 0
+    private val MAX_RETRIES = 3
+
     private val _isBuffering = MutableStateFlow(false)
     val isBuffering: StateFlow<Boolean> = _isBuffering.asStateFlow()
 
@@ -78,10 +91,36 @@ class PlaybackSessionManager @Inject constructor(
     private val _error = MutableSharedFlow<String>(replay = 0)
     val error: SharedFlow<String> = _error.asSharedFlow()
 
+    private val _queue = MutableStateFlow<List<Artifact>>(emptyList())
+    val queue: StateFlow<List<Artifact>> = _queue.asStateFlow()
+
+    init {
+        // Sync settings from DataStore
+        scope.launch {
+            settingsDataStore.playbackSpeed.collectLatest { speed ->
+                _playbackSpeed.value = speed
+                controller?.setPlaybackSpeed(speed)
+            }
+        }
+        scope.launch {
+            settingsDataStore.skipSilenceEnabled.collectLatest { enabled ->
+                _isSkipSilenceEnabled.value = enabled
+                setSkipSilenceInController(enabled)
+            }
+        }
+    }
+
     private val playerListener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             _isPlaying.value = isPlaying
-            if (isPlaying) startPositionUpdates() else stopPositionUpdates()
+            if (isPlaying) {
+                startPositionUpdates()
+                _currentArtifact.value?.let { analytics.trackPlaybackStart(it) }
+            } else {
+                stopPositionUpdates()
+                saveCurrentPosition()
+                _currentArtifact.value?.let { analytics.trackPlaybackPause(it, _currentPosition.value) }
+            }
         }
 
         override fun onPlaybackStateChanged(state: Int) {
@@ -89,9 +128,15 @@ class PlaybackSessionManager @Inject constructor(
             _isBuffering.value = state == Player.STATE_BUFFERING
             if (state == Player.STATE_READY) {
                 _durationMs.value = controller?.duration?.coerceAtLeast(0) ?: 0
+                errorRetryCount = 0 // Reset retry count on success
             }
             if (state == Player.STATE_ENDED) {
                 _currentArtifact.value?.let { artifact ->
+                    analytics.trackPlaybackComplete(artifact)
+                    // Clear saved position on completion
+                    scope.launch {
+                        engagementRepository.updateLastPosition(artifact.id, 0L)
+                    }
                     scope.launch {
                         _playbackCompletedEvent.emit(artifact.id)
                     }
@@ -100,13 +145,39 @@ class PlaybackSessionManager @Inject constructor(
         }
 
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+            val message = when (error.errorCode) {
+                androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+                androidx.media3.common.PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> {
+                    if (errorRetryCount < MAX_RETRIES) {
+                        attemptRetry()
+                        "Connection lost. Retrying... (${errorRetryCount + 1})"
+                    } else {
+                        "Network connection lost. Please check your internet."
+                    }
+                }
+                androidx.media3.common.PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND -> 
+                    "Audio file not found or inaccessible."
+                androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED -> 
+                    "Error decoding audio. The file might be corrupted."
+                else -> error.message ?: "An unexpected playback error occurred."
+            }
+            analytics.trackPlaybackError(_currentArtifact.value, message)
             scope.launch {
-                _error.emit(error.message ?: "Playback error")
+                _error.emit(message)
             }
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-            // Can be used to sync current artifact if needed
+            val artifact = _queue.value.find { it.id == mediaItem?.mediaId }
+            _currentArtifact.value = artifact
+            
+            if (artifact != null) {
+                scope.launch {
+                    settingsDataStore.updateLastArtifactId(artifact.id)
+                    val index = controller?.currentMediaItemIndex ?: 0
+                    settingsDataStore.updateQueue(_queue.value.map { it.id }, index)
+                }
+            }
         }
     }
 
@@ -139,6 +210,15 @@ class PlaybackSessionManager @Inject constructor(
                 controllerFuture = future
                 _isPlaying.value = controller?.isPlaying ?: false
                 _durationMs.value = controller?.duration?.coerceAtLeast(0) ?: 0
+                // Restore speed/skip silence on init
+                controller?.setPlaybackSpeed(_playbackSpeed.value)
+                setSkipSilenceInController(_isSkipSilenceEnabled.value)
+                
+                // Attempt to restore previous playback state if current player is idle
+                if (controller?.playbackState == Player.STATE_IDLE) {
+                    restorePlaybackState(controller!!)
+                }
+                
                 controller
             } catch (e: Exception) {
                 null
@@ -146,41 +226,128 @@ class PlaybackSessionManager @Inject constructor(
         }
     }
 
-    fun play(artifact: Artifact, owner: InteractionOwner = InteractionOwner.PUBLIC_PLAYER, initialPosition: Long = 0L) {
+    private suspend fun restorePlaybackState(player: MediaController) {
+        val lastIds = settingsDataStore.currentQueueIds.first()
+        val lastIndex = settingsDataStore.currentQueueIndex.first()
+        val lastArtifactId = settingsDataStore.lastArtifactId.first()
+
+        if (lastIds.isNotEmpty()) {
+            Log.d("PlaybackSessionManager", "Restoring queue with ${lastIds.size} items")
+            val artifacts = lastIds.mapNotNull { id ->
+                artifactRepository.get().getArtifactById(id)
+            }
+            
+            if (artifacts.isNotEmpty()) {
+                _queue.value = artifacts
+                val mediaItems = artifacts.map { createMediaItem(it) }
+                
+                val currentArtifact = artifacts.getOrNull(lastIndex)
+                val pos = if (currentArtifact != null) {
+                    engagementRepository.getEngagement(currentArtifact.id)?.lastPositionMs ?: 0L
+                } else 0L
+
+                _currentArtifact.value = currentArtifact
+                player.setMediaItems(mediaItems, lastIndex, if (pos > 0) pos else C.TIME_UNSET)
+                player.prepare()
+            }
+        } else if (lastArtifactId != null) {
+            // Fallback to just the last artifact if no queue was saved
+            artifactRepository.get().getArtifactById(lastArtifactId)?.let { artifact ->
+                _currentArtifact.value = artifact
+                _queue.value = listOf(artifact)
+                
+                val pos = engagementRepository.getEngagement(artifact.id)?.lastPositionMs ?: 0L
+                player.setMediaItem(createMediaItem(artifact), if (pos > 0) pos else C.TIME_UNSET)
+                player.prepare()
+            }
+        }
+    }
+
+    fun play(
+        artifact: Artifact, 
+        collection: List<Artifact> = emptyList(),
+        owner: InteractionOwner = InteractionOwner.PUBLIC_PLAYER, 
+        initialPosition: Long = 0L,
+        playbackType: PlaybackType = PlaybackType.ARTIFACT
+    ) {
         scope.launch {
+            // Save position of current artifact before switching
+            saveCurrentPosition()
+
             val player = getController() ?: return@launch
             
-            // Stop previous if any
-            if (player.isPlaying) player.stop()
-            
             _interactionOwner.value = owner
+            _activePlayback.value = ActivePlayback(artifact.id, playbackType)
+            
+            // Check if we are already playing this exact artifact to avoid redundant resets
+            if (player.currentMediaItem?.mediaId == artifact.id && player.playbackState != Player.STATE_IDLE) {
+                if (initialPosition > 0 && kotlin.math.abs(player.currentPosition - initialPosition) > 2000) {
+                    player.seekTo(initialPosition)
+                }
+                player.play()
+                return@launch
+            }
+
+            // If a collection is provided, it becomes the new queue.
+            // Otherwise, we just play the single artifact (wrapping it in a list).
+            val newQueue = if (collection.isNotEmpty()) {
+                if (collection.any { it.id == artifact.id }) collection else listOf(artifact) + collection
+            } else {
+                listOf(artifact)
+            }
+            
+            _queue.value = newQueue
             _currentArtifact.value = artifact
 
-            // Restore position if not explicitly provided
+            val startIndex = newQueue.indexOfFirst { it.id == artifact.id }.coerceAtLeast(0)
+
             val restoredPosition = if (initialPosition == 0L) {
-                playbackPositionDao.getPosition(artifact.id)?.positionMs ?: 0L
+                engagementRepository.getEngagement(artifact.id)?.lastPositionMs ?: 0L
             } else {
                 initialPosition
             }
 
-            val mediaItem = createMediaItem(artifact)
+            val mediaItems = newQueue.map { createMediaItem(it) }
             
-            player.setMediaItem(mediaItem)
+            player.setMediaItems(mediaItems, startIndex, restoredPosition)
             player.setPlaybackSpeed(_playbackSpeed.value)
-            if (restoredPosition > 0) player.seekTo(restoredPosition)
             player.prepare()
             player.play()
+            
+            settingsDataStore.updateLastArtifactId(artifact.id)
+            settingsDataStore.updateQueue(newQueue.map { it.id }, startIndex)
+        }
+    }
+
+    fun addToQueue(artifacts: List<Artifact>) {
+        scope.launch {
+            val player = getController() ?: return@launch
+            val mediaItems = artifacts.map { createMediaItem(it) }
+            player.addMediaItems(mediaItems)
+            _queue.value = _queue.value + artifacts
+        }
+    }
+
+    fun playNext(artifact: Artifact) {
+        scope.launch {
+            val player = getController() ?: return@launch
+            val mediaItem = createMediaItem(artifact)
+            val nextIndex = if (player.mediaItemCount > 0) player.currentMediaItemIndex + 1 else 0
+            player.addMediaItem(nextIndex, mediaItem)
+            
+            val currentQueue = _queue.value.toMutableList()
+            currentQueue.add(nextIndex, artifact)
+            _queue.value = currentQueue
         }
     }
 
     /**
      * Pre-loads an artifact into the player without starting playback.
-     * Used to reduce latency for "Recent Reflections" or next-in-feed items.
      */
     fun preCache(artifact: Artifact) {
         scope.launch {
             val player = getController() ?: return@launch
-            if (player.isPlaying) return@launch // Don't interrupt active playback
+            if (player.isPlaying) return@launch
             
             val mediaItem = createMediaItem(artifact)
             player.addMediaItem(mediaItem)
@@ -209,14 +376,18 @@ class PlaybackSessionManager @Inject constructor(
     }
 
     fun setPlaybackSpeed(speed: Float) {
-        _playbackSpeed.value = speed
         scope.launch {
-            getController()?.setPlaybackSpeed(speed)
+            settingsDataStore.updatePlaybackSpeed(speed)
         }
     }
 
     fun setSkipSilenceEnabled(enabled: Boolean) {
-        _isSkipSilenceEnabled.value = enabled
+        scope.launch {
+            settingsDataStore.updateSkipSilenceEnabled(enabled)
+        }
+    }
+
+    private fun setSkipSilenceInController(enabled: Boolean) {
         scope.launch {
             getController()?.sendCustomCommand(
                 androidx.media3.session.SessionCommand("SET_SKIP_SILENCE", android.os.Bundle().apply {
@@ -254,10 +425,34 @@ class PlaybackSessionManager @Inject constructor(
 
     fun stop() {
         scope.launch {
+            saveCurrentPosition()
             getController()?.stop()
             _interactionOwner.value = InteractionOwner.NONE
             _currentArtifact.value = null
+            _activePlayback.value = null
             _isPlaying.value = false
+            _queue.value = emptyList()
+        }
+    }
+
+    fun stopIfType(type: PlaybackType) {
+        if (_activePlayback.value?.playbackType == type) {
+            stop()
+        }
+    }
+
+    private fun saveCurrentPosition() {
+        val artifact = _currentArtifact.value ?: return
+        val pos = _currentPosition.value
+        val dur = _durationMs.value
+        
+        scope.launch {
+            if (pos < 1000L || (dur > 0 && pos > dur - 2000L)) {
+                // Too close to start or end - clear position to start fresh next time
+                engagementRepository.updateLastPosition(artifact.id, 0L)
+            } else {
+                engagementRepository.updateLastPosition(artifact.id, pos)
+            }
         }
     }
 
@@ -274,16 +469,7 @@ class PlaybackSessionManager @Inject constructor(
 
                     // Persist position periodically (every 5 seconds)
                     if ((tick % 25) == 0) {
-                        _currentArtifact.value?.let { artifact ->
-                            if (!artifact.isDraft) { // Drafts have their own persistence in ReviewSessionManager
-                                playbackPositionDao.savePosition(
-                                    com.saurabh.artifact.data.local.PlaybackPosition(
-                                        artifactId = artifact.id,
-                                        positionMs = pos
-                                    )
-                                )
-                            }
-                        }
+                        saveCurrentPosition()
                     }
                 }
                 delay(200)
@@ -307,6 +493,15 @@ class PlaybackSessionManager @Inject constructor(
 
     private fun stopPositionUpdates() {
         positionUpdateJob?.cancel()
+    }
+
+    private fun attemptRetry() {
+        errorRetryCount++
+        scope.launch {
+            delay(2000L * errorRetryCount) // Exponential backoff
+            controller?.prepare()
+            controller?.play()
+        }
     }
 
     fun release() {

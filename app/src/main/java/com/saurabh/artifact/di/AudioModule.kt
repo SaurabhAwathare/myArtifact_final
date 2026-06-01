@@ -2,9 +2,12 @@ package com.saurabh.artifact.di
 
 import android.content.Context
 import com.saurabh.artifact.audio.ArtifactCleanupManager
-import com.saurabh.artifact.audio.AudioPlayer
 import com.saurabh.artifact.audio.AudioRecorder
+import com.saurabh.artifact.audio.PlaybackAnalyticsManager
+import com.saurabh.artifact.audio.PlaybackCoordinator
 import com.saurabh.artifact.audio.PlaybackSessionManager
+import com.saurabh.artifact.audio.PlaybackSettingsDataStore
+import com.saurabh.artifact.audio.ReviewSessionManager
 import com.saurabh.artifact.nlp.EmotionAnalyzer
 import dagger.Lazy
 import dagger.Module
@@ -22,15 +25,21 @@ object AudioModule {
     @Singleton
     fun providePlaybackSessionManager(
         @ApplicationContext context: Context,
-        playbackPositionDao: com.saurabh.artifact.data.local.PlaybackPositionDao,
-        cleanupManager: Lazy<ArtifactCleanupManager>
+        engagementRepository: com.saurabh.artifact.repository.EngagementRepository,
+        cleanupManager: Lazy<ArtifactCleanupManager>,
+        settingsDataStore: PlaybackSettingsDataStore,
+        analytics: PlaybackAnalyticsManager,
+        artifactRepository: Lazy<com.saurabh.artifact.repository.ArtifactRepository>
     ): PlaybackSessionManager = 
-        PlaybackSessionManager(context, playbackPositionDao, cleanupManager)
+        PlaybackSessionManager(context, engagementRepository, cleanupManager, settingsDataStore, analytics, artifactRepository)
 
     @Provides
     @Singleton
-    fun provideAudioPlayer(playbackSessionManager: PlaybackSessionManager): AudioPlayer = 
-        AudioPlayer(playbackSessionManager)
+    fun providePlaybackCoordinator(
+        playbackSessionManager: PlaybackSessionManager,
+        reviewSessionManager: ReviewSessionManager
+    ): PlaybackCoordinator = 
+        PlaybackCoordinator(playbackSessionManager, reviewSessionManager)
 
     @Provides
     @Singleton

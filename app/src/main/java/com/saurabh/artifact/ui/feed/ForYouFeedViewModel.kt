@@ -2,7 +2,8 @@ package com.saurabh.artifact.ui.feed
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.saurabh.artifact.audio.AudioPlayer
+import com.saurabh.artifact.audio.PlaybackCoordinator
+import com.saurabh.artifact.audio.PlaybackType
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.FeedRepository
@@ -18,7 +19,7 @@ class ForYouFeedViewModel @Inject constructor(
     private val feedRepository: FeedRepository,
     private val artifactRepository: com.saurabh.artifact.repository.ArtifactRepository,
     private val authRepository: AuthRepository,
-    val audioPlayer: AudioPlayer,
+    val audioPlayer: PlaybackCoordinator,
     private val reviewSessionManager: com.saurabh.artifact.audio.ReviewSessionManager,
     private val reviewAuthorityService: com.saurabh.artifact.audio.ReviewAuthorityService
 ) : ViewModel() {
@@ -56,8 +57,14 @@ class ForYouFeedViewModel @Inject constructor(
         } else {
             // If it was unfinished, start from the last position
             val startPos = if (feedArtifact.isUnfinished) feedArtifact.lastPositionMs else 0L
-            audioPlayer.play(artifact, startPos)
-            reviewSessionManager.startListening(artifact)
+            
+            // Extract the relevant collection from the current feed state
+            val collection = when (val state = feedState.value) {
+                is FeedCompositionState.Success -> state.items.map { it.artifact }
+                else -> emptyList()
+            }
+            
+            audioPlayer.playArtifact(artifact, collection, startPos)
         }
     }
 

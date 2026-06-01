@@ -2,7 +2,8 @@ package com.saurabh.artifact.ui.player
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.saurabh.artifact.audio.PlaybackSessionManager
+import com.saurabh.artifact.audio.PlaybackCoordinator
+import com.saurabh.artifact.audio.PlaybackType
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.ReactionType
 import com.saurabh.artifact.repository.AuthRepository
@@ -18,7 +19,7 @@ import javax.inject.Inject
 
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
-    private val playbackSessionManager: PlaybackSessionManager,
+    private val playbackCoordinator: PlaybackCoordinator,
     private val authRepository: AuthRepository,
     private val userRepository: UserRepository,
     private val reactionRepository: ReactionRepository,
@@ -43,7 +44,7 @@ class PlayerViewModel @Inject constructor(
     private val _optimisticResonate = MutableStateFlow<Boolean?>(null)
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val isCommentUnlocked: StateFlow<Boolean> = playbackSessionManager.currentArtifact.flatMapLatest { artifact ->
+    val isCommentUnlocked: StateFlow<Boolean> = playbackCoordinator.currentArtifact.flatMapLatest { artifact ->
         if (artifact != null) {
             commentUnlockRepository.isUnlocked(artifact.id)
         } else {
@@ -53,7 +54,7 @@ class PlayerViewModel @Inject constructor(
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val isResonated: StateFlow<Boolean> = combine(
-        playbackSessionManager.currentArtifact,
+        playbackCoordinator.currentArtifact,
         authRepository.currentUser
     ) { artifact, user ->
         if ((artifact != null) && (user != null)) {
@@ -67,7 +68,7 @@ class PlayerViewModel @Inject constructor(
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val selectedReactionType: StateFlow<ReactionType> = combine(
-        playbackSessionManager.currentArtifact,
+        playbackCoordinator.currentArtifact,
         authRepository.currentUser
     ) { artifact, user ->
         if ((artifact != null) && (user != null)) {
@@ -83,7 +84,7 @@ class PlayerViewModel @Inject constructor(
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val isResonating: StateFlow<Boolean> = combine(
-        playbackSessionManager.currentArtifact,
+        playbackCoordinator.currentArtifact,
         authRepository.currentUser,
         _optimisticResonanceConnection
     ) { artifact, user, optimistic ->
@@ -97,7 +98,7 @@ class PlayerViewModel @Inject constructor(
     .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     val isSaved: StateFlow<Boolean> = combine(
-        playbackSessionManager.currentArtifact,
+        playbackCoordinator.currentArtifact,
         savedArtifactManager.savedIds,
         _optimisticSave
     ) { artifact, savedIds, optimistic ->
@@ -106,7 +107,7 @@ class PlayerViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val resonanceSummary: StateFlow<String> = playbackSessionManager.currentArtifact.flatMapLatest { artifact ->
+    val resonanceSummary: StateFlow<String> = playbackCoordinator.currentArtifact.flatMapLatest { artifact ->
         if (artifact != null) {
             val currentUserId = authRepository.currentUser.value?.uid
             reactionRepository.getReactionCounts(artifact.id).map { counts ->
@@ -123,7 +124,7 @@ class PlayerViewModel @Inject constructor(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
-    val commentCount: StateFlow<Int> = playbackSessionManager.currentArtifact.map { 
+    val commentCount: StateFlow<Int> = playbackCoordinator.currentArtifact.map { 
         it?.commentCount ?: 0 
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
@@ -136,6 +137,13 @@ class PlayerViewModel @Inject constructor(
                 }
             }
         }
+
+        // Observe playback errors
+        viewModelScope.launch {
+            playbackCoordinator.activePlayback.collect { active ->
+                // Optionally handle playback type changes here
+            }
+        }
     }
 
     private fun resetState() {
@@ -143,17 +151,17 @@ class PlayerViewModel @Inject constructor(
         _showAdvancedControls.value = false
         _sleepTimerMillisRemaining.value = null
         sleepTimerJob?.cancel()
-        playbackSessionManager.stop()
+        playbackCoordinator.stop()
     }
     
     val uiState: StateFlow<PlayerUiState> = combine(
-        playbackSessionManager.currentArtifact,
-        playbackSessionManager.isPlaying,
-        playbackSessionManager.isBuffering,
-        playbackSessionManager.currentPosition,
-        playbackSessionManager.durationMs,
-        playbackSessionManager.playbackSpeed,
-        playbackSessionManager.isSkipSilenceEnabled,
+        playbackCoordinator.currentArtifact,
+        playbackCoordinator.isPlaying,
+        playbackCoordinator.isBuffering,
+        playbackCoordinator.currentPosition,
+        playbackCoordinator.durationMs,
+        playbackCoordinator.playbackSpeed,
+        playbackCoordinator.isSkipSilenceEnabled,
         isCommentUnlocked,
         _isExpanded,
         _showAdvancedControls,
@@ -281,11 +289,11 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-    fun playArtifact(artifact: Artifact) {
+    fun playArtifact(artifact: Artifact, collection: List<Artifact> = emptyList()) {
         _isExpanded.value = true // Auto-expand when play is triggered
-        playbackSessionManager.play(
+        playbackCoordinator.playArtifact(
             artifact = artifact,
-            owner = PlaybackSessionManager.InteractionOwner.PUBLIC_PLAYER
+            collection = collection
         )
     }
 
@@ -298,19 +306,19 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun togglePlayPause() {
-        playbackSessionManager.togglePlayPause()
+        playbackCoordinator.togglePlayPause()
     }
 
     fun seekTo(position: Long) {
-        playbackSessionManager.seekTo(position)
+        playbackCoordinator.seekTo(position)
     }
 
     fun setPlaybackSpeed(speed: Float) {
-        playbackSessionManager.setPlaybackSpeed(speed)
+        playbackCoordinator.setPlaybackSpeed(speed)
     }
 
     fun toggleSilenceSkipping() {
-        playbackSessionManager.setSkipSilenceEnabled(!playbackSessionManager.isSkipSilenceEnabled.value)
+        playbackCoordinator.setSkipSilenceEnabled(!playbackCoordinator.isSkipSilenceEnabled.value)
     }
 
     fun setExpanded(expanded: Boolean) {
@@ -322,13 +330,13 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun rewind() {
-        val newPos = (playbackSessionManager.currentPosition.value - 10000).coerceAtLeast(0)
-        playbackSessionManager.seekTo(newPos)
+        val newPos = (playbackCoordinator.currentPosition.value - 10000).coerceAtLeast(0)
+        playbackCoordinator.seekTo(newPos)
     }
 
     fun forward() {
-        val newPos = (playbackSessionManager.currentPosition.value + 10000).coerceAtMost(playbackSessionManager.durationMs.value)
-        playbackSessionManager.seekTo(newPos)
+        val newPos = (playbackCoordinator.currentPosition.value + 10000).coerceAtMost(playbackCoordinator.durationMs.value)
+        playbackCoordinator.seekTo(newPos)
     }
 
     fun deleteCurrentArtifact() {
@@ -339,7 +347,7 @@ class PlayerViewModel @Inject constructor(
                 if (draft != null) {
                     recordingRepository.deleteDraft(draft)
                 }
-                playbackSessionManager.stop()
+                playbackCoordinator.stop()
                 _isExpanded.value = false
             }
         }
@@ -361,9 +369,9 @@ class PlayerViewModel @Inject constructor(
                 delay(1000)
                 remaining -= 1000
                 _sleepTimerMillisRemaining.value = remaining
-                if (!playbackSessionManager.isPlaying.value) continue
+                if (!playbackCoordinator.isPlaying.value) continue
             }
-            playbackSessionManager.stop()
+            playbackCoordinator.stop()
             _sleepTimerMillisRemaining.value = null
         }
     }

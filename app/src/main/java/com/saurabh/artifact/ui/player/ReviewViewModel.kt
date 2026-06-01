@@ -2,7 +2,7 @@ package com.saurabh.artifact.ui.player
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.saurabh.artifact.audio.PlaybackSessionManager
+import com.saurabh.artifact.audio.PlaybackCoordinator
 import com.saurabh.artifact.audio.ReviewSessionManager
 import com.saurabh.artifact.data.local.DraftDao
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -13,15 +13,15 @@ import javax.inject.Inject
 @HiltViewModel
 class ReviewViewModel @Inject constructor(
     private val reviewSessionManager: ReviewSessionManager,
-    private val playbackSessionManager: PlaybackSessionManager,
+    private val playbackCoordinator: PlaybackCoordinator,
     private val draftDao: DraftDao
 ) : ViewModel() {
 
     val reviewState = reviewSessionManager.reviewProgress
     val playbackState = combine(
-        playbackSessionManager.isPlaying,
-        playbackSessionManager.currentPosition,
-        playbackSessionManager.playbackSpeed
+        playbackCoordinator.isPlaying,
+        playbackCoordinator.currentPosition,
+        playbackCoordinator.playbackSpeed
     ) { isPlaying, position, speed ->
         PlaybackUiState(isPlaying, position, speed)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PlaybackUiState())
@@ -35,36 +35,36 @@ class ReviewViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     fun startReview(draftId: String) {
-        reviewSessionManager.startReview(draftId)
+        playbackCoordinator.playDraftPreview(draftId)
     }
 
     fun togglePlayback() {
-        playbackSessionManager.togglePlayPause()
+        playbackCoordinator.togglePlayPause()
     }
 
     fun setPlaybackSpeed(speed: Float) {
-        playbackSessionManager.setPlaybackSpeed(speed)
+        playbackCoordinator.setPlaybackSpeed(speed)
     }
 
     fun seekTo(progress: Float) {
         val duration = reviewState.value.durationMs
-        playbackSessionManager.seekTo((progress * duration).toLong())
+        playbackCoordinator.seekTo((progress * duration).toLong())
     }
 
     fun rewind() {
-        val current = playbackSessionManager.currentPosition.value
-        playbackSessionManager.seekTo((current - 10000).coerceAtLeast(0))
+        val current = playbackCoordinator.currentPosition.value
+        playbackCoordinator.seekTo((current - 10000).coerceAtLeast(0))
     }
 
     fun forward() {
-        val current = playbackSessionManager.currentPosition.value
+        val current = playbackCoordinator.currentPosition.value
         val duration = reviewState.value.durationMs
-        playbackSessionManager.seekTo((current + 10000).coerceAtMost(duration))
+        playbackCoordinator.seekTo((current + 10000).coerceAtMost(duration))
     }
 
     override fun onCleared() {
         super.onCleared()
-        reviewSessionManager.stopReview()
+        // Playback ownership is now handled by the Coordinator.
     }
 }
 

@@ -22,7 +22,7 @@ import javax.inject.Singleton
 @Singleton
 class RecordingSessionManager @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val playbackSessionManager: PlaybackSessionManager,
+    private val playbackCoordinator: PlaybackCoordinator,
     private val recordingRepository: RecordingRepository,
     private val localDraftManager: LocalDraftManager,
     private val draftDao: DraftDao,
@@ -44,8 +44,8 @@ class RecordingSessionManager @Inject constructor(
      * Prepares for a new recording session by stopping any active playback.
      */
     fun prepareForRecording() {
-        if (playbackSessionManager.isPlaying.value) {
-            playbackSessionManager.stop()
+        if (playbackCoordinator.isPlaying.value) {
+            playbackCoordinator.stop()
         }
     }
 

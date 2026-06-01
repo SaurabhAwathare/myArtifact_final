@@ -67,7 +67,7 @@ class ReviewSessionManager @Inject constructor(
             playbackSessionManager.play(
                 artifact = artifact, 
                 owner = PlaybackSessionManager.InteractionOwner.REVIEW_PLAYER,
-                initialPosition = draft.lastPlaybackPositionMs
+                playbackType = PlaybackType.DRAFT_PREVIEW
             )
         }
     }

@@ -1,6 +1,6 @@
 package com.saurabh.artifact.audio.validation
 
-import com.saurabh.artifact.domain.review.ReviewEvidence
+import com.saurabh.artifact.domain.review.EngagementEvidence
 import com.saurabh.artifact.domain.review.ReviewPolicy
 
 /**
@@ -9,7 +9,7 @@ import com.saurabh.artifact.domain.review.ReviewPolicy
 class DefaultReviewValidator : ReviewValidator {
 
     override fun validate(
-        evidence: ReviewEvidence,
+        evidence: EngagementEvidence,
         policy: ReviewPolicy
     ): ReviewResult {
         

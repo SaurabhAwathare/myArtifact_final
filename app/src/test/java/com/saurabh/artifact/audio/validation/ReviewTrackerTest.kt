@@ -1,6 +1,6 @@
 package com.saurabh.artifact.audio.validation
 
-import com.saurabh.artifact.domain.review.ReviewEvidence
+import com.saurabh.artifact.domain.review.EngagementEvidence
 import com.saurabh.artifact.domain.review.ReviewPolicy
 import org.junit.Assert.*
 import org.junit.Test
@@ -12,7 +12,7 @@ class ReviewTrackerTest {
     @Test
     fun `test normal playback completion`() {
         val duration = 10000L // 10s
-        val evidence = ReviewEvidence("art1", "v1", duration)
+        val evidence = EngagementEvidence("art1", "v1", duration)
         val policy = ReviewPolicy()
         val tracker = DefaultReviewTracker(evidence, policy, ruleEngine)
         
@@ -31,7 +31,7 @@ class ReviewTrackerTest {
     @Test
     fun `test speed penalty logic`() {
         val duration = 10000L // 10s
-        val evidence = ReviewEvidence("art1", "v1", duration)
+        val evidence = EngagementEvidence("art1", "v1", duration)
         val policy = ReviewPolicy(maxSpeedPenaltyThreshold = 2.0f)
         val tracker = DefaultReviewTracker(evidence, policy, ruleEngine)
         
@@ -53,7 +53,7 @@ class ReviewTrackerTest {
     @Test
     fun `test seek-to-end bypass failure`() {
         val duration = 60000L // 60s
-        val evidence = ReviewEvidence("art1", "v1", duration)
+        val evidence = EngagementEvidence("art1", "v1", duration)
         val policy = ReviewPolicy()
         val tracker = DefaultReviewTracker(evidence, policy, ruleEngine)
         

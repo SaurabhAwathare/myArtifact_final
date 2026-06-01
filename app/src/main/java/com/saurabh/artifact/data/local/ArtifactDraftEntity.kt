@@ -53,6 +53,7 @@ data class ArtifactDraftEntity(
     val publishConfidence: Float = 0f,
     val isEmotionalReady: Boolean = false,
     val maxReviewPositionMs: Long = 0L,
+    @Deprecated("Use PlaybackPositionDao instead for unified persistence")
     val lastPlaybackPositionMs: Long = 0L,
     val reviewCoverageBitmask: Long = 0L, // Legacy 64-bit mask
     val coveragePart1: Long = 0L, // 100-segment mask (bits 0-63)

@@ -1,6 +1,6 @@
 package com.saurabh.artifact.audio.validation
 
-import com.saurabh.artifact.domain.review.ReviewEvidence
+import com.saurabh.artifact.domain.review.EngagementEvidence
 import com.saurabh.artifact.domain.review.ReviewPolicy
 import java.util.BitSet
 
@@ -19,7 +19,7 @@ interface ReviewTracker {
 }
 
 class DefaultReviewTracker(
-    initialEvidence: ReviewEvidence,
+    initialEvidence: EngagementEvidence,
     private val policy: ReviewPolicy,
     private val validator: ReviewValidator
 ) : ReviewTracker {
@@ -63,6 +63,7 @@ class DefaultReviewTracker(
                 
                 currentEvidence = currentEvidence.copy(
                     coverage = updatedCoverage,
+                    lastPositionMs = currentPosMs,
                     furthestPositionMs = updatedFurthest,
                     lastUpdated = System.currentTimeMillis()
                 )

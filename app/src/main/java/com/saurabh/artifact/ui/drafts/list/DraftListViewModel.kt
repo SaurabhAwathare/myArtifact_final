@@ -2,7 +2,8 @@ package com.saurabh.artifact.ui.drafts.list
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.saurabh.artifact.audio.AudioPlayer
+import com.saurabh.artifact.audio.PlaybackCoordinator
+import com.saurabh.artifact.audio.PlaybackType
 import com.saurabh.artifact.domain.PublishingOrchestrator
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.repository.DraftRepository
@@ -21,7 +22,7 @@ class DraftListViewModel @Inject constructor(
     private val recordingRepository: RecordingRepository,
     private val draftRepository: DraftRepository,
     private val publishingOrchestrator: PublishingOrchestrator,
-    val audioPlayer: AudioPlayer
+    val audioPlayer: PlaybackCoordinator
 ) : ViewModel() {
 
     val drafts: StateFlow<List<DraftWithUpload>> = draftRepository.observeDraftsWithUploads()
@@ -59,15 +60,7 @@ class DraftListViewModel @Inject constructor(
         if (currentPlaying?.id == draftIdString) {
             audioPlayer.togglePlayPause()
         } else {
-            val artifact = Artifact(
-                id = draftIdString,
-                title = draft.title ?: "Untitled Reflection",
-                audioUrl = draft.localAudioPath,
-                author = com.saurabh.artifact.model.AuthorSnapshot(name = "Local Draft"),
-                isDraft = true,
-                amplitudeData = draft.amplitudeData
-            )
-            audioPlayer.play(artifact)
+            audioPlayer.playDraftPreview(draftIdString)
         }
     }
 
@@ -103,6 +96,6 @@ class DraftListViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
-        audioPlayer.stop()
+        // Playback ownership is now handled by the Coordinator.
     }
 }
