@@ -42,8 +42,13 @@ class ForYouFeedViewModel @Inject constructor(
         viewModelScope.launch {
             _feedState.value = FeedCompositionState.Loading
             try {
-                val feed = feedComposer.composeFeed(userId)
-                _feedState.value = FeedCompositionState.Success(feed)
+                val feedItems = feedComposer.composeFeed(userId)
+                _feedState.value = FeedCompositionState.Success(feedItems)
+                
+                // HARDENING: Proactively pre-cache the first 3 artifacts to eliminate playback latency
+                feedItems.take(3).forEach { feedItem ->
+                    audioPlayer.preCache(feedItem.artifact)
+                }
             } catch (ignore: Exception) {
                 _feedState.value = FeedCompositionState.Error("A quiet moment was interrupted. Please try again.")
             }

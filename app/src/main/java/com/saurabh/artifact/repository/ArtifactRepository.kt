@@ -359,7 +359,15 @@ class ArtifactRepository @Inject constructor(
         // 1. Try local cache first if not forcing refresh
         if (!forceRefresh) {
             val local = artifactDao.getArtifactById(artifactId)
-            if (local != null) return@withContext mapEntityToArtifact(local)
+            if (local != null) {
+                // HARDENING: Implement 2-hour TTL for metadata freshness
+                val twoHoursMillis = 2 * 60 * 60 * 1000L
+                if (System.currentTimeMillis() - local.lastUpdated < twoHoursMillis) {
+                    return@withContext mapEntityToArtifact(local)
+                } else {
+                    Log.d("ArtifactRepository", "Cache expired for $artifactId, refreshing from Firestore")
+                }
+            }
         }
 
         // 2. Fallback to Firestore (or forced refresh)
@@ -675,7 +683,8 @@ class ArtifactRepository @Inject constructor(
             reactionCount = artifact.reactionCount,
             commentCount = artifact.commentCount,
             amplitudeData = artifact.amplitudeData,
-            transcriptUrl = artifact.transcriptUrl
+            transcriptUrl = artifact.transcriptUrl,
+            lastUpdated = System.currentTimeMillis()
         )
     }
 

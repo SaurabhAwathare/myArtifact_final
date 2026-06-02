@@ -57,10 +57,14 @@ class ArtifactRemoteMediator(
             val endOfPaginationReached = artifacts.isEmpty()
 
             database.withTransaction {
-                if (loadType == LoadType.REFRESH) {
+                // HARDENING: Only clear local data if we actually got a successful non-empty refresh from network
+                if (loadType == LoadType.REFRESH && artifacts.isNotEmpty()) {
                     artifactDao.clearAll()
                 }
-                artifactDao.insertAll(artifacts)
+                
+                if (artifacts.isNotEmpty()) {
+                    artifactDao.insertAll(artifacts)
+                }
             }
 
             MediatorResult.Success(endOfPaginationReached = endOfPaginationReached)
@@ -90,7 +94,8 @@ class ArtifactRemoteMediator(
             reactionCount = artifact.reactionCount,
             commentCount = artifact.commentCount,
             amplitudeData = artifact.amplitudeData,
-            transcriptUrl = artifact.transcriptUrl
+            transcriptUrl = artifact.transcriptUrl,
+            lastUpdated = System.currentTimeMillis()
         )
     }
 

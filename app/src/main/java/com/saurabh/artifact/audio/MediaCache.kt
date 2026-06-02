@@ -13,7 +13,7 @@ import java.io.File
 @UnstableApi
 object MediaCache {
     private var instance: SimpleCache? = null
-    private const val CACHE_SIZE = 200 * 1024 * 1024L // 200MB
+    private const val CACHE_SIZE = 500 * 1024 * 1024L // 500MB
 
     @Synchronized
     fun getInstance(context: Context): SimpleCache {

@@ -24,5 +24,6 @@ data class ArtifactEntity(
     val reactionCount: Int,
     val commentCount: Int,
     val amplitudeData: List<Float>,
-    val transcriptUrl: String? = null
+    val transcriptUrl: String? = null,
+    val lastUpdated: Long = System.currentTimeMillis()
 )
