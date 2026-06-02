@@ -116,6 +116,15 @@ private fun DrawScope.drawAuraLayer(
  * Generates a stable, harmonious color palette from any string seed.
  */
 private fun generateAuraPalette(seed: String): List<Color> {
+    if (seed == "ANONYMOUS_AURA") {
+        // Special "Misty" palette for anonymous presence
+        return listOf(
+            Color(0xFF8E9EAB).copy(alpha = 0.6f), // Cadet Grey
+            Color(0xFFBDC3C7).copy(alpha = 0.5f), // Silver
+            Color(0xFF2C3E50).copy(alpha = 0.4f)  // Midnight Blue
+        )
+    }
+
     val hash = seed.hashCode()
     val random = kotlin.random.Random(hash)
     

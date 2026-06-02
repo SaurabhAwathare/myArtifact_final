@@ -1,5 +1,6 @@
 package com.saurabh.artifact.domain
 
+import com.saurabh.artifact.model.PublishingResult
 import com.saurabh.artifact.repository.RecordingRepository
 import javax.inject.Inject
 
@@ -7,10 +8,7 @@ class PublishArtifactUseCase @Inject constructor(
     private val recordingRepository: RecordingRepository,
     private val publishingOrchestrator: PublishingOrchestrator
 ) {
-    suspend operator fun invoke(draftFilePath: String): Result<Unit> {
-        val drafts = recordingRepository.observeDrafts() // This is a Flow, not ideal for one-shot
-        // Better: use draftDao directly or add getDraftByPath to repository
-        
+    suspend operator fun invoke(draftFilePath: String): Result<PublishingResult> {
         val draft = recordingRepository.getDraftByPath(draftFilePath) 
             ?: return Result.failure(Exception("Draft not found"))
 
@@ -19,8 +17,8 @@ class PublishArtifactUseCase @Inject constructor(
         }
 
         return try {
-            publishingOrchestrator.approvePublishing(draft.id)
-            Result.success(Unit)
+            val result = publishingOrchestrator.approvePublishing(draft.id)
+            Result.success(result)
         } catch (e: Exception) {
             Result.failure(e)
         }

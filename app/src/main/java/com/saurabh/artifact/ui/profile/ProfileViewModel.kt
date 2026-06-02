@@ -13,6 +13,7 @@ import com.saurabh.artifact.repository.*
 import com.saurabh.artifact.repository.SavedArtifactManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -35,6 +36,8 @@ data class ProfileUiState(
     val localDrafts: List<ArtifactDraftEntity> = emptyList(),
     val logoutState: LogoutState = LogoutState.Idle,
     val message: String? = null,
+    val isLoading: Boolean = true,
+    val isRefreshing: Boolean = false,
     // Playback State (Mirrored from Manager for UI convenience)
     val currentlyPlayingArtifact: Artifact? = null,
     val isPlaying: Boolean = false,
@@ -64,51 +67,19 @@ class ProfileViewModel @Inject constructor(
     private val _selectedTab = MutableStateFlow(ProfileTab.PUBLISHED)
     private val _logoutState = MutableStateFlow<LogoutState>(LogoutState.Idle)
     private val _message = MutableStateFlow<String?>(null)
+    private val _isRefreshing = MutableStateFlow(false)
+    private val _refreshTrigger = MutableStateFlow(0)
 
-    val uiState: StateFlow<ProfileUiState> = combine(
+    private val profileDataFlow = combine(
         _targetUserId,
-        userProfileManager.activeAvatarConfig,
         authRepository.userData,
-        _selectedTab,
-        _logoutState,
-        _message,
-        playbackCoordinator.currentArtifact,
-        playbackCoordinator.isPlaying,
-        playbackCoordinator.isBuffering,
-        playbackCoordinator.currentPosition,
-        playbackCoordinator.durationMs
-    ) { params: Array<Any?> ->
-        val targetId = params[0] as String?
-        val avatarConfig = params[1] as AvatarConfig
-        val currentUser = params[2] as com.saurabh.artifact.model.User?
-        val selectedTab = params[3] as ProfileTab
-        val logoutState = params[4] as LogoutState
-        val message = params[5] as String?
-        
-        val currentlyPlaying = params[6] as Artifact?
-        val isPlaying = params[7] as Boolean
-        val isBuffering = params[8] as Boolean
-        val position = params[9] as Long
-        val duration = params[10] as Long
-
+        _refreshTrigger
+    ) { targetId, currentUser, _ ->
         val isSelf = (targetId == null) || (targetId == currentUser?.id)
         val finalId = targetId ?: currentUser?.id
-
-        // Note: These nested flows will be resolved in flatMapLatest below
-        finalId to ProfileUiState(
-            avatarConfig = avatarConfig,
-            isSelf = isSelf,
-            selectedTab = selectedTab,
-            logoutState = logoutState,
-            message = message,
-            currentlyPlayingArtifact = currentlyPlaying,
-            isPlaying = isPlaying,
-            isBuffering = isBuffering,
-            currentPosition = position,
-            durationMs = duration
-        )
-    }.flatMapLatest { (finalId, baseState) ->
-        val effectiveId = finalId ?: return@flatMapLatest flowOf(baseState)
+        finalId to isSelf
+    }.flatMapLatest { (finalId, isSelf) ->
+        val effectiveId = finalId ?: return@flatMapLatest flowOf(null)
         
         combine(
             userRepository.streamUserProfile(effectiveId),
@@ -117,15 +88,66 @@ class ProfileViewModel @Inject constructor(
             recordingRepository.observeDrafts(),
             userRepository.observeIsResonating(authRepository.currentUserId, effectiveId)
         ) { profile, allArtifacts, saved, localDrafts, isResonating ->
-            baseState.copy(
+            ProfileData(
                 userProfile = profile,
                 publishedArtifacts = allArtifacts.filter { !it.isDraft },
                 cloudDrafts = allArtifacts.filter { it.isDraft },
                 savedArtifacts = saved,
-                localDrafts = localDrafts,
-                isResonating = isResonating
+                localDrafts = localDrafts.filter { 
+                    it.status.lifecycle != com.saurabh.artifact.model.ArtifactLifecycle.PUBLISHED 
+                },
+                isResonating = isResonating,
+                isSelf = isSelf
             )
         }
+    }
+
+    val uiState: StateFlow<ProfileUiState> = combine(
+        profileDataFlow,
+        userProfileManager.activeAvatarConfig,
+        _selectedTab,
+        _logoutState,
+        _message,
+        _isRefreshing,
+        playbackCoordinator.currentArtifact,
+        playbackCoordinator.isPlaying,
+        playbackCoordinator.isBuffering,
+        playbackCoordinator.currentPosition,
+        playbackCoordinator.durationMs
+    ) { params: Array<Any?> ->
+        val data = params[0] as ProfileData?
+        val avatarConfig = params[1] as AvatarConfig
+        val selectedTab = params[2] as ProfileTab
+        val logoutState = params[3] as LogoutState
+        val message = params[4] as String?
+        val isRefreshing = params[5] as Boolean
+        
+        val currentlyPlaying = params[6] as Artifact?
+        val isPlaying = params[7] as Boolean
+        val isBuffering = params[8] as Boolean
+        val position = params[9] as Long
+        val duration = params[10] as Long
+
+        ProfileUiState(
+            userProfile = data?.userProfile,
+            avatarConfig = avatarConfig,
+            isSelf = data?.isSelf ?: true,
+            isResonating = data?.isResonating ?: false,
+            selectedTab = selectedTab,
+            publishedArtifacts = data?.publishedArtifacts ?: emptyList(),
+            cloudDrafts = data?.cloudDrafts ?: emptyList(),
+            savedArtifacts = data?.savedArtifacts ?: emptyList(),
+            localDrafts = data?.localDrafts ?: emptyList(),
+            logoutState = logoutState,
+            message = message,
+            isLoading = data == null,
+            isRefreshing = isRefreshing,
+            currentlyPlayingArtifact = currentlyPlaying,
+            isPlaying = isPlaying,
+            isBuffering = isBuffering,
+            currentPosition = position,
+            durationMs = duration
+        )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -134,6 +156,16 @@ class ProfileViewModel @Inject constructor(
 
     init {
         android.util.Log.d("ReviewDebug", "ProfileViewModel initialized")
+    }
+
+    fun refresh() {
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            _refreshTrigger.value += 1
+            // Small delay to make the refresh feel deliberate and "calm"
+            delay(800)
+            _isRefreshing.value = false
+        }
     }
 
     private fun clearUnused() {
@@ -259,3 +291,13 @@ sealed class LogoutState {
     data object Success : LogoutState()
     data class Error(val message: String) : LogoutState()
 }
+
+private data class ProfileData(
+    val userProfile: User?,
+    val publishedArtifacts: List<Artifact>,
+    val cloudDrafts: List<Artifact>,
+    val savedArtifacts: List<Artifact>,
+    val localDrafts: List<ArtifactDraftEntity>,
+    val isResonating: Boolean,
+    val isSelf: Boolean
+)

@@ -29,7 +29,7 @@ class FeedComposer @Inject constructor(
 
         // 1. Map Unfinished to FeedArtifacts
         val unfinishedItems = unfinishedSessions.mapNotNull { session ->
-            val artifact = discovery.find { it.id == session.artifactId } ?: return@mapNotNull null
+            val artifact = discovery.artifacts.find { it.id == session.artifactId } ?: return@mapNotNull null
             FeedArtifact(
                 artifact = artifact,
                 reason = FeedRecommendationReason.CONTINUE_LISTENING,
@@ -39,7 +39,7 @@ class FeedComposer @Inject constructor(
         }
 
         // 2. Map Resonated to FeedArtifacts
-        val resonatedItems = resonated.map { artifact ->
+        val resonatedItems = resonated.artifacts.map { artifact ->
             FeedArtifact(
                 artifact = artifact,
                 reason = FeedRecommendationReason.RESONATING_PRESENCE,
@@ -48,8 +48,8 @@ class FeedComposer @Inject constructor(
         }
 
         // 3. Map Discovery to FeedArtifacts
-        val discoveryItems = discovery
-            .filter { disc -> resonated.none { it.id == disc.id } && unfinishedSessions.none { it.artifactId == disc.id } }
+        val discoveryItems = discovery.artifacts
+            .filter { disc -> resonated.artifacts.none { it.id == disc.id } && unfinishedSessions.none { it.artifactId == disc.id } }
             .map { artifact ->
                 val alignment = calculateEmotionalAlignment(artifact, profile)
                 FeedArtifact(

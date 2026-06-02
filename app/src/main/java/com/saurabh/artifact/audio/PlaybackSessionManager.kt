@@ -63,6 +63,8 @@ class PlaybackSessionManager @Inject constructor(
     private val _currentArtifact = MutableStateFlow<Artifact?>(null)
     val currentArtifact: StateFlow<Artifact?> = _currentArtifact.asStateFlow()
 
+    private var transcriptFetchJob: Job? = null
+
     private val _isPlaying = MutableStateFlow(value = false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
 
@@ -191,10 +193,34 @@ class PlaybackSessionManager @Inject constructor(
             _currentArtifact.value = artifact
             
             if (artifact != null) {
+                // Lazy load transcript if missing
+                if (artifact.transcript.isEmpty() && !artifact.transcriptUrl.isNullOrEmpty()) {
+                    loadTranscriptLazy(artifact)
+                }
+
                 scope.launch {
                     settingsDataStore.updateLastArtifactId(artifact.id)
                     val index = controller?.currentMediaItemIndex ?: 0
                     settingsDataStore.updateQueue(_queue.value.map { it.id }, index)
+                }
+            }
+        }
+    }
+
+    private fun loadTranscriptLazy(artifact: Artifact) {
+        transcriptFetchJob?.cancel()
+        transcriptFetchJob = scope.launch(Dispatchers.IO) {
+            val url = artifact.transcriptUrl ?: return@launch
+            artifactRepository.get().fetchTranscript(url).onSuccess { segments ->
+                withContext(Dispatchers.Main) {
+                    // Update the current artifact if it's still the one playing
+                    if (_currentArtifact.value?.id == artifact.id) {
+                        _currentArtifact.value = _currentArtifact.value?.copy(transcript = segments)
+                    }
+                    // Update the artifact in the queue as well
+                    _queue.value = _queue.value.map { 
+                        if (it.id == artifact.id) it.copy(transcript = segments) else it 
+                    }
                 }
             }
         }

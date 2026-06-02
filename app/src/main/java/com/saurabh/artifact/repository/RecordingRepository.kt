@@ -1,6 +1,5 @@
 package com.saurabh.artifact.repository
 
-import android.content.Context
 import android.util.Log
 import androidx.work.*
 import com.saurabh.artifact.audio.LocalDraftManager
@@ -12,7 +11,6 @@ import com.saurabh.artifact.worker.PrivacyScanWorker
 import com.saurabh.artifact.worker.SafetyAnalysisWorker
 import com.saurabh.artifact.worker.TranscriptionWorker
 import com.saurabh.artifact.worker.WaveformWorker
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -25,13 +23,12 @@ import javax.inject.Singleton
 
 @Singleton
 class RecordingRepository @Inject constructor(
-    @param:ApplicationContext private val context: Context,
     private val draftDao: DraftDao,
     private val localDraftManager: LocalDraftManager,
     private val wavRecoveryManager: com.saurabh.artifact.audio.WavRecoveryManager,
-    private val deletionManager: com.saurabh.artifact.audio.DraftDeletionManager
+    private val deletionManager: com.saurabh.artifact.audio.DraftDeletionManager,
+    private val workManager: WorkManager
 ) {
-    private val workManager: WorkManager by lazy { WorkManager.getInstance(context) }
     
     suspend fun startDraft(draftId: String = UUID.randomUUID().toString()) = withContext(Dispatchers.IO) {
         val file = localDraftManager.createDraftFile(draftId)

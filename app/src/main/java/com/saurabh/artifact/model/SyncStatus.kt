@@ -20,6 +20,9 @@ sealed class SyncStatus {
     object Synced : SyncStatus()
 
     @Serializable
+    object Finalizing : SyncStatus()
+
+    @Serializable
     object Recovering : SyncStatus()
     
     @Serializable

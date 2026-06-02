@@ -54,6 +54,16 @@ fun CommentComposer(
         }
 
         // Emotional Expectation Setting
+        if (uiState.hasCompletedReview) {
+            Text(
+                text = "Thank you for listening deeply. This space is now open for your reflection.",
+                style = MaterialTheme.typography.labelMedium,
+                color = GoldAura400,
+                modifier = Modifier.padding(bottom = 12.dp),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+        }
+
         HiddenCommentNotice()
 
         Spacer(Modifier.height(16.dp))
@@ -158,6 +168,15 @@ fun CommentComposer(
                 "Your reflection has been safely delivered.",
                 color = GoldAura400,
                 modifier = Modifier.padding(top = 16.dp)
+            )
+        }
+
+        uiState.errorMessage?.let { error ->
+            Text(
+                text = error,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(top = 16.dp),
+                style = MaterialTheme.typography.bodySmall
             )
         }
     }

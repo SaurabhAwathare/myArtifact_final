@@ -11,7 +11,10 @@ enum class Visibility {
 }
 
 enum class ArtifactStatus {
-    DRAFT
+    DRAFT,
+    PENDING_UPLOAD,
+    ACTIVE,
+    HIDDEN
 }
 
 @Immutable
@@ -46,7 +49,8 @@ data class Artifact(
     var reportCount: Int = 0,
     var safetyConcernCount: Int = 0,
     var reporterIds: List<String> = emptyList(),
-    var transcript: List<TranscriptSegment> = emptyList(),
+    @get:Exclude var transcript: List<TranscriptSegment> = emptyList(),
+    var transcriptUrl: String? = null,
     var amplitudeData: List<Float> = emptyList(),
     var flaggedSegments: List<FlaggedSegment> = emptyList(),
     var moderation: ModerationMetadata = ModerationMetadata(),

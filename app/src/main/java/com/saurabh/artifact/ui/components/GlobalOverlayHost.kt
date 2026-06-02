@@ -11,7 +11,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import com.saurabh.artifact.audio.RecordingSessionManager
-import com.saurabh.artifact.audio.UploadSessionManager
+import com.saurabh.artifact.audio.PublishStateManager
+import com.saurabh.artifact.model.PublishState
 import com.saurabh.artifact.navigation.Screen
 import com.saurabh.artifact.ui.theme.ZIndexTokens
 import com.saurabh.artifact.ui.player.ArtifactPlayerView
@@ -22,7 +23,7 @@ import com.saurabh.artifact.ui.recording.components.MiniRecorder
 fun GlobalOverlayHost(
     navController: NavController,
     recordingSessionManager: RecordingSessionManager,
-    uploadSessionManager: UploadSessionManager,
+    publishStateManager: PublishStateManager,
     onNavigateToDraftEdit: (String) -> Unit,
     onNavigateToPublish: (String) -> Unit,
     onNavigateToComments: (String, String) -> Unit,
@@ -34,7 +35,7 @@ fun GlobalOverlayHost(
     
     val uiState by playerViewModel.uiState.collectAsStateWithLifecycle()
     val recordingState by recordingSessionManager.recordingState.collectAsStateWithLifecycle()
-    val uploadSession by uploadSessionManager.currentSession.collectAsStateWithLifecycle()
+    val publishState by publishStateManager.currentPublishState.collectAsStateWithLifecycle()
 
     Box(modifier = Modifier.fillMaxSize()) {
         // 1. PLAYER SYSTEM
@@ -70,8 +71,8 @@ fun GlobalOverlayHost(
 
                 // Upload Bar
                 AmbientUploadBar(
-                    session = uploadSession,
-                    onDismiss = { uploadSessionManager.dismissSession() }
+                    state = publishState,
+                    onDismiss = { publishStateManager.dismissSession() }
                 )
                 
                 // Note: The MiniPlayer is CURRENTLY inside ArtifactPlayerView. 

@@ -6,6 +6,7 @@ import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.domain.IdentityScout
 import com.saurabh.artifact.domain.PublishArtifactUseCase
 import com.saurabh.artifact.model.Emotion
+import com.saurabh.artifact.model.PublishingResult
 import com.saurabh.artifact.repository.RecordingRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
@@ -87,8 +88,12 @@ class PublishViewModel @Inject constructor(
             ))
 
             publishArtifactUseCase(draft.localAudioPath)
-                .onSuccess {
-                    _uiState.update { it.copy(isPublishing = false, isSuccess = true) }
+                .onSuccess { result ->
+                    _uiState.update { it.copy(
+                        isPublishing = false, 
+                        isSuccess = true,
+                        isQueuedOffline = result == PublishingResult.QUEUED_OFFLINE
+                    ) }
                 }
                 .onFailure { e ->
                     _uiState.update { it.copy(isPublishing = false, error = e.message) }
@@ -103,6 +108,7 @@ data class PublishUiState(
     val emotion: Emotion? = null,
     val isPublishing: Boolean = false,
     val isSuccess: Boolean = false,
+    val isQueuedOffline: Boolean = false,
     val error: String? = null,
     val showPrivacyNudge: Boolean = false,
     val privacyWarnings: List<String> = emptyList()

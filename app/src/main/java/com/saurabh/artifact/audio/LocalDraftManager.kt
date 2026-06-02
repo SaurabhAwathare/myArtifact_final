@@ -11,11 +11,11 @@ import java.io.OutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 
-@Singleton
-class LocalDraftManager @Inject constructor(
-    @ApplicationContext private val context: Context,
-    private val storageManager: StorageManager
-) {
+    @Singleton
+    class LocalDraftManager @Inject constructor(
+        @ApplicationContext private val context: Context,
+        private val storageManager: StorageManager,
+    ) {
     private val draftDir by lazy {
         storageManager.getDraftsRootDirectory()
     }
@@ -80,14 +80,75 @@ class LocalDraftManager @Inject constructor(
         }
     }
 
-    fun cleanupOrphans(knownPaths: Set<String>) {
-        // Legacy cleanup for old "drafts" directory
-        val legacyDir = File(context.filesDir, "drafts")
-        if (legacyDir.exists() && legacyDir.isDirectory) {
-            legacyDir.listFiles()?.forEach { it.delete() }
-            legacyDir.delete()
+    /**
+     * Reconciles the filesystem with the database to remove orphaned files and directories.
+     * @param allDrafts List of all valid drafts currently in the database.
+     * @param gracePeriodMs Files created within this duration will not be deleted (default 2 hours).
+     */
+    fun reconcileStorage(
+        allDrafts: List<com.saurabh.artifact.data.local.ArtifactDraftEntity>,
+        gracePeriodMs: Long = 2 * 60 * 60 * 1000L
+    ) {
+        val now = System.currentTimeMillis()
+        val validDraftIds = allDrafts.map { it.id }.toSet()
+        val knownPaths = mutableSetOf<String>()
+        
+        allDrafts.forEach { draft ->
+            knownPaths.add(File(draft.localAudioPath).absolutePath)
+            draft.rawPcmPath?.let { knownPaths.add(File(it).absolutePath) }
+            draft.waveformPath?.let { knownPaths.add(File(it).absolutePath) }
+            draft.localTranscriptPath?.let { knownPaths.add(File(it).absolutePath) }
+            draft.frozenAudioPath?.let { knownPaths.add(File(it).absolutePath) }
         }
 
+        // 1. Clean legacy directories
+        val legacyDir = File(context.filesDir, "drafts")
+        if (legacyDir.exists() && legacyDir.isDirectory) {
+            Log.i("LocalDraftManager", "Removing legacy drafts directory")
+            storageManager.deleteDirectoryRecursively(legacyDir)
+        }
+
+        // 2. Scan and prune the root drafts directory (directory level)
+        val rootDir = storageManager.getDraftsRootDirectory()
+        rootDir.listFiles()?.forEach { draftDir ->
+            if (draftDir.isDirectory && draftDir.name.startsWith("draft_")) {
+                val draftId = draftDir.name.substringAfter("draft_")
+                if (draftId !in validDraftIds) {
+                    // Check grace period: if the directory was created recently, skip it
+                    if ((now - draftDir.lastModified()) > gracePeriodMs) {
+                        Log.i("LocalDraftManager", "Deleting orphaned draft directory: ${draftDir.name}")
+                        storageManager.deleteDirectoryRecursively(draftDir)
+                    }
+                } else {
+                    // 3. Within a valid draft directory, prune untracked files
+                    draftDir.listFiles()?.forEach { file ->
+                        if (file.isFile && file.absolutePath !in knownPaths) {
+                            if ((now - file.lastModified()) > gracePeriodMs) {
+                                Log.i("LocalDraftManager", "Deleting untracked file in valid draft: ${file.path}")
+                                file.delete()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. Prune other specific tracked directories if they exist outside draft root (safety)
+        listOf(waveformDir, transcriptDir).forEach { dir ->
+            if (dir.exists()) {
+                dir.listFiles()?.forEach { file ->
+                    if (file.absolutePath !in knownPaths && (now - file.lastModified() > gracePeriodMs)) {
+                        Log.i("LocalDraftManager", "Deleting untracked file in side-car directory: ${file.path}")
+                        file.delete()
+                    }
+                }
+            }
+        }
+    }
+
+    @Deprecated("Use reconcileStorage instead", ReplaceWith("reconcileStorage(allDrafts)"))
+    fun cleanupOrphans(knownPaths: Set<String>) {
+        // Implementation kept for backward compatibility if needed temporarily
         listOf(draftDir, waveformDir, transcriptDir).forEach { dir ->
             dir.listFiles()?.forEach { file ->
                 if (file.absolutePath !in knownPaths) {
@@ -96,4 +157,5 @@ class LocalDraftManager @Inject constructor(
             }
         }
     }
+
 }

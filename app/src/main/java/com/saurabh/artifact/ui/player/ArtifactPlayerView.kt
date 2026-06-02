@@ -86,6 +86,7 @@ fun ArtifactPlayerView(
                 onShowAdvanced = { viewModel.setShowAdvancedControls(true) },
                 onCommentClick = { 
                     uiState.currentArtifact?.let { art ->
+                        viewModel.setExpanded(false)
                         onNavigateToComments(art.id, art.userId)
                     }
                 },

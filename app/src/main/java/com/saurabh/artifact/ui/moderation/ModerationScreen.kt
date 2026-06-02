@@ -72,7 +72,7 @@ fun ModerationScreen(
                             ReportCard(
                                 item = item,
                                 onAction = { action ->
-                                    viewModel.resolveReport(item.report.id, item.report.artifactId, action)
+                                    viewModel.resolveReport(item.report.id, item.report.artifactId, action, item.report.commentId)
                                 }
                             )
                         }
@@ -121,18 +121,32 @@ fun ReportCard(
 
             item.artifact?.let { artifact ->
                 Text(
-                    text = "Title: ${artifact.title}",
+                    text = "Artifact Title: ${artifact.title}",
                     style = MaterialTheme.typography.bodyLarge
                 )
                 Text(
-                    text = "Author: ${artifact.author.name}",
-                    style = MaterialTheme.typography.bodySmall
-                )
-                Text(
-                    text = "Emotion: ${artifact.emotion}",
+                    text = "Artifact Author: ${artifact.author.name}",
                     style = MaterialTheme.typography.bodySmall
                 )
             } ?: Text("Artifact details unavailable", color = MaterialTheme.colorScheme.error)
+
+            item.comment?.let { comment ->
+                Spacer(modifier = Modifier.height(Spacing.Medium))
+                Text(
+                    text = "Reported Comment:",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = comment.content,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = "Comment Author: ${comment.authorAnonymousName ?: "Quiet Presence"}",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
 
             Spacer(modifier = Modifier.height(Spacing.Large))
 
@@ -151,13 +165,24 @@ fun ReportCard(
                 
                 Spacer(modifier = Modifier.width(Spacing.Small))
 
-                Button(
-                    onClick = { onAction(ArtifactRepository.ModerationAction.HIDE_ARTIFACT) },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                ) {
-                    Icon(Icons.Default.Close, contentDescription = null)
-                    Spacer(modifier = Modifier.width(Spacing.Small))
-                    Text("Hide Artifact")
+                if (item.report.commentId != null) {
+                    Button(
+                        onClick = { onAction(ArtifactRepository.ModerationAction.BLOCK_COMMENT) },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = null)
+                        Spacer(modifier = Modifier.width(Spacing.Small))
+                        Text("Block Comment")
+                    }
+                } else {
+                    Button(
+                        onClick = { onAction(ArtifactRepository.ModerationAction.HIDE_ARTIFACT) },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = null)
+                        Spacer(modifier = Modifier.width(Spacing.Small))
+                        Text("Hide Artifact")
+                    }
                 }
             }
         }

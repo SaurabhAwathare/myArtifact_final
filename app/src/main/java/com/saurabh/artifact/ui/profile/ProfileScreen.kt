@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import com.saurabh.artifact.ui.components.BottomPlayer
 import com.saurabh.artifact.ui.profile.components.ProfileHeader
 import com.saurabh.artifact.ui.profile.components.draftSection
@@ -83,22 +84,38 @@ fun ProfileScreen(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize()) {
-            LazyColumn(
+            PullToRefreshBox(
+                isRefreshing = uiState.isRefreshing,
+                onRefresh = { viewModel.refresh() },
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
             ) {
-                item {
-                    ProfileHeader(
-                        user = uiState.userProfile,
-                        avatarConfig = uiState.avatarConfig,
-                        postCount = uiState.publishedArtifacts.size,
-                        isSelf = uiState.isSelf,
-                        isResonating = uiState.isResonating,
-                        onResonateClick = { viewModel.toggleResonance() },
-                        onEditClick = onEditIdentity
-                    )
-                }
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    if (uiState.isLoading) {
+                        item {
+                            LinearProgressIndicator(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(2.dp),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                            )
+                        }
+                    }
+
+                    item {
+                        ProfileHeader(
+                            user = uiState.userProfile,
+                            avatarConfig = uiState.avatarConfig,
+                            postCount = uiState.publishedArtifacts.size,
+                            isSelf = uiState.isSelf,
+                            isResonating = uiState.isResonating,
+                            onResonateClick = { viewModel.toggleResonance() },
+                            onEditClick = onEditIdentity
+                        )
+                    }
 
                 item {
                     SecondaryTabRow(
@@ -248,4 +265,5 @@ fun ProfileScreen(
             }
         )
     }
+}
 }

@@ -23,5 +23,6 @@ data class ArtifactEntity(
     val playCount: Int,
     val reactionCount: Int,
     val commentCount: Int,
-    val amplitudeData: List<Float>
+    val amplitudeData: List<Float>,
+    val transcriptUrl: String? = null
 )

@@ -4,14 +4,15 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.AddCircle
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -31,6 +32,15 @@ import com.saurabh.artifact.ui.theme.Obsidian950
 import com.saurabh.artifact.ui.theme.Obsidian900
 import com.saurabh.artifact.ui.components.ArtifactAvatar
 import com.saurabh.artifact.model.AvatarConfig
+import com.saurabh.artifact.ui.components.moderation.ReportSheet
+import androidx.compose.material.icons.rounded.Report
+import androidx.compose.material.icons.outlined.Report
+import androidx.paging.LoadState
+import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.paging.compose.itemKey
+import com.saurabh.artifact.model.ArtifactComment
+import com.saurabh.artifact.model.ReactionType
+import com.saurabh.artifact.ui.theme.MistGray
 
 @Composable
 fun CommentsScreen(
@@ -41,7 +51,9 @@ fun CommentsScreen(
 ) {
     android.util.Log.d("ReviewDebug", "CommentsScreen entering Composition for artifactId=$artifactId")
     val uiState by viewModel.uiState.collectAsState()
+    val comments = viewModel.commentsPager.collectAsLazyPagingItems()
     var showComposer by remember { mutableStateOf(false) }
+    var reportingCommentId by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(uiState.isLocked) {
         android.util.Log.d("ReviewDebug", "UI Compose observed isLocked change: ${uiState.isLocked}")
@@ -106,21 +118,68 @@ fun CommentsScreen(
                             contentPadding = PaddingValues(24.dp),
                             verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            items(uiState.comments) { comment ->
-                                CommentCard(comment = comment)
+                            items(
+                                count = comments.itemCount,
+                                key = comments.itemKey { it.id }
+                            ) { index ->
+                                val comment = comments[index]
+                                if (comment != null) {
+                                    CommentCard(
+                                        comment = comment,
+                                        currentUserId = uiState.currentUserId,
+                                        ownerId = ownerId,
+                                        onReport = { reportingCommentId = comment.id },
+                                        onReact = { type -> viewModel.reactToComment(comment.id, type) }
+                                    )
+                                }
                             }
                             
-                            if (uiState.comments.isEmpty()) {
-                                item {
-                                    Box(
-                                        modifier = Modifier.fillParentMaxSize(),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            "No echoes yet. Be the first to respond.",
-                                            style = ArtifactTheme.typography.bodyMedium,
-                                            color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.5f)
-                                        )
+                            when {
+                                comments.loadState.refresh is LoadState.Loading -> {
+                                    item {
+                                        Box(
+                                            modifier = Modifier.fillParentMaxSize(),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            CircularProgressIndicator(color = GoldAura500)
+                                        }
+                                    }
+                                }
+                                comments.loadState.refresh is LoadState.Error -> {
+                                    item {
+                                        Box(
+                                            modifier = Modifier.fillParentMaxSize(),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                "Failed to load reflections. Please try again.",
+                                                color = MaterialTheme.colorScheme.error
+                                            )
+                                        }
+                                    }
+                                }
+                                comments.itemCount == 0 && comments.loadState.refresh is LoadState.NotLoading -> {
+                                    item {
+                                        Box(
+                                            modifier = Modifier.fillParentMaxSize(),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                "No echoes yet. Be the first to respond.",
+                                                style = ArtifactTheme.typography.bodyMedium,
+                                                color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.5f)
+                                            )
+                                        }
+                                    }
+                                }
+                                comments.loadState.append is LoadState.Loading -> {
+                                    item {
+                                        Box(
+                                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            CircularProgressIndicator(modifier = Modifier.size(24.dp), color = GoldAura500)
+                                        }
                                     }
                                 }
                             }
@@ -154,30 +213,83 @@ fun CommentsScreen(
                 }
             }
         }
+
+        if (reportingCommentId != null) {
+            ReportSheet(
+                onReportSubmitted = { reason, details ->
+                    viewModel.submitReport(artifactId, reportingCommentId, reason, details)
+                    reportingCommentId = null
+                },
+                onDismiss = { reportingCommentId = null }
+            )
+        }
     }
 }
 
 @Composable
-fun CommentCard(comment: com.saurabh.artifact.model.ArtifactComment) {
+fun CommentCard(
+    comment: ArtifactComment,
+    currentUserId: String,
+    ownerId: String,
+    onReport: () -> Unit,
+    onReact: (ReactionType) -> Unit
+) {
+    val isAnonymous = comment.authorType == com.saurabh.artifact.model.AuthorType.QUIET_PRESENCE
+    val isOwner = currentUserId == ownerId
+    
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = ArtifactTheme.colors.surfaceHearth.copy(alpha = 0.5f)),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isAnonymous) {
+                ArtifactTheme.colors.surfaceHearth.copy(alpha = 0.3f)
+            } else {
+                ArtifactTheme.colors.surfaceHearth.copy(alpha = 0.5f)
+            }
+        ),
         shape = RoundedCornerShape(20.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp, 
+            if (isAnonymous) Color.White.copy(alpha = 0.02f) else Color.White.copy(alpha = 0.05f)
+        )
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                ArtifactAvatar(
-                    config = AvatarConfig(seed = comment.authorAvatarSeed),
-                    size = 32.dp
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                Text(
-                    text = comment.authorAnonymousName ?: "Quiet Presence",
-                    style = ArtifactTheme.typography.labelLarge,
-                    color = ArtifactTheme.colors.onSurfaceMuted,
-                    fontWeight = FontWeight.SemiBold
-                )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    ArtifactAvatar(
+                        config = AvatarConfig(seed = comment.authorAvatarSeed),
+                        size = 32.dp
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = comment.authorAnonymousName ?: "Quiet Presence",
+                            style = ArtifactTheme.typography.labelLarge,
+                            color = if (isAnonymous) ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.7f) else ArtifactTheme.colors.onSurfaceMuted,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        if (isAnonymous) {
+                            Text(
+                                text = "Anonymous Presence",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.4f),
+                                fontSize = 10.sp
+                            )
+                        }
+                    }
+                }
+
+                IconButton(onClick = onReport) {
+                    Icon(
+                        Icons.Outlined.Report,
+                        contentDescription = "Report",
+                        tint = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.4f),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
             
             Spacer(modifier = Modifier.height(12.dp))
@@ -185,30 +297,78 @@ fun CommentCard(comment: com.saurabh.artifact.model.ArtifactComment) {
             Text(
                 text = comment.content,
                 style = ArtifactTheme.typography.bodyLarge,
-                color = ArtifactTheme.colors.onSurfaceMain.copy(alpha = 0.9f)
+                color = if (isAnonymous) {
+                    ArtifactTheme.colors.onSurfaceMain.copy(alpha = 0.7f)
+                } else {
+                    ArtifactTheme.colors.onSurfaceMain.copy(alpha = 0.9f)
+                }
             )
             
             Spacer(modifier = Modifier.height(16.dp))
 
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                CommentReactionChip("🫂")
-                CommentReactionChip("💫")
-                CommentReactionChip("🌊")
+            if (isOwner) {
+                CreatorReactionPicker(
+                    selectedReaction = comment.creatorReaction,
+                    onReactionSelect = onReact
+                )
+            } else if (comment.creatorReaction != null) {
+                CommentReactionChip(
+                    emoji = comment.creatorReaction?.emoji ?: "",
+                    label = "Acknowledge by creator"
+                )
             }
         }
     }
 }
 
 @Composable
-fun CommentReactionChip(emoji: String) {
-    Box(
+fun CreatorReactionPicker(
+    selectedReaction: ReactionType?,
+    onReactionSelect: (ReactionType) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        ReactionType.entries.forEach { type ->
+            val isSelected = type == selectedReaction
+            Surface(
+                onClick = { onReactionSelect(type) },
+                shape = RoundedCornerShape(12.dp),
+                color = if (isSelected) GoldAura500.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.05f),
+                border = if (isSelected) androidx.compose.foundation.BorderStroke(1.2.dp, GoldAura500.copy(alpha = 0.5f)) else null,
+                modifier = Modifier.clip(RoundedCornerShape(12.dp))
+            ) {
+                Text(
+                    text = type.emoji,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    fontSize = 16.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun CommentReactionChip(emoji: String, label: String? = null) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier
             .clip(RoundedCornerShape(12.dp))
             .background(Color.White.copy(alpha = 0.05f))
             .padding(horizontal = 10.dp, vertical = 4.dp)
     ) {
         Text(text = emoji, fontSize = 14.sp)
+        if (label != null) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.6f)
+            )
+        }
     }
 }

@@ -1,6 +1,5 @@
 package com.saurabh.artifact.audio
 
-import android.content.Context
 import android.util.Log
 import androidx.room.withTransaction
 import androidx.work.*
@@ -19,13 +18,12 @@ import javax.inject.Singleton
 
 @Singleton
 class DraftDeletionManager @Inject constructor(
-    @ApplicationContext private val context: Context,
     private val draftDao: DraftDao,
     private val uploadTaskDao: UploadTaskDao,
     private val draftsDatabase: DraftsDatabase,
-    private val storageManager: StorageManager
+    private val storageManager: StorageManager,
+    private val workManager: WorkManager
 ) {
-    private val workManager: WorkManager by lazy { WorkManager.getInstance(context) }
 
     /**
      * Authoritative deletion method. 

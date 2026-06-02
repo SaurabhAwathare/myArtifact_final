@@ -29,6 +29,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import kotlinx.coroutines.delay
+import androidx.compose.ui.zIndex
 import com.saurabh.artifact.ui.components.ArtifactCard
 import com.saurabh.artifact.ui.components.BottomPlayer
 import com.saurabh.artifact.ui.components.EmberLogo
@@ -66,8 +67,10 @@ fun FeedScreen(
 ) {
     Log.d("APP_FLOW", "Composition: FeedScreen Entered")
     
-    val artifacts = viewModel.artifacts.collectAsLazyPagingItems()
-    val rankedArtifactIds by viewModel.rankedArtifactIds.collectAsStateWithLifecycle()
+    val recentArtifacts = viewModel.artifacts.collectAsLazyPagingItems()
+    val forYouArtifacts = viewModel.personalizedArtifacts.collectAsLazyPagingItems()
+    val unfinished by viewModel.unfinishedArtifacts.collectAsStateWithLifecycle()
+    
     val isRankedLoading by viewModel.isRankedLoading.collectAsStateWithLifecycle()
     val stage by viewModel.startupStage.collectAsStateWithLifecycle()
     
@@ -75,6 +78,7 @@ fun FeedScreen(
 
     val reflectionPrompt by viewModel.reflectionPrompt.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
+    val hasNewContent by viewModel.hasNewContent.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
 
     // New Viewport-aware Hydration Logic
@@ -155,14 +159,32 @@ fun FeedScreen(
                     FeedContent(
                         showRankedFeed = showRankedFeed,
                         isRankedLoading = isRankedLoading,
-                        rankedArtifactIds = rankedArtifactIds,
-                        artifacts = artifacts,
+                        forYouArtifacts = forYouArtifacts,
+                        recentArtifacts = recentArtifacts,
+                        unfinished = unfinished,
                         listState = listState,
                         viewModel = viewModel,
                         reflectionPrompt = reflectionPrompt,
                         stage = stage,
                         onNavigateToRecord = onNavigateToRecord,
                         onReportClick = { reportingArtifactId = it }
+                    )
+                }
+
+                // Floating New Content Indicator - Moved outside PullToRefreshBox to avoid ColumnScope issues
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = hasNewContent && !isRefreshing,
+                    enter = fadeIn() + expandVertically(expandFrom = Alignment.Top),
+                    exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Top),
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 12.dp)
+                        .zIndex(1f)
+                ) {
+                    NewContentIndicator(
+                        onClick = {
+                            viewModel.refreshFeed()
+                        }
                     )
                 }
 
@@ -277,8 +299,9 @@ private fun FeedVibeHeader(
 private fun FeedContent(
     showRankedFeed: Boolean,
     isRankedLoading: Boolean,
-    rankedArtifactIds: List<String>,
-    artifacts: androidx.paging.compose.LazyPagingItems<com.saurabh.artifact.model.Artifact>,
+    forYouArtifacts: androidx.paging.compose.LazyPagingItems<com.saurabh.artifact.model.Artifact>,
+    recentArtifacts: androidx.paging.compose.LazyPagingItems<com.saurabh.artifact.model.Artifact>,
+    unfinished: List<com.saurabh.artifact.model.FeedArtifact>,
     listState: androidx.compose.foundation.lazy.LazyListState,
     viewModel: FeedViewModel,
     reflectionPrompt: com.saurabh.artifact.model.ReflectionPrompt?,
@@ -286,94 +309,90 @@ private fun FeedContent(
     onNavigateToRecord: (String?) -> Unit,
     onReportClick: (String) -> Unit
 ) {
-    val isEmpty = artifacts.itemCount == 0
-    val isRefreshing = artifacts.loadState.refresh is androidx.paging.LoadState.Loading
+    val currentArtifacts = if (showRankedFeed) forYouArtifacts else recentArtifacts
+    val isEmpty = currentArtifacts.itemCount == 0
+    val isRefreshing = currentArtifacts.loadState.refresh is androidx.paging.LoadState.Loading
 
-    FadeInContent(visible = (!isRankedLoading || (showRankedFeed && rankedArtifactIds.isNotEmpty()) || (!showRankedFeed && !isEmpty))) {
-        if (showRankedFeed) {
-            if (isRankedLoading && rankedArtifactIds.isEmpty()) {
-                FeedLoadingState()
-            } else if (rankedArtifactIds.isEmpty()) {
-                EmptyFeedState(onRecordClick = { onNavigateToRecord(null) })
-            } else {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(20.dp, 0.dp, 20.dp, 120.dp),
-                    verticalArrangement = Arrangement.spacedBy(24.dp)
-                ) {
-                    item(key = "header_ranked") {
-                        FeedHeader(viewModel, reflectionPrompt, stage, onNavigateToRecord)
+    FadeInContent(visible = (!isRankedLoading || (showRankedFeed && !isEmpty) || (!showRankedFeed && !isEmpty))) {
+        if (isEmpty && !isRefreshing) {
+            EmptyFeedState(onRecordClick = { onNavigateToRecord(null) })
+        } else if (isEmpty && isRefreshing) {
+            FeedLoadingState()
+        } else {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(20.dp, 0.dp, 20.dp, 120.dp),
+                verticalArrangement = Arrangement.spacedBy(24.dp)
+            ) {
+                item(key = "header") {
+                    FeedHeader(viewModel, reflectionPrompt, stage, onNavigateToRecord)
+                }
+
+                if (showRankedFeed) {
+                    // Inject unfinished sessions at the top of Ranked feed
+                    if (unfinished.isNotEmpty()) {
+                        item(key = "unfinished_section") {
+                            Text(
+                                "Continue Listening",
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.padding(bottom = 12.dp)
+                            )
+                        }
+                        items(unfinished, key = { "unf_${it.artifact.id}" }) { item ->
+                            ArtifactItem(
+                                artifactId = item.artifact.id,
+                                viewModel = viewModel,
+                                onReportClick = onReportClick
+                            )
+                        }
+                        item(key = "divider_unf") {
+                            HorizontalDivider(
+                                modifier = Modifier.padding(vertical = 8.dp),
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
+                            )
+                        }
                     }
+                }
 
-                    items(rankedArtifactIds, key = { it }) { artifactId ->
-                        val itemIndex = rankedArtifactIds.indexOf(artifactId)
+                items(
+                    count = currentArtifacts.itemCount,
+                    key = currentArtifacts.itemKey { it.id }
+                ) { index ->
+                    val artifact = currentArtifacts[index]
+                    if (artifact != null) {
+                        // For the ranked feed, we need to ensure the artifact is in the viewmodel's cache
+                        // for the isolated ArtifactItem to work correctly.
+                        // Paging 3 doesn't automatically update a global cache.
+                        // However, FeedViewModel.getArtifactFlow uses the cache.
+                        // We need a way to populate it.
                         
+                        LaunchedEffect(artifact) {
+                            // We can use a special method in VM to populate cache from Paging
+                            viewModel.hydrateFromPaging(artifact)
+                        }
+
                         ArtifactItem(
-                            artifactId = artifactId,
+                            artifactId = artifact.id,
                             viewModel = viewModel,
                             onReportClick = onReportClick
                         )
                         
-                        if (itemIndex > 0 && (itemIndex + 1) % 4 == 0) {
-                            this@LazyColumn.BreathBreakItem(itemIndex)
-                        }
-                    }
-                    
-                    if (rankedArtifactIds.isNotEmpty()) {
-                        item(key = "drawn_signal_ranked") {
-                            val context = androidx.compose.ui.platform.LocalContext.current
-                            LaunchedEffect(Unit) {
-                                (context as? androidx.activity.ComponentActivity)?.reportFullyDrawn()
-                            }
+                        if ((index + 1) % 5 == 0) {
+                            this@LazyColumn.BreathBreakItem(index)
                         }
                     }
                 }
-            }
-        } else {
-            if (isEmpty && !isRefreshing) {
-                EmptyFeedState(onRecordClick = { onNavigateToRecord(null) })
-            } else if (isEmpty && isRefreshing) {
-                FeedLoadingState()
-            } else {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(20.dp, 0.dp, 20.dp, 120.dp),
-                    verticalArrangement = Arrangement.spacedBy(24.dp)
-                ) {
-                    item(key = "header_recent") {
-                        FeedHeader(viewModel, reflectionPrompt, stage, onNavigateToRecord)
-                    }
 
-                    items(
-                        count = artifacts.itemCount,
-                        key = artifacts.itemKey { it.id }
-                    ) { index ->
-                        val artifact = artifacts[index]
-                        if (artifact != null) {
-                            ArtifactItem(
-                                artifactId = artifact.id,
-                                viewModel = viewModel,
-                                onReportClick = onReportClick
-                            )
-                            
-                            if ((index + 1) % 5 == 0) {
-                                this@LazyColumn.BreathBreakItem(index)
-                            }
-                        }
-                    }
-
-                    if (artifacts.loadState.append is androidx.paging.LoadState.Loading) {
-                        item(key = "loading_indicator") { LoadingIndicator() }
-                    }
-                    
-                    if (artifacts.itemCount > 0) {
-                        item(key = "drawn_signal_recent") {
-                            val context = androidx.compose.ui.platform.LocalContext.current
-                            LaunchedEffect(Unit) {
-                                (context as? androidx.activity.ComponentActivity)?.reportFullyDrawn()
-                            }
+                if (currentArtifacts.loadState.append is androidx.paging.LoadState.Loading) {
+                    item(key = "loading_indicator") { LoadingIndicator() }
+                }
+                
+                if (currentArtifacts.itemCount > 0) {
+                    item(key = "drawn_signal") {
+                        val context = androidx.compose.ui.platform.LocalContext.current
+                        LaunchedEffect(Unit) {
+                            (context as? androidx.activity.ComponentActivity)?.reportFullyDrawn()
                         }
                     }
                 }
@@ -499,6 +518,38 @@ fun FeedLoadingState() {
                     LoadingPlaceholder(height = 20.dp, width = Modifier.fillMaxWidth(0.6f))
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun NewContentIndicator(
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = Color(0xFFFFB84D), // Warm Amber
+        contentColor = Color.White,
+        tonalElevation = 4.dp,
+        shadowElevation = 6.dp,
+        modifier = Modifier.height(40.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(
+                Icons.Rounded.Refresh,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp)
+            )
+            Text(
+                "New Reflections",
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.padding(bottom = 1.dp)
+            )
         }
     }
 }

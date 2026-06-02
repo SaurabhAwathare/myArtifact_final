@@ -2,7 +2,6 @@ package com.saurabh.artifact.ui.feed
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
@@ -11,7 +10,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.saurabh.artifact.model.ArtifactComment
+import com.saurabh.artifact.model.CommentModerationState
 import com.saurabh.artifact.model.ReactionType
+import com.saurabh.artifact.model.VisibilityLayer
 import com.saurabh.artifact.ui.components.TextCommentItem
 import com.saurabh.artifact.ui.components.EmotionalInsightCard
 import com.saurabh.artifact.ui.components.EmptyHearthState
@@ -26,6 +27,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.paging.LoadState
+import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.paging.compose.itemKey
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -40,8 +44,8 @@ fun CreatorInboxScreen(
     viewModel: CreatorInboxViewModel = hiltViewModel(),
     reactionViewModel: ReactionViewModel = hiltViewModel()
 ) {
-    val uiState by viewModel.uiState.collectAsState()
     val reactionState by reactionViewModel.uiState.collectAsState()
+    val reflections = viewModel.reflectionsPager.collectAsLazyPagingItems()
 
     LaunchedEffect(artifactId) {
         viewModel.loadInbox(artifactId, userId)
@@ -73,7 +77,7 @@ fun CreatorInboxScreen(
                 }
             }
 
-            if (uiState.reflections.isEmpty() && !uiState.isLoading) {
+            if (reflections.itemCount == 0 && reflections.loadState.refresh is LoadState.NotLoading) {
                 EmptyHearthState()
             } else {
                 LazyColumn(
@@ -81,23 +85,97 @@ fun CreatorInboxScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    items(uiState.reflections) { reflection ->
-                        Column {
-                            TextCommentItem(
-                                comment = reflection
-                            )
-                            
-                            Spacer(Modifier.height(8.dp))
-                            
-                            // Private Reaction Controls (Creator Only - Legacy update to new taxonomy)
-                            ReactionAcknowledgeRow(
-                                selectedReaction = reflection.creatorReaction,
-                                onReactionSelect = { type ->
-                                    viewModel.reactToComment(reflection.id, type)
-                                }
-                            )
+                    items(
+                        count = reflections.itemCount,
+                        key = reflections.itemKey { it.id }
+                    ) { index ->
+                        val reflection = reflections[index]
+                        if (reflection != null) {
+                            Column {
+                                TextCommentItem(
+                                    comment = reflection
+                                )
+                                
+                                Spacer(Modifier.height(8.dp))
+
+                                ModerationControlRow(
+                                    comment = reflection,
+                                    onApprove = { viewModel.approveComment(reflection.id) },
+                                    onFlag = { viewModel.flagComment(reflection.id) }
+                                )
+
+                                Spacer(Modifier.height(4.dp))
+                                
+                                // Private Reaction Controls (Creator Only - Legacy update to new taxonomy)
+                                ReactionAcknowledgeRow(
+                                    selectedReaction = reflection.creatorReaction,
+                                    onReactionSelect = { type ->
+                                        viewModel.reactToComment(reflection.id, type)
+                                    }
+                                )
+                            }
                         }
                     }
+
+                    when {
+                        reflections.loadState.refresh is LoadState.Loading -> {
+                            item {
+                                Box(
+                                    modifier = Modifier.fillParentMaxSize(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator(color = GoldAura400)
+                                }
+                            }
+                        }
+                        reflections.loadState.append is LoadState.Loading -> {
+                            item {
+                                Box(
+                                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator(modifier = Modifier.size(24.dp), color = GoldAura400)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ModerationControlRow(
+    comment: ArtifactComment,
+    onApprove: () -> Unit,
+    onFlag: () -> Unit
+) {
+    if (comment.visibilityLayer == VisibilityLayer.RESONANCE && comment.moderationState != CommentModerationState.APPROVED) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Pending Public View",
+                style = MaterialTheme.typography.labelSmall,
+                color = GoldAura400.copy(alpha = 0.6f)
+            )
+            
+            Row {
+                TextButton(onClick = onFlag) {
+                    Text("Flag", color = MaterialTheme.colorScheme.error)
+                }
+                Spacer(Modifier.width(8.dp))
+                Button(
+                    onClick = onApprove,
+                    colors = ButtonDefaults.buttonColors(containerColor = GoldAura400.copy(alpha = 0.2f), contentColor = GoldAura400),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("Approve", style = MaterialTheme.typography.labelLarge)
                 }
             }
         }

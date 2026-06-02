@@ -72,9 +72,10 @@ service cloud.firestore {
         // 1. Author Access (Sanctuary)
         resource.data.authorId == request.auth.uid ||
 
-        // 2. Artifact Owner Access (Bridge)
+        // 2. Artifact Owner Access (Bridge) - Exclude Sanctuary
         // Note: Using cached artifactOwnerId for performance and reliability
-        resource.data.artifactOwnerId == request.auth.uid ||
+        (resource.data.artifactOwnerId == request.auth.uid &&
+         resource.data.visibilityLayer != 'SANCTUARY') ||
 
         // 3. Public Resonance (After Reveal)
         (resource.data.visibilityLayer == 'RESONANCE' &&
@@ -82,14 +83,23 @@ service cloud.firestore {
          (resource.data.revealAt == null || resource.data.revealAt <= request.time))
       );
 
-      allow create: if isAuth() && request.resource.data.authorId == request.auth.uid;
+      allow create: if isAuth() &&
+                    request.resource.data.authorId == request.auth.uid &&
+                    (
+                      request.resource.data.artifactOwnerId == request.auth.uid ||
+                      get(/databases/$(database)/documents/listening_sessions/$(request.auth.uid + '_' + request.resource.data.artifactId)).data.isCompleted == true
+                    );
 
-      // Owners can delete any comment on their artifact
-      allow delete: if isAuth() && (
-        resource.data.authorId == request.auth.uid ||
-        resource.data.artifactOwnerId == request.auth.uid ||
-        isAdmin()
-      );
+      // Update: Authors can edit their content, but not sensitive metadata
+      allow update: if isOwner(resource.data.authorId) &&
+                    !(request.resource.data.diff(resource.data).affectedKeys()
+                      .hasAny(['authorId', 'artifactId', 'artifactOwnerId'])) ||
+                    isAdmin();
+
+      // Delete: Authors, Artifact Owners, and Admins can delete
+      allow delete: if isOwner(resource.data.authorId) ||
+                    isOwner(resource.data.artifactOwnerId) ||
+                    isAdmin();
     }
 
     // --- REACTION COUNTS (Legacy Support & Aggregates) ---

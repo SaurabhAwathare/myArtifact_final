@@ -16,4 +16,7 @@ interface ArtifactDao {
 
     @Query("SELECT * FROM artifacts WHERE id = :artifactId")
     suspend fun getArtifactById(artifactId: String): ArtifactEntity?
+
+    @Query("DELETE FROM artifacts WHERE createdAt < :timestamp")
+    suspend fun deleteOldArtifacts(timestamp: Long)
 }

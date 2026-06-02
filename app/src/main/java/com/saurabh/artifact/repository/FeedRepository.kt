@@ -2,6 +2,7 @@ package com.saurabh.artifact.repository
 
 import android.util.Log
 import com.google.firebase.Timestamp
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.saurabh.artifact.model.*
@@ -11,16 +12,24 @@ import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
+data class PaginatedArtifacts(
+    val artifacts: List<Artifact>,
+    val lastVisible: DocumentSnapshot?
+)
+
 @Singleton
 class FeedRepository @Inject constructor(
-    private val firestore: FirebaseFirestore,
-    private val artifactRepository: ArtifactRepository
+    private val firestore: FirebaseFirestore
 ) {
 
     /**
-     * Fetches artifacts from presences that the user resonates with.
+     * Fetches artifacts from presences that the user resonates with, supporting pagination.
      */
-    suspend fun getResonatingArtifacts(userId: String, limit: Long = 20): List<Artifact> = withContext(Dispatchers.IO) {
+    suspend fun getResonatingArtifacts(
+        userId: String, 
+        limit: Int = 20,
+        lastVisible: DocumentSnapshot? = null
+    ): PaginatedArtifacts = withContext(Dispatchers.IO) {
         return@withContext try {
             val resonatedUserIds = firestore.collection("users")
                 .document(userId)
@@ -30,33 +39,48 @@ class FeedRepository @Inject constructor(
                 .documents
                 .map { it.id }
 
-            if (resonatedUserIds.isEmpty()) return@withContext emptyList()
+            if (resonatedUserIds.isEmpty()) return@withContext PaginatedArtifacts(emptyList(), null)
 
             // Firestore 'whereIn' is limited to 10-30 items.
+            // For simple pagination across chunks, we take a slice of resonated users
+            // or we query all and then paginate the result.
+            // Given that resonance set is usually small (<100), we query all and paginate by time.
+            
             val chunks = resonatedUserIds.chunked(10)
             val allArtifacts = mutableListOf<Artifact>()
+            var lastDocInBatch: DocumentSnapshot? = null
+
             for (chunk in chunks) {
-                val snapshot = firestore.collection("artifacts")
+                var query = firestore.collection("artifacts")
                     .whereIn("userId", chunk)
                     .whereEqualTo("isPublic", true)
                     .orderBy("createdAt", Query.Direction.DESCENDING)
-                    .limit(limit)
-                    .get()
-                    .await()
+                    .limit(limit.toLong())
                 
-                val mappedChunk = withContext(Dispatchers.Default) {
-                    snapshot.toObjects(Artifact::class.java).mapIndexed { i, a ->
-                        a.copy(id = snapshot.documents[i].id)
-                    }
+                if (lastVisible != null) {
+                    query = query.startAfter(lastVisible)
+                }
+
+                val snapshot = query.get().await()
+                
+                val mappedChunk = snapshot.documents.map { doc ->
+                    doc.toObject(Artifact::class.java)!!.copy(id = doc.id)
                 }
                 allArtifacts.addAll(mappedChunk)
+                
+                if (snapshot.documents.isNotEmpty()) {
+                    val currentLast = snapshot.documents.last()
+                    if (lastDocInBatch == null || (currentLast.getTimestamp("createdAt") ?: Timestamp.now()) < (lastDocInBatch.getTimestamp("createdAt") ?: Timestamp.now())) {
+                        lastDocInBatch = currentLast
+                    }
+                }
             }
-            withContext(Dispatchers.Default) {
-                allArtifacts.sortedByDescending { it.createdAt }
-            }
+            
+            val sorted = allArtifacts.sortedByDescending { it.createdAt }.take(limit)
+            PaginatedArtifacts(sorted, lastDocInBatch)
         } catch (e: Exception) {
             Log.e("FeedRepository", "Error fetching followed artifacts", e)
-            emptyList()
+            PaginatedArtifacts(emptyList(), null)
         }
     }
 
@@ -95,11 +119,33 @@ class FeedRepository @Inject constructor(
     }
 
     /**
-     * Fetches discovery candidates based on emotional compatibility.
-     * For now, it delegates to ArtifactRepository and adds scoring logic.
+     * Fetches discovery candidates based on emotional compatibility with pagination.
      */
-    suspend fun getDiscoveryCandidates(limit: Long = 20): List<Artifact> {
-        return artifactRepository.getCandidateArtifacts(limit)
+    suspend fun getDiscoveryCandidates(
+        limit: Int = 20,
+        lastVisible: DocumentSnapshot? = null
+    ): PaginatedArtifacts = withContext(Dispatchers.IO) {
+        return@withContext try {
+            var query = firestore.collection("artifacts")
+                .whereEqualTo("isPublic", true)
+                .whereEqualTo("status", ArtifactStatus.ACTIVE.name)
+                .orderBy("createdAt", Query.Direction.DESCENDING)
+                .limit(limit.toLong())
+
+            if (lastVisible != null) {
+                query = query.startAfter(lastVisible)
+            }
+
+            val snapshot = query.get().await()
+            val artifacts = snapshot.documents.mapNotNull { doc ->
+                doc.toObject(Artifact::class.java)?.copy(id = doc.id)?.slimForFeed()
+            }
+            
+            PaginatedArtifacts(artifacts, snapshot.documents.lastOrNull())
+        } catch (e: Exception) {
+            Log.e("FeedRepository", "Error fetching discovery candidates", e)
+            PaginatedArtifacts(emptyList(), null)
+        }
     }
 
     /**

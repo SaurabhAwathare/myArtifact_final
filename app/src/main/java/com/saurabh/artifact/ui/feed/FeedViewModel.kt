@@ -6,6 +6,8 @@ import androidx.collection.LruCache
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
 import androidx.paging.cachedIn
 import androidx.paging.map
 import com.saurabh.artifact.audio.PlaybackCoordinator
@@ -26,6 +28,9 @@ import com.saurabh.artifact.data.local.RecordingStatus
 import com.saurabh.artifact.util.MemoryManager
 import com.saurabh.artifact.util.MemoryTrimable
 import com.saurabh.artifact.util.StartupTracer
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.ListenerRegistration
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.yield
 import kotlinx.coroutines.Dispatchers
@@ -55,6 +60,7 @@ data class FeedUiState(
     val safetyLevel: SafetyLevel = SafetyLevel.LOW,
     val isCrisis: Boolean = false,
     val isRefreshing: Boolean = false,
+    val hasNewContent: Boolean = false,
     val error: String? = null
 )
 
@@ -72,6 +78,7 @@ class FeedViewModel @Inject constructor(
     private val memoryManager: MemoryManager,
     private val startupCoordinator: StartupCoordinator,
     private val savedArtifactManager: com.saurabh.artifact.repository.SavedArtifactManager,
+    private val firestore: FirebaseFirestore,
     val audioPlayer: PlaybackCoordinator,
     private val reviewSessionManager: com.saurabh.artifact.audio.ReviewSessionManager,
     private val commentUnlockRepository: com.saurabh.artifact.repository.CommentUnlockRepository
@@ -113,6 +120,26 @@ class FeedViewModel @Inject constructor(
         artifactRepository.getArtifactsPager(emotion)
     }.cachedIn(viewModelScope)
 
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val personalizedArtifacts: Flow<PagingData<Artifact>> = _refreshTrigger.flatMapLatest { _ ->
+        val userId = authRepository.currentUser.value?.uid ?: return@flatMapLatest flowOf(PagingData.empty<Artifact>())
+        Pager(
+            config = PagingConfig(
+                pageSize = 10,
+                prefetchDistance = 2,
+                initialLoadSize = 10,
+                enablePlaceholders = false
+            ),
+            pagingSourceFactory = { 
+                com.saurabh.artifact.data.paging.PersonalizedPagingSource(
+                    userId = userId,
+                    feedRepository = feedRepository,
+                    feedRanker = feedRanker
+                ) 
+            }
+        ).flow
+    }.cachedIn(viewModelScope)
+
     // Legacy compatibility accessors
     val rankedArtifactIds = _uiState.map { it.rankedArtifactIds }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val isRankedLoading = _uiState.map { it.isRankedLoading }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.Eagerly, false)
@@ -122,6 +149,7 @@ class FeedViewModel @Inject constructor(
     val safetyLevel = _uiState.map { it.safetyLevel }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.Eagerly, SafetyLevel.LOW)
     val isCrisis = _uiState.map { it.isCrisis }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.Eagerly, false)
     val isRefreshing = _uiState.map { it.isRefreshing }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    val hasNewContent = _uiState.map { it.hasNewContent }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.Eagerly, false)
     val error = _uiState.map { it.error }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.Eagerly, null)
     val artifactDetails = _uiState.map { it.artifactDetails }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
@@ -174,12 +202,41 @@ class FeedViewModel @Inject constructor(
             launch {
                 delay(4000) // Well after UI is stable and user is likely interacting
                 personalizationEngine.ensureInitialized()
-                StartupTracer.mark("Personalization Engine Initialized")
+                artifactRepository.runCacheCleanup()
+                StartupTracer.mark("Personalization Engine & Cache Cleanup Initialized")
             }
             
             launch { observePlaybackCompletion() }
             launch { observePlaybackProgress() }
+            launch { startNewContentListener() }
         }
+    }
+
+    private var newContentListener: ListenerRegistration? = null
+    private var lastLoadedTimestamp: Long = System.currentTimeMillis()
+
+    private fun startNewContentListener() {
+        newContentListener?.remove()
+
+        // Listen for ANY new public artifact. 
+        // We could filter by emotion, but usually "New Reflections" is a global signal.
+        newContentListener = firestore.collection("artifacts")
+            .whereEqualTo("isPublic", true)
+            .orderBy("createdAt", Query.Direction.DESCENDING)
+            .limit(1)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.e("FeedViewModel", "New content listener error", error)
+                    return@addSnapshotListener
+                }
+
+                val latestDoc = snapshot?.documents?.firstOrNull() ?: return@addSnapshotListener
+                val createdAt = latestDoc.getTimestamp("createdAt")?.toDate()?.time ?: 0L
+                
+                if (createdAt > lastLoadedTimestamp) {
+                    _uiState.update { it.copy(hasNewContent = true) }
+                }
+            }
     }
 
     private fun observePlaybackProgress() {
@@ -274,64 +331,37 @@ class FeedViewModel @Inject constructor(
             _uiState.update { it.copy(isRankedLoading = true) }
             
             runCatching {
-                // Offload heavy composition and fetching to Default dispatcher
-                val fullFeed = withContext(Dispatchers.Default) {
-                    feedComposer.composeFeed(userId)
+                // Fetch unfinished sessions (small list, usually few)
+                val unfinishedSessions = withContext(Dispatchers.Default) {
+                    feedRepository.getUnfinishedSessions(userId)
                 }
                 
-                // STAGGERED HYDRATION: Process in batches to reduce main-thread pressure
-                val batch1Size = 5 // Reduced from 10 to minimize first frame delay
-                
-                val (unfinished, rankedBatch1, remainingRanked) = withContext(Dispatchers.Default) {
-                    val unfinished = fullFeed.filter { it.isUnfinished }
-                    val ranked = fullFeed.filter { !it.isUnfinished }
-                    
-                    // Optimization: Use slimForFeed during the mapping phase
-                    val b1 = ranked.take(batch1Size).map { it.artifact.slimForFeed() }
-                    val rem = ranked.drop(batch1Size).take(35) // Limit total to 40
-                    Triple(unfinished, b1, rem)
-                }
+                // Fetch discovery artifacts to hydrate unfinished sessions if needed
+                // For simplicity, we just fetch a small batch here. 
+                // In a fuller implementation, FeedComposer would handle this better.
+                val discovery = artifactRepository.getCandidateArtifacts(20)
 
-                // Stage 1: Immediate update with critical first batch
-                _unfinishedArtifacts.value = unfinished
-                
-                val b1Ids = rankedBatch1.map { it.id }
-                val b1Cache = rankedBatch1.associateBy { it.id }
-                
-                _uiState.update { current ->
-                    current.copy(
-                        rankedArtifactIds = b1Ids,
-                        artifactCache = current.artifactCache + b1Cache,
-                        hydrationLevels = current.hydrationLevels + b1Ids.filter { !current.hydrationLevels.containsKey(it) }.associateWith { HydrationLevel.SHELL }
+                val unfinishedItems = unfinishedSessions.mapNotNull { session ->
+                    val artifact = discovery.find { it.id == session.artifactId } ?: return@mapNotNull null
+                    FeedArtifact(
+                        artifact = artifact,
+                        reason = FeedRecommendationReason.CONTINUE_LISTENING,
+                        isUnfinished = true,
+                        lastPositionMs = session.lastPositionMs
                     )
                 }
+
+                _unfinishedArtifacts.value = unfinishedItems
                 
-                // Pre-cache top items for "Instant Play"
-                preCacheTopArtifacts(rankedBatch1)
-
-                // Yield to UI to allow immediate rendering of the first 5 items
-                yield() 
-                delay(64) // roughly 4 frames at 60fps
-
-                // Stage 2: Background processing for remaining items
-                if (remainingRanked.isNotEmpty()) {
-                    val processedRemaining = withContext(Dispatchers.Default) {
-                        remainingRanked.map { it.artifact.slimForFeed() }
-                    }
-                    
-                    val remIds = processedRemaining.map { it.id }
-                    val remCache = processedRemaining.associateBy { it.id }
-                    
-                    _uiState.update { current ->
-                        current.copy(
-                            rankedArtifactIds = current.rankedArtifactIds + remIds,
-                            artifactCache = current.artifactCache + remCache,
-                            hydrationLevels = current.hydrationLevels + remIds.filter { !current.hydrationLevels.containsKey(it) }.associateWith { HydrationLevel.SHELL }
-                        )
-                    }
+                // Pre-cache top items for immediate playback
+                unfinishedItems.take(3).forEach { feedArtifact ->
+                    audioPlayer.preCache(feedArtifact.artifact)
                 }
+                
+                // Note: The main ranked feed is now handled by Paging 3 (personalizedArtifacts)
+                // We just trigger a refresh if needed via _refreshTrigger.
             }.onFailure {
-                Log.e("FeedViewModel", "Error loading composed feed", it)
+                Log.e("FeedViewModel", "Error loading unfinished items", it)
             }
             _uiState.update { it.copy(isRankedLoading = false) }
         }
@@ -339,7 +369,8 @@ class FeedViewModel @Inject constructor(
 
     fun refreshFeed() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isRefreshing = true) }
+            _uiState.update { it.copy(isRefreshing = true, hasNewContent = false) }
+            lastLoadedTimestamp = System.currentTimeMillis()
             
             val rankedJob = loadRankedFeed()
             val promptJob = refreshReflectionPrompt()
@@ -510,6 +541,15 @@ class FeedViewModel @Inject constructor(
         _uiState.update { it.copy(hydrationLevels = it.hydrationLevels + (artifactId to HydrationLevel.METADATA)) }
     }
 
+    fun hydrateFromPaging(artifact: Artifact) {
+        _uiState.update { current ->
+            current.copy(
+                artifactCache = current.artifactCache + (artifact.id to artifact),
+                hydrationLevels = current.hydrationLevels + (artifact.id to (current.hydrationLevels[artifact.id] ?: HydrationLevel.SHELL))
+            )
+        }
+    }
+
     fun onArtifactFocused(artifactId: String) {
         loadArtifactDetails(artifactId)
     }
@@ -529,6 +569,7 @@ class FeedViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
+        newContentListener?.remove()
         startupJob.cancel()
         memoryManager.unregister(this)
         // Playback ownership is now handled by the Coordinator.

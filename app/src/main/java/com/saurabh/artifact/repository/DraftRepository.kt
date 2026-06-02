@@ -73,6 +73,13 @@ class DraftRepository @Inject constructor(
         uploadTaskDao.updateStatus(draftId, status)
     }
 
+    suspend fun updateUploadedAudioUrl(draftId: String, url: String) = withContext(Dispatchers.IO) {
+        draftsDatabase.withTransaction {
+            draftDao.updateUploadCheckpoint(draftId, url)
+            uploadTaskDao.updateAudioUrl(draftId, url)
+        }
+    }
+
     suspend fun markAsPublished(draftId: String, remoteId: String) = withContext(Dispatchers.IO) {
         draftsDatabase.withTransaction {
             draftDao.markAsPublished(draftId, remoteId)

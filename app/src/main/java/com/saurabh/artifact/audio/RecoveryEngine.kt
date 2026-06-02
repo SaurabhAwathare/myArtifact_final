@@ -13,7 +13,7 @@ class RecoveryEngine @Inject constructor(
     private val draftDao: DraftDao,
     private val localDraftManager: LocalDraftManager,
     private val wavRecoveryManager: WavRecoveryManager,
-    private val deletionManager: DraftDeletionManager
+    private val deletionManager: DraftDeletionManager,
 ) {
     suspend fun runRecovery() {
         Log.d("RecoveryEngine", "Starting recovery check...")
@@ -57,27 +57,12 @@ class RecoveryEngine @Inject constructor(
         
         try {
             val allDrafts = draftDao.getAllDrafts()
-            val knownPaths = mutableSetOf<String>()
-            allDrafts.forEach {
-                knownPaths.add(it.localAudioPath)
-                it.rawPcmPath?.let { p -> knownPaths.add(p) }
-                it.waveformPath?.let { p -> knownPaths.add(p) }
-                it.localTranscriptPath?.let { p -> knownPaths.add(p) }
-                it.frozenAudioPath?.let { p -> knownPaths.add(p) }
-            }
+            localDraftManager.reconcileStorage(allDrafts)
             
-            localDraftManager.cleanupOrphans(knownPaths)
-            
-            // 3. Authoritative cleanup for DELETING and PUBLISHED drafts
+            // 3. Authoritative cleanup for DELETING drafts
             val deletingDrafts = draftDao.getDraftsByLifecycle("{\"lifecycle\":\"DELETING\"%}")
             deletingDrafts.forEach { draft ->
                 Log.d("RecoveryEngine", "Resuming deletion for draft: ${draft.id}")
-                deletionManager.deleteDraft(draft.id)
-            }
-
-            val publishedDrafts = draftDao.getDraftsByState(ArtifactDraftState.PUBLISHED)
-            publishedDrafts.forEach { draft ->
-                Log.d("RecoveryEngine", "Belated cleanup for published draft: ${draft.id}")
                 deletionManager.deleteDraft(draft.id)
             }
         } catch (e: Exception) {

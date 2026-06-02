@@ -72,7 +72,7 @@ fun LockedCommentView(
             Spacer(modifier = Modifier.height(12.dp))
             
             Text(
-                text = "Take a moment to listen before joining the conversation.",
+                text = "Immersion is required to unlock this conversation.\n(90% mindful presence needed)",
                 style = MaterialTheme.typography.bodyMedium,
                 color = Color.White.copy(alpha = 0.6f),
                 textAlign = TextAlign.Center
@@ -98,7 +98,7 @@ fun LockedCommentView(
                 Spacer(modifier = Modifier.height(12.dp))
                 
                 Text(
-                    text = "${(animatedProgress * 100).toInt()}% reflected",
+                    text = "${(animatedProgress * 100).toInt()}% presence",
                     style = MaterialTheme.typography.labelMedium,
                     color = Color.White.copy(alpha = 0.4f)
                 )

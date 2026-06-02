@@ -89,7 +89,8 @@ class ArtifactRemoteMediator(
             playCount = artifact.playCount,
             reactionCount = artifact.reactionCount,
             commentCount = artifact.commentCount,
-            amplitudeData = artifact.amplitudeData
+            amplitudeData = artifact.amplitudeData,
+            transcriptUrl = artifact.transcriptUrl
         )
     }
 

@@ -18,8 +18,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.saurabh.artifact.model.AmbientUploadStatus
-import com.saurabh.artifact.model.UploadSession
+import com.saurabh.artifact.model.PublishState
 import com.saurabh.artifact.ui.theme.EmberGlow
 import com.saurabh.artifact.ui.theme.Obsidian900
 
@@ -29,24 +28,27 @@ import com.saurabh.artifact.ui.theme.Obsidian900
  */
 @Composable
 fun AmbientUploadBar(
-    session: UploadSession?,
+    state: PublishState?,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     AnimatedVisibility(
-        visible = session != null,
+        visible = state != null,
         enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
         exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
         modifier = modifier
     ) {
-        if (session == null) return@AnimatedVisibility
+        if (state == null) return@AnimatedVisibility
+
+        val isError = state is PublishState.Error
+        val isCompleted = state is PublishState.Published
 
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             shape = RoundedCornerShape(24.dp),
-            color = if (session.status is AmbientUploadStatus.Error) {
+            color = if (isError) {
                 MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f)
             } else {
                 Obsidian900.copy(alpha = 0.95f)
@@ -60,16 +62,16 @@ fun AmbientUploadBar(
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    UploadStatusIcon(status = session.status)
+                    UploadStatusIcon(state = state)
                     
                     Spacer(modifier = Modifier.width(12.dp))
                     
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = session.title,
+                            text = state.title,
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
-                            color = if (session.status is AmbientUploadStatus.Error) {
+                            color = if (isError) {
                                 MaterialTheme.colorScheme.onErrorContainer
                             } else {
                                 Color.White
@@ -78,9 +80,9 @@ fun AmbientUploadBar(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = session.status.getDisplayText(),
+                            text = state.getDisplayText(),
                             style = MaterialTheme.typography.labelSmall,
-                            color = if (session.status is AmbientUploadStatus.Error) {
+                            color = if (isError) {
                                 MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.7f)
                             } else {
                                 Color.White.copy(alpha = 0.6f)
@@ -90,9 +92,9 @@ fun AmbientUploadBar(
                         )
                     }
 
-                    if (session.status is AmbientUploadStatus.UploadingAudio) {
+                    if (state is PublishState.Uploading) {
                         Text(
-                            text = "${(session.progress * 100).toInt()}%",
+                            text = "${(state.progress * 100).toInt()}%",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
                             color = EmberGlow.copy(alpha = 0.8f),
@@ -107,7 +109,7 @@ fun AmbientUploadBar(
                         Icon(
                             imageVector = Icons.Rounded.Close,
                             contentDescription = "Dismiss",
-                            tint = if (session.status is AmbientUploadStatus.Error) {
+                            tint = if (isError) {
                                 MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.5f)
                             } else {
                                 Color.White.copy(alpha = 0.3f)
@@ -117,8 +119,16 @@ fun AmbientUploadBar(
                     }
                 }
 
+                val progress = when(state) {
+                    is PublishState.Uploading -> state.progress
+                    is PublishState.Finalizing -> 0.95f
+                    is PublishState.Published -> 1f
+                    is PublishState.Preparing -> 0.05f
+                    else -> 0f
+                }
+
                 AmberProgressLine(
-                    progress = session.progress,
+                    progress = progress,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp)
@@ -131,16 +141,16 @@ fun AmbientUploadBar(
 }
 
 @Composable
-private fun UploadStatusIcon(status: AmbientUploadStatus) {
-    val icon = when (status) {
-        is AmbientUploadStatus.Completed -> Icons.Rounded.CheckCircle
-        is AmbientUploadStatus.Error -> Icons.Rounded.ErrorOutline
+private fun UploadStatusIcon(state: PublishState) {
+    val icon = when (state) {
+        is PublishState.Published -> Icons.Rounded.CheckCircle
+        is PublishState.Error -> Icons.Rounded.ErrorOutline
         else -> Icons.Rounded.CloudUpload
     }
     
-    val tint = when (status) {
-        is AmbientUploadStatus.Completed -> Color(0xFF4CAF50)
-        is AmbientUploadStatus.Error -> MaterialTheme.colorScheme.error
+    val tint = when (state) {
+        is PublishState.Published -> Color(0xFF4CAF50)
+        is PublishState.Error -> MaterialTheme.colorScheme.error
         else -> EmberGlow
     }
 
@@ -159,3 +169,13 @@ private fun UploadStatusIcon(status: AmbientUploadStatus) {
         )
     }
 }
+
+private fun PublishState.getDisplayText(): String = when (this) {
+    is PublishState.Preparing -> "Creating a calm space..."
+    is PublishState.Uploading -> if (isWaitingForNetwork) "Waiting for network..." else "Releasing your reflection..."
+    is PublishState.Finalizing -> "Securing your essence..."
+    is PublishState.Published -> "Shared gently."
+    is PublishState.Error -> message
+    is PublishState.Idle -> ""
+}
+

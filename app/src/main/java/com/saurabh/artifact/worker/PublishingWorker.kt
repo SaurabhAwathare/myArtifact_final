@@ -27,10 +27,12 @@ class PublishingWorker @AssistedInject constructor(
     private val draftRepository: com.saurabh.artifact.repository.DraftRepository,
     private val artifactRepository: ArtifactRepository,
     private val userRepository: com.saurabh.artifact.repository.UserRepository,
-    private val cleanupManager: com.saurabh.artifact.audio.ArtifactCleanupManager
+    private val cleanupManager: com.saurabh.artifact.audio.ArtifactCleanupManager,
+    private val uploadGuard: com.saurabh.artifact.security.UploadGuard
 ) : CoroutineWorker(appContext, workerParams) {
 
     private var startTime = System.currentTimeMillis()
+    private var lastProgressUpdateTime = 0L
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val draftId = inputData.getString(KEY_DRAFT_ID) ?: return@withContext Result.failure()
@@ -45,6 +47,39 @@ class PublishingWorker @AssistedInject constructor(
             Log.w("PublishingWorker", "Could not set foreground info", e)
         }
 
+        // 1. Authentication check
+        val firebaseUser = FirebaseAuth.getInstance().currentUser
+        if (firebaseUser == null) {
+            draftRepository.updateUploadStatus(draftId, SyncStatus.Failed("User not authenticated"))
+            return@withContext Result.failure()
+        }
+
+        // 2. Security Validation (Approval Gate)
+        if (!uploadGuard.validateApproval(draft, firebaseUser.uid)) {
+            Log.e("PublishingWorker", "Unauthorized upload attempt for draft $draftId")
+            draftRepository.updateUploadStatus(draftId, SyncStatus.Failed("Approval validation failed", recoverable = false))
+            return@withContext Result.failure()
+        }
+
+        // 3. Integrity Validation
+        val currentChecksum = artifactRepository.calculateChecksum(draft.localAudioPath)
+        if (draft.checksum != null && draft.checksum != currentChecksum) {
+            Log.e("PublishingWorker", "Integrity check failed for draft $draftId")
+            draftRepository.updateUploadStatus(draftId, SyncStatus.Failed("Integrity check failed", recoverable = false))
+            return@withContext Result.failure()
+        }
+
+        // 0.5. Check remote status to avoid redundant uploads if already published
+        // If the process previously succeeded on the server but crashed before updating local DB
+        val remoteArtifact = artifactRepository.getArtifact(draftId).getOrNull()
+        if (remoteArtifact != null && remoteArtifact.status == ArtifactStatus.ACTIVE) {
+            Log.i("PublishingWorker", "Artifact $draftId is already ACTIVE on Firestore. Syncing local state.")
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                draftRepository.markAsPublished(draftId, draftId)
+            }
+            return@withContext Result.success()
+        }
+
         // 1. Check if already published to prevent duplicates
         if (draft.status.lifecycle == ArtifactLifecycle.PUBLISHED) {
             return@withContext Result.success()
@@ -53,59 +88,84 @@ class PublishingWorker @AssistedInject constructor(
         // 2. Use Frozen Snapshot if available
         val audioPath = draft.frozenAudioPath ?: draft.localAudioPath
         
-        // 3. Authentication check
-        val user = FirebaseAuth.getInstance().currentUser
-        if (user == null) {
-            draftRepository.updateUploadStatus(draftId, SyncStatus.Failed("User not authenticated"))
-            return@withContext Result.failure()
-        }
-
         try {
             // 4. Update state to UPLOADING
             draftRepository.updateUploadStatus(draftId, SyncStatus.Uploading(0f))
 
-            // 5. Check if Audio is already uploaded (Checkpoint)
+            // 4.2 Upload Transcript (New)
+            val transcriptUrl = if (draft.frozenTranscriptJson != null) {
+                artifactRepository.uploadTranscript(
+                    userId = firebaseUser.uid,
+                    draftId = draft.id,
+                    transcriptJson = draft.frozenTranscriptJson
+                ).getOrNull()
+            } else null
+
+            // 4.5 Fetch Anonymous Identity from Firestore
+            val userProfile = userRepository.getOrCreateProfile()
+
+            // 5. Pre-register Firestore Document (Checkpoint)
+            // Note: Since we use draftId as artifactId, createArtifactDocument is idempotent
+            artifactRepository.createArtifactDocument(
+                userId = firebaseUser.uid,
+                username = userProfile.anonymousName,
+                audioUrl = draft.uploadedAudioUrl ?: "",
+                draft = draft,
+                avatarSeed = userProfile.avatarSeed,
+                avatarColor = userProfile.avatarColor,
+                avatarConfig = userProfile.avatarConfig,
+                anonymousId = userProfile.anonymousId,
+                status = if (draft.uploadedAudioUrl != null) ArtifactStatus.ACTIVE else ArtifactStatus.PENDING_UPLOAD,
+                isPublic = if (draft.uploadedAudioUrl != null) draft.isPublic else false,
+                transcriptUrl = transcriptUrl
+            ).getOrThrow()
+
+            // 6. Check if Audio is already uploaded (Checkpoint)
             val downloadUrl = if (draft.uploadedAudioUrl != null) {
                 Log.i("PublishingWorker", "Using checkpointed audio URL for $draftId")
                 draft.uploadedAudioUrl
             } else {
                 // Upload Audio (Resumable)
                 val uploadResult = artifactRepository.uploadArtifactResumable(
-                    userId = user.uid,
+                    userId = firebaseUser.uid,
                     draft = draft.copy(localAudioPath = audioPath), // Use frozen path
                     onProgress = { transferred, total, sessionUri ->
-                        draftRepository.updateUploadProgress(draftId, transferred, total, sessionUri?.toString())
-                        updateNotificationIfNeeded(draft.title ?: "Artifact", transferred, total)
+                        val now = System.currentTimeMillis()
+                        // Throttle updates to every 500ms, but always allow 100% completion
+                        if (now - lastProgressUpdateTime > 500L || transferred == total) {
+                            lastProgressUpdateTime = now
+                            draftRepository.updateUploadProgress(draftId, transferred, total, sessionUri?.toString())
+                            updateNotificationIfNeeded(draft.title ?: "Artifact", transferred, total)
+                        }
                     }
                 )
 
                 val url = uploadResult.getOrThrow()
+                // HARDENING: Persist URL immediately to prevent re-upload on worker crash
+                draftRepository.updateUploadedAudioUrl(draftId, url)
                 url
             }
 
-            // 6. Fetch Anonymous Identity from Firestore
-            val userProfile = userRepository.getOrCreateProfile()
+            // 7. Update state to FINALIZING (Atomic Firestore update coming up)
+            draftRepository.updateUploadStatus(draftId, SyncStatus.Finalizing)
 
-            // 7. Create Firestore Document (using anonymous identity snapshot)
-            val firestoreResult = artifactRepository.createArtifactDocument(
-                userId = user.uid,
-                username = userProfile.anonymousName,
+            // 8. Finalize Firestore Document
+            artifactRepository.finalizeArtifactDocument(
+                artifactId = draftId,
                 audioUrl = downloadUrl,
-                draft = draft,
-                avatarSeed = userProfile.avatarSeed,
-                avatarColor = userProfile.avatarColor,
-                avatarConfig = userProfile.avatarConfig,
-                anonymousId = userProfile.anonymousId
-            )
+                status = ArtifactStatus.ACTIVE,
+                isPublic = draft.isPublic,
+                transcriptUrl = transcriptUrl
+            ).getOrThrow()
 
-            val remoteId = firestoreResult.getOrThrow()
+            val remoteId = draftId
 
-            // 7. Success - Atomically update state
+            // 9. Success - Atomically update state
             kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
                 draftRepository.markAsPublished(draftId, remoteId)
             }
 
-            // 8. Schedule Automatic Cleanup (30 days)
+            // 10. Schedule Automatic Cleanup (30 days)
             cleanupManager.scheduleRetentionCleanup(remoteId)
 
             NotificationHelper.showUploadSuccessNotification(appContext, draft.title ?: "Artifact")

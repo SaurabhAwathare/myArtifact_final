@@ -162,6 +162,7 @@ fun PublishingItem(
     val isFailed = syncStatus is com.saurabh.artifact.model.SyncStatus.Failed
     val isWaiting = syncStatus is com.saurabh.artifact.model.SyncStatus.WaitingForNetwork || 
                    syncStatus is com.saurabh.artifact.model.SyncStatus.Queued
+    val isFinalizing = syncStatus is com.saurabh.artifact.model.SyncStatus.Finalizing
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -172,20 +173,41 @@ fun PublishingItem(
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(
-                        text = draft.title?.ifBlank { "Publishing..." } ?: "Publishing...",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = draft.title?.ifBlank { "Publishing..." } ?: "Publishing...",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.weight(1f)
+                        )
+                        
+                        if (syncStatus is com.saurabh.artifact.model.SyncStatus.Uploading) {
+                            Text(
+                                text = "${(progress * 100).toInt()}%",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
                     Text(
                         text = when {
                             isFailed -> "Upload failed"
-                            syncStatus is com.saurabh.artifact.model.SyncStatus.WaitingForNetwork -> "Waiting for network..."
-                            syncStatus is com.saurabh.artifact.model.SyncStatus.Uploading -> "Uploading reflection..."
+                            syncStatus is com.saurabh.artifact.model.SyncStatus.WaitingForNetwork -> "Waiting for connection... 📡"
+                            isFinalizing -> "Finalizing reflection..."
+                            syncStatus is com.saurabh.artifact.model.SyncStatus.Uploading -> "Releasing your voice..."
                             else -> "Queued for upload..."
                         },
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (isFailed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                        color = when {
+                            isFailed -> MaterialTheme.colorScheme.error
+                            syncStatus is com.saurabh.artifact.model.SyncStatus.WaitingForNetwork -> MaterialTheme.colorScheme.primary
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        }
                     )
                 }
 
@@ -208,6 +230,12 @@ fun PublishingItem(
                     modifier = Modifier.fillMaxWidth().clip(CircleShape),
                     color = MaterialTheme.colorScheme.error,
                     trackColor = MaterialTheme.colorScheme.error.copy(alpha = 0.1f)
+                )
+            } else if (isFinalizing) {
+                LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth().clip(CircleShape),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
                 )
             } else {
                 LinearProgressIndicator(

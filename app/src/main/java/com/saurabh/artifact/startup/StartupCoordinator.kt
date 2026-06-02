@@ -36,7 +36,8 @@ import javax.inject.Singleton
 @Singleton
 class StartupCoordinator @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val recoveryEngine: Lazy<RecoveryEngine>
+    private val recoveryEngine: Lazy<RecoveryEngine>,
+    private val workManager: WorkManager
 ) {
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     
@@ -158,6 +159,7 @@ class StartupCoordinator @Inject constructor(
         Log.d("Startup", "Initializing Background Services")
         scheduleDailyReminder()
         scheduleOrphanCleanup()
+        schedulePublishingRecovery()
         StartupTracer.mark("Background Services Ready")
     }
 
@@ -167,7 +169,7 @@ class StartupCoordinator @Inject constructor(
             .addTag("daily_reminder")
             .build()
 
-        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+        workManager.enqueueUniquePeriodicWork(
             "daily_reflection_reminder",
             ExistingPeriodicWorkPolicy.KEEP,
             reminderRequest
@@ -181,10 +183,24 @@ class StartupCoordinator @Inject constructor(
             .addTag("orphan_cleanup")
             .build()
 
-        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+        workManager.enqueueUniquePeriodicWork(
             "orphan_media_cleanup",
             ExistingPeriodicWorkPolicy.KEEP,
             cleanupRequest
+        )
+    }
+
+    private fun schedulePublishingRecovery() {
+        // Run publishing recovery every 1 hour
+        val recoveryRequest = PeriodicWorkRequestBuilder<com.saurabh.artifact.worker.PublishingRecoveryWorker>(1, TimeUnit.HOURS)
+            .setInitialDelay(1, TimeUnit.MINUTES)
+            .addTag("publishing_recovery")
+            .build()
+
+        workManager.enqueueUniquePeriodicWork(
+            "publishing_recovery_job",
+            ExistingPeriodicWorkPolicy.KEEP,
+            recoveryRequest
         )
     }
 
@@ -198,7 +214,7 @@ class StartupCoordinator @Inject constructor(
             .addTag("startup_recovery")
             .build()
             
-        WorkManager.getInstance(context).enqueueUniqueWork(
+        workManager.enqueueUniqueWork(
             "startup_recovery_job",
             ExistingWorkPolicy.KEEP,
             recoveryRequest

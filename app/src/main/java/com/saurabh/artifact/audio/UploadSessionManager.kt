@@ -1,9 +1,9 @@
 package com.saurabh.artifact.audio
 
 import com.saurabh.artifact.data.local.DraftDao
-import com.saurabh.artifact.model.AmbientUploadStatus
+import kotlinx.coroutines.delay
+import com.saurabh.artifact.model.PublishState
 import com.saurabh.artifact.model.ArtifactDraftState
-import com.saurabh.artifact.model.UploadSession
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -13,17 +13,17 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Orchestrates ambient upload state by observing the local database.
+ * Orchestrates the unified publishing state by observing the local database.
  * Provides a single source of truth for the UI's ambient upload bar.
  */
 @Singleton
-class UploadSessionManager @Inject constructor(
+class PublishStateManager @Inject constructor(
     private val draftDao: DraftDao
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
-    private val _currentSession = MutableStateFlow<UploadSession?>(null)
-    val currentSession: StateFlow<UploadSession?> = _currentSession.asStateFlow()
+    private val _currentPublishState = MutableStateFlow<PublishState?>(null)
+    val currentPublishState: StateFlow<PublishState?> = _currentPublishState.asStateFlow()
 
     // Track dismissed drafts by their state to prevent annoying re-pops on minor DB updates
     private val dismissedDraftStates = mutableMapOf<String, ArtifactDraftState>()
@@ -36,28 +36,26 @@ class UploadSessionManager @Inject constructor(
         scope.launch {
             draftDao.observeDrafts()
                 .map { drafts ->
-                    // Find the most relevant active upload
+                    // Find the most relevant active upload/publish
                     drafts.firstOrNull { 
                         it.draftState == ArtifactDraftState.UPLOADING || 
                         it.draftState == ArtifactDraftState.AUDIO_UPLOADED ||
                         it.draftState == ArtifactDraftState.APPROVED_FOR_PUBLISH ||
-                        it.draftState == ArtifactDraftState.ERROR // Keep error visible
+                        it.draftState == ArtifactDraftState.ERROR || // Keep error visible
+                        it.draftState == ArtifactDraftState.PUBLISHED // Handle transition to published
                     }
                 }
                 .distinctUntilChangedBy { it?.id to it?.draftState to it?.uploadedBytes }
                 .collect { activeDraft ->
                     if (activeDraft == null) {
-                        // If we had a session that was completed or errored, we might want to keep it visible for a moment
-                        // but for others we clear it immediately.
-                        val currentStatus = _currentSession.value?.status
-                        if (currentStatus !is AmbientUploadStatus.Completed && currentStatus !is AmbientUploadStatus.Error) {
-                            _currentSession.value = null
+                        val currentState = _currentPublishState.value
+                        if (currentState !is PublishState.Published && currentState !is PublishState.Error) {
+                            _currentPublishState.value = null
                         }
                         return@collect
                     }
 
-                    // Check if this specific draft state was already dismissed by the user
-                    // We check BOTH ID and State to allow the same draft to re-appear if it moves to a new phase (e.g. ERROR -> UPLOADING)
+                    // Check dismissal
                     if (dismissedDraftStates[activeDraft.id] == activeDraft.draftState) {
                         return@collect
                     }
@@ -66,44 +64,35 @@ class UploadSessionManager @Inject constructor(
                         activeDraft.uploadedBytes.toFloat() / activeDraft.totalBytes.toFloat()
                     } else 0f
 
-                    val status = when (activeDraft.draftState) {
-                        ArtifactDraftState.APPROVED_FOR_PUBLISH -> AmbientUploadStatus.Initializing
+                    val title = activeDraft.title ?: "Untitled Artifact"
+                    val id = activeDraft.id
+
+                    val newState = when (activeDraft.draftState) {
+                        ArtifactDraftState.APPROVED_FOR_PUBLISH -> PublishState.Preparing(id, title)
                         ArtifactDraftState.UPLOADING -> {
-                            if (progress < 0.90f) {
-                                AmbientUploadStatus.UploadingAudio(progress)
+                            if (progress < 0.95f) {
+                                PublishState.Uploading(id, title, progress)
                             } else {
-                                AmbientUploadStatus.SavingArtifact
+                                PublishState.Finalizing(id, title)
                             }
                         }
-                        ArtifactDraftState.AUDIO_UPLOADED -> AmbientUploadStatus.SavingArtifact
-                        ArtifactDraftState.PUBLISHED -> AmbientUploadStatus.Completed
-                        ArtifactDraftState.WAITING_FOR_NETWORK -> AmbientUploadStatus.WaitingQuietly
-                        ArtifactDraftState.FAILED_UPLOAD -> AmbientUploadStatus.Error(
-                            "Holding safely. We'll try sharing it again later.",
-                            recoverable = true
+                        ArtifactDraftState.AUDIO_UPLOADED -> PublishState.Finalizing(id, title)
+                        ArtifactDraftState.PUBLISHED -> PublishState.Published(id, title, activeDraft.remoteArtifactId ?: id)
+                        ArtifactDraftState.WAITING_FOR_NETWORK -> PublishState.Uploading(id, title, progress, isWaitingForNetwork = true)
+                        ArtifactDraftState.FAILED_UPLOAD, ArtifactDraftState.ERROR -> PublishState.Error(
+                            id, title, "Something went wrong with the sync.", isRecoverable = true
                         )
-                        ArtifactDraftState.ERROR -> AmbientUploadStatus.Error(
-                            "Your reflection is safe. Something went wrong with the sync.",
-                            recoverable = true
-                        )
-                        else -> AmbientUploadStatus.Initializing
+                        else -> PublishState.Idle(id, title)
                     }
 
-                    _currentSession.value = UploadSession(
-                        draftId = activeDraft.id,
-                        title = activeDraft.title ?: "Untitled Artifact",
-                        status = status,
-                        progress = progress
-                    )
+                    _currentPublishState.value = newState
 
-                    // Auto-dismiss completed or error session after a delay
-                    if (status is AmbientUploadStatus.Completed || status is AmbientUploadStatus.Error) {
+                    // Auto-dismiss terminal states
+                    if (newState is PublishState.Published || newState is PublishState.Error) {
                         scope.launch {
-                            // Shorter delay for errors to clear UI faster on startup if it was a stale error
-                            val delayMs = if (status is AmbientUploadStatus.Error) 5000L else 5000L
-                            kotlinx.coroutines.delay(delayMs)
-                            if (_currentSession.value?.draftId == activeDraft.id && _currentSession.value?.status == status) {
-                                _currentSession.value = null
+                            delay(5000L)
+                            if (_currentPublishState.value?.draftId == activeDraft.id) {
+                                _currentPublishState.value = null
                             }
                         }
                     }
@@ -112,18 +101,16 @@ class UploadSessionManager @Inject constructor(
     }
 
     fun dismissSession() {
-        val current = _currentSession.value
+        val current = _currentPublishState.value
         if (current != null) {
-            // Record this dismissal to prevent it from coming back until state changes
             scope.launch {
                 val draft = draftDao.getDraftById(current.draftId)
                 if (draft != null) {
                     dismissedDraftStates[draft.id] = draft.draftState
                 }
-                _currentSession.value = null
+                _currentPublishState.value = null
             }
-        } else {
-            _currentSession.value = null
         }
     }
 }
+

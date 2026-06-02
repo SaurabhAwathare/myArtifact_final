@@ -30,6 +30,7 @@ data class ModerationMetadata(
 data class UserReport(
     var id: String = "",
     var artifactId: String = "",
+    var commentId: String? = null, // Optional: if reporting a specific comment
     var reporterDeviceId: Int = 0, // Hashed device ID for privacy
     var reason: ReportReason = ReportReason.OTHER,
     var details: String = "",

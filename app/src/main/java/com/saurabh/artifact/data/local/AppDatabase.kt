@@ -8,7 +8,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [QueuedUpload::class, PromptEntity::class, ArtifactEngagement::class, ArtifactEntity::class],
-    version = 37,
+    version = 38,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -19,6 +19,12 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun artifactDao(): ArtifactDao
 
     companion object {
+        val MIGRATION_37_38 = object : Migration(37, 38) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `artifacts` ADD COLUMN `transcriptUrl` TEXT")
+            }
+        }
+
         val MIGRATION_36_37 = object : Migration(36, 37) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("""

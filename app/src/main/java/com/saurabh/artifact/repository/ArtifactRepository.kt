@@ -108,45 +108,6 @@ class ArtifactRepository @Inject constructor(
         draftDao.updateDraftState(draftId, ArtifactDraftState.WAITING_COOLDOWN)
     }
 
-    suspend fun finalizePublish(draftId: String): Result<Unit> = withContext(Dispatchers.IO) {
-        return@withContext try {
-            val draft = draftDao.getDraftById(draftId) ?: return@withContext Result.failure(Exception("Draft not found"))
-            
-            // 1. Ensure we have an authenticated user
-            val userId = firestore.app.get(com.google.firebase.auth.FirebaseAuth::class.java).currentUser?.uid 
-                ?: return@withContext Result.failure(Exception("Unauthenticated user"))
-
-            // 2. Resumable Upload to Firebase Storage
-            val audioUrl = uploadArtifactResumable(userId, draft).getOrNull()
-                ?: return@withContext Result.failure(Exception("Failed to upload audio to storage"))
-
-            // 3. Create Firestore Artifact Document
-            val userProfile = userRepository.getOrCreateProfile()
-            createArtifactDocument(
-                userId = userId,
-                username = userProfile.anonymousName.ifEmpty { "Quiet Presence" },
-                audioUrl = audioUrl,
-                draft = draft,
-                avatarSeed = userProfile.avatarSeed,
-                avatarConfig = userProfile.avatarConfig,
-                anonymousId = userProfile.anonymousId,
-                anonymousSigil = userProfile.anonymousSigil
-            ).onSuccess {
-                // 4. Cleanup local draft on success
-                deleteDraftLocally(draftId)
-            }.onFailure { e ->
-                Log.e("ArtifactRepository", "Firestore creation failed for draft $draftId", e)
-                throw e
-            }
-
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Log.e("ArtifactRepository", "Finalize publish failed for $draftId", e)
-            Result.failure(AppError.from(e))
-        }
-    }
-
-
     /**
      * Fetches a smart, context-aware reflection prompt with real-time safety evaluation.
      * Prioritizes safety overrides for high-risk emotional signals.
@@ -229,6 +190,7 @@ class ArtifactRepository @Inject constructor(
             "createdAt" to artifact.createdAt,
             "isPublic" to artifact.isPublic,
             "visibility" to artifact.visibility.name,
+            "status" to artifact.status.name,
             "isDraft" to artifact.isDraft,
             "durationMs" to artifact.durationMs,
             "title" to artifact.title,
@@ -248,14 +210,7 @@ class ArtifactRepository @Inject constructor(
             "reactionCount" to artifact.reactionCount,
             "commentCount" to artifact.commentCount,
             "reportCount" to artifact.reportCount,
-            "transcript" to artifact.transcript.map { segment ->
-                mapOf(
-                    "text" to segment.text,
-                    "startMs" to segment.startMs,
-                    "endMs" to segment.endMs,
-                    "confidence" to segment.confidence
-                )
-            }
+            "transcriptUrl" to artifact.transcriptUrl
         )
     }
 
@@ -296,6 +251,40 @@ class ArtifactRepository @Inject constructor(
                 }
             }
 
+            val userProfile = userRepository.getOrCreateProfile()
+            val artifactId = "art_${userId}_${System.currentTimeMillis()}"
+
+            // 1. Pre-register Document
+            val preDraft = ArtifactDraftEntity(
+                id = artifactId,
+                localAudioPath = uploadUri.path ?: "",
+                title = title,
+                durationMs = duration,
+                isPublic = isPublic,
+                emotion = emotion,
+                amplitudeData = amplitudeData,
+                reactionVisibility = reactionVisibility
+            )
+            
+            // 1.5 Fetch transcript if available locally (Optional optimization)
+            // Note: In this direct upload method, we might not have a frozen transcript yet
+            // if called from somewhere other than the standard publish flow.
+            
+            createArtifactDocument(
+                userId = userId,
+                username = username,
+                audioUrl = "",
+                draft = preDraft,
+                avatarSeed = avatarSeed.ifEmpty { userProfile.avatarSeed },
+                avatarColor = userProfile.avatarColor,
+                avatarConfig = userProfile.avatarConfig,
+                anonymousId = userProfile.anonymousId,
+                anonymousSigil = userProfile.anonymousSigil,
+                status = ArtifactStatus.PENDING_UPLOAD,
+                isPublic = false
+            ).getOrThrow()
+
+            // 2. Upload File
             fileRef.putFile(uploadUri)
                 .addOnProgressListener { taskSnapshot ->
                     val progress = (100.0 * taskSnapshot.bytesTransferred / taskSnapshot.totalByteCount)
@@ -304,60 +293,36 @@ class ArtifactRepository @Inject constructor(
 
             val downloadUrl = fileRef.downloadUrl.await().toString()
 
-            val userProfile = userRepository.getOrCreateProfile()
-
-            val artifact = Artifact(
-                userId = userId,
-                author = AuthorSnapshot(
-                    anonymousId = userProfile.anonymousId,
-                    name = username,
-                    sigil = userProfile.anonymousSigil,
-                    avatarSeed = avatarSeed,
-                    avatarColor = userProfile.avatarColor,
-                    avatarConfig = userProfile.avatarConfig
-                ),
+            // 3. Finalize Document
+            finalizeArtifactDocument(
+                artifactId = artifactId,
                 audioUrl = downloadUrl,
-                createdAt = Timestamp.now(),
-                isPublic = isPublic,
-                visibility = if (isPublic) Visibility.PUBLIC else Visibility.PRIVATE,
-                isDraft = false,
-                durationMs = duration,
-                title = title,
-                emotion = emotion,
-                emotionTag = emotionTag,
-                emotionConfidence = emotionConfidence,
-                prompt = prompt,
-                amplitudeData = amplitudeData,
-                reactionVisibility = reactionVisibility,
-                moderation = ModerationMetadata(
-                    status = ModerationStatus.SAFE, // Initial state, will be updated by Cloud Function
-                    updatedAt = Timestamp.now()
-                )
-            )
+                status = ArtifactStatus.ACTIVE,
+                isPublic = isPublic
+            ).getOrThrow()
 
-            try {
-                val artifactData = mapArtifactToFirestore(artifact)
-                val docRef = firestore.collection("artifacts").add(artifactData).await()
-                
-                // Create in-app notification for the user
-                notificationRepository.createNotification(
-                    userId = userId,
-                    message = "You released a new reflection into the world: $title ✨",
-                    artifactId = docRef.id,
-                    type = NotificationType.SYSTEM
-                )
-                
-                Result.success(Unit)
-            } catch (firestoreEx: Exception) {
-                // HARDENING: Clean up the orphaned file in Storage if Firestore entry fails
-                Log.e("ArtifactRepository", "Firestore write failed, deleting orphaned file", firestoreEx)
-                fileRef.delete().await()
-                Result.failure(firestoreEx)
-            }
+            // 4. Create in-app notification for the user
+            notificationRepository.createNotification(
+                userId = userId,
+                message = "You released a new reflection into the world: $title ✨",
+                artifactId = artifactId,
+                type = NotificationType.SYSTEM
+            )
+            
+            Result.success(Unit)
         } catch (e: Exception) {
             Log.e("ArtifactRepository", "Upload failed", e)
             Result.failure(e)
         }
+    }
+
+    /**
+     * Cleans up old cached artifacts to prevent local DB growth.
+     */
+    suspend fun runCacheCleanup() = withContext(Dispatchers.IO) {
+        // Keep artifacts from the last 14 days
+        val twoWeeksAgo = System.currentTimeMillis() - (14 * 24 * 60 * 60 * 1000L)
+        artifactDao.deleteOldArtifacts(twoWeeksAgo)
     }
 
     suspend fun getArtifactDetail(artifactId: String): ArtifactDetail = withContext(Dispatchers.IO) {
@@ -390,20 +355,34 @@ class ArtifactRepository @Inject constructor(
         )
     }
 
-    suspend fun getArtifactById(artifactId: String): Artifact? = withContext(Dispatchers.IO) {
-        // 1. Try local cache first
-        val local = artifactDao.getArtifactById(artifactId)
-        if (local != null) return@withContext mapEntityToArtifact(local)
+    suspend fun getArtifactById(artifactId: String, forceRefresh: Boolean = false): Artifact? = withContext(Dispatchers.IO) {
+        // 1. Try local cache first if not forcing refresh
+        if (!forceRefresh) {
+            val local = artifactDao.getArtifactById(artifactId)
+            if (local != null) return@withContext mapEntityToArtifact(local)
+        }
 
-        // 2. Fallback to Firestore
+        // 2. Fallback to Firestore (or forced refresh)
         return@withContext try {
             val doc = firestore.collection("artifacts").document(artifactId).get().await()
             if (doc.exists()) {
-                doc.toObject(Artifact::class.java)?.copy(id = doc.id)
+                val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
+                if (artifact != null) {
+                    // Update local cache
+                    artifactDao.insertAll(listOf(mapToEntity(artifact)))
+                    artifact
+                } else null
             } else null
         } catch (e: Exception) {
             null
         }
+    }
+
+    /**
+     * Refreshes local metadata for an artifact from Firestore.
+     */
+    suspend fun refreshArtifactMetadata(artifactId: String) {
+        getArtifactById(artifactId, forceRefresh = true)
     }
 
     suspend fun getPendingReports(): Result<List<UserReport>> = withContext(Dispatchers.IO) {
@@ -427,23 +406,34 @@ class ArtifactRepository @Inject constructor(
     suspend fun resolveReport(
         reportId: String,
         artifactId: String,
-        action: ModerationAction
+        action: ModerationAction,
+        commentId: String? = null
     ): Result<Unit> = withContext(Dispatchers.IO) {
         val reportRef = firestore.collection("reports").document(reportId)
         val artifactRef = firestore.collection("artifacts").document(artifactId)
+        val commentRef = commentId?.let { firestore.collection("comments").document(it) }
 
         return@withContext try {
             firestore.runTransaction { transaction ->
                 val status = when (action) {
-                    ModerationAction.HIDE_ARTIFACT -> ReportStatus.RESOLVED
+                    ModerationAction.HIDE_ARTIFACT, ModerationAction.BLOCK_COMMENT, ModerationAction.APPROVE_COMMENT -> ReportStatus.RESOLVED
                     ModerationAction.DISMISS -> ReportStatus.DISMISSED
                 }
                 
                 transaction.update(reportRef, "status", status.name)
                 
-                if (action == ModerationAction.HIDE_ARTIFACT) {
-                    transaction.update(artifactRef, "moderation.status", ModerationStatus.HIDDEN.name)
-                    transaction.update(artifactRef, "isPublic", false)
+                when (action) {
+                    ModerationAction.HIDE_ARTIFACT -> {
+                        transaction.update(artifactRef, "moderation.status", ModerationStatus.HIDDEN.name)
+                        transaction.update(artifactRef, "isPublic", false)
+                    }
+                    ModerationAction.BLOCK_COMMENT -> {
+                        commentRef?.let { transaction.update(it, "moderationState", CommentModerationState.BLOCKED.name) }
+                    }
+                    ModerationAction.APPROVE_COMMENT -> {
+                        commentRef?.let { transaction.update(it, "moderationState", CommentModerationState.APPROVED.name) }
+                    }
+                    ModerationAction.DISMISS -> { /* Just resolve the report */ }
                 }
             }.await()
             Result.success(Unit)
@@ -455,6 +445,8 @@ class ArtifactRepository @Inject constructor(
 
     enum class ModerationAction {
         HIDE_ARTIFACT,
+        BLOCK_COMMENT,
+        APPROVE_COMMENT,
         DISMISS
     }
 
@@ -542,46 +534,45 @@ class ArtifactRepository @Inject constructor(
         artifactId: String,
         reason: ReportReason,
         details: String,
-        deviceId: Int
+        deviceId: Int,
+        commentId: String? = null
     ): Result<Unit> = withContext(Dispatchers.IO) {
         return@withContext try {
             // 1. Ensure we have an authenticated user
             val userId = auth.currentUser?.uid 
                 ?: return@withContext Result.failure(AppError.Unauthenticated())
 
-            val report = UserReport(
-                id = UUID.randomUUID().toString(),
-                artifactId = artifactId,
-                reporterDeviceId = deviceId,
-                reason = reason,
-                details = details,
-                createdAt = Timestamp.now(),
-                status = ReportStatus.PENDING
-            )
-            
-            val reportData = mapOf(
-                "artifactId" to report.artifactId,
-                "reporterDeviceId" to report.reporterDeviceId,
-                "reason" to report.reason.name,
-                "details" to report.details,
-                "createdAt" to report.createdAt,
-                "status" to report.status.name,
+            val reportId = UUID.randomUUID().toString()
+            val reportData = mutableMapOf<String, Any?>(
+                "artifactId" to artifactId,
+                "commentId" to commentId,
+                "reporterDeviceId" to deviceId,
+                "reason" to reason.name,
+                "details" to details,
+                "createdAt" to Timestamp.now(),
+                "status" to ReportStatus.PENDING.name,
                 "reporterId" to userId
             )
             
             // 2. Submit the report document
-            firestore.collection("reports").add(reportData).await()
+            firestore.collection("reports").document(reportId).set(reportData).await()
             
-            // 3. Increment report count on the artifact for quick thresholding
+            // 3. Increment report count on the artifact/comment for quick thresholding
             try {
-                firestore.collection("artifacts").document(artifactId)
-                    .update(
-                        "reportCount", FieldValue.increment(1),
-                        "safetyConcernCount", FieldValue.increment(1)
-                    )
-                    .await()
+                if (commentId != null) {
+                    firestore.collection("comments").document(commentId)
+                        .update("reportCount", FieldValue.increment(1))
+                        .await()
+                } else {
+                    firestore.collection("artifacts").document(artifactId)
+                        .update(
+                            "reportCount", FieldValue.increment(1),
+                            "safetyConcernCount", FieldValue.increment(1)
+                        )
+                        .await()
+                }
             } catch (e: Exception) {
-                Log.e("ArtifactRepository", "Report metadata update failed for $artifactId", e)
+                Log.e("ArtifactRepository", "Report metadata update failed", e)
             }
                 
             Result.success(Unit)
@@ -658,7 +649,33 @@ class ArtifactRepository @Inject constructor(
             playCount = entity.playCount,
             reactionCount = entity.reactionCount,
             commentCount = entity.commentCount,
-            amplitudeData = entity.amplitudeData
+            amplitudeData = entity.amplitudeData,
+            transcriptUrl = entity.transcriptUrl
+        )
+    }
+
+    private fun mapToEntity(artifact: Artifact): ArtifactEntity {
+        return ArtifactEntity(
+            id = artifact.id,
+            userId = artifact.userId,
+            authorAnonymousId = artifact.author.anonymousId,
+            authorName = artifact.author.name,
+            authorSigil = artifact.author.sigil,
+            authorAvatarSeed = artifact.author.avatarSeed,
+            authorAvatarColor = artifact.author.avatarColor,
+            authorAvatarConfigJson = kotlinx.serialization.json.Json.encodeToString(artifact.author.avatarConfig),
+            audioUrl = artifact.audioUrl,
+            createdAt = artifact.createdAt.toDate().time,
+            durationMs = artifact.durationMs,
+            title = artifact.title,
+            description = artifact.description,
+            emotion = artifact.emotion,
+            emotionTag = artifact.emotionTag,
+            playCount = artifact.playCount,
+            reactionCount = artifact.reactionCount,
+            commentCount = artifact.commentCount,
+            amplitudeData = artifact.amplitudeData,
+            transcriptUrl = artifact.transcriptUrl
         )
     }
 
@@ -669,6 +686,7 @@ class ArtifactRepository @Inject constructor(
         return@withContext try {
             val snapshot = firestore.collection("artifacts")
                 .whereEqualTo("isPublic", true)
+                .whereEqualTo("status", ArtifactStatus.ACTIVE.name)
                 .orderBy("createdAt", Query.Direction.DESCENDING)
                 .limit(limit)
                 .get()
@@ -888,7 +906,7 @@ class ArtifactRepository @Inject constructor(
         var currentRetry = 0
 
         val originalFile = File(draft.localAudioPath)
-        if (!originalFile.exists()) return@withContext Result.failure(Exception("File missing"))
+        if (!originalFile.exists()) return@withContext Result.failure(Exception("File missing: ${draft.localAudioPath}"))
 
         val fileToUpload = originalFile
         val isTemp = false
@@ -916,11 +934,30 @@ class ArtifactRepository @Inject constructor(
                             fileRef.putFile(Uri.fromFile(fileToUpload), metadata)
                         }
 
-                        val taskSnapshot = uploadTask.addOnProgressListener { snapshot ->
-                            launch {
-                                onProgress(snapshot.bytesTransferred, snapshot.totalByteCount, snapshot.uploadSessionUri)
+                        val taskSnapshot = try {
+                            uploadTask.addOnProgressListener { snapshot ->
+                                launch {
+                                    onProgress(snapshot.bytesTransferred, snapshot.totalByteCount, snapshot.uploadSessionUri)
+                                }
+                            }.await()
+                        } catch (e: com.google.firebase.storage.StorageException) {
+                            // Detect expired or invalid resumable session (404/410)
+                            val httpCode = e.httpResultCode
+                            if (draft.uploadSessionUri != null && (httpCode == 404 || httpCode == 410)) {
+                                Log.w("ArtifactRepository", "Resumable session expired (HTTP $httpCode). Clearing URI and restarting.")
+                                // Clear the invalid session URI in the DB via DAO
+                                draftDao.updateSyncProgress(draft.id, 0, draft.totalBytes, null)
+                                
+                                // Restart without the session URI
+                                fileRef.putFile(Uri.fromFile(fileToUpload), metadata).addOnProgressListener { snapshot ->
+                                    launch {
+                                        onProgress(snapshot.bytesTransferred, snapshot.totalByteCount, snapshot.uploadSessionUri)
+                                    }
+                                }.await()
+                            } else {
+                                throw e
                             }
-                        }.await()
+                        }
 
                         // HARDENING: Retrieve downloadUrl from snapshot storage reference for better reliability
                         val downloadUrl = retryMetadataFetch(taskSnapshot.storage)
@@ -929,11 +966,19 @@ class ArtifactRepository @Inject constructor(
                         Result.success(downloadUrl)
                     }
                 } catch (e: Exception) {
-                    currentRetry++
-                    if (currentRetry > maxRetries || e is CancellationException) {
-                        Log.e("ArtifactRepository", "Terminal upload failure after $currentRetry retries. Possible causes: Network, App Check (403), or Storage Rules.", e)
-                        throw e
+                    if (e is CancellationException) throw e
+                    
+                    if (!isTransientError(e)) {
+                        Log.e("ArtifactRepository", "Terminal upload failure: ${e.message}")
+                        return@withContext Result.failure(e)
                     }
+
+                    currentRetry++
+                    if (currentRetry > maxRetries) {
+                        Log.e("ArtifactRepository", "Max retries exceeded for transient error", e)
+                        return@withContext Result.failure(e)
+                    }
+
                     val delayTime = (2.0.pow(currentRetry.toDouble()).toLong() * 1000L)
                     Log.w("ArtifactRepository", "Upload attempt $currentRetry failed, retrying in $delayTime ms", e)
                     delay(delayTime)
@@ -947,6 +992,46 @@ class ArtifactRepository @Inject constructor(
             if (isTemp) {
                 Log.d("ArtifactRepository", "Cleaning up temporary decrypted file")
                 fileToUpload.delete()
+            }
+        }
+    }
+
+    /**
+     * Determines if an error is transient (retriable) or terminal.
+     */
+    fun isTransientError(e: Throwable): Boolean {
+        return Companion.isTransientError(e)
+    }
+
+    companion object {
+        fun isTransientError(e: Throwable): Boolean {
+            return when (e) {
+                is java.net.SocketTimeoutException,
+                is java.net.UnknownHostException,
+                is java.net.ConnectException,
+                is java.net.SocketException,
+                is java.io.InterruptedIOException -> true
+                is com.google.firebase.storage.StorageException -> {
+                    when (e.errorCode) {
+                        com.google.firebase.storage.StorageException.ERROR_RETRY_LIMIT_EXCEEDED,
+                        com.google.firebase.storage.StorageException.ERROR_NOT_AUTHENTICATED, // Often transient token issue
+                        com.google.firebase.storage.StorageException.ERROR_QUOTA_EXCEEDED,
+                        com.google.firebase.storage.StorageException.ERROR_NOT_AUTHORIZED -> true // Can be transient if token expired
+                        else -> {
+                            val httpCode = e.httpResultCode
+                            httpCode == 408 || httpCode == 429 || httpCode >= 500
+                        }
+                    }
+                }
+                is com.google.firebase.firestore.FirebaseFirestoreException -> {
+                    when (e.code) {
+                        com.google.firebase.firestore.FirebaseFirestoreException.Code.UNAVAILABLE,
+                        com.google.firebase.firestore.FirebaseFirestoreException.Code.DEADLINE_EXCEEDED,
+                        com.google.firebase.firestore.FirebaseFirestoreException.Code.ABORTED -> true
+                        else -> false
+                    }
+                }
+                else -> false
             }
         }
     }
@@ -993,7 +1078,10 @@ class ArtifactRepository @Inject constructor(
         avatarColor: String = "#FFD700",
         avatarConfig: AvatarConfig = AvatarConfig(),
         anonymousId: String = "",
-        anonymousSigil: String = ""
+        anonymousSigil: String = "",
+        status: ArtifactStatus = ArtifactStatus.ACTIVE,
+        isPublic: Boolean = true,
+        transcriptUrl: String? = null
     ): Result<String> = withContext(Dispatchers.IO) {
         return@withContext try {
             // 1. Recover Transcript from Frozen Snapshot
@@ -1019,8 +1107,9 @@ class ArtifactRepository @Inject constructor(
                 ),
                 audioUrl = audioUrl,
                 createdAt = Timestamp.now(),
-                isPublic = true,
-                visibility = Visibility.PUBLIC,
+                isPublic = isPublic,
+                visibility = if (isPublic) Visibility.PUBLIC else Visibility.PRIVATE,
+                status = status,
                 isDraft = false,
                 durationMs = draft.durationMs,
                 title = draft.title ?: "Untitled Artifact",
@@ -1029,6 +1118,7 @@ class ArtifactRepository @Inject constructor(
                 emotionTag = draft.emotion ?: "",
                 prompt = "",
                 transcript = transcript,
+                transcriptUrl = transcriptUrl,
                 amplitudeData = draft.amplitudeData,
                 reactionVisibility = draft.reactionVisibility ?: ReactionVisibilityMode.APPROXIMATE,
                 moderation = ModerationMetadata(
@@ -1038,26 +1128,95 @@ class ArtifactRepository @Inject constructor(
             )
             val artifactData = mapArtifactToFirestore(artifact)
             
-            // 2. Deterministic Write (Idempotent)
-            firestore.collection("artifacts").document(draft.id).set(artifactData).await()
+            // 2. Atomic Deterministic Write (Idempotent)
+            firestore.runBatch { batch ->
+                // A. Public Artifact Entry
+                val artifactRef = firestore.collection("artifacts").document(draft.id)
+                batch.set(artifactRef, artifactData)
+
+                // B. Private Ownership Record
+                val ownershipRef = firestore.collection("users").document(userId)
+                    .collection("private").document("published_artifacts")
+                    .collection("artifacts").document(draft.id)
+                batch.set(ownershipRef, mapOf("createdAt" to Timestamp.now()))
+            }.await()
             
-            // Record ownership in private collection for secure management
-            val ownershipRef = firestore.collection("users").document(userId)
-                .collection("private").document("published_artifacts")
-                .collection("artifacts").document(draft.id)
-            
-            ownershipRef.set(mapOf("createdAt" to Timestamp.now())).await()
-            
-            // Create in-app notification for the user
-            notificationRepository.createNotification(
-                userId = userId,
-                message = "You published a new artifact: ${artifact.title} ✨",
-                artifactId = draft.id
-            )
+            if (status == ArtifactStatus.ACTIVE) {
+                // Create in-app notification for the user
+                notificationRepository.createNotification(
+                    userId = userId,
+                    message = "You published a new artifact: ${artifact.title} ✨",
+                    artifactId = draft.id
+                )
+            }
 
             Result.success(draft.id)
         } catch (e: Exception) {
             Log.e("ArtifactRepository", "Firestore write failed", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Finalizes a pre-registered artifact by adding the audio URL and marking it as ACTIVE.
+     */
+    suspend fun finalizeArtifactDocument(
+        artifactId: String,
+        audioUrl: String,
+        status: ArtifactStatus,
+        isPublic: Boolean,
+        transcriptUrl: String? = null
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        return@withContext try {
+            val updates = mutableMapOf<String, Any>(
+                "audioUrl" to audioUrl,
+                "status" to status.name,
+                "isPublic" to isPublic,
+                "visibility" to if (isPublic) Visibility.PUBLIC.name else Visibility.PRIVATE.name
+            )
+            transcriptUrl?.let { updates["transcriptUrl"] = it }
+
+            firestore.collection("artifacts").document(artifactId)
+                .update(updates).await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("ArtifactRepository", "Failed to finalize artifact $artifactId", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun uploadTranscript(
+        userId: String,
+        draftId: String,
+        transcriptJson: String
+    ): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val fileName = "transcripts/${userId}_${draftId}.json"
+            val fileRef = storage.reference.child(fileName)
+            
+            val metadata = StorageMetadata.Builder()
+                .setContentType("application/json")
+                .setCustomMetadata("draftId", draftId)
+                .build()
+
+            fileRef.putBytes(transcriptJson.toByteArray(), metadata).await()
+            val downloadUrl = fileRef.downloadUrl.await().toString()
+            Result.success(downloadUrl)
+        } catch (e: Exception) {
+            Log.e("ArtifactRepository", "Transcript upload failed", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchTranscript(url: String): Result<List<TranscriptSegment>> = withContext(Dispatchers.IO) {
+        try {
+            val ref = storage.getReferenceFromUrl(url)
+            val bytes = ref.getBytes(1024 * 1024).await() // 1MB limit for transcript JSON
+            val json = String(bytes)
+            val transcript = kotlinx.serialization.json.Json.decodeFromString<List<TranscriptSegment>>(json)
+            Result.success(transcript)
+        } catch (e: Exception) {
+            Log.e("ArtifactRepository", "Failed to fetch transcript from $url", e)
             Result.failure(e)
         }
     }

@@ -42,9 +42,27 @@ fun PublishPreparationScreen(
     }
 
     LaunchedEffect(uiState.isSuccess) {
-        if (uiState.isSuccess) {
+        if (uiState.isSuccess && !uiState.isQueuedOffline) {
             onPublished()
         }
+    }
+
+    if (uiState.isSuccess && uiState.isQueuedOffline) {
+        AlertDialog(
+            onDismissRequest = { onPublished() },
+            title = { Text("Queued for Upload") },
+            text = { 
+                Text("You're currently offline. Your artifact has been saved and will be published automatically as soon as you're back online.") 
+            },
+            confirmButton = {
+                TextButton(onClick = { onPublished() }) {
+                    Text("Got it")
+                }
+            },
+            containerColor = ArtifactTheme.colors.surfaceHearth,
+            titleContentColor = ArtifactTheme.colors.onSurfaceMain,
+            textContentColor = ArtifactTheme.colors.onSurfaceMuted
+        )
     }
 
     if (uiState.showPrivacyNudge) {

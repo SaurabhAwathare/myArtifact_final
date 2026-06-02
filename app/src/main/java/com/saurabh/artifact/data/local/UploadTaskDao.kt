@@ -30,6 +30,9 @@ interface UploadTaskDao {
     @Query("UPDATE upload_tasks SET audioUrl = :audioUrl, lastUpdated = :timestamp WHERE draftId = :draftId")
     suspend fun updateAudioUrl(draftId: String, audioUrl: String, timestamp: Long = System.currentTimeMillis())
 
+    @Query("SELECT * FROM upload_tasks")
+    suspend fun getAllTasks(): List<UploadTaskEntity>
+
     @Query("DELETE FROM upload_tasks WHERE draftId = :draftId")
     suspend fun deleteByDraftId(draftId: String)
 }

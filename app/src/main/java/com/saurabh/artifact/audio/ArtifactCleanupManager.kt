@@ -1,6 +1,5 @@
 package com.saurabh.artifact.audio
 
-import android.content.Context
 import android.util.Log
 import androidx.work.Data
 import androidx.work.OneTimeWorkRequestBuilder
@@ -8,7 +7,6 @@ import androidx.work.WorkManager
 import com.saurabh.artifact.model.DeletionState
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.worker.CleanupWorker
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -24,11 +22,10 @@ import javax.inject.Singleton
  */
 @Singleton
 class ArtifactCleanupManager @Inject constructor(
-    @ApplicationContext private val context: Context,
-    private val artifactRepository: ArtifactRepository
+    private val artifactRepository: ArtifactRepository,
+    private val workManager: WorkManager
 ) {
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
-    private val workManager = WorkManager.getInstance(context)
 
     private val _deletionState = MutableStateFlow<DeletionState>(DeletionState.Idle)
     val deletionState = _deletionState.asStateFlow()

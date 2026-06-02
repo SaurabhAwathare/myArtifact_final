@@ -38,7 +38,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import com.saurabh.artifact.navigation.NavGraph
 import com.saurabh.artifact.audio.RecordingSessionManager
-import com.saurabh.artifact.audio.UploadSessionManager
+import com.saurabh.artifact.audio.PublishStateManager
 import com.saurabh.artifact.ui.player.ArtifactPlayerView
 import com.saurabh.artifact.ui.recording.components.MiniRecorder
 import com.saurabh.artifact.ui.components.AmbientUploadBar
@@ -119,10 +119,10 @@ fun AppRoot(
 
     Log.d("PERF_DEBUG", "AppRoot Recomposed. Stage: $stage")
 
-    val uploadSessionManager = dagger.hilt.android.EntryPointAccessors.fromActivity(
+    val publishStateManager = dagger.hilt.android.EntryPointAccessors.fromActivity(
         androidx.compose.ui.platform.LocalContext.current as android.app.Activity,
         MainActivityEntryPoint::class.java
-    ).uploadSessionManager()
+    ).publishStateManager()
 
     CompositionLocalProvider(
         LocalStartupStage provides stage,
@@ -133,7 +133,7 @@ fun AppRoot(
             stage = stage,
             mainViewModel = mainViewModel,
             recordingSessionManager = recordingSessionManager,
-            uploadSessionManager = uploadSessionManager,
+            publishStateManager = publishStateManager,
             onboardingManager = onboardingManager
         )
     }
@@ -142,7 +142,7 @@ fun AppRoot(
 @dagger.hilt.EntryPoint
 @dagger.hilt.InstallIn(dagger.hilt.android.components.ActivityComponent::class)
 interface MainActivityEntryPoint {
-    fun uploadSessionManager(): UploadSessionManager
+    fun publishStateManager(): PublishStateManager
 }
 
 @Composable
@@ -150,7 +150,7 @@ fun AuthenticatedIsland(
     stage: StartupStage,
     mainViewModel: MainViewModel,
     recordingSessionManager: RecordingSessionManager,
-    uploadSessionManager: UploadSessionManager,
+    publishStateManager: PublishStateManager,
     onboardingManager: com.saurabh.artifact.util.OnboardingManager
 ) {
     val startupState by mainViewModel.startupState.collectAsStateWithLifecycle()
@@ -192,7 +192,7 @@ fun AuthenticatedIsland(
                         com.saurabh.artifact.ui.components.GlobalOverlayHost(
                             navController = navController,
                             recordingSessionManager = recordingSessionManager,
-                            uploadSessionManager = uploadSessionManager,
+                            publishStateManager = publishStateManager,
                             onNavigateToDraftEdit = { draftId ->
                                 navController.navigate(Screen.RecordingReview.createRoute(draftId))
                             },
