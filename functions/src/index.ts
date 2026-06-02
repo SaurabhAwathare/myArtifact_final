@@ -112,7 +112,7 @@ export const onArtifactDeleted = functions.firestore
       // 1. Cleanup top-level collections associated with artifactId via field
       const collections = [
         "comments",
-        "reactions_global",
+        "artifact_reactions",
         "listening_sessions",
         "notifications",
       ];
@@ -151,4 +151,95 @@ export const onArtifactDeleted = functions.firestore
       console.error(`Cleanup failed for artifact ${artifactId}:`, error);
       return null;
     }
+  });
+
+/**
+ * Updates global reaction aggregates when a new reaction is created.
+ * Handles both the dedicated count document and the main artifact metadata.
+ */
+export const onReactionCreated = functions.firestore
+  .document("artifact_reactions/{reactionId}")
+  .onCreate(async (snapshot, context) => {
+    const data = snapshot.data();
+    if (!data) return null;
+
+    const artifactId = data.artifactId;
+    const typeId = data.type;
+    const db = admin.firestore();
+
+    console.log(`Incrementing counts for artifact ${artifactId}, type ${typeId}`);
+
+    const batch = db.batch();
+
+    // 1. Update Aggregate Document
+    const aggregateRef = db.collection("artifact_reaction_counts").doc(artifactId);
+    batch.set(
+      aggregateRef,
+      {
+        totalCount: admin.firestore.FieldValue.increment(1),
+        [`breakdown.${typeId}`]: admin.firestore.FieldValue.increment(1),
+        lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    // 2. Update Main Artifact Metadata (for efficient feed loading)
+    const artifactRef = db.collection("artifacts").doc(artifactId);
+    batch.update(artifactRef, {
+      reactionCount: admin.firestore.FieldValue.increment(1),
+    });
+
+    try {
+      await batch.commit();
+      console.log(`Successfully updated counts for artifact ${artifactId}`);
+    } catch (error) {
+      console.error(`Failed to update counts for artifact ${artifactId}:`, error);
+    }
+
+    return null;
+  });
+
+/**
+ * Updates global reaction aggregates when a reaction is deleted.
+ */
+export const onReactionDeleted = functions.firestore
+  .document("artifact_reactions/{reactionId}")
+  .onDelete(async (snapshot, context) => {
+    const data = snapshot.data();
+    if (!data) return null;
+
+    const artifactId = data.artifactId;
+    const typeId = data.type;
+    const db = admin.firestore();
+
+    console.log(`Decrementing counts for artifact ${artifactId}, type ${typeId}`);
+
+    const batch = db.batch();
+
+    // 1. Update Aggregate Document
+    const aggregateRef = db.collection("artifact_reaction_counts").doc(artifactId);
+    batch.set(
+      aggregateRef,
+      {
+        totalCount: admin.firestore.FieldValue.increment(-1),
+        [`breakdown.${typeId}`]: admin.firestore.FieldValue.increment(-1),
+        lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    // 2. Update Main Artifact Metadata
+    const artifactRef = db.collection("artifacts").doc(artifactId);
+    batch.update(artifactRef, {
+      reactionCount: admin.firestore.FieldValue.increment(-1),
+    });
+
+    try {
+      await batch.commit();
+      console.log(`Successfully decremented counts for artifact ${artifactId}`);
+    } catch (error) {
+      console.error(`Failed to decrement counts for artifact ${artifactId}:`, error);
+    }
+
+    return null;
   });

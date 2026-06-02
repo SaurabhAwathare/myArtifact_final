@@ -18,18 +18,11 @@ class PublishingOrchestrator @Inject constructor(
 ) {
 
     suspend fun startProcessing(draftId: String) = withContext(Dispatchers.IO) {
-        val draft = draftRepository.getDraft(draftId) ?: return@withContext
-        
-        // Transition to Processing
-        // Note: For now we'll keep using draftDao for status updates if it doesn't involve upload task
-        // Actually, DraftRepository should probably handle all status updates eventually.
+        draftRepository.updateLifecycle(draftId, ArtifactLifecycle.PROCESSING)
     }
 
     suspend fun markForReview(draftId: String) = withContext(Dispatchers.IO) {
-        draftRepository.getDraft(draftId)?.let {
-            // draftDao.update(it.copy(status = it.status.copy(lifecycle = ArtifactLifecycle.REVIEW_REQUIRED)))
-            // Update to use Repository once implemented
-        }
+        draftRepository.updateLifecycle(draftId, ArtifactLifecycle.REVIEW_REQUIRED)
     }
 
     suspend fun startReview(draftId: String) = withContext(Dispatchers.IO) {
@@ -37,7 +30,8 @@ class PublishingOrchestrator @Inject constructor(
     }
 
     suspend fun requestEmotionalConfirmation(draftId: String) = withContext(Dispatchers.IO) {
-        // Emotional confirmation is part of the Review flow now
+        // Transitional state for emotional confirmation
+        draftRepository.updateProcessingStatus(draftId, ProcessingStatus.Active(ProcessingStage.SAFETY_CHECK))
     }
 
     suspend fun requestPublishApproval(draftId: String) = withContext(Dispatchers.IO) {
@@ -98,7 +92,7 @@ class PublishingOrchestrator @Inject constructor(
 
     suspend fun retryPublishing(draftId: String) = withContext(Dispatchers.IO) {
         val draft = draftRepository.getDraft(draftId) ?: return@withContext
-        if (draft.status.sync is SyncStatus.Failed) {
+        if (draft.status.publication is SyncStatus.Failed) {
             draftRepository.updateUploadStatus(draftId, SyncStatus.Queued)
             enqueuePublishingWork(draftId)
         }

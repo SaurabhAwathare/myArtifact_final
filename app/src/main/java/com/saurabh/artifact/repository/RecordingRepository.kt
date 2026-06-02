@@ -51,7 +51,7 @@ class RecordingRepository @Inject constructor(
             isEncrypted = isEncrypted,
             status = DraftStatus(
                 lifecycle = if (durationMs > 0) ArtifactLifecycle.PROCESSING else ArtifactLifecycle.RECORDING,
-                sync = SyncStatus.LocalOnly
+                publication = SyncStatus.LocalOnly
             ),
             createdAt = System.currentTimeMillis(),
             updatedAt = System.currentTimeMillis()
@@ -135,6 +135,9 @@ class RecordingRepository @Inject constructor(
     }
 
     suspend fun recoverInterruptedDrafts(): List<ArtifactDraftEntity> {
+        Log.d("RecordingRepository", "Starting recovery check...")
+        
+        // 1. Recover interrupted recordings
         val recordings = draftDao.getActiveRecordings()
         val interrupted = mutableListOf<ArtifactDraftEntity>()
         
@@ -175,6 +178,23 @@ class RecordingRepository @Inject constructor(
                 Log.d("RecordingRepository", "Recovery for ${draft.id}: $recoveryResult -> New Lifecycle: $newLifecycle")
             }
         }
+
+        // 2. Storage Reconciliation
+        try {
+            val allDrafts = draftDao.getAllDrafts()
+            localDraftManager.reconcileStorage(allDrafts)
+            
+            // 3. Authoritative cleanup for DELETING drafts
+            // Using generic LIKE query for simplicity in repository, mirroring RecoveryEngine
+            val deletingDrafts = draftDao.getDraftsByLifecycle("%\"lifecycle\":\"DELETING\"%")
+            deletingDrafts.forEach { draft ->
+                Log.d("RecordingRepository", "Resuming deletion for draft: ${draft.id}")
+                deletionManager.deleteDraft(draft.id)
+            }
+        } catch (e: Exception) {
+            Log.e("RecordingRepository", "Cleanup orphans/deleting failed", e)
+        }
+
         return interrupted
     }
 

@@ -9,7 +9,6 @@ import com.google.firebase.appcheck.FirebaseAppCheck
 import com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory
 import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
 import com.saurabh.artifact.BuildConfig
-import com.saurabh.artifact.audio.RecoveryEngine
 import com.saurabh.artifact.util.NotificationHelper
 import com.saurabh.artifact.util.StartupTracer
 import com.saurabh.artifact.worker.ReminderWorker
@@ -36,7 +35,6 @@ import javax.inject.Singleton
 @Singleton
 class StartupCoordinator @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val recoveryEngine: Lazy<RecoveryEngine>,
     private val workManager: WorkManager
 ) {
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -219,8 +217,5 @@ class StartupCoordinator @Inject constructor(
             ExistingWorkPolicy.KEEP,
             recoveryRequest
         )
-        
-        // Legacy recovery engine
-        recoveryEngine.get().runRecovery()
     }
 }

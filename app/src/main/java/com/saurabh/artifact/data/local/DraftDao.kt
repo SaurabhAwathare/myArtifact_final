@@ -30,7 +30,7 @@ interface DraftDao {
     @Query("SELECT * FROM artifact_drafts ORDER BY updatedAt DESC")
     fun observeDrafts(): Flow<List<ArtifactDraftEntity>>
 
-    @Query("SELECT * FROM artifact_drafts WHERE status LIKE '%\"sync\":{\"type\":\"Uploading\"%' OR status LIKE '%\"sync\":\"Queued\"%'")
+    @Query("SELECT * FROM artifact_drafts WHERE status LIKE '%\"publication\":{\"type\":\"Uploading\"%' OR status LIKE '%\"publication\":\"Queued\"%'")
     suspend fun getPendingUploads(): List<ArtifactDraftEntity>
 
     @Query("SELECT * FROM artifact_drafts WHERE status LIKE '%\"lifecycle\":\"RECORDING\"%'")
@@ -78,7 +78,7 @@ interface DraftDao {
         update(draft.copy(
             status = draft.status.copy(
                 lifecycle = ArtifactLifecycle.PUBLISHED,
-                sync = SyncStatus.Synced
+                publication = SyncStatus.Synced
             ),
             remoteArtifactId = remoteId,
             updatedAt = System.currentTimeMillis()

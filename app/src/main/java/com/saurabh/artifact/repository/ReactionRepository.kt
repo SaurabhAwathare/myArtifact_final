@@ -41,7 +41,6 @@ class ReactionRepository @Inject constructor(
                 .collection("private").document("interactions")
                 .collection("reactions").document(artifactId)
             
-            val aggregateRef = firestore.collection("artifact_reaction_counts").document(artifactId)
             val artifactRef = firestore.collection("artifacts").document(artifactId)
             val artifactDoc = artifactRef.get().await()
             val ownerId = artifactDoc.getString("userId")
@@ -57,8 +56,8 @@ class ReactionRepository @Inject constructor(
                     "createdAt" to FieldValue.serverTimestamp()
                 ))
 
-                // B. Maintain legacy 'reactions_global' but with restricted rules (for owner deletion support)
-                val globalRef = firestore.collection("reactions_global").document(reactionId)
+                // B. Maintain 'artifact_reactions' (Consolidated name) for global visibility
+                val globalRef = firestore.collection("artifact_reactions").document(reactionId)
                 transaction.set(globalRef, mapOf(
                     "artifactId" to artifactId,
                     "userId" to userId,
@@ -66,20 +65,6 @@ class ReactionRepository @Inject constructor(
                     "type" to type.id,
                     "createdAt" to FieldValue.serverTimestamp()
                 ))
-
-                // C. Local Aggregate Update (Cloud Functions will handle global scaling)
-                transaction.set(
-                    aggregateRef,
-                    mapOf(
-                        "totalCount" to FieldValue.increment(1),
-                        "breakdown.${type.id}" to FieldValue.increment(1),
-                        "lastUpdated" to FieldValue.serverTimestamp()
-                    ),
-                    SetOptions.merge()
-                )
-
-                // D. Sync to main artifact document
-                transaction.update(artifactRef, "reactionCount", FieldValue.increment(1))
             }.await()
 
             // Notify owner if it's not their own artifact
@@ -151,34 +136,16 @@ class ReactionRepository @Inject constructor(
                 .collection("private").document("interactions")
                 .collection("reactions").document(artifactId)
             
-            val aggregateRef = firestore.collection("artifact_reaction_counts").document(artifactId)
-            val artifactRef = firestore.collection("artifacts").document(artifactId)
-
             val existingPulseDoc = pulseRef.get().await()
 
             if (existingPulseDoc.exists()) {
-                val existingTypeId = existingPulseDoc.getString("type") ?: ""
                 val reactionId = "${artifactId}_${userId}"
-                val globalRef = firestore.collection("reactions_global").document(reactionId)
+                val globalRef = firestore.collection("artifact_reactions").document(reactionId)
                 
                 firestore.runTransaction { transaction ->
                     // 1. Delete reaction from both places
                     transaction.delete(pulseRef)
                     transaction.delete(globalRef)
-
-                    // 2. Update counts aggregate
-                    transaction.set(
-                        aggregateRef,
-                        mapOf(
-                            "totalCount" to FieldValue.increment(-1),
-                            "breakdown.$existingTypeId" to FieldValue.increment(-1),
-                            "lastUpdated" to FieldValue.serverTimestamp()
-                        ),
-                        SetOptions.merge()
-                    )
-
-                    // 3. Update main artifact document
-                    transaction.update(artifactRef, "reactionCount", FieldValue.increment(-1))
                 }.await()
             } else {
                 // Add reaction

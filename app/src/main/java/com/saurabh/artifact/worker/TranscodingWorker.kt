@@ -97,15 +97,15 @@ class TranscodingWorker @AssistedInject constructor(
     }
 
     private suspend fun updateDraftStatus(id: String, stage: ProcessingStage?, error: String? = null) {
+        val newProcessing = when {
+            error != null -> ProcessingStatus.Failed(error)
+            stage != null -> ProcessingStatus.Active(stage)
+            else -> ProcessingStatus.Idle
+        }
+        
         draftDao.getDraftById(id)?.let { draft ->
-            val newProcessing = when {
-                error != null -> ProcessingStatus.Failed(error)
-                stage != null -> ProcessingStatus.Active(stage)
-                else -> ProcessingStatus.Idle
-            }
-            draftDao.update(draft.copy(
-                status = draft.status.copy(processing = newProcessing)
-            ))
+            val newStatus = draft.status.copy(processing = newProcessing)
+            draftDao.updateStatus(id, newStatus)
         }
     }
 }

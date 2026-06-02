@@ -42,11 +42,11 @@ class DraftDeletionManagerTest {
         every { WorkManager.getInstance(any()) } returns workManager
         
         deletionManager = DraftDeletionManager(
-            context = context,
             draftDao = draftDao,
             uploadTaskDao = uploadTaskDao,
             draftsDatabase = database,
-            storageManager = storageManager
+            storageManager = storageManager,
+            workManager = workManager
         )
         
         coEvery { draftDao.getDraftById(any()) } returns null
@@ -84,7 +84,7 @@ class DraftDeletionManagerTest {
         deletionManager.deleteDraft(draftId)
 
         coVerify {
-            draftDao.updateStatus(draftId, any(), any())
+            draftDao.updateStatus(draftId, any())
             storageManager.deleteDirectoryRecursively(draftDir)
             draftDao.deleteById(draftId)
         }

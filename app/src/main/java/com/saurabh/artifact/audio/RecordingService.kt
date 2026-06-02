@@ -316,11 +316,11 @@ class RecordingService : Service() {
                     draftId = finalDraftId
                 )
                 
-                draftDao.getDraftById(finalDraftId)?.let {
-                    draftDao.update(it.copy(
-                        status = it.status.copy(lifecycle = ArtifactLifecycle.RECORDING, sync = SyncStatus.LocalOnly)
-                    ))
-                }
+                    draftDao.getDraftById(finalDraftId)?.let {
+                        draftDao.update(it.copy(
+                            status = it.status.copy(lifecycle = ArtifactLifecycle.RECORDING, publication = SyncStatus.LocalOnly)
+                        ))
+                    }
                 userSessionManager.setActiveDraftId(finalDraftId)
 
                 startTimer()
@@ -348,7 +348,7 @@ class RecordingService : Service() {
             serviceScope.launch {
                 draftDao.getDraftById(id)?.let {
                     draftDao.update(it.copy(
-                        status = it.status.copy(sync = SyncStatus.LocalOnly)
+                        status = it.status.copy(publication = SyncStatus.LocalOnly)
                     ))
                 }
             }

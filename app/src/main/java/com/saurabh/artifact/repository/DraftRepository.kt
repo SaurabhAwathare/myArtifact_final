@@ -47,10 +47,12 @@ class DraftRepository @Inject constructor(
             val draft = draftDao.getDraftById(draftId) ?: return@withTransaction
             
             // 1. Update Draft lifecycle to locking state
-            draftDao.updateStatus(draftId, draft.status.copy(
-                lifecycle = ArtifactLifecycle.READY_TO_PUBLISH,
-                sync = initialStatus
-            ))
+            updateStatus(draftId) { 
+                it.copy(
+                    lifecycle = ArtifactLifecycle.READY_TO_PUBLISH,
+                    publication = initialStatus
+                )
+            }
             
             // 2. Initialize the separated upload task
             uploadTaskDao.insert(UploadTaskEntity(
@@ -65,12 +67,31 @@ class DraftRepository @Inject constructor(
         }
     }
 
+    suspend fun updateStatus(draftId: String, transform: (DraftStatus) -> DraftStatus) = withContext(Dispatchers.IO) {
+        draftDao.getDraftById(draftId)?.let { draft ->
+            val newStatus = transform(draft.status)
+            draftDao.updateStatus(draftId, newStatus)
+        }
+    }
+
+    suspend fun updateLifecycle(draftId: String, lifecycle: ArtifactLifecycle) = updateStatus(draftId) {
+        it.copy(lifecycle = lifecycle)
+    }
+
+    suspend fun updateProcessingStatus(draftId: String, processing: ProcessingStatus) = updateStatus(draftId) {
+        it.copy(processing = processing)
+    }
+
     suspend fun updateUploadProgress(draftId: String, uploaded: Long, total: Long, sessionUri: String?) = withContext(Dispatchers.IO) {
         uploadTaskDao.updateProgress(draftId, uploaded, total, sessionUri)
     }
 
     suspend fun updateUploadStatus(draftId: String, status: SyncStatus) = withContext(Dispatchers.IO) {
-        uploadTaskDao.updateStatus(draftId, status)
+        draftsDatabase.withTransaction {
+            uploadTaskDao.updateStatus(draftId, status)
+            // Synchronize with Draft status for UI observers that look at the draft directly
+            updateStatus(draftId) { it.copy(publication = status) }
+        }
     }
 
     suspend fun updateUploadedAudioUrl(draftId: String, url: String) = withContext(Dispatchers.IO) {

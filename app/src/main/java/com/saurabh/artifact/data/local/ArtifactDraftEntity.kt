@@ -27,9 +27,9 @@ data class ArtifactDraftEntity(
     val status: DraftStatus = DraftStatus(),
     @Deprecated("Use status.lifecycle and status.processing instead")
     val draftState: ArtifactDraftState = ArtifactDraftState.SAVED_LOCALLY,
-    @Deprecated("Use status.sync instead")
+    @Deprecated("Use status.publication instead")
     val uploadStatus: UploadStatus = UploadStatus.IDLE,
-    @Deprecated("Use status.sync instead")
+    @Deprecated("Use status.publication instead")
     val syncState: SyncState = SyncState.LOCAL_ONLY,
     
     // Upload Progress

@@ -3,7 +3,7 @@ package com.saurabh.artifact.model
 /**
  * Legacy upload status enum.
  */
-@Deprecated("Use DraftStatus.sync instead.")
+@Deprecated("Use DraftStatus.publication instead.")
 enum class UploadStatus {
     IDLE,
     QUEUED,

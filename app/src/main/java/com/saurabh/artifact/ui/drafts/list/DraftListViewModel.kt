@@ -47,7 +47,7 @@ class DraftListViewModel @Inject constructor(
 
     fun playDraft(draftWithUpload: DraftWithUpload) {
         val draft = draftWithUpload.draft
-        if (draft.status.sync is com.saurabh.artifact.model.SyncStatus.Recovering || 
+        if (draft.status.publication is com.saurabh.artifact.model.SyncStatus.Recovering || 
             draft.syncState == com.saurabh.artifact.model.SyncState.RECOVERING) {
             // If recovering, we should first try to process it before playing
             viewModelScope.launch {
@@ -88,7 +88,7 @@ class DraftListViewModel @Inject constructor(
             recordingRepository.updateDraft(draft.copy(
                 status = draft.status.copy(
                     lifecycle = com.saurabh.artifact.model.ArtifactLifecycle.REVIEW_REQUIRED,
-                    sync = com.saurabh.artifact.model.SyncStatus.LocalOnly
+                    publication = com.saurabh.artifact.model.SyncStatus.LocalOnly
                 )
             ))
         }

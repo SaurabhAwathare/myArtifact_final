@@ -3,7 +3,7 @@ package com.saurabh.artifact.model
 /**
  * Formal sync state for the artifact publishing lifecycle.
  */
-@Deprecated("Use DraftStatus.sync (SyncStatus) instead.")
+@Deprecated("Use DraftStatus.publication or DraftStatus.backup (SyncStatus) instead.")
 enum class SyncState {
     DRAFT,            // Initial local state
     QUEUED,           // Waiting for WorkManager to pick it up

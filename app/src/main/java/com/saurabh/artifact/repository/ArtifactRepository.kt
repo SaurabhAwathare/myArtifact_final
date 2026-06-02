@@ -92,20 +92,24 @@ class ArtifactRepository @Inject constructor(
     }
 
     suspend fun saveDraftPrivately(draftId: String) = withContext(Dispatchers.IO) {
-        draftDao.updateDraftState(draftId, ArtifactDraftState.SAVED_LOCALLY)
+        draftDao.getDraftById(draftId)?.let { draft ->
+            draftDao.updateStatus(draftId, draft.status.copy(lifecycle = ArtifactLifecycle.REVIEW_REQUIRED))
+        }
     }
 
     suspend fun updateEmotionalConfirmation(draftId: String, isReady: Boolean, confidence: Float) = withContext(Dispatchers.IO) {
         draftDao.updateEmotionalConfirmation(draftId, isReady, confidence)
         if (isReady) {
-            draftDao.updateDraftState(draftId, ArtifactDraftState.READY_TO_PUBLISH)
+            draftDao.getDraftById(draftId)?.let { draft ->
+                draftDao.updateStatus(draftId, draft.status.copy(lifecycle = ArtifactLifecycle.READY_TO_PUBLISH))
+            }
         }
     }
 
     suspend fun setCooldown(draftId: String, durationMinutes: Int) = withContext(Dispatchers.IO) {
         val expiry = System.currentTimeMillis() + durationMinutes * 60 * 1000
         draftDao.updateCooldown(draftId, expiry)
-        draftDao.updateDraftState(draftId, ArtifactDraftState.WAITING_COOLDOWN)
+        // Note: We don't have a WAITING_COOLDOWN lifecycle yet, but we could add one if needed for the UI
     }
 
     /**
@@ -1246,7 +1250,7 @@ class ArtifactRepository @Inject constructor(
                 if (audioUrl != null) deleteStorageFile(audioUrl)
 
                 // 1b. Delete associated reactions
-                val reactionsGlobal = firestore.collection("reactions_global").whereEqualTo("artifactId", artifactId).get().await()
+                val reactionsGlobal = firestore.collection("artifact_reactions").whereEqualTo("artifactId", artifactId).get().await()
                 reactionsGlobal.documents.forEach { it.reference.delete().await() }
 
                 val reactions = firestore.collection("reactions").whereEqualTo("artifactId", artifactId).get().await()

@@ -116,14 +116,16 @@ service cloud.firestore {
       allow delete: if isAuth() && resource.data.uid == request.auth.uid;
     }
 
-    // --- GLOBAL REACTIONS (DEPRECATED for Second-Order Privacy) ---
-    match /reactions_global/{id} {
+    // --- CONSOLIDATED REACTIONS ---
+    match /artifact_reactions/{id} {
       // Only readable by the owner or the artifact owner
       allow read: if isAuth() && (
         resource.data.userId == request.auth.uid ||
         resource.data.artifactOwnerId == request.auth.uid
       );
-      allow write: if isAuth() && request.resource.data.userId == request.auth.uid;
+      // Create/Write: Only the user who reacted can create/modify their own reaction
+      allow create, update: if isAuth() && request.resource.data.userId == request.auth.uid;
+      // Delete: Either the user who reacted or the artifact owner can delete
       allow delete: if isAuth() && (
         resource.data.userId == request.auth.uid ||
         resource.data.artifactOwnerId == request.auth.uid

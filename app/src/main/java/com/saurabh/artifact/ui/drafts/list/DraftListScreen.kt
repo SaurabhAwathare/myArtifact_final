@@ -150,7 +150,7 @@ fun PublishingItem(
     val draft = draftWithUpload.draft
     val task = draftWithUpload.uploadTask
     
-    val syncStatus = task?.status ?: draft.status.sync
+    val syncStatus = task?.status ?: draft.status.publication
     val progress = when (syncStatus) {
         is com.saurabh.artifact.model.SyncStatus.Uploading -> {
             if (task != null && task.totalBytes > 0) {
@@ -300,12 +300,12 @@ fun DraftItem(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = if (draft.status.sync is com.saurabh.artifact.model.SyncStatus.Recovering || 
+                        text = if (draft.status.publication is com.saurabh.artifact.model.SyncStatus.Recovering || 
                             draft.syncState == com.saurabh.artifact.model.SyncState.RECOVERING) {
                             "Recovering reflection • $date"
                         } else date,
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (draft.status.sync is com.saurabh.artifact.model.SyncStatus.Recovering || 
+                        color = if (draft.status.publication is com.saurabh.artifact.model.SyncStatus.Recovering || 
                             draft.syncState == com.saurabh.artifact.model.SyncState.RECOVERING) {
                             MaterialTheme.colorScheme.primary
                         } else {
@@ -384,7 +384,7 @@ fun ShimmerBackground() {
 fun StatusBadge(draft: ArtifactDraftEntity) {
     val state = draft.status.processing
     val draftState = draft.draftState
-    val syncStatus = draft.status.sync
+    val syncStatus = draft.status.publication
     val syncState = draft.syncState
 
     val isProcessing = state is com.saurabh.artifact.model.ProcessingStatus.Active || 

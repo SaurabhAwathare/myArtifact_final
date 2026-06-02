@@ -6,5 +6,6 @@ import kotlinx.serialization.Serializable
 data class DraftStatus(
     val lifecycle: ArtifactLifecycle = ArtifactLifecycle.RECORDING,
     val processing: ProcessingStatus = ProcessingStatus.Idle,
-    val sync: SyncStatus = SyncStatus.LocalOnly
+    val publication: SyncStatus = SyncStatus.LocalOnly,
+    val backup: SyncStatus = SyncStatus.LocalOnly
 )
