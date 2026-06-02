@@ -12,7 +12,7 @@ class ReviewCompletionLogicTest {
         val coverageCount = java.lang.Long.bitCount(p1) + java.lang.Long.bitCount(p2)
         val coverage = coverageCount.toFloat() / 100f
         val effort = timeListenedMs.toFloat() / durationMs
-        return coverage >= 0.95f && effort >= 0.75f
+        return coverage >= 0.90f && effort >= 0.70f
     }
 
     @Test
@@ -22,24 +22,24 @@ class ReviewCompletionLogicTest {
         // Scenario 1: Scrubbed to 100% (No effort, high coverage on one bit)
         assertFalse("Scrubbed to end should be locked", isUnlocked(0L, 1L shl 35, 1000L, duration))
         
-        // Scenario 2: High coverage but missing segments (90 segments)
+        // Scenario 2: High coverage but missing segments (85 segments)
         val p1 = -1L // 64 bits
         var p2 = 0L
-        for (i in 0..25) p2 = p2 or (1L shl i) // 64 + 26 = 90 bits
-        assertFalse("90% coverage should be locked", isUnlocked(p1, p2, 8000L, duration))
+        for (i in 0..20) p2 = p2 or (1L shl i) // 64 + 21 = 85 bits
+        assertFalse("85% coverage should be locked", isUnlocked(p1, p2, 8000L, duration))
         
-        // Scenario 3: High coverage (96 segments) but low effort (50%)
+        // Scenario 3: High coverage (91 segments) but low effort (50%)
         p2 = 0L
-        for (i in 0..31) p2 = p2 or (1L shl i) // 64 + 32 = 96 bits
+        for (i in 0..26) p2 = p2 or (1L shl i) // 64 + 27 = 91 bits
         assertFalse("Low effort should be locked", isUnlocked(p1, p2, 5000L, duration))
         
-        // Scenario 4: Valid review (96 segments, 80% effort)
-        assertTrue("High coverage and effort should be unlocked", isUnlocked(p1, p2, 8000L, duration))
+        // Scenario 4: Valid review (91 segments, 75% effort)
+        assertTrue("High coverage and effort should be unlocked", isUnlocked(p1, p2, 7500L, duration))
         
-        // Scenario 5: Edge case 95% coverage (Exactly 95 segments)
+        // Scenario 5: Edge case 90% coverage (Exactly 90 segments)
         p2 = 0L
-        for (i in 0..30) p2 = p2 or (1L shl i) // 64 + 31 = 95 bits
-        assertTrue("95% coverage should be unlocked", isUnlocked(p1, p2, 7500L, duration))
+        for (i in 0..25) p2 = p2 or (1L shl i) // 64 + 26 = 90 bits
+        assertTrue("90% coverage should be unlocked", isUnlocked(p1, p2, 7000L, duration))
         
         // Scenario 6: Completion via STATE_ENDED
         assertTrue("Completion via end signal should be unlocked", isUnlocked(0L, 0L, 100L, duration, true))

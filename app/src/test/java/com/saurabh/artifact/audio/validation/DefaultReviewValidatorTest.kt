@@ -33,11 +33,11 @@ class DefaultReviewValidatorTest {
             artifactId = "a",
             versionTag = "v",
             durationMs = 30000L,
-            coverage = BitSet(60).apply { set(0, 30) }, // 50% coverage (need 95%)
+            coverage = BitSet(60).apply { set(0, 30) }, // 50% coverage (need 90%)
             effortMap = mapOf(1.0f to 25000L),
             hasReachedEnd = true
         )
-        val policy = ReviewPolicy(minCoverage = 0.95f)
+        val policy = ReviewPolicy(minCoverage = 0.90f)
         
         val result = validator.validate(evidence, policy)
         assertFalse(result.isValid)
@@ -53,7 +53,7 @@ class DefaultReviewValidatorTest {
             effortMap = mapOf(4.0f to 7500L), // 30s at 4x = 7.5s wall clock
             hasReachedEnd = true
         )
-        val policy = ReviewPolicy(minEffort = 0.75f, maxSpeedPenaltyThreshold = 2.0f)
+        val policy = ReviewPolicy(minEffort = 0.70f, maxSpeedPenaltyThreshold = 2.0f)
         
         // Adjusted Effort: 7.5s * (2.0 / 4.0) = 3.75s
         // Effort %: 3.75 / 30 = 0.125 (12.5%)

@@ -19,6 +19,7 @@ class PlaybackCoordinator @Inject constructor(
     val isPlaying = playbackSessionManager.isPlaying
     val isBuffering = playbackSessionManager.isBuffering
     val currentPosition = playbackSessionManager.currentPosition
+    val positionSync = playbackSessionManager.positionSync
     val durationMs = playbackSessionManager.durationMs
     val playbackSpeed = playbackSessionManager.playbackSpeed
     val isSkipSilenceEnabled = playbackSessionManager.isSkipSilenceEnabled

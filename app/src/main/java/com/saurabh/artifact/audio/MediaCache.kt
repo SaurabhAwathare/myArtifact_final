@@ -18,8 +18,9 @@ object MediaCache {
     @Synchronized
     fun getInstance(context: Context): SimpleCache {
         if (instance == null) {
-            val cacheDir = File(context.cacheDir, "media_cache")
-            val databaseProvider = StandaloneDatabaseProvider(context)
+            val appContext = context.applicationContext
+            val cacheDir = File(appContext.cacheDir, "media_cache")
+            val databaseProvider = StandaloneDatabaseProvider(appContext)
             val evictor = LeastRecentlyUsedCacheEvictor(CACHE_SIZE)
             instance = SimpleCache(cacheDir, evictor, databaseProvider)
         }

@@ -46,8 +46,8 @@ class DefaultReviewTracker(
                 currentPosMs >= lastPlaybackPositionMs &&
                 currentPosMs <= lastPlaybackPositionMs + expectedDelta + tolerance
 
-        // Mark coverage if advancing normally or if tick is significant enough to trust
-        if (isAdvancingNormally || realElapsedMs > 500) {
+        // Mark coverage only if advancing normally to prevent "painting" via seeks.
+        if (isAdvancingNormally) {
             val segmentSize = policy.getSegmentSizeMs(currentEvidence.durationMs)
             val segmentIndex = (currentPosMs / segmentSize).toInt()
             val totalSegments = (currentEvidence.durationMs / segmentSize).toInt().coerceAtLeast(1)

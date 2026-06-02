@@ -36,6 +36,10 @@ object NotificationHelper {
     const val CHANNEL_NAME_UPLOADS = "Upload Status"
     const val CHANNEL_DESC_UPLOADS = "Status updates for your artifact uploads."
 
+    const val CHANNEL_ID_PLAYBACK = "playback_channel"
+    const val CHANNEL_NAME_PLAYBACK = "Playback"
+    const val CHANNEL_DESC_PLAYBACK = "Controls and status for your listening experience."
+
     const val UPLOAD_NOTIFICATION_ID = 3001
 
     /**
@@ -73,8 +77,18 @@ object NotificationHelper {
                 description = CHANNEL_DESC_UPLOADS
                 setShowBadge(false) // Uploads don't need badges
             }
+
+            // Create Playback Channel (IMPORTANCE_LOW - non-interruptive updates)
+            val playbackChannel = NotificationChannel(
+                CHANNEL_ID_PLAYBACK,
+                CHANNEL_NAME_PLAYBACK,
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = CHANNEL_DESC_PLAYBACK
+                setShowBadge(false)
+            }
             
-            notificationManager.createNotificationChannels(listOf(interactionsChannel, remindersChannel, uploadsChannel))
+            notificationManager.createNotificationChannels(listOf(interactionsChannel, remindersChannel, uploadsChannel, playbackChannel))
         }
     }
 

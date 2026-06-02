@@ -16,6 +16,7 @@ import androidx.media3.session.LibraryResult
 import com.google.common.collect.ImmutableList
 import androidx.media3.session.DefaultMediaNotificationProvider
 import com.saurabh.artifact.MainActivity
+import com.saurabh.artifact.util.NotificationHelper
 import dagger.hilt.android.AndroidEntryPoint
 
 import androidx.media3.common.util.UnstableApi
@@ -30,6 +31,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -49,7 +51,11 @@ class PlaybackService : MediaLibraryService() {
         Log.d("PlaybackService", "onCreate - Initializing MediaSession")
         
         // Ensure the service is recognized as a foreground-capable media service
-        setMediaNotificationProvider(DefaultMediaNotificationProvider.Builder(this).build())
+        val notificationProvider = DefaultMediaNotificationProvider.Builder(this)
+            .setChannelId(NotificationHelper.CHANNEL_ID_PLAYBACK)
+            .setChannelName(com.saurabh.artifact.R.string.playback_channel_name)
+            .build()
+        setMediaNotificationProvider(notificationProvider)
         
         initializeSession()
     }
@@ -240,6 +246,7 @@ class PlaybackService : MediaLibraryService() {
 
     override fun onDestroy() {
         Log.d("PlaybackService", "onDestroy - Releasing resources")
+        serviceScope.cancel()
         mediaSession?.run {
             player.release()
             release()

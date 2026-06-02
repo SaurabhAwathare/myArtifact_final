@@ -154,11 +154,27 @@ class PlayerViewModel @Inject constructor(
         playbackCoordinator.stop()
     }
     
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val smoothPosition: Flow<Long> = playbackCoordinator.positionSync.flatMapLatest { sync ->
+        if (sync.isPlaying) {
+            flow {
+                while (true) {
+                    val elapsed = android.os.SystemClock.elapsedRealtime() - sync.timestampMs
+                    val current = sync.positionMs + (elapsed * sync.speed).toLong()
+                    emit(current)
+                    delay(32) // ~30fps for smooth UI
+                }
+            }
+        } else {
+            flowOf(sync.positionMs)
+        }
+    }
+
     val uiState: StateFlow<PlayerUiState> = combine(
         playbackCoordinator.currentArtifact,
         playbackCoordinator.isPlaying,
         playbackCoordinator.isBuffering,
-        playbackCoordinator.currentPosition,
+        smoothPosition,
         playbackCoordinator.durationMs,
         playbackCoordinator.playbackSpeed,
         playbackCoordinator.isSkipSilenceEnabled,
@@ -212,6 +228,7 @@ class PlayerViewModel @Inject constructor(
             durationMs = duration,
             playbackSpeed = speed,
             isCommentUnlocked = commentUnlocked,
+            playbackProgress = progress,
             listeningProgress = furthestProgress, 
             isExpanded = expanded,
             playerMode = mode,

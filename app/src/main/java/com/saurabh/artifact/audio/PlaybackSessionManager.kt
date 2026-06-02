@@ -18,6 +18,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.cancelChildren
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -41,6 +42,13 @@ class PlaybackSessionManager @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val controllerLock = Mutex()
     
+    data class PositionSync(
+        val positionMs: Long = 0L,
+        val timestampMs: Long = android.os.SystemClock.elapsedRealtime(),
+        val speed: Float = 1f,
+        val isPlaying: Boolean = false
+    )
+
     private var controller: MediaController? = null
     private var controllerFuture: ListenableFuture<MediaController>? = null
 
@@ -60,6 +68,9 @@ class PlaybackSessionManager @Inject constructor(
 
     private val _currentPosition = MutableStateFlow(0L)
     val currentPosition: StateFlow<Long> = _currentPosition.asStateFlow()
+
+    private val _positionSync = MutableStateFlow(PositionSync())
+    val positionSync: StateFlow<PositionSync> = _positionSync.asStateFlow()
 
     private val _playbackState = MutableStateFlow(Player.STATE_IDLE)
     val playbackState: StateFlow<Int> = _playbackState.asStateFlow()
@@ -98,8 +109,13 @@ class PlaybackSessionManager @Inject constructor(
         // Sync settings from DataStore
         scope.launch {
             settingsDataStore.playbackSpeed.collectLatest { speed ->
-                _playbackSpeed.value = speed
-                controller?.setPlaybackSpeed(speed)
+                // Only apply global speed updates if no playback is active 
+                // or if the active playback is a standard artifact
+                val activeType = _activePlayback.value?.playbackType
+                if (activeType == null || activeType == PlaybackType.ARTIFACT) {
+                    _playbackSpeed.value = speed
+                    controller?.setPlaybackSpeed(speed)
+                }
             }
         }
         scope.launch {
@@ -113,6 +129,7 @@ class PlaybackSessionManager @Inject constructor(
     private val playerListener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             _isPlaying.value = isPlaying
+            updatePositionSync()
             if (isPlaying) {
                 startPositionUpdates()
                 _currentArtifact.value?.let { analytics.trackPlaybackStart(it) }
@@ -129,8 +146,10 @@ class PlaybackSessionManager @Inject constructor(
             if (state == Player.STATE_READY) {
                 _durationMs.value = controller?.duration?.coerceAtLeast(0) ?: 0
                 errorRetryCount = 0 // Reset retry count on success
+                updatePositionSync()
             }
             if (state == Player.STATE_ENDED) {
+                updatePositionSync()
                 _currentArtifact.value?.let { artifact ->
                     analytics.trackPlaybackComplete(artifact)
                     // Clear saved position on completion
@@ -333,8 +352,13 @@ class PlaybackSessionManager @Inject constructor(
 
             val mediaItems = newQueue.map { createMediaItem(it) }
             
+            val savedSpeed = settingsDataStore.playbackSpeed.first()
+            val targetSpeed = if (playbackType == PlaybackType.ARTIFACT) savedSpeed else 1.0f
+            
             player.setMediaItems(mediaItems, startIndex, restoredPosition)
-            player.setPlaybackSpeed(_playbackSpeed.value)
+            player.setPlaybackSpeed(targetSpeed)
+            _playbackSpeed.value = targetSpeed
+            
             player.prepare()
             player.play()
             
@@ -401,7 +425,15 @@ class PlaybackSessionManager @Inject constructor(
 
     fun setPlaybackSpeed(speed: Float) {
         scope.launch {
-            settingsDataStore.updatePlaybackSpeed(speed)
+            val player = getController()
+            player?.setPlaybackSpeed(speed)
+            _playbackSpeed.value = speed
+            updatePositionSync()
+
+            // Only persist to DataStore if we are playing a standard artifact
+            if (_activePlayback.value?.playbackType == PlaybackType.ARTIFACT) {
+                settingsDataStore.updatePlaybackSpeed(speed)
+            }
         }
     }
 
@@ -433,6 +465,7 @@ class PlaybackSessionManager @Inject constructor(
         scope.launch {
             getController()?.seekTo(position)
             _currentPosition.value = position
+            updatePositionSync()
             _seekEvent.emit(position)
         }
     }
@@ -496,16 +529,27 @@ class PlaybackSessionManager @Inject constructor(
                     val dur = p.duration.coerceAtLeast(0)
                     _currentPosition.value = pos
                     _durationMs.value = dur
+                    updatePositionSync()
 
                     // Persist position periodically (every 5 seconds)
-                    if ((tick % 25) == 0) {
+                    if ((tick % 5) == 0) { // Every 5 ticks of 1000ms
                         saveCurrentPosition()
                     }
                 }
-                delay(200)
+                delay(1000)
                 tick++
             }
         }
+    }
+
+    private fun updatePositionSync() {
+        val p = controller ?: return
+        _positionSync.value = PositionSync(
+            positionMs = p.currentPosition,
+            timestampMs = android.os.SystemClock.elapsedRealtime(),
+            speed = _playbackSpeed.value,
+            isPlaying = p.isPlaying
+        )
     }
 
     private fun startCleanupSync() {
@@ -536,10 +580,17 @@ class PlaybackSessionManager @Inject constructor(
 
     fun release() {
         cleanupSyncJob?.cancel()
+        positionUpdateJob?.cancel()
         controller?.removeListener(playerListener)
-        controllerFuture?.let { MediaController.releaseFuture(it) }
+        controllerFuture?.let { 
+            try {
+                MediaController.releaseFuture(it) 
+            } catch (e: Exception) {
+                Log.e("PlaybackSessionManager", "Error releasing controller future", e)
+            }
+        }
         controller = null
         controllerFuture = null
-        scope.cancel()
+        scope.coroutineContext.cancelChildren() // Cancel all pending tasks but keep the scope alive for future use
     }
 }

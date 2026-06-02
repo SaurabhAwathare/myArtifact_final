@@ -14,8 +14,9 @@ data class PlayerUiState(
     val currentPosition: Long = 0L,
     val durationMs: Long = 0L,
     val playbackSpeed: Float = 1.0f,
+    val playbackProgress: Float = 0f, // Actual current position (0.0 to 1.0)
+    val listeningProgress: Float = 0f, // Furthest point reached (0.0 to 1.0)
     val isCommentUnlocked: Boolean = false,
-    val listeningProgress: Float = 0f, // 0.0 to 1.0
     val error: String? = null,
     val isExpanded: Boolean = false,
     val playerMode: PlayerMode = PlayerMode.HIDDEN,

@@ -69,7 +69,7 @@ class UploadSessionManager @Inject constructor(
                     val status = when (activeDraft.draftState) {
                         ArtifactDraftState.APPROVED_FOR_PUBLISH -> AmbientUploadStatus.Initializing
                         ArtifactDraftState.UPLOADING -> {
-                            if (progress < 0.95f) {
+                            if (progress < 0.90f) {
                                 AmbientUploadStatus.UploadingAudio(progress)
                             } else {
                                 AmbientUploadStatus.SavingArtifact

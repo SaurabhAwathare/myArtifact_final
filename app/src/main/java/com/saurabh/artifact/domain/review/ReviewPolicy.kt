@@ -4,8 +4,8 @@ package com.saurabh.artifact.domain.review
  * Configuration for what constitutes a "meaningful review" for an artifact.
  */
 data class ReviewPolicy(
-    val minCoverage: Float = 0.95f,
-    val minEffort: Float = 0.75f,
+    val minCoverage: Float = 0.90f,
+    val minEffort: Float = 0.70f,
     val requireReachedEnd: Boolean = true,
     val maxSpeedPenaltyThreshold: Float = 2.0f,
     private val baseSegmentSizeMs: Long = 5000L

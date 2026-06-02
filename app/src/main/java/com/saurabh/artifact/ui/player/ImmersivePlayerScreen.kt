@@ -295,7 +295,7 @@ fun ImmersivePlayerScreen(
             ) {
                 WaveformScrubber(
                     amplitudes = artifact.amplitudeData,
-                    progress = uiState.listeningProgress,
+                    progress = uiState.playbackProgress,
                     isPaused = !uiState.isPlaying,
                     onSeek = onSeek,
                     modifier = Modifier.fillMaxWidth()

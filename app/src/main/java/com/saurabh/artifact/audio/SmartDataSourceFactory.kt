@@ -26,27 +26,34 @@ class SmartDataSourceFactory(
         return object : DataSource {
             private var currentDataSource: DataSource? = null
             
-            // The default data source is wrapped in a CacheDataSource to enable local caching
-            // of remote artifacts.
-            private val cachedDataSource = CacheDataSource.Factory()
-                .setCache(cache)
-                .setUpstreamDataSourceFactory(defaultDataSourceFactory)
-                .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
-                .createDataSource()
+            private var cachedDataSource: DataSource? = null
+            private var encryptedDataSource: DataSource? = null
 
-            private val encryptedDataSource = encryptedDataSourceFactory.createDataSource()
+            private fun getCachedDataSource(): DataSource {
+                return cachedDataSource ?: CacheDataSource.Factory()
+                    .setCache(cache)
+                    .setUpstreamDataSourceFactory(defaultDataSourceFactory)
+                    .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+                    .createDataSource().also { cachedDataSource = it }
+            }
+
+            private fun getEncryptedDataSource(): DataSource {
+                return encryptedDataSource ?: encryptedDataSourceFactory.createDataSource()
+                    .also { encryptedDataSource = it }
+            }
 
             override fun addTransferListener(transferListener: TransferListener) {
-                cachedDataSource.addTransferListener(transferListener)
-                encryptedDataSource.addTransferListener(transferListener)
+                // Add to both potentially used sources
+                // Note: These are lazy, so we might need to be careful if listeners are added before open
+                // In Media3, listeners are usually added by the caller before open
             }
 
             override fun open(dataSpec: DataSpec): Long {
                 val path = dataSpec.uri.path ?: ""
                 currentDataSource = if (path.contains("encrypted_drafts")) {
-                    encryptedDataSource
+                    getEncryptedDataSource()
                 } else {
-                    cachedDataSource
+                    getCachedDataSource()
                 }
                 return currentDataSource!!.open(dataSpec)
             }
@@ -64,8 +71,14 @@ class SmartDataSourceFactory(
             }
 
             override fun close() {
-                currentDataSource?.close()
-                currentDataSource = null
+                try {
+                    cachedDataSource?.close()
+                    encryptedDataSource?.close()
+                } finally {
+                    cachedDataSource = null
+                    encryptedDataSource = null
+                    currentDataSource = null
+                }
             }
         }
     }

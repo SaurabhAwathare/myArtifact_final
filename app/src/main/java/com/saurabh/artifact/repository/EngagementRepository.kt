@@ -48,11 +48,17 @@ class EngagementRepository @Inject constructor(
         val userId = authRepository.currentUserId
         if (userId.isEmpty()) return
 
+        // Calculate authoritative validation state before syncing
+        val evidence = engagement.toDomain()
+        val policy = com.saurabh.artifact.domain.review.ReviewPolicy()
+        val validator = com.saurabh.artifact.audio.validation.DefaultReviewValidator()
+        val validationResult = validator.validate(evidence, policy)
+
         // For now, we only sync a subset of data to Firestore to avoid heavy writes
         val remoteData = UserArtifactEngagement(
             userId = userId,
             artifactId = engagement.artifactId,
-            isCommentUnlocked = engagement.hasReachedEnd, // Simplified for now
+            isCommentUnlocked = validationResult.isValid,
             lastFurthestPosition = engagement.furthestPositionMs,
             updatedAt = engagement.lastUpdated
         )

@@ -201,7 +201,6 @@ class FeedViewModel @Inject constructor(
             audioPlayer.playbackCompletedEvent.collectLatest { completedUrl ->
                 val current = audioPlayer.currentArtifact.value
                 if (current?.audioUrl == completedUrl) {
-                    commentUnlockRepository.unlockArtifact(current.id)
                     personalizationEngine.recordDetailedInteraction(
                         emotion = current.emotion,
                         completionRate = 1.0f

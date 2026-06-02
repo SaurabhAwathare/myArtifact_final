@@ -11,9 +11,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -34,6 +32,7 @@ class TransientPlayerManager @Inject constructor(
     private var player: ExoPlayer? = null
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private var audioFocusRequest: AudioFocusRequest? = null
+    private var releaseJob: Job? = null
 
     private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
         when (focusChange) {
@@ -56,7 +55,28 @@ class TransientPlayerManager @Inject constructor(
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
 
+    private val playerListener = object : Player.Listener {
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            _isPlaying.value = isPlaying
+            if (!isPlaying) {
+                scheduleRelease()
+            } else {
+                releaseJob?.cancel()
+            }
+        }
+    }
+
+    private fun scheduleRelease() {
+        releaseJob?.cancel()
+        releaseJob = scope.launch {
+            delay(30000) // Release after 30 seconds of inactivity
+            Log.d("TransientPlayer", "Inactivity timeout. Releasing player.")
+            release()
+        }
+    }
+
     private fun initializePlayer(): ExoPlayer {
+        releaseJob?.cancel()
         return player ?: ExoPlayer.Builder(context)
             .setAudioAttributes(
                 AudioAttributes.Builder()
@@ -66,11 +86,7 @@ class TransientPlayerManager @Inject constructor(
                 false // Do not handle audio focus automatically to allow mixing
             )
             .build().also {
-                it.addListener(object : Player.Listener {
-                    override fun onIsPlayingChanged(isPlaying: Boolean) {
-                        _isPlaying.value = isPlaying
-                    }
-                })
+                it.addListener(playerListener)
                 player = it
             }
     }
@@ -146,7 +162,9 @@ class TransientPlayerManager @Inject constructor(
 
     fun release() {
         abandonAudioFocus()
+        player?.removeListener(playerListener)
         player?.release()
         player = null
+        scope.coroutineContext.cancelChildren()
     }
 }

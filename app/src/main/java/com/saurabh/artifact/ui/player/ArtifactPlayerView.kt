@@ -194,7 +194,7 @@ fun MiniPlayer(
                 
                 com.saurabh.artifact.ui.components.AmbientWaveform(
                     amplitudes = artifact.amplitudeData.takeIf { it.isNotEmpty() } ?: listOf(0.4f, 0.6f, 0.3f, 0.8f, 0.5f, 0.7f, 0.4f, 0.6f),
-                    progress = uiState.listeningProgress,
+                    progress = uiState.playbackProgress,
                     modifier = Modifier.height(16.dp).fillMaxWidth(),
                     isPaused = !uiState.isPlaying,
                     context = com.saurabh.artifact.ui.components.WaveformContext.Mini
