@@ -83,7 +83,7 @@ class ProfileViewModel @Inject constructor(
         
         combine(
             userRepository.streamUserProfile(effectiveId),
-            artifactRepository.getUserArtifacts(effectiveId),
+            artifactRepository.getUserArtifacts(effectiveId, onlyActive = !isSelf),
             artifactRepository.getSavedArtifacts(effectiveId),
             recordingRepository.observeDrafts(),
             userRepository.observeIsResonating(authRepository.currentUserId, effectiveId)
@@ -195,6 +195,10 @@ class ProfileViewModel @Inject constructor(
     }
 
     fun playAudio(artifact: Artifact) {
+        if (artifact.audioUrl.isEmpty()) {
+            _message.value = "This reflection hasn't found its voice yet."
+            return
+        }
         playbackCoordinator.playArtifact(artifact)
     }
 

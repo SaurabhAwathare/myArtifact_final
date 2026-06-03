@@ -69,7 +69,7 @@ class TransientPlayerManager @Inject constructor(
     private fun scheduleRelease() {
         releaseJob?.cancel()
         releaseJob = scope.launch {
-            delay(30000) // Release after 30 seconds of inactivity
+            delay(10000) // Release after 10 seconds of inactivity to reclaim resources
             Log.d("TransientPlayer", "Inactivity timeout. Releasing player.")
             release()
         }

@@ -81,7 +81,8 @@ class FeedViewModel @Inject constructor(
     private val firestore: FirebaseFirestore,
     val audioPlayer: PlaybackCoordinator,
     private val reviewSessionManager: com.saurabh.artifact.audio.ReviewSessionManager,
-    private val commentUnlockRepository: com.saurabh.artifact.repository.CommentUnlockRepository
+    private val commentUnlockRepository: com.saurabh.artifact.repository.CommentUnlockRepository,
+    private val uploadGuard: com.saurabh.artifact.security.UploadGuard
 ) : ViewModel(), MemoryTrimable {
 
     private val _uiState = MutableStateFlow(FeedUiState())
@@ -339,7 +340,7 @@ class FeedViewModel @Inject constructor(
                 // Fetch discovery artifacts to hydrate unfinished sessions if needed
                 // For simplicity, we just fetch a small batch here. 
                 // In a fuller implementation, FeedComposer would handle this better.
-                val discovery = artifactRepository.getCandidateArtifacts(20)
+                val discovery = artifactRepository.getCandidateArtifacts(userId = userId, limit = 20)
 
                 val unfinishedItems = unfinishedSessions.mapNotNull { session ->
                     val artifact = discovery.find { it.id == session.artifactId } ?: return@mapNotNull null
@@ -432,11 +433,12 @@ class FeedViewModel @Inject constructor(
 
     fun reportArtifact(artifactId: String, reason: com.saurabh.artifact.model.ReportReason, details: String) {
         viewModelScope.launch {
-            val deviceId = authRepository.userData.value?.id?.hashCode() ?: 0
+            val deviceId = uploadGuard.getDeviceFingerprint().hashCode()
             artifactRepository.submitReport(artifactId, reason, details, deviceId)
                 .onSuccess {
                     _uiState.update { it.copy(error = "Report submitted anonymously. Thank you for keeping Artifact safe.") }
-                    loadRankedFeed()
+                    // Trigger a refresh to reflect the local Room update in the PagingData
+                    _refreshTrigger.value += 1
                 }
                 .onFailure {
                     _uiState.update { it.copy(error = "Failed to submit report. Please try again.") }

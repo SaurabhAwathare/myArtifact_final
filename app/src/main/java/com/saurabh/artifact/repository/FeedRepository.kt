@@ -41,11 +41,6 @@ class FeedRepository @Inject constructor(
 
             if (resonatedUserIds.isEmpty()) return@withContext PaginatedArtifacts(emptyList(), null)
 
-            // Firestore 'whereIn' is limited to 10-30 items.
-            // For simple pagination across chunks, we take a slice of resonated users
-            // or we query all and then paginate the result.
-            // Given that resonance set is usually small (<100), we query all and paginate by time.
-            
             val chunks = resonatedUserIds.chunked(10)
             val allArtifacts = mutableListOf<Artifact>()
             var lastDocInBatch: DocumentSnapshot? = null
@@ -54,6 +49,7 @@ class FeedRepository @Inject constructor(
                 var query = firestore.collection("artifacts")
                     .whereIn("userId", chunk)
                     .whereEqualTo("isPublic", true)
+                    .whereEqualTo("status", ArtifactStatus.ACTIVE.name)
                     .orderBy("createdAt", Query.Direction.DESCENDING)
                     .limit(limit.toLong())
                 
@@ -63,8 +59,18 @@ class FeedRepository @Inject constructor(
 
                 val snapshot = query.get().await()
                 
-                val mappedChunk = snapshot.documents.map { doc ->
-                    doc.toObject(Artifact::class.java)!!.copy(id = doc.id)
+                val mappedChunk = snapshot.documents.mapNotNull { doc ->
+                    val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
+                    if (artifact == null || artifact.audioUrl.isEmpty()) return@mapNotNull null
+                    
+                    val reportCount = doc.getLong("reportCount") ?: 0L
+                    val reporterIds = doc.get("reporterIds") as? List<*> ?: emptyList<String>()
+                    
+                    if (reportCount >= 3 || reporterIds.contains(userId)) {
+                        null
+                    } else {
+                        artifact
+                    }
                 }
                 allArtifacts.addAll(mappedChunk)
                 
@@ -122,6 +128,7 @@ class FeedRepository @Inject constructor(
      * Fetches discovery candidates based on emotional compatibility with pagination.
      */
     suspend fun getDiscoveryCandidates(
+        userId: String? = null,
         limit: Int = 20,
         lastVisible: DocumentSnapshot? = null
     ): PaginatedArtifacts = withContext(Dispatchers.IO) {
@@ -138,7 +145,17 @@ class FeedRepository @Inject constructor(
 
             val snapshot = query.get().await()
             val artifacts = snapshot.documents.mapNotNull { doc ->
-                doc.toObject(Artifact::class.java)?.copy(id = doc.id)?.slimForFeed()
+                val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
+                if (artifact == null || artifact.audioUrl.isEmpty()) return@mapNotNull null
+
+                val reportCount = doc.getLong("reportCount") ?: 0L
+                val reporterIds = doc.get("reporterIds") as? List<*> ?: emptyList<String>()
+
+                if (reportCount >= 3 || (userId != null && reporterIds.contains(userId))) {
+                    null
+                } else {
+                    artifact.slimForFeed()
+                }
             }
             
             PaginatedArtifacts(artifacts, snapshot.documents.lastOrNull())

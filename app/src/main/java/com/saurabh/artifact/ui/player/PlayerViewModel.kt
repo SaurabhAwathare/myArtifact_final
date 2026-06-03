@@ -140,6 +140,13 @@ class PlayerViewModel @Inject constructor(
 
         // Observe playback errors
         viewModelScope.launch {
+            playbackCoordinator.error.collect { errorMessage ->
+                _interactionError.emit(errorMessage)
+            }
+        }
+
+        // Observe playback session status
+        viewModelScope.launch {
             playbackCoordinator.activePlayback.collect { active ->
                 // Optionally handle playback type changes here
             }
@@ -358,14 +365,25 @@ class PlayerViewModel @Inject constructor(
 
     fun deleteCurrentArtifact() {
         val artifact = uiState.value.currentArtifact ?: return
-        if (artifact.isDraft) {
-            viewModelScope.launch {
+        
+        viewModelScope.launch {
+            val result = if (artifact.isDraft) {
                 val draft = recordingRepository.getDraft(artifact.id)
                 if (draft != null) {
                     recordingRepository.deleteDraft(draft)
+                    Result.success(Unit)
+                } else {
+                    Result.failure(Exception("Draft not found"))
                 }
+            } else {
+                artifactRepository.deletePublishedArtifact(artifact.id)
+            }
+
+            result.onSuccess {
                 playbackCoordinator.stop()
                 _isExpanded.value = false
+            }.onFailure { e ->
+                _interactionError.emit("Unable to delete: ${e.message}")
             }
         }
     }

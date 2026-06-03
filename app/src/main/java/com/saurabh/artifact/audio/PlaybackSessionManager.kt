@@ -167,20 +167,23 @@ class PlaybackSessionManager @Inject constructor(
 
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
             val message = when (error.errorCode) {
-                androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
-                androidx.media3.common.PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> {
+                androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED -> {
                     if (errorRetryCount < MAX_RETRIES) {
                         attemptRetry()
-                        "Connection lost. Retrying... (${errorRetryCount + 1})"
+                        "Searching for connection... (${errorRetryCount + 1})"
                     } else {
-                        "Network connection lost. Please check your internet."
+                        "Your connection seems to have drifted away."
                     }
                 }
+                androidx.media3.common.PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> {
+                    // This often covers 404 (Not Found) or 403 (Forbidden)
+                    "This reflection's link has become inaccessible."
+                }
                 androidx.media3.common.PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND -> 
-                    "Audio file not found or inaccessible."
+                    "The audio file could not be found."
                 androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED -> 
-                    "Error decoding audio. The file might be corrupted."
-                else -> error.message ?: "An unexpected playback error occurred."
+                    "This reflection's voice is unclear (decoding error)."
+                else -> "A quiet moment was interrupted by a system error."
             }
             analytics.trackPlaybackError(_currentArtifact.value, message)
             scope.launch {

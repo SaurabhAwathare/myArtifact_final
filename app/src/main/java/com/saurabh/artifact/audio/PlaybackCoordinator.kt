@@ -1,7 +1,8 @@
 package com.saurabh.artifact.audio
 
 import com.saurabh.artifact.model.Artifact
-import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.*
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -15,6 +16,8 @@ class PlaybackCoordinator @Inject constructor(
     private val reviewSessionManager: ReviewSessionManager,
     private val transientPlayerManager: TransientPlayerManager
 ) {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
     val currentArtifact = playbackSessionManager.currentArtifact
     val isPlaying = playbackSessionManager.isPlaying
     val isBuffering = playbackSessionManager.isBuffering
@@ -25,8 +28,20 @@ class PlaybackCoordinator @Inject constructor(
     val isSkipSilenceEnabled = playbackSessionManager.isSkipSilenceEnabled
     val playbackCompletedEvent = playbackSessionManager.playbackCompletedEvent
     val activePlayback = playbackSessionManager.activePlayback
+    val error = playbackSessionManager.error
 
     val isAmbientPlaying = transientPlayerManager.isPlaying
+
+    init {
+        // Automatically stop ambient sound when main playback is cleared
+        scope.launch {
+            activePlayback.collect { active ->
+                if (active == null) {
+                    transientPlayerManager.stop()
+                }
+            }
+        }
+    }
 
     /**
      * Start playing a persistent artifact (e.g., from the main feed).
@@ -77,6 +92,7 @@ class PlaybackCoordinator @Inject constructor(
 
     fun stop() {
         playbackSessionManager.stop()
+        transientPlayerManager.stop()
     }
 
     /**
@@ -84,14 +100,18 @@ class PlaybackCoordinator @Inject constructor(
      * Useful for ViewModels to call in onCleared() without stopping persistent playback.
      */
     fun requestStop(type: PlaybackType) {
-        playbackSessionManager.stopIfType(type)
+        if (playbackSessionManager.activePlayback.value?.playbackType == type) {
+            stop()
+        }
     }
 
     /**
      * Requests to stop playback only if it's owned by a certain interaction owner.
      */
     fun requestStop(owner: PlaybackSessionManager.InteractionOwner) {
-        playbackSessionManager.stopIfOwner(owner)
+        if (playbackSessionManager.interactionOwner.value == owner) {
+            stop()
+        }
     }
 
     fun seekTo(position: Long) {

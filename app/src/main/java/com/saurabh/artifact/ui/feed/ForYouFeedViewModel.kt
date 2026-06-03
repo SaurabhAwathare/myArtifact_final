@@ -27,6 +27,9 @@ class ForYouFeedViewModel @Inject constructor(
     private val _feedState = MutableStateFlow<FeedCompositionState>(FeedCompositionState.Loading)
     val feedState: StateFlow<FeedCompositionState> = _feedState.asStateFlow()
 
+    private val _message = MutableSharedFlow<String>()
+    val message = _message.asSharedFlow()
+
     val currentlyPlayingArtifact: StateFlow<Artifact?> = audioPlayer.currentArtifact
 
     val isPlaying = audioPlayer.isPlaying
@@ -57,6 +60,15 @@ class ForYouFeedViewModel @Inject constructor(
 
     fun playArtifact(feedArtifact: FeedArtifact) {
         val artifact = feedArtifact.artifact
+        
+        // Validation: Ensure the artifact is playable before calling the player
+        if (artifact.audioUrl.isEmpty()) {
+            viewModelScope.launch {
+                _message.emit("This reflection hasn't found its voice yet.")
+            }
+            return
+        }
+
         if (currentlyPlayingArtifact.value?.id == artifact.id) {
             audioPlayer.togglePlayPause()
         } else {
@@ -107,7 +119,16 @@ class ForYouFeedViewModel @Inject constructor(
         viewModelScope.launch {
             artifactRepository.deletePublishedArtifact(artifactId)
                 .onSuccess {
-                    loadFeed() // Refresh feed after deletion
+                    // Optimistic UI: Remove from the current feed state immediately
+                    val currentState = _feedState.value
+                    if (currentState is FeedCompositionState.Success) {
+                        val updatedItems = currentState.items.filter { it.artifact.id != artifactId }
+                        _feedState.value = FeedCompositionState.Success(updatedItems)
+                    }
+                    _message.emit("Reflection deleted.")
+                }
+                .onFailure {
+                    _message.emit("Failed to delete reflection.")
                 }
         }
     }

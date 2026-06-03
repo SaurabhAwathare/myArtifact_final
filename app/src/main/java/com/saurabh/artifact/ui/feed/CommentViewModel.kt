@@ -38,16 +38,21 @@ class CommentViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val userRepository: UserRepository,
     private val commentUnlockRepository: com.saurabh.artifact.repository.CommentUnlockRepository,
-    private val reviewSessionManager: com.saurabh.artifact.audio.ReviewSessionManager
+    private val reviewSessionManager: com.saurabh.artifact.audio.ReviewSessionManager,
+    private val uploadGuard: com.saurabh.artifact.security.UploadGuard
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(CommentUiState())
     val uiState: StateFlow<CommentUiState> = _uiState.asStateFlow()
 
     private val _artifactIdForPaging = MutableStateFlow<Pair<String, String>?>(null)
+    private val _refreshTrigger = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    val commentsPager: Flow<PagingData<ArtifactComment>> = _artifactIdForPaging
+    val commentsPager: Flow<PagingData<ArtifactComment>> = combine(
+        _artifactIdForPaging,
+        _refreshTrigger.onStart { emit(Unit) }
+    ) { pair, _ -> pair }
         .flatMapLatest { pair ->
             if (pair == null) {
                 flowOf(PagingData.empty())
@@ -151,13 +156,17 @@ class CommentViewModel @Inject constructor(
 
     fun submitReport(artifactId: String, commentId: String?, reason: com.saurabh.artifact.model.ReportReason, details: String) {
         viewModelScope.launch {
+            val deviceId = uploadGuard.getDeviceFingerprint().hashCode()
             artifactRepository.submitReport(
                 artifactId = artifactId,
                 reason = reason,
                 details = details,
-                deviceId = 0, // In a real app, use a real hashed device ID
+                deviceId = deviceId,
                 commentId = commentId
-            )
+            ).onSuccess {
+                // Trigger a refresh of the comments pager
+                _refreshTrigger.tryEmit(Unit)
+            }
         }
     }
 

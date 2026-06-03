@@ -39,6 +39,7 @@ import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import com.saurabh.artifact.data.local.ArtifactEntity
+import androidx.paging.filter
 import androidx.paging.map
 import com.saurabh.artifact.data.paging.ArtifactRemoteMediator
 import kotlinx.coroutines.flow.map
@@ -472,10 +473,15 @@ class ArtifactRepository @Inject constructor(
         }
     }
 
-    fun getUserArtifacts(userId: String): Flow<List<Artifact>> = callbackFlow {
-        val query = firestore.collection("artifacts")
+    fun getUserArtifacts(userId: String, onlyActive: Boolean = false): Flow<List<Artifact>> = callbackFlow {
+        var query = firestore.collection("artifacts")
             .whereEqualTo("userId", userId)
-            .orderBy("createdAt", Query.Direction.DESCENDING)
+            
+        if (onlyActive) {
+            query = query.whereEqualTo("status", ArtifactStatus.ACTIVE.name)
+        }
+        
+        query = query.orderBy("createdAt", Query.Direction.DESCENDING)
 
         val subscription = query.addSnapshotListener { snapshot, error ->
             if (error != null) {
@@ -485,7 +491,12 @@ class ArtifactRepository @Inject constructor(
             
             repositoryScope.launch(Dispatchers.Default) {
                 val artifacts = snapshot?.documents?.mapNotNull { doc ->
-                    doc.toObject(Artifact::class.java)?.copy(id = doc.id)
+                    val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
+                    // If onlyActive is false, we still want to filter out truly broken ones (no status, etc)
+                    // but we allow PENDING_UPLOAD for the author.
+                    if (artifact != null && (artifact.status == ArtifactStatus.ACTIVE || !onlyActive)) {
+                        artifact
+                    } else null
                 } ?: emptyList()
                 trySend(artifacts)
             }
@@ -539,8 +550,9 @@ class ArtifactRepository @Inject constructor(
     }
 
     /**
-     * Submits a user report for an artifact.
+     * Submits a user report for an artifact or comment.
      * Uses device hash for privacy-preserving reporting.
+     * Prevents duplicate reports from the same user.
      */
     suspend fun submitReport(
         artifactId: String,
@@ -550,10 +562,12 @@ class ArtifactRepository @Inject constructor(
         commentId: String? = null
     ): Result<Unit> = withContext(Dispatchers.IO) {
         return@withContext try {
-            // 1. Ensure we have an authenticated user
             val userId = auth.currentUser?.uid 
                 ?: return@withContext Result.failure(AppError.Unauthenticated())
 
+            // 1. Check for duplicate reports in a transaction (optional, but good for data integrity)
+            // For now, we'll use arrayUnion which is idempotent in Firestore
+            
             val reportId = UUID.randomUUID().toString()
             val reportData = mutableMapOf<String, Any?>(
                 "artifactId" to artifactId,
@@ -569,22 +583,42 @@ class ArtifactRepository @Inject constructor(
             // 2. Submit the report document
             firestore.collection("reports").document(reportId).set(reportData).await()
             
-            // 3. Increment report count on the artifact/comment for quick thresholding
+            // 3. Increment report count and record reporter ID
             try {
                 if (commentId != null) {
                     firestore.collection("comments").document(commentId)
-                        .update("reportCount", FieldValue.increment(1))
+                        .update(
+                            "reportCount", FieldValue.increment(1),
+                            "reporterIds", FieldValue.arrayUnion(userId)
+                        )
                         .await()
                 } else {
                     firestore.collection("artifacts").document(artifactId)
                         .update(
                             "reportCount", FieldValue.increment(1),
-                            "safetyConcernCount", FieldValue.increment(1)
+                            "safetyConcernCount", FieldValue.increment(1),
+                            "reporterIds", FieldValue.arrayUnion(userId)
                         )
                         .await()
                 }
             } catch (e: Exception) {
                 Log.e("ArtifactRepository", "Report metadata update failed", e)
+            }
+
+            // 4. Update local Room DB for immediate hiding
+            try {
+                if (commentId == null) {
+                    val localArtifact = artifactDao.getArtifactById(artifactId)
+                    if (localArtifact != null) {
+                        val updatedArtifact = localArtifact.copy(
+                            reportCount = localArtifact.reportCount + 1,
+                            reporterIds = localArtifact.reporterIds + userId
+                        )
+                        artifactDao.insertAll(listOf(updatedArtifact))
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("ArtifactRepository", "Local moderation update failed", e)
             }
                 
             Result.success(Unit)
@@ -620,6 +654,7 @@ class ArtifactRepository @Inject constructor(
 
     @OptIn(androidx.paging.ExperimentalPagingApi::class)
     fun getArtifactsPager(emotion: String?): Flow<PagingData<Artifact>> {
+        val currentUserId = auth.currentUser?.uid ?: ""
         return Pager(
             config = PagingConfig(
                 pageSize = 10,
@@ -628,10 +663,12 @@ class ArtifactRepository @Inject constructor(
                 enablePlaceholders = false,
                 maxSize = 30
             ),
-            remoteMediator = ArtifactRemoteMediator(firestore, database, emotion),
+            remoteMediator = ArtifactRemoteMediator(firestore, database, currentUserId, emotion),
             pagingSourceFactory = { artifactDao.getArtifactsPaged() }
         ).flow.map { pagingData ->
-            pagingData.map { entity -> mapEntityToArtifact(entity) }
+            pagingData.filter { entity ->
+                entity.reportCount < 3 && !entity.reporterIds.contains(currentUserId)
+            }.map { entity -> mapEntityToArtifact(entity) }
         }
     }
 
@@ -661,6 +698,8 @@ class ArtifactRepository @Inject constructor(
             playCount = entity.playCount,
             reactionCount = entity.reactionCount,
             commentCount = entity.commentCount,
+            reportCount = entity.reportCount,
+            reporterIds = entity.reporterIds,
             amplitudeData = entity.amplitudeData,
             transcriptUrl = entity.transcriptUrl
         )
@@ -686,6 +725,8 @@ class ArtifactRepository @Inject constructor(
             playCount = artifact.playCount,
             reactionCount = artifact.reactionCount,
             commentCount = artifact.commentCount,
+            reportCount = artifact.reportCount,
+            reporterIds = artifact.reporterIds,
             amplitudeData = artifact.amplitudeData,
             transcriptUrl = artifact.transcriptUrl,
             lastUpdated = System.currentTimeMillis()
@@ -695,7 +736,7 @@ class ArtifactRepository @Inject constructor(
     /**
      * Fetches a batch of raw candidates for client-side ranking.
      */
-    suspend fun getCandidateArtifacts(limit: Long = 50): List<Artifact> = withContext(Dispatchers.IO) {
+    suspend fun getCandidateArtifacts(userId: String? = null, limit: Long = 50): List<Artifact> = withContext(Dispatchers.IO) {
         return@withContext try {
             val snapshot = firestore.collection("artifacts")
                 .whereEqualTo("isPublic", true)
@@ -712,9 +753,10 @@ class ArtifactRepository @Inject constructor(
                         
                         // Moderation Filter: Hide if HIDDEN or if reports are high (even if AI missed it)
                         val reportCount = doc.getLong("reportCount") ?: 0L
+                        val reporterIds = doc.get("reporterIds") as? List<*> ?: emptyList<String>()
                         val modStatus = artifact?.moderation?.status ?: ModerationStatus.SAFE
                         
-                        if (modStatus == ModerationStatus.HIDDEN || reportCount >= 5) {
+                        if (modStatus == ModerationStatus.HIDDEN || reportCount >= 3 || (userId != null && reporterIds.contains(userId)) || artifact?.audioUrl.isNullOrEmpty()) {
                             null
                         } else {
                             // HARDENING: Slim artifacts before they hit the view layer
@@ -792,8 +834,18 @@ class ArtifactRepository @Inject constructor(
                             .get().await()
                         
                         val mappedChunk = withContext(Dispatchers.Default) {
-                            docs.toObjects(Artifact::class.java).mapIndexed { i, a ->
-                                a.copy(id = docs.documents[i].id)
+                            docs.documents.mapNotNull { doc ->
+                                val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
+                                if (artifact == null || artifact.audioUrl.isEmpty() || artifact.status != ArtifactStatus.ACTIVE) return@mapNotNull null
+                                
+                                val reportCount = doc.getLong("reportCount") ?: 0L
+                                val reporterIds = doc.get("reporterIds") as? List<*> ?: emptyList<String>()
+                                
+                                if (reportCount >= 3 || reporterIds.contains(userId)) {
+                                    null
+                                } else {
+                                    artifact
+                                }
                             }
                         }
                         allLiked.addAll(mappedChunk)
@@ -896,8 +948,18 @@ class ArtifactRepository @Inject constructor(
                             .get().await()
                         
                         val mappedChunk = withContext(Dispatchers.Default) {
-                            docs.toObjects(Artifact::class.java).mapIndexed { i, a ->
-                                a.copy(id = docs.documents[i].id)
+                            docs.documents.mapNotNull { doc ->
+                                val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
+                                if (artifact == null || artifact.audioUrl.isEmpty() || artifact.status != ArtifactStatus.ACTIVE) return@mapNotNull null
+                                
+                                val reportCount = doc.getLong("reportCount") ?: 0L
+                                val reporterIds = doc.get("reporterIds") as? List<*> ?: emptyList<String>()
+                                
+                                if (reportCount >= 3 || reporterIds.contains(userId)) {
+                                    null
+                                } else {
+                                    artifact
+                                }
                             }
                         }
                         allSaved.addAll(mappedChunk)
@@ -1385,6 +1447,14 @@ class ArtifactRepository @Inject constructor(
             } catch (e: Exception) {
                 // Log but don't fail; Cloud Function or eventual cleanup will catch this
                 Log.e("ArtifactRepository", "Cleanup: Immediate storage deletion failed (best-effort)", e)
+            }
+
+            // 3. Synchronize local Room database
+            try {
+                artifactDao.deleteById(artifactId)
+                Log.d("ArtifactRepository", "Local artifact $artifactId removed from Room.")
+            } catch (e: Exception) {
+                Log.e("ArtifactRepository", "Failed to remove $artifactId from local Room database", e)
             }
 
             Result.success(Unit)

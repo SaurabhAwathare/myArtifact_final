@@ -19,7 +19,7 @@ class FeedComposer @Inject constructor(
     suspend fun composeFeed(userId: String): List<FeedArtifact> = coroutineScope {
         val resonatedJob = async { repository.getResonatingArtifacts(userId) }
         val unfinishedJob = async { repository.getUnfinishedSessions(userId) }
-        val discoveryJob = async { repository.getDiscoveryCandidates() }
+        val discoveryJob = async { repository.getDiscoveryCandidates(userId) }
         val profileJob = async { repository.getEmotionalProfile(userId) }
 
         val resonated = resonatedJob.await()

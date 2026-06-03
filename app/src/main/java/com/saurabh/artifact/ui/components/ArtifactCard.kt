@@ -122,6 +122,8 @@ fun ArtifactCard(
     val displayEmotion = remember(displayArtifact.emotion) { displayArtifact.emotion.ifEmpty { "reflective" }.lowercase() }
     val displayUsername = remember(displayArtifact.author.name) { displayArtifact.author.name.ifEmpty { "anonymous soul" }.lowercase() }
 
+    val isPending = displayArtifact.audioUrl.isEmpty() && displayArtifact.status == com.saurabh.artifact.model.ArtifactStatus.PENDING_UPLOAD
+
     val progress by remember(currentPosition, durationMs) {
         derivedStateOf { if (durationMs > 0) currentPosition.toFloat() / durationMs else 0f }
     }
@@ -168,9 +170,9 @@ fun ArtifactCard(
             }
 
         PressableScale(
-            onClick = if (isHidden) ({}) else onPlayClick,
+            onClick = if (isHidden || isPending) ({}) else onPlayClick,
             scaleDownTo = 0.98f,
-            modifier = cardModifier
+            modifier = cardModifier.alpha(if (isPending) 0.6f else 1f)
         ) {
             Box(modifier = Modifier.fillMaxWidth()) {
                 // Expensive Background Effect: ONLY if playing and FULL hydration
@@ -256,6 +258,18 @@ fun ArtifactCard(
                                         text = displayEmotion,
                                         style = ArtifactTheme.typography.labelSmall,
                                         color = ArtifactTheme.colors.waveformActive.copy(alpha = 0.8f)
+                                    )
+                                }
+                                
+                                if (isPending) {
+                                    Spacer(modifier = Modifier.width(Spacing.Small))
+                                    Text(
+                                        text = "Pending Upload...",
+                                        style = ArtifactTheme.typography.labelSmall.copy(
+                                            fontStyle = FontStyle.Italic,
+                                            fontWeight = FontWeight.Medium
+                                        ),
+                                        color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.8f)
                                     )
                                 }
                             }

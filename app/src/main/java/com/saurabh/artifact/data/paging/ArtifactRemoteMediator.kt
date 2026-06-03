@@ -16,6 +16,7 @@ import kotlinx.coroutines.tasks.await
 class ArtifactRemoteMediator(
     private val firestore: FirebaseFirestore,
     private val database: AppDatabase,
+    private val currentUserId: String,
     private val emotion: String? = null
 ) : RemoteMediator<Int, ArtifactEntity>() {
 
@@ -36,6 +37,7 @@ class ArtifactRemoteMediator(
 
             var query = firestore.collection("artifacts")
                 .whereEqualTo("isPublic", true)
+                .whereEqualTo("status", com.saurabh.artifact.model.ArtifactStatus.ACTIVE.name)
                 .orderBy("createdAt", Query.Direction.DESCENDING)
 
             if (!emotion.isNullOrEmpty() && emotion != "All") {
@@ -51,7 +53,23 @@ class ArtifactRemoteMediator(
             val snapshot = query.limit(state.config.pageSize.toLong()).get().await()
             val artifacts = snapshot.documents.mapNotNull { doc ->
                 val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
-                artifact?.let { mapToEntity(it) }
+                if (artifact == null) return@mapNotNull null
+
+                // Moderation Filter: Hide if HIDDEN or if reports are high or if current user reported it
+                val reportCount = doc.getLong("reportCount") ?: 0L
+                val reporterIds = doc.get("reporterIds") as? List<*> ?: emptyList<String>()
+                val modStatus = artifact.moderation.status
+                
+                val isModerated = modStatus == com.saurabh.artifact.model.ModerationStatus.HIDDEN || 
+                                 reportCount >= 3 || 
+                                 reporterIds.contains(currentUserId)
+
+                // Filter out artifacts without audio URLs or that aren't active or are moderated
+                if (artifact.audioUrl.isNotEmpty() && !isModerated) {
+                    mapToEntity(artifact.copy(reportCount = reportCount.toInt(), reporterIds = reporterIds.map { it.toString() }))
+                } else {
+                    null
+                }
             }
 
             val endOfPaginationReached = artifacts.isEmpty()
@@ -93,6 +111,8 @@ class ArtifactRemoteMediator(
             playCount = artifact.playCount,
             reactionCount = artifact.reactionCount,
             commentCount = artifact.commentCount,
+            reportCount = artifact.reportCount,
+            reporterIds = artifact.reporterIds,
             amplitudeData = artifact.amplitudeData,
             transcriptUrl = artifact.transcriptUrl,
             lastUpdated = System.currentTimeMillis()

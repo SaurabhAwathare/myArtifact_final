@@ -32,7 +32,8 @@ enum class CommentModerationState {
     PENDING,
     APPROVED,
     FLAGGED,
-    BLOCKED
+    BLOCKED,
+    HIDDEN
 }
 
 @Serializable
@@ -48,6 +49,8 @@ data class ArtifactComment(
     val authorType: AuthorType = AuthorType.PSEUDONYM,
     val emotionalMarkers: List<String> = emptyList(),
     val moderationState: CommentModerationState = CommentModerationState.PENDING,
+    val reportCount: Int = 0,
+    val reporterIds: List<String> = emptyList(),
     @get:Exclude @set:Exclude
     var creatorReaction: ReactionType? = null,
     val createdAt: Timestamp = Timestamp.now(),

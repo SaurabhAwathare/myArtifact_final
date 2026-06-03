@@ -31,6 +31,11 @@ import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.ReactionType
 import com.saurabh.artifact.ui.components.ArtifactAvatar
 
+import androidx.compose.ui.tooling.preview.Preview
+import com.saurabh.artifact.model.AuthorSnapshot
+import com.saurabh.artifact.model.AvatarConfig
+import com.google.firebase.Timestamp
+
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun ArtifactCard(
@@ -196,20 +201,24 @@ fun ArtifactCard(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Bottom Actions: Reactions (FlowRow)
-            FlowRow(
+            // Bottom Actions: Reactions (FlowRow) + Fixed Actions
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalAlignment = Alignment.Bottom
             ) {
-                ReactionType.entries.take(4).forEach { type ->
-                    ReactionChip(type.label, onClick = { onReactionClick(type) })
+                FlowRow(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    ReactionType.entries.take(4).forEach { type ->
+                        ReactionChip(type.label, onClick = { onReactionClick(type) })
+                    }
                 }
                 
-                Spacer(modifier = Modifier.weight(1f))
-                
                 Row(
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(start = 12.dp, bottom = 4.dp) // Align with bottom row of chips
                 ) {
                     // Simple disabled icon without complex Tooltip for now to avoid compilation errors
                     IconButton(
@@ -246,6 +255,54 @@ private fun formatDuration(millis: Long): String {
     val mins = totalSeconds / 60
     val secs = totalSeconds % 60
     return "%d:%02d".format(mins, secs)
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF000000)
+@Composable
+fun ArtifactCardPreview() {
+    val mockArtifact = Artifact(
+        id = "1",
+        title = "A very long title that might cause some wrapping issues if the screen is very small but let's see",
+        author = AuthorSnapshot(name = "The Muse"),
+        emotion = "Inspired",
+        durationMs = 125000
+    )
+    
+    Box(modifier = Modifier.padding(16.dp).width(360.dp)) {
+        ArtifactCard(
+            artifact = mockArtifact,
+            isPlaying = false,
+            onPlayClick = {},
+            onReactionClick = {},
+            onCommentClick = {},
+            onSaveClick = {},
+            onReportClick = {}
+        )
+    }
+}
+
+@Preview(name = "Artifact Card - Many Reactions", showBackground = true, backgroundColor = 0xFF000000)
+@Composable
+fun ArtifactCardManyReactionsPreview() {
+    val mockArtifact = Artifact(
+        id = "2",
+        title = "Reflections on FlowRow",
+        author = AuthorSnapshot(name = "Researcher"),
+        emotion = "Curious",
+        durationMs = 45000
+    )
+    
+    Box(modifier = Modifier.padding(16.dp).width(300.dp)) { // Narrower width to force wrap
+        ArtifactCard(
+            artifact = mockArtifact,
+            isPlaying = true,
+            onPlayClick = {},
+            onReactionClick = {},
+            onCommentClick = {},
+            onSaveClick = {},
+            onReportClick = {}
+        )
+    }
 }
 
 @Composable

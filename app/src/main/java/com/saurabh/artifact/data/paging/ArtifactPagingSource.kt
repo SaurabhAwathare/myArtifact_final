@@ -10,6 +10,7 @@ import kotlinx.coroutines.tasks.await
 
 class ArtifactPagingSource(
     private val firestore: FirebaseFirestore,
+    private val currentUserId: String,
     private val emotion: String? = null
 ) : PagingSource<DocumentSnapshot, Artifact>() {
 
@@ -37,8 +38,11 @@ class ArtifactPagingSource(
             val artifacts = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
                 snapshot.documents.mapNotNull { doc ->
                     val safetyCount = doc.getLong("safetyConcernCount") ?: 0L
-                    if (safetyCount >= 3) {
-                        // Hide content that has been flagged multiple times as a safety concern
+                    val reportCount = doc.getLong("reportCount") ?: 0L
+                    val reporterIds = doc.get("reporterIds") as? List<*> ?: emptyList<String>()
+                    
+                    if (safetyCount >= 3 || reportCount >= 3 || reporterIds.contains(currentUserId)) {
+                        // Hide content that has been flagged multiple times or by the current user
                         null
                     } else {
                         doc.toObject(Artifact::class.java)?.copy(id = doc.id)

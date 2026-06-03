@@ -38,6 +38,7 @@ class PersonalizedPagingSource(
                 )
 
                 val discoveryResult = feedRepository.getDiscoveryCandidates(
+                    userId = userId,
                     limit = pageSize,
                     lastVisible = key.discoveryLast
                 )

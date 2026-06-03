@@ -7,6 +7,7 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.saurabh.artifact.model.ArtifactComment
+import com.saurabh.artifact.model.CommentModerationState
 import com.saurabh.artifact.model.VisibilityLayer
 import kotlinx.coroutines.tasks.await
 
@@ -47,6 +48,12 @@ class CommentPagingSource(
                 // Existing filtering logic from CommentRepository
                 val isAuthor = comment.authorId == currentUserId
                 
+                // Moderation: Auto-hide if reported too many times or blocked
+                val isModerated = comment.reportCount >= 3 || 
+                                 comment.reporterIds.contains(currentUserId) ||
+                                 comment.moderationState == CommentModerationState.BLOCKED ||
+                                 comment.moderationState == CommentModerationState.HIDDEN
+
                 val visible = when (comment.visibilityLayer) {
                     VisibilityLayer.SANCTUARY -> isAuthor
                     VisibilityLayer.BRIDGE -> isAuthor || isOwner
@@ -54,7 +61,7 @@ class CommentPagingSource(
                         val isRevealed = comment.revealAt == null || comment.revealAt <= now
                         isAuthor || isOwner || isRevealed
                     }
-                }
+                } && !isModerated
                 
                 if (visible) comment else null
             }
