@@ -10,8 +10,10 @@ import com.saurabh.artifact.model.ProcessingStage
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+
+import com.saurabh.artifact.util.WaveformProcessor
+import java.io.File
 
 @HiltWorker
 class WaveformWorker @AssistedInject constructor(
@@ -24,10 +26,26 @@ class WaveformWorker @AssistedInject constructor(
         val draftId = inputData.getString(KEY_DRAFT_ID) ?: return@withContext Result.failure()
         
         try {
+            val draft = draftDao.getDraftById(draftId) ?: return@withContext Result.failure()
+            val rawFile = draft.rawPcmPath?.let { File(it) } ?: File(draft.localAudioPath)
+            
+            if (!rawFile.exists()) {
+                updateSubState(draftId, null, "Raw audio file missing")
+                return@withContext Result.failure()
+            }
+
             updateSubState(draftId, ProcessingStage.WAVEFORM_GENERATION)
             
-            // Simulation of waveform extraction
-            delay(1500)
+            // High-fidelity extraction from PCM
+            val waveformData = WaveformProcessor.extractFromPcm(rawFile, targetSize = 100)
+            
+            if (waveformData.isNotEmpty()) {
+                draftDao.update(draft.copy(
+                    amplitudeData = waveformData,
+                    status = draft.status.copy(processing = ProcessingStatus.Idle), // Mark this stage idle
+                    updatedAt = System.currentTimeMillis()
+                ))
+            }
             
             Result.success()
         } catch (e: Exception) {

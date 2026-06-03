@@ -193,13 +193,13 @@ class WavRecorder(
     private fun calculateMaxAmplitude(data: ByteArray, size: Int) {
         // Assuming 16-bit PCM Little Endian
         val buffer = ByteBuffer.wrap(data, 0, size).order(ByteOrder.LITTLE_ENDIAN)
-        var max = 0
+        var currentMax = _maxAmplitude
         while (buffer.hasRemaining()) {
             if (buffer.remaining() < 2) break
             val sample = kotlin.math.abs(buffer.short.toInt())
-            if (sample > max) max = sample
+            if (sample > currentMax) currentMax = sample
         }
-        _maxAmplitude = max
+        _maxAmplitude = currentMax
     }
 
     fun pause() {

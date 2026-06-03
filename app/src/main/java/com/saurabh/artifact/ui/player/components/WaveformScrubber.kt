@@ -80,6 +80,7 @@ fun WaveformScrubber(
             amplitudes = amplitudes,
             progress = if (isDragging) dragProgress else progress,
             isPaused = isPaused,
+            isStatic = isDragging, // Disable animations during scrub for precision
             context = WaveformContext.Player,
             modifier = Modifier.fillMaxWidth()
         )
