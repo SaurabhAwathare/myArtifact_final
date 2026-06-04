@@ -109,7 +109,21 @@ export const onArtifactDeleted = functions.firestore
     };
 
     try {
-      // 1. Cleanup top-level collections associated with artifactId via field
+      // 1. Storage Cleanup: Delete the audio file
+      const audioUrl = snapshot.data()?.audioUrl;
+      if (audioUrl && audioUrl.includes("firebasestorage")) {
+        try {
+          // Extract file path from download URL
+          // Format: https://firebasestorage.googleapis.com/v0/b/BUCKET/o/PATH?alt=media
+          const decodedPath = decodeURIComponent(audioUrl.split("/o/")[1].split("?")[0]);
+          await admin.storage().bucket().file(decodedPath).delete();
+          console.log(`Deleted storage file: ${decodedPath}`);
+        } catch (e) {
+          console.warn(`Storage deletion failed for ${audioUrl} (possibly already gone):`, e);
+        }
+      }
+
+      // 2. Cleanup top-level collections associated with artifactId via field
       const collections = [
         "comments",
         "artifact_reactions",

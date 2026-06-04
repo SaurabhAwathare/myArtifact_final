@@ -22,7 +22,7 @@ fun ArtifactManagementBottomSheet(
     isDraft: Boolean,
     onRenameClick: () -> Unit,
     onDeleteClick: () -> Unit,
-    onViewCommentsClick: () -> Unit,
+    onViewCommentsClick: (() -> Unit)? = null,
     isSaved: Boolean = false,
     onUnsaveClick: () -> Unit = {},
     onDismiss: () -> Unit
@@ -62,7 +62,7 @@ fun ArtifactManagementBottomSheet(
                 )
             }
 
-            if (!isDraft) {
+            if (onViewCommentsClick != null && !isDraft) {
                 ManagementActionItem(
                     icon = Icons.Rounded.ChatBubbleOutline,
                     label = "View Comments",
@@ -130,6 +130,8 @@ fun RenameDialog(
     onDismiss: () -> Unit
 ) {
     var title by remember { mutableStateOf(initialTitle) }
+    val maxChars = 70
+    val isValid = title.isNotBlank() && title.length <= maxChars
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -142,27 +144,44 @@ fun RenameDialog(
             )
         },
         text = {
-            OutlinedTextField(
-                value = title,
-                onValueChange = { title = it },
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                placeholder = { Text("Untitled Moment", color = Color.White.copy(alpha = 0.3f)) },
-                textStyle = ArtifactTheme.typography.bodyLarge,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = ArtifactTheme.colors.waveformActive,
-                    unfocusedBorderColor = Color.White.copy(alpha = 0.1f),
-                    focusedTextColor = ArtifactTheme.colors.onSurfaceMain,
-                    unfocusedTextColor = ArtifactTheme.colors.onSurfaceMain
-                ),
-                shape = RoundedCornerShape(12.dp)
-            )
+            Column {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { if (it.length <= maxChars + 10) title = it },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    placeholder = { Text("Untitled Moment", color = Color.White.copy(alpha = 0.3f)) },
+                    textStyle = ArtifactTheme.typography.bodyLarge,
+                    isError = title.length > maxChars,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = ArtifactTheme.colors.waveformActive,
+                        unfocusedBorderColor = Color.White.copy(alpha = 0.1f),
+                        focusedTextColor = ArtifactTheme.colors.onSurfaceMain,
+                        unfocusedTextColor = ArtifactTheme.colors.onSurfaceMain,
+                        errorBorderColor = MaterialTheme.colorScheme.error
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                )
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp, end = 4.dp),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    Text(
+                        text = "${title.length}/$maxChars",
+                        style = ArtifactTheme.typography.labelSmall,
+                        color = if (title.length > maxChars) MaterialTheme.colorScheme.error 
+                                else ArtifactTheme.colors.onSurfaceMuted
+                    )
+                }
+            }
         },
         confirmButton = {
             TextButton(
                 onClick = { onConfirm(title) },
-                enabled = title.isNotBlank()
+                enabled = isValid
             ) {
-                Text("Update", color = ArtifactTheme.colors.waveformActive)
+                Text("Update", color = if (isValid) ArtifactTheme.colors.waveformActive 
+                                       else ArtifactTheme.colors.waveformActive.copy(alpha = 0.3f))
             }
         },
         dismissButton = {

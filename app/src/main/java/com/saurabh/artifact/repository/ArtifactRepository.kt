@@ -196,7 +196,7 @@ class ArtifactRepository @Inject constructor(
             "isPublic" to artifact.isPublic,
             "visibility" to artifact.visibility.name,
             "status" to artifact.status.name,
-            "isDraft" to artifact.isDraft,
+            "isDraft" to (artifact.status == ArtifactStatus.DRAFT || artifact.status == ArtifactStatus.PENDING_UPLOAD),
             "durationMs" to artifact.durationMs,
             "title" to artifact.title,
             "description" to artifact.description,
@@ -1406,12 +1406,35 @@ class ArtifactRepository @Inject constructor(
 
     /**
      * Renames a published artifact in Firestore.
+     * Includes validation, history tracking, and local sync.
      */
     suspend fun renamePublishedArtifact(artifactId: String, newTitle: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val trimmedTitle = newTitle.trim()
+        if (trimmedTitle.isEmpty() || trimmedTitle.length > 70) {
+            return@withContext Result.failure(IllegalArgumentException("Title must be between 1 and 70 characters"))
+        }
+
         return@withContext try {
-            firestore.collection("artifacts").document(artifactId)
-                .update("title", newTitle)
-                .await()
+            val docRef = firestore.collection("artifacts").document(artifactId)
+            
+            firestore.runTransaction { transaction ->
+                val snapshot = transaction.get(docRef)
+                val currentTitle = snapshot.getString("title") ?: ""
+                
+                if (currentTitle != trimmedTitle) {
+                    val history = snapshot.get("titleHistory") as? List<*>
+                    val newHistory = (history?.filterIsInstance<String>() ?: emptyList()) + currentTitle
+                    
+                    transaction.update(docRef, "title", trimmedTitle)
+                    transaction.update(docRef, "titleHistory", newHistory.distinct().takeLast(5))
+                }
+            }.await()
+
+            // Sync with local draft if it exists
+            draftDao.getDraftByArtifactId(artifactId)?.let { draft ->
+                draftDao.updateTitle(draft.id, trimmedTitle)
+            }
+
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e("ArtifactRepository", "Rename failed", e)
@@ -1420,46 +1443,106 @@ class ArtifactRepository @Inject constructor(
     }
 
     /**
-     * Deletes a published artifact from Firestore and removes the audio file from Storage.
-     * Hardening: Firestore anchor is deleted FIRST. If successful, the Cloud Function
-     * 'onArtifactDeleted' will handle cascading cleanup of reactions, comments, and storage.
-     * The client attempts a best-effort storage deletion here for immediate recovery.
+     * Determines if the current authenticated user has administrative privileges.
+     * Administrative status is stored in a private settings document for security.
+     */
+    private suspend fun isCurrentUserAdmin(): Boolean {
+        val userId = auth.currentUser?.uid ?: return false
+        return try {
+            val settingsDoc = firestore.collection("users").document(userId)
+                .collection("private").document("settings")
+                .get().await()
+            settingsDoc.getBoolean("isAdmin") == true
+        } catch (e: Exception) {
+            Log.e("ArtifactRepository", "Failed to check admin status", e)
+            false
+        }
+    }
+
+    /**
+     * Marks a published artifact as DELETED in Firestore.
+     * This is a "Soft Delete" that hides the artifact from all feeds and searches
+     * but preserves the data for a potential "Recently Deleted" or "Undo" period.
      */
     suspend fun deletePublishedArtifact(artifactId: String): Result<Unit> = withContext(Dispatchers.IO) {
         return@withContext try {
+            val currentUserId = auth.currentUser?.uid ?: return@withContext Result.failure(Exception("Unauthenticated"))
+            
             val artifactRef = firestore.collection("artifacts").document(artifactId)
             val doc = artifactRef.get().await()
             
             if (!doc.exists()) {
-                Log.w("ArtifactRepository", "Artifact $artifactId already deleted from Firestore")
+                Log.w("ArtifactRepository", "Artifact $artifactId not found in Firestore.")
                 return@withContext Result.success(Unit)
             }
             
-            val audioUrl = doc.getString("audioUrl")
+            val ownerId = doc.getString("userId")
+            val isAdmin = isCurrentUserAdmin()
             
-            // 1. Delete Firestore anchor first (Authoritative state change)
-            artifactRef.delete().await()
-            Log.d("ArtifactRepository", "Artifact anchor $artifactId deleted. Cloud Function will handle cascading cleanup.")
-
-            // 2. Immediate best-effort Storage cleanup
-            try {
-                if (audioUrl != null) deleteStorageFile(audioUrl)
-            } catch (e: Exception) {
-                // Log but don't fail; Cloud Function or eventual cleanup will catch this
-                Log.e("ArtifactRepository", "Cleanup: Immediate storage deletion failed (best-effort)", e)
+            if (ownerId != currentUserId && !isAdmin) {
+                Log.w("ArtifactRepository", "Unauthorized soft-deletion attempt for $artifactId by $currentUserId")
+                return@withContext Result.failure(Exception("Unauthorized: You do not own this reflection"))
             }
+            
+            // 1. Perform Soft Delete (Authority)
+            firestore.runTransaction { transaction ->
+                transaction.update(artifactRef, "status", ArtifactStatus.DELETED.name)
+                transaction.update(artifactRef, "isPublic", false)
+                transaction.update(artifactRef, "deletedAt", FieldValue.serverTimestamp())
+            }.await()
+            
+            Log.d("ArtifactRepository", "Artifact $artifactId soft-deleted.")
 
-            // 3. Synchronize local Room database
+            // 2. Synchronize local Room database (Remove from local view)
             try {
                 artifactDao.deleteById(artifactId)
-                Log.d("ArtifactRepository", "Local artifact $artifactId removed from Room.")
+                database.engagementDao().deleteEngagement(artifactId)
             } catch (e: Exception) {
-                Log.e("ArtifactRepository", "Failed to remove $artifactId from local Room database", e)
+                Log.e("ArtifactRepository", "Local sync failed after soft-delete", e)
             }
 
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("ArtifactRepository", "Critical failure during deletion for $artifactId", e)
+            Log.e("ArtifactRepository", "Soft delete failure for $artifactId", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Permanently deletes a published artifact from Firestore and triggers cascading cleanup.
+     * Use this for actual data removal after a grace period or via administrative action.
+     */
+    suspend fun hardDeleteArtifact(artifactId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        return@withContext try {
+            val currentUserId = auth.currentUser?.uid ?: return@withContext Result.failure(Exception("Unauthenticated"))
+            
+            val artifactRef = firestore.collection("artifacts").document(artifactId)
+            val doc = artifactRef.get().await()
+            
+            if (!doc.exists()) {
+                artifactDao.deleteById(artifactId)
+                database.engagementDao().deleteEngagement(artifactId)
+                return@withContext Result.success(Unit)
+            }
+            
+            val ownerId = doc.getString("userId")
+            val isAdmin = isCurrentUserAdmin()
+            
+            if (ownerId != currentUserId && !isAdmin) {
+                return@withContext Result.failure(Exception("Unauthorized for hard delete"))
+            }
+            
+            // Delete Firestore anchor first. Cloud Function onArtifactDeleted will handle
+            // Storage removal, reactions, comments, and other associations.
+            artifactRef.delete().await()
+            
+            // Local cleanup
+            artifactDao.deleteById(artifactId)
+            database.engagementDao().deleteEngagement(artifactId)
+            
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("ArtifactRepository", "Hard delete failure for $artifactId", e)
             Result.failure(e)
         }
     }

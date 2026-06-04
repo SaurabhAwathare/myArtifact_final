@@ -11,6 +11,11 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+data class NotificationUiState(
+    val items: List<NotificationItem> = emptyList(),
+    val isLoading: Boolean = false
+)
+
 @HiltViewModel
 class NotificationViewModel @Inject constructor(
     private val notificationRepository: NotificationRepository,
@@ -19,15 +24,17 @@ class NotificationViewModel @Inject constructor(
 
     // Real-time stream of notifications for the current user
     @OptIn(ExperimentalCoroutinesApi::class)
-    val notifications: StateFlow<List<NotificationItem>> = authRepository.currentUser
+    val uiState: StateFlow<NotificationUiState> = authRepository.currentUser
         .flatMapLatest { user ->
             if (user != null) {
                 notificationRepository.listenNotifications(user.uid)
+                    .map { items -> NotificationUiState(items = items, isLoading = false) }
+                    .onStart { emit(NotificationUiState(isLoading = true)) }
             } else {
-                flowOf(emptyList())
+                flowOf(NotificationUiState(isLoading = false))
             }
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), NotificationUiState(isLoading = true))
 
     /**
      * Mark a notification as read when viewed.

@@ -14,7 +14,8 @@ enum class ArtifactStatus {
     DRAFT,
     PENDING_UPLOAD,
     ACTIVE,
-    HIDDEN
+    HIDDEN,
+    DELETED
 }
 
 @Immutable
@@ -29,6 +30,7 @@ data class Artifact(
     var isPublic: Boolean = true,
     var visibility: Visibility = Visibility.PUBLIC,
     var status: ArtifactStatus = ArtifactStatus.DRAFT,
+    @Deprecated("Use status == ArtifactStatus.DRAFT or ArtifactStatus.PENDING_UPLOAD instead")
     @get:PropertyName("isDraft")
     @set:PropertyName("isDraft")
     var isDraft: Boolean = false,
@@ -56,6 +58,7 @@ data class Artifact(
     var moderation: ModerationMetadata = ModerationMetadata(),
     var conversationMetadata: ArtifactConversationMetadata = ArtifactConversationMetadata(),
     var reactionVisibility: ReactionVisibilityMode = ReactionVisibilityMode.APPROXIMATE,
+    var titleHistory: List<String> = emptyList(),
 
     // Missing fields causing warnings
     var authorAnonymousName: String = "",

@@ -147,6 +147,15 @@ fun CommentComposer(
 
         Spacer(Modifier.height(24.dp))
 
+        if (content.isBlank() && !uiState.isSubmitting) {
+            Text(
+                "Write a reflection to release it.",
+                style = MaterialTheme.typography.labelSmall,
+                color = ReflectionWhite.copy(alpha = 0.5f),
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+        }
+
         // Action Buttons
         Button(
             onClick = { 

@@ -2,4 +2,29 @@
     <string name="app_name">myArtifact</string>
     <string name="default_web_client_id">1002864539573-qftmoh7cis3rnbi6u646tlmri55v6ler.apps.googleusercontent.com</string>
     <string name="playback_channel_name">Playback</string>
+
+    <!-- Zen Snackbar Messages -->
+    <string name="reflection_released">A reflection has been released.</string>
+    <string name="reflection_renamed">The reflection now carries a new name.</string>
+    <string name="reflection_deleted">A reflection has been released.</string>
+    <string name="draft_renamed">The draft now carries a new name.</string>
+    <string name="draft_deleted">A draft has been released.</string>
+    <string name="now_following">You are now resonating with this presence.</string>
+    <string name="unfollowed">The resonance has been stilled.</string>
+    <string name="saved_to_journey">This reflection will stay with you.</string>
+    <string name="removed_from_journey">The reflection has been set free from your journey.</string>
+    <string name="export_ready">Your reflections are ready for their journey.</string>
+    <string name="export_failed">The journey was interrupted. Please try again.</string>
+    <string name="quiet_moment_interrupted">A quiet moment was interrupted. Please try again.</string>
+    <string name="no_voice_yet">This reflection hasn\'t found its voice yet.</string>
+    <string name="presence_needs_reaffirmation">Your presence needs to be reaffirmed.</string>
+    <string name="presence_updated">Your presence has evolved.</string>
+    <string name="presence_ritual_failed">The ritual could not be completed at this time.</string>
+    <string name="name_already_resonating">This name is already resonating with another.</string>
+    <string name="connection_faded">The connection has faded. Let it rest and try again.</string>
+    <string name="permission_clouded">Your access to this reflection is clouded.</string>
+    <string name="unauthenticated_presence">Your presence is unknown. Please reveal yourself.</string>
+    <string name="logout_failed">The departure was delayed. Please try again.</string>
+    <string name="account_deleted">Your presence has been dissolved from this space.</string>
+    <string name="generic_error">Something unexpected happened. Let\'s try again in a moment.</string>
 </resources>

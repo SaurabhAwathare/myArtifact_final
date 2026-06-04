@@ -2,6 +2,7 @@ package com.saurabh.artifact.model
 
 import com.google.firebase.Timestamp
 import kotlinx.serialization.Serializable
+import com.saurabh.artifact.ui.util.UiText
 
 /**
  * A wrapper for Artifacts appearing in the feed, including recommendation metadata.
@@ -63,7 +64,7 @@ data class ResonanceRelation(
 sealed class FeedCompositionState {
     object Loading : FeedCompositionState()
     data class Success(val items: List<FeedArtifact>) : FeedCompositionState()
-    data class Error(val message: String) : FeedCompositionState()
+    data class Error(val message: UiText) : FeedCompositionState()
 }
 
 /**

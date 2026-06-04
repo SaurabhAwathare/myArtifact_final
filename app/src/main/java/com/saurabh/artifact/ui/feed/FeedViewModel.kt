@@ -28,6 +28,9 @@ import com.saurabh.artifact.data.local.RecordingStatus
 import com.saurabh.artifact.util.MemoryManager
 import com.saurabh.artifact.util.MemoryTrimable
 import com.saurabh.artifact.util.StartupTracer
+import com.saurabh.artifact.ui.util.UiText
+import com.saurabh.artifact.ui.util.ErrorMessageMapper
+import com.saurabh.artifact.R
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.ListenerRegistration
@@ -61,7 +64,7 @@ data class FeedUiState(
     val isCrisis: Boolean = false,
     val isRefreshing: Boolean = false,
     val hasNewContent: Boolean = false,
-    val error: String? = null
+    val error: UiText? = null
 )
 
 @HiltViewModel
@@ -161,7 +164,7 @@ class FeedViewModel @Inject constructor(
         // Listen for save messages
         viewModelScope.launch {
             savedArtifactManager.messages.collect { message ->
-                _uiState.update { it.copy(error = message) }
+                _uiState.update { it.copy(error = ErrorMessageMapper.map(message)) }
             }
         }
     }
@@ -406,6 +409,28 @@ class FeedViewModel @Inject constructor(
         _uiState.update { it.copy(error = null) }
     }
 
+    fun deleteArtifact(artifactId: String) {
+        viewModelScope.launch {
+            artifactRepository.deletePublishedArtifact(artifactId)
+                .onSuccess {
+                    _uiState.update { it.copy(error = UiText.StringResource(R.string.reflection_deleted)) }
+                    // Trigger a refresh to reflect the local Room update in the PagingData
+                    _refreshTrigger.value += 1
+                }
+                .onFailure { e ->
+                    _uiState.update { it.copy(error = ErrorMessageMapper.map(e)) }
+                }
+        }
+    }
+
+    fun dismissCrisis() {
+        _uiState.update { it.copy(isCrisis = false) }
+    }
+
+    fun showSettingsComingSoon() {
+        _uiState.update { it.copy(error = UiText.DynamicString("Resonance settings coming soon.")) }
+    }
+
     fun playAudio(artifact: Artifact) {
         adManager.recordInteraction(artifact.id)
 
@@ -423,7 +448,7 @@ class FeedViewModel @Inject constructor(
             }
         } catch (e: Exception) {
             android.util.Log.e("FeedViewModel", "Error playing audio", e)
-            _uiState.update { it.copy(error = "Unable to play this artifact.") }
+            _uiState.update { it.copy(error = UiText.StringResource(R.string.generic_error)) }
         }
     }
 
@@ -436,19 +461,19 @@ class FeedViewModel @Inject constructor(
             val deviceId = uploadGuard.getDeviceFingerprint().hashCode()
             artifactRepository.submitReport(artifactId, reason, details, deviceId)
                 .onSuccess {
-                    _uiState.update { it.copy(error = "Report submitted anonymously. Thank you for keeping Artifact safe.") }
+                    _uiState.update { it.copy(error = UiText.DynamicString("Report submitted anonymously. Thank you for keeping Artifact safe.")) }
                     // Trigger a refresh to reflect the local Room update in the PagingData
                     _refreshTrigger.value += 1
                 }
-                .onFailure {
-                    _uiState.update { it.copy(error = "Failed to submit report. Please try again.") }
+                .onFailure { e ->
+                    _uiState.update { it.copy(error = ErrorMessageMapper.map(e)) }
                 }
         }
     }
 
     fun reactToArtifact(artifactId: String, type: ReactionType) {
         val userId = authRepository.currentUser.value?.uid ?: run {
-            _uiState.update { it.copy(error = "Sign in to interact.") }
+            _uiState.update { it.copy(error = UiText.StringResource(R.string.unauthenticated_presence)) }
             return
         }
         
@@ -481,44 +506,44 @@ class FeedViewModel @Inject constructor(
                         current.copy(artifactCache = current.artifactCache + (artifactId to currentArtifact))
                     }
                 }
-                _uiState.update { it.copy(error = "We couldn't share your resonance right now. Please try again.") }
+                _uiState.update { it.copy(error = UiText.StringResource(R.string.generic_error)) }
             }
         }
     }
 
     fun submitFeedback(artifactId: String, type: FeedbackType) {
         val userId = authRepository.currentUser.value?.uid ?: run {
-            _uiState.update { it.copy(error = "Sign in to provide feedback.") }
+            _uiState.update { it.copy(error = UiText.StringResource(R.string.unauthenticated_presence)) }
             return
         }
         viewModelScope.launch {
             artifactRepository.submitPrivateFeedback(artifactId, userId, type).onSuccess {
                 if (type == FeedbackType.SAFETY_CONCERN) {
-                    _uiState.update { it.copy(error = "Thanks for your concern. We'll look into this immediately.") }
+                    _uiState.update { it.copy(error = UiText.DynamicString("Thanks for your concern. We'll look into this immediately.")) }
                 } else {
-                    _uiState.update { it.copy(error = "Feedback received. This helps improve your feed.") }
+                    _uiState.update { it.copy(error = UiText.DynamicString("Feedback received. This helps improve your feed.")) }
                     if (type == FeedbackType.NOT_FOR_ME) {
                         loadRankedFeed()
                     }
                 }
-            }.onFailure {
-                _uiState.update { it.copy(error = "Couldn't submit feedback. Please try again.") }
+            }.onFailure { e ->
+                _uiState.update { it.copy(error = ErrorMessageMapper.map(e)) }
             }
         }
     }
 
     fun updateArtifactVisibility(artifactId: String, mode: com.saurabh.artifact.model.ReactionVisibilityMode) {
         viewModelScope.launch {
-            reactionRepository.setVisibilityMode(artifactId, mode).onFailure {
-                _uiState.update { it.copy(error = "Failed to update visibility.") }
+            reactionRepository.setVisibilityMode(artifactId, mode).onFailure { e ->
+                _uiState.update { it.copy(error = ErrorMessageMapper.map(e)) }
             }
         }
     }
     fun sendReply(artifactId: String, message: String) {
         if (message.isBlank()) return
         viewModelScope.launch {
-            artifactRepository.sendReply(artifactId, message).onFailure {
-                _uiState.update { it.copy(error = "Failed to send reply. Please try again.") }
+            artifactRepository.sendReply(artifactId, message).onFailure { e ->
+                _uiState.update { it.copy(error = ErrorMessageMapper.map(e)) }
             }
         }
     }

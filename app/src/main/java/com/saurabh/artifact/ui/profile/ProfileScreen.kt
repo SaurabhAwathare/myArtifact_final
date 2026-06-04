@@ -11,14 +11,22 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import com.saurabh.artifact.ui.util.UiText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import com.saurabh.artifact.ui.components.BottomPlayer
 import com.saurabh.artifact.ui.profile.components.ProfileHeader
 import com.saurabh.artifact.ui.profile.components.draftSection
 import com.saurabh.artifact.ui.profile.components.userArtifactsList
+
+sealed class DeletionItem {
+    data class Artifact(val artifact: com.saurabh.artifact.model.Artifact) : DeletionItem()
+    data class Draft(val draft: com.saurabh.artifact.data.local.ArtifactDraftEntity) : DeletionItem()
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -29,29 +37,43 @@ fun ProfileScreen(
     onEditIdentity: () -> Unit,
     onNavigateToSettings: () -> Unit,
     onNavigateToReview: (String) -> Unit,
+    onNavigateToResonanceList: (String, String, String) -> Unit = { _, _, _ -> },
     onNavigateToComments: (String, String) -> Unit = { _, _ -> },
     viewModel: ProfileViewModel = hiltViewModel()
 ) {
-    val uiState by viewModel.uiState.collectAsState()
-    val savedIds by viewModel.savedIds.collectAsState(emptySet())
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val savedIds by viewModel.savedIds.collectAsStateWithLifecycle(emptySet())
     val showLogoutDialog = remember { mutableStateOf(false) }
+    
+    // Deletion confirmation state
+    var itemToDelete by remember { mutableStateOf<DeletionItem?>(null) }
+    
     val snackbarHostState = remember { SnackbarHostState() }
+    val context = LocalContext.current
 
     LaunchedEffect(userId) {
         viewModel.setTargetUser(userId)
     }
 
     LaunchedEffect(uiState.message) {
-        uiState.message?.let {
-            snackbarHostState.showSnackbar(it)
+        uiState.message?.let { uiText ->
+            snackbarHostState.showSnackbar(uiText.asString(context))
             viewModel.clearMessage()
         }
     }
 
     LaunchedEffect(uiState.logoutState) {
-        if (uiState.logoutState is LogoutState.Success) {
-            onLogout()
-            viewModel.resetLogoutState()
+        val logoutState = uiState.logoutState
+        when (logoutState) {
+            is LogoutState.Success -> {
+                onLogout()
+                viewModel.resetLogoutState()
+            }
+            is LogoutState.Error -> {
+                snackbarHostState.showSnackbar(logoutState.message.asString(context))
+                viewModel.resetLogoutState()
+            }
+            else -> {}
         }
     }
 
@@ -94,7 +116,7 @@ fun ProfileScreen(
                 LazyColumn(
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    if (uiState.isLoading) {
+                    if (uiState.isLoading || uiState.isActionLoading) {
                         item {
                             LinearProgressIndicator(
                                 modifier = Modifier
@@ -113,7 +135,17 @@ fun ProfileScreen(
                             isSelf = uiState.isSelf,
                             isResonating = uiState.isResonating,
                             onResonateClick = { viewModel.toggleResonance() },
-                            onEditClick = onEditIdentity
+                            onEditClick = onEditIdentity,
+                            onResonatorsClick = {
+                                uiState.userProfile?.id?.let { id ->
+                                    onNavigateToResonanceList(id, "resonance_in", "Resonators")
+                                }
+                            },
+                            onResonatingClick = {
+                                uiState.userProfile?.id?.let { id ->
+                                    onNavigateToResonanceList(id, "resonance_out", "Resonating")
+                                }
+                            }
                         )
                     }
 
@@ -126,7 +158,13 @@ fun ProfileScreen(
                         modifier = Modifier.padding(horizontal = 4.dp)
                     ) {
                         ProfileTab.entries.forEach { tab ->
-                            if (tab != ProfileTab.DRAFTS || uiState.isSelf) {
+                            val isTabVisible = when (tab) {
+                                ProfileTab.PUBLISHED -> true
+                                ProfileTab.DRAFTS -> uiState.isSelf
+                                ProfileTab.SAVED -> uiState.isSelf
+                            }
+                            
+                            if (isTabVisible) {
                                 Tab(
                                     selected = uiState.selectedTab == tab,
                                     onClick = { viewModel.selectTab(tab) },
@@ -161,12 +199,13 @@ fun ProfileScreen(
                                 viewModel.renamePublishedArtifact(artifact.id, newTitle)
                             },
                             onDelete = { artifact -> 
-                                viewModel.deletePublishedArtifact(artifact.id)
+                                itemToDelete = DeletionItem.Artifact(artifact)
                             },
                             onSaveClick = { viewModel.toggleSave(it) },
                             onViewComments = { artifact -> 
                                 onNavigateToComments(artifact.id, artifact.userId)
-                            }
+                            },
+                            emptyMessage = if (uiState.isSelf) "You haven't shared any reflections yet." else "This journey is just beginning."
                         )
                     }
                     ProfileTab.DRAFTS -> {
@@ -181,7 +220,7 @@ fun ProfileScreen(
                                     viewModel.renameDraft(draft.id, newTitle)
                                 },
                                 onDelete = { draft -> 
-                                    viewModel.deleteDraft(draft.id)
+                                    itemToDelete = DeletionItem.Draft(draft)
                                 }
                             )
 
@@ -200,7 +239,7 @@ fun ProfileScreen(
                                         viewModel.renamePublishedArtifact(artifact.id, newTitle)
                                     },
                                     onDelete = { artifact -> 
-                                        viewModel.deletePublishedArtifact(artifact.id)
+                                        itemToDelete = DeletionItem.Artifact(artifact)
                                     },
                                     onViewComments = { artifact -> 
                                         onNavigateToComments(artifact.id, artifact.userId)
@@ -225,12 +264,13 @@ fun ProfileScreen(
                                 viewModel.renamePublishedArtifact(artifact.id, newTitle)
                             },
                             onDelete = { artifact -> 
-                                viewModel.deletePublishedArtifact(artifact.id)
+                                itemToDelete = DeletionItem.Artifact(artifact)
                             },
                             onSaveClick = { viewModel.toggleSave(it) },
                             onViewComments = { artifact -> 
                                 onNavigateToComments(artifact.id, artifact.userId)
-                            }
+                            },
+                            emptyMessage = "Moments that resonate with you will stay here."
                         )
                     }
                 }
@@ -238,7 +278,19 @@ fun ProfileScreen(
                 item { Spacer(modifier = Modifier.height(100.dp)) }
             }
         }
+
+        uiState.currentlyPlayingArtifact?.let { artifact ->
+            BottomPlayer(
+                title = artifact.title,
+                isPlaying = uiState.isPlaying,
+                progress = if (uiState.durationMs > 0) uiState.currentPosition.toFloat() / uiState.durationMs else 0f,
+                onTogglePlayback = { viewModel.togglePlayback() },
+                onClick = { },
+                modifier = Modifier.align(Alignment.BottomCenter)
+            )
+        }
     }
+}
 
 
     if (showLogoutDialog.value) {
@@ -265,5 +317,46 @@ fun ProfileScreen(
             }
         )
     }
-}
+
+    itemToDelete?.let { item ->
+        AlertDialog(
+            onDismissRequest = { itemToDelete = null },
+            shape = RoundedCornerShape(28.dp),
+            title = { 
+                Text(
+                    text = when (item) {
+                        is DeletionItem.Artifact -> "Release Reflection"
+                        is DeletionItem.Draft -> "Discard Draft"
+                    }
+                ) 
+            },
+            text = { 
+                Text(
+                    text = when (item) {
+                        is DeletionItem.Artifact -> "Are you sure you want to release this reflection? This action cannot be undone."
+                        is DeletionItem.Draft -> "Are you sure you want to discard this draft?"
+                    }
+                ) 
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        when (item) {
+                            is DeletionItem.Artifact -> viewModel.deletePublishedArtifact(item.artifact.id)
+                            is DeletionItem.Draft -> viewModel.deleteDraft(item.draft.id)
+                        }
+                        itemToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Release")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { itemToDelete = null }) {
+                    Text("Keep")
+                }
+            }
+        )
+    }
 }

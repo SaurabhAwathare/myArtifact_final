@@ -31,13 +31,18 @@ interface DraftDao {
     fun observeDrafts(): Flow<List<ArtifactDraftEntity>>
 
     @Query("SELECT * FROM artifact_drafts WHERE status LIKE '%\"publication\":{\"type\":\"Uploading\"%' OR status LIKE '%\"publication\":\"Queued\"%'")
-    suspend fun getPendingUploads(): List<ArtifactDraftEntity>
+    suspend fun getPendingUploadsLegacy(): List<ArtifactDraftEntity>
 
-    @Query("SELECT * FROM artifact_drafts WHERE status LIKE '%\"lifecycle\":\"RECORDING\"%'")
+    @Query("SELECT * FROM artifact_drafts WHERE lifecycle = 'RECORDING'")
     suspend fun getActiveRecordings(): List<ArtifactDraftEntity>
 
-    @Query("UPDATE artifact_drafts SET status = :status, updatedAt = :timestamp WHERE id = :id")
-    suspend fun updateStatus(id: String, status: DraftStatus, timestamp: Long = System.currentTimeMillis())
+    @Query("UPDATE artifact_drafts SET status = :status, lifecycle = :lifecycle, updatedAt = :timestamp WHERE id = :id")
+    suspend fun updateStatusAndLifecycle(id: String, status: DraftStatus, lifecycle: ArtifactLifecycle, timestamp: Long = System.currentTimeMillis())
+
+    @Transaction
+    suspend fun updateStatus(id: String, status: DraftStatus, timestamp: Long = System.currentTimeMillis()) {
+        updateStatusAndLifecycle(id, status, status.lifecycle, timestamp)
+    }
 
     @Deprecated("Use updateStatus instead")
     @Query("UPDATE artifact_drafts SET draftState = :state, updatedAt = :timestamp WHERE id = :id")
@@ -80,12 +85,13 @@ interface DraftDao {
                 lifecycle = ArtifactLifecycle.PUBLISHED,
                 publication = SyncStatus.Synced
             ),
+            lifecycle = ArtifactLifecycle.PUBLISHED,
             remoteArtifactId = remoteId,
             updatedAt = System.currentTimeMillis()
         ))
     }
 
-    @Query("SELECT * FROM artifact_drafts WHERE status LIKE '%\"lifecycle\":\"READY_TO_PUBLISH\"%'")
+    @Query("SELECT * FROM artifact_drafts WHERE lifecycle = 'READY_TO_PUBLISH'")
     suspend fun getDraftsAwaitingApproval(): List<ArtifactDraftEntity>
 
     @Query("UPDATE artifact_drafts SET isEmotionalReady = :isReady, publishConfidence = :confidence, updatedAt = :timestamp WHERE id = :id")
@@ -94,8 +100,13 @@ interface DraftDao {
     @Query("UPDATE artifact_drafts SET cooldownExpiry = :expiry, updatedAt = :timestamp WHERE id = :id")
     suspend fun updateCooldown(id: String, expiry: Long?, timestamp: Long = System.currentTimeMillis())
 
-    @Query("UPDATE artifact_drafts SET status = :status, publishApprovalTimestamp = :timestamp, updatedAt = :timestamp WHERE id = :id")
-    suspend fun markAsApproved(id: String, status: DraftStatus, timestamp: Long = System.currentTimeMillis())
+    @Query("UPDATE artifact_drafts SET status = :status, lifecycle = :lifecycle, publishApprovalTimestamp = :timestamp, updatedAt = :timestamp WHERE id = :id")
+    suspend fun markAsApproved(id: String, status: DraftStatus, lifecycle: ArtifactLifecycle, timestamp: Long = System.currentTimeMillis())
+
+    @Transaction
+    suspend fun markAsApproved(id: String, status: DraftStatus, timestamp: Long = System.currentTimeMillis()) {
+        markAsApproved(id, status, status.lifecycle, timestamp)
+    }
 
     @Transaction
     suspend fun markAsApproved(id: String) {
@@ -128,8 +139,12 @@ interface DraftDao {
     @Query("SELECT * FROM artifact_drafts WHERE remoteArtifactId = :artifactId")
     suspend fun getDraftByArtifactId(artifactId: String): ArtifactDraftEntity?
 
+    @Query("SELECT * FROM artifact_drafts WHERE lifecycle = :lifecycle")
+    suspend fun getDraftsByLifecycle(lifecycle: ArtifactLifecycle): List<ArtifactDraftEntity>
+
+    @Deprecated("Use getDraftsByLifecycle instead")
     @Query("SELECT * FROM artifact_drafts WHERE status LIKE :query")
-    suspend fun getDraftsByLifecycle(query: String): List<ArtifactDraftEntity>
+    suspend fun getDraftsByLifecycleLegacy(query: String): List<ArtifactDraftEntity>
 
     @Query("SELECT * FROM artifact_drafts WHERE draftState = :state")
     suspend fun getDraftsByState(state: ArtifactDraftState): List<ArtifactDraftEntity>

@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -16,6 +17,7 @@ import androidx.compose.material.icons.filled.Brightness6
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.AlertDialog
@@ -25,6 +27,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -43,11 +46,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.credentials.CredentialManager
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.saurabh.artifact.R
+import com.saurabh.artifact.ui.util.UiText
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.CustomCredential
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
@@ -61,10 +66,11 @@ fun SettingsScreen(
     onNavigateToModeration: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
-    val uiState by viewModel.uiState.collectAsState()
-    val isAdmin by viewModel.isAdmin.collectAsState()
-    val isAnonymous by viewModel.isAnonymous.collectAsState()
-    val isDeleting by viewModel.isDeleting.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val isAdmin by viewModel.isAdmin.collectAsStateWithLifecycle()
+    val accountInfo by viewModel.accountInfo.collectAsStateWithLifecycle()
+    val isAnonymous by viewModel.isAnonymous.collectAsStateWithLifecycle()
+    val isDeleting by viewModel.isDeleting.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     
     var showDeleteConfirmation by remember { mutableStateOf(false) }
@@ -90,10 +96,10 @@ fun SettingsScreen(
         viewModel.events.collectLatest { event ->
             when (event) {
                 is SettingsUiEvent.ShowMessage -> {
-                    snackbarHostState.showSnackbar(event.message)
+                    snackbarHostState.showSnackbar(event.message.asString(context))
                 }
                 is SettingsUiEvent.AccountDeleted -> {
-                    snackbarHostState.showSnackbar("Account deleted successfully")
+                    snackbarHostState.showSnackbar(UiText.StringResource(R.string.account_deleted).asString(context))
                     kotlinx.coroutines.delay(1000) // Brief delay to show snackbar
                     onLogoutSuccess()
                 }
@@ -130,27 +136,50 @@ fun SettingsScreen(
                     .padding(padding)
                     .verticalScroll(rememberScrollState())
             ) {
+                if (!isAnonymous && accountInfo != null) {
+                    SettingsSection(title = "Account") {
+                        SettingsInfoItem(
+                            title = accountInfo?.realName ?: "Anonymous User",
+                            subtitle = accountInfo?.email,
+                            icon = Icons.Default.Person,
+                            trailingContent = {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text(
+                                        text = "Private to you",
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        )
+                    }
+                }
+
                 SettingsSection(title = "Privacy") {
                     SettingsSwitch(
                         title = "Biometric Lock",
                         subtitle = "Secure your private space",
                         icon = Icons.Default.Security,
-                        checked = false,
-                        onCheckedChange = { }
+                        checked = uiState.biometricLockEnabled,
+                        onCheckedChange = { viewModel.updateBiometricLock(it) }
                     )
                     SettingsSwitch(
                         title = "Auto-lock",
                         subtitle = "Lock app when inactive",
                         icon = Icons.Default.Shield,
-                        checked = true,
-                        onCheckedChange = { }
+                        checked = uiState.autoLockEnabled,
+                        onCheckedChange = { viewModel.updateAutoLock(it) }
                     )
                     SettingsSwitch(
                         title = "Stealth Mode",
                         subtitle = "Hide app from recent tasks",
                         icon = Icons.Default.Security,
-                        checked = false,
-                        onCheckedChange = { }
+                        checked = uiState.stealthModeEnabled,
+                        onCheckedChange = { viewModel.updateStealthMode(it) }
                     )
                 }
 
@@ -247,7 +276,7 @@ fun SettingsScreen(
                                         viewModel.reauthenticateAndRetry(googleIdTokenCredential.idToken)
                                     }
                                 } catch (e: Exception) {
-                                    snackbarHostState.showSnackbar("Verification failed: ${e.message}")
+                                    snackbarHostState.showSnackbar(com.saurabh.artifact.ui.util.ErrorMessageMapper.map(e).asString(context))
                                 }
                             }
                         }

@@ -41,6 +41,7 @@ import androidx.paging.compose.itemKey
 import com.saurabh.artifact.model.ArtifactComment
 import com.saurabh.artifact.model.ReactionType
 import com.saurabh.artifact.ui.theme.MistGray
+import com.saurabh.artifact.ui.theme.ZIndexTokens
 
 @Composable
 fun CommentsScreen(
@@ -195,7 +196,7 @@ fun CommentsScreen(
                     .fillMaxSize()
                     .background(Color.Black.copy(alpha = 0.6f))
                     .clickable { showComposer = false }
-                    .zIndex(100f)
+                    .zIndex(ZIndexTokens.MODAL_OVERLAYS)
             ) {
                 Box(
                     modifier = Modifier

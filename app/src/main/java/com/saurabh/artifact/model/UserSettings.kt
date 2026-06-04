@@ -9,6 +9,9 @@ data class UserSettings(
     val smartRemindersEnabled: Boolean = true,
     val emotionalSafetyEnabled: Boolean = true,
     val dataCollectionConsent: Boolean = false,
+    val biometricLockEnabled: Boolean = false,
+    val autoLockEnabled: Boolean = true,
+    val stealthModeEnabled: Boolean = false,
     val preferredLanguage: String = "en",
     val lastSyncTimestamp: Long = 0L
 ) {
@@ -19,6 +22,9 @@ data class UserSettings(
         smartRemindersEnabled = true,
         emotionalSafetyEnabled = true,
         dataCollectionConsent = false,
+        biometricLockEnabled = false,
+        autoLockEnabled = true,
+        stealthModeEnabled = false,
         preferredLanguage = "en",
         lastSyncTimestamp = 0L
     )

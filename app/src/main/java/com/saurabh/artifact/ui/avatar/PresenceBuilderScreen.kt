@@ -17,7 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
-import com.saurabh.artifact.ui.components.AuricAvatar
+import com.saurabh.artifact.ui.components.ArtifactAvatar
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -27,6 +27,10 @@ fun PresenceBuilderScreen(
     viewModel: PresenceBuilderViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+
+    LaunchedEffect(Unit) {
+        viewModel.updateTheme("AURIC")
+    }
 
     Scaffold(
         topBar = {
@@ -75,8 +79,8 @@ fun PresenceBuilderScreen(
                     .fillMaxWidth(),
                 contentAlignment = Alignment.Center
             ) {
-                AuricAvatar(
-                    seed = uiState.config.seed,
+                ArtifactAvatar(
+                    config = uiState.config,
                     size = 280.dp
                 )
             }
@@ -103,7 +107,7 @@ fun PresenceBuilderScreen(
                 Spacer(modifier = Modifier.height(48.dp))
 
                 OutlinedButton(
-                    onClick = { viewModel.randomize() },
+                    onClick = { viewModel.randomize("AURIC") },
                     modifier = Modifier.height(56.dp).fillMaxWidth(0.7f),
                     shape = RoundedCornerShape(28.dp)
                 ) {

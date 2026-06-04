@@ -8,6 +8,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.unit.dp
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.ReactionType
@@ -26,7 +27,8 @@ fun LazyListScope.userArtifactsList(
     onDelete: (Artifact) -> Unit,
     onViewComments: (Artifact) -> Unit,
     onSaveClick: (Artifact) -> Unit = {},
-    savedIds: Set<String> = emptySet()
+    savedIds: Set<String> = emptySet(),
+    emptyMessage: String? = null
 ) {
     if (artifacts.isNotEmpty()) {
         items(artifacts, key = { it.id }) { artifact ->
@@ -53,6 +55,23 @@ fun LazyListScope.userArtifactsList(
                     onDelete = { onDelete(artifact) },
                     onUnsave = { onSaveClick(artifact) },
                     onViewComments = { onViewComments(artifact) }
+                )
+            }
+        }
+    } else if (emptyMessage != null) {
+        item {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 64.dp, horizontal = 32.dp),
+                contentAlignment = androidx.compose.ui.Alignment.Center
+            ) {
+                androidx.compose.material3.Text(
+                    text = emptyMessage,
+                    style = com.saurabh.artifact.ui.theme.ArtifactTheme.typography.bodyLarge,
+                    color = com.saurabh.artifact.ui.theme.ArtifactTheme.colors.onSurfaceMuted,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier.alpha(0.6f)
                 )
             }
         }

@@ -11,8 +11,8 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class AvatarConfig(
     var seed: String = "",
-    var version: Int = 1,
-    var theme: String = "CARTOON", // AURIC, CARTOON
+    var version: Int = 2,
+    var theme: String = "AURIC", // AURIC, CARTOON
     var faceShape: FaceShape = FaceShape.ROUND,
     var hairType: HairType = HairType.SHORT,
     var eyeType: EyeType = EyeType.NEUTRAL,

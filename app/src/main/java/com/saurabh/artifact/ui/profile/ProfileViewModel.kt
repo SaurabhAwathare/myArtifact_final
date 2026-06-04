@@ -11,6 +11,9 @@ import com.saurabh.artifact.model.ReactionType
 import com.saurabh.artifact.model.User
 import com.saurabh.artifact.repository.*
 import com.saurabh.artifact.repository.SavedArtifactManager
+import com.saurabh.artifact.ui.util.UiText
+import com.saurabh.artifact.ui.util.ErrorMessageMapper
+import com.saurabh.artifact.R
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
@@ -21,7 +24,7 @@ import javax.inject.Inject
 enum class ProfileTab(val title: String) {
     PUBLISHED("Published"),
     DRAFTS("Drafts"),
-    SAVED("Archive")
+    SAVED("Stayed With Me")
 }
 
 data class ProfileUiState(
@@ -35,8 +38,9 @@ data class ProfileUiState(
     val savedArtifacts: List<Artifact> = emptyList(),
     val localDrafts: List<ArtifactDraftEntity> = emptyList(),
     val logoutState: LogoutState = LogoutState.Idle,
-    val message: String? = null,
+    val message: UiText? = null,
     val isLoading: Boolean = true,
+    val isActionLoading: Boolean = false,
     val isRefreshing: Boolean = false,
     // Playback State (Mirrored from Manager for UI convenience)
     val currentlyPlayingArtifact: Artifact? = null,
@@ -66,7 +70,8 @@ class ProfileViewModel @Inject constructor(
     private val _targetUserId = MutableStateFlow<String?>(null)
     private val _selectedTab = MutableStateFlow(ProfileTab.PUBLISHED)
     private val _logoutState = MutableStateFlow<LogoutState>(LogoutState.Idle)
-    private val _message = MutableStateFlow<String?>(null)
+    private val _message = MutableStateFlow<UiText?>(null)
+    private val _isActionLoading = MutableStateFlow(false)
     private val _isRefreshing = MutableStateFlow(false)
     private val _refreshTrigger = MutableStateFlow(0)
 
@@ -85,17 +90,18 @@ class ProfileViewModel @Inject constructor(
             userRepository.streamUserProfile(effectiveId),
             artifactRepository.getUserArtifacts(effectiveId, onlyActive = !isSelf),
             artifactRepository.getSavedArtifacts(effectiveId),
-            recordingRepository.observeDrafts(),
+            if (isSelf) recordingRepository.observeDrafts().map { drafts ->
+                drafts.filter { it.lifecycle != com.saurabh.artifact.model.ArtifactLifecycle.PUBLISHED }
+            } else flowOf(emptyList()),
             userRepository.observeIsResonating(authRepository.currentUserId, effectiveId)
         ) { profile, allArtifacts, saved, localDrafts, isResonating ->
+            val statusPublished = com.saurabh.artifact.model.ArtifactStatus.ACTIVE
             ProfileData(
                 userProfile = profile,
-                publishedArtifacts = allArtifacts.filter { !it.isDraft },
-                cloudDrafts = allArtifacts.filter { it.isDraft },
+                publishedArtifacts = allArtifacts.filter { it.status == statusPublished },
+                cloudDrafts = allArtifacts.filter { it.status != statusPublished },
                 savedArtifacts = saved,
-                localDrafts = localDrafts.filter { 
-                    it.status.lifecycle != com.saurabh.artifact.model.ArtifactLifecycle.PUBLISHED 
-                },
+                localDrafts = localDrafts,
                 isResonating = isResonating,
                 isSelf = isSelf
             )
@@ -108,6 +114,7 @@ class ProfileViewModel @Inject constructor(
         _selectedTab,
         _logoutState,
         _message,
+        _isActionLoading,
         _isRefreshing,
         playbackCoordinator.currentArtifact,
         playbackCoordinator.isPlaying,
@@ -119,14 +126,15 @@ class ProfileViewModel @Inject constructor(
         val avatarConfig = params[1] as AvatarConfig
         val selectedTab = params[2] as ProfileTab
         val logoutState = params[3] as LogoutState
-        val message = params[4] as String?
-        val isRefreshing = params[5] as Boolean
+        val message = params[4] as UiText?
+        val isActionLoading = params[5] as Boolean
+        val isRefreshing = params[6] as Boolean
         
-        val currentlyPlaying = params[6] as Artifact?
-        val isPlaying = params[7] as Boolean
-        val isBuffering = params[8] as Boolean
-        val position = params[9] as Long
-        val duration = params[10] as Long
+        val currentlyPlaying = params[7] as Artifact?
+        val isPlaying = params[8] as Boolean
+        val isBuffering = params[9] as Boolean
+        val position = params[10] as Long
+        val duration = params[11] as Long
 
         ProfileUiState(
             userProfile = data?.userProfile,
@@ -141,6 +149,7 @@ class ProfileViewModel @Inject constructor(
             logoutState = logoutState,
             message = message,
             isLoading = data == null,
+            isActionLoading = isActionLoading,
             isRefreshing = isRefreshing,
             currentlyPlayingArtifact = currentlyPlaying,
             isPlaying = isPlaying,
@@ -182,21 +191,30 @@ class ProfileViewModel @Inject constructor(
 
     fun toggleResonance() {
         val targetId = _targetUserId.value ?: return
-        val currentId = authRepository.currentUser.value?.uid ?: return
+        val currentId = authRepository.currentUserId ?: return
         if (targetId == currentId) return
 
         viewModelScope.launch {
-            if (uiState.value.isResonating) {
-                userRepository.stopResonatingWithUser(currentId, targetId)
-            } else {
-                userRepository.resonateWithUser(currentId, targetId)
+            _isActionLoading.value = true
+            try {
+                if (uiState.value.isResonating) {
+                    userRepository.stopResonatingWithUser(currentId, targetId)
+                    _message.value = UiText.StringResource(R.string.unfollowed)
+                } else {
+                    userRepository.resonateWithUser(currentId, targetId)
+                    _message.value = UiText.StringResource(R.string.now_following)
+                }
+            } catch (e: Exception) {
+                _message.value = ErrorMessageMapper.map(e)
+            } finally {
+                _isActionLoading.value = false
             }
         }
     }
 
     fun playAudio(artifact: Artifact) {
         if (artifact.audioUrl.isEmpty()) {
-            _message.value = "This reflection hasn't found its voice yet."
+            _message.value = UiText.StringResource(R.string.no_voice_yet)
             return
         }
         playbackCoordinator.playArtifact(artifact)
@@ -226,38 +244,70 @@ class ProfileViewModel @Inject constructor(
     // --- Ownership Management ---
 
     fun toggleSave(artifact: Artifact) {
+        val isSaved = savedIds.value.contains(artifact.id)
         savedArtifactManager.toggleSave(artifact)
+        if (!isSaved) {
+            _message.value = UiText.StringResource(R.string.saved_to_journey)
+        } else {
+            _message.value = UiText.StringResource(R.string.removed_from_journey)
+        }
     }
 
     fun renameDraft(draftId: String, newTitle: String) {
         viewModelScope.launch {
-            recordingRepository.renameDraft(draftId, newTitle)
+            _isActionLoading.value = true
+            try {
+                recordingRepository.renameDraft(draftId, newTitle)
+                _message.value = UiText.StringResource(R.string.draft_renamed)
+            } catch (e: Exception) {
+                _message.value = ErrorMessageMapper.map(e)
+            } finally {
+                _isActionLoading.value = false
+            }
         }
     }
 
     fun deleteDraft(draftId: String) {
         viewModelScope.launch {
-            recordingRepository.getDraft(draftId)?.let { draft ->
-                recordingRepository.deleteDraft(draft)
+            _isActionLoading.value = true
+            try {
+                recordingRepository.getDraft(draftId)?.let { draft ->
+                    recordingRepository.deleteDraft(draft)
+                    _message.value = UiText.StringResource(R.string.draft_deleted)
+                }
+            } catch (e: Exception) {
+                _message.value = ErrorMessageMapper.map(e)
+            } finally {
+                _isActionLoading.value = false
             }
         }
     }
 
     fun renamePublishedArtifact(artifactId: String, newTitle: String) {
         viewModelScope.launch {
+            _isActionLoading.value = true
             artifactRepository.renamePublishedArtifact(artifactId, newTitle)
+                .onSuccess {
+                    _message.value = UiText.StringResource(R.string.reflection_renamed)
+                }
+                .onFailure { e ->
+                    _message.value = ErrorMessageMapper.map(e)
+                }
+            _isActionLoading.value = false
         }
     }
 
     fun deletePublishedArtifact(artifactId: String) {
         viewModelScope.launch {
+            _isActionLoading.value = true
             artifactRepository.deletePublishedArtifact(artifactId)
                 .onSuccess {
-                    _message.value = "Artifact deleted successfully"
+                    _message.value = UiText.StringResource(R.string.reflection_deleted)
                 }
                 .onFailure { e ->
-                    _message.value = "Failed to delete: ${e.message}"
+                    _message.value = ErrorMessageMapper.map(e)
                 }
+            _isActionLoading.value = false
         }
     }
 
@@ -273,7 +323,7 @@ class ProfileViewModel @Inject constructor(
                     _logoutState.value = LogoutState.Success
                 }
                 .onFailure { e ->
-                    _logoutState.value = LogoutState.Error(e.message ?: "Unknown error")
+                    _logoutState.value = LogoutState.Error(ErrorMessageMapper.map(e))
                 }
         }
     }
@@ -293,7 +343,7 @@ sealed class LogoutState {
     data object Idle : LogoutState()
     data object Loading : LogoutState()
     data object Success : LogoutState()
-    data class Error(val message: String) : LogoutState()
+    data class Error(val message: UiText) : LogoutState()
 }
 
 private data class ProfileData(

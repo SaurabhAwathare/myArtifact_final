@@ -42,6 +42,7 @@ fun PlayerInteractionBar(
     commentCount: Int,
     onCommentClick: () -> Unit,
     showResonance: Boolean = true,
+    showSave: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     var showReactionPicker by remember { mutableStateOf(false) }
@@ -86,13 +87,15 @@ fun PlayerInteractionBar(
             )
         }
 
-        InteractionItem(
-            icon = if (isSaved) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
-            label = if (isSaved) "Held" else "Hold",
-            isActive = isSaved,
-            activeColor = GoldAura400,
-            onClick = onSaveClick
-        )
+        if (showSave) {
+            InteractionItem(
+                icon = if (isSaved) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
+                label = if (isSaved) "Held" else "Hold",
+                isActive = isSaved,
+                activeColor = GoldAura400,
+                onClick = onSaveClick
+            )
+        }
     }
 
     if (showReactionPicker) {

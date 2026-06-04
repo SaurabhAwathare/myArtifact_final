@@ -14,11 +14,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import com.saurabh.artifact.ui.util.UiText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.material.icons.rounded.Refresh
 import com.saurabh.artifact.ui.components.ArtifactAvatar
 import com.saurabh.artifact.ui.identity.components.UsernameInput
@@ -32,20 +35,21 @@ fun IdentitySelectionScreen(
     onEditAvatar: () -> Unit,
     viewModel: IdentityViewModel = hiltViewModel()
 ) {
-    val avatarConfig by viewModel.avatarConfig.collectAsState()
-    val usernameUiState by viewModel.usernameUiState.collectAsState()
-    val suggestions by viewModel.suggestions.collectAsState()
-    val isUsernameValid by viewModel.isUsernameValid.collectAsState()
-    val cooldownDays by viewModel.cooldownDays.collectAsState()
-    val userProfile by viewModel.userProfile.collectAsState()
-    val uiState by viewModel.uiState.collectAsState()
+    val avatarConfig by viewModel.avatarConfig.collectAsStateWithLifecycle()
+    val usernameUiState by viewModel.usernameUiState.collectAsStateWithLifecycle()
+    val suggestions by viewModel.suggestions.collectAsStateWithLifecycle()
+    val isUsernameValid by viewModel.isUsernameValid.collectAsStateWithLifecycle()
+    val cooldownDays by viewModel.cooldownDays.collectAsStateWithLifecycle()
+    val userProfile by viewModel.userProfile.collectAsStateWithLifecycle()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     
     val snackbarHostState = remember { SnackbarHostState() }
     var showRefreshConfirmation by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     LaunchedEffect(uiState) {
         if (uiState is IdentityUiState.Error) {
-            snackbarHostState.showSnackbar((uiState as IdentityUiState.Error).message)
+            snackbarHostState.showSnackbar((uiState as IdentityUiState.Error).message.asString(context))
         }
     }
 

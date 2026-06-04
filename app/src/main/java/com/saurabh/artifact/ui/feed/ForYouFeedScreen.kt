@@ -18,9 +18,11 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.saurabh.artifact.ui.util.UiText
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.ui.components.ArtifactFeedCard
 import com.saurabh.artifact.ui.theme.ArtifactTheme
@@ -37,10 +39,11 @@ fun ForYouFeedScreen(
     val currentPosition by viewModel.currentPosition.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
+    val context = LocalContext.current
 
     LaunchedEffect(Unit) {
-        viewModel.message.collect { msg ->
-            snackbarHostState.showSnackbar(msg)
+        viewModel.message.collect { uiText ->
+            snackbarHostState.showSnackbar(uiText.asString(context))
         }
     }
 
@@ -51,7 +54,7 @@ fun ForYouFeedScreen(
             }
             is FeedCompositionState.Error -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(state.message, color = ArtifactTheme.colors.onSurfaceMuted)
+                    Text(state.message.asString(), color = ArtifactTheme.colors.onSurfaceMuted)
                 }
             }
             is FeedCompositionState.Success -> {

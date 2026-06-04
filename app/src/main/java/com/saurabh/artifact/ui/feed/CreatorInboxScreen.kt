@@ -68,12 +68,24 @@ fun CreatorInboxScreen(
     ) { padding ->
         Column(modifier = Modifier.padding(padding)) {
             // Production Emotional Summary
-            reactionState.counts?.let { counts ->
+            if (reactionState.isLoading) {
                 Card(
                     modifier = Modifier.fillMaxWidth().padding(16.dp),
                     colors = CardDefaults.cardColors(containerColor = Obsidian800)
                 ) {
-                    EmotionalInsightCard(counts = counts)
+                    com.saurabh.artifact.ui.components.state.LoadingPlaceholder(
+                        modifier = Modifier.fillMaxWidth().height(120.dp).padding(16.dp),
+                        pulseColor = GoldAura400.copy(alpha = 0.1f)
+                    )
+                }
+            } else {
+                reactionState.counts?.let { counts ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Obsidian800)
+                    ) {
+                        EmotionalInsightCard(counts = counts)
+                    }
                 }
             }
 

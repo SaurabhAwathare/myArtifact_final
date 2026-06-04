@@ -1,6 +1,8 @@
 package com.saurabh.artifact.ui.feed
 
 import android.util.Log
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -24,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.paging.compose.collectAsLazyPagingItems
@@ -41,11 +44,11 @@ import androidx.compose.foundation.lazy.LazyListItemInfo
 import androidx.compose.foundation.lazy.rememberLazyListState
 import com.saurabh.artifact.ui.components.motion.FadeInContent
 import com.saurabh.artifact.ui.components.state.LoadingPlaceholder
-import com.saurabh.artifact.ui.components.moderation.ReportSheet
 import com.saurabh.artifact.ui.theme.Spacing
 import com.saurabh.artifact.ui.components.recording.AuraDock
 import com.saurabh.artifact.ui.components.recording.ActiveRecordingIndicator
 import com.saurabh.artifact.startup.StartupStage
+import com.saurabh.artifact.ui.util.UiText
 import com.saurabh.artifact.startup.StartupMetrics
 import com.saurabh.artifact.ui.components.PetalChip
 import com.saurabh.artifact.ui.components.QuietTab
@@ -63,6 +66,8 @@ fun FeedScreen(
     onNavigateToRecord: (String?) -> Unit,
     onNavigateToProfile: () -> Unit,
     onNavigateToNotifications: () -> Unit,
+    onNavigateToComments: (String, String) -> Unit,
+    onReportArtifact: (String) -> Unit,
     viewModel: FeedViewModel = hiltViewModel()
 ) {
     Log.d("APP_FLOW", "Composition: FeedScreen Entered")
@@ -94,15 +99,15 @@ fun FeedScreen(
     }
 
     var showRankedFeed by remember { mutableStateOf(true) }
-    var reportingArtifactId by remember { mutableStateOf<String?>(null) }
 
     val error by viewModel.error.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
+    val context = LocalContext.current
     LaunchedEffect(error) {
-        error?.let { msg ->
+        error?.let { uiText ->
             snackbarHostState.showSnackbar(
-                message = msg,
+                message = uiText.asString(context),
                 actionLabel = "Retry",
                 duration = SnackbarDuration.Short
             )
@@ -167,7 +172,8 @@ fun FeedScreen(
                         reflectionPrompt = reflectionPrompt,
                         stage = stage,
                         onNavigateToRecord = onNavigateToRecord,
-                        onReportClick = { reportingArtifactId = it }
+                        onReportClick = onReportArtifact,
+                        onNavigateToComments = onNavigateToComments
                     )
                 }
 
@@ -185,18 +191,6 @@ fun FeedScreen(
                         onClick = {
                             viewModel.refreshFeed()
                         }
-                    )
-                }
-
-                if (reportingArtifactId != null) {
-                    ReportSheet(
-                        onReportSubmitted = { reason, details ->
-                            reportingArtifactId?.let { id ->
-                                viewModel.reportArtifact(id, reason, details)
-                            }
-                            reportingArtifactId = null
-                        },
-                        onDismiss = { reportingArtifactId = null }
                     )
                 }
             }
@@ -307,16 +301,17 @@ private fun FeedContent(
     reflectionPrompt: com.saurabh.artifact.model.ReflectionPrompt?,
     stage: StartupStage,
     onNavigateToRecord: (String?) -> Unit,
-    onReportClick: (String) -> Unit
+    onReportClick: (String) -> Unit,
+    onNavigateToComments: (String, String) -> Unit
 ) {
     val currentArtifacts = if (showRankedFeed) forYouArtifacts else recentArtifacts
     val isEmpty = currentArtifacts.itemCount == 0
     val isRefreshing = currentArtifacts.loadState.refresh is androidx.paging.LoadState.Loading
 
-    FadeInContent(visible = (!isRankedLoading || (showRankedFeed && !isEmpty) || (!showRankedFeed && !isEmpty))) {
-        if (isEmpty && !isRefreshing) {
+    FadeInContent(visible = (!isRankedLoading || (showRankedFeed && isEmpty) || (showRankedFeed && !isEmpty) || (!showRankedFeed && !isEmpty))) {
+        if (isEmpty && !isRefreshing && !isRankedLoading) {
             EmptyFeedState(onRecordClick = { onNavigateToRecord(null) })
-        } else if (isEmpty && isRefreshing) {
+        } else if (isEmpty && (isRefreshing || isRankedLoading)) {
             FeedLoadingState()
         } else {
             LazyColumn(
@@ -343,7 +338,8 @@ private fun FeedContent(
                             ArtifactItem(
                                 artifactId = item.artifact.id,
                                 viewModel = viewModel,
-                                onReportClick = onReportClick
+                                onReportClick = onReportClick,
+                                onNavigateToComments = onNavigateToComments
                             )
                         }
                         item(key = "divider_unf") {
@@ -375,7 +371,8 @@ private fun FeedContent(
                         ArtifactItem(
                             artifactId = artifact.id,
                             viewModel = viewModel,
-                            onReportClick = onReportClick
+                            onReportClick = onReportClick,
+                            onNavigateToComments = onNavigateToComments
                         )
                         
                         if ((index + 1) % 5 == 0) {
@@ -411,12 +408,22 @@ fun FeedHeader(
     val isPromptLoading by viewModel.isPromptLoading.collectAsStateWithLifecycle()
     val safetyLevel by viewModel.safetyLevel.collectAsStateWithLifecycle()
     val isCrisis by viewModel.isCrisis.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         if (isCrisis) {
             CrisisSupportCard(
-                onCallHelp = { /* Intent to dialer */ },
-                onContinue = { /* Dismiss or continue */ }
+                onCallHelp = { 
+                    try {
+                        val intent = Intent(Intent.ACTION_DIAL).apply {
+                            data = Uri.parse("tel:988")
+                        }
+                        context.startActivity(intent)
+                    } catch (e: Exception) {
+                        Log.e("FeedScreen", "Failed to launch dialer", e)
+                    }
+                },
+                onContinue = { viewModel.dismissCrisis() }
             )
         }
 
@@ -440,7 +447,8 @@ fun FeedHeader(
 fun ArtifactItem(
     artifactId: String,
     viewModel: FeedViewModel,
-    onReportClick: (String) -> Unit
+    onReportClick: (String) -> Unit,
+    onNavigateToComments: (String, String) -> Unit
 ) {
     // Isolated State Collection: This item ONLY recompiles when its specific artifact data or status changes
     val artifact by remember(viewModel, artifactId) {
@@ -468,6 +476,10 @@ fun ArtifactItem(
                 viewModel.onArtifactFocused(artifactId)
             },
             onReportClick = { onReportClick(artifactId) },
+            onDeleteClick = { viewModel.deleteArtifact(artifactId) },
+            onFeedbackClick = { viewModel.submitFeedback(artifactId, com.saurabh.artifact.model.FeedbackType.NOT_FOR_ME) },
+            onSettingsClick = { viewModel.showSettingsComingSoon() },
+            onCommentClick = { onNavigateToComments(artifactId, it.userId) },
             currentUserId = viewModel.currentUserId
         )
     }

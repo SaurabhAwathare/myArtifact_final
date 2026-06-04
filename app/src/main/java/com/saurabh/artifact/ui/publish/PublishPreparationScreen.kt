@@ -33,7 +33,7 @@ fun PublishPreparationScreen(
     draftId: String,
     onPublished: () -> Unit,
     onCancel: () -> Unit,
-    viewModel: PublishViewModel = hiltViewModel()
+    viewModel: PublishViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
@@ -165,6 +165,22 @@ fun PublishPreparationScreen(
 
             Spacer(modifier = Modifier.weight(1f))
             Spacer(modifier = Modifier.height(Spacing.ExtraLarge))
+
+            // Guidance text for disabled publish state
+            val guidanceText = when {
+                uiState.title.isBlank() -> "Give your artifact a title to share it."
+                uiState.emotion == null -> "How does this feel? Choose an emotion."
+                else -> null
+            }
+
+            if ((guidanceText != null) && !uiState.isPublishing) {
+                Text(
+                    text = guidanceText,
+                    style = ArtifactTheme.typography.labelSmall,
+                    color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.8f),
+                    modifier = Modifier.padding(bottom = Spacing.Medium)
+                )
+            }
 
             Button(
                 onClick = { viewModel.onPublishClick() },

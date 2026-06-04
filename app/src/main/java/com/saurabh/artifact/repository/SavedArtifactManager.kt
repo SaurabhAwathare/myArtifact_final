@@ -64,9 +64,9 @@ class SavedArtifactManager @Inject constructor(
 
             result.onSuccess {
                 val message = if (isSaved) {
-                    "Reflection released from archive"
+                    "Reflection released"
                 } else {
-                    "This stayed with you."
+                    "Stayed with you."
                 }
                 _messages.emit(message)
             }.onFailure {
@@ -76,7 +76,7 @@ class SavedArtifactManager @Inject constructor(
                 } else {
                     _savedIds.value - artifact.id
                 }
-                _messages.emit("Unable to update archive")
+                _messages.emit("Unable to preserve")
             }
         }
     }

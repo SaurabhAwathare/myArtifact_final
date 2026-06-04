@@ -3,6 +3,7 @@ package com.saurabh.artifact
 import android.os.Build
 import android.Manifest
 import android.content.pm.PackageManager
+import android.view.WindowManager
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import android.os.Bundle
@@ -45,6 +46,8 @@ import com.saurabh.artifact.ui.components.AmbientUploadBar
 import com.saurabh.artifact.navigation.Screen
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -73,6 +76,9 @@ class MainActivity : ComponentActivity() {
         mainViewModel.start()
         
         // enableEdgeToEdge() // Temporarily disabled to fix black screen issues
+        
+        observeStealthMode()
+
         setContent {
             Log.d("APP_FLOW", "2. Compose Root setContent")
             
@@ -89,6 +95,18 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         mainViewModel.onNewIntent(intent)
+    }
+
+    private fun observeStealthMode() {
+        lifecycleScope.launch {
+            mainViewModel.isStealthModeEnabled.collect { isEnabled ->
+                if (isEnabled) {
+                    window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                } else {
+                    window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                }
+            }
+        }
     }
 
     private fun checkNotificationPermission() {
@@ -182,12 +200,13 @@ fun AuthenticatedIsland(
                         navController = navController,
                         startDestination = startDestination,
                         recordingSessionManager = recordingSessionManager,
-                        onboardingManager = onboardingManager
+                        onboardingManager = onboardingManager,
+                        onReportArtifact = { mainViewModel.showReportSheet(it) }
                     )
 
                     // Global Overlay Management
                     if (stage >= StartupStage.RITUAL) {
-                        var reportingArtifactId by remember { mutableStateOf<String?>(null) }
+                        val reportingArtifactId by mainViewModel.reportingArtifactId.collectAsStateWithLifecycle()
                         
                         com.saurabh.artifact.ui.components.GlobalOverlayHost(
                             navController = navController,
@@ -202,7 +221,7 @@ fun AuthenticatedIsland(
                             onNavigateToComments = { artifactId, userId ->
                                 navController.navigate(Screen.Comments.createRoute(artifactId, userId))
                             },
-                            onReportArtifact = { reportingArtifactId = it }
+                            onReportArtifact = { mainViewModel.showReportSheet(it) }
                         )
 
                         if (reportingArtifactId != null) {
@@ -212,9 +231,9 @@ fun AuthenticatedIsland(
                                     reportingArtifactId?.let { id ->
                                         feedViewModel.reportArtifact(id, reason, details)
                                     }
-                                    reportingArtifactId = null
+                                    mainViewModel.dismissReportSheet()
                                 },
-                                onDismiss = { reportingArtifactId = null }
+                                onDismiss = { mainViewModel.dismissReportSheet() }
                             )
                         }
                     }

@@ -57,9 +57,15 @@ class PresenceBuilderViewModel @Inject constructor(
         _uiState.update { it.copy(config = it.config.copy(hairColor = color)) }
     }
 
-    fun randomize() {
+    fun updateTheme(theme: String) {
+        _uiState.update { it.copy(config = it.config.copy(theme = theme)) }
+    }
+
+    fun randomize(forcedTheme: String? = null) {
+        val currentTheme = forcedTheme ?: _uiState.value.config.theme
         val randomConfig = AvatarConfig(
             seed = UUID.randomUUID().toString(),
+            theme = currentTheme,
             faceShape = FaceShape.entries.random(),
             hairType = HairType.entries.random(),
             eyeType = EyeType.entries.random(),

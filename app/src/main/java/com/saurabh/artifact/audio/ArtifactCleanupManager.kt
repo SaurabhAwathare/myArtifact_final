@@ -23,6 +23,7 @@ import javax.inject.Singleton
 @Singleton
 class ArtifactCleanupManager @Inject constructor(
     private val artifactRepository: ArtifactRepository,
+    private val draftDeletionManager: DraftDeletionManager,
     private val workManager: WorkManager
 ) {
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -34,7 +35,7 @@ class ArtifactCleanupManager @Inject constructor(
     val deletingArtifactIds = _deletingArtifactIds.asStateFlow()
 
     /**
-     * Initiates a resilient deletion flow.
+     * Initiates a resilient deletion flow for a published artifact.
      * 1. Updates state and stops playback if necessary.
      * 2. Triggers remote deletion.
      * 3. Schedules background worker for local file cleanup.
@@ -57,6 +58,29 @@ class ArtifactCleanupManager @Inject constructor(
             }
             
             _deletingArtifactIds.value -= artifactId
+        }
+    }
+
+    /**
+     * Deletes a local draft and its associated files.
+     * Triggers reactive UI state (stopping playback) just like a published artifact.
+     */
+    fun deleteDraft(draftId: String) {
+        scope.launch {
+            _deletingArtifactIds.value += draftId
+            _deletionState.value = DeletionState.Pending(draftId)
+            
+            try {
+                draftDeletionManager.deleteDraft(draftId)
+                Log.d("CleanupManager", "Local draft deletion successful for $draftId")
+                _deletionState.value = DeletionState.RemoteDeleted(draftId) // Reuse state for consistency
+            } catch (e: Exception) {
+                val errorMsg = e.message ?: "Unknown error"
+                Log.e("CleanupManager", "Local draft deletion failed for $draftId: $errorMsg")
+                _deletionState.value = DeletionState.Error(draftId, errorMsg)
+            } finally {
+                _deletingArtifactIds.value -= draftId
+            }
         }
     }
 

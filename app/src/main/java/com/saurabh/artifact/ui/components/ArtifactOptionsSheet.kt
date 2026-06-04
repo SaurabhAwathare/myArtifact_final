@@ -2,6 +2,7 @@ package com.saurabh.artifact.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -12,12 +13,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import com.saurabh.artifact.ui.theme.Spacing
+import com.saurabh.artifact.ui.theme.ZIndexTokens
 
 @Composable
 fun ArtifactOptionsSheet(
@@ -35,7 +38,7 @@ fun ArtifactOptionsSheet(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .zIndex(200f)
+                .zIndex(ZIndexTokens.MODAL_OVERLAYS)
         ) {
             // Scrim
             Box(
@@ -54,7 +57,9 @@ fun ArtifactOptionsSheet(
                         color = MaterialTheme.colorScheme.surface,
                         shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)
                     )
-                    .clickable(enabled = true, onClick = { /* Consumed */ })
+                    .pointerInput(Unit) {
+                        detectTapGestures { /* Consume clicks to prevent dismissing when clicking sheet itself */ }
+                    }
                     .padding(horizontal = Spacing.Large)
                     .padding(top = 12.dp, bottom = Spacing.ExtraLarge)
             ) {

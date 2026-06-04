@@ -29,6 +29,7 @@ fun DraftEditScreen(
     val title by viewModel.title.collectAsState()
     val selectedEmotion by viewModel.emotion.collectAsState()
     val isPlaying by viewModel.isPlaying.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
     
     var showDeleteDialog by remember { mutableStateOf(false) }
 
@@ -56,14 +57,24 @@ fun DraftEditScreen(
             )
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(16.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(24.dp)
-        ) {
+        if (isLoading) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(16.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(24.dp)
+            ) {
             // Audio Playback Section
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -156,6 +167,7 @@ fun DraftEditScreen(
                 }
             }
         }
+    }
     }
 
     if (showDeleteDialog) {

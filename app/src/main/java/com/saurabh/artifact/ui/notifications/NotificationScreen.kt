@@ -31,7 +31,7 @@ fun NotificationScreen(
     onNotificationClick: (String) -> Unit, // artifactId
     viewModel: NotificationViewModel = hiltViewModel()
 ) {
-    val notifications by viewModel.notifications.collectAsState()
+    val uiState by viewModel.uiState.collectAsState()
 
     Scaffold(
         topBar = {
@@ -51,7 +51,16 @@ fun NotificationScreen(
             )
         }
     ) { innerPadding ->
-        if (notifications.isEmpty()) {
+        if (uiState.isLoading) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+            }
+        } else if (uiState.items.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -82,7 +91,7 @@ fun NotificationScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(notifications, key = { it.id }) { notification ->
+                items(uiState.items, key = { it.id }) { notification ->
                     NotificationCard(
                         notification = notification,
                         onClick = {

@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.navigation.Screen
 import com.saurabh.artifact.repository.AuthRepository
+import com.saurabh.artifact.repository.SettingsRepository
 import com.saurabh.artifact.util.OnboardingManager
 import com.saurabh.artifact.startup.StartupCoordinator
 import com.saurabh.artifact.startup.StartupMetrics
@@ -32,6 +33,7 @@ data class BackupWarning(
 class MainViewModel @Inject constructor(
     private val onboardingManager: OnboardingManager,
     private val authRepository: AuthRepository,
+    private val settingsRepository: SettingsRepository,
     private val startupCoordinator: StartupCoordinator,
     private val draftDao: DraftDao
 ) : ViewModel() {
@@ -42,6 +44,9 @@ class MainViewModel @Inject constructor(
     private val _backupWarning = MutableStateFlow<BackupWarning?>(null)
     val backupWarning = _backupWarning.asStateFlow()
 
+    private val _reportingArtifactId = MutableStateFlow<String?>(null)
+    val reportingArtifactId = _reportingArtifactId.asStateFlow()
+
     val startupStage = startupCoordinator.stage
 
     val currentUserProfile = authRepository.userData
@@ -49,6 +54,10 @@ class MainViewModel @Inject constructor(
     val isStable = startupCoordinator.stage
         .map { it == StartupStage.STABLE }
         .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val isStealthModeEnabled = settingsRepository.userSettings
+        .map { it.stealthModeEnabled }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     private val _navigationEvent = MutableSharedFlow<String>(replay = 0)
@@ -124,5 +133,13 @@ class MainViewModel @Inject constructor(
                 _navigationEvent.emit(Screen.InstantRecord.route)
             }
         }
+    }
+
+    fun showReportSheet(artifactId: String) {
+        _reportingArtifactId.value = artifactId
+    }
+
+    fun dismissReportSheet() {
+        _reportingArtifactId.value = null
     }
 }

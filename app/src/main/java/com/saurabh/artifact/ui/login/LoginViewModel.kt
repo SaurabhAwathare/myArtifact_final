@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.google.android.gms.auth.api.signin.GoogleSignInClient
 import com.google.firebase.auth.AuthCredential
 import com.saurabh.artifact.repository.AuthRepository
+import com.saurabh.artifact.ui.util.UiText
+import com.saurabh.artifact.ui.util.ErrorMessageMapper
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -33,21 +35,21 @@ class LoginViewModel @Inject constructor(
                             _loginState.value = LoginState.Success
                         } catch (e: Exception) {
                             Log.e("AUTH", "Profile creation failed", e)
-                            _loginState.value = LoginState.Error("Profile creation failed: ${e.message}")
+                            _loginState.value = LoginState.Error(ErrorMessageMapper.map(e))
                         }
                     } else {
-                        _loginState.value = LoginState.Error("Google Sign-In failed: User is null")
+                        _loginState.value = LoginState.Error(UiText.DynamicString("Google Sign-In failed: User is null"))
                     }
                 }
                 .onFailure { e ->
                     Log.e("AUTH", "Google Sign-In failed", e)
-                    _loginState.value = LoginState.Error(e.message ?: "Auth Failed")
+                    _loginState.value = LoginState.Error(ErrorMessageMapper.map(e))
                 }
         }
     }
 
     fun onError(message: String) {
-        _loginState.value = LoginState.Error(message)
+        _loginState.value = LoginState.Error(ErrorMessageMapper.map(message))
     }
 }
 
@@ -55,5 +57,5 @@ sealed class LoginState {
     object Idle : LoginState()
     object Loading : LoginState()
     object Success : LoginState()
-    data class Error(val message: String) : LoginState()
+    data class Error(val message: UiText) : LoginState()
 }

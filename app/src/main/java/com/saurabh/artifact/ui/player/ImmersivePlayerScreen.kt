@@ -5,7 +5,7 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -97,10 +97,11 @@ fun ImmersivePlayerScreen(
             .fillMaxSize()
             .background(Obsidian950)
             .offset { IntOffset(0, offsetY.roundToInt()) }
-            .pointerInput(Unit) {
-                // EXPLICIT TOUCH INTERCEPTION: Prevent pass-through to underlying Feed/Screens
-                detectTapGestures { /* Consumed and ignored */ }
-            }
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = { /* EXPLICIT TOUCH INTERCEPTION: Prevent pass-through to underlying Feed/Screens */ }
+            )
             .pointerInput(Unit) {
                 detectVerticalDragGestures(
                     onDragStart = { /* Optional haptic */ },
@@ -325,7 +326,8 @@ fun ImmersivePlayerScreen(
                         isCommentUnlocked = uiState.isCommentUnlocked,
                         commentCount = uiState.commentCount,
                         onCommentClick = onCommentClick,
-                        showResonance = true // Logic handled by visibility/enablement if needed
+                        showResonance = !uiState.isOwner,
+                        showSave = !uiState.isOwner
                     )
             }
 

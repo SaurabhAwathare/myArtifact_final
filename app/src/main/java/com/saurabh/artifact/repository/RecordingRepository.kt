@@ -119,7 +119,11 @@ class RecordingRepository @Inject constructor(
     }
 
     suspend fun renameDraft(id: String, newTitle: String?) = withContext(Dispatchers.IO) {
-        draftDao.updateTitle(id, newTitle)
+        val trimmedTitle = newTitle?.trim()
+        if (trimmedTitle != null && (trimmedTitle.isEmpty() || trimmedTitle.length > 70)) {
+            return@withContext
+        }
+        draftDao.updateTitle(id, trimmedTitle)
     }
 
     suspend fun updateDraftMetadata(id: String, title: String?, emotion: String?) = withContext(Dispatchers.IO) {
@@ -185,8 +189,7 @@ class RecordingRepository @Inject constructor(
             localDraftManager.reconcileStorage(allDrafts)
             
             // 3. Authoritative cleanup for DELETING drafts
-            // Using generic LIKE query for simplicity in repository, mirroring RecoveryEngine
-            val deletingDrafts = draftDao.getDraftsByLifecycle("%\"lifecycle\":\"DELETING\"%")
+            val deletingDrafts = draftDao.getDraftsByLifecycle(ArtifactLifecycle.DELETING)
             deletingDrafts.forEach { draft ->
                 Log.d("RecordingRepository", "Resuming deletion for draft: ${draft.id}")
                 deletionManager.deleteDraft(draft.id)

@@ -29,11 +29,15 @@ class DraftEditViewModel @Inject constructor(
     private val _emotion = MutableStateFlow<Emotion?>(null)
     val emotion: StateFlow<Emotion?> = _emotion.asStateFlow()
 
+    private val _isLoading = MutableStateFlow(false)
+    val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
+
     val isPlaying = playbackCoordinator.isPlaying
     val currentPosition = playbackCoordinator.currentPosition
 
     fun loadDraft(draftId: String) {
         viewModelScope.launch {
+            _isLoading.value = true
             val draftEntity = recordingRepository.getDraft(draftId)
             _draft.value = draftEntity
             _title.value = draftEntity?.title ?: ""
@@ -42,6 +46,7 @@ class DraftEditViewModel @Inject constructor(
             _emotion.value = draftEntity?.emotion?.let { value ->
                 Emotion.entries.find { it.name == value || it.label == value }
             }
+            _isLoading.value = false
         }
     }
 

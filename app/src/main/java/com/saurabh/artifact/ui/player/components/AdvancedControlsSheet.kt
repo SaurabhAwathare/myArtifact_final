@@ -17,6 +17,7 @@ import androidx.compose.ui.zIndex
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import com.saurabh.artifact.ui.theme.EmberGlow
+import com.saurabh.artifact.ui.theme.ZIndexTokens
 
 @Composable
 fun AdvancedControlsSheet(
@@ -36,7 +37,7 @@ fun AdvancedControlsSheet(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .zIndex(100f)
+                .zIndex(ZIndexTokens.MODAL_OVERLAYS)
         ) {
             // Scrim
             Box(

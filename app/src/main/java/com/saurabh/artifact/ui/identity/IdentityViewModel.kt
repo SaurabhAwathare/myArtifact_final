@@ -5,6 +5,9 @@ import androidx.lifecycle.viewModelScope
 import com.saurabh.artifact.repository.UserProfileManager
 import com.saurabh.artifact.util.UsernameGenerator
 import com.saurabh.artifact.model.*
+import com.saurabh.artifact.ui.util.UiText
+import com.saurabh.artifact.ui.util.ErrorMessageMapper
+import com.saurabh.artifact.R
 import android.util.Log
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -139,7 +142,10 @@ class IdentityViewModel @Inject constructor(
     }
 
     fun randomizePresence() {
-        _avatarConfig.value = _avatarConfig.value.copy(seed = java.util.UUID.randomUUID().toString())
+        _avatarConfig.value = _avatarConfig.value.copy(
+            seed = java.util.UUID.randomUUID().toString(),
+            theme = "AURIC"
+        )
     }
 
     fun onUsernameChange(name: String) {
@@ -198,13 +204,7 @@ class IdentityViewModel @Inject constructor(
                     }
                     .onFailure { e ->
                         Log.e("IdentityViewModel", "Failed to save username", e)
-                        val message = when(e) {
-                            is AppError.UsernameTaken -> "This username is already claimed."
-                            is AppError.PermissionDenied -> "Permission error. Please check your account state."
-                            is AppError.NetworkFailure -> "Connection lost. Please try again."
-                            else -> "Your presence needs more time to settle. ${e.message}"
-                        }
-                        _uiState.value = IdentityUiState.Error(message)
+                        _uiState.value = IdentityUiState.Error(ErrorMessageMapper.map(e))
                     }
             } else {
                 // Anonymous fallback
@@ -231,7 +231,7 @@ class IdentityViewModel @Inject constructor(
                 }
                 .onFailure { e ->
                     Log.e("IdentityViewModel", "Failed to refresh presence", e)
-                    _uiState.value = IdentityUiState.Error(e.message ?: "The ritual could not be completed at this time.")
+                    _uiState.value = IdentityUiState.Error(UiText.StringResource(R.string.presence_ritual_failed))
                 }
         }
     }
@@ -240,5 +240,5 @@ class IdentityViewModel @Inject constructor(
 sealed class IdentityUiState {
     data object Idle : IdentityUiState()
     data object Loading : IdentityUiState()
-    data class Error(val message: String) : IdentityUiState()
+    data class Error(val message: UiText) : IdentityUiState()
 }

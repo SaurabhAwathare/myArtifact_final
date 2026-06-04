@@ -5,18 +5,23 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.saurabh.artifact.model.UserSettings
 import com.saurabh.artifact.repository.SettingsRepository
+import com.saurabh.artifact.ui.util.UiText
+import com.saurabh.artifact.ui.util.ErrorMessageMapper
+import com.saurabh.artifact.R
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 sealed class SettingsUiEvent {
-    data class ShowMessage(val message: String) : SettingsUiEvent()
+    data class ShowMessage(val message: UiText) : SettingsUiEvent()
     object AccountDeleted : SettingsUiEvent()
     object LoggedOut : SettingsUiEvent()
     object ReauthRequired : SettingsUiEvent()
     object ExportInitiated : SettingsUiEvent()
 }
+
+data class AccountInfo(val realName: String, val email: String)
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
@@ -30,6 +35,10 @@ class SettingsViewModel @Inject constructor(
 
     val isAdmin = authRepository.privateSettings.map { it?.isAdmin ?: false }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val accountInfo = authRepository.privateSettings
+        .map { it?.let { p -> AccountInfo(p.realName, p.email) } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     val uiState: StateFlow<UserSettings> = repository.userSettings
         .stateIn(
@@ -64,6 +73,18 @@ class SettingsViewModel @Inject constructor(
         update { it.copy(dataCollectionConsent = enabled) }
     }
 
+    fun updateBiometricLock(enabled: Boolean) {
+        update { it.copy(biometricLockEnabled = enabled) }
+    }
+
+    fun updateAutoLock(enabled: Boolean) {
+        update { it.copy(autoLockEnabled = enabled) }
+    }
+
+    fun updateStealthMode(enabled: Boolean) {
+        update { it.copy(stealthModeEnabled = enabled) }
+    }
+
     private fun update(reducer: (UserSettings) -> UserSettings) {
         viewModelScope.launch {
             repository.updateSettings(reducer(uiState.value))
@@ -83,7 +104,7 @@ class SettingsViewModel @Inject constructor(
                     e.message?.contains("reauthenticate", ignoreCase = true) == true) {
                     _events.emit(SettingsUiEvent.ReauthRequired)
                 } else {
-                    _events.emit(SettingsUiEvent.ShowMessage("Failed to delete account: ${e.message}"))
+                    _events.emit(SettingsUiEvent.ShowMessage(ErrorMessageMapper.map(e)))
                 }
             }
         }
@@ -104,11 +125,11 @@ class SettingsViewModel @Inject constructor(
                 deleteResult.onSuccess {
                     _events.emit(SettingsUiEvent.AccountDeleted)
                 }.onFailure { e ->
-                    _events.emit(SettingsUiEvent.ShowMessage("Final deletion failed: ${e.message}"))
+                    _events.emit(SettingsUiEvent.ShowMessage(ErrorMessageMapper.map(e)))
                 }
             }.onFailure { e ->
                 _isDeleting.value = false
-                _events.emit(SettingsUiEvent.ShowMessage("Reauthentication failed: ${e.message}"))
+                _events.emit(SettingsUiEvent.ShowMessage(ErrorMessageMapper.map(e)))
             }
         }
     }
@@ -124,7 +145,7 @@ class SettingsViewModel @Inject constructor(
                     _events.emit(SettingsUiEvent.LoggedOut)
                 }
                 .onFailure {
-                    _events.emit(SettingsUiEvent.ShowMessage("Logout failed: ${it.message}"))
+                    _events.emit(SettingsUiEvent.ShowMessage(UiText.StringResource(R.string.logout_failed)))
                 }
         }
     }
@@ -133,10 +154,10 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             dataExportManager.exportAllDrafts(outputUri)
                 .onSuccess {
-                    _events.emit(SettingsUiEvent.ShowMessage("Export complete! Check your files."))
+                    _events.emit(SettingsUiEvent.ShowMessage(UiText.StringResource(R.string.export_ready)))
                 }
                 .onFailure {
-                    _events.emit(SettingsUiEvent.ShowMessage("Export failed: ${it.message}"))
+                    _events.emit(SettingsUiEvent.ShowMessage(UiText.StringResource(R.string.export_failed)))
                 }
         }
     }

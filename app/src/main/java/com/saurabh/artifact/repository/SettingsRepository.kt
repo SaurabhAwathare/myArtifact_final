@@ -36,6 +36,9 @@ class SettingsRepository @Inject constructor(
     private val smartRemindersKey = booleanPreferencesKey("smart_reminders_enabled")
     private val emotionalSafetyKey = booleanPreferencesKey("emotional_safety_enabled")
     private val dataConsentKey = booleanPreferencesKey("data_collection_consent")
+    private val biometricLockKey = booleanPreferencesKey("biometric_lock_enabled")
+    private val autoLockKey = booleanPreferencesKey("auto_lock_enabled")
+    private val stealthModeKey = booleanPreferencesKey("stealth_mode_enabled")
 
     val userSettings: Flow<UserSettings> = context.dataStore.data
         .catch { exception ->
@@ -47,7 +50,10 @@ class SettingsRepository @Inject constructor(
                 notificationsEnabled = preferences[notificationsKey] ?: true,
                 smartRemindersEnabled = preferences[smartRemindersKey] ?: true,
                 emotionalSafetyEnabled = preferences[emotionalSafetyKey] ?: true,
-                dataCollectionConsent = preferences[dataConsentKey] ?: false
+                dataCollectionConsent = preferences[dataConsentKey] ?: false,
+                biometricLockEnabled = preferences[biometricLockKey] ?: false,
+                autoLockEnabled = preferences[autoLockKey] ?: true,
+                stealthModeEnabled = preferences[stealthModeKey] ?: false
             )
         }
 
@@ -79,6 +85,9 @@ class SettingsRepository @Inject constructor(
             preferences[smartRemindersKey] = settings.smartRemindersEnabled
             preferences[emotionalSafetyKey] = settings.emotionalSafetyEnabled
             preferences[dataConsentKey] = settings.dataCollectionConsent
+            preferences[biometricLockKey] = settings.biometricLockEnabled
+            preferences[autoLockKey] = settings.autoLockEnabled
+            preferences[stealthModeKey] = settings.stealthModeEnabled
         }
     }
 
@@ -89,6 +98,9 @@ class SettingsRepository @Inject constructor(
             preferences[smartRemindersKey] = settings.smartRemindersEnabled
             preferences[emotionalSafetyKey] = settings.emotionalSafetyEnabled
             preferences[dataConsentKey] = settings.dataCollectionConsent
+            preferences[biometricLockKey] = settings.biometricLockEnabled
+            preferences[autoLockKey] = settings.autoLockEnabled
+            preferences[stealthModeKey] = settings.stealthModeEnabled
         }
         syncToRemote(settings)
     }

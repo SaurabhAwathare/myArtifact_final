@@ -42,7 +42,9 @@ fun ProfileHeader(
     isResonating: Boolean,
     onResonateClick: () -> Unit,
     onEditClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onResonatorsClick: () -> Unit = {},
+    onResonatingClick: () -> Unit = {},
 ) {
     Column(
         modifier = modifier
@@ -82,8 +84,16 @@ fun ProfileHeader(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            StatItem(label = "resonators", count = user?.resonanceInCount ?: user?.followersCount ?: 0)
-            StatItem(label = "resonating", count = user?.resonanceOutCount ?: user?.followingCount ?: 0)
+            StatItem(
+                label = "resonators", 
+                count = user?.resonanceInCount ?: user?.followersCount ?: 0,
+                onClick = onResonatorsClick
+            )
+            StatItem(
+                label = "resonating", 
+                count = user?.resonanceOutCount ?: user?.followingCount ?: 0,
+                onClick = onResonatingClick
+            )
             StatItem(label = "streak", count = user?.softStreakCount ?: 0)
         }
 
@@ -105,8 +115,11 @@ fun ProfileHeader(
 }
 
 @Composable
-private fun StatItem(label: String, count: Int) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+private fun StatItem(label: String, count: Int, onClick: () -> Unit = {}) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.clickable(enabled = true) { onClick() }
+    ) {
         Text(
             text = count.toString(),
             style = MaterialTheme.typography.titleMedium,

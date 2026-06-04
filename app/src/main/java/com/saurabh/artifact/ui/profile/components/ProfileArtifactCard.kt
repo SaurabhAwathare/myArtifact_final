@@ -38,7 +38,7 @@ fun ProfileArtifactCard(
     onPlayClick: () -> Unit,
     onRename: (String) -> Unit,
     onDelete: () -> Unit,
-    onViewComments: () -> Unit,
+    onViewComments: (() -> Unit)? = null,
     isSaved: Boolean = false,
     onUnsave: () -> Unit = {},
     modifier: Modifier = Modifier,

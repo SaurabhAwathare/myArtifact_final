@@ -25,21 +25,10 @@ class DraftListViewModel @Inject constructor(
     val audioPlayer: PlaybackCoordinator
 ) : ViewModel() {
 
-    val drafts: StateFlow<List<DraftWithUpload>> = draftRepository.observeDraftsWithUploads()
-        .map { list -> 
-            list.filter { 
-                it.draft.status.lifecycle != com.saurabh.artifact.model.ArtifactLifecycle.PUBLISHED &&
-                it.draft.status.lifecycle != com.saurabh.artifact.model.ArtifactLifecycle.READY_TO_PUBLISH
-            }
-        }
+    val drafts: StateFlow<List<DraftWithUpload>> = draftRepository.observeActiveDraftsWithUploads()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val publishingDrafts: StateFlow<List<DraftWithUpload>> = draftRepository.observeDraftsWithUploads()
-        .map { list -> 
-            list.filter { 
-                it.draft.status.lifecycle == com.saurabh.artifact.model.ArtifactLifecycle.READY_TO_PUBLISH 
-            }
-        }
+    val publishingDrafts: StateFlow<List<DraftWithUpload>> = draftRepository.observePublishingDraftsWithUploads()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val isPlaying = audioPlayer.isPlaying

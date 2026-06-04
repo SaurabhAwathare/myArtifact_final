@@ -26,6 +26,7 @@ data class PlayerUiState(
     val selectedReactionType: ReactionType = ReactionType.I_HEAR_YOU,
     val isResonating: Boolean = false,
     val isSaved: Boolean = false,
+    val isOwner: Boolean = false,
     val resonanceSummary: String = "",
     val commentCount: Int = 0,
     

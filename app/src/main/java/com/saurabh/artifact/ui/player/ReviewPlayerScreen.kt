@@ -46,22 +46,26 @@ fun ReviewPlayerScreen(
         }
     }
 
-    val currentDraft = draft ?: return
-
-    val progressPercent = if (currentDraft.durationMs > 0) {
-        playbackState.currentPositionMs.toFloat() / currentDraft.durationMs
-    } else 0f
-
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = ArtifactTheme.colors.surfaceLoom
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(Spacing.Large),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
+        val currentDraft = draft
+        if (currentDraft == null) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = ArtifactTheme.colors.waveformActive)
+            }
+        } else {
+            val progressPercent = if (currentDraft.durationMs > 0) {
+                playbackState.currentPositionMs.toFloat() / currentDraft.durationMs
+            } else 0f
+
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(Spacing.Large),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
             // Header
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -257,6 +261,7 @@ fun ReviewPlayerScreen(
             }
 
             Spacer(modifier = Modifier.height(Spacing.ExtraLarge))
+            }
         }
     }
 }

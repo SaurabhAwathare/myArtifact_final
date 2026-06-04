@@ -5,6 +5,7 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.User
+import com.saurabh.artifact.model.AvatarConfig
 import com.saurabh.artifact.util.UsernameGenerator
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
@@ -59,6 +60,7 @@ class UserRepository @Inject constructor(
             val anonymousId = anonymousSnapshot?.anonymousId ?: ""
             val newName = UsernameGenerator.generate()
             val newSigil = UsernameGenerator.deriveSigil(anonymousId)
+            val newSeed = java.util.UUID.randomUUID().toString()
             
             val safePalette = listOf("#FADADD", "#E6E6FA", "#D1EAF0", "#E2F0D9", "#FFF4E0")
             val newColor = safePalette.random()
@@ -83,7 +85,11 @@ class UserRepository @Inject constructor(
                         "anonymousName" to newName,
                         "anonymousSigil" to newSigil,
                         "avatarColor" to newColor,
-                        "avatarSeed" to java.util.UUID.randomUUID().toString(),
+                        "avatarSeed" to newSeed,
+                        "avatarConfig" to (anonymousSnapshot?.avatarConfig ?: com.saurabh.artifact.model.AvatarConfig()).copy(
+                            seed = newSeed,
+                            theme = "AURIC" // Refreshing identity always reverts to brand-standard Aura
+                        ),
                         "usernameUpdatedAt" to FieldValue.serverTimestamp()
                     )
                 )
@@ -235,13 +241,15 @@ class UserRepository @Inject constructor(
                 val anonymousName = UsernameGenerator.generate()
                 val anonymousSigil = UsernameGenerator.deriveSigil(anonymousId)
                 val safePalette = listOf("#FADADD", "#E6E6FA", "#D1EAF0", "#E2F0D9", "#FFF4E0")
+                val seed = java.util.UUID.randomUUID().toString()
                 
                 val newProfile = User(
                     id = currentUser.uid,
                     anonymousId = anonymousId,
                     anonymousName = anonymousName,
                     anonymousSigil = anonymousSigil,
-                    avatarSeed = safePalette.random(),
+                    avatarSeed = seed,
+                    avatarConfig = AvatarConfig(seed = seed, theme = "AURIC"),
                     isAnonymous = true,
                     emotionalProfile = "New Soul"
                 )
@@ -465,5 +473,53 @@ class UserRepository @Inject constructor(
             userId = userId,
             message = "You updated your avatar 🎨"
         )
+    }
+
+    /**
+     * Fetches a paginated list of users who are either "resonators" (resonance_in)
+     * or being "resonated with" (resonance_out) by the target user.
+     */
+    suspend fun getResonanceUsers(
+        userId: String,
+        type: String, // "resonance_in" or "resonance_out"
+        limit: Int = 20,
+        lastVisible: com.google.firebase.firestore.DocumentSnapshot? = null
+    ): Result<Pair<List<User>, com.google.firebase.firestore.DocumentSnapshot?>> = withContext(Dispatchers.IO) {
+        try {
+            var query = usersCollection.document(userId.trim())
+                .collection(type)
+                .orderBy("createdAt", com.google.firebase.firestore.Query.Direction.DESCENDING)
+                .limit(limit.toLong())
+
+            if (lastVisible != null) {
+                query = query.startAfter(lastVisible)
+            }
+
+            val snapshot = query.get().await()
+            if (snapshot.isEmpty) return@withContext Result.success(emptyList<User>() to null)
+
+            val userIds = snapshot.documents.map { it.id }
+            
+            // Batch fetch User documents
+            // Note: whereIn has a limit of 10-30 depending on Firebase version, but typically 10 for many SDKs.
+            // We'll chunk if needed, but for a 20 limit we might need 2 chunks of 10.
+            val userChunks = userIds.chunked(10)
+            val users = mutableListOf<User>()
+            
+            for (chunk in userChunks) {
+                val userSnapshot = usersCollection.whereIn(com.google.firebase.firestore.FieldPath.documentId(), chunk).get().await()
+                users.addAll(userSnapshot.toObjects(User::class.java).mapIndexed { index, user ->
+                    user.copy(id = userSnapshot.documents[index].id)
+                })
+            }
+
+            // Ensure order matches the resonance timestamp order
+            val orderedUsers = userIds.mapNotNull { id -> users.find { it.id == id } }
+
+            Result.success(orderedUsers to snapshot.documents.lastOrNull())
+        } catch (e: Exception) {
+            Log.e("UserRepository", "getResonanceUsers failed for $userId ($type)", e)
+            Result.failure(e)
+        }
     }
 }

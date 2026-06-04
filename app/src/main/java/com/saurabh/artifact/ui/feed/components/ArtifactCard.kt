@@ -19,7 +19,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import com.saurabh.artifact.ui.util.FeedbackUtils
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -46,11 +48,11 @@ fun ArtifactCard(
     isSaved: Boolean = false,
     onPlayClick: () -> Unit,
     onReactionClick: (ReactionType) -> Unit,
-    onCommentClick: () -> Unit,
     onSaveClick: () -> Unit,
-    onReportClick: () -> Unit
+    onReportClick: () -> Unit,
 ) {
     val haptic = LocalHapticFeedback.current
+    val context = LocalContext.current
 
     Card(
         modifier = modifier
@@ -110,7 +112,7 @@ fun ArtifactCard(
 
                 IconButton(onClick = onReportClick, modifier = Modifier.size(24.dp)) {
                     Icon(
-                        imageVector = androidx.compose.material.icons.Icons.Rounded.MoreVert,
+                        imageVector = Icons.Rounded.MoreVert,
                         contentDescription = "Options",
                         tint = Color.White.copy(alpha = 0.3f)
                     )
@@ -212,7 +214,7 @@ fun ArtifactCard(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     ReactionType.entries.take(4).forEach { type ->
-                        ReactionChip(type.label, onClick = { onReactionClick(type) })
+                        ReactionChip(type.label) { onReactionClick(type) }
                     }
                 }
                 
@@ -220,10 +222,12 @@ fun ArtifactCard(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.padding(start = 12.dp, bottom = 4.dp) // Align with bottom row of chips
                 ) {
-                    // Simple disabled icon without complex Tooltip for now to avoid compilation errors
+                    // Show "Coming Soon" feedback instead of silent disabled state
                     IconButton(
-                        onClick = onCommentClick,
-                        enabled = false
+                        onClick = {
+                            FeedbackUtils.explainDisabledAction(context, haptic, "Comments coming soon")
+                        },
+                        enabled = true
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.ChatBubbleOutline,
@@ -274,7 +278,6 @@ fun ArtifactCardPreview() {
             isPlaying = false,
             onPlayClick = {},
             onReactionClick = {},
-            onCommentClick = {},
             onSaveClick = {},
             onReportClick = {}
         )
@@ -298,7 +301,6 @@ fun ArtifactCardManyReactionsPreview() {
             isPlaying = true,
             onPlayClick = {},
             onReactionClick = {},
-            onCommentClick = {},
             onSaveClick = {},
             onReportClick = {}
         )

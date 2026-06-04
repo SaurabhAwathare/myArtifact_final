@@ -8,6 +8,9 @@ import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.FeedRepository
 import com.saurabh.artifact.service.FeedComposer
+import com.saurabh.artifact.ui.util.UiText
+import com.saurabh.artifact.ui.util.ErrorMessageMapper
+import com.saurabh.artifact.R
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -27,7 +30,7 @@ class ForYouFeedViewModel @Inject constructor(
     private val _feedState = MutableStateFlow<FeedCompositionState>(FeedCompositionState.Loading)
     val feedState: StateFlow<FeedCompositionState> = _feedState.asStateFlow()
 
-    private val _message = MutableSharedFlow<String>()
+    private val _message = MutableSharedFlow<UiText>()
     val message = _message.asSharedFlow()
 
     val currentlyPlayingArtifact: StateFlow<Artifact?> = audioPlayer.currentArtifact
@@ -52,8 +55,9 @@ class ForYouFeedViewModel @Inject constructor(
                 feedItems.take(3).forEach { feedItem ->
                     audioPlayer.preCache(feedItem.artifact)
                 }
-            } catch (ignore: Exception) {
-                _feedState.value = FeedCompositionState.Error("A quiet moment was interrupted. Please try again.")
+            } catch (e: Exception) {
+                _feedState.value = FeedCompositionState.Error(UiText.StringResource(R.string.quiet_moment_interrupted))
+                _message.emit(ErrorMessageMapper.map(e))
             }
         }
     }
@@ -64,7 +68,7 @@ class ForYouFeedViewModel @Inject constructor(
         // Validation: Ensure the artifact is playable before calling the player
         if (artifact.audioUrl.isEmpty()) {
             viewModelScope.launch {
-                _message.emit("This reflection hasn't found its voice yet.")
+                _message.emit(UiText.StringResource(R.string.no_voice_yet))
             }
             return
         }
@@ -125,10 +129,10 @@ class ForYouFeedViewModel @Inject constructor(
                         val updatedItems = currentState.items.filter { it.artifact.id != artifactId }
                         _feedState.value = FeedCompositionState.Success(updatedItems)
                     }
-                    _message.emit("Reflection deleted.")
+                    _message.emit(UiText.StringResource(R.string.reflection_deleted))
                 }
-                .onFailure {
-                    _message.emit("Failed to delete reflection.")
+                .onFailure { e ->
+                    _message.emit(ErrorMessageMapper.map(e))
                 }
         }
     }

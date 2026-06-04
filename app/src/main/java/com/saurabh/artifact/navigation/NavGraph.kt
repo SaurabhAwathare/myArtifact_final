@@ -43,7 +43,8 @@ fun NavGraph(
     navController: NavHostController,
     startDestination: String,
     recordingSessionManager: RecordingSessionManager,
-    onboardingManager: OnboardingManager
+    onboardingManager: OnboardingManager,
+    onReportArtifact: (String) -> Unit
 ) {
     val scope = rememberCoroutineScope()
     // Stability access via VisualTier to avoid top-level invalidation of the NavHost
@@ -192,7 +193,9 @@ fun NavGraph(
                     }
                 },
                 onNavigateToProfile = onNavigateToProfile,
-                onNavigateToNotifications = onNavigateToNotifications
+                onNavigateToNotifications = onNavigateToNotifications,
+                onNavigateToComments = onNavigateToComments,
+                onReportArtifact = onReportArtifact
             )
         }
         composable(Screen.Feed.route) {
@@ -209,7 +212,9 @@ fun NavGraph(
                     }
                 },
                 onNavigateToProfile = onNavigateToProfile,
-                onNavigateToNotifications = onNavigateToNotifications
+                onNavigateToNotifications = onNavigateToNotifications,
+                onNavigateToComments = onNavigateToComments,
+                onReportArtifact = onReportArtifact
             )
         }
         composable(
@@ -232,7 +237,32 @@ fun NavGraph(
                 onNavigateToReview = { draftId ->
                     navController.navigate(Screen.RecordingReview.createRoute(draftId))
                 },
+                onNavigateToResonanceList = { id, type, title ->
+                    navController.navigate(Screen.ResonanceList.createRoute(id, type, title))
+                },
                 onNavigateToComments = onNavigateToComments
+            )
+        }
+        composable(
+            route = Screen.ResonanceList.route,
+            arguments = listOf(
+                navArgument("userId") { type = NavType.StringType },
+                navArgument("type") { type = NavType.StringType },
+                navArgument("title") { 
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = "Resonators"
+                }
+            )
+        ) { backStackEntry ->
+            val userId = URLDecoder.decode(backStackEntry.arguments?.getString("userId") ?: "", StandardCharsets.UTF_8.toString())
+            val type = URLDecoder.decode(backStackEntry.arguments?.getString("type") ?: "", StandardCharsets.UTF_8.toString())
+            
+            com.saurabh.artifact.ui.profile.ResonanceListScreen(
+                onBack = onBack,
+                onUserClick = { clickedUserId ->
+                    navController.navigate(Screen.Profile.createRoute(clickedUserId))
+                }
             )
         }
         composable(Screen.Settings.route) {

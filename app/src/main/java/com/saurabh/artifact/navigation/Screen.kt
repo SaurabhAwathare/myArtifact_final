@@ -15,6 +15,16 @@ sealed class Screen(val route: String) {
             return if (userId != null) "profile?userId=$userId" else "profile"
         }
     }
+    
+    object ResonanceList : Screen("resonance_list/{userId}/{type}?title={title}") {
+        fun createRoute(userId: String, type: String, title: String): String {
+            val encodedId = URLEncoder.encode(userId, StandardCharsets.UTF_8.toString())
+            val encodedType = URLEncoder.encode(type, StandardCharsets.UTF_8.toString())
+            val encodedTitle = URLEncoder.encode(title, StandardCharsets.UTF_8.toString())
+            return "resonance_list/$encodedId/$encodedType?title=$encodedTitle"
+        }
+    }
+
     object Settings : Screen("settings")
     object DraftEdit : Screen("draft_edit/{draftId}") {
         fun createRoute(draftId: String): String {

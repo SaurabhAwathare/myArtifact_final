@@ -11,8 +11,8 @@ object ZIndexTokens {
     const val MINI_OVERLAYS = 100f
     
     /** Modal sheets and popups (e.g., ReportSheet, AdvancedControls) */
-    const val MODAL_OVERLAYS = 1000f
+    const val MODAL_OVERLAYS = 2000f
     
     /** Full-screen cinematic experiences like the ImmersivePlayer */
-    const val FULL_SCREEN_OVERLAYS = 2000f
+    const val FULL_SCREEN_OVERLAYS = 1000f
 }

@@ -216,6 +216,8 @@ class PlayerViewModel @Inject constructor(
         val commentCount = params[16] as Int
         val reviewState = params[17] as com.saurabh.artifact.audio.ReviewState
 
+        val isOwner = artifact?.userId == authRepository.currentUserId
+
         val progress = if (duration > 0) position.toFloat() / duration else 0f
         val furthestProgress = if (reviewState.artifactId == artifact?.id) reviewState.progress else 0f
 
@@ -243,6 +245,7 @@ class PlayerViewModel @Inject constructor(
             selectedReactionType = selectedReactionType,
             isResonating = isResonating,
             isSaved = isSaved,
+            isOwner = isOwner,
             resonanceSummary = resonanceSummary,
             commentCount = commentCount,
             isSilenceSkipEnabled = isSkipSilenceEnabled,

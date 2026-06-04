@@ -7,6 +7,7 @@ import com.saurabh.artifact.util.StorageManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.io.File
 import javax.inject.Inject
@@ -28,6 +29,27 @@ class DraftRepository @Inject constructor(
 
     fun observeDrafts(): Flow<List<ArtifactDraftEntity>> = draftDao.observeDrafts()
 
+    /**
+     * Observes local drafts that are actively in progress (not yet published).
+     */
+    fun observeActiveDrafts(): Flow<List<ArtifactDraftEntity>> {
+        return observeDrafts().map { drafts ->
+            drafts.filter { 
+                it.lifecycle != ArtifactLifecycle.PUBLISHED && 
+                it.lifecycle != ArtifactLifecycle.READY_TO_PUBLISH 
+            }
+        }
+    }
+
+    /**
+     * Observes drafts that are currently in the publishing pipeline.
+     */
+    fun observePublishingDrafts(): Flow<List<ArtifactDraftEntity>> {
+        return observeDrafts().map { drafts ->
+            drafts.filter { it.lifecycle == ArtifactLifecycle.READY_TO_PUBLISH }
+        }
+    }
+
     fun observeUploadTask(draftId: String): Flow<UploadTaskEntity?> = uploadTaskDao.observeTaskByDraftId(draftId)
 
     fun observeAllUploadTasks(): Flow<List<UploadTaskEntity>> = uploadTaskDao.observeAllTasks()
@@ -37,6 +59,20 @@ class DraftRepository @Inject constructor(
      */
     fun observeDraftsWithUploads(): Flow<List<DraftWithUpload>> {
         return combine(observeDrafts(), observeAllUploadTasks()) { drafts, tasks ->
+            val taskMap = tasks.associateBy { it.draftId }
+            drafts.map { DraftWithUpload(it, taskMap[it.id]) }
+        }
+    }
+
+    fun observeActiveDraftsWithUploads(): Flow<List<DraftWithUpload>> {
+        return combine(observeActiveDrafts(), observeAllUploadTasks()) { drafts, tasks ->
+            val taskMap = tasks.associateBy { it.draftId }
+            drafts.map { DraftWithUpload(it, taskMap[it.id]) }
+        }
+    }
+
+    fun observePublishingDraftsWithUploads(): Flow<List<DraftWithUpload>> {
+        return combine(observePublishingDrafts(), observeAllUploadTasks()) { drafts, tasks ->
             val taskMap = tasks.associateBy { it.draftId }
             drafts.map { DraftWithUpload(it, taskMap[it.id]) }
         }

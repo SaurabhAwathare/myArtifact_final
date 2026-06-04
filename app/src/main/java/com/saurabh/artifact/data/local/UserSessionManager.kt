@@ -57,11 +57,11 @@ class UserSessionManager @Inject constructor(
             val configJson = preferences[avatarConfigKey]
             val config = configJson?.let { 
                 try {
-                    Json.decodeFromString<com.saurabh.artifact.model.AvatarConfig>(it)
+                    Json.decodeFromString<com.saurabh.artifact.model.AvatarConfig>(it).copy(seed = seed)
                 } catch (e: Exception) {
-                    com.saurabh.artifact.model.AvatarConfig(seed = seed)
+                    com.saurabh.artifact.model.AvatarConfig(seed = seed, theme = "AURIC")
                 }
-            } ?: com.saurabh.artifact.model.AvatarConfig(seed = seed)
+            } ?: com.saurabh.artifact.model.AvatarConfig(seed = seed, theme = "AURIC")
             
             UserProfile(
                 anonymousId = id, 
@@ -113,6 +113,7 @@ class UserSessionManager @Inject constructor(
      */
     suspend fun updateAvatarConfig(config: com.saurabh.artifact.model.AvatarConfig) {
         context.sessionDataStore.edit { preferences ->
+            // Update both to maintain backward compatibility and query efficiency
             preferences[avatarConfigKey] = Json.encodeToString(config)
             preferences[avatarSeedKey] = config.seed
         }

@@ -25,6 +25,7 @@ data class ArtifactDraftEntity(
     
     // Composite State Model
     val status: DraftStatus = DraftStatus(),
+    val lifecycle: ArtifactLifecycle = ArtifactLifecycle.RECORDING,
     @Deprecated("Use status.lifecycle and status.processing instead")
     val draftState: ArtifactDraftState = ArtifactDraftState.SAVED_LOCALLY,
     @Deprecated("Use status.publication instead")

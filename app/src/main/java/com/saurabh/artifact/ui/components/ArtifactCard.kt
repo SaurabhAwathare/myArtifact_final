@@ -32,7 +32,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import com.saurabh.artifact.ui.util.FeedbackUtils
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -76,7 +78,10 @@ fun ArtifactCard(
     durationMs: Long = 0,
     onReportClick: () -> Unit = {},
     onDeleteClick: () -> Unit = {},
-    currentUserId: String? = null
+    onFeedbackClick: () -> Unit = {},
+    onSettingsClick: () -> Unit = {},
+    onCommentClick: () -> Unit = {},
+    currentUserId: String? = null,
 ) {
     if (hydrationLevel == com.saurabh.artifact.ui.feed.HydrationLevel.SHELL && !isCompact) {
         LightweightArtifactCard(artifact, onPlayClick, modifier)
@@ -89,6 +94,7 @@ fun ArtifactCard(
     var showOptionsSheet by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     val haptic = LocalHapticFeedback.current
+    val context = LocalContext.current
     
     val currentUser = com.saurabh.artifact.ui.theme.ArtifactTheme.currentUser
     val isOwner = artifact.userId == (currentUserId ?: currentUser?.id)
@@ -149,7 +155,8 @@ fun ArtifactCard(
             isPlaying = isPlaying,
             isBuffering = isBuffering,
             progress = progress,
-            onPlayClick = if (isHidden) ({}) else onPlayClick,
+            onPlayClick = onPlayClick,
+            enabled = !isHidden,
             modifier = modifier
         )
     } else {
@@ -170,7 +177,14 @@ fun ArtifactCard(
             }
 
         PressableScale(
-            onClick = if (isHidden || isPending) ({}) else onPlayClick,
+            onClick = {
+                if (isPending) {
+                    FeedbackUtils.explainDisabledAction(context, haptic, "This reflection is still settling in the archive...")
+                } else {
+                    onPlayClick()
+                }
+            },
+            enabled = !isHidden, // Allow interaction when pending for feedback
             scaleDownTo = 0.98f,
             modifier = cardModifier.alpha(if (isPending) 0.6f else 1f)
         ) {
@@ -326,7 +340,13 @@ fun ArtifactCard(
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     IconButton(
-                                        onClick = onPlayClick,
+                                        onClick = {
+                                            if (isPending) {
+                                                FeedbackUtils.explainDisabledAction(context, haptic, "This reflection is still settling in the archive...")
+                                            } else {
+                                                onPlayClick()
+                                            }
+                                        },
                                         modifier = Modifier
                                             .size(44.dp)
                                             .clip(CircleShape)
@@ -365,14 +385,32 @@ fun ArtifactCard(
                         Spacer(modifier = Modifier.height(Spacing.Small))
 
                         if (hydrationLevel >= com.saurabh.artifact.ui.feed.HydrationLevel.METADATA && stage >= com.saurabh.artifact.startup.StartupStage.IMMERSION) {
-                            ResonanceDisplay(
-                                counts = com.saurabh.artifact.model.ArtifactReactionCounts(
-                                    artifactId = displayArtifact.id,
-                                    totalCount = displayArtifact.reactionCount,
-                                    visibility = displayArtifact.reactionVisibility
-                                ),
-                                isOwner = isOwner
-                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                ResonanceDisplay(
+                                    counts = com.saurabh.artifact.model.ArtifactReactionCounts(
+                                        artifactId = displayArtifact.id,
+                                        totalCount = displayArtifact.reactionCount,
+                                        visibility = displayArtifact.reactionVisibility
+                                    ),
+                                    isOwner = isOwner
+                                )
+
+                                IconButton(
+                                    onClick = onCommentClick,
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Rounded.Comment,
+                                        contentDescription = "Comments",
+                                        tint = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.6f),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -385,7 +423,9 @@ fun ArtifactCard(
             isOwner = isOwner,
             onReportClick = onReportClick,
             onDismiss = { showOptionsSheet = false },
-            onDeleteClick = { showDeleteConfirm = true }
+            onDeleteClick = { showDeleteConfirm = true },
+            onFeedbackClick = onFeedbackClick,
+            onSettingsClick = onSettingsClick
         )
     }
 
@@ -492,7 +532,8 @@ private fun CompactArtifactItem(
     isBuffering: Boolean,
     progress: Float,
     onPlayClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
 ) {
     Surface(
         modifier = modifier
@@ -508,9 +549,14 @@ private fun CompactArtifactItem(
         ) {
             IconButton(
                 onClick = onPlayClick,
+                enabled = enabled,
                 modifier = Modifier
                     .size(36.dp)
-                    .background(ArtifactTheme.colors.waveformActive.copy(alpha = 0.1f), CircleShape)
+                    .background(
+                        if (enabled) ArtifactTheme.colors.waveformActive.copy(alpha = 0.1f)
+                        else ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.05f),
+                        CircleShape
+                    )
             ) {
                 if (isBuffering) {
                     CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = ArtifactTheme.colors.waveformActive)

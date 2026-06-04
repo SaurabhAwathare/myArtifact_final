@@ -70,7 +70,8 @@ object DatabaseModule {
             context,
             DraftsDatabase::class.java,
             "drafts_db",
-        ).fallbackToDestructiveMigration(false)
+        ).addMigrations(DraftsDatabase.MIGRATION_1_2)
+            .fallbackToDestructiveMigration(false)
             .build()
     }
 

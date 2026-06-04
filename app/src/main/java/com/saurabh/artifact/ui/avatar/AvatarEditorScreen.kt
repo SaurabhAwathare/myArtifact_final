@@ -33,6 +33,10 @@ fun AvatarEditorScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
+    LaunchedEffect(Unit) {
+        viewModel.updateTheme("CARTOON")
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -43,7 +47,7 @@ fun AvatarEditorScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { viewModel.randomize() }) {
+                    IconButton(onClick = { viewModel.randomize("CARTOON") }) {
                         Icon(Icons.Rounded.AutoAwesome, contentDescription = "Randomize")
                     }
                 },
