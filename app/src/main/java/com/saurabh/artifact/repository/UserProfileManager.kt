@@ -1,9 +1,14 @@
 package com.saurabh.artifact.repository
 
 import com.saurabh.artifact.data.local.UserSessionManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -17,47 +22,53 @@ class UserProfileManager @Inject constructor(
     private val authRepository: AuthRepository,
     private val userRepository: UserRepository,
 ) {
-    /**
-     * Combined flow for Avatar Seed.
-     */
-    val activeAvatarSeed: Flow<String> = combine(
-        authRepository.userData,
-        sessionManager.userProfile,
-    ) { authUser, anonProfile ->
-        authUser?.avatarSeed ?: anonProfile.avatarSeed
+    private val managerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    init {
+        // Background Sync: Listen to Firestore updates and push them into the local SSOT
+        managerScope.launch {
+            authRepository.userData.collectLatest { firestoreUser ->
+                if (firestoreUser != null) {
+                    sessionManager.syncFromRemote(firestoreUser)
+                }
+            }
+        }
     }
 
     /**
-     * Combined flow for Avatar Config.
+     * SSOT flow for the entire user profile.
      */
-    val activeAvatarConfig: Flow<com.saurabh.artifact.model.AvatarConfig> = combine(
-        authRepository.userData,
-        sessionManager.userProfile
-    ) { authUser, anonProfile ->
-        authUser?.avatarConfig ?: anonProfile.avatarConfig
-    }
+    val userProfile: Flow<com.saurabh.artifact.model.UserProfile> = sessionManager.userProfile
 
     /**
-     * Combined flow for the active username.
+     * SSOT flow for Avatar Seed.
      */
-    val activeUsername: Flow<String> = combine(
-        authRepository.userData,
-        sessionManager.userProfile
-    ) { authUser, anonProfile ->
-        authUser?.anonymousName ?: anonProfile.username
-    }
+    val activeAvatarSeed: Flow<String> = sessionManager.userProfile.map { it.avatarSeed }
+
+    /**
+     * SSOT flow for Avatar Config.
+     */
+    val activeAvatarConfig: Flow<com.saurabh.artifact.model.AvatarConfig> = sessionManager.userProfile.map { it.avatarConfig }
+
+    /**
+     * SSOT flow for the active username.
+     */
+    val activeUsername: Flow<String> = sessionManager.userProfile.map { it.username }
 
     /**
      * Updates the user's avatar seed.
      */
     suspend fun updateAvatarSeed(seed: String) {
+        // 1. Update SSOT immediately for UI responsiveness
         sessionManager.updateAvatarSeed(seed)
         
-        // Sync to Firestore if authenticated
+        // 2. Sync to Firestore if authenticated (Eventual Consistency)
         val userId = authRepository.currentUser.value?.uid
         if (userId != null) {
             try {
-                userRepository.updateAvatarConfig(userId, activeAvatarConfig.first().copy(seed = seed))
+                // Read current config to preserve other fields
+                val currentProfile = sessionManager.userProfile.first()
+                userRepository.updateAvatarConfig(userId, currentProfile.avatarConfig.copy(seed = seed))
             } catch (e: Exception) {
                 android.util.Log.e("UserProfileManager", "Failed to sync avatar seed to Firestore", e)
             }
@@ -68,9 +79,10 @@ class UserProfileManager @Inject constructor(
      * Updates the user's avatar configuration.
      */
     suspend fun updateAvatarConfig(config: com.saurabh.artifact.model.AvatarConfig) {
+        // 1. Update SSOT immediately
         sessionManager.updateAvatarConfig(config)
         
-        // Sync to Firestore if authenticated
+        // 2. Sync to Firestore if authenticated (Eventual Consistency)
         val userId = authRepository.currentUser.value?.uid
         if (userId != null) {
             try {
@@ -85,10 +97,10 @@ class UserProfileManager @Inject constructor(
      * Updates the user's anonymous username.
      */
     suspend fun updateUsername(username: String) {
-        // Update local session
+        // 1. Update SSOT immediately
         sessionManager.updateUsername(username)
         
-        // Sync to Firestore if authenticated
+        // 2. Sync to Firestore if authenticated (Eventual Consistency)
         val userId = authRepository.currentUser.value?.uid
         if (userId != null) {
             try {

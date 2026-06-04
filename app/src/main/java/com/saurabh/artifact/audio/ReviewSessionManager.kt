@@ -82,8 +82,11 @@ class ReviewSessionManager @Inject constructor(
     private suspend fun markReviewComplete(artifactId: String) {
         withContext(Dispatchers.IO) {
             val draft = draftDao.getDraftById(artifactId)
-            if (draft != null && draft.status.lifecycle != ArtifactLifecycle.READY_TO_PUBLISH) {
-                draftDao.updateStatus(artifactId, draft.status.copy(lifecycle = ArtifactLifecycle.READY_TO_PUBLISH))
+            if (draft != null && (!draft.isListened || draft.status.lifecycle != ArtifactLifecycle.READY_TO_PUBLISH)) {
+                draftDao.update(draft.copy(
+                    status = draft.status.copy(lifecycle = ArtifactLifecycle.READY_TO_PUBLISH),
+                    isListened = true
+                ))
             }
         }
     }

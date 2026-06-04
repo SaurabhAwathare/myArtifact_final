@@ -24,6 +24,7 @@ import javax.inject.Singleton
 @Singleton
 class RecordingRepository @Inject constructor(
     private val draftDao: DraftDao,
+    private val engagementRepository: EngagementRepository,
     private val localDraftManager: LocalDraftManager,
     private val wavRecoveryManager: com.saurabh.artifact.audio.WavRecoveryManager,
     private val deletionManager: com.saurabh.artifact.audio.DraftDeletionManager,
@@ -110,12 +111,12 @@ class RecordingRepository @Inject constructor(
     }
 
     suspend fun updateReviewProgress(id: String, positionMs: Long) = withContext(Dispatchers.IO) {
-        val draft = draftDao.getDraftById(id)
-        draftDao.updateReviewProgress(id, positionMs, draft?.reviewCoverageBitmask ?: 0L)
+        // Delegates to EngagementRepository for unified tracking
+        engagementRepository.updateLastPosition(id, positionMs)
     }
 
     suspend fun updateLastPlaybackPosition(id: String, positionMs: Long) = withContext(Dispatchers.IO) {
-        draftDao.updateLastPlaybackPosition(id, positionMs)
+        engagementRepository.updateLastPosition(id, positionMs)
     }
 
     suspend fun renameDraft(id: String, newTitle: String?) = withContext(Dispatchers.IO) {

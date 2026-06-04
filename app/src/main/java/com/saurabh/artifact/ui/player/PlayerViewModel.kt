@@ -40,7 +40,6 @@ class PlayerViewModel @Inject constructor(
     val interactionError: SharedFlow<String> = _interactionError.asSharedFlow()
 
     private val _optimisticResonanceConnection = MutableStateFlow<Boolean?>(null)
-    private val _optimisticSave = MutableStateFlow<Boolean?>(null)
     private val _optimisticResonate = MutableStateFlow<Boolean?>(null)
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -55,8 +54,10 @@ class PlayerViewModel @Inject constructor(
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val isResonated: StateFlow<Boolean> = combine(
         playbackCoordinator.currentArtifact,
-        authRepository.currentUser
-    ) { artifact, user ->
+        authRepository.currentUser,
+        _optimisticResonate
+    ) { artifact, user, optimistic ->
+        if (optimistic != null) return@combine flowOf(optimistic)
         if ((artifact != null) && (user != null)) {
             reactionRepository.getArtifactReactions(artifact.id, user.uid)
                 .map { it.isNotEmpty() }
@@ -99,10 +100,8 @@ class PlayerViewModel @Inject constructor(
 
     val isSaved: StateFlow<Boolean> = combine(
         playbackCoordinator.currentArtifact,
-        savedArtifactManager.savedIds,
-        _optimisticSave
-    ) { artifact, savedIds, optimistic ->
-        if (optimistic != null) return@combine optimistic
+        savedArtifactManager.savedIds
+    ) { artifact, savedIds ->
         artifact != null && savedIds.contains(artifact.id)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
@@ -302,16 +301,12 @@ class PlayerViewModel @Inject constructor(
 
     fun toggleSave() {
         val artifact = uiState.value.currentArtifact ?: return
-        val wasSaved = uiState.value.isSaved
-        _optimisticSave.value = !wasSaved
         
         viewModelScope.launch {
             try {
                 savedArtifactManager.toggleSave(artifact)
-                _optimisticSave.value = null
             } catch (e: Exception) {
-                _optimisticSave.value = null
-                _interactionError.emit("Could not save: ${e.message}")
+                _interactionError.emit("Could not preserve: ${e.message}")
             }
         }
     }

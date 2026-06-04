@@ -27,7 +27,12 @@ class UserSessionManager @Inject constructor(
     private val anonymousIdKey = stringPreferencesKey("anonymous_id")
     private val avatarSeedKey = stringPreferencesKey("avatar_seed")
     private val avatarConfigKey = stringPreferencesKey("avatar_config_json")
+    private val avatarColorKey = stringPreferencesKey("avatar_color")
     private val usernameKey = stringPreferencesKey("username")
+    private val sigilKey = stringPreferencesKey("sigil")
+    private val isAnonymousKey = androidx.datastore.preferences.core.booleanPreferencesKey("is_anonymous")
+    private val resonanceInKey = androidx.datastore.preferences.core.intPreferencesKey("resonance_in")
+    private val resonanceOutKey = androidx.datastore.preferences.core.intPreferencesKey("resonance_out")
     private val activeDraftIdKey = stringPreferencesKey("active_draft_id")
     private val activePromptIdKey = stringPreferencesKey("active_prompt_id")
     private val artifactEpisodeCounterKey = stringPreferencesKey("artifact_episode_counter")
@@ -53,7 +58,12 @@ class UserSessionManager @Inject constructor(
             // Migration logic: if seed is missing, use legacy emoji if present, else generate random
             val seed = preferences[avatarSeedKey] ?: preferences[stringPreferencesKey("identity_emoji")] ?: UUID.randomUUID().toString()
             val username = preferences[usernameKey] ?: com.saurabh.artifact.util.UsernameGenerator.generate()
-            val sigil = com.saurabh.artifact.util.UsernameGenerator.deriveSigil(id)
+            val sigil = preferences[sigilKey] ?: com.saurabh.artifact.util.UsernameGenerator.deriveSigil(id)
+            val avatarColor = preferences[avatarColorKey] ?: "#FFD700"
+            val isAnonymous = preferences[isAnonymousKey] ?: true
+            val resonanceIn = preferences[resonanceInKey] ?: 0
+            val resonanceOut = preferences[resonanceOutKey] ?: 0
+            
             val configJson = preferences[avatarConfigKey]
             val config = configJson?.let { 
                 try {
@@ -69,7 +79,11 @@ class UserSessionManager @Inject constructor(
                 username = username, 
                 sigil = sigil,
                 avatarSeed = seed,
-                avatarConfig = config
+                avatarColor = avatarColor,
+                avatarConfig = config,
+                isAnonymous = isAnonymous,
+                resonanceInCount = resonanceIn,
+                resonanceOutCount = resonanceOut
             )
         }
 
@@ -129,6 +143,23 @@ class UserSessionManager @Inject constructor(
     }
 
     /**
+     * Synchronizes local DataStore with a remote User profile from Firestore.
+     */
+    suspend fun syncFromRemote(user: com.saurabh.artifact.model.User) {
+        context.sessionDataStore.edit { preferences ->
+            preferences[anonymousIdKey] = user.anonymousId
+            preferences[usernameKey] = user.anonymousName
+            preferences[sigilKey] = user.anonymousSigil
+            preferences[avatarSeedKey] = user.avatarSeed
+            preferences[avatarColorKey] = user.avatarColor
+            preferences[avatarConfigKey] = Json.encodeToString(user.avatarConfig)
+            preferences[isAnonymousKey] = user.isAnonymous
+            preferences[resonanceInKey] = user.resonanceInCount
+            preferences[resonanceOutKey] = user.resonanceOutCount
+        }
+    }
+
+    /**
      * Gets and increments the artifact episode number.
      * This ensures each artifact has a unique, sequential number.
      */
@@ -140,6 +171,13 @@ class UserSessionManager @Inject constructor(
             preferences[artifactEpisodeCounterKey] = currentNumber.toString()
         }
         return currentNumber
+    }
+
+    /**
+     * Clears all session data. Used during sign out.
+     */
+    suspend fun clear() {
+        context.sessionDataStore.edit { it.clear() }
     }
 
     private suspend fun ensureAnonymousId(id: String) {

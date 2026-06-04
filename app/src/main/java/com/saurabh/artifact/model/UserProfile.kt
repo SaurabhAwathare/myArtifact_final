@@ -11,5 +11,9 @@ data class UserProfile(
     val username: String = "Quiet Presence",
     val sigil: String = "",
     val avatarSeed: String = "",
+    val avatarColor: String = "#FFD700",
     val avatarConfig: AvatarConfig = AvatarConfig(),
+    val isAnonymous: Boolean = true,
+    val resonanceInCount: Int = 0,
+    val resonanceOutCount: Int = 0
 )

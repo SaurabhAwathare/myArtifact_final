@@ -7,8 +7,15 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [QueuedUpload::class, PromptEntity::class, ArtifactEngagement::class, ArtifactEntity::class],
-    version = 40,
+    entities = [
+        QueuedUpload::class, 
+        PromptEntity::class, 
+        ArtifactEngagement::class, 
+        ArtifactEntity::class,
+        ArtifactDraftEntity::class,
+        UploadTaskEntity::class
+    ],
+    version = 41,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -17,6 +24,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun promptDao(): PromptDao
     abstract fun engagementDao(): EngagementDao
     abstract fun artifactDao(): ArtifactDao
+    abstract fun draftDao(): DraftDao
+    abstract fun uploadTaskDao(): UploadTaskDao
 
     companion object {
         val MIGRATION_39_40 = object : Migration(39, 40) {

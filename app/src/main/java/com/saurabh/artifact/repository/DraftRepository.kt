@@ -17,7 +17,7 @@ import javax.inject.Singleton
 class DraftRepository @Inject constructor(
     private val draftDao: DraftDao,
     private val uploadTaskDao: UploadTaskDao,
-    private val draftsDatabase: DraftsDatabase,
+    private val draftsDatabase: AppDatabase,
     private val storageManager: StorageManager,
     private val deletionManager: com.saurabh.artifact.audio.DraftDeletionManager
 ) {

@@ -17,6 +17,8 @@ import com.saurabh.artifact.navigation.Screen
 import com.saurabh.artifact.ui.theme.ZIndexTokens
 import com.saurabh.artifact.ui.player.ArtifactPlayerView
 import com.saurabh.artifact.ui.player.PlayerViewModel
+import com.saurabh.artifact.ui.player.PlayerMode
+import com.saurabh.artifact.ui.player.components.MiniPlayer
 import com.saurabh.artifact.ui.recording.components.MiniRecorder
 
 @Composable
@@ -40,7 +42,6 @@ fun GlobalOverlayHost(
     Box(modifier = Modifier.fillMaxSize()) {
         // 1. PLAYER SYSTEM
         ArtifactPlayerView(
-            isVisible = showOverlays,
             onNavigateToDraftEdit = onNavigateToDraftEdit,
             onNavigateToPublish = onNavigateToPublish,
             onNavigateToComments = onNavigateToComments,
@@ -49,7 +50,7 @@ fun GlobalOverlayHost(
         )
 
         // 2. BOTTOM STACK (Floating Overlays)
-        if (showOverlays && (uiState.playerMode != com.saurabh.artifact.ui.player.PlayerMode.FULLSCREEN)) {
+        if (showOverlays && (uiState.playerMode != PlayerMode.FULLSCREEN)) {
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -75,10 +76,18 @@ fun GlobalOverlayHost(
                     onDismiss = { publishStateManager.dismissSession() }
                 )
                 
-                // Note: The MiniPlayer is CURRENTLY inside ArtifactPlayerView. 
-                // To avoid overlap, we'll need to adjust ArtifactPlayerView to NOT render its MiniPlayer
-                // when it's being managed here, OR move MiniPlayer here.
-                // For now, let's keep it in ArtifactPlayerView but be aware of the z-index.
+                // Mini Player
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = uiState.playerMode == PlayerMode.MINI,
+                    enter = androidx.compose.animation.expandVertically() + androidx.compose.animation.fadeIn(),
+                    exit = androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut()
+                ) {
+                    MiniPlayer(
+                        uiState = uiState,
+                        onExpand = { playerViewModel.setExpanded(true) },
+                        onTogglePlay = { playerViewModel.togglePlayPause() }
+                    )
+                }
             }
         }
     }

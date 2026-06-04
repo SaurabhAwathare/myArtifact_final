@@ -44,6 +44,7 @@ class RecordingService : Service() {
     
     private var audioRecorder: AudioRecorder? = null
     private var timerJob: Job? = null
+    private var pacingJob: Job? = null
     
     private var audioManager: AudioManager? = null
     private var audioFocusRequest: AudioFocusRequest? = null
@@ -171,8 +172,9 @@ class RecordingService : Service() {
                     _recordingState.value.status == RecordingStatus.FAILED ||
                     _recordingState.value.status == RecordingStatus.COMPLETED) {
                     
+                    pacingJob?.cancel()
                     // Psychological Pacing: Intentional Delay before capture starts
-                    serviceScope.launch {
+                    pacingJob = serviceScope.launch {
                         Log.d("RecordingService", "Pacing: 1500ms intentional silence before capture")
                         _recordingState.value = RecordingState(status = RecordingStatus.PREPARING)
                         delay(1500)
@@ -396,6 +398,7 @@ class RecordingService : Service() {
                     Log.d("RecordingService", "Finalizing session. State set to FINALIZING.")
                     _recordingState.value = _recordingState.value.copy(status = RecordingStatus.PREPARING) // Use PREPARING as a proxy for FINALIZING if not available in enum, or add it
 
+                    pacingJob?.cancel()
                     Log.d("RecordingService", "Stopping recording hardware...")
                     audioRecorder?.stop()
                     timerJob?.cancel()
@@ -477,6 +480,7 @@ class RecordingService : Service() {
 
     fun cancelRecording() {
         try {
+            pacingJob?.cancel()
             audioRecorder?.stop()
             timerJob?.cancel()
             abandonAudioFocus()

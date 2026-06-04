@@ -1435,6 +1435,11 @@ class ArtifactRepository @Inject constructor(
                 draftDao.updateTitle(draft.id, trimmedTitle)
             }
 
+            // Sync with local ArtifactEntity cache
+            artifactDao.getArtifactById(artifactId)?.let { entity ->
+                artifactDao.insertAll(listOf(entity.copy(title = trimmedTitle, lastUpdated = System.currentTimeMillis())))
+            }
+
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e("ArtifactRepository", "Rename failed", e)
@@ -1497,6 +1502,8 @@ class ArtifactRepository @Inject constructor(
             try {
                 artifactDao.deleteById(artifactId)
                 database.engagementDao().deleteEngagement(artifactId)
+                // Also clear from Drafts if orphaned
+                draftDao.getDraftByArtifactId(artifactId)?.let { draftDao.deleteById(it.id) }
             } catch (e: Exception) {
                 Log.e("ArtifactRepository", "Local sync failed after soft-delete", e)
             }

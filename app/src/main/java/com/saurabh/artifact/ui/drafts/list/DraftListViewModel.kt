@@ -36,8 +36,7 @@ class DraftListViewModel @Inject constructor(
 
     fun playDraft(draftWithUpload: DraftWithUpload) {
         val draft = draftWithUpload.draft
-        if (draft.status.publication is com.saurabh.artifact.model.SyncStatus.Recovering || 
-            draft.syncState == com.saurabh.artifact.model.SyncState.RECOVERING) {
+        if (draft.status.publication is com.saurabh.artifact.model.SyncStatus.Recovering) {
             // If recovering, we should first try to process it before playing
             viewModelScope.launch {
                 recordingRepository.startProcessing(draft.id)

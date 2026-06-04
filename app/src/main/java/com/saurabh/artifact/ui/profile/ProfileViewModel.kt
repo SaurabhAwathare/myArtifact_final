@@ -57,6 +57,7 @@ class ProfileViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val userRepository: UserRepository,
     private val userProfileManager: UserProfileManager,
+    private val settingsRepository: SettingsRepository,
     private val recordingRepository: RecordingRepository,
     private val reactionRepository: ReactionRepository,
     private val savedArtifactManager: SavedArtifactManager,
@@ -318,7 +319,7 @@ class ProfileViewModel @Inject constructor(
     fun logout() {
         viewModelScope.launch {
             _logoutState.value = LogoutState.Loading
-            authRepository.signOut()
+            settingsRepository.signOut()
                 .onSuccess {
                     _logoutState.value = LogoutState.Success
                 }

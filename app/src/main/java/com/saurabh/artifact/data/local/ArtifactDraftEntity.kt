@@ -18,6 +18,7 @@ data class ArtifactDraftEntity(
     val description: String? = null,
     val emotion: String? = null,
     val isPublic: Boolean = true,
+    val isListened: Boolean = false,
     val tags: List<String> = emptyList(),
     val durationMs: Long = 0,
     val createdAt: Long = System.currentTimeMillis(),
@@ -26,12 +27,6 @@ data class ArtifactDraftEntity(
     // Composite State Model
     val status: DraftStatus = DraftStatus(),
     val lifecycle: ArtifactLifecycle = ArtifactLifecycle.RECORDING,
-    @Deprecated("Use status.lifecycle and status.processing instead")
-    val draftState: ArtifactDraftState = ArtifactDraftState.SAVED_LOCALLY,
-    @Deprecated("Use status.publication instead")
-    val uploadStatus: UploadStatus = UploadStatus.IDLE,
-    @Deprecated("Use status.publication instead")
-    val syncState: SyncState = SyncState.LOCAL_ONLY,
     
     // Upload Progress
     val uploadedBytes: Long = 0,
@@ -53,16 +48,7 @@ data class ArtifactDraftEntity(
     val emotionalRiskScore: Float = 0f,
     val publishConfidence: Float = 0f,
     val isEmotionalReady: Boolean = false,
-    val maxReviewPositionMs: Long = 0L,
-    @Deprecated("Use PlaybackPositionDao instead for unified persistence")
-    val lastPlaybackPositionMs: Long = 0L,
-    val reviewCoverageBitmask: Long = 0L, // Legacy 64-bit mask
-    val coveragePart1: Long = 0L, // 100-segment mask (bits 0-63)
-    val coveragePart2: Long = 0L, // 100-segment mask (bits 64-99)
-    val totalTimeListenedMs: Long = 0L,
-    val isReviewLocked: Boolean = true,
-    val isListened: Boolean = false,
-    val isPlaybackEnded: Boolean = false, // Track if Player.STATE_ENDED was reached
+    val maxReviewPositionMs: Long = 0,
     
     // Metadata & Recovery
     val deviceId: String? = null,

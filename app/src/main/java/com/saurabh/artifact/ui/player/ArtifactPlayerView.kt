@@ -28,7 +28,6 @@ import com.saurabh.artifact.ui.theme.ZIndexTokens
 
 @Composable
 fun ArtifactPlayerView(
-    isVisible: Boolean = true,
     onNavigateToDraftEdit: (String) -> Unit = {},
     onNavigateToPublish: (String) -> Unit = {},
     onNavigateToComments: (String, String) -> Unit = { _, _ -> },
@@ -41,26 +40,7 @@ fun ArtifactPlayerView(
     if ((uiState.currentArtifact == null) && (uiState.playerMode == PlayerMode.HIDDEN)) return
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // 1. MINI PLAYER
-        if (isVisible) {
-            AnimatedVisibility(
-                visible = uiState.playerMode == PlayerMode.MINI,
-                enter = slideInVertically { it },
-                exit = slideOutVertically { it },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .zIndex(ZIndexTokens.MINI_OVERLAYS),
-            ) {
-                MiniPlayer(
-                    uiState = uiState,
-                    onExpand = { viewModel.setExpanded(expanded = true) },
-                    onTogglePlay = { viewModel.togglePlayPause() },
-                )
-            }
-        }
-
-        // 2. FULLSCREEN IMMERSIVE PLAYER
+        // 1. FULLSCREEN IMMERSIVE PLAYER
         AnimatedVisibility(
             visible = uiState.playerMode == PlayerMode.FULLSCREEN,
             enter = slideInVertically(
@@ -107,7 +87,7 @@ fun ArtifactPlayerView(
             )
         }
 
-        // 3. ADVANCED CONTROLS
+        // 2. ADVANCED CONTROLS
         if (uiState.showAdvancedControls) {
             Box(modifier = Modifier.zIndex(ZIndexTokens.MODAL_OVERLAYS)) {
                 AdvancedControlsSheet(
@@ -123,102 +103,6 @@ fun ArtifactPlayerView(
                     },
                     onDismiss = { viewModel.setShowAdvancedControls(false) }
                 )
-            }
-        }
-    }
-}
-
-@Composable
-fun MiniPlayer(
-    uiState: PlayerUiState,
-    onExpand: () -> Unit,
-    onTogglePlay: () -> Unit
-) {
-    val artifact = uiState.currentArtifact ?: return
-    
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(88.dp)
-            .padding(horizontal = 12.dp, vertical = 8.dp)
-            .clickable { onExpand() },
-        shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-        tonalElevation = 8.dp,
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            ArtifactAvatar(
-                config = artifact.authorAvatarConfig,
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(Color.White.copy(alpha = 0.05f))
-            )
-            
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = 16.dp)
-            ) {
-                Text(
-                    text = artifact.title,
-                    style = MaterialTheme.typography.labelLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                
-                if (uiState.sleepTimerMillisRemaining != null) {
-                    val minutes = (uiState.sleepTimerMillisRemaining / 60000).toInt()
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Rounded.Timer,
-                            contentDescription = null,
-                            modifier = Modifier.size(12.dp),
-                            tint = EmberGlow.copy(alpha = 0.7f)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "${minutes}m",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = EmberGlow.copy(alpha = 0.7f)
-                        )
-                    }
-                }
-                
-                Spacer(modifier = Modifier.height(4.dp))
-                
-                com.saurabh.artifact.ui.components.AmbientWaveform(
-                    amplitudes = artifact.amplitudeData.takeIf { it.isNotEmpty() } ?: listOf(0.4f, 0.6f, 0.3f, 0.8f, 0.5f, 0.7f, 0.4f, 0.6f),
-                    progress = uiState.playbackProgress,
-                    modifier = Modifier.height(16.dp).fillMaxWidth(),
-                    isPaused = !uiState.isPlaying,
-                    context = com.saurabh.artifact.ui.components.WaveformContext.Mini
-                )
-            }
-            
-            IconButton(
-                onClick = onTogglePlay,
-                colors = IconButtonDefaults.iconButtonColors(contentColor = EmberGlow)
-            ) {
-                if (uiState.isBuffering) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
-                        strokeWidth = 2.dp,
-                        color = EmberGlow
-                    )
-                } else {
-                    Icon(
-                        imageVector = if (uiState.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                        contentDescription = "Play/Pause",
-                        modifier = Modifier.size(32.dp)
-                    )
-                }
             }
         }
     }

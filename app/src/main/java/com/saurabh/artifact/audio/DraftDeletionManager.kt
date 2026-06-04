@@ -3,8 +3,8 @@ package com.saurabh.artifact.audio
 import android.util.Log
 import androidx.room.withTransaction
 import androidx.work.*
+import com.saurabh.artifact.data.local.AppDatabase
 import com.saurabh.artifact.data.local.DraftDao
-import com.saurabh.artifact.data.local.DraftsDatabase
 import com.saurabh.artifact.data.local.UploadTaskDao
 import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.util.StorageManager
@@ -20,7 +20,7 @@ import javax.inject.Singleton
 class DraftDeletionManager @Inject constructor(
     private val draftDao: DraftDao,
     private val uploadTaskDao: UploadTaskDao,
-    private val draftsDatabase: DraftsDatabase,
+    private val draftsDatabase: AppDatabase,
     private val storageManager: StorageManager,
     private val workManager: WorkManager
 ) {

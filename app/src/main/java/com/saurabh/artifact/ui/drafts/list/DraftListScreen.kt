@@ -25,7 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
-import com.saurabh.artifact.model.ArtifactDraftState
+import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.repository.DraftWithUpload
 import java.text.SimpleDateFormat
 import java.util.*
@@ -98,7 +98,7 @@ fun DraftListScreen(
                         DraftItem(
                             draftWithUpload = draftWithUpload,
                             onClick = { 
-                                if (draftWithUpload.draft.syncState == com.saurabh.artifact.model.SyncState.RECOVERING) {
+                                if (draftWithUpload.draft.status.publication is com.saurabh.artifact.model.SyncStatus.Recovering) {
                                     // Trigger processing for interrupted draft
                                     viewModel.playDraft(draftWithUpload) // This now triggers processing too
                                 } else {
@@ -264,15 +264,7 @@ fun DraftItem(
     var showMenu by remember { mutableStateOf(false) }
 
     val isProcessing = draft.status.processing is com.saurabh.artifact.model.ProcessingStatus.Active || 
-        draft.draftState in listOf(
-            ArtifactDraftState.SAVING,
-            ArtifactDraftState.TRANSCODING,
-            ArtifactDraftState.PROCESSING,
-            ArtifactDraftState.NORMALIZING,
-            ArtifactDraftState.WAVEFORM_GENERATION,
-            ArtifactDraftState.TRANSCRIBING,
-            ArtifactDraftState.SAFETY_CHECK
-        )
+        draft.lifecycle == ArtifactLifecycle.PROCESSING
 
     Card(
         modifier = Modifier
@@ -300,13 +292,11 @@ fun DraftItem(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = if (draft.status.publication is com.saurabh.artifact.model.SyncStatus.Recovering || 
-                            draft.syncState == com.saurabh.artifact.model.SyncState.RECOVERING) {
+                        text = if (draft.status.publication is com.saurabh.artifact.model.SyncStatus.Recovering) {
                             "Recovering reflection • $date"
                         } else date,
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (draft.status.publication is com.saurabh.artifact.model.SyncStatus.Recovering || 
-                            draft.syncState == com.saurabh.artifact.model.SyncState.RECOVERING) {
+                        color = if (draft.status.publication is com.saurabh.artifact.model.SyncStatus.Recovering) {
                             MaterialTheme.colorScheme.primary
                         } else {
                             MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
@@ -383,28 +373,17 @@ fun ShimmerBackground() {
 @Composable
 fun StatusBadge(draft: ArtifactDraftEntity) {
     val state = draft.status.processing
-    val draftState = draft.draftState
     val syncStatus = draft.status.publication
-    val syncState = draft.syncState
 
     val isProcessing = state is com.saurabh.artifact.model.ProcessingStatus.Active || 
-        draftState in listOf(
-            ArtifactDraftState.SAVING,
-            ArtifactDraftState.TRANSCODING,
-            ArtifactDraftState.PROCESSING,
-            ArtifactDraftState.NORMALIZING,
-            ArtifactDraftState.WAVEFORM_GENERATION,
-            ArtifactDraftState.TRANSCRIBING,
-            ArtifactDraftState.SAFETY_CHECK
-        )
+        draft.lifecycle == ArtifactLifecycle.PROCESSING
 
-    val isInterrupted = syncStatus is com.saurabh.artifact.model.SyncStatus.Recovering || 
-        syncState == com.saurabh.artifact.model.SyncState.RECOVERING
+    val isInterrupted = syncStatus is com.saurabh.artifact.model.SyncStatus.Recovering
 
     val color = when {
         isInterrupted -> MaterialTheme.colorScheme.primary
         isProcessing -> MaterialTheme.colorScheme.secondary
-        state is com.saurabh.artifact.model.ProcessingStatus.Failed || draftState == ArtifactDraftState.ERROR -> MaterialTheme.colorScheme.error
+        state is com.saurabh.artifact.model.ProcessingStatus.Failed -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     
@@ -422,15 +401,8 @@ fun StatusBadge(draft: ArtifactDraftEntity) {
                 else -> "✨ Enhancing..."
             }
         }
-        draftState == ArtifactDraftState.TRANSCODING -> "✨ Preparing audio..."
-        draftState == ArtifactDraftState.SAVING -> "✨ Saving..."
-        draftState == ArtifactDraftState.NORMALIZING -> "✨ Normalizing audio..."
-        draftState == ArtifactDraftState.TRANSCRIBING -> "✨ Transcribing using AI..."
-        draftState == ArtifactDraftState.WAVEFORM_GENERATION -> "✨ Generating waveform..."
-        draftState == ArtifactDraftState.SAFETY_CHECK -> "✨ Safety check..."
-        draftState == ArtifactDraftState.PROCESSING -> "✨ Enhancing..."
         else -> if (state is com.saurabh.artifact.model.ProcessingStatus.Failed) "❌ Error" 
-                else draftState.name.replace("_", " ").lowercase().capitalize(java.util.Locale.ROOT)
+                else draft.lifecycle.name.replace("_", " ").lowercase().capitalize(java.util.Locale.ROOT)
     }
 
     Surface(

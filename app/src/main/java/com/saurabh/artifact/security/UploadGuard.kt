@@ -3,7 +3,7 @@ package com.saurabh.artifact.security
 import android.content.Context
 import android.provider.Settings
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
-import com.saurabh.artifact.model.ArtifactDraftState
+import com.saurabh.artifact.model.ArtifactLifecycle
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.security.MessageDigest
 import javax.inject.Inject
@@ -28,7 +28,7 @@ class UploadGuard @Inject constructor(
      */
     fun validateApproval(draft: ArtifactDraftEntity, userId: String): Boolean {
         // 1. State check
-        if (draft.draftState != ArtifactDraftState.READY_TO_PUBLISH && draft.draftState != ArtifactDraftState.PUBLISHED) {
+        if (draft.lifecycle != ArtifactLifecycle.READY_TO_PUBLISH && draft.lifecycle != ArtifactLifecycle.PUBLISHED) {
             return false
         }
 

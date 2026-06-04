@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -28,6 +30,8 @@ class RecordingSessionManager @Inject constructor(
     private val draftDao: DraftDao,
     private val deletionManager: DraftDeletionManager
 ) {
+    private val managerScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main)
+    private val sessionMutex = Mutex()
 
     val recordingState = RecordingService.recordingState
 
@@ -49,11 +53,11 @@ class RecordingSessionManager @Inject constructor(
         }
     }
 
-    suspend fun startNewSession() {
+    suspend fun startNewSession() = sessionMutex.withLock {
         val currentStatus = recordingState.value.status
         if (currentStatus != RecordingStatus.IDLE && currentStatus != RecordingStatus.FAILED && currentStatus != RecordingStatus.COMPLETED) {
             Log.w("RecordingSessionManager", "startNewSession ignored: Already in state $currentStatus")
-            return
+            return@withLock
         }
 
         prepareForRecording()
@@ -102,8 +106,7 @@ class RecordingSessionManager @Inject constructor(
         val draftId = _activeDraft.value?.id
         if (draftId != null) {
             // Use background scope to avoid blocking UI during cancellation purge
-            @OptIn(kotlinx.coroutines.DelicateCoroutinesApi::class)
-            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            managerScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 deletionManager.deleteDraft(draftId)
             }
         }

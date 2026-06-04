@@ -28,7 +28,8 @@ private val Context.dataStore by preferencesDataStore(name = "settings")
 class SettingsRepository @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val firestore: FirebaseFirestore,
-    private val authRepository: AuthRepository
+    private val authRepository: AuthRepository,
+    private val sessionManager: com.saurabh.artifact.data.local.UserSessionManager
 ) {
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val anonymousModeKey = booleanPreferencesKey("anonymous_mode")
@@ -118,9 +119,13 @@ class SettingsRepository @Inject constructor(
 
     suspend fun signOut(): Result<Unit> {
         return try {
-            // 1. Clear local preferences
+            // 1. Clear local preferences (Settings)
             context.dataStore.edit { it.clear() }
-            // 2. Perform Firebase SignOut
+            
+            // 2. Clear User Session (SSOT)
+            sessionManager.clear()
+            
+            // 3. Perform Firebase SignOut
             authRepository.signOut()
             Result.success(Unit)
         } catch (e: Exception) {

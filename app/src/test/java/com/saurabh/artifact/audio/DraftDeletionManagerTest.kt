@@ -7,7 +7,7 @@ import androidx.work.OneTimeWorkRequest
 import androidx.work.WorkManager
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.data.local.DraftDao
-import com.saurabh.artifact.data.local.DraftsDatabase
+import com.saurabh.artifact.data.local.AppDatabase
 import com.saurabh.artifact.data.local.UploadTaskDao
 import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.util.StorageManager
@@ -23,7 +23,7 @@ class DraftDeletionManagerTest {
     }
     private val draftDao = mockk<DraftDao>(relaxed = true)
     private val uploadTaskDao = mockk<UploadTaskDao>(relaxed = true)
-    private val database = mockk<DraftsDatabase>(relaxed = true)
+    private val database = mockk<AppDatabase>(relaxed = true)
     private val storageManager = mockk<StorageManager>(relaxed = true)
     private val workManager = mockk<WorkManager>(relaxed = true)
 

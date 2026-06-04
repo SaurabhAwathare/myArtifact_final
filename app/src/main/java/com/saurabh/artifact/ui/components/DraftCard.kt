@@ -17,7 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
-import com.saurabh.artifact.model.ArtifactDraftState
+import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.theme.Spacing
 
@@ -35,8 +35,8 @@ fun DraftCard(
         (draft.maxReviewPositionMs.toFloat() / draft.durationMs).coerceIn(0f, 1f)
     } else 0f
 
-    val isReadyToPublish = draft.draftState == ArtifactDraftState.REVIEW_COMPLETED || 
-                           draft.draftState == ArtifactDraftState.REVIEWED
+    val isReadyToPublish = draft.lifecycle == ArtifactLifecycle.READY_TO_PUBLISH || 
+                           draft.lifecycle == ArtifactLifecycle.PUBLISHED
 
     Card(
         modifier = modifier
