@@ -32,6 +32,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import com.saurabh.artifact.ui.util.FeedbackUtils
@@ -51,6 +52,7 @@ import com.saurabh.artifact.ui.components.motion.PressableScale
 import com.saurabh.artifact.ui.components.TextCommentItem
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.theme.Spacing
+import com.saurabh.artifact.util.TimeUtils
 
 /**
  * Utility to map an emotion string to its representative emoji.
@@ -96,26 +98,7 @@ fun ArtifactCard(
     val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
     
-    val currentUser = com.saurabh.artifact.ui.theme.ArtifactTheme.currentUser
-    val isOwner = artifact.userId == (currentUserId ?: currentUser?.id)
-
-    // Dynamic identity resolution: prefer live profile for the current user to fix sync issues
-    val displayArtifact = remember(artifact, currentUser) {
-        if (isOwner && currentUser != null) {
-            artifact.copy(
-                author = artifact.author.copy(
-                    avatarConfig = currentUser.avatarConfig,
-                    name = currentUser.anonymousName.ifEmpty { artifact.author.name },
-                    sigil = currentUser.anonymousSigil.ifEmpty { artifact.author.sigil }
-                )
-            )
-        } else {
-            artifact
-        }
-    }
-
-    // Logic to handle on-demand fetching when expanded
-    // LaunchedEffect(showReplies) { ... } // Removed since interaction row is gone
+    val isOwner = artifact.userId == currentUserId
 
     // Playback Haptic feedback
     LaunchedEffect(isPlaying) {
@@ -124,11 +107,11 @@ fun ArtifactCard(
         }
     }
 
-    val displayTitle = remember(displayArtifact.title) { displayArtifact.title.ifEmpty { "A quiet moment shared..." } }
-    val displayEmotion = remember(displayArtifact.emotion) { displayArtifact.emotion.ifEmpty { "reflective" }.lowercase() }
-    val displayUsername = remember(displayArtifact.author.name) { displayArtifact.author.name.ifEmpty { "anonymous soul" }.lowercase() }
+    val displayTitle = remember(artifact.title) { artifact.title.ifEmpty { "A quiet moment shared..." } }
+    val displayEmotion = remember(artifact.emotion) { artifact.emotion.ifEmpty { "reflective" }.lowercase() }
+    val displayUsername = remember(artifact.author.name) { artifact.author.name.lowercase() }
 
-    val isPending = displayArtifact.audioUrl.isEmpty() && displayArtifact.status == com.saurabh.artifact.model.ArtifactStatus.PENDING_UPLOAD
+    val isPending = artifact.audioUrl.isEmpty() && artifact.status == com.saurabh.artifact.model.ArtifactStatus.PENDING_UPLOAD
 
     val progress by remember(currentPosition, durationMs) {
         derivedStateOf { if (durationMs > 0) currentPosition.toFloat() / durationMs else 0f }
@@ -146,11 +129,11 @@ fun ArtifactCard(
     }
 
     // Moderation Shield
-    val isHidden = displayArtifact.moderation.status == com.saurabh.artifact.model.ModerationStatus.HIDDEN
+    val isHidden = artifact.moderation.status == com.saurabh.artifact.model.ModerationStatus.HIDDEN
 
     if (isCompact) {
         CompactArtifactItem(
-            artifact = displayArtifact,
+            artifact = artifact,
             displayTitle = if (isHidden) "Content Hidden" else displayTitle,
             isPlaying = isPlaying,
             isBuffering = isBuffering,
@@ -220,9 +203,9 @@ fun ArtifactCard(
                         } else {
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                                 AuricAvatar(
-                                    seed = displayArtifact.author.avatarConfig.seed
-                                        .ifEmpty { displayArtifact.author.avatarSeed }
-                                        .ifEmpty { displayArtifact.userId },
+                                    seed = artifact.author.avatarConfig.seed
+                                        .ifEmpty { artifact.author.avatarSeed }
+                                        .ifEmpty { artifact.userId },
                                     size = 32.dp
                                 )
                                 
@@ -238,14 +221,14 @@ fun ArtifactCard(
                                             ),
                                             color = ArtifactTheme.colors.onSurfaceMain
                                         )
-                                        if (displayArtifact.author.sigil.isNotEmpty()) {
+                                        if (artifact.author.sigil.isNotEmpty()) {
                                             Text(
                                                 text = " · ",
                                                 style = ArtifactTheme.typography.labelMedium,
                                                 color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.5f)
                                             )
                                             Text(
-                                                text = displayArtifact.author.sigil,
+                                                text = artifact.author.sigil,
                                                 style = ArtifactTheme.typography.labelSmall.copy(
                                                     fontWeight = FontWeight.Light
                                                 ),
@@ -371,7 +354,7 @@ fun ArtifactCard(
                                     Spacer(modifier = Modifier.width(Spacing.Medium))
 
                                     AmbientWaveform(
-                                        amplitudes = displayArtifact.amplitudeData.takeIf { it.isNotEmpty() } ?: listOf(0.4f, 0.6f, 0.5f, 0.8f, 0.3f, 0.7f, 0.5f, 0.4f, 0.6f, 0.9f, 0.5f, 0.4f),
+                                        amplitudes = artifact.amplitudeData.takeIf { it.isNotEmpty() } ?: listOf(0.4f, 0.6f, 0.5f, 0.8f, 0.3f, 0.7f, 0.5f, 0.4f, 0.6f, 0.9f, 0.5f, 0.4f),
                                         progress = progress,
                                         modifier = Modifier.weight(1f).height(waveformHeight),
                                         isPaused = !isPlaying,
@@ -392,9 +375,9 @@ fun ArtifactCard(
                             ) {
                                 ResonanceDisplay(
                                     counts = com.saurabh.artifact.model.ArtifactReactionCounts(
-                                        artifactId = displayArtifact.id,
-                                        totalCount = displayArtifact.reactionCount,
-                                        visibility = displayArtifact.reactionVisibility
+                                        artifactId = artifact.id,
+                                        totalCount = artifact.reactionCount,
+                                        visibility = artifact.reactionVisibility
                                     ),
                                     isOwner = isOwner
                                 )
@@ -594,7 +577,7 @@ private fun CompactArtifactItem(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = formatDuration(artifact.durationMs),
+                        text = TimeUtils.formatDurationMillis(artifact.durationMs, LocalConfiguration.current),
                         style = ArtifactTheme.typography.labelSmall,
                         color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.6f)
                     )
@@ -604,12 +587,12 @@ private fun CompactArtifactItem(
     }
 }
 
-private fun formatDuration(millis: Long): String {
-    val totalSeconds = millis / 1000
-    val mins = totalSeconds / 60
-    val secs = totalSeconds % 60
-    return "%d:%02d".format(mins, secs)
-}
+// DELETE: private fun formatDuration(millis: Long): String {
+//    val totalSeconds = millis / 1000
+//    val mins = totalSeconds / 60
+//    val secs = totalSeconds % 60
+//    return "%d:%02d".format(mins, secs)
+// }
 
 @Preview(showBackground = true, backgroundColor = 0xFF050505)
 @Composable

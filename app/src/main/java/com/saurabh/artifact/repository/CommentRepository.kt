@@ -88,9 +88,10 @@ class CommentRepository @Inject constructor(
 
             // Notify owner if it's not their own artifact
             if (ownerId != null && ownerId != userId) {
+                val title = artifactDoc.getString("title") ?: ""
                 notificationRepository.createNotification(
                     userId = ownerId,
-                    message = notificationRepository.getReflectionMessage(artifactDoc.getString("title")),
+                    message = if (title.isNotEmpty()) "REFLECTION_ARRIVAL|$title" else "REFLECTION_ARRIVAL_GENERIC",
                     artifactId = artifactId,
                     type = NotificationType.REFLECTION
                 )

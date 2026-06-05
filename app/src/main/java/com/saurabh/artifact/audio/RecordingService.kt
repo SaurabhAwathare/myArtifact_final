@@ -20,10 +20,10 @@ import com.saurabh.artifact.R
 import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.data.local.RecordingStatus
 import com.saurabh.artifact.data.local.UserSessionManager
+import com.saurabh.artifact.domain.PublishingOrchestrator
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.RecordingRepository
-import com.saurabh.artifact.util.EncryptedStorageManager
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,11 +35,14 @@ import java.io.File
 import java.util.Locale
 import java.util.UUID
 import javax.inject.Inject
+import kotlin.time.Duration.Companion.milliseconds
 
 @AndroidEntryPoint
 class RecordingService : Service() {
 
     private val binder = RecordingBinder()
+    @Inject lateinit var publishingOrchestrator: PublishingOrchestrator
+
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     
     private var audioRecorder: AudioRecorder? = null
@@ -52,7 +55,8 @@ class RecordingService : Service() {
         when (focusChange) {
             AudioManager.AUDIOFOCUS_LOSS,
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK,
+            -> {
                 Log.d("RecordingService", "Audio focus lost ($focusChange). Pausing recording.")
                 pauseRecording()
             }
@@ -177,7 +181,7 @@ class RecordingService : Service() {
                     pacingJob = serviceScope.launch {
                         Log.d("RecordingService", "Pacing: 1500ms intentional silence before capture")
                         _recordingState.value = RecordingState(status = RecordingStatus.PREPARING)
-                        delay(1500)
+                        delay(1500.milliseconds)
                         startRecording(draftId)
                     }
                 } else {
@@ -239,10 +243,9 @@ class RecordingService : Service() {
             _recordingState.value = RecordingState(status = RecordingStatus.FAILED, errorCode = "STORAGE_FULL")
             // Trigger emergency cleanup in background
             serviceScope.launch(Dispatchers.IO) {
-                val knownPaths = draftDao.getAllDrafts().map { it.localAudioPath }.toSet()
-                // We'll use LocalDraftManager's cleanup here as it has access to the directories
-                // In a real app, we might want to consolidate this.
-                localDraftManager.cleanupOrphans(knownPaths)
+                val allDrafts = draftDao.getAllDrafts()
+                // We'll use LocalDraftManager's reconcileStorage here
+                localDraftManager.reconcileStorage(allDrafts)
             }
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
@@ -267,7 +270,7 @@ class RecordingService : Service() {
         _recordingState.value = RecordingState(status = RecordingStatus.PREPARING)
 
         serviceScope.launch {
-            val finalDraftId = if (draftId.isNotEmpty()) draftId else UUID.randomUUID().toString()
+            val finalDraftId = draftId.ifEmpty { UUID.randomUUID().toString() }
             
             val draft = draftDao.getDraftById(finalDraftId)
             val file = draft?.let { File(it.localAudioPath) } ?: run {
@@ -280,7 +283,7 @@ class RecordingService : Service() {
 
             try {
                 // Initialize hardware on IO thread to prevent main-thread jank with a timeout
-                val started = withTimeoutOrNull(5000) {
+                val started = withTimeoutOrNull(5000.milliseconds) {
                     withContext(Dispatchers.IO) {
                         audioRecorder?.start(file, mode = RecordingMode.WAV_LOSSLESS, onDurableSync = { durableBytes ->
                             // OPTION A: Update DB checkpoint ONLY when durable sync occurs
@@ -318,11 +321,11 @@ class RecordingService : Service() {
                     draftId = finalDraftId
                 )
                 
-                    draftDao.getDraftById(finalDraftId)?.let {
-                        draftDao.update(it.copy(
-                            status = it.status.copy(lifecycle = ArtifactLifecycle.RECORDING, publication = SyncStatus.LocalOnly)
-                        ))
-                    }
+                draftDao.getDraftById(finalDraftId)?.let {
+                    draftDao.update(it.copy(
+                        status = it.status.copy(lifecycle = ArtifactLifecycle.RECORDING, publication = SyncStatus.LocalOnly)
+                    ))
+                }
                 userSessionManager.setActiveDraftId(finalDraftId)
 
                 startTimer()
@@ -441,7 +444,7 @@ class RecordingService : Service() {
                                 Log.d("RecordingService", "Atmospheric Handoff: Securing your reflection...")
                                 
                                 // hand off to the enhancement pipeline (which now starts with Transcoding)
-                                recordingRepository.startProcessing(draftId)
+                                publishingOrchestrator.startProcessing(draftId)
 
                                 // CENTRALIZED CLEANUP: Clear the active session
                                 userSessionManager.setActiveDraftId(null)
@@ -498,10 +501,7 @@ class RecordingService : Service() {
             }
 
             serviceScope.launch {
-                val draft = draftDao.getDraftById(draftId)
-                if (draft != null) {
-                    draftDao.delete(draft)
-                }
+                draftDao.getDraftById(draftId)?.let { draftDao.delete(it) }
                 userSessionManager.setActiveDraftId(null)
             }
         } catch (e: Exception) {

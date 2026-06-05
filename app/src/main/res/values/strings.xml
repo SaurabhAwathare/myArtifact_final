@@ -27,4 +27,14 @@
     <string name="logout_failed">The departure was delayed. Please try again.</string>
     <string name="account_deleted">Your presence has been dissolved from this space.</string>
     <string name="generic_error">Something unexpected happened. Let\'s try again in a moment.</string>
+
+    <!-- Notification Messages -->
+    <string name="notification_reply_received">Someone replied to your artifact 💬</string>
+    <string name="notification_new_artifact">You published a new artifact: %s ✨</string>
+    <string name="notification_identity_refreshed">You have shed your old presence and emerged as %1$s · %2$s 🎭</string>
+    <string name="notification_presence_resonated">Someone\'s presence resonated with your artifacts ✨</string>
+    <string name="notification_avatar_updated">You updated your avatar 🎨</string>
+    <string name="notification_username_updated">You updated your username to %s ✨</string>
+    <string name="notification_reflection_arrival">A quiet reflection has arrived in your hearth for \"%s\" 🕯️</string>
+    <string name="notification_reflection_arrival_generic">Someone has shared a quiet reflection in your hearth 🕯️</string>
 </resources>

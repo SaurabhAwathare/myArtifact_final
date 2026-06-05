@@ -357,17 +357,6 @@ private fun FeedContent(
                 ) { index ->
                     val artifact = currentArtifacts[index]
                     if (artifact != null) {
-                        // For the ranked feed, we need to ensure the artifact is in the viewmodel's cache
-                        // for the isolated ArtifactItem to work correctly.
-                        // Paging 3 doesn't automatically update a global cache.
-                        // However, FeedViewModel.getArtifactFlow uses the cache.
-                        // We need a way to populate it.
-                        
-                        LaunchedEffect(artifact) {
-                            // We can use a special method in VM to populate cache from Paging
-                            viewModel.hydrateFromPaging(artifact)
-                        }
-
                         ArtifactItem(
                             artifactId = artifact.id,
                             viewModel = viewModel,

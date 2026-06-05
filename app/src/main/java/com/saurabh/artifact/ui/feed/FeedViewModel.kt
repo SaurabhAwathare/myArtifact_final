@@ -6,25 +6,16 @@ import androidx.collection.LruCache
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
-import androidx.paging.Pager
-import androidx.paging.PagingConfig
 import androidx.paging.cachedIn
 import androidx.paging.map
 import com.saurabh.artifact.audio.PlaybackCoordinator
-import com.saurabh.artifact.audio.PlaybackType
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.AuthRepository
-import com.saurabh.artifact.repository.ReactionRepository
 import com.saurabh.artifact.service.AdManager
-import com.saurabh.artifact.service.FeedRanker
-import com.saurabh.artifact.service.PersonalizationEngine
-import com.saurabh.artifact.service.SafetyEvaluator
 import com.saurabh.artifact.startup.StartupCoordinator
-import com.saurabh.artifact.startup.StartupStage
-import com.saurabh.artifact.service.SafetyLevel
 import com.saurabh.artifact.startup.StartupMetrics
-import com.saurabh.artifact.data.local.RecordingStatus
+import com.saurabh.artifact.service.SafetyLevel
 import com.saurabh.artifact.util.MemoryManager
 import com.saurabh.artifact.util.MemoryTrimable
 import com.saurabh.artifact.util.StartupTracer
@@ -35,13 +26,11 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.ListenerRegistration
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.yield
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.cancel
 import javax.inject.Inject
 
 enum class HydrationLevel {
@@ -71,12 +60,8 @@ data class FeedUiState(
 class FeedViewModel @Inject constructor(
     private val artifactRepository: ArtifactRepository,
     private val authRepository: AuthRepository,
-    private val reactionRepository: ReactionRepository,
-    private val personalizationEngine: PersonalizationEngine,
-    private val feedRanker: FeedRanker,
-    private val safetyEvaluator: SafetyEvaluator,
+    private val personalizationEngine: com.saurabh.artifact.service.PersonalizationEngine,
     private val adManager: AdManager,
-    private val feedComposer: com.saurabh.artifact.service.FeedComposer,
     private val feedRepository: com.saurabh.artifact.repository.FeedRepository,
     private val memoryManager: MemoryManager,
     private val startupCoordinator: StartupCoordinator,
@@ -85,7 +70,11 @@ class FeedViewModel @Inject constructor(
     val audioPlayer: PlaybackCoordinator,
     private val reviewSessionManager: com.saurabh.artifact.audio.ReviewSessionManager,
     private val commentUnlockRepository: com.saurabh.artifact.repository.CommentUnlockRepository,
-    private val uploadGuard: com.saurabh.artifact.security.UploadGuard
+    private val uploadGuard: com.saurabh.artifact.security.UploadGuard,
+    private val getFeedFlowUseCase: com.saurabh.artifact.domain.feed.GetFeedFlowUseCase,
+    private val getPersonalizedFeedFlowUseCase: com.saurabh.artifact.domain.feed.GetPersonalizedFeedFlowUseCase,
+    private val reactionUseCase: com.saurabh.artifact.domain.feed.ReactionUseCase,
+    private val getReflectionPromptUseCase: com.saurabh.artifact.domain.prompt.GetReflectionPromptUseCase
 ) : ViewModel(), MemoryTrimable {
 
     private val _uiState = MutableStateFlow(FeedUiState())
@@ -121,27 +110,22 @@ class FeedViewModel @Inject constructor(
         _uiState.map { it.selectedEmotion }.distinctUntilChanged(),
         _refreshTrigger
     ) { emotion, _ -> emotion }.flatMapLatest { emotion ->
-        artifactRepository.getArtifactsPager(emotion)
+        getFeedFlowUseCase(emotion)
+    }.map { pagingData ->
+        pagingData.map { artifact ->
+            hydrateFromPaging(artifact)
+            artifact
+        }
     }.cachedIn(viewModelScope)
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val personalizedArtifacts: Flow<PagingData<Artifact>> = _refreshTrigger.flatMapLatest { _ ->
-        val userId = authRepository.currentUser.value?.uid ?: return@flatMapLatest flowOf(PagingData.empty<Artifact>())
-        Pager(
-            config = PagingConfig(
-                pageSize = 10,
-                prefetchDistance = 2,
-                initialLoadSize = 10,
-                enablePlaceholders = false
-            ),
-            pagingSourceFactory = { 
-                com.saurabh.artifact.data.paging.PersonalizedPagingSource(
-                    userId = userId,
-                    feedRepository = feedRepository,
-                    feedRanker = feedRanker
-                ) 
-            }
-        ).flow
+        getPersonalizedFeedFlowUseCase()
+    }.map { pagingData ->
+        pagingData.map { artifact ->
+            hydrateFromPaging(artifact)
+            artifact
+        }
     }.cachedIn(viewModelScope)
 
     // Legacy compatibility accessors
@@ -161,16 +145,24 @@ class FeedViewModel @Inject constructor(
         memoryManager.register(this)
         start()
 
-        // Listen for save messages
+        // Listen for save events
         viewModelScope.launch {
-            savedArtifactManager.messages.collect { message ->
-                _uiState.update { it.copy(error = ErrorMessageMapper.map(message)) }
+            savedArtifactManager.events.collect { event ->
+                val uiText = when (event) {
+                    is com.saurabh.artifact.repository.SavedArtifactManager.SavedEvent.Success -> {
+                        if (event.isSaved) UiText.StringResource(R.string.saved_to_journey)
+                        else UiText.StringResource(R.string.removed_from_journey)
+                    }
+                    is com.saurabh.artifact.repository.SavedArtifactManager.SavedEvent.Failure -> {
+                        UiText.StringResource(R.string.generic_error)
+                    }
+                }
+                _uiState.update { it.copy(error = uiText) }
             }
         }
     }
 
     private val startupJob = kotlinx.coroutines.SupervisorJob()
-    private val startupScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO + startupJob)
     private var started = false
 
     fun start() {
@@ -183,9 +175,7 @@ class FeedViewModel @Inject constructor(
         
         viewModelScope.launch {
             // PHASE 1: Critical UI Path (Primary Feed Content)
-            // Run on Default dispatcher to keep Main thread free for first frame
-            // REMOVED blocking .join() to allow concurrent hydration of shell
-            val feedJob = launch(Dispatchers.Default) {
+            launch(Dispatchers.Default) {
                 runCatching { 
                     loadRankedFeed()
                     StartupTracer.mark("Ranked Feed Loaded")
@@ -193,9 +183,8 @@ class FeedViewModel @Inject constructor(
             }
 
             // PHASE 2: Contextual Enrichment (Prompts & Personalization Init)
-            // Deferred intentionally to prioritize first artifact render and reduce system pressure
             launch {
-                delay(1500) // Yield significantly to UI and Phase 1
+                delay(1500) 
                 runCatching { 
                     refreshReflectionPrompt()
                     StartupTracer.mark("Reflection Prompt Hydrated")
@@ -204,7 +193,7 @@ class FeedViewModel @Inject constructor(
 
             // PHASE 3: Background & Deferred (Low priority syncs)
             launch {
-                delay(4000) // Well after UI is stable and user is likely interacting
+                delay(4000) 
                 personalizationEngine.ensureInitialized()
                 artifactRepository.runCacheCleanup()
                 StartupTracer.mark("Personalization Engine & Cache Cleanup Initialized")
@@ -222,8 +211,6 @@ class FeedViewModel @Inject constructor(
     private fun startNewContentListener() {
         newContentListener?.remove()
 
-        // Listen for ANY new public artifact. 
-        // We could filter by emotion, but usually "New Reflections" is a global signal.
         newContentListener = firestore.collection("artifacts")
             .whereEqualTo("isPublic", true)
             .orderBy("createdAt", Query.Direction.DESCENDING)
@@ -287,18 +274,15 @@ class FeedViewModel @Inject constructor(
             
             _uiState.update { it.copy(isPromptLoading = true) }
             runCatching {
-                val assessment = withContext(Dispatchers.Default) {
-                    safetyEvaluator.evaluate(context)
-                }
-                _uiState.update { it.copy(safetyLevel = assessment.level, isCrisis = assessment.isCrisis) }
-                adManager.updateSafetyContext(assessment)
-
-                val prompt = artifactRepository.getSmartReflectionPrompt(
+                val result = getReflectionPromptUseCase(
                     emotion = _uiState.value.selectedEmotion,
-                    context = context,
-                    timeOfDay = getTimeOfDayContext()
+                    context = context
                 )
-                _uiState.update { it.copy(reflectionPrompt = prompt) }
+                _uiState.update { it.copy(
+                    safetyLevel = result.safetyLevel,
+                    isCrisis = result.isCrisis,
+                    reflectionPrompt = result.prompt
+                ) }
             }.onFailure {
                 Log.e("FeedViewModel", "Error refreshing prompt", it)
             }
@@ -306,24 +290,9 @@ class FeedViewModel @Inject constructor(
         }
     }
 
-    private fun getTimeOfDayContext(): String {
-        return when (java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)) {
-            in 5..11 -> "Morning"
-            in 12..16 -> "Afternoon"
-            in 17..21 -> "Evening"
-            else -> "Night"
-        }
-    }
-
     fun setEmotionFilter(emotion: String?) {
         _uiState.update { it.copy(selectedEmotion = emotion) }
         loadRankedFeed()
-    }
-
-    private fun preCacheTopArtifacts(artifacts: List<Artifact>) {
-        artifacts.take(3).forEach { artifact ->
-            audioPlayer.preCache(artifact)
-        }
     }
 
     private val _unfinishedArtifacts = MutableStateFlow<List<FeedArtifact>>(emptyList())
@@ -335,14 +304,10 @@ class FeedViewModel @Inject constructor(
             _uiState.update { it.copy(isRankedLoading = true) }
             
             runCatching {
-                // Fetch unfinished sessions (small list, usually few)
                 val unfinishedSessions = withContext(Dispatchers.Default) {
                     feedRepository.getUnfinishedSessions(userId)
                 }
                 
-                // Fetch discovery artifacts to hydrate unfinished sessions if needed
-                // For simplicity, we just fetch a small batch here. 
-                // In a fuller implementation, FeedComposer would handle this better.
                 val discovery = artifactRepository.getCandidateArtifacts(userId = userId, limit = 20)
 
                 val unfinishedItems = unfinishedSessions.mapNotNull { session ->
@@ -357,13 +322,9 @@ class FeedViewModel @Inject constructor(
 
                 _unfinishedArtifacts.value = unfinishedItems
                 
-                // Pre-cache top items for immediate playback
                 unfinishedItems.take(3).forEach { feedArtifact ->
                     audioPlayer.preCache(feedArtifact.artifact)
                 }
-                
-                // Note: The main ranked feed is now handled by Paging 3 (personalizedArtifacts)
-                // We just trigger a refresh if needed via _refreshTrigger.
             }.onFailure {
                 Log.e("FeedViewModel", "Error loading unfinished items", it)
             }
@@ -379,14 +340,11 @@ class FeedViewModel @Inject constructor(
             val rankedJob = loadRankedFeed()
             val promptJob = refreshReflectionPrompt()
             
-            // Trigger Recent feed refresh
             _refreshTrigger.value += 1
             
-            // Wait for both ranked feed and prompt to finish
             rankedJob.join()
             promptJob.join()
             
-            // Optional: small delay to make the refresh feel "calm" and "soft"
             delay(500)
             
             _uiState.update { it.copy(isRefreshing = false) }
@@ -414,7 +372,6 @@ class FeedViewModel @Inject constructor(
             artifactRepository.deletePublishedArtifact(artifactId)
                 .onSuccess {
                     _uiState.update { it.copy(error = UiText.StringResource(R.string.reflection_deleted)) }
-                    // Trigger a refresh to reflect the local Room update in the PagingData
                     _refreshTrigger.value += 1
                 }
                 .onFailure { e ->
@@ -447,7 +404,7 @@ class FeedViewModel @Inject constructor(
                 }
             }
         } catch (e: Exception) {
-            android.util.Log.e("FeedViewModel", "Error playing audio", e)
+            Log.e("FeedViewModel", "Error playing audio", e)
             _uiState.update { it.copy(error = UiText.StringResource(R.string.generic_error)) }
         }
     }
@@ -462,7 +419,6 @@ class FeedViewModel @Inject constructor(
             artifactRepository.submitReport(artifactId, reason, details, deviceId)
                 .onSuccess {
                     _uiState.update { it.copy(error = UiText.DynamicString("Report submitted anonymously. Thank you for keeping Artifact safe.")) }
-                    // Trigger a refresh to reflect the local Room update in the PagingData
                     _refreshTrigger.value += 1
                 }
                 .onFailure { e ->
@@ -477,13 +433,10 @@ class FeedViewModel @Inject constructor(
             return
         }
         
-        // Optimistic UI for immediate feedback
         val currentArtifact = _uiState.value.artifactCache[artifactId]
         if (currentArtifact != null) {
             val updatedArtifact = currentArtifact.copy(
                 reactionCount = currentArtifact.reactionCount + 1
-                // Note: We don't have a local 'userReaction' flag in Artifact model, 
-                // but incrementing the count provides immediate feedback.
             )
             _uiState.update { current ->
                 current.copy(artifactCache = current.artifactCache + (artifactId to updatedArtifact))
@@ -491,16 +444,13 @@ class FeedViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            reactionRepository.toggleReaction(artifactId, userId, type).onSuccess {
-                // Refresh local cache for final consistency
-                val updatedArtifact = artifactRepository.getArtifactById(artifactId)
+            reactionUseCase.toggleReaction(artifactId, userId, type).onSuccess { updatedArtifact ->
                 if (updatedArtifact != null) {
                     _uiState.update { current ->
                         current.copy(artifactCache = current.artifactCache + (artifactId to updatedArtifact.slimForFeed()))
                     }
                 }
             }.onFailure {
-                // Rollback optimistic update on failure
                 if (currentArtifact != null) {
                     _uiState.update { current ->
                         current.copy(artifactCache = current.artifactCache + (artifactId to currentArtifact))
@@ -534,7 +484,7 @@ class FeedViewModel @Inject constructor(
 
     fun updateArtifactVisibility(artifactId: String, mode: com.saurabh.artifact.model.ReactionVisibilityMode) {
         viewModelScope.launch {
-            reactionRepository.setVisibilityMode(artifactId, mode).onFailure { e ->
+            reactionUseCase.setVisibilityMode(artifactId, mode).onFailure { e ->
                 _uiState.update { it.copy(error = ErrorMessageMapper.map(e)) }
             }
         }
@@ -559,7 +509,7 @@ class FeedViewModel @Inject constructor(
                 detailsCache.put(artifactId, detail)
                 _uiState.update { it.copy(artifactDetails = it.artifactDetails + (artifactId to detail)) }
             } catch (e: Exception) {
-                android.util.Log.e("FeedViewModel", "Error loading details", e)
+                Log.e("FeedViewModel", "Error loading details", e)
             }
         }
     }
@@ -599,6 +549,5 @@ class FeedViewModel @Inject constructor(
         newContentListener?.remove()
         startupJob.cancel()
         memoryManager.unregister(this)
-        // Playback ownership is now handled by the Coordinator.
     }
 }

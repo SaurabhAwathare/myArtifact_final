@@ -3,7 +3,6 @@ package com.saurabh.artifact.audio
 import android.content.ComponentName
 import android.content.Context
 import android.util.Log
-import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
@@ -137,7 +136,6 @@ class PlaybackSessionManager @Inject constructor(
                 _currentArtifact.value?.let { analytics.trackPlaybackStart(it) }
             } else {
                 stopPositionUpdates()
-                saveCurrentPosition()
                 _currentArtifact.value?.let { analytics.trackPlaybackPause(it, _currentPosition.value) }
             }
         }
@@ -263,11 +261,7 @@ class PlaybackSessionManager @Inject constructor(
                 setSkipSilenceInController(_isSkipSilenceEnabled.value)
                 
                 // Attempt to restore previous playback state if current player is idle
-                if (controller?.playbackState == Player.STATE_IDLE) {
-                    restorePlaybackState(controller!!)
-                } else {
-                    controller?.let { syncWithController(it) }
-                }
+                controller?.let { syncWithController(it) }
                 
                 controller
             } catch (e: Exception) {
@@ -298,41 +292,8 @@ class PlaybackSessionManager @Inject constructor(
         }
     }
 
-    private suspend fun restorePlaybackState(player: MediaController) {
-        val lastIds = settingsDataStore.currentQueueIds.first()
-        val lastIndex = settingsDataStore.currentQueueIndex.first()
-        val lastArtifactId = settingsDataStore.lastArtifactId.first()
-
-        if (lastIds.isNotEmpty()) {
-            Log.d("PlaybackSessionManager", "Restoring queue with ${lastIds.size} items")
-            val artifacts = lastIds.mapNotNull { id ->
-                artifactRepository.get().getArtifactById(id)
-            }
-            
-            if (artifacts.isNotEmpty()) {
-                _queue.value = artifacts
-                val mediaItems = artifacts.map { createMediaItem(it) }
-                
-                val currentArtifact = artifacts.getOrNull(lastIndex)
-                val pos = if (currentArtifact != null) {
-                    engagementRepository.getEngagement(currentArtifact.id)?.lastPositionMs ?: 0L
-                } else 0L
-
-                _currentArtifact.value = currentArtifact
-                player.setMediaItems(mediaItems, lastIndex, if (pos > 0) pos else C.TIME_UNSET)
-                player.prepare()
-            }
-        } else if (lastArtifactId != null) {
-            // Fallback to just the last artifact if no queue was saved
-            artifactRepository.get().getArtifactById(lastArtifactId)?.let { artifact ->
-                _currentArtifact.value = artifact
-                _queue.value = listOf(artifact)
-                
-                val pos = engagementRepository.getEngagement(artifact.id)?.lastPositionMs ?: 0L
-                player.setMediaItem(createMediaItem(artifact), if (pos > 0) pos else C.TIME_UNSET)
-                player.prepare()
-            }
-        }
+    private fun restorePlaybackState() {
+        // Redundant - removed in favor of PlaybackService.onPlaybackResumption
     }
 
     fun play(
@@ -343,9 +304,6 @@ class PlaybackSessionManager @Inject constructor(
         playbackType: PlaybackType = PlaybackType.ARTIFACT
     ) {
         scope.launch {
-            // Save position of current artifact before switching
-            saveCurrentPosition()
-
             val player = getController() ?: return@launch
             
             _interactionOwner.value = owner
@@ -511,7 +469,6 @@ class PlaybackSessionManager @Inject constructor(
 
     fun stop() {
         scope.launch {
-            saveCurrentPosition()
             getController()?.stop()
             _interactionOwner.value = InteractionOwner.NONE
             _currentArtifact.value = null
@@ -533,25 +490,9 @@ class PlaybackSessionManager @Inject constructor(
         }
     }
 
-    private fun saveCurrentPosition() {
-        val artifact = _currentArtifact.value ?: return
-        val pos = _currentPosition.value
-        val dur = _durationMs.value
-        
-        scope.launch {
-            if (pos < 1000L || (dur > 0 && pos > dur - 2000L)) {
-                // Too close to start or end - clear position to start fresh next time
-                engagementRepository.updateLastPosition(artifact.id, 0L)
-            } else {
-                engagementRepository.updateLastPosition(artifact.id, pos)
-            }
-        }
-    }
-
     private fun startPositionUpdates() {
         positionUpdateJob?.cancel()
         positionUpdateJob = scope.launch {
-            var tick = 0
             while (isActive) {
                 controller?.let { p ->
                     val pos = p.currentPosition
@@ -559,14 +500,8 @@ class PlaybackSessionManager @Inject constructor(
                     _currentPosition.value = pos
                     _durationMs.value = dur
                     updatePositionSync()
-
-                    // Persist position periodically (every 5 seconds)
-                    if ((tick % 5) == 0) { // Every 5 ticks of 1000ms
-                        saveCurrentPosition()
-                    }
                 }
                 delay(1000)
-                tick++
             }
         }
     }

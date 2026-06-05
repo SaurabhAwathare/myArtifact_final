@@ -137,8 +137,12 @@ class ReviewAuthorityService @Inject constructor(
     }
 
     private suspend fun finalizeSession() {
-        val progress = activeTracker?.getProgress() ?: return
-        engagementRepository.saveEngagement(progress.evidence)
+        activeTracker?.let { tracker ->
+            val progress = tracker.getProgress()
+            // Save one last time to ensure position is captured
+            engagementRepository.saveEngagement(progress.evidence)
+            engagementRepository.updateLastPosition(progress.artifactId, progress.evidence.lastPositionMs)
+        }
         activeTracker = null
         _currentProgress.value = null
     }

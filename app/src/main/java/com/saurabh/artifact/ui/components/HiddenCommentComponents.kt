@@ -9,9 +9,12 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
+import androidx.core.os.ConfigurationCompat
 import com.saurabh.artifact.ui.theme.*
 
 import com.saurabh.artifact.model.ArtifactComment
@@ -63,6 +66,12 @@ fun TextCommentItem(
     comment: ArtifactComment,
     modifier: Modifier = Modifier
 ) {
+    val configuration = LocalConfiguration.current
+    val locale = ConfigurationCompat.getLocales(configuration)[0] ?: configuration.locales[0]
+    val dateFormatter = remember(locale) {
+        SimpleDateFormat("MMM d, h:mm a", locale)
+    }
+
     Surface(
         modifier = modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f),
@@ -83,7 +92,7 @@ fun TextCommentItem(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()).format(comment.createdAt.toDate()),
+                        text = dateFormatter.format(comment.createdAt.toDate()),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                     )

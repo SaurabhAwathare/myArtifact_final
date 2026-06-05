@@ -218,6 +218,10 @@ class PlaybackService : MediaLibraryService() {
                     .setArtist(artifact.author.name)
                     .setAlbumTitle("Reflections")
                     .setGenre(artifact.emotion)
+                    .setExtras(android.os.Bundle().apply {
+                        putString("author_sigil", artifact.author.sigil)
+                        putString("avatar_seed", artifact.author.avatarSeed)
+                    })
                     .build()
             )
             .build()

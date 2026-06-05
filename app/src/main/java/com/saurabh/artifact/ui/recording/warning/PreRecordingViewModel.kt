@@ -1,71 +1,106 @@
 package com.saurabh.artifact.ui.recording.warning
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.saurabh.artifact.audio.RecordingSessionManager
+import com.saurabh.artifact.data.local.RecordingStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
 class PreRecordingViewModel @Inject constructor(
-    private val recordingSessionManager: com.saurabh.artifact.audio.RecordingSessionManager
+    private val recordingSessionManager: RecordingSessionManager,
+    private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(PreRecordingWarningUiState())
-    val uiState: StateFlow<PreRecordingWarningUiState> = _uiState.asStateFlow()
+    companion object {
+        private const val KEY_RITUAL_END_TIME = "ritual_end_time"
+        private const val RITUAL_DURATION_SECONDS = 10
+    }
+
+    // Flicker Prevention: Calculate initial remaining time from SavedStateHandle before UI binds
+    private fun getInitialRemainingSeconds(): Int {
+        val savedEndTime = savedStateHandle.get<Long>(KEY_RITUAL_END_TIME)
+        return if (savedEndTime != null) {
+            val remaining = ((savedEndTime - System.currentTimeMillis()) / 1000).toInt()
+            remaining.coerceAtLeast(0)
+        } else {
+            RITUAL_DURATION_SECONDS
+        }
+    }
+
+    val uiState: StateFlow<PreRecordingWarningUiState> = recordingSessionManager.sessionState
+        .map { state ->
+            PreRecordingWarningUiState(
+                remainingSeconds = state.ritualRemainingSeconds,
+                // Include PREPARING to avoid dead-lock UI if user re-enters during 1.5s pacing
+                isRecordingActive = state.status == RecordingStatus.RECORDING || 
+                                   state.status == RecordingStatus.PAUSED ||
+                                   state.status == RecordingStatus.PREPARING
+            )
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = PreRecordingWarningUiState(remainingSeconds = getInitialRemainingSeconds())
+        )
 
     private val _eventFlow = MutableSharedFlow<PreRecordingWarningEvent>()
     val eventFlow = _eventFlow.asSharedFlow()
 
-    private var countdownJob: Job? = null
-
     init {
+        restoreOrStartRitual()
         observeRecordingState()
-        startCountdown()
+    }
+
+    private fun restoreOrStartRitual() {
+        val savedEndTime = savedStateHandle.get<Long>(KEY_RITUAL_END_TIME)
+        val currentTime = System.currentTimeMillis()
+
+        if (savedEndTime != null) {
+            val remaining = ((savedEndTime - currentTime) / 1000).toInt()
+            if (remaining > 0) {
+                recordingSessionManager.startRitual(remaining)
+            } else {
+                recordingSessionManager.skipRitual()
+            }
+        } else {
+            val endTime = currentTime + (RITUAL_DURATION_SECONDS * 1000)
+            savedStateHandle[KEY_RITUAL_END_TIME] = endTime
+            recordingSessionManager.startRitual(RITUAL_DURATION_SECONDS)
+        }
     }
 
     private fun observeRecordingState() {
         viewModelScope.launch {
-            recordingSessionManager.recordingState.collect { state ->
-                if (state.status == com.saurabh.artifact.data.local.RecordingStatus.RECORDING ||
-                    state.status == com.saurabh.artifact.data.local.RecordingStatus.PAUSED) {
+            recordingSessionManager.sessionState.collect { state ->
+                // Auto-navigate if recording is already happening in background
+                if (state.status == RecordingStatus.RECORDING ||
+                    state.status == RecordingStatus.PAUSED ||
+                    state.status == RecordingStatus.PREPARING) {
                     _eventFlow.emit(PreRecordingWarningEvent.NavigateToRecording)
                 }
             }
         }
     }
 
-    private fun startCountdown() {
-        countdownJob?.cancel()
-        countdownJob = viewModelScope.launch {
-            while (_uiState.value.remainingSeconds > 0) {
-                delay(1000)
-                _uiState.update { it.copy(remainingSeconds = it.remainingSeconds - 1) }
-            }
-        }
-    }
-
     fun skipCountdown() {
-        viewModelScope.launch {
-            _eventFlow.emit(PreRecordingWarningEvent.NavigateToRecording)
-        }
+        savedStateHandle[KEY_RITUAL_END_TIME] = System.currentTimeMillis()
+        recordingSessionManager.skipRitual()
     }
 
     fun cancel() {
-        countdownJob?.cancel()
+        savedStateHandle.remove<Long>(KEY_RITUAL_END_TIME)
+        recordingSessionManager.cancelRitual()
     }
 }
 
 data class PreRecordingWarningUiState(
-    val remainingSeconds: Int = 10
+    val remainingSeconds: Int = 10,
+    val isRecordingActive: Boolean = false
 )
 
 sealed class PreRecordingWarningEvent {

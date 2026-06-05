@@ -12,7 +12,6 @@ import androidx.navigation.NavController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import com.saurabh.artifact.audio.RecordingSessionManager
 import com.saurabh.artifact.audio.PublishStateManager
-import com.saurabh.artifact.model.PublishState
 import com.saurabh.artifact.navigation.Screen
 import com.saurabh.artifact.ui.theme.ZIndexTokens
 import com.saurabh.artifact.ui.player.ArtifactPlayerView
@@ -36,7 +35,7 @@ fun GlobalOverlayHost(
     val showOverlays = isOverlayVisibleOnRoute(currentRoute)
     
     val uiState by playerViewModel.uiState.collectAsStateWithLifecycle()
-    val recordingState by recordingSessionManager.recordingState.collectAsStateWithLifecycle()
+    val recordingState by recordingSessionManager.sessionState.collectAsStateWithLifecycle()
     val publishState by publishStateManager.currentPublishState.collectAsStateWithLifecycle()
 
     Box(modifier = Modifier.fillMaxSize()) {

@@ -95,11 +95,16 @@ class NotificationRepository @Inject constructor(
     /**
      * Returns a poetic, atmospheric message based on the resonance type.
      * Part of the "Calm Anonymous Resonance Architecture" to reduce social anxiety.
+     * 
+     * NOTE: This is deprecated for direct UI use. Use UI-layer mappers instead.
      */
     fun getAtmosphericMessage(type: ReactionType): String {
         return "${type.atmosphericLabel} ${type.emoji}"
     }
 
+    /**
+     * NOTE: This is deprecated for direct UI use. Use string resources instead.
+     */
     fun getReflectionMessage(artifactTitle: String? = null): String {
         return if (artifactTitle != null) {
             "A quiet reflection has arrived in your hearth for \"$artifactTitle\" 🕯️"

@@ -30,6 +30,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.saurabh.artifact.data.local.RecordingStatus
 import com.saurabh.artifact.ui.theme.ArtifactTheme
+import com.saurabh.artifact.ui.util.debouncedClick
 
 /**
  * AuraDock: A refined voice-entry point designed for calm technology.
@@ -47,9 +48,6 @@ fun AuraDock(
 
     val haptic = LocalHapticFeedback.current
     val infiniteTransition = rememberInfiniteTransition(label = "AuraBreathing")
-    
-    // Throttling State
-    var lastClickTime by remember { mutableStateOf(0L) }
     
     // Part 6 — Motion Restraint: Diaphragmatic Breathing
     // Slower, deeper, more stable than previous implementation.
@@ -96,21 +94,16 @@ fun AuraDock(
 
         // The Core Interaction Surface
         Surface(
-            onClick = {
-                val currentTime = System.currentTimeMillis()
-                if (currentTime - lastClickTime > 1000) { // 1 second debounce
-                    lastClickTime = currentTime
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onInitiate()
-                }
-            },
             shape = CircleShape,
             color = if (status == RecordingStatus.RECORDING) Color(0xFFD96B5F) else Color(0xFFD96B5F),
             tonalElevation = 6.dp,
             modifier = Modifier
                 .size(72.dp) // Slightly larger
-                .clip(CircleShape),
-            interactionSource = remember { MutableInteractionSource() }
+                .clip(CircleShape)
+                .debouncedClick {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onInitiate()
+                }
         ) {
             Box(contentAlignment = Alignment.Center) {
                 // Part 5 — Microphone Symbol System

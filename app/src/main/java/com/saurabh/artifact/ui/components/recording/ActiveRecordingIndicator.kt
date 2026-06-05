@@ -13,11 +13,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.saurabh.artifact.audio.RecordingService
 import com.saurabh.artifact.data.local.RecordingStatus
+import com.saurabh.artifact.util.TimeUtils
 import java.util.Locale
 
 @Composable
@@ -72,7 +74,7 @@ fun ActiveRecordingIndicator(
                 }
                 
                 Text(
-                    text = formatDuration(recordingState.durationSeconds),
+                    text = TimeUtils.formatDuration(recordingState.durationSeconds, LocalConfiguration.current),
                     style = MaterialTheme.typography.bodyMedium.copy(
                         fontFeatureSettings = "tnum"
                     ),
@@ -83,8 +85,8 @@ fun ActiveRecordingIndicator(
     }
 }
 
-private fun formatDuration(seconds: Long): String {
-    val mins = seconds / 60
-    val secs = seconds % 60
-    return String.format(Locale.getDefault(), "%02d:%02d", mins, secs)
-}
+// DELETE: private fun formatDuration(seconds: Long): String {
+//    val mins = seconds / 60
+//    val secs = seconds % 60
+//    return String.format(Locale.getDefault(), "%02d:%02d", mins, secs)
+// }

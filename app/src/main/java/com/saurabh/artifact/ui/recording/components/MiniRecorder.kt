@@ -15,10 +15,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.saurabh.artifact.data.local.RecordingStatus
+import com.saurabh.artifact.util.TimeUtils
 import java.util.*
 
 @Composable
@@ -77,7 +79,7 @@ fun MiniRecorder(
                     fontWeight = FontWeight.Medium
                 )
                 Text(
-                    text = formatDuration(durationSeconds),
+                    text = TimeUtils.formatDuration(durationSeconds, LocalConfiguration.current),
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
                         letterSpacing = 1.sp
@@ -107,8 +109,8 @@ fun MiniRecorder(
     }
 }
 
-private fun formatDuration(seconds: Long): String {
-    val mins = seconds / 60
-    val secs = seconds % 60
-    return String.format(Locale.getDefault(), "%02d:%02d", mins, secs)
-}
+// DELETE: private fun formatDuration(seconds: Long): String {
+//    val mins = seconds / 60
+//    val secs = seconds % 60
+//    return String.format(Locale.getDefault(), "%02d:%02d", mins, secs)
+// }

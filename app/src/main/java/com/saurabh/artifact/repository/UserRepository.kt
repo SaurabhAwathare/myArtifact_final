@@ -13,6 +13,9 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -97,7 +100,7 @@ class UserRepository @Inject constructor(
             
             notificationRepository.createNotification(
                 userId = userId,
-                message = "You have shed your old presence and emerged as $newName · $newSigil 🎭"
+                message = "IDENTITY_REFRESHED|$newName|$newSigil" // UI layer will map this
             )
 
             Result.success(getOrCreateProfile())
@@ -170,7 +173,7 @@ class UserRepository @Inject constructor(
 
             notificationRepository.createNotification(
                 userId = userId,
-                message = "You updated your username to $username ✨"
+                message = "USERNAME_UPDATED|$username"
             )
 
             Result.success(Unit)
@@ -366,7 +369,7 @@ class UserRepository @Inject constructor(
             
             notificationRepository.createNotification(
                 userId = targetUserId,
-                message = "Someone's presence resonated with your artifacts ✨"
+                message = "PRESENCE_RESONATED"
             )
             
             Result.success(Unit)
@@ -419,31 +422,31 @@ class UserRepository @Inject constructor(
 
     /**
      * Streams the resonance relationship status between two users.
+     * Upgraded to be fully reactive across both modern and legacy collections.
      */
-    fun observeIsResonating(currentUserId: String, targetUserId: String): Flow<Boolean> = callbackFlow {
+    fun observeIsResonating(currentUserId: String, targetUserId: String): Flow<Boolean> {
         if (currentUserId.isBlank() || targetUserId.isBlank()) {
-            trySend(false)
-            close()
-            return@callbackFlow
+            return flowOf(false)
         }
 
-        // Check both collections for migration safety
-        val docRef = usersCollection.document(currentUserId.trim())
+        val modernRef = usersCollection.document(currentUserId.trim())
             .collection("resonance_out").document(targetUserId.trim())
 
-        val registration = docRef.addSnapshotListener { snapshot, _ ->
-            if (snapshot?.exists() == true) {
-                trySend(true)
-            } else {
-                // Fallback to legacy check
-                usersCollection.document(currentUserId.trim())
-                    .collection("following").document(targetUserId.trim())
-                    .get().addOnSuccessListener { legacySnapshot ->
-                        trySend(legacySnapshot.exists())
-                    }
-            }
-        }
+        val legacyRef = usersCollection.document(currentUserId.trim())
+            .collection("following").document(targetUserId.trim())
 
+        return combine(
+            observeDocumentExists(modernRef),
+            observeDocumentExists(legacyRef)
+        ) { modern, legacy ->
+            modern || legacy
+        }.distinctUntilChanged()
+    }
+
+    private fun observeDocumentExists(docRef: com.google.firebase.firestore.DocumentReference): Flow<Boolean> = callbackFlow {
+        val registration = docRef.addSnapshotListener { snapshot, _ ->
+            trySend(snapshot?.exists() ?: false)
+        }
         awaitClose { registration.remove() }
     }
 
@@ -471,7 +474,7 @@ class UserRepository @Inject constructor(
         usersCollection.document(userId).update("avatarConfig", config).await()
         notificationRepository.createNotification(
             userId = userId,
-            message = "You updated your avatar 🎨"
+            message = "AVATAR_UPDATED"
         )
     }
 

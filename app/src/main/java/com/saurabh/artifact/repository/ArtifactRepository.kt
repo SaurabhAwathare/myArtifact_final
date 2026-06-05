@@ -68,7 +68,8 @@ class ArtifactRepository @Inject constructor(
     private val notificationRepository: NotificationRepository,
     private val artifactDao: com.saurabh.artifact.data.local.ArtifactDao,
     private val database: com.saurabh.artifact.data.local.AppDatabase,
-    private val promptDao: com.saurabh.artifact.data.local.PromptDao
+    private val promptDao: com.saurabh.artifact.data.local.PromptDao,
+    private val pendingInteractionDao: com.saurabh.artifact.data.local.PendingInteractionDao
 ) {
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -82,241 +83,6 @@ class ArtifactRepository @Inject constructor(
                 Result.failure(Exception("Artifact not found"))
             }
         } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
-    suspend fun deleteDraftLocally(draftId: String) = withContext(Dispatchers.IO) {
-        val draft = draftDao.getDraftById(draftId) ?: return@withContext
-        SecurityArchitecture.secureDelete(File(draft.localAudioPath))
-        draftDao.delete(draft)
-    }
-
-    suspend fun saveDraftPrivately(draftId: String) = withContext(Dispatchers.IO) {
-        draftDao.getDraftById(draftId)?.let { draft ->
-            draftDao.updateStatus(draftId, draft.status.copy(lifecycle = ArtifactLifecycle.REVIEW_REQUIRED))
-        }
-    }
-
-    suspend fun updateEmotionalConfirmation(draftId: String, isReady: Boolean, confidence: Float) = withContext(Dispatchers.IO) {
-        draftDao.updateEmotionalConfirmation(draftId, isReady, confidence)
-        if (isReady) {
-            draftDao.getDraftById(draftId)?.let { draft ->
-                draftDao.updateStatus(draftId, draft.status.copy(lifecycle = ArtifactLifecycle.READY_TO_PUBLISH))
-            }
-        }
-    }
-
-    suspend fun setCooldown(draftId: String, durationMinutes: Int) = withContext(Dispatchers.IO) {
-        val expiry = System.currentTimeMillis() + durationMinutes * 60 * 1000
-        draftDao.updateCooldown(draftId, expiry)
-        // Note: We don't have a WAITING_COOLDOWN lifecycle yet, but we could add one if needed for the UI
-    }
-
-    /**
-     * Fetches a smart, context-aware reflection prompt with real-time safety evaluation.
-     * Prioritizes safety overrides for high-risk emotional signals.
-     * Implements local caching and offline fallbacks.
-     */
-    suspend fun getSmartReflectionPrompt(
-        emotion: String?,
-        context: String? = null,
-        timeOfDay: String? = null
-    ): ReflectionPrompt {
-        // 1. Pre-emptive Safety Assessment (Internal logic - no data leaves device if HIGH)
-        val safetyResult = withContext(Dispatchers.Default) {
-            safetyEvaluator.get().evaluate(context)
-        }
-        if ((safetyResult.level == SafetyLevel.HIGH) && (safetyResult.suggestedPrompt != null)) {
-            return safetyResult.suggestedPrompt
-        }
-
-        return try {
-            val aiResponse = aiService.get().generatePrompt(emotion, context, timeOfDay).getOrNull()
-            
-            if (aiResponse != null) {
-                // 2. Post-generation Safety Filter (Normalization)
-                val safeText = withContext(Dispatchers.Default) {
-                    safetyEvaluator.get().filterAIOutput(aiResponse.question)
-                }
-                val finalPrompt = aiResponse.copy(question = safeText)
-                
-                // 3. Cache the successful prompt locally
-                repositoryScope.launch(Dispatchers.IO) {
-                    promptDao.insertPrompts(listOf(finalPrompt.toEntity()))
-                }
-                
-                finalPrompt
-            } else {
-                fetchFallbackPrompt(emotion, safetyResult)
-            }
-        } catch (e: Exception) {
-            Log.e("ArtifactRepository", "AI prompt generation failed, falling back", e)
-            fetchFallbackPrompt(emotion, safetyResult)
-        }
-    }
-
-    private suspend fun fetchFallbackPrompt(emotion: String?, safetyResult: SafetyResult): ReflectionPrompt {
-        // A. Priority Fallback: Safety suggestions
-        if ((safetyResult.level == SafetyLevel.MEDIUM) && (safetyResult.suggestedPrompt != null)) {
-            return safetyResult.suggestedPrompt
-        }
-
-        // B. Local Cache Fallback: Fetch from Room
-        return withContext(Dispatchers.IO) {
-            val localPrompts = if (emotion != null) {
-                // Simplified: search by tone or mood if possible, otherwise all
-                // For now, we'll just get a random one from recent usage
-                promptDao.getRecentPrompts(limit = 10)
-            } else {
-                promptDao.getRecentPrompts(limit = 10)
-            }
-
-            if (localPrompts.isNotEmpty()) {
-                localPrompts.random().toDomainModel()
-            } else {
-                // C. Hardcoded Fallback
-                ReflectionPromptProvider.getRandomPrompt()
-            }
-        }
-    }
-
-    private fun mapArtifactToFirestore(artifact: Artifact): Map<String, Any?> {
-        return mapOf(
-            "author" to mapOf(
-                "anonymousId" to artifact.author.anonymousId,
-                "name" to artifact.author.name,
-                "sigil" to artifact.author.sigil,
-                "avatarSeed" to artifact.author.avatarSeed,
-                "avatarColor" to artifact.author.avatarColor,
-                "avatarConfig" to artifact.author.avatarConfig
-            ),
-            "audioUrl" to artifact.audioUrl,
-            "createdAt" to artifact.createdAt,
-            "isPublic" to artifact.isPublic,
-            "visibility" to artifact.visibility.name,
-            "status" to artifact.status.name,
-            "isDraft" to (artifact.status == ArtifactStatus.DRAFT || artifact.status == ArtifactStatus.PENDING_UPLOAD),
-            "durationMs" to artifact.durationMs,
-            "title" to artifact.title,
-            "description" to artifact.description,
-            "emotion" to artifact.emotion,
-            "emotionTag" to artifact.emotionTag,
-            "emotionConfidence" to artifact.emotionConfidence,
-            "prompt" to artifact.prompt,
-            "reactionVisibility" to artifact.reactionVisibility.name,
-            "amplitudeData" to artifact.amplitudeData,
-            "moderation" to mapOf(
-                "status" to artifact.moderation.status.name,
-                "score" to artifact.moderation.score,
-                "updatedAt" to artifact.moderation.updatedAt
-            ),
-            "playCount" to artifact.playCount,
-            "reactionCount" to artifact.reactionCount,
-            "commentCount" to artifact.commentCount,
-            "reportCount" to artifact.reportCount,
-            "transcriptUrl" to artifact.transcriptUrl
-        )
-    }
-
-    suspend fun uploadArtifact(
-        userId: String,
-        username: String,
-        audioFileUri: Uri,
-        title: String,
-        isPublic: Boolean,
-        duration: Long,
-        emotion: String = "",
-        emotionTag: String = "",
-        emotionConfidence: Float = 0f,
-        prompt: String = "",
-        redactionFilter: String = "",
-        avatarSeed: String = "",
-        amplitudeData: List<Float> = emptyList(),
-        reactionVisibility: ReactionVisibilityMode = ReactionVisibilityMode.APPROXIMATE,
-        onProgress: (Float) -> Unit = {}
-    ): Result<Unit> = withContext(Dispatchers.IO) {
-        return@withContext try {
-            val fileName = "artifacts/${userId}_${System.currentTimeMillis()}.m4a"
-            val fileRef = storage.reference.child(fileName)
-
-            // Ensure URI has a scheme for Firebase Storage
-            val uploadUri = if (audioFileUri.scheme == null) {
-                Uri.fromFile(File(audioFileUri.path ?: ""))
-            } else {
-                audioFileUri
-            }
-
-            // HARDENING: Check file existence before upload attempt
-            if (uploadUri.scheme == "file") {
-                val file = File(uploadUri.path ?: "")
-                if (!file.exists() || file.length() == 0L) {
-                    Log.e("ArtifactRepository", "Upload failed: File missing or empty at ${file.absolutePath}")
-                    return@withContext Result.failure(Exception("File missing or empty"))
-                }
-            }
-
-            val userProfile = userRepository.getOrCreateProfile()
-            val artifactId = "art_${userId}_${System.currentTimeMillis()}"
-
-            // 1. Pre-register Document
-            val preDraft = ArtifactDraftEntity(
-                id = artifactId,
-                localAudioPath = uploadUri.path ?: "",
-                title = title,
-                durationMs = duration,
-                isPublic = isPublic,
-                emotion = emotion,
-                amplitudeData = amplitudeData,
-                reactionVisibility = reactionVisibility
-            )
-            
-            // 1.5 Fetch transcript if available locally (Optional optimization)
-            // Note: In this direct upload method, we might not have a frozen transcript yet
-            // if called from somewhere other than the standard publish flow.
-            
-            createArtifactDocument(
-                userId = userId,
-                username = username,
-                audioUrl = "",
-                draft = preDraft,
-                avatarSeed = avatarSeed.ifEmpty { userProfile.avatarSeed },
-                avatarColor = userProfile.avatarColor,
-                avatarConfig = userProfile.avatarConfig,
-                anonymousId = userProfile.anonymousId,
-                anonymousSigil = userProfile.anonymousSigil,
-                status = ArtifactStatus.PENDING_UPLOAD,
-                isPublic = false
-            ).getOrThrow()
-
-            // 2. Upload File
-            fileRef.putFile(uploadUri)
-                .addOnProgressListener { taskSnapshot ->
-                    val progress = (100.0 * taskSnapshot.bytesTransferred / taskSnapshot.totalByteCount)
-                    onProgress(progress.toFloat())
-                }.await()
-
-            val downloadUrl = fileRef.downloadUrl.await().toString()
-
-            // 3. Finalize Document
-            finalizeArtifactDocument(
-                artifactId = artifactId,
-                audioUrl = downloadUrl,
-                status = ArtifactStatus.ACTIVE,
-                isPublic = isPublic
-            ).getOrThrow()
-
-            // 4. Create in-app notification for the user
-            notificationRepository.createNotification(
-                userId = userId,
-                message = "You released a new reflection into the world: $title ✨",
-                artifactId = artifactId,
-                type = NotificationType.SYSTEM
-            )
-            
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Log.e("ArtifactRepository", "Upload failed", e)
             Result.failure(e)
         }
     }
@@ -358,6 +124,27 @@ class ArtifactRepository @Inject constructor(
                 )
             } ?: emptyList()
         )
+    }
+
+    /**
+     * Streams an artifact's metadata from Firestore for live updates (counts, status, etc).
+     */
+    fun observeArtifact(artifactId: String): Flow<Artifact?> = callbackFlow {
+        val docRef = firestore.collection("artifacts").document(artifactId)
+        val subscription = docRef.addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                Log.e("ArtifactRepository", "Error observing artifact $artifactId", error)
+                trySend(null)
+                return@addSnapshotListener
+            }
+            if (snapshot != null && snapshot.exists()) {
+                val artifact = snapshot.toObject(Artifact::class.java)?.copy(id = snapshot.id)
+                trySend(artifact)
+            } else {
+                trySend(null)
+            }
+        }
+        awaitClose { subscription.remove() }
     }
 
     suspend fun getArtifactById(artifactId: String, forceRefresh: Boolean = false): Artifact? = withContext(Dispatchers.IO) {
@@ -642,7 +429,7 @@ class ArtifactRepository @Inject constructor(
 
             notificationRepository.createNotification(
                 userId = artifactOwnerId,
-                message = "Someone replied to your artifact 💬",
+                message = "REPLY_RECEIVED", // UI layer will map this
                 artifactId = artifactId
             )
 
@@ -734,6 +521,24 @@ class ArtifactRepository @Inject constructor(
     }
 
     /**
+     * Generates a contextually relevant reflection prompt using the AI service.
+     */
+    suspend fun getSmartReflectionPrompt(
+        emotion: String?,
+        context: String?,
+        timeOfDay: String?
+    ): ReflectionPrompt = withContext(Dispatchers.IO) {
+        return@withContext aiService.get().generatePrompt(emotion, context, timeOfDay).getOrElse {
+            // Fallback prompt if AI fails
+            ReflectionPrompt(
+                id = "fallback_${System.currentTimeMillis()}",
+                category = PromptCategory.GENERAL,
+                question = "What's one thing that stayed with you today?"
+            )
+        }
+    }
+
+    /**
      * Fetches a batch of raw candidates for client-side ranking.
      */
     suspend fun getCandidateArtifacts(userId: String? = null, limit: Long = 50): List<Artifact> = withContext(Dispatchers.IO) {
@@ -821,7 +626,6 @@ class ArtifactRepository @Inject constructor(
                     trySend(emptyList())
                     return@addSnapshotListener
                 }
-// ...
 
                 repositoryScope.launch(Dispatchers.IO) {
                     // Firestore 'whereIn' is limited to 10-30 items depending on version.
@@ -858,47 +662,55 @@ class ArtifactRepository @Inject constructor(
 
     /**
      * Persists a private emotional bookmark for an artifact.
-     * Stored strictly under the user's private collection.
+     * OFFLINE-FIRST: Writes to local pending queue and triggers sync worker.
      */
     suspend fun saveArtifact(
         userId: String,
         artifact: Artifact,
         shelf: String = "Stayed With Me"
     ): Result<Unit> = withContext(Dispatchers.IO) {
-        return@withContext try {
-            val savedRef = firestore.collection("users").document(userId)
-                .collection("savedArtifacts").document(artifact.id)
-            
-            val data = mapOf(
-                "artifactId" to artifact.id,
-                "savedAt" to FieldValue.serverTimestamp(),
-                // Denormalized for quick list rendering in Saved tab
-                "title" to artifact.title,
-                "authorName" to artifact.author.name,
-                "audioUrl" to artifact.audioUrl,
-                "emotionTag" to artifact.emotionTag,
-                "shelf" to shelf
+        try {
+            // 1. Record pending interaction
+            val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
+                artifactId = artifact.id,
+                interactionType = com.saurabh.artifact.data.local.InteractionType.SAVE,
+                action = com.saurabh.artifact.data.local.InteractionAction.ADD,
+                metadata = shelf
             )
-            
-            savedRef.set(data).await()
+            pendingInteractionDao.deleteByType(artifact.id, com.saurabh.artifact.data.local.InteractionType.SAVE)
+            pendingInteractionDao.insert(pending)
+
+            // 2. Trigger Sync Worker
+            com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
+
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("ArtifactRepository", "Failed to preserve artifact ${artifact.id}", e)
+            Log.e("ArtifactRepository", "Failed to queue save for artifact ${artifact.id}", e)
             Result.failure(e)
         }
     }
 
     /**
      * Removes a private emotional bookmark.
+     * OFFLINE-FIRST: Writes to local pending queue and triggers sync worker.
      */
     suspend fun unsaveArtifact(userId: String, artifactId: String): Result<Unit> = withContext(Dispatchers.IO) {
-        return@withContext try {
-            firestore.collection("users").document(userId)
-                .collection("savedArtifacts").document(artifactId)
-                .delete().await()
+        try {
+            // 1. Record pending interaction
+            val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
+                artifactId = artifactId,
+                interactionType = com.saurabh.artifact.data.local.InteractionType.SAVE,
+                action = com.saurabh.artifact.data.local.InteractionAction.REMOVE
+            )
+            pendingInteractionDao.deleteByType(artifactId, com.saurabh.artifact.data.local.InteractionType.SAVE)
+            pendingInteractionDao.insert(pending)
+
+            // 2. Trigger Sync Worker
+            com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
+
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("ArtifactRepository", "Failed to unsave artifact $artifactId", e)
+            Log.e("ArtifactRepository", "Failed to queue unsave for artifact $artifactId", e)
             Result.failure(e)
         }
     }
@@ -1078,39 +890,6 @@ class ArtifactRepository @Inject constructor(
         return Companion.isTransientError(e)
     }
 
-    companion object {
-        fun isTransientError(e: Throwable): Boolean {
-            return when (e) {
-                is java.net.SocketTimeoutException,
-                is java.net.UnknownHostException,
-                is java.net.ConnectException,
-                is java.net.SocketException,
-                is java.io.InterruptedIOException -> true
-                is com.google.firebase.storage.StorageException -> {
-                    when (e.errorCode) {
-                        com.google.firebase.storage.StorageException.ERROR_RETRY_LIMIT_EXCEEDED,
-                        com.google.firebase.storage.StorageException.ERROR_NOT_AUTHENTICATED, // Often transient token issue
-                        com.google.firebase.storage.StorageException.ERROR_QUOTA_EXCEEDED,
-                        com.google.firebase.storage.StorageException.ERROR_NOT_AUTHORIZED -> true // Can be transient if token expired
-                        else -> {
-                            val httpCode = e.httpResultCode
-                            httpCode == 408 || httpCode == 429 || httpCode >= 500
-                        }
-                    }
-                }
-                is com.google.firebase.firestore.FirebaseFirestoreException -> {
-                    when (e.code) {
-                        com.google.firebase.firestore.FirebaseFirestoreException.Code.UNAVAILABLE,
-                        com.google.firebase.firestore.FirebaseFirestoreException.Code.DEADLINE_EXCEEDED,
-                        com.google.firebase.firestore.FirebaseFirestoreException.Code.ABORTED -> true
-                        else -> false
-                    }
-                }
-                else -> false
-            }
-        }
-    }
-
     /**
      * Hardening: Specifically retries the download URL fetch to handle eventual consistency.
      */
@@ -1220,7 +999,7 @@ class ArtifactRepository @Inject constructor(
                 // Create in-app notification for the user
                 notificationRepository.createNotification(
                     userId = userId,
-                    message = "You published a new artifact: ${artifact.title} ✨",
+                    message = "NEW_ARTIFACT|${artifact.title}", // UI layer will map this with title
                     artifactId = draft.id
                 )
             }
@@ -1551,6 +1330,77 @@ class ArtifactRepository @Inject constructor(
         } catch (e: Exception) {
             Log.e("ArtifactRepository", "Hard delete failure for $artifactId", e)
             Result.failure(e)
+        }
+    }
+
+    private fun mapArtifactToFirestore(artifact: Artifact): Map<String, Any?> {
+        return mapOf(
+            "author" to mapOf(
+                "anonymousId" to artifact.author.anonymousId,
+                "name" to artifact.author.name,
+                "sigil" to artifact.author.sigil,
+                "avatarSeed" to artifact.author.avatarSeed,
+                "avatarColor" to artifact.author.avatarColor,
+                "avatarConfig" to artifact.author.avatarConfig
+            ),
+            "audioUrl" to artifact.audioUrl,
+            "createdAt" to artifact.createdAt,
+            "isPublic" to artifact.isPublic,
+            "visibility" to artifact.visibility.name,
+            "status" to artifact.status.name,
+            "isDraft" to (artifact.status == ArtifactStatus.DRAFT || artifact.status == ArtifactStatus.PENDING_UPLOAD),
+            "durationMs" to artifact.durationMs,
+            "title" to artifact.title,
+            "description" to artifact.description,
+            "emotion" to artifact.emotion,
+            "emotionTag" to artifact.emotionTag,
+            "emotionConfidence" to artifact.emotionConfidence,
+            "prompt" to artifact.prompt,
+            "reactionVisibility" to artifact.reactionVisibility.name,
+            "amplitudeData" to artifact.amplitudeData,
+            "moderation" to mapOf(
+                "status" to artifact.moderation.status.name,
+                "score" to artifact.moderation.score,
+                "updatedAt" to artifact.moderation.updatedAt
+            ),
+            "playCount" to artifact.playCount,
+            "reactionCount" to artifact.reactionCount,
+            "commentCount" to artifact.commentCount,
+            "reportCount" to artifact.reportCount,
+            "transcriptUrl" to artifact.transcriptUrl
+        )
+    }
+
+    companion object {
+        fun isTransientError(e: Throwable): Boolean {
+            return when (e) {
+                is java.net.SocketTimeoutException,
+                is java.net.UnknownHostException,
+                is java.net.ConnectException,
+                is java.net.SocketException,
+                is java.io.InterruptedIOException -> true
+                is com.google.firebase.storage.StorageException -> {
+                    when (e.errorCode) {
+                        com.google.firebase.storage.StorageException.ERROR_RETRY_LIMIT_EXCEEDED,
+                        com.google.firebase.storage.StorageException.ERROR_NOT_AUTHENTICATED, // Often transient token issue
+                        com.google.firebase.storage.StorageException.ERROR_QUOTA_EXCEEDED,
+                        com.google.firebase.storage.StorageException.ERROR_NOT_AUTHORIZED -> true // Can be transient if token expired
+                        else -> {
+                            val httpCode = e.httpResultCode
+                            httpCode == 408 || httpCode == 429 || httpCode >= 500
+                        }
+                    }
+                }
+                is com.google.firebase.firestore.FirebaseFirestoreException -> {
+                    when (e.code) {
+                        com.google.firebase.firestore.FirebaseFirestoreException.Code.UNAVAILABLE,
+                        com.google.firebase.firestore.FirebaseFirestoreException.Code.DEADLINE_EXCEEDED,
+                        com.google.firebase.firestore.FirebaseFirestoreException.Code.ABORTED -> true
+                        else -> false
+                    }
+                }
+                else -> false
+            }
         }
     }
 }

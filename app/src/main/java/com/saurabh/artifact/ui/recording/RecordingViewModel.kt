@@ -4,22 +4,18 @@ import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.saurabh.artifact.audio.RecordingService
 import com.saurabh.artifact.audio.RecordingSessionManager
-import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.data.local.RecordingStatus
 import com.saurabh.artifact.data.local.UserSessionManager
 import com.saurabh.artifact.model.PromptCategory
 import com.saurabh.artifact.model.ReflectionPrompt
-import com.saurabh.artifact.repository.RecordingRepository
 import com.saurabh.artifact.repository.PromptRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
-import java.util.UUID
 import javax.inject.Inject
 
 @HiltViewModel
@@ -33,18 +29,24 @@ class RecordingViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(RecordingUiState())
     val uiState: StateFlow<RecordingUiState> = _uiState.asStateFlow()
 
+    private val _events = Channel<RecordingEvent>()
+    val events = _events.receiveAsFlow()
+
     private var promptList: List<ReflectionPrompt> = emptyList()
     private var currentPromptIndex = 0
     private var countdownJob: kotlinx.coroutines.Job? = null
 
     init {
         loadPrompts()
-        observeRecordingService()
+        observeRecordingSession()
         
         // Immediate start for InstantRecord flow (Warning ritual handled in PreRecordingWarningScreen)
         _uiState.update { it.copy(flowState = RecordingFlowState.RECORDING) }
-        // REMOVED: startRecording() from init to prevent duplicate sessions on rotation.
-        // Screen should call startRecording() via LaunchedEffect or User Action if IDLE.
+
+        viewModelScope.launch {
+            // Signal UI to request permission and start if idle
+            _events.send(RecordingEvent.RequestStart)
+        }
     }
 
     private fun onCountdownFinished() {
@@ -122,8 +124,8 @@ class RecordingViewModel @Inject constructor(
         }
     }
 
-    private fun observeRecordingService() {
-        RecordingService.recordingState
+    private fun observeRecordingSession() {
+        recordingSessionManager.sessionState
             .onEach { state ->
                 val error = when (state.errorCode) {
                     "PERMISSION_DENIED" -> RecordingError.PermissionDenied
@@ -138,24 +140,18 @@ class RecordingViewModel @Inject constructor(
                     error = error,
                     durationSeconds = state.durationSeconds,
                     currentOutputFile = state.outputFile?.absolutePath,
-                    amplitudes = state.amplitudes
+                    amplitudes = state.amplitudes,
+                    lastDraftId = if (state.status == RecordingStatus.COMPLETED) state.draftId else it.lastDraftId,
+                    lastDraftPath = if (state.status == RecordingStatus.COMPLETED) state.outputFile?.absolutePath else it.lastDraftPath
                 ) }
 
-                if (state.status == RecordingStatus.COMPLETED) {
-                    // PROBLEM 1 FIX: Rely solely on the service's reported draftId.
-                    // Do NOT create fallbacks or redundant entries here.
-                    if (state.draftId.isNotEmpty()) {
-                        Log.d("RecordingViewModel", "Recording finalized. Draft ID: ${state.draftId}")
-                        _uiState.update { it.copy(
-                            lastDraftId = state.draftId,
-                            lastDraftPath = state.outputFile?.absolutePath
-                        ) }
-                    }
+                if (state.status == RecordingStatus.COMPLETED && state.draftId.isNotEmpty()) {
+                    Log.d("RecordingViewModel", "Recording finalized via Manager. Draft ID: ${state.draftId}")
                 }
             }
             .launchIn(viewModelScope)
 
-        RecordingService.amplitude
+        recordingSessionManager.amplitude
             .onEach { rawAmplitude ->
                 val normalized = (rawAmplitude.toFloat() / 32767f).coerceIn(0f, 1f)
                 _uiState.update { it.copy(currentAmplitude = normalized) }
@@ -252,7 +248,7 @@ data class RecordingUiState(
     val currentOutputFile: String? = null,
     val lastDraftId: String? = null,
     val lastDraftPath: String? = null,
-    val isPromptVisible: Boolean = true, // Always show by default for immediate reflection
+    val isPromptVisible: Boolean = true,
     val currentPrompt: ReflectionPrompt? = null,
     val promptList: List<ReflectionPrompt> = emptyList(),
     val currentPromptIndex: Int = 0,
@@ -262,6 +258,10 @@ data class RecordingUiState(
 
 enum class RecordingFlowState {
     IDLE, WARNING, RECORDING
+}
+
+sealed class RecordingEvent {
+    object RequestStart : RecordingEvent()
 }
 
 sealed class RecordingError {

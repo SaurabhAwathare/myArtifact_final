@@ -13,9 +13,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ArtifactEngagement::class, 
         ArtifactEntity::class,
         ArtifactDraftEntity::class,
-        UploadTaskEntity::class
+        UploadTaskEntity::class,
+        PendingInteractionEntity::class
     ],
-    version = 41,
+    version = 42,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -26,8 +27,24 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun artifactDao(): ArtifactDao
     abstract fun draftDao(): DraftDao
     abstract fun uploadTaskDao(): UploadTaskDao
+    abstract fun pendingInteractionDao(): PendingInteractionDao
 
     companion object {
+        val MIGRATION_41_42 = object : Migration(41, 42) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `pending_interactions` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
+                        `artifactId` TEXT NOT NULL, 
+                        `interactionType` TEXT NOT NULL, 
+                        `action` TEXT NOT NULL, 
+                        `metadata` TEXT, 
+                        `createdAt` INTEGER NOT NULL
+                    )
+                """.trimIndent())
+            }
+        }
+
         val MIGRATION_39_40 = object : Migration(39, 40) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `artifacts` ADD COLUMN `reportCount` INTEGER NOT NULL DEFAULT 0")

@@ -14,9 +14,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.os.ConfigurationCompat
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.ui.components.AmbientWaveform
 import com.saurabh.artifact.ui.components.WaveformContext
@@ -49,8 +51,10 @@ fun ProfileArtifactCard(
     var showRenameDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
 
-    val dateFormat = remember { SimpleDateFormat("MMM d, yyyy", Locale.getDefault()) }
-    val displayDate = remember(artifact.createdAt) { dateFormat.format(artifact.createdAt.toDate()) }
+    val configuration = LocalConfiguration.current
+    val locale = ConfigurationCompat.getLocales(configuration)[0] ?: configuration.locales[0]
+    val dateFormat = remember(locale) { SimpleDateFormat("MMM d, yyyy", locale) }
+    val displayDate = remember(artifact.createdAt, dateFormat) { dateFormat.format(artifact.createdAt.toDate()) }
 
     Surface(
         modifier = modifier

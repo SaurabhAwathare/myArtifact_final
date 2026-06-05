@@ -47,6 +47,30 @@ class DraftRepository @Inject constructor(
     fun observePublishingDrafts(): Flow<List<ArtifactDraftEntity>> {
         return observeDrafts().map { drafts ->
             drafts.filter { it.lifecycle == ArtifactLifecycle.READY_TO_PUBLISH }
+                .sortedByDescending { it.updatedAt }
+        }
+    }
+
+    /**
+     * Observes the most relevant publishing/processing session for global UI progress indicators.
+     * Centralizes the priority logic to ensure a single source of truth.
+     */
+    fun observeActivePublishingSessionWithUpload(): Flow<DraftWithUpload?> {
+        return observeDraftsWithUploads().map { list ->
+            // Priority 1: Actively publishing or finalizing (READY_TO_PUBLISH)
+            val publishing = list.filter { it.draft.lifecycle == ArtifactLifecycle.READY_TO_PUBLISH }
+                .maxByOrNull { it.draft.updatedAt }
+            if (publishing != null) return@map publishing
+
+            // Priority 2: Actively processing (RECORDING/PROCESSING)
+            val processing = list.filter { 
+                val sync = it.uploadTask?.status ?: it.draft.status.publication
+                it.draft.lifecycle == ArtifactLifecycle.PROCESSING || 
+                sync is SyncStatus.Uploading || 
+                sync is SyncStatus.Finalizing 
+            }.maxByOrNull { it.draft.updatedAt }
+            
+            processing
         }
     }
 

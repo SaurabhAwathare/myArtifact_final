@@ -42,6 +42,15 @@ fun DraftListScreen(
     val publishingDrafts by viewModel.publishingDrafts.collectAsState()
     var draftToDelete by remember { mutableStateOf<DraftWithUpload?>(null) }
 
+    LaunchedEffect(viewModel.events) {
+        viewModel.events.collect { event ->
+            when (event) {
+                is DraftListUiEvent.NavigateToReview -> onReviewDraft(event.draftId)
+                is DraftListUiEvent.NavigateToEdit -> onEditDraft(event.draftId)
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -97,15 +106,8 @@ fun DraftListScreen(
                     items(drafts, key = { it.draft.id }) { draftWithUpload ->
                         DraftItem(
                             draftWithUpload = draftWithUpload,
-                            onClick = { 
-                                if (draftWithUpload.draft.status.publication is com.saurabh.artifact.model.SyncStatus.Recovering) {
-                                    // Trigger processing for interrupted draft
-                                    viewModel.playDraft(draftWithUpload) // This now triggers processing too
-                                } else {
-                                    onReviewDraft(draftWithUpload.draft.id)
-                                }
-                            },
-                            onEdit = { onEditDraft(draftWithUpload.draft.id) },
+                            onClick = { viewModel.onDraftClicked(draftWithUpload) },
+                            onEdit = { viewModel.onEditClicked(draftWithUpload.draft.id) },
                             onDelete = {
                                 draftToDelete = draftWithUpload
                             }

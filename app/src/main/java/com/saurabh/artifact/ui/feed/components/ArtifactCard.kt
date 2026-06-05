@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import com.saurabh.artifact.ui.util.FeedbackUtils
@@ -37,6 +38,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.model.AvatarConfig
 import com.google.firebase.Timestamp
+import com.saurabh.artifact.util.TimeUtils
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -195,7 +197,7 @@ fun ArtifactCard(
                 Spacer(modifier = Modifier.width(12.dp))
                 
                 Text(
-                    text = formatDuration(artifact.durationMs),
+                    text = TimeUtils.formatDurationMillis(artifact.durationMs, LocalConfiguration.current),
                     style = MaterialTheme.typography.labelSmall,
                     color = Color.White.copy(alpha = 0.4f)
                 )
@@ -252,13 +254,6 @@ fun ArtifactCard(
             }
         }
     }
-}
-
-private fun formatDuration(millis: Long): String {
-    val totalSeconds = millis / 1000
-    val mins = totalSeconds / 60
-    val secs = totalSeconds % 60
-    return "%d:%02d".format(mins, secs)
 }
 
 @Preview(showBackground = true, backgroundColor = 0xFF000000)

@@ -32,6 +32,26 @@ class PlaybackCoordinator @Inject constructor(
 
     val isAmbientPlaying = transientPlayerManager.isPlaying
 
+    private val _sleepTimerMillisRemaining = MutableStateFlow<Long?>(null)
+    val sleepTimerMillisRemaining: StateFlow<Long?> = _sleepTimerMillisRemaining.asStateFlow()
+    private var sleepTimerJob: Job? = null
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val smoothPosition: Flow<Long> = positionSync.flatMapLatest { sync ->
+        if (sync.isPlaying) {
+            flow {
+                while (true) {
+                    val elapsed = android.os.SystemClock.elapsedRealtime() - sync.timestampMs
+                    val current = sync.positionMs + (elapsed * sync.speed).toLong()
+                    emit(current)
+                    delay(32)
+                }
+            }
+        } else {
+            flowOf(sync.positionMs)
+        }
+    }
+
     init {
         // Automatically stop ambient sound when main playback is cleared
         scope.launch {
@@ -128,5 +148,28 @@ class PlaybackCoordinator @Inject constructor(
 
     fun preCache(artifact: Artifact) {
         playbackSessionManager.preCache(artifact)
+    }
+
+    fun startSleepTimer(minutes: Int) {
+        sleepTimerJob?.cancel()
+        if (minutes == 0) {
+            _sleepTimerMillisRemaining.value = null
+            return
+        }
+
+        val totalMillis = minutes * 60 * 1000L
+        _sleepTimerMillisRemaining.value = totalMillis
+
+        sleepTimerJob = scope.launch {
+            var remaining = totalMillis
+            while (remaining > 0) {
+                delay(1000)
+                remaining -= 1000
+                _sleepTimerMillisRemaining.value = remaining
+                if (!isPlaying.value) continue
+            }
+            stop()
+            _sleepTimerMillisRemaining.value = null
+        }
     }
 }

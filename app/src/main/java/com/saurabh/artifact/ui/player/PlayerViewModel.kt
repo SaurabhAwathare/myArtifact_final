@@ -3,13 +3,19 @@ package com.saurabh.artifact.ui.player
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.saurabh.artifact.audio.PlaybackCoordinator
-import com.saurabh.artifact.audio.PlaybackType
+import com.saurabh.artifact.audio.ReviewSessionManager
+import com.saurabh.artifact.audio.ReviewState
+import com.saurabh.artifact.domain.feed.ReactionUseCase
+import com.saurabh.artifact.domain.player.DeleteArtifactUseCase
+import com.saurabh.artifact.domain.player.GetPlayerContextUseCase
+import com.saurabh.artifact.domain.player.PlayerInteractionUseCase
+import com.saurabh.artifact.domain.player.PlayerMetadata
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.ReactionType
+import com.saurabh.artifact.model.TranscriptSegment
+import com.saurabh.artifact.model.findSegmentAt
+import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.AuthRepository
-import com.saurabh.artifact.repository.UserRepository
-import com.saurabh.artifact.repository.ReactionRepository
-import com.saurabh.artifact.repository.SavedArtifactManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -21,114 +27,26 @@ import javax.inject.Inject
 class PlayerViewModel @Inject constructor(
     private val playbackCoordinator: PlaybackCoordinator,
     private val authRepository: AuthRepository,
-    private val userRepository: UserRepository,
-    private val reactionRepository: ReactionRepository,
-    private val savedArtifactManager: SavedArtifactManager,
-    private val recordingRepository: com.saurabh.artifact.repository.RecordingRepository,
-    private val artifactRepository: com.saurabh.artifact.repository.ArtifactRepository,
-    private val commentUnlockRepository: com.saurabh.artifact.repository.CommentUnlockRepository,
-    reviewSessionManager: com.saurabh.artifact.audio.ReviewSessionManager
+    private val reactionUseCase: ReactionUseCase,
+    private val playerInteractionUseCase: PlayerInteractionUseCase,
+    private val getPlayerContextUseCase: GetPlayerContextUseCase,
+    private val artifactRepository: ArtifactRepository,
+    private val reviewSessionManager: ReviewSessionManager,
+    private val deleteArtifactUseCase: DeleteArtifactUseCase
 ) : ViewModel() {
 
-    private val _isExpanded = MutableStateFlow(value = false)
+    private val _isExpanded = MutableStateFlow(false)
     private val _showAdvancedControls = MutableStateFlow(false)
-    private val _sleepTimerMillisRemaining = MutableStateFlow<Long?>(null)
-    private var sleepTimerJob: Job? = null
 
-    // Interaction Reliability (Zero Dead Interactions)
     private val _interactionError = MutableSharedFlow<String>(replay = 0)
     val interactionError: SharedFlow<String> = _interactionError.asSharedFlow()
 
-    private val _optimisticResonanceConnection = MutableStateFlow<Boolean?>(null)
-    private val _optimisticResonate = MutableStateFlow<Boolean?>(null)
-
-    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val isCommentUnlocked: StateFlow<Boolean> = playbackCoordinator.currentArtifact.flatMapLatest { artifact ->
-        if (artifact != null) {
-            commentUnlockRepository.isUnlocked(artifact.id)
-        } else {
-            flowOf(false)
-        }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
-
-    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val isResonated: StateFlow<Boolean> = combine(
-        playbackCoordinator.currentArtifact,
-        authRepository.currentUser,
-        _optimisticResonate
-    ) { artifact, user, optimistic ->
-        if (optimistic != null) return@combine flowOf(optimistic)
-        if ((artifact != null) && (user != null)) {
-            reactionRepository.getArtifactReactions(artifact.id, user.uid)
-                .map { it.isNotEmpty() }
-        } else {
-            flowOf(false)
-        }
-    }.flatMapLatest { it }
-    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
-
-    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val selectedReactionType: StateFlow<ReactionType> = combine(
-        playbackCoordinator.currentArtifact,
-        authRepository.currentUser
-    ) { artifact, user ->
-        if ((artifact != null) && (user != null)) {
-            reactionRepository.getArtifactReactions(artifact.id, user.uid)
-                .map { reactions ->
-                    reactions.firstOrNull()?.let { ReactionType.fromId(it.typeId) } ?: ReactionType.I_HEAR_YOU
-                }
-        } else {
-            flowOf(ReactionType.I_HEAR_YOU)
-        }
-    }.flatMapLatest { it }
-    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ReactionType.I_HEAR_YOU)
-
-    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val isResonating: StateFlow<Boolean> = combine(
-        playbackCoordinator.currentArtifact,
-        authRepository.currentUser,
-        _optimisticResonanceConnection
-    ) { artifact, user, optimistic ->
-        if (optimistic != null) return@combine flowOf(optimistic)
-        if (artifact != null && user != null && artifact.userId != user.uid) {
-            userRepository.observeIsResonating(user.uid, artifact.userId)
-        } else {
-            flowOf(false)
-        }
-    }.flatMapLatest { it }
-    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
-
-    val isSaved: StateFlow<Boolean> = combine(
-        playbackCoordinator.currentArtifact,
-        savedArtifactManager.savedIds
-    ) { artifact, savedIds ->
-        artifact != null && savedIds.contains(artifact.id)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
-
-    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val resonanceSummary: StateFlow<String> = playbackCoordinator.currentArtifact.flatMapLatest { artifact ->
-        if (artifact != null) {
-            val currentUserId = authRepository.currentUser.value?.uid
-            reactionRepository.getReactionCounts(artifact.id).map { counts ->
-                val isOwner = artifact.userId == currentUserId
-                counts?.getFuzzySummary(isOwner) 
-                    ?: com.saurabh.artifact.model.ArtifactReactionCounts(
-                        artifactId = artifact.id,
-                        totalCount = artifact.reactionCount,
-                        visibility = artifact.reactionVisibility
-                    ).getFuzzySummary(isOwner)
-            }
-        } else {
-            flowOf("")
-        }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
-
-    val commentCount: StateFlow<Int> = playbackCoordinator.currentArtifact.map { 
-        it?.commentCount ?: 0 
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+    // Consolidated metadata from UseCase - Live and Atomic
+    private val metadata: StateFlow<PlayerMetadata> = getPlayerContextUseCase.execute(
+        artifactFlow = playbackCoordinator.currentArtifact
+    ).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PlayerMetadata())
 
     init {
-        // Reset player state on logout
         viewModelScope.launch {
             authRepository.currentUser.collect { user ->
                 if (user == null) {
@@ -137,17 +55,9 @@ class PlayerViewModel @Inject constructor(
             }
         }
 
-        // Observe playback errors
         viewModelScope.launch {
             playbackCoordinator.error.collect { errorMessage ->
                 _interactionError.emit(errorMessage)
-            }
-        }
-
-        // Observe playback session status
-        viewModelScope.launch {
-            playbackCoordinator.activePlayback.collect { active ->
-                // Optionally handle playback type changes here
             }
         }
     }
@@ -155,122 +65,121 @@ class PlayerViewModel @Inject constructor(
     private fun resetState() {
         _isExpanded.value = false
         _showAdvancedControls.value = false
-        _sleepTimerMillisRemaining.value = null
-        sleepTimerJob?.cancel()
         playbackCoordinator.stop()
     }
-    
-    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    private val smoothPosition: Flow<Long> = playbackCoordinator.positionSync.flatMapLatest { sync ->
-        if (sync.isPlaying) {
-            flow {
-                while (true) {
-                    val elapsed = android.os.SystemClock.elapsedRealtime() - sync.timestampMs
-                    val current = sync.positionMs + (elapsed * sync.speed).toLong()
-                    emit(current)
-                    delay(32) // ~30fps for smooth UI
-                }
-            }
-        } else {
-            flowOf(sync.positionMs)
-        }
-    }
 
-    val uiState: StateFlow<PlayerUiState> = combine(
+    // High-frequency playback state
+    private val playbackState = combine(
         playbackCoordinator.currentArtifact,
         playbackCoordinator.isPlaying,
         playbackCoordinator.isBuffering,
-        smoothPosition,
+        playbackCoordinator.smoothPosition,
         playbackCoordinator.durationMs,
         playbackCoordinator.playbackSpeed,
-        playbackCoordinator.isSkipSilenceEnabled,
-        isCommentUnlocked,
+        playbackCoordinator.isSkipSilenceEnabled
+    ) { params ->
+        PlaybackSubState(
+            artifact = params[0] as Artifact?,
+            isPlaying = params[1] as Boolean,
+            isBuffering = params[2] as Boolean,
+            position = params[3] as Long,
+            duration = params[4] as Long,
+            speed = params[5] as Float,
+            isSilenceSkipEnabled = params[6] as Boolean
+        )
+    }.distinctUntilChanged()
+
+    // UI Control State
+    private val uiControlState = combine(
         _isExpanded,
         _showAdvancedControls,
-        _sleepTimerMillisRemaining,
-        isResonated,
-        selectedReactionType,
-        isResonating,
-        isSaved,
-        resonanceSummary,
-        commentCount,
-        reviewSessionManager.reviewProgress
-    ) { params: Array<Any?> ->
-        val artifact = params[0] as Artifact?
-        val isPlaying = params[1] as Boolean
-        val isBuffering = params[2] as Boolean
-        val position = params[3] as Long
-        val duration = params[4] as Long
-        val speed = params[5] as Float
-        val isSkipSilenceEnabled = params[6] as Boolean
-        val commentUnlocked = params[7] as Boolean
-        val expanded = params[8] as Boolean
-        val showAdvanced = params[9] as Boolean
-        val sleepTimer = params[10] as Long?
-        val isResonated = params[11] as Boolean
-        val selectedReactionType = params[12] as ReactionType
-        val isResonating = params[13] as Boolean
-        val isSaved = params[14] as Boolean
-        val resonanceSummary = params[15] as String
-        val commentCount = params[16] as Int
-        val reviewState = params[17] as com.saurabh.artifact.audio.ReviewState
-
-        val isOwner = artifact?.userId == authRepository.currentUserId
-
-        val progress = if (duration > 0) position.toFloat() / duration else 0f
-        val furthestProgress = if (reviewState.artifactId == artifact?.id) reviewState.progress else 0f
-
-        val currentSegment = artifact?.transcript?.find { position in it.startMs..it.endMs }
-
-        val mode = when {
-            artifact == null -> PlayerMode.HIDDEN
-            expanded -> PlayerMode.FULLSCREEN
-            else -> PlayerMode.MINI
-        }
-
-        PlayerUiState(
-            currentArtifact = artifact,
-            isPlaying = isPlaying,
-            isBuffering = isBuffering,
-            currentPosition = position,
-            durationMs = duration,
-            playbackSpeed = speed,
-            isCommentUnlocked = commentUnlocked,
-            playbackProgress = progress,
-            listeningProgress = furthestProgress, 
+        playbackCoordinator.sleepTimerMillisRemaining
+    ) { expanded, advanced, timer ->
+        UiControlSubState(
             isExpanded = expanded,
-            playerMode = mode,
-            isResonated = isResonated,
-            selectedReactionType = selectedReactionType,
-            isResonating = isResonating,
-            isSaved = isSaved,
-            isOwner = isOwner,
-            resonanceSummary = resonanceSummary,
-            commentCount = commentCount,
-            isSilenceSkipEnabled = isSkipSilenceEnabled,
-            sleepTimerMillisRemaining = sleepTimer,
-            currentTranscriptSegment = currentSegment,
-            showAdvancedControls = showAdvanced
+            showAdvancedControls = advanced,
+            sleepTimerMillisRemaining = timer
         )
+    }.distinctUntilChanged()
+
+    // Isolated transcript lookup - Optimized with Binary Search and Distinct emission
+    private val currentTranscriptSegment = combine(
+        playbackCoordinator.currentArtifact,
+        playbackCoordinator.smoothPosition
+    ) { artifact, position ->
+        artifact?.transcript?.findSegmentAt(position)
+    }.distinctUntilChanged()
+
+    val uiState: StateFlow<PlayerUiState> = combine(
+        playbackState,
+        metadata,
+        uiControlState,
+        reviewSessionManager.reviewProgress,
+        currentTranscriptSegment
+    ) { pb, md, ctrl, reviewState, transcriptSegment ->
+        mapToUiState(pb, md, ctrl, reviewState, transcriptSegment)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = PlayerUiState()
     )
 
-    fun toggleResonate(type: ReactionType = selectedReactionType.value) {
+    private fun mapToUiState(
+        pb: PlaybackSubState,
+        md: PlayerMetadata,
+        ctrl: UiControlSubState,
+        reviewState: ReviewState,
+        transcriptSegment: TranscriptSegment?
+    ): PlayerUiState {
+        val artifact = pb.artifact
+        val isOwner = artifact?.userId == authRepository.currentUserId
+        
+        // SYNC VALIDATION: Ensure metadata matches the current artifact to prevent transition flicker
+        val isMetadataSynced = artifact != null && md.artifactId == artifact.id
+        
+        val progress = if (pb.duration > 0) pb.position.toFloat() / pb.duration else 0f
+        val furthestProgress = if (reviewState.artifactId == artifact?.id) reviewState.progress else 0f
+        
+        val mode = when {
+            artifact == null -> PlayerMode.HIDDEN
+            ctrl.isExpanded -> PlayerMode.FULLSCREEN
+            else -> PlayerMode.MINI
+        }
+
+        return PlayerUiState(
+            currentArtifact = artifact,
+            isPlaying = pb.isPlaying,
+            isBuffering = pb.isBuffering,
+            currentPosition = pb.position,
+            durationMs = pb.duration, // ExoPlayer duration is the source of truth
+            playbackSpeed = pb.speed,
+            isCommentUnlocked = if (isMetadataSynced) md.isCommentUnlocked else false,
+            playbackProgress = progress,
+            listeningProgress = furthestProgress,
+            isExpanded = ctrl.isExpanded,
+            playerMode = mode,
+            isResonated = if (isMetadataSynced) md.isResonated else false,
+            selectedReactionType = md.selectedReactionType,
+            isResonating = if (isMetadataSynced) md.isResonating else false,
+            isSaved = if (isMetadataSynced) md.isSaved else false,
+            isOwner = isOwner,
+            resonanceSummary = if (isMetadataSynced) md.resonanceSummary else "",
+            commentCount = if (isMetadataSynced) md.commentCount else 0, // md.commentCount is live
+            isSilenceSkipEnabled = pb.isSilenceSkipEnabled,
+            sleepTimerMillisRemaining = ctrl.sleepTimerMillisRemaining,
+            currentTranscriptSegment = transcriptSegment,
+            showAdvancedControls = ctrl.showAdvancedControls
+        )
+    }
+
+    fun toggleResonate(type: ReactionType = metadata.value.selectedReactionType) {
         val artifact = uiState.value.currentArtifact ?: return
         val userId = authRepository.currentUser.value?.uid ?: return
-        
-        val wasResonated = uiState.value.isResonated
-        _optimisticResonate.value = !wasResonated
 
+        // REFACTOR: Optimistic state is now handled by ReactionRepository -> PendingInteractionDao -> UseCase
         viewModelScope.launch {
-            reactionRepository.toggleReaction(artifact.id, userId, type).onFailure { error ->
-                _optimisticResonate.value = null
+            reactionUseCase.toggleReaction(artifact.id, userId, type).onFailure { error ->
                 _interactionError.emit("Could not resonate: ${error.message}")
-            }.onSuccess {
-                _optimisticResonate.value = null
             }
         }
     }
@@ -280,31 +189,23 @@ class PlayerViewModel @Inject constructor(
         val currentUserId = authRepository.currentUser.value?.uid ?: return
         if (artifact.userId == currentUserId) return
 
-        val wasResonating = uiState.value.isResonating
-        _optimisticResonanceConnection.value = !wasResonating
-
+        val wasResonating = metadata.value.isResonating
+        
+        // REFACTOR: Optimistic state handled by interaction DAO layer
         viewModelScope.launch {
-            val result = if (wasResonating) {
-                userRepository.stopResonatingWithUser(currentUserId, artifact.userId)
-            } else {
-                userRepository.resonateWithUser(currentUserId, artifact.userId)
-            }
-            
-            result.onFailure { error ->
-                _optimisticResonanceConnection.value = null
-                _interactionError.emit("Resonance failed: ${error.message}")
-            }.onSuccess {
-                _optimisticResonanceConnection.value = null
-            }
+            playerInteractionUseCase.toggleResonanceConnection(currentUserId, artifact.userId, wasResonating)
+                .onFailure { error ->
+                    _interactionError.emit("Resonance failed: ${error.message}")
+                }
         }
     }
 
     fun toggleSave() {
         val artifact = uiState.value.currentArtifact ?: return
-        
+
         viewModelScope.launch {
             try {
-                savedArtifactManager.toggleSave(artifact)
+                playerInteractionUseCase.toggleSave(artifact)
             } catch (e: Exception) {
                 _interactionError.emit("Could not preserve: ${e.message}")
             }
@@ -312,7 +213,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun playArtifact(artifact: Artifact, collection: List<Artifact> = emptyList()) {
-        _isExpanded.value = true // Auto-expand when play is triggered
+        _isExpanded.value = true
         playbackCoordinator.playArtifact(
             artifact = artifact,
             collection = collection
@@ -363,49 +264,35 @@ class PlayerViewModel @Inject constructor(
 
     fun deleteCurrentArtifact() {
         val artifact = uiState.value.currentArtifact ?: return
-        
-        viewModelScope.launch {
-            val result = if (artifact.isDraft) {
-                val draft = recordingRepository.getDraft(artifact.id)
-                if (draft != null) {
-                    recordingRepository.deleteDraft(draft)
-                    Result.success(Unit)
-                } else {
-                    Result.failure(Exception("Draft not found"))
-                }
-            } else {
-                artifactRepository.deletePublishedArtifact(artifact.id)
-            }
 
-            result.onSuccess {
-                playbackCoordinator.stop()
-                _isExpanded.value = false
-            }.onFailure { e ->
-                _interactionError.emit("Unable to delete: ${e.message}")
-            }
+        viewModelScope.launch {
+            deleteArtifactUseCase.execute(artifact)
+                .onSuccess {
+                    playbackCoordinator.stop()
+                    _isExpanded.value = false
+                }.onFailure { e ->
+                    _interactionError.emit("Unable to delete: ${e.message}")
+                }
         }
     }
 
     fun startSleepTimer(minutes: Int) {
-        sleepTimerJob?.cancel()
-        if (minutes == 0) {
-            _sleepTimerMillisRemaining.value = null
-            return
-        }
-
-        val totalMillis = minutes * 60 * 1000L
-        _sleepTimerMillisRemaining.value = totalMillis
-        
-        sleepTimerJob = viewModelScope.launch {
-            var remaining = totalMillis
-            while (remaining > 0) {
-                delay(1000)
-                remaining -= 1000
-                _sleepTimerMillisRemaining.value = remaining
-                if (!playbackCoordinator.isPlaying.value) continue
-            }
-            playbackCoordinator.stop()
-            _sleepTimerMillisRemaining.value = null
-        }
+        playbackCoordinator.startSleepTimer(minutes)
     }
 }
+
+private data class PlaybackSubState(
+    val artifact: Artifact?,
+    val isPlaying: Boolean,
+    val isBuffering: Boolean,
+    val position: Long,
+    val duration: Long,
+    val speed: Float,
+    val isSilenceSkipEnabled: Boolean
+)
+
+private data class UiControlSubState(
+    val isExpanded: Boolean,
+    val showAdvancedControls: Boolean,
+    val sleepTimerMillisRemaining: Long?
+)

@@ -15,7 +15,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import javax.inject.Inject
+
+sealed class DraftListUiEvent {
+    data class NavigateToReview(val draftId: String) : DraftListUiEvent()
+    data class NavigateToEdit(val draftId: String) : DraftListUiEvent()
+}
 
 @HiltViewModel
 class DraftListViewModel @Inject constructor(
@@ -34,12 +41,35 @@ class DraftListViewModel @Inject constructor(
     val isPlaying = audioPlayer.isPlaying
     val currentlyPlayingArtifact = audioPlayer.currentArtifact
 
+    private val _events = MutableSharedFlow<DraftListUiEvent>()
+    val events = _events.asSharedFlow()
+
+    fun onDraftClicked(draftWithUpload: DraftWithUpload) {
+        val draft = draftWithUpload.draft
+        if (draft.status.publication is com.saurabh.artifact.model.SyncStatus.Recovering) {
+            // Trigger processing for interrupted draft
+            viewModelScope.launch {
+                publishingOrchestrator.startProcessing(draft.id)
+            }
+        } else {
+            viewModelScope.launch {
+                _events.emit(DraftListUiEvent.NavigateToReview(draft.id))
+            }
+        }
+    }
+
+    fun onEditClicked(draftId: String) {
+        viewModelScope.launch {
+            _events.emit(DraftListUiEvent.NavigateToEdit(draftId))
+        }
+    }
+
     fun playDraft(draftWithUpload: DraftWithUpload) {
         val draft = draftWithUpload.draft
         if (draft.status.publication is com.saurabh.artifact.model.SyncStatus.Recovering) {
             // If recovering, we should first try to process it before playing
             viewModelScope.launch {
-                recordingRepository.startProcessing(draft.id)
+                publishingOrchestrator.startProcessing(draft.id)
             }
         }
 

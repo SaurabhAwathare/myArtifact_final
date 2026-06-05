@@ -9,6 +9,7 @@ import androidx.core.content.ContextCompat
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.background
@@ -137,8 +138,9 @@ fun AppRoot(
 
     Log.d("PERF_DEBUG", "AppRoot Recomposed. Stage: $stage")
 
+    val activity = LocalActivity.current ?: return
     val publishStateManager = dagger.hilt.android.EntryPointAccessors.fromActivity(
-        androidx.compose.ui.platform.LocalContext.current as android.app.Activity,
+        activity,
         MainActivityEntryPoint::class.java
     ).publishStateManager()
 

@@ -3,17 +3,16 @@ package com.saurabh.artifact.ui.profile
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.saurabh.artifact.audio.PlaybackCoordinator
-import com.saurabh.artifact.audio.PlaybackType
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.AvatarConfig
 import com.saurabh.artifact.model.ReactionType
 import com.saurabh.artifact.model.User
 import com.saurabh.artifact.repository.*
-import com.saurabh.artifact.repository.SavedArtifactManager
 import com.saurabh.artifact.ui.util.UiText
 import com.saurabh.artifact.ui.util.ErrorMessageMapper
 import com.saurabh.artifact.R
+import com.saurabh.artifact.domain.profile.ProfileData
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
@@ -42,7 +41,6 @@ data class ProfileUiState(
     val isLoading: Boolean = true,
     val isActionLoading: Boolean = false,
     val isRefreshing: Boolean = false,
-    // Playback State (Mirrored from Manager for UI convenience)
     val currentlyPlayingArtifact: Artifact? = null,
     val isPlaying: Boolean = false,
     val isBuffering: Boolean = false,
@@ -53,16 +51,14 @@ data class ProfileUiState(
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class ProfileViewModel @Inject constructor(
-    private val artifactRepository: ArtifactRepository,
     private val authRepository: AuthRepository,
-    private val userRepository: UserRepository,
     private val userProfileManager: UserProfileManager,
     private val settingsRepository: SettingsRepository,
-    private val recordingRepository: RecordingRepository,
-    private val reactionRepository: ReactionRepository,
     private val savedArtifactManager: SavedArtifactManager,
     private val playbackCoordinator: PlaybackCoordinator,
-    private val reviewSessionManager: com.saurabh.artifact.audio.ReviewSessionManager
+    private val getProfileDataUseCase: com.saurabh.artifact.domain.profile.GetProfileDataUseCase,
+    private val profileInteractionUseCase: com.saurabh.artifact.domain.profile.ProfileInteractionUseCase,
+    private val reactionUseCase: com.saurabh.artifact.domain.feed.ReactionUseCase
 ) : ViewModel() {
 
     val currentUserId: String? get() = authRepository.currentUser.value?.uid
@@ -76,37 +72,8 @@ class ProfileViewModel @Inject constructor(
     private val _isRefreshing = MutableStateFlow(false)
     private val _refreshTrigger = MutableStateFlow(0)
 
-    private val profileDataFlow = combine(
-        _targetUserId,
-        authRepository.userData,
-        _refreshTrigger
-    ) { targetId, currentUser, _ ->
-        val isSelf = (targetId == null) || (targetId == currentUser?.id)
-        val finalId = targetId ?: currentUser?.id
-        finalId to isSelf
-    }.flatMapLatest { (finalId, isSelf) ->
-        val effectiveId = finalId ?: return@flatMapLatest flowOf(null)
-        
-        combine(
-            userRepository.streamUserProfile(effectiveId),
-            artifactRepository.getUserArtifacts(effectiveId, onlyActive = !isSelf),
-            artifactRepository.getSavedArtifacts(effectiveId),
-            if (isSelf) recordingRepository.observeDrafts().map { drafts ->
-                drafts.filter { it.lifecycle != com.saurabh.artifact.model.ArtifactLifecycle.PUBLISHED }
-            } else flowOf(emptyList()),
-            userRepository.observeIsResonating(authRepository.currentUserId, effectiveId)
-        ) { profile, allArtifacts, saved, localDrafts, isResonating ->
-            val statusPublished = com.saurabh.artifact.model.ArtifactStatus.ACTIVE
-            ProfileData(
-                userProfile = profile,
-                publishedArtifacts = allArtifacts.filter { it.status == statusPublished },
-                cloudDrafts = allArtifacts.filter { it.status != statusPublished },
-                savedArtifacts = saved,
-                localDrafts = localDrafts,
-                isResonating = isResonating,
-                isSelf = isSelf
-            )
-        }
+    private val profileDataFlow = _refreshTrigger.flatMapLatest {
+        getProfileDataUseCase(_targetUserId.value)
     }
 
     val uiState: StateFlow<ProfileUiState> = combine(
@@ -164,22 +131,13 @@ class ProfileViewModel @Inject constructor(
         initialValue = ProfileUiState()
     )
 
-    init {
-        android.util.Log.d("ReviewDebug", "ProfileViewModel initialized")
-    }
-
     fun refresh() {
         viewModelScope.launch {
             _isRefreshing.value = true
             _refreshTrigger.value += 1
-            // Small delay to make the refresh feel deliberate and "calm"
             delay(800)
             _isRefreshing.value = false
         }
-    }
-
-    private fun clearUnused() {
-        // Removed observeState
     }
 
     fun selectTab(tab: ProfileTab) {
@@ -188,6 +146,7 @@ class ProfileViewModel @Inject constructor(
 
     fun setTargetUser(userId: String?) {
         _targetUserId.value = userId
+        _refreshTrigger.value += 1
     }
 
     fun toggleResonance() {
@@ -197,19 +156,17 @@ class ProfileViewModel @Inject constructor(
 
         viewModelScope.launch {
             _isActionLoading.value = true
-            try {
-                if (uiState.value.isResonating) {
-                    userRepository.stopResonatingWithUser(currentId, targetId)
-                    _message.value = UiText.StringResource(R.string.unfollowed)
-                } else {
-                    userRepository.resonateWithUser(currentId, targetId)
-                    _message.value = UiText.StringResource(R.string.now_following)
+            profileInteractionUseCase.toggleResonance(currentId, targetId, uiState.value.isResonating)
+                .onSuccess {
+                    _message.value = if (uiState.value.isResonating) 
+                        UiText.StringResource(R.string.unfollowed) 
+                    else 
+                        UiText.StringResource(R.string.now_following)
                 }
-            } catch (e: Exception) {
-                _message.value = ErrorMessageMapper.map(e)
-            } finally {
-                _isActionLoading.value = false
-            }
+                .onFailure { e ->
+                    _message.value = ErrorMessageMapper.map(e)
+                }
+            _isActionLoading.value = false
         }
     }
 
@@ -232,17 +189,15 @@ class ProfileViewModel @Inject constructor(
     fun reactToArtifact(artifactId: String, type: ReactionType) {
         val userId = authRepository.currentUser.value?.uid ?: return
         viewModelScope.launch {
-            reactionRepository.toggleReaction(artifactId, userId, type)
+            reactionUseCase.toggleReaction(artifactId, userId, type)
         }
     }
 
     fun updateArtifactVisibility(artifactId: String, mode: com.saurabh.artifact.model.ReactionVisibilityMode) {
         viewModelScope.launch {
-            reactionRepository.setVisibilityMode(artifactId, mode)
+            reactionUseCase.setVisibilityMode(artifactId, mode)
         }
     }
-
-    // --- Ownership Management ---
 
     fun toggleSave(artifact: Artifact) {
         val isSaved = savedIds.value.contains(artifact.id)
@@ -258,7 +213,7 @@ class ProfileViewModel @Inject constructor(
         viewModelScope.launch {
             _isActionLoading.value = true
             try {
-                recordingRepository.renameDraft(draftId, newTitle)
+                profileInteractionUseCase.renameDraft(draftId, newTitle)
                 _message.value = UiText.StringResource(R.string.draft_renamed)
             } catch (e: Exception) {
                 _message.value = ErrorMessageMapper.map(e)
@@ -272,10 +227,8 @@ class ProfileViewModel @Inject constructor(
         viewModelScope.launch {
             _isActionLoading.value = true
             try {
-                recordingRepository.getDraft(draftId)?.let { draft ->
-                    recordingRepository.deleteDraft(draft)
-                    _message.value = UiText.StringResource(R.string.draft_deleted)
-                }
+                profileInteractionUseCase.deleteDraft(draftId)
+                _message.value = UiText.StringResource(R.string.draft_deleted)
             } catch (e: Exception) {
                 _message.value = ErrorMessageMapper.map(e)
             } finally {
@@ -287,7 +240,7 @@ class ProfileViewModel @Inject constructor(
     fun renamePublishedArtifact(artifactId: String, newTitle: String) {
         viewModelScope.launch {
             _isActionLoading.value = true
-            artifactRepository.renamePublishedArtifact(artifactId, newTitle)
+            profileInteractionUseCase.renamePublishedArtifact(artifactId, newTitle)
                 .onSuccess {
                     _message.value = UiText.StringResource(R.string.reflection_renamed)
                 }
@@ -301,7 +254,7 @@ class ProfileViewModel @Inject constructor(
     fun deletePublishedArtifact(artifactId: String) {
         viewModelScope.launch {
             _isActionLoading.value = true
-            artifactRepository.deletePublishedArtifact(artifactId)
+            profileInteractionUseCase.deletePublishedArtifact(artifactId)
                 .onSuccess {
                     _message.value = UiText.StringResource(R.string.reflection_deleted)
                 }
@@ -329,11 +282,6 @@ class ProfileViewModel @Inject constructor(
         }
     }
 
-    override fun onCleared() {
-        super.onCleared()
-        // Playback ownership is now handled by the Coordinator.
-    }
-
     fun resetLogoutState() {
         _logoutState.value = LogoutState.Idle
     }
@@ -346,13 +294,3 @@ sealed class LogoutState {
     data object Success : LogoutState()
     data class Error(val message: UiText) : LogoutState()
 }
-
-private data class ProfileData(
-    val userProfile: User?,
-    val publishedArtifacts: List<Artifact>,
-    val cloudDrafts: List<Artifact>,
-    val savedArtifacts: List<Artifact>,
-    val localDrafts: List<ArtifactDraftEntity>,
-    val isResonating: Boolean,
-    val isSelf: Boolean
-)

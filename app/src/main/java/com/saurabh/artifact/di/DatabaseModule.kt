@@ -56,6 +56,7 @@ object DatabaseModule {
             AppDatabase.MIGRATION_37_38,
             AppDatabase.MIGRATION_38_39,
             AppDatabase.MIGRATION_39_40,
+            AppDatabase.MIGRATION_41_42,
         ).fallbackToDestructiveMigration(true)
             .build()
     }
@@ -88,5 +89,10 @@ object DatabaseModule {
     @Provides
     fun provideUploadTaskDao(database: AppDatabase): com.saurabh.artifact.data.local.UploadTaskDao {
         return database.uploadTaskDao()
+    }
+
+    @Provides
+    fun providePendingInteractionDao(database: AppDatabase): com.saurabh.artifact.data.local.PendingInteractionDao {
+        return database.pendingInteractionDao()
     }
 }

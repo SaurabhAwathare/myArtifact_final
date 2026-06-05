@@ -36,21 +36,7 @@ class PublishStateManager @Inject constructor(
 
     private fun observePendingUploads() {
         scope.launch {
-            draftRepository.observeDraftsWithUploads()
-                .map { draftsWithUploads ->
-                    // Find the most relevant active upload/publish
-                    draftsWithUploads.firstOrNull { item ->
-                        val lifecycle = item.draft.status.lifecycle
-                        val sync = item.uploadTask?.status ?: item.draft.status.publication
-                        
-                        lifecycle == ArtifactLifecycle.READY_TO_PUBLISH ||
-                        lifecycle == ArtifactLifecycle.PUBLISHED ||
-                        sync is SyncStatus.Uploading ||
-                        sync is SyncStatus.WaitingForNetwork ||
-                        sync is SyncStatus.Failed ||
-                        sync is SyncStatus.Finalizing
-                    }
-                }
+            draftRepository.observeActivePublishingSessionWithUpload()
                 .distinctUntilChangedBy { 
                     it?.draft?.id to it?.draft?.status?.lifecycle to it?.uploadTask?.status to it?.uploadTask?.uploadedBytes 
                 }
@@ -90,18 +76,19 @@ class PublishStateManager @Inject constructor(
                         syncStatus is SyncStatus.WaitingForNetwork -> 
                             PublishState.Uploading(id, title, progress, isWaitingForNetwork = true)
                         
-                        syncStatus is SyncStatus.Uploading -> {
-                            if (progress < 0.95f) {
+                        syncStatus is SyncStatus.Uploading || syncStatus is SyncStatus.Finalizing -> {
+                            if (progress < 0.95f && syncStatus !is SyncStatus.Finalizing) {
                                 PublishState.Uploading(id, title, progress)
                             } else {
                                 PublishState.Finalizing(id, title)
                             }
                         }
                         
-                        syncStatus is SyncStatus.Finalizing -> PublishState.Finalizing(id, title)
-                        
                         draft.status.lifecycle == ArtifactLifecycle.READY_TO_PUBLISH -> 
                             PublishState.Preparing(id, title)
+
+                        draft.status.lifecycle == ArtifactLifecycle.PROCESSING ->
+                            PublishState.Preparing(id, title) // Processing is a type of preparation
                         
                         else -> null
                     }

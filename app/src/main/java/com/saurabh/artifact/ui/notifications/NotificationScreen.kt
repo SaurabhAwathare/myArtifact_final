@@ -15,12 +15,16 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.os.ConfigurationCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.saurabh.artifact.model.NotificationItem
+import com.saurabh.artifact.ui.util.NotificationMapper
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -110,6 +114,12 @@ fun NotificationCard(
     notification: NotificationItem,
     onClick: () -> Unit
 ) {
+    val configuration = LocalConfiguration.current
+    val locale = ConfigurationCompat.getLocales(configuration)[0] ?: configuration.locales[0]
+    val dateFormatter = remember(locale) {
+        SimpleDateFormat("MMM d, h:mm a", locale)
+    }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -142,14 +152,14 @@ fun NotificationCard(
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = notification.message,
+                    text = NotificationMapper.mapToUiText(notification).asString(),
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = if (notification.isRead) FontWeight.Light else FontWeight.Normal,
                     lineHeight = androidx.compose.ui.unit.TextUnit.Unspecified
                 )
                 
                 Text(
-                    text = formatTimestamp(notification.createdAt.toDate()),
+                    text = dateFormatter.format(notification.createdAt.toDate()),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                     modifier = Modifier.padding(top = 6.dp),
@@ -160,7 +170,7 @@ fun NotificationCard(
     }
 }
 
-private fun formatTimestamp(date: Date): String {
-    val sdf = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault())
-    return sdf.format(date)
-}
+// DELETE: private fun formatTimestamp(date: Date): String {
+//    val sdf = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault())
+//    return sdf.format(date)
+// }

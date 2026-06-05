@@ -84,6 +84,29 @@ data class Artifact(
     }
 }
 
+/**
+ * Optimized binary search for finding a transcript segment at a specific time.
+ * Complexity: O(log N) where N is the number of segments.
+ */
+fun List<TranscriptSegment>.findSegmentAt(positionMs: Long): TranscriptSegment? {
+    if (isEmpty()) return null
+    
+    var low = 0
+    var high = size - 1
+    
+    while (low <= high) {
+        val mid = (low + high) ushr 1
+        val midVal = get(mid)
+        
+        when {
+            positionMs < midVal.startMs -> high = mid - 1
+            positionMs > midVal.endMs -> low = mid + 1
+            else -> return midVal // Found it
+        }
+    }
+    return null
+}
+
 @Immutable
 @Serializable
 data class TranscriptSegment(

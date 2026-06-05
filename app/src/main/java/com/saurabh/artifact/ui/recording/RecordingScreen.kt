@@ -32,6 +32,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -45,6 +46,7 @@ import com.saurabh.artifact.ui.recording.components.*
 import com.saurabh.artifact.ui.theme.*
 import androidx.compose.ui.tooling.preview.Preview
 import com.saurabh.artifact.model.ReflectionPrompt
+import com.saurabh.artifact.util.TimeUtils
 import java.util.*
 import kotlin.math.absoluteValue
 
@@ -181,11 +183,16 @@ fun RecordingScreen(
         )
     }
 
-    // Initial Start: Only start if we are in IDLE or FAILED state
-    // This prevents re-starting on configuration changes (rotation)
-    LaunchedEffect(Unit) {
-        if (uiState.status == RecordingStatus.IDLE || uiState.status == RecordingStatus.FAILED) {
-            requestPermission()
+    // Handle Start Event
+    LaunchedEffect(viewModel.events) {
+        viewModel.events.collect { event ->
+            when (event) {
+                is RecordingEvent.RequestStart -> {
+                    if (uiState.status == RecordingStatus.IDLE || uiState.status == RecordingStatus.FAILED) {
+                        requestPermission()
+                    }
+                }
+            }
         }
     }
 
@@ -393,7 +400,7 @@ fun RecordingScreen(
                     // Live Timer
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            text = formatDuration(uiState.durationSeconds),
+                            text = TimeUtils.formatDuration(uiState.durationSeconds, LocalConfiguration.current),
                             style = MaterialTheme.typography.displaySmall.copy(
                                 fontWeight = FontWeight.ExtraLight,
                                 letterSpacing = 4.sp
@@ -552,12 +559,6 @@ fun EnhancedRecordingControls(
             )
         }
     }
-}
-
-private fun formatDuration(seconds: Long): String {
-    val mins = seconds / 60
-    val secs = seconds % 60
-    return String.format(Locale.getDefault(), "%02d:%02d", mins, secs)
 }
 
 @Preview

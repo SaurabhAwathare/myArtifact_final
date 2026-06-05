@@ -18,8 +18,10 @@ import javax.inject.Singleton
 
 @Singleton
 class ReactionRepository @Inject constructor(
+    @dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context,
     private val firestore: FirebaseFirestore,
-    private val notificationRepository: NotificationRepository
+    private val notificationRepository: NotificationRepository,
+    private val pendingInteractionDao: com.saurabh.artifact.data.local.PendingInteractionDao
 ) {
 
     /**
@@ -71,7 +73,7 @@ class ReactionRepository @Inject constructor(
             if (ownerId != null && ownerId != userId) {
                 notificationRepository.createNotification(
                     userId = ownerId,
-                    message = notificationRepository.getAtmosphericMessage(type),
+                    message = "RESONANCE|${type.id}", // UI layer will map type
                     artifactId = artifactId,
                     type = NotificationType.RESONANCE
                 )
@@ -80,6 +82,34 @@ class ReactionRepository @Inject constructor(
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e("ReactionRepository", "Failed to react to artifact", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Removes an emotional reaction from an artifact.
+     * Uses a transaction to ensure count consistency across private/global collections.
+     */
+    suspend fun removeReaction(
+        artifactId: String,
+        userId: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val pulseRef = firestore.collection("users").document(userId)
+                .collection("private").document("interactions")
+                .collection("reactions").document(artifactId)
+            
+            val reactionId = "${artifactId}_${userId}"
+            val globalRef = firestore.collection("artifact_reactions").document(reactionId)
+            
+            firestore.runTransaction { transaction ->
+                transaction.delete(pulseRef)
+                transaction.delete(globalRef)
+            }.await()
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("ReactionRepository", "Failed to remove reaction", e)
             Result.failure(e)
         }
     }
@@ -129,6 +159,7 @@ class ReactionRepository @Inject constructor(
 
     /**
      * Toggles a reaction for a user on an artifact.
+     * OFFLINE-FIRST: Writes to local pending queue and triggers sync worker.
      */
     suspend fun toggleReaction(artifactId: String, userId: String, type: ReactionType): Result<Unit> = withContext(Dispatchers.IO) {
         try {
@@ -137,24 +168,41 @@ class ReactionRepository @Inject constructor(
                 .collection("reactions").document(artifactId)
             
             val existingPulseDoc = pulseRef.get().await()
+            val willAdd = !existingPulseDoc.exists()
 
-            if (existingPulseDoc.exists()) {
-                val reactionId = "${artifactId}_${userId}"
-                val globalRef = firestore.collection("artifact_reactions").document(reactionId)
-                
-                firestore.runTransaction { transaction ->
-                    // 1. Delete reaction from both places
-                    transaction.delete(pulseRef)
-                    transaction.delete(globalRef)
-                }.await()
-            } else {
-                // Add reaction
-                reactToArtifact(artifactId, userId, type)
-            }
+            // 1. Record pending interaction for sync
+            val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
+                artifactId = artifactId,
+                interactionType = com.saurabh.artifact.data.local.InteractionType.REACTION,
+                action = if (willAdd) com.saurabh.artifact.data.local.InteractionAction.ADD else com.saurabh.artifact.data.local.InteractionAction.REMOVE,
+                metadata = type.id
+            )
+            
+            // Clean up any existing pending reactions for this artifact to avoid redundant toggles
+            pendingInteractionDao.deleteByType(artifactId, com.saurabh.artifact.data.local.InteractionType.REACTION)
+            pendingInteractionDao.insert(pending)
+
+            // 2. Trigger Sync Worker
+            com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
+
+            // 3. Optimistic success
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("ReactionRepository", "Failed to toggle reaction", e)
-            Result.failure(e)
+            // Fallback for offline: if network fails, we still record the pending intent
+            if (ArtifactRepository.isTransientError(e)) {
+                val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
+                    artifactId = artifactId,
+                    interactionType = com.saurabh.artifact.data.local.InteractionType.REACTION,
+                    action = com.saurabh.artifact.data.local.InteractionAction.ADD, // Assumption: most toggles are additions when offline
+                    metadata = type.id
+                )
+                pendingInteractionDao.insert(pending)
+                com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
+                Result.success(Unit)
+            } else {
+                Log.e("ReactionRepository", "Failed to toggle reaction", e)
+                Result.failure(e)
+            }
         }
     }
 

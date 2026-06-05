@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.saurabh.artifact.domain.IdentityScout
+import com.saurabh.artifact.domain.PublishingOrchestrator
 import com.saurabh.artifact.model.ArtifactDraftState
 import com.saurabh.artifact.model.TranscriptSegment
 import com.saurabh.artifact.repository.PublishApprovalRepository
@@ -18,7 +19,7 @@ import javax.inject.Inject
 @HiltViewModel
 class PublishFlowViewModel @Inject constructor(
     private val repository: PublishApprovalRepository,
-    private val publishSessionManager: com.saurabh.artifact.audio.PublishSessionManager,
+    private val publishingOrchestrator: PublishingOrchestrator,
     private val identityScout: IdentityScout,
     private val auth: com.google.firebase.auth.FirebaseAuth,
     savedStateHandle: SavedStateHandle,
@@ -175,12 +176,11 @@ class PublishFlowViewModel @Inject constructor(
             // 1. Psychological Pacing (Shortened for the ambient transition)
             kotlinx.coroutines.delay(1000)
 
-            // 2. Submit to session manager (which triggers immutable freeze and WorkManager)
-            val result = publishSessionManager.approveAndPublish(draftId, _uiState.value.transcript)
+            // 2. Submit to orchestrator (which triggers immutable freeze and WorkManager)
+            val result = publishingOrchestrator.approveAndPublish(draftId, _uiState.value.transcript)
             
             if (result.isSuccess) {
                 // 3. Signal immediate success to trigger navigation back
-                publishSessionManager.clearSession()
                 _uiState.update { it.copy(
                     isLoading = false, 
                     isSuccess = true, 

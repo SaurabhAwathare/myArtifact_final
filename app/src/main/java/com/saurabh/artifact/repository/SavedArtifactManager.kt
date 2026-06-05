@@ -22,8 +22,8 @@ class SavedArtifactManager @Inject constructor(
     private val _savedIds = MutableStateFlow<Set<String>>(emptySet())
     val savedIds: StateFlow<Set<String>> = _savedIds.asStateFlow()
 
-    private val _messages = MutableSharedFlow<String>()
-    val messages = _messages.asSharedFlow()
+    private val _events = MutableSharedFlow<SavedEvent>()
+    val events = _events.asSharedFlow()
 
     init {
         observeSavedIds()
@@ -63,12 +63,7 @@ class SavedArtifactManager @Inject constructor(
             }
 
             result.onSuccess {
-                val message = if (isSaved) {
-                    "Reflection released"
-                } else {
-                    "Stayed with you."
-                }
-                _messages.emit(message)
+                _events.emit(SavedEvent.Success(isSaved = !isSaved))
             }.onFailure {
                 // Rollback on failure
                 _savedIds.value = if (isSaved) {
@@ -76,9 +71,14 @@ class SavedArtifactManager @Inject constructor(
                 } else {
                     _savedIds.value - artifact.id
                 }
-                _messages.emit("Unable to preserve")
+                _events.emit(SavedEvent.Failure(isSaved = !isSaved))
             }
         }
+    }
+
+    sealed class SavedEvent {
+        data class Success(val isSaved: Boolean) : SavedEvent()
+        data class Failure(val isSaved: Boolean) : SavedEvent()
     }
 
     fun isSaved(artifactId: String): Flow<Boolean> {
