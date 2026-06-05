@@ -61,6 +61,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.MyArtifact"
         android:enableOnBackInvokedCallback="true"
+        tools:targetApi="33"
         tools:ignore="RemoveWorkManagerInitializer">
 
         <meta-data
@@ -109,7 +110,8 @@
             android:name=".audio.PlaybackService"
             android:enabled="true"
             android:exported="true"
-            android:foregroundServiceType="mediaPlayback">
+            android:foregroundServiceType="mediaPlayback"
+            tools:ignore="ExportedService">
             <intent-filter>
                 <action android:name="androidx.media3.session.MediaSessionService" />
                 <action android:name="android.intent.action.MEDIA_BUTTON" />

@@ -1,5 +1,6 @@
 plugins {
     alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.google.devtools.ksp)
     alias(libs.plugins.hilt)
@@ -10,12 +11,12 @@ plugins {
 
 android {
     namespace = "com.saurabh.artifact"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.saurabh.artifact"
         minSdk = 24
-        targetSdk = 35
+        targetSdk = 37
         versionCode = 1
         versionName = "1.0"
 
@@ -124,7 +125,7 @@ dependencies {
     implementation(libs.googleid)
     implementation(libs.play.services.auth)
     implementation(libs.play.services.base)
-    implementation("com.google.android.gms:play-services-auth-blockstore:16.4.0")
+    implementation(libs.play.services.auth.blockstore)
 
     // Media3
     implementation(libs.androidx.media3.exoplayer)

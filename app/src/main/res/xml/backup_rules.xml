@@ -8,5 +8,4 @@
 <full-backup-content>
     <include domain="database" path="drafts_db"/>
     <include domain="file" path="drafts/"/>
-    <exclude domain="database" path="artifact_db"/>
 </full-backup-content>

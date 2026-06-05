@@ -167,8 +167,8 @@ fun RecordingWaveform(
 @Composable
 fun RecordingIndicator(
     isRecording: Boolean,
-    isPreparing: Boolean = false,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isPreparing: Boolean = false
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "RecordingIndicator")
     val alpha by infiniteTransition.animateFloat(

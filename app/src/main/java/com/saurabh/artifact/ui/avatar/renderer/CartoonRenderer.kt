@@ -3,6 +3,7 @@ package com.saurabh.artifact.ui.avatar.renderer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.core.graphics.toColorInt
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -22,7 +23,7 @@ class CartoonRenderer : AvatarRenderer {
     }
 
     private fun DrawScope.drawFace(config: AvatarConfig, scale: Float) {
-        val color = Color(android.graphics.Color.parseColor(config.skinColor))
+        val color = Color(config.skinColor.toColorInt())
         
         when (config.faceShape) {
             FaceShape.ROUND -> {
@@ -160,7 +161,7 @@ class CartoonRenderer : AvatarRenderer {
     private fun DrawScope.drawHair(config: AvatarConfig, scale: Float) {
         if (config.hairType == HairType.NONE) return
         
-        val hairColor = Color(android.graphics.Color.parseColor(config.hairColor))
+        val hairColor = Color(config.hairColor.toColorInt())
         
         when (config.hairType) {
             HairType.SHORT -> {

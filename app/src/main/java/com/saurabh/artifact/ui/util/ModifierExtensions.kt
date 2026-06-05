@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -21,7 +22,7 @@ fun Modifier.debouncedClick(
     interval: Long = 1000L,
     onClick: () -> Unit
 ): Modifier = composed {
-    var lastClickTime by remember { mutableStateOf(0L) }
+    var lastClickTime by remember { mutableLongStateOf(0L) }
     
     this.clickable(
         enabled = enabled,

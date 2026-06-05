@@ -40,10 +40,10 @@ fun ProfileArtifactCard(
     onPlayClick: () -> Unit,
     onRename: (String) -> Unit,
     onDelete: () -> Unit,
+    modifier: Modifier = Modifier,
     onViewComments: (() -> Unit)? = null,
     isSaved: Boolean = false,
     onUnsave: () -> Unit = {},
-    modifier: Modifier = Modifier,
     isBuffering: Boolean = false,
     progress: Float = 0f
 ) {

@@ -30,7 +30,7 @@ fun WaveformScrubber(
     modifier: Modifier = Modifier
 ) {
     var isDragging by remember { mutableStateOf(false) }
-    var dragProgress by remember { mutableStateOf(progress) }
+    var dragProgress by remember { mutableFloatStateOf(progress) }
 
     Box(
         modifier = modifier

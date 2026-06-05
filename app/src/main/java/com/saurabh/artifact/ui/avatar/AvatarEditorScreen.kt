@@ -18,6 +18,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.core.graphics.toColorInt
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -211,7 +213,7 @@ private fun ColorOption(colorHex: String, selected: Boolean, onClick: () -> Unit
         modifier = Modifier
             .size(40.dp)
             .clip(CircleShape)
-            .background(Color(android.graphics.Color.parseColor(colorHex)))
+            .background(Color(colorHex.toColorInt()))
             .clickable { onClick() }
             .then(
                 if (selected) Modifier.background(Color.White.copy(alpha = 0.3f), CircleShape)

@@ -2,6 +2,7 @@ package com.saurabh.artifact.security
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.core.content.edit
 import android.util.Base64
 import androidx.security.crypto.MasterKey
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -37,7 +38,7 @@ class DatabaseEncryptionManager @Inject constructor(
             val newPassphrase = ByteArray(32)
             SecureRandom().nextBytes(newPassphrase)
             val newEncoded = Base64.encodeToString(newPassphrase, Base64.DEFAULT)
-            prefs.edit().putString(DB_PASSPHRASE_KEY, newEncoded).apply()
+            prefs.edit { putString(DB_PASSPHRASE_KEY, newEncoded) }
             newPassphrase
         }
     }

@@ -41,9 +41,9 @@ fun PlayerInteractionBar(
     isCommentUnlocked: Boolean,
     commentCount: Int,
     onCommentClick: () -> Unit,
+    modifier: Modifier = Modifier,
     showResonance: Boolean = true,
-    showSave: Boolean = true,
-    modifier: Modifier = Modifier
+    showSave: Boolean = true
 ) {
     var showReactionPicker by remember { mutableStateOf(false) }
 

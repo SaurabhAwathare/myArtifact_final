@@ -3,6 +3,7 @@ package com.saurabh.artifact.ui.feed
 import android.util.Log
 import android.content.Intent
 import android.net.Uri
+import androidx.core.net.toUri
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -405,7 +406,7 @@ fun FeedHeader(
                 onCallHelp = { 
                     try {
                         val intent = Intent(Intent.ACTION_DIAL).apply {
-                            data = Uri.parse("tel:988")
+                            data = "tel:988".toUri()
                         }
                         context.startActivity(intent)
                     } catch (e: Exception) {

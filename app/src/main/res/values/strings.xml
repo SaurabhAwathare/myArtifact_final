@@ -4,7 +4,6 @@
     <string name="playback_channel_name">Playback</string>
 
     <!-- Zen Snackbar Messages -->
-    <string name="reflection_released">A reflection has been released.</string>
     <string name="reflection_renamed">The reflection now carries a new name.</string>
     <string name="reflection_deleted">A reflection has been released.</string>
     <string name="draft_renamed">The draft now carries a new name.</string>
@@ -18,7 +17,6 @@
     <string name="quiet_moment_interrupted">A quiet moment was interrupted. Please try again.</string>
     <string name="no_voice_yet">This reflection hasn\'t found its voice yet.</string>
     <string name="presence_needs_reaffirmation">Your presence needs to be reaffirmed.</string>
-    <string name="presence_updated">Your presence has evolved.</string>
     <string name="presence_ritual_failed">The ritual could not be completed at this time.</string>
     <string name="name_already_resonating">This name is already resonating with another.</string>
     <string name="connection_faded">The connection has faded. Let it rest and try again.</string>

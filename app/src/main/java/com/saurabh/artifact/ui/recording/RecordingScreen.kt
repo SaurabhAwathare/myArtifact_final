@@ -297,12 +297,12 @@ fun RecordingScreen(
                             pageSpacing = 16.dp
                         ) { page ->
                             val prompt = uiState.promptList[page]
+                            val pageOffset by remember {
+                                derivedStateOf {
+                                    ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction).absoluteValue
+                                }
+                            }
                             
-                            // Pager Transition Effects
-                            val pageOffset = (
-                                (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction
-                            ).absoluteValue
-
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()

@@ -1,6 +1,7 @@
 package com.saurabh.artifact.security
 
 import android.content.Context
+import android.annotation.SuppressLint
 import android.provider.Settings
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.model.ArtifactLifecycle
@@ -47,6 +48,7 @@ class UploadGuard @Inject constructor(
         return true
     }
 
+    @SuppressLint("HardwareIds")
     fun getDeviceFingerprint(): String {
         return Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "unknown_device"
     }

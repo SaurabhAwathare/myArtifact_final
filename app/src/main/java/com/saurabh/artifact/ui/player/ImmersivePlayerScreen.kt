@@ -65,7 +65,7 @@ fun ImmersivePlayerScreen(
     }
     
     // Gesture State for swipe-down to collapse
-    var offsetY by remember { mutableStateOf(0f) }
+    var offsetY by remember { mutableFloatStateOf(0f) }
 
     if (showDeleteConfirm) {
         AlertDialog(

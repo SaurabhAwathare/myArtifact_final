@@ -55,6 +55,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.CustomCredential
+import androidx.credentials.exceptions.NoCredentialException
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 
@@ -275,6 +276,8 @@ fun SettingsScreen(
                                         val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
                                         viewModel.reauthenticateAndRetry(googleIdTokenCredential.idToken)
                                     }
+                                } catch (e: NoCredentialException) {
+                                    snackbarHostState.showSnackbar("No accounts found. Please sign in to Google first.")
                                 } catch (e: Exception) {
                                     snackbarHostState.showSnackbar(com.saurabh.artifact.ui.util.ErrorMessageMapper.map(e).asString(context))
                                 }

@@ -19,6 +19,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.CustomCredential
+import androidx.credentials.exceptions.NoCredentialException
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.saurabh.artifact.R
@@ -171,6 +172,8 @@ suspend fun launchGoogleSignIn(
         } else {
             onError("Google credential unavailable")
         }
+    } catch (e: NoCredentialException) {
+        onError("No accounts found. Please sign in to your Google account first.")
     } catch (e: Exception) {
         onError(
             e.message ?: "Google sign-in failed"

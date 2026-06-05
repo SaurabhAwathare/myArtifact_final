@@ -58,7 +58,7 @@ class DraftDeletionManagerTest {
         coEvery { 
             database.withTransaction<Any>(any())
         } coAnswers {
-            val block = it.invocation.args[0] as suspend () -> Any
+            val block = it.invocation.args[1] as suspend () -> Any
             block.invoke()
         }
     }

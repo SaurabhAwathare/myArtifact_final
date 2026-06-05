@@ -1,6 +1,7 @@
 package com.saurabh.artifact.repository
 
 import android.net.Uri
+import androidx.core.net.toUri
 import android.util.Log
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
@@ -816,9 +817,9 @@ class ArtifactRepository @Inject constructor(
                 try {
                     return@withContext withTimeout(60_000L * 5) { // 5-minute timeout
                         val uploadTask = if (draft.uploadSessionUri != null) {
-                            fileRef.putFile(Uri.fromFile(fileToUpload), metadata, Uri.parse(draft.uploadSessionUri))
+                            fileRef.putFile(fileToUpload.toUri(), metadata, draft.uploadSessionUri.toUri())
                         } else {
-                            fileRef.putFile(Uri.fromFile(fileToUpload), metadata)
+                            fileRef.putFile(fileToUpload.toUri(), metadata)
                         }
 
                         val taskSnapshot = try {
