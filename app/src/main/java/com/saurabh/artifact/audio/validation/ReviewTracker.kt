@@ -15,23 +15,24 @@ interface ReviewTracker {
     fun onPlaybackEnded()
     
     /** Returns current derived progress. */
-    fun getProgress(): ReviewProgress
+    val progress: ReviewProgress
 }
 
 class DefaultReviewTracker(
     initialEvidence: EngagementEvidence,
-    private val policy: ReviewPolicy,
-    private val validator: ReviewValidator
+    policy: ReviewPolicy,
+    private val validator: ReviewValidator,
 ) : ReviewTracker {
 
     private var currentEvidence = initialEvidence
     private var lastPlaybackPositionMs: Long = -1L
+    private val policyRef = policy // Capture for use in progress calculation
 
     override fun onPlaybackTick(currentPosMs: Long, realElapsedMs: Long, playbackSpeed: Float) {
         if (currentEvidence.durationMs <= 0) return
 
         // 1. Effort Tracking (Wall clock time categorized by speed)
-        if (realElapsedMs in 1 until 5000) {
+        if (realElapsedMs in (1 until 5000)) {
             val updatedEffortMap = currentEvidence.effortMap.toMutableMap()
             val currentEffort = updatedEffortMap.getOrDefault(playbackSpeed, 0L)
             updatedEffortMap[playbackSpeed] = currentEffort + realElapsedMs
@@ -42,12 +43,12 @@ class DefaultReviewTracker(
         val expectedDelta = (realElapsedMs * playbackSpeed).toLong()
         val tolerance = getScrubTolerance(currentEvidence.durationMs)
         
-        val isAdvancingNormally = lastPlaybackPositionMs != -1L &&
-                currentPosMs in lastPlaybackPositionMs..(lastPlaybackPositionMs + expectedDelta + tolerance)
+        val isAdvancingNormally = (lastPlaybackPositionMs != -1L) &&
+                (currentPosMs in lastPlaybackPositionMs..(lastPlaybackPositionMs + expectedDelta + tolerance))
 
         // Mark coverage only if advancing normally to prevent "painting" via seeks.
         if (isAdvancingNormally) {
-            val segmentSize = policy.getSegmentSizeMs(currentEvidence.durationMs)
+            val segmentSize = policyRef.getSegmentSizeMs(currentEvidence.durationMs)
             val segmentIndex = (currentPosMs / segmentSize).toInt()
             val totalSegments = (currentEvidence.durationMs / segmentSize).toInt().coerceAtLeast(1)
             
@@ -80,20 +81,21 @@ class DefaultReviewTracker(
         currentEvidence = currentEvidence.copy(hasReachedEnd = true)
     }
 
-    override fun getProgress(): ReviewProgress {
-        val result = validator.validate(currentEvidence, policy)
+    override val progress: ReviewProgress
+        get() {
+            val result = validator.validate(currentEvidence, policyRef)
 
-        return ReviewProgress(
-            artifactId = currentEvidence.artifactId,
-            durationMs = currentEvidence.durationMs,
-            coveragePercent = result.coveragePercent,
-            effortPercent = result.effortPercent,
-            hasReachedEnd = currentEvidence.hasReachedEnd,
-            isValidationMet = result.isValid,
-            evidence = currentEvidence,
-            reviewResult = result
-        )
-    }
+            return ReviewProgress(
+                artifactId = currentEvidence.artifactId,
+                durationMs = currentEvidence.durationMs,
+                coveragePercent = result.coveragePercent,
+                effortPercent = result.effortPercent,
+                hasReachedEnd = currentEvidence.hasReachedEnd,
+                isValidationMet = result.isValid,
+                evidence = currentEvidence,
+                reviewResult = result,
+            )
+        }
 
     private fun getScrubTolerance(durationMs: Long): Long {
         // 5% of duration, capped between 500ms and 3000ms

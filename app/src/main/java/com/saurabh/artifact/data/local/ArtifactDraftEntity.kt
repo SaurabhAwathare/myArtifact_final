@@ -57,7 +57,7 @@ data class ArtifactDraftEntity(
     val emotionalTone: String? = null,
     val safetyAnalysis: String? = null,
     val interruptionReason: String? = null,
-    val lastCheckpointTs: Long = System.currentTimeMillis(),
+    val lastCheckpointTimestamp: Long = System.currentTimeMillis(),
     val durableBytes: Long = 0, // Option A: Track bytes successfully synced to disk
     val isCorrupted: Boolean = false,
     val version: Int = 1,

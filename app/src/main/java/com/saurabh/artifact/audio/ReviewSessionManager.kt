@@ -15,7 +15,7 @@ import javax.inject.Singleton
 @Singleton
 class ReviewSessionManager @Inject constructor(
     private val playbackSessionManager: PlaybackSessionManager,
-    private val reviewAuthorityService: ReviewAuthorityService,
+    reviewAuthorityService: ReviewAuthorityService,
     private val draftDao: DraftDao
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -66,18 +66,11 @@ class ReviewSessionManager @Inject constructor(
 
             playbackSessionManager.play(
                 artifact = artifact, 
-                owner = PlaybackSessionManager.InteractionOwner.REVIEW_PLAYER,
                 playbackType = PlaybackType.DRAFT_PREVIEW
             )
         }
     }
 
-    fun startListening(artifact: Artifact) {
-        playbackSessionManager.play(
-            artifact = artifact,
-            owner = PlaybackSessionManager.InteractionOwner.PUBLIC_PLAYER
-        )
-    }
 
     private suspend fun markReviewComplete(artifactId: String) {
         withContext(Dispatchers.IO) {
@@ -89,10 +82,6 @@ class ReviewSessionManager @Inject constructor(
                 ))
             }
         }
-    }
-
-    fun stopReview() {
-        playbackSessionManager.stop()
     }
 }
 

@@ -74,7 +74,6 @@ class PlaybackCoordinator @Inject constructor(
         playbackSessionManager.play(
             artifact = artifact,
             collection = collection,
-            owner = PlaybackSessionManager.InteractionOwner.PUBLIC_PLAYER,
             playbackType = PlaybackType.ARTIFACT,
             initialPosition = initialPosition.inWholeMilliseconds
         )

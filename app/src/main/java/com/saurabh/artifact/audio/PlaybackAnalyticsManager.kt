@@ -16,7 +16,7 @@ interface PlaybackAnalytics {
 
 @Singleton
 class PlaybackAnalyticsManager @Inject constructor(
-    private val firebaseAnalytics: FirebaseAnalytics
+    private val firebaseAnalytics: FirebaseAnalytics,
 ) : PlaybackAnalytics {
 
     override fun trackPlaybackStart(artifact: Artifact) {

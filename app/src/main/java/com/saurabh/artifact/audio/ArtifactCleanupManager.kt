@@ -19,7 +19,7 @@ import javax.inject.Singleton
 class ArtifactCleanupManager @Inject constructor(
     private val artifactRepository: ArtifactRepository,
     private val draftDeletionManager: DraftDeletionManager,
-    private val workManager: WorkManager
+    private val workManager: WorkManager,
 ) {
 
     private val _deletingArtifactIds = MutableStateFlow<Set<String>>(emptySet())

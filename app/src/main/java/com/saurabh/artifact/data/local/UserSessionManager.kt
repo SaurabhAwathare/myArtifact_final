@@ -10,7 +10,6 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.IOException
 import java.util.UUID
@@ -22,7 +21,7 @@ private val Context.sessionDataStore by preferencesDataStore(name = "user_sessio
 @Singleton
 class UserSessionManager @Inject constructor(
     @param:ApplicationContext private val context: Context,
-    private val blockStoreManager: BlockStoreManager
+    private val blockStoreManager: BlockStoreManager,
 ) {
     private val anonymousIdKey = stringPreferencesKey("anonymous_id")
     private val avatarSeedKey = stringPreferencesKey("avatar_seed")
@@ -35,7 +34,6 @@ class UserSessionManager @Inject constructor(
     private val resonanceOutKey = androidx.datastore.preferences.core.longPreferencesKey("resonance_out")
     private val activeDraftIdKey = stringPreferencesKey("active_draft_id")
     private val activePromptIdKey = stringPreferencesKey("active_prompt_id")
-    private val artifactEpisodeCounterKey = stringPreferencesKey("artifact_episode_counter")
 
     /**
      * Retrieves the current anonymous profile. 
@@ -50,7 +48,7 @@ class UserSessionManager @Inject constructor(
         }
         .map { preferences ->
             val id = preferences[anonymousIdKey] ?: run {
-                val blockStoreId = kotlinx.coroutines.runBlocking { blockStoreManager.getAnonymousId() }
+                val blockStoreId = blockStoreManager.getAnonymousId()
                 val idToUse = blockStoreId ?: UUID.randomUUID().toString()
                 ensureAnonymousId(idToUse)
                 idToUse
@@ -68,7 +66,7 @@ class UserSessionManager @Inject constructor(
             val config = configJson?.let { 
                 try {
                     Json.decodeFromString<com.saurabh.artifact.model.AvatarConfig>(it).copy(seed = seed)
-                } catch (e: Exception) {
+                } catch (_: Exception) {
                     com.saurabh.artifact.model.AvatarConfig(seed = seed, theme = "AURIC")
                 }
             } ?: com.saurabh.artifact.model.AvatarConfig(seed = seed, theme = "AURIC")
@@ -86,9 +84,6 @@ class UserSessionManager @Inject constructor(
                 resonanceOutCount = resonanceOut
             )
         }
-
-    val activeDraftId: Flow<String?> = context.sessionDataStore.data
-        .map { preferences -> preferences[activeDraftIdKey] }
 
     val activePromptId: Flow<String?> = context.sessionDataStore.data
         .map { preferences -> preferences[activePromptIdKey] }
@@ -157,20 +152,6 @@ class UserSessionManager @Inject constructor(
             preferences[resonanceInKey] = user.resonanceInCount
             preferences[resonanceOutKey] = user.resonanceOutCount
         }
-    }
-
-    /**
-     * Gets and increments the artifact episode number.
-     * This ensures each artifact has a unique, sequential number.
-     */
-    suspend fun getAndIncrementEpisodeNumber(): Int {
-        var currentNumber = 1
-        context.sessionDataStore.edit { preferences ->
-            val storedValue = preferences[artifactEpisodeCounterKey]?.toIntOrNull() ?: 0
-            currentNumber = storedValue + 1
-            preferences[artifactEpisodeCounterKey] = currentNumber.toString()
-        }
-        return currentNumber
     }
 
     /**

@@ -19,7 +19,7 @@ import javax.inject.Singleton
 @Singleton
 class PromptRepository @Inject constructor(
     private val promptDao: PromptDao,
-    @ApplicationContext private val context: Context
+    @param:ApplicationContext private val context: Context
 ) {
 
     private val json = Json { ignoreUnknownKeys = true }

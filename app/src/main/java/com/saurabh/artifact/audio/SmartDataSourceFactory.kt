@@ -15,7 +15,7 @@ import androidx.media3.datasource.cache.CacheDataSource
  */
 @UnstableApi
 class SmartDataSourceFactory(
-    private val context: Context
+    context: Context
 ) : DataSource.Factory {
 
     private val defaultDataSourceFactory = DefaultDataSource.Factory(context)
@@ -67,7 +67,7 @@ class SmartDataSourceFactory(
             }
 
             override fun getResponseHeaders(): Map<String, List<String>> {
-                return currentDataSource?.getResponseHeaders() ?: emptyMap()
+                return currentDataSource?.responseHeaders ?: emptyMap()
             }
 
             override fun close() {

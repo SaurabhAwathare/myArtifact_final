@@ -12,7 +12,7 @@ import javax.inject.Singleton
 
 @Singleton
 class UploadGuard @Inject constructor(
-    @ApplicationContext private val context: Context
+    @param:ApplicationContext private val context: Context
 ) {
     /**
      * Generates a simple verification token for the approval action.

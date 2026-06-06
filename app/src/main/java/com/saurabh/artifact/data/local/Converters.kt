@@ -1,26 +1,14 @@
 package com.saurabh.artifact.data.local
 
 import androidx.room.TypeConverter
-import com.saurabh.artifact.model.*
+import com.saurabh.artifact.model.ArtifactLifecycle
+import com.saurabh.artifact.model.DraftStatus
+import com.saurabh.artifact.model.EmotionalTone
+import com.saurabh.artifact.model.PromptCategory
+import com.saurabh.artifact.model.SyncStatus
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.decodeFromString
 
 class Converters {
-    @TypeConverter
-    fun fromRecordingStatus(status: RecordingStatus): String {
-        return status.name
-    }
-
-    @TypeConverter
-    fun toRecordingStatus(value: String): RecordingStatus {
-        return try {
-            RecordingStatus.valueOf(value)
-        } catch (_: Exception) {
-            RecordingStatus.IDLE
-        }
-    }
-
     @TypeConverter
     fun fromDraftStatus(status: DraftStatus): String = Json.encodeToString(status)
 

@@ -13,7 +13,7 @@ import javax.inject.Singleton
 
 @Singleton
 class DatabaseEncryptionManager @Inject constructor(
-    @ApplicationContext private val context: Context
+    @param:ApplicationContext private val context: Context
 ) {
     private val prefs: SharedPreferences by lazy {
         context.getSharedPreferences("db_encryption_prefs", Context.MODE_PRIVATE)

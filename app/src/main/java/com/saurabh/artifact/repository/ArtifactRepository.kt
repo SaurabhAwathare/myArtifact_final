@@ -91,7 +91,7 @@ class ArtifactRepository @Inject constructor(
 
     private suspend fun mapDocumentToArtifactDetail(doc: com.google.firebase.firestore.DocumentSnapshot): ArtifactDetail = withContext(Dispatchers.Default) {
         // Mandatory Fix: Downsample amplitudes to 64 points (from 128) to stay well within limits
-        val rawAmplitudes = doc.get("amplitudeData") as? List<*> ?: emptyList<Any>()
+        val rawAmplitudes = doc["amplitudeData"] as? List<*> ?: emptyList<Any>()
         val downsampledAmplitudes = downsampleAmplitudes(rawAmplitudes, 64)
 
         // Fetch Reaction Counts - Still IO
@@ -99,7 +99,7 @@ class ArtifactRepository @Inject constructor(
         val reactionCounts = reactionCountsDoc.toObject(ArtifactReactionCounts::class.java)?.copy(artifactId = doc.id)
 
         @Suppress("UNCHECKED_CAST")
-        val comments = (doc.get("comments") as? List<Map<String, Any>>)?.map { map ->
+        val comments = (doc["comments"] as? List<Map<String, Any>>)?.map { map ->
             ArtifactComment(
                 id = map["id"] as? String ?: "",
                 authorId = map["authorId"] as? String ?: "",
@@ -296,7 +296,7 @@ class ArtifactRepository @Inject constructor(
                     "type" to type.name,
                     "createdAt" to FieldValue.serverTimestamp()
                 )
-                transaction.set(feedbackRef, feedbackData)
+                transaction[feedbackRef] = feedbackData
 
                 // If it's a safety concern, increment the internal counter
                 if (type == FeedbackType.SAFETY_CONCERN) {
@@ -542,7 +542,7 @@ class ArtifactRepository @Inject constructor(
                         
                         // Moderation Filter: Hide if HIDDEN or if reports are high (even if AI missed it)
                         val reportCount = doc.getLong("reportCount") ?: 0L
-                        val reporterIds = doc.get("reporterIds") as? List<*> ?: emptyList<String>()
+                        val reporterIds = doc["reporterIds"] as? List<*> ?: emptyList<String>()
                         val modStatus = artifact?.moderation?.status ?: ModerationStatus.SAFE
                         
                         if (modStatus == ModerationStatus.HIDDEN || reportCount >= 3L || (userId != null && reporterIds.contains(userId)) || artifact?.audioUrl.isNullOrEmpty()) {
@@ -570,10 +570,10 @@ class ArtifactRepository @Inject constructor(
         try {
             val userRef = firestore.collection("users").document(userId)
             firestore.runTransaction { transaction ->
-                val userDoc = transaction.get(userRef)
+                val userDoc = transaction[userRef]
                 if (userDoc.exists()) {
                     @Suppress("UNCHECKED_CAST")
-                    val currentPrefs = userDoc.get("emotionPreferences") as? Map<String, Long> ?: emptyMap()
+                    val currentPrefs = userDoc["emotionPreferences"] as? Map<String, Long> ?: emptyMap()
                     val newCount = (currentPrefs[emotion] ?: 0L) + 1
                     val newPrefs = currentPrefs.toMutableMap().apply { put(emotion, newCount) }
                     transaction.update(userRef, "emotionPreferences", newPrefs)
@@ -1010,11 +1010,11 @@ class ArtifactRepository @Inject constructor(
             val docRef = firestore.collection("artifacts").document(artifactId)
             
             firestore.runTransaction { transaction ->
-                val snapshot = transaction.get(docRef)
+                val snapshot = transaction[docRef]
                 val currentTitle = snapshot.getString("title") ?: ""
                 
                 if (currentTitle != trimmedTitle) {
-                    val history = snapshot.get("titleHistory") as? List<*>
+                    val history = snapshot["titleHistory"] as? List<*>
                     val newHistory = (history?.filterIsInstance<String>() ?: emptyList()) + currentTitle
                     
                     transaction.update(docRef, "title", trimmedTitle)

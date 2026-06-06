@@ -9,7 +9,6 @@ import com.saurabh.artifact.data.local.UploadTaskDao
 import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.util.StorageManager
 import com.saurabh.artifact.worker.DeletionWorker
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File

@@ -27,7 +27,7 @@ class ReviewAuthorityService @Inject constructor(
     private val playbackSessionManager: PlaybackSessionManager,
     private val engagementRepository: EngagementRepository,
     private val commentUnlockRepository: CommentUnlockRepository,
-    private val validator: ReviewValidator
+    private val validator: ReviewValidator,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     
@@ -69,7 +69,7 @@ class ReviewAuthorityService @Inject constructor(
 
                     activeTracker?.let { tracker ->
                         tracker.onPlaybackTick(pos, delta, speed)
-                        val progress = tracker.getProgress()
+                        val progress = tracker.progress
                         _currentProgress.value = progress
                         
                         if (progress.isValidationMet) {
@@ -80,7 +80,7 @@ class ReviewAuthorityService @Inject constructor(
                     lastTickTime = 0L
                     // Save last position immediately when paused
                     activeTracker?.let { tracker ->
-                         engagementRepository.updateLastPosition(tracker.getProgress().artifactId, pos)
+                         engagementRepository.updateLastPosition(tracker.progress.artifactId, pos)
                     }
                 }
             }
@@ -102,7 +102,7 @@ class ReviewAuthorityService @Inject constructor(
             playbackSessionManager.playbackState.collect { state ->
                 if (state == Player.STATE_ENDED) {
                     activeTracker?.onPlaybackEnded()
-                    val progress = activeTracker?.getProgress()
+                    val progress = activeTracker?.progress
                     _currentProgress.value = progress
                     progress?.let { 
                         engagementRepository.saveEngagement(it.evidence)
@@ -125,7 +125,7 @@ class ReviewAuthorityService @Inject constructor(
             artifactId = artifact.id,
             versionTag = "v1",
             durationMs = artifact.durationMs,
-            audioChecksum = artifact.checksum
+            audioChecksum = artifact.checksum,
         )
 
         activeTracker = DefaultReviewTracker(
@@ -133,13 +133,13 @@ class ReviewAuthorityService @Inject constructor(
             policy = ReviewPolicy(),
             validator = validator
         )
-        _currentProgress.value = activeTracker?.getProgress()
+        _currentProgress.value = activeTracker?.progress
         lastTickTime = SystemClock.elapsedRealtime()
     }
 
     private suspend fun finalizeSession() {
         activeTracker?.let { tracker ->
-            val progress = tracker.getProgress()
+            val progress = tracker.progress
             // Save one last time to ensure position is captured
             engagementRepository.saveEngagement(progress.evidence)
             engagementRepository.updateLastPosition(progress.artifactId, progress.evidence.lastPositionMs)

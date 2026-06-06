@@ -38,7 +38,7 @@ class PlaybackSessionManager @Inject constructor(
     private val cleanupManager: Lazy<ArtifactCleanupManager>,
     private val settingsDataStore: PlaybackSettingsDataStore,
     private val analytics: PlaybackAnalyticsManager,
-    private val artifactRepository: Lazy<ArtifactRepository>
+    private val artifactRepository: Lazy<ArtifactRepository>,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val controllerLock = Mutex()
@@ -47,17 +47,12 @@ class PlaybackSessionManager @Inject constructor(
         val positionMs: Long = 0L,
         val timestampMs: Long = android.os.SystemClock.elapsedRealtime(),
         val speed: Float = 1f,
-        val isPlaying: Boolean = false
+        val isPlaying: Boolean = false,
     )
 
     private var controller: MediaController? = null
     private var controllerFuture: ListenableFuture<MediaController>? = null
 
-    // Tracking which system owns the current playback session
-    enum class InteractionOwner { NONE, PUBLIC_PLAYER, REVIEW_PLAYER }
-    private val _interactionOwner = MutableStateFlow(InteractionOwner.NONE)
-    val interactionOwner: StateFlow<InteractionOwner> = _interactionOwner.asStateFlow()
-    
     private val _activePlayback = MutableStateFlow<ActivePlayback?>(null)
     val activePlayback: StateFlow<ActivePlayback?> = _activePlayback.asStateFlow()
     
@@ -75,16 +70,16 @@ class PlaybackSessionManager @Inject constructor(
     private val _positionSync = MutableStateFlow(PositionSync())
     val positionSync: StateFlow<PositionSync> = _positionSync.asStateFlow()
 
-    private val _playbackState = MutableStateFlow(Player.STATE_IDLE)
+    private val _playbackState = MutableStateFlow(value = Player.STATE_IDLE)
     val playbackState: StateFlow<Int> = _playbackState.asStateFlow()
 
     private val _durationMs = MutableStateFlow(0L)
     val durationMs: StateFlow<Long> = _durationMs.asStateFlow()
 
-    private val _playbackSpeed = MutableStateFlow(1.0f)
+    private val _playbackSpeed = MutableStateFlow(value = 1.0f)
     val playbackSpeed: StateFlow<Float> = _playbackSpeed.asStateFlow()
 
-    private val _isSkipSilenceEnabled = MutableStateFlow(false)
+    private val _isSkipSilenceEnabled = MutableStateFlow(value = false)
     val isSkipSilenceEnabled: StateFlow<Boolean> = _isSkipSilenceEnabled.asStateFlow()
 
     private var positionUpdateJob: Job? = null
@@ -93,7 +88,7 @@ class PlaybackSessionManager @Inject constructor(
     private var errorRetryCount = 0
     private val maxRetries = 3
 
-    private val _isBuffering = MutableStateFlow(false)
+    private val _isBuffering = MutableStateFlow(value = false)
     val isBuffering: StateFlow<Boolean> = _isBuffering.asStateFlow()
 
     private val _playbackCompletedEvent = MutableSharedFlow<String>(replay = 0)
@@ -114,7 +109,7 @@ class PlaybackSessionManager @Inject constructor(
                 // Only apply global speed updates if no playback is active 
                 // or if the active playback is a standard artifact
                 val activeType = _activePlayback.value?.playbackType
-                if (activeType == null || activeType == PlaybackType.ARTIFACT) {
+                if ((activeType == null) || (activeType == PlaybackType.ARTIFACT)) {
                     _playbackSpeed.value = speed
                     controller?.setPlaybackSpeed(speed)
                 }
@@ -287,14 +282,12 @@ class PlaybackSessionManager @Inject constructor(
     fun play(
         artifact: Artifact, 
         collection: List<Artifact> = emptyList(),
-        owner: InteractionOwner = InteractionOwner.PUBLIC_PLAYER, 
         initialPosition: Long = 0L,
         playbackType: PlaybackType = PlaybackType.ARTIFACT
     ) {
         scope.launch {
             val player = getController() ?: return@launch
             
-            _interactionOwner.value = owner
             _activePlayback.value = ActivePlayback(artifact.id, playbackType)
             
             // Check if we are already playing this exact artifact to avoid redundant resets
@@ -367,10 +360,12 @@ class PlaybackSessionManager @Inject constructor(
                     .setArtist(artifact.author.name)
                     .setAlbumTitle("Reflections")
                     .setGenre(artifact.emotion)
-                    .setExtras(android.os.Bundle().apply {
-                        putString("author_sigil", artifact.author.sigil)
-                        putString("avatar_seed", artifact.author.avatarSeed)
-                    })
+                    .setExtras(
+                        android.os.Bundle().apply {
+                            putString("author_sigil", artifact.author.sigil)
+                            putString("avatar_seed", artifact.author.avatarSeed)
+                        }
+                    )
                     .build()
             )
             .build()
@@ -399,9 +394,12 @@ class PlaybackSessionManager @Inject constructor(
     private fun setSkipSilenceInController(enabled: Boolean) {
         scope.launch {
             getController()?.sendCustomCommand(
-                androidx.media3.session.SessionCommand("SET_SKIP_SILENCE", android.os.Bundle().apply {
-                    putBoolean("enabled", enabled)
-                }),
+                androidx.media3.session.SessionCommand(
+                    "SET_SKIP_SILENCE",
+                    android.os.Bundle().apply {
+                        putBoolean("enabled", enabled)
+                    }
+                ),
                 android.os.Bundle.EMPTY
             )
         }
@@ -426,7 +424,6 @@ class PlaybackSessionManager @Inject constructor(
     fun stop() {
         scope.launch {
             getController()?.stop()
-            _interactionOwner.value = InteractionOwner.NONE
             _currentArtifact.value = null
             _activePlayback.value = null
             _isPlaying.value = false

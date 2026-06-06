@@ -5,7 +5,6 @@ import android.media.MediaRecorder
 import android.os.Build
 import android.util.Log
 import java.io.File
-import java.io.IOException
 
 enum class RecordingMode {
     AAC_HIGH_BITRATE,
@@ -141,9 +140,4 @@ class AudioRecorder(private val context: Context) {
             RecordingMode.AAC_HIGH_BITRATE -> mediaRecorder?.maxAmplitude ?: 0
             RecordingMode.WAV_LOSSLESS -> wavRecorder?.maxAmplitude ?: 0
         }
-
-    fun validateOutputFile(file: File?): Boolean {
-        if (file == null || !file.exists()) return false
-        return file.length() > 1024
-    }
 }

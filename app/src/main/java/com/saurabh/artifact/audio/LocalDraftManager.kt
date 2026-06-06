@@ -1,25 +1,18 @@
 package com.saurabh.artifact.audio
 
 import android.content.Context
-import android.os.Environment
 import android.util.Log
 import com.saurabh.artifact.util.StorageManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
-import java.io.InputStream
-import java.io.OutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 
-    @Singleton
-    class LocalDraftManager @Inject constructor(
-        @ApplicationContext private val context: Context,
-        private val storageManager: StorageManager,
-    ) {
-    private val draftDir by lazy {
-        storageManager.getDraftsRootDirectory()
-    }
-
+@Singleton
+class LocalDraftManager @Inject constructor(
+    @param:ApplicationContext private val context: Context,
+    private val storageManager: StorageManager,
+) {
     private val waveformDir by lazy {
         File(context.filesDir, "waveforms").apply {
             if (!exists()) mkdirs()
@@ -37,47 +30,9 @@ import javax.inject.Singleton
         return File(dir, "audio.$extension")
     }
 
-    fun getOutputStream(file: File): OutputStream = file.outputStream()
-
-    fun getInputStream(file: File): InputStream = file.inputStream()
-
-    fun createWaveformFile(draftId: String): File {
-        val dir = storageManager.getDraftDirectory(draftId)
-        return File(dir, "waveform.json")
-    }
-
     fun createTranscriptFile(draftId: String): File {
         val dir = storageManager.getDraftDirectory(draftId)
         return File(dir, "transcript.txt")
-    }
-
-    fun createTempFile(draftId: String, prefix: String, extension: String): File {
-        val dir = storageManager.getDraftDirectory(draftId)
-        return File(dir, "${prefix}_${System.currentTimeMillis()}.$extension")
-    }
-
-    fun deleteDraft(path: String): Boolean {
-        val file = File(path)
-        return file.delete()
-    }
-
-    fun draftExists(path: String): Boolean {
-        return File(path).exists()
-    }
-
-    /**
-     * Securely deletes all physical files associated with a draft.
-     */
-    fun deleteDraftFiles(draft: com.saurabh.artifact.data.local.ArtifactDraftEntity) {
-        try {
-            File(draft.localAudioPath).delete()
-            draft.localTranscriptPath?.let { File(it).delete() }
-            draft.waveformPath?.let { File(it).delete() }
-            draft.frozenAudioPath?.let { File(it).delete() }
-            Log.d("LocalDraftManager", "Deleted files for draft: ${draft.id}")
-        } catch (e: Exception) {
-            Log.e("LocalDraftManager", "Failed to delete files for draft: ${draft.id}", e)
-        }
     }
 
     /**
@@ -92,7 +47,7 @@ import javax.inject.Singleton
         val now = System.currentTimeMillis()
         val validDraftIds = allDrafts.map { it.id }.toSet()
         val knownPaths = mutableSetOf<String>()
-        
+
         allDrafts.forEach { draft ->
             knownPaths.add(File(draft.localAudioPath).absolutePath)
             draft.rawPcmPath?.let { knownPaths.add(File(it).absolutePath) }
@@ -145,17 +100,4 @@ import javax.inject.Singleton
             }
         }
     }
-
-    @Deprecated("Use reconcileStorage instead", ReplaceWith("reconcileStorage(allDrafts)"))
-    fun cleanupOrphans(knownPaths: Set<String>) {
-        // Implementation kept for backward compatibility if needed temporarily
-        listOf(draftDir, waveformDir, transcriptDir).forEach { dir ->
-            dir.listFiles()?.forEach { file ->
-                if (file.absolutePath !in knownPaths) {
-                    file.delete()
-                }
-            }
-        }
-    }
-
 }

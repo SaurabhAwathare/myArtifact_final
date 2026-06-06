@@ -109,8 +109,8 @@ class PlaybackService : MediaLibraryService() {
                     .build()
             }
 
-            @Suppress("DEPRECATION")
             @UnstableApi
+            @Deprecated("Deprecated in MediaLibrarySession.Callback")
             override fun onPlaybackResumption(
                 mediaSession: MediaSession,
                 controller: MediaSession.ControllerInfo

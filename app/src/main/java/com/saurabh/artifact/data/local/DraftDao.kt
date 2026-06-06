@@ -51,8 +51,8 @@ interface DraftDao {
     @Query("UPDATE artifact_drafts SET interruptionReason = :reason, updatedAt = :timestamp WHERE id = :id")
     suspend fun updateInterruptionReason(id: String, reason: String, timestamp: Long = System.currentTimeMillis())
 
-    @Query("UPDATE artifact_drafts SET durationMs = :durationMs, amplitudeData = :amplitudes, lastCheckpointTs = :checkpointTs, durableBytes = :durableBytes, updatedAt = :updatedAt WHERE id = :id")
-    suspend fun updateRecordingCheckpoint(id: String, durationMs: Long, amplitudes: List<Float>, checkpointTs: Long, durableBytes: Long, updatedAt: Long = System.currentTimeMillis())
+    @Query("UPDATE artifact_drafts SET durationMs = :durationMs, amplitudeData = :amplitudes, lastCheckpointTimestamp = :checkpointTimestamp, durableBytes = :durableBytes, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateRecordingCheckpoint(id: String, durationMs: Long, amplitudes: List<Float>, checkpointTimestamp: Long, durableBytes: Long, updatedAt: Long = System.currentTimeMillis())
 
     @Query("UPDATE artifact_drafts SET title = :title, updatedAt = :timestamp WHERE id = :id")
     suspend fun updateTitle(id: String, title: String?, timestamp: Long = System.currentTimeMillis())
@@ -69,15 +69,17 @@ interface DraftDao {
     @Transaction
     suspend fun markAsPublished(id: String, remoteId: String) {
         val draft = getDraftById(id) ?: return
-        update(draft.copy(
-            status = draft.status.copy(
+        update(
+            draft.copy(
+                status = draft.status.copy(
+                    lifecycle = ArtifactLifecycle.PUBLISHED,
+                    publication = SyncStatus.Synced,
+                ),
                 lifecycle = ArtifactLifecycle.PUBLISHED,
-                publication = SyncStatus.Synced
+                remoteArtifactId = remoteId,
+                updatedAt = System.currentTimeMillis(),
             ),
-            lifecycle = ArtifactLifecycle.PUBLISHED,
-            remoteArtifactId = remoteId,
-            updatedAt = System.currentTimeMillis()
-        ))
+        )
     }
 
     @Query("SELECT * FROM artifact_drafts WHERE lifecycle = 'READY_TO_PUBLISH'")

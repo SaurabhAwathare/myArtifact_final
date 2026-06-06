@@ -12,7 +12,7 @@ import javax.inject.Singleton
 
 @Singleton
 class EncryptedStorageManager @Inject constructor(
-    @ApplicationContext private val context: Context
+    @param:ApplicationContext private val context: Context
 ) {
     private val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
 

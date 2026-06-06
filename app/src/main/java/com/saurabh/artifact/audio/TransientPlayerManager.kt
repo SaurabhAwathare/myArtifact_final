@@ -38,7 +38,8 @@ class TransientPlayerManager @Inject constructor(
     private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
         when (focusChange) {
             AudioManager.AUDIOFOCUS_LOSS,
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
+            -> {
                 Log.d("TransientPlayer", "Focus lost ($focusChange). Stopping.")
                 stop()
             }
@@ -53,7 +54,7 @@ class TransientPlayerManager @Inject constructor(
         }
     }
 
-    private val _isPlaying = MutableStateFlow(false)
+    private val _isPlaying = MutableStateFlow(value = false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
 
     private val playerListener = object : Player.Listener {

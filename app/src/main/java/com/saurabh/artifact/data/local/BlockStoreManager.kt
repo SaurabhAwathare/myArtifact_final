@@ -12,7 +12,7 @@ import javax.inject.Singleton
 
 @Singleton
 class BlockStoreManager @Inject constructor(
-    @ApplicationContext private val context: Context
+    @param:ApplicationContext private val context: Context
 ) {
     private val client = Blockstore.getClient(context)
 

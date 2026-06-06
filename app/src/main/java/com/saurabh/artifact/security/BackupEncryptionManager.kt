@@ -20,7 +20,7 @@ private val Context.backupPrefs by preferencesDataStore(name = "backup_security"
 
 @Singleton
 class BackupEncryptionManager @Inject constructor(
-    @ApplicationContext private val context: Context
+    @param:ApplicationContext private val context: Context
 ) {
     private val mnemonicKey = stringPreferencesKey("recovery_mnemonic")
     private val backupSaltKey = stringPreferencesKey("backup_salt")

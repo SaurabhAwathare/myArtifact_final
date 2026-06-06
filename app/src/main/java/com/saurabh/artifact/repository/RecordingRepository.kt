@@ -21,7 +21,7 @@ class RecordingRepository @Inject constructor(
     private val engagementRepository: EngagementRepository,
     private val localDraftManager: LocalDraftManager,
     private val wavRecoveryManager: WavRecoveryManager,
-    private val deletionManager: DraftDeletionManager
+    private val deletionManager: DraftDeletionManager,
 ) {
     
     suspend fun startDraft(draftId: String = UUID.randomUUID().toString()) = withContext(Dispatchers.IO) {
@@ -64,7 +64,7 @@ class RecordingRepository @Inject constructor(
             id = id,
             durationMs = durationMs,
             amplitudes = amplitudes,
-            checkpointTs = System.currentTimeMillis(),
+            checkpointTimestamp = System.currentTimeMillis(),
             durableBytes = durableBytes
         )
     }
@@ -79,8 +79,9 @@ class RecordingRepository @Inject constructor(
         val finalFile = File(audioPath)
         val finalSize = if (finalFile.exists()) finalFile.length() else 0L
         
-        draftDao.update(draft.copy(
-            localAudioPath = audioPath,
+        draftDao.update(
+            draft.copy(
+                localAudioPath = audioPath,
             status = draft.status.copy(lifecycle = ArtifactLifecycle.PROCESSING),
             checksum = checksum,
             isEncrypted = false,
@@ -114,7 +115,7 @@ class RecordingRepository @Inject constructor(
 
     suspend fun renameDraft(id: String, newTitle: String?) = withContext(Dispatchers.IO) {
         val trimmedTitle = newTitle?.trim()
-        if (trimmedTitle != null && (trimmedTitle.isEmpty() || trimmedTitle.length > 70)) {
+        if ((trimmedTitle != null) && (trimmedTitle.isEmpty() || trimmedTitle.length > 70)) {
             return@withContext
         }
         draftDao.updateTitle(id, trimmedTitle)
@@ -133,7 +134,7 @@ class RecordingRepository @Inject constructor(
         
         recordings.forEach { draft ->
             // If no checkpoint for > 60s, consider it interrupted
-            if ((System.currentTimeMillis() - draft.lastCheckpointTs) > 60_000) {
+            if ((System.currentTimeMillis() - draft.lastCheckpointTimestamp) > 60_000) {
                 val file = File(draft.localAudioPath)
                 
                 // Durability Drift Logging
@@ -180,8 +181,8 @@ class RecordingRepository @Inject constructor(
                 Log.d("RecordingRepository", "Resuming deletion for draft: ${draft.id}")
                 deletionManager.deleteDraft(draft.id)
             }
-        } catch (e: Exception) {
-            Log.e("RecordingRepository", "Cleanup orphans/deleting failed", e)
+        } catch (_: Exception) {
+            Log.e("RecordingRepository", "Cleanup orphans/deleting failed")
         }
 
         return interrupted

@@ -1,7 +1,6 @@
 package com.saurabh.artifact.backup
 
 import android.content.Context
-import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.security.MnemonicGenerator
 import com.saurabh.artifact.security.SecurityArchitecture
@@ -27,16 +26,19 @@ interface CloudProvider {
 
 @Singleton
 class BackupManager @Inject constructor(
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
     private val draftDao: DraftDao,
     private val encryptedStorageManager: EncryptedStorageManager,
     private val cloudProvider: CloudProvider
 ) {
 
-    /**
-     * Performs a full end-to-end encrypted backup of all drafts.
-     */
-    suspend fun performBackup(mnemonic: List<String>) = withContext(Dispatchers.IO) {
+/**
+ * Performs a full end-to-end encrypted backup of all drafts.
+ * NOTE: This is currently redundant as BackupSyncWorker handles individual draft backups.
+ * This can be used for a manual "Backup Now" feature or legacy migration.
+ */
+@Suppress("unused")
+suspend fun performBackup(mnemonic: List<String>) = withContext(Dispatchers.IO) {
         val seed = MnemonicGenerator.toSeed(mnemonic)
         val backupKey = SecurityArchitecture.deriveBackupKey(seed.decodeToString(), "artifact_backup_salt".toByteArray())
         val secretKey = SecretKeySpec(backupKey, "AES")

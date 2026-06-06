@@ -5,7 +5,6 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.saurabh.artifact.model.SyncStatus
-import java.util.UUID
 
 @Entity(
     tableName = "upload_tasks",
