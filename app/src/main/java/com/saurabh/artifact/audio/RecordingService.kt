@@ -36,6 +36,7 @@ import java.util.Locale
 import java.util.UUID
 import javax.inject.Inject
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.minutes
 
 @AndroidEntryPoint
 class RecordingService : Service() {
@@ -253,7 +254,7 @@ class RecordingService : Service() {
         }
 
         // Acquire WakeLock to keep CPU alive during recording
-        wakeLock?.acquire(10 * 60 * 1000L /* 10 minutes max */)
+        wakeLock?.acquire(10.minutes.inWholeMilliseconds)
 
         // Audio Focus Management: Ensure we have the microphone path cleared
         if (!requestAudioFocus()) {
@@ -410,7 +411,7 @@ class RecordingService : Service() {
                     
                     // CRITICAL: Allow file buffers to flush and OS to sync file descriptors.
                     // Increased delay to ensure durability.
-                    delay(500)
+                    delay(500.milliseconds)
                     
                     if (wakeLock?.isHeld == true) {
                         wakeLock?.release()
@@ -465,7 +466,7 @@ class RecordingService : Service() {
                         if (finalFile?.exists() == true) finalFile.delete()
                         draftDao.getDraftById(draftId)?.let {
                             draftDao.update(it.copy(
-                                status = it.status.copy(processing = ProcessingStatus.Failed("File validation failed"))
+                                status = it.status.copy(processing = ProcessingStatus.Failed())
                             ))
                         }
                     }
@@ -523,7 +524,7 @@ class RecordingService : Service() {
             val internalAmplitudes = mutableListOf<Float>()
             
             while (isActive) {
-                delay(50) // 20 ticks per second (50ms interval)
+                delay(50.milliseconds) // 20 ticks per second (50ms interval)
                 tick++
                 
                 val rawAmplitude = audioRecorder?.maxAmplitude ?: 0

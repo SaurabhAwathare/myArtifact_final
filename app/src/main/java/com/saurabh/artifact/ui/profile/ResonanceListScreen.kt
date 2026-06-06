@@ -15,6 +15,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import com.saurabh.artifact.ui.components.PresenceItem
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 
@@ -69,46 +70,52 @@ fun ResonanceListScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            if (uiState.users.isEmpty() && !uiState.isLoading) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(32.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Text(
-                        text = "Silence... for now.",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = ArtifactTheme.colors.onSurfaceMuted,
-                        textAlign = TextAlign.Center
-                    )
-                }
-            } else {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(uiState.users, key = { it.id }) { user ->
-                        PresenceItem(
-                            user = user,
-                            onClick = { onUserClick(user.id) }
+            PullToRefreshBox(
+                isRefreshing = uiState.isRefreshing,
+                onRefresh = { viewModel.loadUsers(refresh = true) },
+                modifier = Modifier.fillMaxSize()
+            ) {
+                if (uiState.users.isEmpty() && !uiState.isLoading) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = "Silence... for now.",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = ArtifactTheme.colors.onSurfaceMuted,
+                            textAlign = TextAlign.Center
                         )
                     }
-                    
-                    if (uiState.isLoading) {
-                        item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(16.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(24.dp),
-                                    strokeWidth = 2.dp,
-                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                                )
+                } else {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(uiState.users, key = { it.id }) { user ->
+                            PresenceItem(
+                                user = user,
+                                onClick = { onUserClick(user.id) }
+                            )
+                        }
+                        
+                        if (uiState.isLoading) {
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(24.dp),
+                                        strokeWidth = 2.dp,
+                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                                    )
+                                }
                             }
                         }
                     }

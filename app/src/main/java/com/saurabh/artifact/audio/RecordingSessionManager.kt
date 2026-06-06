@@ -21,6 +21,7 @@ import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * Unified Facade for the Recording Lifecycle.
@@ -29,12 +30,12 @@ import javax.inject.Singleton
  */
 @Singleton
 class RecordingSessionManager @Inject constructor(
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
     private val playbackCoordinator: PlaybackCoordinator,
     private val recordingRepository: RecordingRepository,
     private val localDraftManager: LocalDraftManager,
     private val draftDao: DraftDao,
-    private val deletionManager: DraftDeletionManager
+    private val cleanupManager: ArtifactCleanupManager
 ) {
     private val managerScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val sessionMutex = Mutex()
@@ -45,7 +46,6 @@ class RecordingSessionManager @Inject constructor(
 
     // 2. Local metadata state
     private val _activeDraft = MutableStateFlow<ArtifactDraftEntity?>(null)
-    val activeDraft: StateFlow<ArtifactDraftEntity?> = _activeDraft.asStateFlow()
 
     private val _ritualSeconds = MutableStateFlow(0)
     private var ritualJob: Job? = null
@@ -70,12 +70,6 @@ class RecordingSessionManager @Inject constructor(
         started = SharingStarted.Eagerly,
         initialValue = SessionState()
     )
-
-    val isSessionActive: Flow<Boolean> = sessionState.map { 
-        it.status == RecordingStatus.RECORDING || 
-        it.status == RecordingStatus.PAUSED ||
-        it.status == RecordingStatus.PREPARING
-    }
 
     init {
         // Sync activeDraft metadata when service state changes (e.g. recovery after process death)
@@ -111,7 +105,7 @@ class RecordingSessionManager @Inject constructor(
         _ritualSeconds.value = seconds
         ritualJob = managerScope.launch {
             while (_ritualSeconds.value > 0) {
-                delay(1000)
+                delay(1.seconds)
                 _ritualSeconds.update { (it - 1).coerceAtLeast(0) }
             }
         }
@@ -184,8 +178,8 @@ class RecordingSessionManager @Inject constructor(
         
         val draftId = _activeDraft.value?.id
         if (draftId != null) {
-            managerScope.launch(Dispatchers.IO) {
-                deletionManager.deleteDraft(draftId)
+            managerScope.launch {
+                cleanupManager.deleteDraft(draftId)
             }
         }
         _activeDraft.value = null
@@ -196,10 +190,6 @@ class RecordingSessionManager @Inject constructor(
         return status == RecordingStatus.RECORDING || 
                status == RecordingStatus.PAUSED ||
                status == RecordingStatus.PREPARING
-    }
-
-    fun shouldShowRitual(): Boolean {
-        return !isRecordingActive()
     }
 
     data class SessionState(

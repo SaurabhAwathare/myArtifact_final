@@ -9,6 +9,9 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 @HiltViewModel
 class ReviewViewModel @Inject constructor(
@@ -23,7 +26,7 @@ class ReviewViewModel @Inject constructor(
         playbackCoordinator.currentPosition,
         playbackCoordinator.playbackSpeed
     ) { isPlaying, position, speed ->
-        PlaybackUiState(isPlaying, position, speed)
+        PlaybackUiState(isPlaying, position.inWholeMilliseconds, speed)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PlaybackUiState())
 
     val draft = reviewState.flatMapLatest { state ->
@@ -48,18 +51,22 @@ class ReviewViewModel @Inject constructor(
 
     fun seekTo(progress: Float) {
         val duration = reviewState.value.durationMs
-        playbackCoordinator.seekTo((progress * duration).toLong())
+        playbackCoordinator.seekTo((progress * duration).toLong().milliseconds)
     }
 
     fun rewind() {
-        val current = playbackCoordinator.currentPosition.value
-        playbackCoordinator.seekTo((current - 10000).coerceAtLeast(0))
+        viewModelScope.launch {
+            val current = playbackCoordinator.currentPosition.first()
+            playbackCoordinator.seekTo((current - 10.seconds).coerceAtLeast(Duration.ZERO))
+        }
     }
 
     fun forward() {
-        val current = playbackCoordinator.currentPosition.value
-        val duration = reviewState.value.durationMs
-        playbackCoordinator.seekTo((current + 10000).coerceAtMost(duration))
+        viewModelScope.launch {
+            val current = playbackCoordinator.currentPosition.first()
+            val duration = reviewState.value.durationMs.milliseconds
+            playbackCoordinator.seekTo((current + 10.seconds).coerceAtMost(duration))
+        }
     }
 
     override fun onCleared() {

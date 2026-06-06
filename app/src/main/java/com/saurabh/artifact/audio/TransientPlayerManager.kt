@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlin.time.Duration.Companion.seconds
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -69,7 +70,7 @@ class TransientPlayerManager @Inject constructor(
     private fun scheduleRelease() {
         releaseJob?.cancel()
         releaseJob = scope.launch {
-            delay(10000) // Release after 10 seconds of inactivity to reclaim resources
+            delay(10.seconds) // Release after 10 seconds of inactivity to reclaim resources
             Log.d("TransientPlayer", "Inactivity timeout. Releasing player.")
             release()
         }
@@ -154,10 +155,6 @@ class TransientPlayerManager @Inject constructor(
         scope.launch {
             player?.stop()
         }
-    }
-
-    fun setVolume(volume: Float) {
-        player?.volume = volume.coerceIn(0f, 1f)
     }
 
     fun release() {

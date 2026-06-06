@@ -7,7 +7,7 @@ sealed class CommentUnlockState {
     /**
      * Comments are locked. Progress indicates how much has been listened to (0.0 to 1.0).
      */
-    data class Locked(val progress: Float) : CommentUnlockState()
+    object Locked : CommentUnlockState()
 
     /**
      * The moment the threshold is met, before transitioning to fully unlocked.

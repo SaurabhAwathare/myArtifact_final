@@ -1,5 +1,6 @@
 package com.saurabh.artifact.domain.profile
 
+import com.saurabh.artifact.audio.ArtifactCleanupManager
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.RecordingRepository
 import com.saurabh.artifact.repository.UserRepository
@@ -8,7 +9,8 @@ import javax.inject.Inject
 class ProfileInteractionUseCase @Inject constructor(
     private val artifactRepository: ArtifactRepository,
     private val recordingRepository: RecordingRepository,
-    private val userRepository: UserRepository
+    private val userRepository: UserRepository,
+    private val cleanupManager: ArtifactCleanupManager
 ) {
     suspend fun toggleResonance(currentUserId: String, targetUserId: String, wasResonating: Boolean): Result<Unit> {
         return try {
@@ -28,9 +30,7 @@ class ProfileInteractionUseCase @Inject constructor(
     }
 
     suspend fun deleteDraft(draftId: String) {
-        recordingRepository.getDraft(draftId)?.let {
-            recordingRepository.deleteDraft(it)
-        }
+        cleanupManager.deleteDraft(draftId)
     }
 
     suspend fun renamePublishedArtifact(artifactId: String, newTitle: String): Result<Unit> {
@@ -38,6 +38,6 @@ class ProfileInteractionUseCase @Inject constructor(
     }
 
     suspend fun deletePublishedArtifact(artifactId: String): Result<Unit> {
-        return artifactRepository.deletePublishedArtifact(artifactId)
+        return cleanupManager.deleteArtifact(artifactId)
     }
 }

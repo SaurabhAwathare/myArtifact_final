@@ -1,6 +1,5 @@
 package com.saurabh.artifact.ui.feed
 
-import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -14,15 +13,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.saurabh.artifact.ui.util.UiText
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.ui.components.ArtifactFeedCard
 import com.saurabh.artifact.ui.theme.ArtifactTheme
@@ -31,12 +26,11 @@ import com.saurabh.artifact.ui.theme.Spacing
 @Composable
 fun ForYouFeedScreen(
     viewModel: ForYouFeedViewModel = hiltViewModel(),
-    onNavigateToRecord: () -> Unit = {}
 ) {
     val feedState by viewModel.feedState.collectAsStateWithLifecycle()
     val currentlyPlayingArtifact by viewModel.currentlyPlayingArtifact.collectAsStateWithLifecycle()
     val isPlaying by viewModel.isPlaying.collectAsStateWithLifecycle()
-    val currentPosition by viewModel.currentPosition.collectAsStateWithLifecycle()
+    val currentPosition by viewModel.currentPosition.collectAsStateWithLifecycle(initialValue = kotlin.time.Duration.ZERO)
 
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
@@ -78,11 +72,15 @@ fun ForYouFeedScreen(
                     items(mainFeed, key = { it.artifact.id }) { feedArtifact ->
                         ArtifactFeedCard(
                             feedArtifact = feedArtifact,
-                            isPlaying = isPlaying && currentlyPlayingArtifact?.id == feedArtifact.artifact.id,
+                            isPlaying = isPlaying && (currentlyPlayingArtifact?.id == feedArtifact.artifact.id),
                             onPlayClick = { viewModel.playArtifact(feedArtifact) },
-                            currentPosition = if (currentlyPlayingArtifact?.id == feedArtifact.artifact.id) currentPosition else 0L,
-                            onDeleteClick = { viewModel.deleteArtifact(feedArtifact.artifact.id) },
-                            modifier = Modifier.padding(horizontal = Spacing.Large)
+                            modifier = Modifier.padding(horizontal = Spacing.Large),
+                            currentPosition = if (currentlyPlayingArtifact?.id == feedArtifact.artifact.id) {
+                                currentPosition.inWholeMilliseconds
+                            } else {
+                                0L
+                            },
+                            onDeleteClick = { viewModel.deleteArtifact(feedArtifact.artifact.id) }
                         )
                         
                         // Breath Break Logic

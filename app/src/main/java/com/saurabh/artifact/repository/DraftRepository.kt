@@ -9,7 +9,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
-import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -18,8 +17,7 @@ class DraftRepository @Inject constructor(
     private val draftDao: DraftDao,
     private val uploadTaskDao: UploadTaskDao,
     private val draftsDatabase: AppDatabase,
-    private val storageManager: StorageManager,
-    private val deletionManager: com.saurabh.artifact.audio.DraftDeletionManager
+    private val storageManager: StorageManager
 ) {
     suspend fun getDraft(id: String): ArtifactDraftEntity? = withContext(Dispatchers.IO) {
         draftDao.getDraftById(id)
@@ -166,10 +164,6 @@ class DraftRepository @Inject constructor(
             draftDao.markAsPublished(draftId, remoteId)
             uploadTaskDao.deleteByDraftId(draftId)
         }
-    }
-
-    suspend fun deleteDraftCompletely(draftId: String) = withContext(Dispatchers.IO) {
-        deletionManager.deleteDraft(draftId)
     }
 }
 

@@ -31,7 +31,7 @@ class DefaultReviewTracker(
         if (currentEvidence.durationMs <= 0) return
 
         // 1. Effort Tracking (Wall clock time categorized by speed)
-        if (realElapsedMs > 0 && realElapsedMs < 5000) {
+        if (realElapsedMs in 1 until 5000) {
             val updatedEffortMap = currentEvidence.effortMap.toMutableMap()
             val currentEffort = updatedEffortMap.getOrDefault(playbackSpeed, 0L)
             updatedEffortMap[playbackSpeed] = currentEffort + realElapsedMs
@@ -43,8 +43,7 @@ class DefaultReviewTracker(
         val tolerance = getScrubTolerance(currentEvidence.durationMs)
         
         val isAdvancingNormally = lastPlaybackPositionMs != -1L &&
-                currentPosMs >= lastPlaybackPositionMs &&
-                currentPosMs <= lastPlaybackPositionMs + expectedDelta + tolerance
+                currentPosMs in lastPlaybackPositionMs..(lastPlaybackPositionMs + expectedDelta + tolerance)
 
         // Mark coverage only if advancing normally to prevent "painting" via seeks.
         if (isAdvancingNormally) {

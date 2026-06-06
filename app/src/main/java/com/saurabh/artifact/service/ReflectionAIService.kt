@@ -5,6 +5,7 @@ import com.saurabh.artifact.model.PromptCategory
 import com.saurabh.artifact.model.ReflectionPrompt
 import com.saurabh.artifact.model.ReflectionPromptProvider
 import kotlinx.coroutines.delay
+import kotlin.time.Duration.Companion.milliseconds
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -36,7 +37,7 @@ class ReflectionAIServiceImpl @Inject constructor(
             }
 
             // Simulate network latency for AI generation
-            delay(1500)
+            delay(1500.milliseconds)
             
             // 2. Logic to simulate AI-driven context awareness
             val rawPromptText = when (emotion) {

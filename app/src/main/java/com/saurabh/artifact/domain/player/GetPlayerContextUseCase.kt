@@ -45,8 +45,7 @@ class GetPlayerContextUseCase @Inject constructor(
         // Live observation of the artifact itself for real-time counts
         val artifactUpdateFlow = artifactRepository.observeArtifact(artifact.id)
             .onStart { emit(artifact) }
-            .filter { it != null }
-            .map { it!! }
+            .filterNotNull()
 
         val resonanceSummaryFlow = userIdFlow.flatMapLatest { currentUserId ->
             reactionRepository.getReactionCounts(artifact.id).map { counts ->
@@ -54,7 +53,7 @@ class GetPlayerContextUseCase @Inject constructor(
                 counts?.getFuzzySummary(isOwner) 
                     ?: ArtifactReactionCounts(
                         artifactId = artifact.id,
-                        totalCount = artifact.reactionCount,
+                        totalCount = artifact.reactionCount.toInt(),
                         visibility = artifact.reactionVisibility
                     ).getFuzzySummary(isOwner)
             }
@@ -155,5 +154,5 @@ data class PlayerMetadata(
     val selectedReactionType: ReactionType = ReactionType.I_HEAR_YOU,
     val isResonating: Boolean = false,
     val isSaved: Boolean = false,
-    val commentCount: Int = 0
+    val commentCount: Long = 0
 )

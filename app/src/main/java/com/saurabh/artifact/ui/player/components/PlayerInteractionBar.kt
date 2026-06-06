@@ -39,13 +39,13 @@ fun PlayerInteractionBar(
     isSaved: Boolean,
     onSaveClick: () -> Unit,
     isCommentUnlocked: Boolean,
-    commentCount: Int,
+    commentCount: Long,
     onCommentClick: () -> Unit,
     modifier: Modifier = Modifier,
     showResonance: Boolean = true,
-    showSave: Boolean = true
+    showSave: Boolean = true,
 ) {
-    var showReactionPicker by remember { mutableStateOf(false) }
+    var showReactionPicker by remember { mutableStateOf(value = false) }
 
     Column(modifier = modifier) {
         Row(
@@ -99,21 +99,17 @@ fun PlayerInteractionBar(
     }
 
     if (showReactionPicker) {
-        ReactionPicker(
-            onReactionSelected = {
-                onResonateClick(it)
-                showReactionPicker = false
-            },
-            onDismiss = { showReactionPicker = false }
-        )
+        ReactionPicker {
+            onResonateClick(it)
+            showReactionPicker = false
+        }
     }
 }
 }
 
 @Composable
 private fun ReactionPicker(
-    onReactionSelected: (ReactionType) -> Unit,
-    onDismiss: () -> Unit
+    onReactionSelected: (ReactionType) -> Unit
 ) {
     Box(
         modifier = Modifier
@@ -122,7 +118,7 @@ private fun ReactionPicker(
             .background(Color.White.copy(alpha = 0.05f), RoundedCornerShape(16.dp))
             .padding(12.dp)
     ) {
-        androidx.compose.foundation.lazy.LazyRow(
+        LazyRow(
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             items(ReactionType.entries.toList()) { type ->
@@ -148,7 +144,7 @@ private fun ReactionPicker(
 private fun InteractionItem(
     icon: ImageVector,
     label: String,
-    count: Int? = null,
+    count: Long? = null,
     isActive: Boolean,
     onClick: () -> Unit,
     enabled: Boolean = true,

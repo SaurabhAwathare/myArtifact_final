@@ -49,7 +49,8 @@ class ResonanceListViewModel @Inject constructor(
         }
         
         if (isLastPage && !refresh) return
-        if (_uiState.value.isLoading) return
+        if (_uiState.value.isLoading && !refresh) return
+        if (_uiState.value.isRefreshing) return
 
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(

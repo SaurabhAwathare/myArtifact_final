@@ -6,7 +6,6 @@ import com.saurabh.artifact.audio.PlaybackCoordinator
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.AvatarConfig
-import com.saurabh.artifact.model.ReactionType
 import com.saurabh.artifact.model.User
 import com.saurabh.artifact.repository.*
 import com.saurabh.artifact.ui.util.UiText
@@ -19,6 +18,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 enum class ProfileTab(val title: String) {
     PUBLISHED("Published"),
@@ -29,7 +31,7 @@ enum class ProfileTab(val title: String) {
 data class ProfileUiState(
     val userProfile: User? = null,
     val avatarConfig: AvatarConfig = AvatarConfig(),
-    val isSelf: Boolean = true,
+    val isSelf: Boolean = false,
     val isResonating: Boolean = false,
     val selectedTab: ProfileTab = ProfileTab.PUBLISHED,
     val publishedArtifacts: List<Artifact> = emptyList(),
@@ -45,20 +47,19 @@ data class ProfileUiState(
     val isPlaying: Boolean = false,
     val isBuffering: Boolean = false,
     val currentPosition: Long = 0,
-    val durationMs: Long = 0
+    val durationMs: Long = 0,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class ProfileViewModel @Inject constructor(
     private val authRepository: AuthRepository,
-    private val userProfileManager: UserProfileManager,
+    userProfileManager: UserProfileManager,
     private val settingsRepository: SettingsRepository,
     private val savedArtifactManager: SavedArtifactManager,
     private val playbackCoordinator: PlaybackCoordinator,
-    private val getProfileDataUseCase: com.saurabh.artifact.domain.profile.GetProfileDataUseCase,
+    getProfileDataUseCase: com.saurabh.artifact.domain.profile.GetProfileDataUseCase,
     private val profileInteractionUseCase: com.saurabh.artifact.domain.profile.ProfileInteractionUseCase,
-    private val reactionUseCase: com.saurabh.artifact.domain.feed.ReactionUseCase
 ) : ViewModel() {
 
     val currentUserId: String? get() = authRepository.currentUser.value?.uid
@@ -68,8 +69,8 @@ class ProfileViewModel @Inject constructor(
     private val _selectedTab = MutableStateFlow(ProfileTab.PUBLISHED)
     private val _logoutState = MutableStateFlow<LogoutState>(LogoutState.Idle)
     private val _message = MutableStateFlow<UiText?>(null)
-    private val _isActionLoading = MutableStateFlow(false)
-    private val _isRefreshing = MutableStateFlow(false)
+    private val _isActionLoading = MutableStateFlow(value = false)
+    private val _isRefreshing = MutableStateFlow(value = false)
     private val _refreshTrigger = MutableStateFlow(0)
 
     private val profileDataFlow = _refreshTrigger.flatMapLatest {
@@ -88,7 +89,7 @@ class ProfileViewModel @Inject constructor(
         playbackCoordinator.isPlaying,
         playbackCoordinator.isBuffering,
         playbackCoordinator.currentPosition,
-        playbackCoordinator.durationMs
+        playbackCoordinator.duration,
     ) { params: Array<Any?> ->
         val data = params[0] as ProfileData?
         val avatarConfig = params[1] as AvatarConfig
@@ -101,8 +102,8 @@ class ProfileViewModel @Inject constructor(
         val currentlyPlaying = params[7] as Artifact?
         val isPlaying = params[8] as Boolean
         val isBuffering = params[9] as Boolean
-        val position = params[10] as Long
-        val duration = params[11] as Long
+        val position = params[10] as Duration
+        val duration = params[11] as Duration
 
         ProfileUiState(
             userProfile = data?.userProfile,
@@ -122,20 +123,20 @@ class ProfileViewModel @Inject constructor(
             currentlyPlayingArtifact = currentlyPlaying,
             isPlaying = isPlaying,
             isBuffering = isBuffering,
-            currentPosition = position,
-            durationMs = duration
+            currentPosition = position.inWholeMilliseconds,
+            durationMs = duration.inWholeMilliseconds,
         )
     }.stateIn(
         scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = ProfileUiState()
+        started = SharingStarted.WhileSubscribed(5.seconds),
+        initialValue = ProfileUiState(),
     )
 
     fun refresh() {
         viewModelScope.launch {
             _isRefreshing.value = true
             _refreshTrigger.value += 1
-            delay(800)
+            delay(800.milliseconds)
             _isRefreshing.value = false
         }
     }
@@ -151,7 +152,7 @@ class ProfileViewModel @Inject constructor(
 
     fun toggleResonance() {
         val targetId = _targetUserId.value ?: return
-        val currentId = authRepository.currentUserId ?: return
+        val currentId = currentUserId ?: return
         if (targetId == currentId) return
 
         viewModelScope.launch {
@@ -178,25 +179,8 @@ class ProfileViewModel @Inject constructor(
         playbackCoordinator.playArtifact(artifact)
     }
 
-    fun playDraft(draft: ArtifactDraftEntity) {
-        playbackCoordinator.playDraftPreview(draft.id)
-    }
-
     fun togglePlayback() {
         playbackCoordinator.togglePlayPause()
-    }
-
-    fun reactToArtifact(artifactId: String, type: ReactionType) {
-        val userId = authRepository.currentUser.value?.uid ?: return
-        viewModelScope.launch {
-            reactionUseCase.toggleReaction(artifactId, userId, type)
-        }
-    }
-
-    fun updateArtifactVisibility(artifactId: String, mode: com.saurabh.artifact.model.ReactionVisibilityMode) {
-        viewModelScope.launch {
-            reactionUseCase.setVisibilityMode(artifactId, mode)
-        }
     }
 
     fun toggleSave(artifact: Artifact) {

@@ -31,8 +31,8 @@ class UserSessionManager @Inject constructor(
     private val usernameKey = stringPreferencesKey("username")
     private val sigilKey = stringPreferencesKey("sigil")
     private val isAnonymousKey = androidx.datastore.preferences.core.booleanPreferencesKey("is_anonymous")
-    private val resonanceInKey = androidx.datastore.preferences.core.intPreferencesKey("resonance_in")
-    private val resonanceOutKey = androidx.datastore.preferences.core.intPreferencesKey("resonance_out")
+    private val resonanceInKey = androidx.datastore.preferences.core.longPreferencesKey("resonance_in")
+    private val resonanceOutKey = androidx.datastore.preferences.core.longPreferencesKey("resonance_out")
     private val activeDraftIdKey = stringPreferencesKey("active_draft_id")
     private val activePromptIdKey = stringPreferencesKey("active_prompt_id")
     private val artifactEpisodeCounterKey = stringPreferencesKey("artifact_episode_counter")
@@ -61,8 +61,8 @@ class UserSessionManager @Inject constructor(
             val sigil = preferences[sigilKey] ?: com.saurabh.artifact.util.UsernameGenerator.deriveSigil(id)
             val avatarColor = preferences[avatarColorKey] ?: "#FFD700"
             val isAnonymous = preferences[isAnonymousKey] ?: true
-            val resonanceIn = preferences[resonanceInKey] ?: 0
-            val resonanceOut = preferences[resonanceOutKey] ?: 0
+            val resonanceIn = preferences[resonanceInKey] ?: 0L
+            val resonanceOut = preferences[resonanceOutKey] ?: 0L
             
             val configJson = preferences[avatarConfigKey]
             val config = configJson?.let { 

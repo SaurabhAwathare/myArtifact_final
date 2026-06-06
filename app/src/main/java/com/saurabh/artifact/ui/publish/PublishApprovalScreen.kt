@@ -170,14 +170,13 @@ fun PublishApprovalScreen(
                 Column {
                     Text("Topic Tags (Optional)", style = MaterialTheme.typography.labelMedium, color = GoldAura500)
                     Spacer(modifier = Modifier.height(12.dp))
-                    val topics = listOf("relationships", "filmmaking", "anxiety", "family", "hope", "loss")
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        topics.forEach { topic ->
-                            val isSelected = uiState.tags.contains(topic)
+                        uiState.availableTopics.forEach { topic ->
+                            val isSelected = uiState.tags.contains(topic.label)
                             FilterChip(
                                 selected = isSelected,
-                                onClick = { viewModel.onToggleTag(topic) },
-                                label = { Text(topic) },
+                                onClick = { viewModel.onToggleTag(topic.label) },
+                                label = { Text(topic.label) },
                                 colors = FilterChipDefaults.filterChipColors(
                                     labelColor = if (isSelected) Color.White else Color.White.copy(alpha = 0.5f),
                                     selectedLabelColor = Color.White,

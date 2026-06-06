@@ -14,16 +14,18 @@ import com.saurabh.artifact.util.StartupTracer
 import com.saurabh.artifact.worker.ReminderWorker
 import com.saurabh.artifact.worker.RecoveryWorker
 import com.saurabh.artifact.worker.CleanupOrphanFilesWorker
+import com.saurabh.artifact.worker.PublishingRecoveryWorker
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.ExistingWorkPolicy
-import dagger.Lazy
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -34,7 +36,7 @@ import javax.inject.Singleton
  */
 @Singleton
 class StartupCoordinator @Inject constructor(
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
     private val workManager: WorkManager
 ) {
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -61,14 +63,14 @@ class StartupCoordinator @Inject constructor(
             initializeCore()
             
             // STAGGER 1: Move to Presence after initial frame
-            delay(500)
+            delay(500.milliseconds)
             _stage.value = StartupStage.PRESENCE
             StartupTracer.mark("Transition: PRESENCE")
             
             // PHASE 2: Deferred & Background Initialization
             launch(Dispatchers.Default) {
                 // SECURITY: Delay slightly to avoid blocking first frame
-                delay(400) 
+                delay(400.milliseconds) 
                 initializeSecurityProvider()
                 
                 // BACKGROUND: Schedule tasks away from Main
@@ -78,22 +80,22 @@ class StartupCoordinator @Inject constructor(
             }
 
             // STAGGER 2: Discovery (Partial Feed)
-            delay(1000)
+            delay(1.seconds)
             _stage.value = StartupStage.DISCOVERY
             StartupTracer.mark("Transition: DISCOVERY")
 
             // STAGGER 3: Immersion (Social/Reactions)
-            delay(1000)
+            delay(1.seconds)
             _stage.value = StartupStage.IMMERSION
             StartupTracer.mark("Transition: IMMERSION")
 
             // STAGGER 4: Ritual (Media/Player)
-            delay(1500)
+            delay(1500.milliseconds)
             _stage.value = StartupStage.RITUAL
             StartupTracer.mark("Transition: RITUAL")
 
             // STAGGER 5: Stable (Full Fidelity)
-            delay(2000)
+            delay(2.seconds)
             _stage.value = StartupStage.STABLE
             StartupTracer.mark("Transition: STABLE")
 
@@ -190,7 +192,7 @@ class StartupCoordinator @Inject constructor(
 
     private fun schedulePublishingRecovery() {
         // Run publishing recovery every 1 hour
-        val recoveryRequest = PeriodicWorkRequestBuilder<com.saurabh.artifact.worker.PublishingRecoveryWorker>(1, TimeUnit.HOURS)
+        val recoveryRequest = PeriodicWorkRequestBuilder<PublishingRecoveryWorker>(1, TimeUnit.HOURS)
             .setInitialDelay(1, TimeUnit.MINUTES)
             .addTag("publishing_recovery")
             .build()
@@ -204,7 +206,7 @@ class StartupCoordinator @Inject constructor(
 
     private suspend fun initializePostUI() {
         Log.d("Startup", "Initializing Post-UI Services (Deferred 5s)")
-        delay(5000)
+        delay(5.seconds)
         
         // Trigger automated recovery worker
         val recoveryRequest = OneTimeWorkRequestBuilder<RecoveryWorker>()

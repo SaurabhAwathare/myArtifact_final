@@ -2,7 +2,6 @@ package com.saurabh.artifact.ui.feed
 
 import android.util.Log
 import android.content.Intent
-import android.net.Uri
 import androidx.core.net.toUri
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
@@ -12,9 +11,7 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.List
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -35,31 +32,32 @@ import androidx.paging.compose.itemKey
 import kotlinx.coroutines.delay
 import androidx.compose.ui.zIndex
 import com.saurabh.artifact.ui.components.ArtifactCard
-import com.saurabh.artifact.ui.components.BottomPlayer
 import com.saurabh.artifact.ui.components.EmberLogo
 import com.saurabh.artifact.ui.components.CrisisSupportCard
 import com.saurabh.artifact.ui.components.EmotionList
 import com.saurabh.artifact.ui.components.state.EmptyFeedState
 import com.saurabh.artifact.ui.components.ReflectionPromptCard
-import androidx.compose.foundation.lazy.LazyListItemInfo
 import androidx.compose.foundation.lazy.rememberLazyListState
 import com.saurabh.artifact.ui.components.motion.FadeInContent
 import com.saurabh.artifact.ui.components.state.LoadingPlaceholder
 import com.saurabh.artifact.ui.theme.Spacing
 import com.saurabh.artifact.ui.components.recording.AuraDock
-import com.saurabh.artifact.ui.components.recording.ActiveRecordingIndicator
 import com.saurabh.artifact.startup.StartupStage
-import com.saurabh.artifact.ui.util.UiText
 import com.saurabh.artifact.startup.StartupMetrics
 import com.saurabh.artifact.ui.components.PetalChip
 import com.saurabh.artifact.ui.components.QuietTab
 import com.saurabh.artifact.ui.components.ArtifactAvatar
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.util.StartupTracer
-import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.map
+import com.saurabh.artifact.ui.components.BrandTitle
+import com.saurabh.artifact.model.Artifact
+import com.saurabh.artifact.model.FeedArtifact
+import com.saurabh.artifact.model.ReflectionPrompt
+import com.saurabh.artifact.model.FeedbackType
+import androidx.activity.ComponentActivity
+import androidx.paging.LoadState
+import kotlin.time.Duration.Companion.milliseconds
+
 
 @OptIn(ExperimentalMaterial3Api::class, kotlinx.coroutines.FlowPreview::class)
 @Composable
@@ -69,7 +67,7 @@ fun FeedScreen(
     onNavigateToNotifications: () -> Unit,
     onNavigateToComments: (String, String) -> Unit,
     onReportArtifact: (String) -> Unit,
-    viewModel: FeedViewModel = hiltViewModel()
+    viewModel: FeedViewModel = hiltViewModel(),
 ) {
     Log.d("APP_FLOW", "Composition: FeedScreen Entered")
     
@@ -93,13 +91,13 @@ fun FeedScreen(
     LaunchedEffect(Unit) {
         // Wait for first frame and navigation to settle
         withFrameNanos { }
-        delay(100) // Reduced from 300ms for faster hydration
+        delay(100.milliseconds) // Reduced from 300ms for faster hydration
         Log.d("APP_FLOW", "FeedScreen: viewModel.start() triggered")
         StartupTracer.mark("FeedScreen: viewModel.start() triggered")
         viewModel.start()
     }
 
-    var showRankedFeed by remember { mutableStateOf(true) }
+    var showRankedFeed by remember { mutableStateOf(value = true) }
 
     val error by viewModel.error.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -179,21 +177,14 @@ fun FeedScreen(
                 }
 
                 // Floating New Content Indicator - Moved outside PullToRefreshBox to avoid ColumnScope issues
-                androidx.compose.animation.AnimatedVisibility(
+                NewContentOverlay(
                     visible = hasNewContent && !isRefreshing,
-                    enter = fadeIn() + expandVertically(expandFrom = Alignment.Top),
-                    exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Top),
+                    onRefresh = { viewModel.refreshFeed() },
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .padding(top = 12.dp)
                         .zIndex(1f)
-                ) {
-                    NewContentIndicator(
-                        onClick = {
-                            viewModel.refreshFeed()
-                        }
-                    )
-                }
+                )
             }
         }
     }
@@ -209,7 +200,7 @@ private fun FeedTopBar(
 
     CenterAlignedTopAppBar(
         title = {
-            com.saurabh.artifact.ui.components.BrandTitle(
+            BrandTitle(
                 style = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.alpha(0.8f)
             )
@@ -294,12 +285,12 @@ private fun FeedVibeHeader(
 private fun FeedContent(
     showRankedFeed: Boolean,
     isRankedLoading: Boolean,
-    forYouArtifacts: androidx.paging.compose.LazyPagingItems<com.saurabh.artifact.model.Artifact>,
-    recentArtifacts: androidx.paging.compose.LazyPagingItems<com.saurabh.artifact.model.Artifact>,
-    unfinished: List<com.saurabh.artifact.model.FeedArtifact>,
+    forYouArtifacts: androidx.paging.compose.LazyPagingItems<Artifact>,
+    recentArtifacts: androidx.paging.compose.LazyPagingItems<Artifact>,
+    unfinished: List<FeedArtifact>,
     listState: androidx.compose.foundation.lazy.LazyListState,
     viewModel: FeedViewModel,
-    reflectionPrompt: com.saurabh.artifact.model.ReflectionPrompt?,
+    reflectionPrompt: ReflectionPrompt?,
     stage: StartupStage,
     onNavigateToRecord: (String?) -> Unit,
     onReportClick: (String) -> Unit,
@@ -307,13 +298,15 @@ private fun FeedContent(
 ) {
     val currentArtifacts = if (showRankedFeed) forYouArtifacts else recentArtifacts
     val isEmpty = currentArtifacts.itemCount == 0
-    val isRefreshing = currentArtifacts.loadState.refresh is androidx.paging.LoadState.Loading
+    val isRefreshing = currentArtifacts.loadState.refresh is LoadState.Loading
 
-    FadeInContent(visible = (!isRankedLoading || (showRankedFeed && isEmpty) || (showRankedFeed && !isEmpty) || (!showRankedFeed && !isEmpty))) {
-        if (isEmpty && !isRefreshing && !isRankedLoading) {
-            EmptyFeedState(onRecordClick = { onNavigateToRecord(null) })
-        } else if (isEmpty && (isRefreshing || isRankedLoading)) {
-            FeedLoadingState()
+    FadeInContent(visible = !isRankedLoading || !isEmpty) {
+        if (isEmpty) {
+            if (isRefreshing || isRankedLoading) {
+                FeedLoadingState()
+            } else {
+                EmptyFeedState(onRecordClick = { onNavigateToRecord(null) })
+            }
         } else {
             LazyColumn(
                 state = listState,
@@ -365,21 +358,21 @@ private fun FeedContent(
                             onNavigateToComments = onNavigateToComments
                         )
                         
-                        if ((index + 1) % 5 == 0) {
-                            this@LazyColumn.BreathBreakItem(index)
+                        if (((index + 1) % 5) == 0) {
+                            this@LazyColumn.breathBreakItem(index)
                         }
                     }
                 }
 
-                if (currentArtifacts.loadState.append is androidx.paging.LoadState.Loading) {
+                if (currentArtifacts.loadState.append is LoadState.Loading) {
                     item(key = "loading_indicator") { LoadingIndicator() }
                 }
                 
                 if (currentArtifacts.itemCount > 0) {
                     item(key = "drawn_signal") {
-                        val context = androidx.compose.ui.platform.LocalContext.current
+                        val context = LocalContext.current
                         LaunchedEffect(Unit) {
-                            (context as? androidx.activity.ComponentActivity)?.reportFullyDrawn()
+                            (context as? ComponentActivity)?.reportFullyDrawn()
                         }
                     }
                 }
@@ -391,7 +384,7 @@ private fun FeedContent(
 @Composable
 fun FeedHeader(
     viewModel: FeedViewModel, 
-    reflectionPrompt: com.saurabh.artifact.model.ReflectionPrompt?, 
+    reflectionPrompt: ReflectionPrompt?, 
     stage: StartupStage,
     onNavigateToRecord: (String?) -> Unit
 ) {
@@ -440,7 +433,7 @@ fun ArtifactItem(
     onReportClick: (String) -> Unit,
     onNavigateToComments: (String, String) -> Unit
 ) {
-    // Isolated State Collection: This item ONLY recompiles when its specific artifact data or status changes
+    // Isolated State Collection: This item ONLY recomposes when its specific artifact data or status changes
     val artifact by remember(viewModel, artifactId) {
         viewModel.getArtifactFlow(artifactId)
     }.collectAsStateWithLifecycle(initialValue = null)
@@ -467,7 +460,7 @@ fun ArtifactItem(
             },
             onReportClick = { onReportClick(artifactId) },
             onDeleteClick = { viewModel.deleteArtifact(artifactId) },
-            onFeedbackClick = { viewModel.submitFeedback(artifactId, com.saurabh.artifact.model.FeedbackType.NOT_FOR_ME) },
+            onFeedbackClick = { viewModel.submitFeedback(artifactId, FeedbackType.NOT_FOR_ME) },
             onSettingsClick = { viewModel.showSettingsComingSoon() },
             onCommentClick = { onNavigateToComments(artifactId, it.userId) },
             currentUserId = viewModel.currentUserId
@@ -475,7 +468,7 @@ fun ArtifactItem(
     }
 }
 
-fun LazyListScope.BreathBreakItem(index: Int) {
+fun LazyListScope.breathBreakItem(index: Int) {
     item(key = "break_$index") {
         Box(
             modifier = Modifier
@@ -521,6 +514,22 @@ fun FeedLoadingState() {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun NewContentOverlay(
+    visible: Boolean,
+    onRefresh: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn() + expandVertically(expandFrom = Alignment.Top),
+        exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Top),
+        modifier = modifier
+    ) {
+        NewContentIndicator(onClick = onRefresh)
     }
 }
 

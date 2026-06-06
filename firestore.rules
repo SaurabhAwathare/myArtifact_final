@@ -19,7 +19,7 @@ service cloud.firestore {
     // --- USERS & PROFILES ---
     match /users/{uid} {
       allow read: if isOwner(uid) ||
-                   (isAuth() && !resource.data.keys().hasAny(['email', 'displayName', 'realName']));
+                   (isAuth() && !resource.data.keys().hasAny(['email', 'displayName', 'realName', 'fcmToken']));
 
       allow write: if isOwner(uid) &&
                    !(request.resource.data.diff(resource.data).affectedKeys().hasAny(['isAdmin', 'accountStatus', 'email', 'realName']));
@@ -31,7 +31,14 @@ service cloud.firestore {
         allow write: if isAdmin();
       }
 
-      // Private Interaction State (The Pulse)
+      // Resonance & Engagement (The Pulse)
+      match /resonance_in/{targetId} { allow read: if isAuth(); }
+      match /resonance_out/{targetId} { allow read: if isAuth(); }
+      match /followers/{targetId} { allow read: if isAuth(); }
+      match /following/{targetId} { allow read: if isAuth(); }
+      match /engagement/{id} { allow read, write: if isOwner(uid); }
+
+      // Private Interaction State
       match /private/interactions/reactions/{artifactId} {
         allow read, write: if isOwner(uid);
       }

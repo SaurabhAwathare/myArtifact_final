@@ -4,6 +4,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.snapshotFlow
+import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -22,7 +23,7 @@ fun ViewportCoordinator(
 ) {
     LaunchedEffect(state) {
         snapshotFlow { state.layoutInfo.visibleItemsInfo }
-            .debounce(300) // Wait for scrolling to slow down or stop
+            .debounce(300.milliseconds) // Wait for scrolling to slow down or stop
             .distinctUntilChanged()
             .filter { !state.isScrollInProgress } // Only hydrate when stationary
             .collect { visibleItems ->

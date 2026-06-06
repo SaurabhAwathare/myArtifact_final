@@ -3,9 +3,14 @@ package com.saurabh.artifact.repository
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.DocumentReference
+import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.FieldPath
 import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.User
 import com.saurabh.artifact.model.AvatarConfig
+import com.saurabh.artifact.model.UserPrivateSettings
 import com.saurabh.artifact.util.UsernameGenerator
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
@@ -89,7 +94,7 @@ class UserRepository @Inject constructor(
                         "anonymousSigil" to newSigil,
                         "avatarColor" to newColor,
                         "avatarSeed" to newSeed,
-                        "avatarConfig" to (anonymousSnapshot?.avatarConfig ?: com.saurabh.artifact.model.AvatarConfig()).copy(
+                        "avatarConfig" to (anonymousSnapshot?.avatarConfig ?: AvatarConfig()).copy(
                             seed = newSeed,
                             theme = "AURIC" // Refreshing identity always reverts to brand-standard Aura
                         ),
@@ -199,21 +204,6 @@ class UserRepository @Inject constructor(
         }
     }
 
-    /**
-     * Checks if a user profile document exists in Firestore.
-     * Used for first-time user detection and routing logic.
-     */
-    suspend fun isProfileCreated(userId: String): Boolean = withContext(Dispatchers.IO) {
-        if (userId.isBlank()) return@withContext false
-        try {
-            val doc = usersCollection.document(userId.trim()).get().await()
-            doc.exists()
-        } catch (e: Exception) {
-            android.util.Log.e("UserRepository", "Error checking profile existence", e)
-            false
-        }
-    }
-
     suspend fun getOrCreateProfile(): User {
         // 1. Ensure Auth
         val initialUser = auth.currentUser ?: throw IllegalStateException("Firebase Auth failed to provide a valid user.")
@@ -221,7 +211,7 @@ class UserRepository @Inject constructor(
         try {
             initialUser.reload().await()
         } catch (e: Exception) {
-            android.util.Log.w("UserRepository", "Failed to reload user, might be deleted or session expired.", e)
+            Log.w("UserRepository", "Failed to reload user, might be deleted or session expired.", e)
             auth.signOut()
             throw e
         }
@@ -243,7 +233,6 @@ class UserRepository @Inject constructor(
                 val anonymousId = "usr_${java.util.UUID.randomUUID().toString().take(5).uppercase()}"
                 val anonymousName = UsernameGenerator.generate()
                 val anonymousSigil = UsernameGenerator.deriveSigil(anonymousId)
-                val safePalette = listOf("#FADADD", "#E6E6FA", "#D1EAF0", "#E2F0D9", "#FFF4E0")
                 val seed = java.util.UUID.randomUUID().toString()
                 
                 val newProfile = User(
@@ -257,7 +246,7 @@ class UserRepository @Inject constructor(
                     emotionalProfile = "New Soul"
                 )
 
-                val privateSettings = com.saurabh.artifact.model.UserPrivateSettings(
+                val privateSettings = UserPrivateSettings(
                     email = currentUser.email ?: "",
                     realName = currentUser.displayName ?: "",
                     isAdmin = false,
@@ -298,9 +287,10 @@ class UserRepository @Inject constructor(
         val registration = docRef.addSnapshotListener { snapshot, error ->
             if (error != null) {
                 Log.e("UserRepository", "Error streaming profile for $userId: ${error.code}", error)
-                // If it's a permanent error (Permission Denied), we emit null and close the flow.
+                // HARDENING: If it's a permanent error (Permission Denied), we emit null and close.
+                // However, we MUST trySend(null) first to unblock any 'combine' operators.
+                trySend(null)
                 if (error.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
-                    trySend(null)
                     close(error)
                 }
                 return@addSnapshotListener
@@ -443,8 +433,14 @@ class UserRepository @Inject constructor(
         }.distinctUntilChanged()
     }
 
-    private fun observeDocumentExists(docRef: com.google.firebase.firestore.DocumentReference): Flow<Boolean> = callbackFlow {
-        val registration = docRef.addSnapshotListener { snapshot, _ ->
+    private fun observeDocumentExists(docRef: DocumentReference): Flow<Boolean> = callbackFlow {
+        val registration = docRef.addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                // HARDENING: Do not crash or hang on error (e.g. Permission Denied)
+                // Just assume document doesn't exist/isn't accessible
+                trySend(false)
+                return@addSnapshotListener
+            }
             trySend(snapshot?.exists() ?: false)
         }
         awaitClose { registration.remove() }
@@ -470,7 +466,7 @@ class UserRepository @Inject constructor(
         }
     }
 
-    suspend fun updateAvatarConfig(userId: String, config: com.saurabh.artifact.model.AvatarConfig) = withContext(Dispatchers.IO) {
+    suspend fun updateAvatarConfig(userId: String, config: AvatarConfig) = withContext(Dispatchers.IO) {
         usersCollection.document(userId).update("avatarConfig", config).await()
         notificationRepository.createNotification(
             userId = userId,
@@ -486,12 +482,12 @@ class UserRepository @Inject constructor(
         userId: String,
         type: String, // "resonance_in" or "resonance_out"
         limit: Int = 20,
-        lastVisible: com.google.firebase.firestore.DocumentSnapshot? = null
-    ): Result<Pair<List<User>, com.google.firebase.firestore.DocumentSnapshot?>> = withContext(Dispatchers.IO) {
+        lastVisible: DocumentSnapshot? = null
+    ): Result<Pair<List<User>, DocumentSnapshot?>> = withContext(Dispatchers.IO) {
         try {
             var query = usersCollection.document(userId.trim())
                 .collection(type)
-                .orderBy("createdAt", com.google.firebase.firestore.Query.Direction.DESCENDING)
+                .orderBy("createdAt", Query.Direction.DESCENDING)
                 .limit(limit.toLong())
 
             if (lastVisible != null) {
@@ -510,7 +506,7 @@ class UserRepository @Inject constructor(
             val users = mutableListOf<User>()
             
             for (chunk in userChunks) {
-                val userSnapshot = usersCollection.whereIn(com.google.firebase.firestore.FieldPath.documentId(), chunk).get().await()
+                val userSnapshot = usersCollection.whereIn(FieldPath.documentId(), chunk).get().await()
                 users.addAll(userSnapshot.toObjects(User::class.java).mapIndexed { index, user ->
                     user.copy(id = userSnapshot.documents[index].id)
                 })

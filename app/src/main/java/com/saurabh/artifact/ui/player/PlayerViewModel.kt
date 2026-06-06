@@ -22,6 +22,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
@@ -74,7 +78,7 @@ class PlayerViewModel @Inject constructor(
         playbackCoordinator.isPlaying,
         playbackCoordinator.isBuffering,
         playbackCoordinator.smoothPosition,
-        playbackCoordinator.durationMs,
+        playbackCoordinator.duration,
         playbackCoordinator.playbackSpeed,
         playbackCoordinator.isSkipSilenceEnabled
     ) { params ->
@@ -82,8 +86,8 @@ class PlayerViewModel @Inject constructor(
             artifact = params[0] as Artifact?,
             isPlaying = params[1] as Boolean,
             isBuffering = params[2] as Boolean,
-            position = params[3] as Long,
-            duration = params[4] as Long,
+            position = params[3] as Duration,
+            duration = params[4] as Duration,
             speed = params[5] as Float,
             isSilenceSkipEnabled = params[6] as Boolean
         )
@@ -93,12 +97,12 @@ class PlayerViewModel @Inject constructor(
     private val uiControlState = combine(
         _isExpanded,
         _showAdvancedControls,
-        playbackCoordinator.sleepTimerMillisRemaining
+        playbackCoordinator.sleepTimerRemaining
     ) { expanded, advanced, timer ->
         UiControlSubState(
             isExpanded = expanded,
             showAdvancedControls = advanced,
-            sleepTimerMillisRemaining = timer
+            sleepTimerRemaining = timer
         )
     }.distinctUntilChanged()
 
@@ -107,7 +111,7 @@ class PlayerViewModel @Inject constructor(
         playbackCoordinator.currentArtifact,
         playbackCoordinator.smoothPosition
     ) { artifact, position ->
-        artifact?.transcript?.findSegmentAt(position)
+        artifact?.transcript?.findSegmentAt(position.inWholeMilliseconds)
     }.distinctUntilChanged()
 
     val uiState: StateFlow<PlayerUiState> = combine(
@@ -137,7 +141,7 @@ class PlayerViewModel @Inject constructor(
         // SYNC VALIDATION: Ensure metadata matches the current artifact to prevent transition flicker
         val isMetadataSynced = artifact != null && md.artifactId == artifact.id
         
-        val progress = if (pb.duration > 0) pb.position.toFloat() / pb.duration else 0f
+        val progress = if (pb.duration > Duration.ZERO) (pb.position / pb.duration).toFloat() else 0f
         val furthestProgress = if (reviewState.artifactId == artifact?.id) reviewState.progress else 0f
         
         val mode = when {
@@ -150,8 +154,8 @@ class PlayerViewModel @Inject constructor(
             currentArtifact = artifact,
             isPlaying = pb.isPlaying,
             isBuffering = pb.isBuffering,
-            currentPosition = pb.position,
-            durationMs = pb.duration, // ExoPlayer duration is the source of truth
+            currentPosition = pb.position.inWholeMilliseconds,
+            durationMs = pb.duration.inWholeMilliseconds, // ExoPlayer duration is the source of truth
             playbackSpeed = pb.speed,
             isCommentUnlocked = if (isMetadataSynced) md.isCommentUnlocked else false,
             playbackProgress = progress,
@@ -166,7 +170,7 @@ class PlayerViewModel @Inject constructor(
             resonanceSummary = if (isMetadataSynced) md.resonanceSummary else "",
             commentCount = if (isMetadataSynced) md.commentCount else 0, // md.commentCount is live
             isSilenceSkipEnabled = pb.isSilenceSkipEnabled,
-            sleepTimerMillisRemaining = ctrl.sleepTimerMillisRemaining,
+            sleepTimerMillisRemaining = ctrl.sleepTimerRemaining?.inWholeMilliseconds,
             currentTranscriptSegment = transcriptSegment,
             showAdvancedControls = ctrl.showAdvancedControls
         )
@@ -233,7 +237,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun seekTo(position: Long) {
-        playbackCoordinator.seekTo(position)
+        playbackCoordinator.seekTo(position.milliseconds)
     }
 
     fun setPlaybackSpeed(speed: Float) {
@@ -253,13 +257,20 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun rewind() {
-        val newPos = (playbackCoordinator.currentPosition.value - 10000).coerceAtLeast(0)
-        playbackCoordinator.seekTo(newPos)
+        viewModelScope.launch {
+            val currentPos = playbackCoordinator.smoothPosition.first()
+            val newPos = (currentPos - 10.seconds).coerceAtLeast(Duration.ZERO)
+            playbackCoordinator.seekTo(newPos)
+        }
     }
 
     fun forward() {
-        val newPos = (playbackCoordinator.currentPosition.value + 10000).coerceAtMost(playbackCoordinator.durationMs.value)
-        playbackCoordinator.seekTo(newPos)
+        viewModelScope.launch {
+            val currentPos = playbackCoordinator.smoothPosition.first()
+            val duration = playbackCoordinator.duration.first()
+            val newPos = (currentPos + 10.seconds).coerceAtMost(duration)
+            playbackCoordinator.seekTo(newPos)
+        }
     }
 
     fun deleteCurrentArtifact() {
@@ -277,7 +288,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun startSleepTimer(minutes: Int) {
-        playbackCoordinator.startSleepTimer(minutes)
+        playbackCoordinator.startSleepTimer(minutes.minutes)
     }
 }
 
@@ -285,8 +296,8 @@ private data class PlaybackSubState(
     val artifact: Artifact?,
     val isPlaying: Boolean,
     val isBuffering: Boolean,
-    val position: Long,
-    val duration: Long,
+    val position: Duration,
+    val duration: Duration,
     val speed: Float,
     val isSilenceSkipEnabled: Boolean
 )
@@ -294,5 +305,5 @@ private data class PlaybackSubState(
 private data class UiControlSubState(
     val isExpanded: Boolean,
     val showAdvancedControls: Boolean,
-    val sleepTimerMillisRemaining: Long?
+    val sleepTimerRemaining: Duration?
 )

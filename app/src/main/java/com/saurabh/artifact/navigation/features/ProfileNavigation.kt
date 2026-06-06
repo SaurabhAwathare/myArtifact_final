@@ -34,10 +34,6 @@ fun NavGraphBuilder.profileNavigation(
         navController.navigate(Screen.AvatarEditor.route)
     }
 
-    val onNavigateToModeration = {
-        navController.navigate(Screen.Moderation.route)
-    }
-
     val onNavigateToComments = { artifactId: String, ownerId: String ->
         navController.navigate(Screen.Comments.createRoute(artifactId, ownerId))
     }
@@ -99,8 +95,7 @@ fun NavGraphBuilder.profileNavigation(
     composable(Screen.Settings.route) {
         SettingsScreen(
             onBackClick = onBack,
-            onLogoutSuccess = onLogout,
-            onNavigateToModeration = onNavigateToModeration
+            onLogoutSuccess = onLogout
         )
     }
 

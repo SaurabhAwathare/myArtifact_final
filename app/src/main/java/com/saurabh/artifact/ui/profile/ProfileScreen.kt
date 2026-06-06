@@ -122,7 +122,6 @@ fun ProfileScreen(
                         ProfileHeader(
                             user = uiState.userProfile,
                             avatarConfig = uiState.avatarConfig,
-                            postCount = uiState.publishedArtifacts.size,
                             isSelf = uiState.isSelf,
                             isResonating = uiState.isResonating,
                             onResonateClick = { viewModel.toggleResonance() },

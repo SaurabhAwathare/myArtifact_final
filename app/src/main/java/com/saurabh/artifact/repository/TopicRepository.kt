@@ -4,6 +4,8 @@ import com.saurabh.artifact.model.TopicTag
 import com.saurabh.artifact.model.TopicCategory
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
+import javax.inject.Inject
+import javax.inject.Singleton
 
 interface TopicRepository {
     fun getSystemTopics(): Flow<List<TopicTag>>
@@ -12,7 +14,8 @@ interface TopicRepository {
     suspend fun saveCustomTopic(topic: TopicTag): Result<Unit>
 }
 
-class TopicRepositoryImpl : TopicRepository {
+@Singleton
+class TopicRepositoryImpl @Inject constructor() : TopicRepository {
     // In a real implementation, this would inject Firestore
     
     private val mockTopics = listOf(
@@ -22,7 +25,11 @@ class TopicRepositoryImpl : TopicRepository {
         TopicTag(id = "4", label = "relationships"),
         TopicTag(id = "5", label = "college life"),
         TopicTag(id = "6", label = "grief"),
-        TopicTag(id = "7", label = "creative burnout")
+        TopicTag(id = "7", label = "creative burnout"),
+        TopicTag(id = "8", label = "anxiety"),
+        TopicTag(id = "9", label = "family"),
+        TopicTag(id = "10", label = "hope"),
+        TopicTag(id = "11", label = "loss")
     )
 
     override fun getSystemTopics(): Flow<List<TopicTag>> = flowOf(mockTopics)

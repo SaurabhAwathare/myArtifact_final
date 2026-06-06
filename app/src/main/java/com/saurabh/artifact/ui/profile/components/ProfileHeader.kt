@@ -1,8 +1,5 @@
 package com.saurabh.artifact.ui.profile.components
 
-import androidx.compose.animation.core.*
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -11,19 +8,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.saurabh.artifact.model.User
 import com.saurabh.artifact.ui.theme.ArtifactTheme
-import com.saurabh.artifact.ui.theme.GoldAura500
-import com.saurabh.artifact.ui.theme.Spacing
 
 import com.saurabh.artifact.ui.components.ArtifactAvatar
 import com.saurabh.artifact.model.AvatarConfig
@@ -37,7 +27,6 @@ import com.saurabh.artifact.model.AvatarConfig
 fun ProfileHeader(
     user: User?,
     avatarConfig: AvatarConfig,
-    postCount: Int,
     isSelf: Boolean,
     isResonating: Boolean,
     onResonateClick: () -> Unit,
@@ -50,7 +39,7 @@ fun ProfileHeader(
         modifier = modifier
             .fillMaxWidth()
             .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         // Large Avatar
         Box(
@@ -84,17 +73,28 @@ fun ProfileHeader(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
+            val resonatorsCount = when {
+                user == null -> 0L
+                user.resonanceInCount > 0 -> user.resonanceInCount
+                else -> user.followersCount
+            }
+            val resonatingCount = when {
+                user == null -> 0L
+                user.resonanceOutCount > 0 -> user.resonanceOutCount
+                else -> user.followingCount
+            }
+
             StatItem(
                 label = "resonators", 
-                count = user?.resonanceInCount ?: user?.followersCount ?: 0,
+                count = resonatorsCount,
                 onClick = onResonatorsClick
             )
             StatItem(
                 label = "resonating", 
-                count = user?.resonanceOutCount ?: user?.followingCount ?: 0,
+                count = resonatingCount,
                 onClick = onResonatingClick
             )
-            StatItem(label = "streak", count = user?.softStreakCount ?: 0)
+            StatItem(label = "streak", count = user?.softStreakCount ?: 0L)
         }
 
         if (!isSelf) {
@@ -115,7 +115,7 @@ fun ProfileHeader(
 }
 
 @Composable
-private fun StatItem(label: String, count: Int, onClick: () -> Unit = {}) {
+private fun StatItem(label: String, count: Long, onClick: () -> Unit = {}) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.clickable(enabled = true) { onClick() }

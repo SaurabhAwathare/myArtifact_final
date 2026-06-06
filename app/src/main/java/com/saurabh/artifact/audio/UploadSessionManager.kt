@@ -2,7 +2,6 @@ package com.saurabh.artifact.audio
 
 import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.repository.DraftRepository
-import com.saurabh.artifact.repository.DraftWithUpload
 import com.saurabh.artifact.model.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -10,6 +9,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlin.time.Duration.Companion.seconds
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -71,7 +71,7 @@ class PublishStateManager @Inject constructor(
                             PublishState.Published(id, title, draft.remoteArtifactId ?: id)
                         
                         syncStatus is SyncStatus.Failed -> 
-                            PublishState.Error(id, title, syncStatus.error, syncStatus.recoverable)
+                            PublishState.Error(id, title, syncStatus.error)
                         
                         syncStatus is SyncStatus.WaitingForNetwork -> 
                             PublishState.Uploading(id, title, progress, isWaitingForNetwork = true)
@@ -99,7 +99,7 @@ class PublishStateManager @Inject constructor(
                         // Auto-dismiss terminal states
                         if (newState is PublishState.Published || newState is PublishState.Error) {
                             scope.launch {
-                                delay(5000L)
+                                delay(5.seconds)
                                 if (_currentPublishState.value?.draftId == draft.id) {
                                     _currentPublishState.value = null
                                 }

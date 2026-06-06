@@ -1,6 +1,7 @@
 package com.saurabh.artifact.repository
 
-import com.google.android.gms.auth.api.signin.GoogleSignInClient
+import androidx.credentials.ClearCredentialStateRequest
+import androidx.credentials.CredentialManager
 import com.google.firebase.auth.AuthCredential
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
@@ -18,7 +19,7 @@ import javax.inject.Singleton
 class AuthRepository @Inject constructor(
     private val firebaseAuth: FirebaseAuth,
     private val firestore: FirebaseFirestore,
-    private val googleSignInClient: GoogleSignInClient
+    private val credentialManager: CredentialManager,
 ) {
     private val _currentUser = MutableStateFlow(firebaseAuth.currentUser)
     val currentUser: StateFlow<FirebaseUser?> = _currentUser
@@ -143,8 +144,8 @@ class AuthRepository @Inject constructor(
 
     suspend fun signOut(): Result<Unit> {
         return try {
-            // Sign out from Google
-            googleSignInClient.signOut().await()
+            // Clear credential state (sign out from Google via Credential Manager)
+            credentialManager.clearCredentialState(ClearCredentialStateRequest())
             // Sign out from Firebase
             firebaseAuth.signOut()
             Result.success(Unit)

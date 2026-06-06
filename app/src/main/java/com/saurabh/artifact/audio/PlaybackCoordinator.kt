@@ -5,6 +5,9 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * High-level coordinator for all playback types.
@@ -21,34 +24,35 @@ class PlaybackCoordinator @Inject constructor(
     val currentArtifact = playbackSessionManager.currentArtifact
     val isPlaying = playbackSessionManager.isPlaying
     val isBuffering = playbackSessionManager.isBuffering
-    val currentPosition = playbackSessionManager.currentPosition
+    
+    val currentPosition: Flow<Duration> = playbackSessionManager.currentPosition.map { it.milliseconds }
     val positionSync = playbackSessionManager.positionSync
-    val durationMs = playbackSessionManager.durationMs
+    
+    val duration: Flow<Duration> = playbackSessionManager.durationMs.map { it.milliseconds }
+    
     val playbackSpeed = playbackSessionManager.playbackSpeed
     val isSkipSilenceEnabled = playbackSessionManager.isSkipSilenceEnabled
     val playbackCompletedEvent = playbackSessionManager.playbackCompletedEvent
     val activePlayback = playbackSessionManager.activePlayback
     val error = playbackSessionManager.error
 
-    val isAmbientPlaying = transientPlayerManager.isPlaying
-
-    private val _sleepTimerMillisRemaining = MutableStateFlow<Long?>(null)
-    val sleepTimerMillisRemaining: StateFlow<Long?> = _sleepTimerMillisRemaining.asStateFlow()
+    private val _sleepTimerRemaining = MutableStateFlow<Duration?>(null)
+    val sleepTimerRemaining: StateFlow<Duration?> = _sleepTimerRemaining.asStateFlow()
     private var sleepTimerJob: Job? = null
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    val smoothPosition: Flow<Long> = positionSync.flatMapLatest { sync ->
+    val smoothPosition: Flow<Duration> = positionSync.flatMapLatest { sync ->
         if (sync.isPlaying) {
             flow {
                 while (true) {
                     val elapsed = android.os.SystemClock.elapsedRealtime() - sync.timestampMs
-                    val current = sync.positionMs + (elapsed * sync.speed).toLong()
-                    emit(current)
-                    delay(32)
+                    val currentMs = sync.positionMs + (elapsed * sync.speed).toLong()
+                    emit(currentMs.milliseconds)
+                    delay(32.milliseconds)
                 }
             }
         } else {
-            flowOf(sync.positionMs)
+            flowOf(sync.positionMs.milliseconds)
         }
     }
 
@@ -66,13 +70,13 @@ class PlaybackCoordinator @Inject constructor(
     /**
      * Start playing a persistent artifact (e.g., from the main feed).
      */
-    fun playArtifact(artifact: Artifact, collection: List<Artifact> = emptyList(), initialPosition: Long = 0L) {
+    fun playArtifact(artifact: Artifact, collection: List<Artifact> = emptyList(), initialPosition: Duration = Duration.ZERO) {
         playbackSessionManager.play(
             artifact = artifact,
             collection = collection,
             owner = PlaybackSessionManager.InteractionOwner.PUBLIC_PLAYER,
             playbackType = PlaybackType.ARTIFACT,
-            initialPosition = initialPosition
+            initialPosition = initialPosition.inWholeMilliseconds
         )
     }
 
@@ -82,28 +86,6 @@ class PlaybackCoordinator @Inject constructor(
      */
     fun playDraftPreview(draftId: String) {
         reviewSessionManager.startReview(draftId)
-    }
-
-    /**
-     * Plays an ambient sound layer simultaneously with the main audio.
-     */
-    fun playAmbient(url: String, loop: Boolean = true, volume: Float = 0.3f) {
-        transientPlayerManager.play(url, loop, volume)
-    }
-
-    fun stopAmbient() {
-        transientPlayerManager.stop()
-    }
-
-    /**
-     * Start a profile preview.
-     */
-    fun playProfilePreview(artifact: Artifact) {
-        playbackSessionManager.play(
-            artifact = artifact,
-            owner = PlaybackSessionManager.InteractionOwner.PUBLIC_PLAYER,
-            playbackType = PlaybackType.PROFILE_PREVIEW
-        )
     }
 
     fun togglePlayPause() {
@@ -125,17 +107,8 @@ class PlaybackCoordinator @Inject constructor(
         }
     }
 
-    /**
-     * Requests to stop playback only if it's owned by a certain interaction owner.
-     */
-    fun requestStop(owner: PlaybackSessionManager.InteractionOwner) {
-        if (playbackSessionManager.interactionOwner.value == owner) {
-            stop()
-        }
-    }
-
-    fun seekTo(position: Long) {
-        playbackSessionManager.seekTo(position)
+    fun seekTo(position: Duration) {
+        playbackSessionManager.seekTo(position.inWholeMilliseconds)
     }
 
     fun setPlaybackSpeed(speed: Float) {
@@ -150,26 +123,25 @@ class PlaybackCoordinator @Inject constructor(
         playbackSessionManager.preCache(artifact)
     }
 
-    fun startSleepTimer(minutes: Int) {
+    fun startSleepTimer(duration: Duration) {
         sleepTimerJob?.cancel()
-        if (minutes == 0) {
-            _sleepTimerMillisRemaining.value = null
+        if (duration == Duration.ZERO) {
+            _sleepTimerRemaining.value = null
             return
         }
 
-        val totalMillis = minutes * 60 * 1000L
-        _sleepTimerMillisRemaining.value = totalMillis
+        _sleepTimerRemaining.value = duration
 
         sleepTimerJob = scope.launch {
-            var remaining = totalMillis
-            while (remaining > 0) {
-                delay(1000)
-                remaining -= 1000
-                _sleepTimerMillisRemaining.value = remaining
+            var remaining = duration
+            while (remaining > Duration.ZERO) {
+                delay(1.seconds)
+                remaining -= 1.seconds
+                _sleepTimerRemaining.value = remaining.coerceAtLeast(Duration.ZERO)
                 if (!isPlaying.value) continue
             }
             stop()
-            _sleepTimerMillisRemaining.value = null
+            _sleepTimerRemaining.value = null
         }
     }
 }

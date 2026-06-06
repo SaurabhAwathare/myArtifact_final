@@ -20,6 +20,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.time.Duration.Companion.milliseconds
 import javax.inject.Inject
 
 @HiltAndroidApp
@@ -62,7 +63,7 @@ class ArtifactApplication : Application(), ImageLoaderFactory, Configuration.Pro
 
         // Defer coordinator slightly to allow App onCreate to complete and UI to bind
         initScope.launch(Dispatchers.Main) {
-            delay(100) 
+            delay(100.milliseconds) 
             startupCoordinator.start()
             StartupTracer.mark("StartupCoordinator Launched (Deferred)")
         }
@@ -77,7 +78,7 @@ class ArtifactApplication : Application(), ImageLoaderFactory, Configuration.Pro
             .memoryCache {
                 MemoryCache.Builder(this)
                     .maxSizePercent(0.15) // Limit to 15% of app memory
-                    .strongReferencesEnabled(true)
+                    .strongReferencesEnabled(enable = true)
                     .build()
             }
             .diskCache {
@@ -105,13 +106,14 @@ class ArtifactApplication : Application(), ImageLoaderFactory, Configuration.Pro
         }
         
         // Release image caches if memory pressure is high
-        if (level >= TRIM_MEMORY_UI_HIDDEN || level >= TRIM_MEMORY_RUNNING_LOW) {
+        if ((level >= TRIM_MEMORY_UI_HIDDEN) || (level >= 10 /* TRIM_MEMORY_RUNNING_LOW */)) {
             _imageLoader?.memoryCache?.clear()
         }
     }
 
     companion object {
         init {
+            // noinspection SpellCheckingInspection
             System.loadLibrary("sqlcipher")
         }
     }

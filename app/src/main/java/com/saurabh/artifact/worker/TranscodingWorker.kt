@@ -14,7 +14,6 @@ import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.nio.ByteBuffer
 
 /**
  * TranscodingWorker: The bridge between "Durable Capture" and "Optimized Persistence".
@@ -98,7 +97,7 @@ class TranscodingWorker @AssistedInject constructor(
 
     private suspend fun updateDraftStatus(id: String, stage: ProcessingStage?, error: String? = null) {
         val newProcessing = when {
-            error != null -> ProcessingStatus.Failed(error)
+            error != null -> ProcessingStatus.Failed()
             stage != null -> ProcessingStatus.Active(stage)
             else -> ProcessingStatus.Idle
         }

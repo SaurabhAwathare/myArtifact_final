@@ -24,33 +24,31 @@ class GetProfileDataUseCase @Inject constructor(
     private val authRepository: AuthRepository
 ) {
     operator fun invoke(targetUserId: String?): Flow<ProfileData?> {
-        return authRepository.userData.flatMapLatest { currentUser ->
-            val isSelf = (targetUserId == null) || (targetUserId == currentUser?.id)
-            val finalId = targetUserId ?: currentUser?.id
-            val currentUserId = currentUser?.id
+        val currentUserId = authRepository.currentUserId
+        val isSelf = (targetUserId == null) || (targetUserId == currentUserId)
+        val finalId = targetUserId ?: currentUserId
 
-            val effectiveId = finalId ?: return@flatMapLatest flowOf(null)
+        if (finalId.isEmpty()) return flowOf(null)
 
-            combine(
-                userRepository.streamUserProfile(effectiveId),
-                artifactRepository.getUserArtifacts(effectiveId, onlyActive = !isSelf),
-                artifactRepository.getSavedArtifacts(effectiveId),
-                if (isSelf) recordingRepository.observeDrafts().map { drafts ->
-                    drafts.filter { it.lifecycle != com.saurabh.artifact.model.ArtifactLifecycle.PUBLISHED }
-                } else flowOf(emptyList()),
-                if (currentUserId != null) userRepository.observeIsResonating(currentUserId, effectiveId) else flowOf(false)
-            ) { profile, allArtifacts, saved, localDrafts, isResonating ->
-                val statusPublished = com.saurabh.artifact.model.ArtifactStatus.ACTIVE
-                ProfileData(
-                    userProfile = profile,
-                    publishedArtifacts = allArtifacts.filter { it.status == statusPublished },
-                    cloudDrafts = allArtifacts.filter { it.status != statusPublished },
-                    savedArtifacts = saved,
-                    localDrafts = localDrafts,
-                    isResonating = isResonating,
-                    isSelf = isSelf
-                )
-            }
+        return combine(
+            userRepository.streamUserProfile(finalId),
+            artifactRepository.getUserArtifacts(finalId, onlyActive = !isSelf),
+            artifactRepository.getSavedArtifacts(finalId),
+            if (isSelf) recordingRepository.observeDrafts().map { drafts ->
+                drafts.filter { it.lifecycle != com.saurabh.artifact.model.ArtifactLifecycle.PUBLISHED }
+            } else flowOf(emptyList()),
+            if (currentUserId.isNotEmpty()) userRepository.observeIsResonating(currentUserId, finalId) else flowOf(false)
+        ) { profile, allArtifacts, saved, localDrafts, isResonating ->
+            val statusPublished = com.saurabh.artifact.model.ArtifactStatus.ACTIVE
+            ProfileData(
+                userProfile = profile,
+                publishedArtifacts = allArtifacts.filter { it.status == statusPublished },
+                cloudDrafts = allArtifacts.filter { it.status != statusPublished },
+                savedArtifacts = saved,
+                localDrafts = localDrafts,
+                isResonating = isResonating,
+                isSelf = isSelf
+            )
         }
     }
 }

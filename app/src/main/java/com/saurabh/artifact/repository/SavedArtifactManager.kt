@@ -1,6 +1,5 @@
 package com.saurabh.artifact.repository
 
-import android.util.Log
 import com.saurabh.artifact.model.Artifact
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

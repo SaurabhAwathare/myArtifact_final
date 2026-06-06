@@ -3,6 +3,7 @@ package com.saurabh.artifact.ui.avatar.renderer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.rotate
 import com.saurabh.artifact.model.AvatarConfig
 import kotlin.math.abs
 
@@ -47,12 +48,14 @@ class AuricRenderer : AvatarRenderer {
     ) {
         val radius = size.maxDimension * radiusMult
         
-        drawCircle(
-            brush = Brush.linearGradient(
-                colors = colors.map { it.copy(alpha = it.alpha * alpha) }
-            ),
-            radius = radius
-        )
+        rotate(rotation) {
+            drawCircle(
+                brush = Brush.linearGradient(
+                    colors = colors.map { it.copy(alpha = it.alpha * alpha) }
+                ),
+                radius = radius
+            )
+        }
     }
 
     private fun generateAuraPalette(seed: String): List<Color> {

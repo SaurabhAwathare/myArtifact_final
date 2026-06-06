@@ -34,7 +34,6 @@ class RecordingViewModel @Inject constructor(
 
     private var promptList: List<ReflectionPrompt> = emptyList()
     private var currentPromptIndex = 0
-    private var countdownJob: kotlinx.coroutines.Job? = null
 
     init {
         loadPrompts()
@@ -49,16 +48,6 @@ class RecordingViewModel @Inject constructor(
         }
     }
 
-    private fun onCountdownFinished() {
-        _uiState.update { it.copy(flowState = RecordingFlowState.RECORDING) }
-        startRecording()
-    }
-
-    fun skipCountdown() {
-        countdownJob?.cancel()
-        onCountdownFinished()
-    }
-
     private fun loadPrompts() {
         viewModelScope.launch {
             // Ensure DB is initialized
@@ -66,8 +55,7 @@ class RecordingViewModel @Inject constructor(
 
             // First load all prompts and wait for data
             promptRepository.getAllPrompts()
-                .filter { it.isNotEmpty() }
-                .first()
+                .first { it.isNotEmpty() }
                 .let { allPrompts ->
                     promptList = allPrompts.shuffled()
                     
@@ -159,10 +147,6 @@ class RecordingViewModel @Inject constructor(
             .launchIn(viewModelScope)
     }
 
-    fun shufflePrompt() {
-        nextPrompt()
-    }
-
     fun startRecording() {
         viewModelScope.launch {
             Log.d("RecordingViewModel", "Auto-starting recording session via RecordingSessionManager")
@@ -206,20 +190,6 @@ class RecordingViewModel @Inject constructor(
         }
     }
 
-    fun previousPrompt() {
-        if (promptList.isNotEmpty()) {
-            currentPromptIndex = if (currentPromptIndex <= 0) promptList.size - 1 else currentPromptIndex - 1
-            val prevPrompt = promptList[currentPromptIndex]
-            _uiState.update { it.copy(
-                currentPrompt = prevPrompt,
-                currentPromptIndex = currentPromptIndex
-            ) }
-            viewModelScope.launch {
-                userSessionManager.setActivePromptId(prevPrompt.id)
-            }
-        }
-    }
-
     fun updatePromptIndex(index: Int) {
         if (promptList.isNotEmpty() && index in promptList.indices) {
             currentPromptIndex = index
@@ -232,10 +202,6 @@ class RecordingViewModel @Inject constructor(
                 userSessionManager.setActivePromptId(nextPrompt.id)
             }
         }
-    }
-
-    fun togglePromptVisibility(visible: Boolean) {
-        _uiState.update { it.copy(isPromptVisible = visible) }
     }
 }
 
@@ -257,7 +223,7 @@ data class RecordingUiState(
 )
 
 enum class RecordingFlowState {
-    IDLE, WARNING, RECORDING
+    IDLE, RECORDING
 }
 
 sealed class RecordingEvent {

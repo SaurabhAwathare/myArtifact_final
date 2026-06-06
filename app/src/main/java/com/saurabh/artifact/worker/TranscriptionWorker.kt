@@ -7,10 +7,10 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.saurabh.artifact.audio.LocalDraftManager
 import com.saurabh.artifact.repository.RecordingRepository
-import com.saurabh.artifact.util.EncryptedStorageManager
-import com.saurabh.artifact.util.StorageManager
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -26,7 +26,6 @@ class TranscriptionWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted workerParams: WorkerParameters,
     private val recordingRepository: RecordingRepository,
-    private val storageManager: StorageManager,
     private val localDraftManager: LocalDraftManager
 ) : CoroutineWorker(appContext, workerParams) {
 
@@ -41,7 +40,6 @@ class TranscriptionWorker @AssistedInject constructor(
             return@withContext Result.failure()
         }
 
-        var tempDecryptedFile: File? = null
         try {
             // IDEMPOTENCY CHECK: If transcript already exists and repository knows about it, skip
             if (draft.localTranscriptPath != null && File(draft.localTranscriptPath).exists()) {
@@ -53,12 +51,11 @@ class TranscriptionWorker @AssistedInject constructor(
 
             // 1. Prepare audio for processing with timeout
             Log.d("TranscriptionWorker", "Atmospheric Step: Listening quietly to your words...")
-            val audioFile = file
             
             // 2. Perform Transcription with timeout
-            Log.d("TranscriptionWorker", "Starting transcription for: ${audioFile.absolutePath}")
-            val transcriptText = withTimeout(60000) {
-                performTranscription(audioFile)
+            Log.d("TranscriptionWorker", "Starting transcription for: ${file.absolutePath}")
+            val transcriptText = withTimeout(1.minutes) {
+                performTranscription(file)
             }
 
             // Save transcript to file
@@ -67,7 +64,7 @@ class TranscriptionWorker @AssistedInject constructor(
             val transcriptPath = transcriptFile.absolutePath
 
             // 3. Perform Emotional Analysis
-            val emotionalTone = analyzeEmotionalTone(transcriptText)
+            val emotionalTone = analyzeEmotionalTone()
 
             // 4. Update Repository
             recordingRepository.updateDraft(draft.copy(
@@ -82,15 +79,13 @@ class TranscriptionWorker @AssistedInject constructor(
             Log.e("TranscriptionWorker", "Error during transcription: ${e.message}", e)
             updateSubState(draftId, null, "Transcription failed: ${e.message}")
             Result.retry()
-        } finally {
-            tempDecryptedFile?.delete()
         }
     }
 
     private suspend fun updateSubState(id: String, stage: com.saurabh.artifact.model.ProcessingStage?, error: String? = null) {
         recordingRepository.getDraft(id)?.let { draft ->
             val newProcessing = when {
-                error != null -> com.saurabh.artifact.model.ProcessingStatus.Failed(error)
+                error != null -> com.saurabh.artifact.model.ProcessingStatus.Failed()
                 stage != null -> com.saurabh.artifact.model.ProcessingStatus.Active(stage)
                 else -> com.saurabh.artifact.model.ProcessingStatus.Idle
             }
@@ -101,11 +96,12 @@ class TranscriptionWorker @AssistedInject constructor(
     }
 
     private suspend fun performTranscription(file: File): String {
-        delay(3000) // Simulate work
+        Log.d("TranscriptionWorker", "Processing file: ${file.name}")
+        delay(3.seconds) // Simulate work
         return "This is a placeholder transcript for the emotionally rich voice recording."
     }
 
-    private suspend fun analyzeEmotionalTone(text: String): String {
+    private fun analyzeEmotionalTone(): String {
         return "Warm, Intimate, Calm"
     }
 

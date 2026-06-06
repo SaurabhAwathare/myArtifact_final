@@ -14,7 +14,7 @@ import javax.inject.Singleton
 
 data class PaginatedArtifacts(
     val artifacts: List<Artifact>,
-    val lastVisible: DocumentSnapshot?
+    val lastVisible: DocumentSnapshot?,
 )
 
 @Singleton
@@ -31,7 +31,7 @@ class FeedRepository @Inject constructor(
         lastVisible: DocumentSnapshot? = null
     ): PaginatedArtifacts = withContext(Dispatchers.IO) {
         return@withContext try {
-            val resonatedUserIds = firestore.collection("users")
+            val resonatedUserIds: List<String> = firestore.collection("users")
                 .document(userId)
                 .collection("resonance_out")
                 .get()
@@ -53,18 +53,18 @@ class FeedRepository @Inject constructor(
                     .orderBy("createdAt", Query.Direction.DESCENDING)
                     .limit(limit.toLong())
                 
-                if (lastVisible != null) {
-                    query = query.startAfter(lastVisible)
+                lastVisible?.let {
+                    query = query.startAfter(it)
                 }
 
                 val snapshot = query.get().await()
                 
                 val mappedChunk = snapshot.documents.mapNotNull { doc ->
                     val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
-                    if (artifact == null || artifact.audioUrl.isEmpty()) return@mapNotNull null
+                    if ((artifact == null) || artifact.audioUrl.isEmpty()) return@mapNotNull null
                     
                     val reportCount = doc.getLong("reportCount") ?: 0L
-                    val reporterIds = doc.get("reporterIds") as? List<*> ?: emptyList<String>()
+                    val reporterIds = doc["reporterIds"] as? List<*> ?: emptyList<String>()
                     
                     if (reportCount >= 3 || reporterIds.contains(userId)) {
                         null
@@ -82,7 +82,7 @@ class FeedRepository @Inject constructor(
                 }
             }
             
-            val sorted = allArtifacts.sortedByDescending { it.createdAt }.take(limit)
+            val sorted = allArtifacts.asSequence().sortedByDescending { it.createdAt }.take(limit).toList()
             PaginatedArtifacts(sorted, lastDocInBatch)
         } catch (e: Exception) {
             Log.e("FeedRepository", "Error fetching followed artifacts", e)
@@ -112,7 +112,7 @@ class FeedRepository @Inject constructor(
     /**
      * Updates or creates a listening session.
      */
-    suspend fun updateListeningSession(session: ListeningSession) = withContext(Dispatchers.IO) {
+    suspend fun updateListeningSession(session: ListeningSession): Unit = withContext(Dispatchers.IO) {
         try {
             val sessionId = "${session.userId}_${session.artifactId}"
             firestore.collection("listening_sessions")
@@ -146,10 +146,10 @@ class FeedRepository @Inject constructor(
             val snapshot = query.get().await()
             val artifacts = snapshot.documents.mapNotNull { doc ->
                 val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
-                if (artifact == null || artifact.audioUrl.isEmpty()) return@mapNotNull null
+                if ((artifact == null) || artifact.audioUrl.isEmpty()) return@mapNotNull null
 
                 val reportCount = doc.getLong("reportCount") ?: 0L
-                val reporterIds = doc.get("reporterIds") as? List<*> ?: emptyList<String>()
+                val reporterIds = doc["reporterIds"] as? List<*> ?: emptyList<String>()
 
                 if (reportCount >= 3 || (userId != null && reporterIds.contains(userId))) {
                     null

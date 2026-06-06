@@ -20,7 +20,7 @@ class PrivacyAnalysisEngineTest {
     fun `analyze correctly identifies PII using scanner`() = runBlocking {
         every { auth.currentUser?.displayName } returns "Rahul"
         // The default fallback transcript contains "Rahul"
-        val result = engine.analyze("dummy_path")
+        val result = engine.analyze()
         
         assertEquals(SafetyLevel.MEDIUM, result.safetyLevel)
         assertTrue(result.detectedRisks.any { it.contains("NAME") && it.contains("real name") })
@@ -33,7 +33,7 @@ class PrivacyAnalysisEngineTest {
         // But wait, the current implementation of analyze defaults to the mock transcript if transcriptPath is null.
         // Let's test with an empty file.
         
-        val result = engine.analyze("dummy_path", "non_existent_file.txt")
+        val result = engine.analyze("non_existent_file.txt")
         
         assertEquals(SafetyLevel.LOW, result.safetyLevel)
         assertTrue(result.detectedRisks.isEmpty())

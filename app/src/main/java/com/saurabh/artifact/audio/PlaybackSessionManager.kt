@@ -9,6 +9,7 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.saurabh.artifact.model.Artifact
+import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.EngagementRepository
 import dagger.Lazy
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -37,7 +38,7 @@ class PlaybackSessionManager @Inject constructor(
     private val cleanupManager: Lazy<ArtifactCleanupManager>,
     private val settingsDataStore: PlaybackSettingsDataStore,
     private val analytics: PlaybackAnalyticsManager,
-    private val artifactRepository: Lazy<com.saurabh.artifact.repository.ArtifactRepository>
+    private val artifactRepository: Lazy<ArtifactRepository>
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val controllerLock = Mutex()

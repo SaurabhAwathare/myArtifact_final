@@ -12,20 +12,10 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.StorageMetadata
-import com.google.firebase.storage.UploadTask
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.data.local.DraftDao
-import com.saurabh.artifact.data.paging.ArtifactPagingSource
 import com.saurabh.artifact.model.*
-import com.saurabh.artifact.model.ArtifactDraftState
-import com.saurabh.artifact.model.AppError
-import com.saurabh.artifact.security.SecurityArchitecture
 import com.saurabh.artifact.service.ReflectionAIService
-import com.saurabh.artifact.service.SafetyEvaluator
-import com.saurabh.artifact.service.SafetyLevel
-import com.saurabh.artifact.service.SafetyResult
-import com.saurabh.artifact.data.local.toEntity
-import com.saurabh.artifact.data.local.toDomainModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineScope
@@ -36,7 +26,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
-import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import com.saurabh.artifact.data.local.ArtifactEntity
@@ -51,25 +40,23 @@ import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.pow
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 
 @Suppress("SameParameterValue")
 @Singleton
 class ArtifactRepository @Inject constructor(
-    @dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context,
+    @param:dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context,
     private val auth: com.google.firebase.auth.FirebaseAuth,
     private val firestore: FirebaseFirestore,
     private val storage: FirebaseStorage,
     private val draftDao: DraftDao,
-    private val userRepository: UserRepository,
-    private val userProfileManager: dagger.Lazy<UserProfileManager>,
-    private val localDraftManager: com.saurabh.artifact.audio.LocalDraftManager,
     private val aiService: dagger.Lazy<ReflectionAIService>,
-    private val safetyEvaluator: dagger.Lazy<SafetyEvaluator>,
     private val personalizationEngine: dagger.Lazy<com.saurabh.artifact.service.PersonalizationEngine>,
     private val notificationRepository: NotificationRepository,
     private val artifactDao: com.saurabh.artifact.data.local.ArtifactDao,
     private val database: com.saurabh.artifact.data.local.AppDatabase,
-    private val promptDao: com.saurabh.artifact.data.local.PromptDao,
     private val pendingInteractionDao: com.saurabh.artifact.data.local.PendingInteractionDao
 ) {
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -105,30 +92,33 @@ class ArtifactRepository @Inject constructor(
     private suspend fun mapDocumentToArtifactDetail(doc: com.google.firebase.firestore.DocumentSnapshot): ArtifactDetail = withContext(Dispatchers.Default) {
         // Mandatory Fix: Downsample amplitudes to 64 points (from 128) to stay well within limits
         val rawAmplitudes = doc.get("amplitudeData") as? List<*> ?: emptyList<Any>()
-        val downsampledAmplitudes = downsample(rawAmplitudes, 64)
+        val downsampledAmplitudes = downsampleAmplitudes(rawAmplitudes, 64)
 
         // Fetch Reaction Counts - Still IO
         val reactionCountsDoc = firestore.collection("artifact_reaction_counts").document(doc.id).get().await()
         val reactionCounts = reactionCountsDoc.toObject(ArtifactReactionCounts::class.java)?.copy(artifactId = doc.id)
 
+        @Suppress("UNCHECKED_CAST")
+        val comments = (doc.get("comments") as? List<Map<String, Any>>)?.map { map ->
+            ArtifactComment(
+                id = map["id"] as? String ?: "",
+                authorId = map["authorId"] as? String ?: "",
+                authorAnonymousName = map["authorName"] as? String ?: "",
+                authorAvatarSeed = map["authorAvatarSeed"] as? String ?: "",
+                createdAt = map["createdAt"] as? Timestamp ?: Timestamp.now()
+            )
+        } ?: emptyList()
+
         return@withContext ArtifactDetail(
             id = doc.id,
             amplitudeData = downsampledAmplitudes,
             reactionCounts = reactionCounts,
-            comments = (doc.get("comments") as? List<Map<String, Any>>)?.map { map ->
-                ArtifactComment(
-                    id = map["id"] as? String ?: "",
-                    authorId = map["authorId"] as? String ?: "",
-                    authorAnonymousName = map["authorName"] as? String ?: "",
-                    authorAvatarSeed = map["authorAvatarSeed"] as? String ?: "",
-                    createdAt = map["createdAt"] as? Timestamp ?: Timestamp.now()
-                )
-            } ?: emptyList()
+            comments = comments
         )
     }
 
     /**
-     * Streams an artifact's metadata from Firestore for live updates (counts, status, etc).
+     * Streams an artifact's metadata from Firestore for live updates (counts, status, etc.).
      */
     fun observeArtifact(artifactId: String): Flow<Artifact?> = callbackFlow {
         val docRef = firestore.collection("artifacts").document(artifactId)
@@ -156,7 +146,7 @@ class ArtifactRepository @Inject constructor(
                 // HARDENING: Implement 2-hour TTL for metadata freshness
                 val twoHoursMillis = 2 * 60 * 60 * 1000L
                 if (System.currentTimeMillis() - local.lastUpdated < twoHoursMillis) {
-                    return@withContext mapEntityToArtifact(local)
+                    return@withContext mapArtifactEntityToArtifact(local)
                 } else {
                     Log.d("ArtifactRepository", "Cache expired for $artifactId, refreshing from Firestore")
                 }
@@ -170,20 +160,13 @@ class ArtifactRepository @Inject constructor(
                 val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
                 if (artifact != null) {
                     // Update local cache
-                    artifactDao.insertAll(listOf(mapToEntity(artifact)))
+                    artifactDao.insertAll(listOf(mapArtifactToEntity(artifact)))
                     artifact
                 } else null
             } else null
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             null
         }
-    }
-
-    /**
-     * Refreshes local metadata for an artifact from Firestore.
-     */
-    suspend fun refreshArtifactMetadata(artifactId: String) {
-        getArtifactById(artifactId, forceRefresh = true)
     }
 
     suspend fun getPendingReports(): Result<List<UserReport>> = withContext(Dispatchers.IO) {
@@ -251,7 +234,7 @@ class ArtifactRepository @Inject constructor(
         DISMISS
     }
 
-    private fun downsample(data: List<*>, target: Int): List<Float> {
+    private fun downsampleAmplitudes(data: List<*>, target: Int): List<Float> {
         if (data.size <= target) return data.mapNotNull { (it as? Number)?.toFloat() }
         
         val step = data.size.toFloat() / target
@@ -280,7 +263,7 @@ class ArtifactRepository @Inject constructor(
             repositoryScope.launch(Dispatchers.Default) {
                 val artifacts = snapshot?.documents?.mapNotNull { doc ->
                     val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
-                    // If onlyActive is false, we still want to filter out truly broken ones (no status, etc)
+                    // If onlyActive is false, we still want to filter out truly broken ones (no status, etc.)
                     // but we allow PENDING_UPLOAD for the author.
                     if (artifact != null && (artifact.status == ArtifactStatus.ACTIVE || !onlyActive)) {
                         artifact
@@ -351,7 +334,7 @@ class ArtifactRepository @Inject constructor(
     ): Result<Unit> = withContext(Dispatchers.IO) {
         return@withContext try {
             val userId = auth.currentUser?.uid 
-                ?: return@withContext Result.failure(AppError.Unauthenticated())
+                ?: return@withContext Result.failure(AppError.Unauthenticated)
 
             // 1. Check for duplicate reports in a transaction (optional, but good for data integrity)
             // For now, we'll use arrayUnion which is idempotent in Firestore
@@ -456,11 +439,11 @@ class ArtifactRepository @Inject constructor(
         ).flow.map { pagingData ->
             pagingData.filter { entity ->
                 entity.reportCount < 3 && !entity.reporterIds.contains(currentUserId)
-            }.map { entity -> mapEntityToArtifact(entity) }
+            }.map { entity -> mapArtifactEntityToArtifact(entity) }
         }
     }
 
-    private fun mapEntityToArtifact(entity: ArtifactEntity): Artifact {
+    private fun mapArtifactEntityToArtifact(entity: ArtifactEntity): Artifact {
         return Artifact(
             id = entity.id,
             userId = entity.userId,
@@ -472,12 +455,12 @@ class ArtifactRepository @Inject constructor(
                 avatarColor = entity.authorAvatarColor,
                 avatarConfig = try {
                     kotlinx.serialization.json.Json.decodeFromString(entity.authorAvatarConfigJson)
-                } catch (e: Exception) {
+                } catch (_: Exception) {
                     AvatarConfig(seed = entity.authorAvatarSeed)
                 }
             ),
             audioUrl = entity.audioUrl,
-            createdAt = com.google.firebase.Timestamp(java.util.Date(entity.createdAt)),
+            createdAt = Timestamp(java.util.Date(entity.createdAt)),
             durationMs = entity.durationMs,
             title = entity.title,
             description = entity.description,
@@ -493,7 +476,7 @@ class ArtifactRepository @Inject constructor(
         )
     }
 
-    private fun mapToEntity(artifact: Artifact): ArtifactEntity {
+    private fun mapArtifactToEntity(artifact: Artifact): ArtifactEntity {
         return ArtifactEntity(
             id = artifact.id,
             userId = artifact.userId,
@@ -562,11 +545,11 @@ class ArtifactRepository @Inject constructor(
                         val reporterIds = doc.get("reporterIds") as? List<*> ?: emptyList<String>()
                         val modStatus = artifact?.moderation?.status ?: ModerationStatus.SAFE
                         
-                        if (modStatus == ModerationStatus.HIDDEN || reportCount >= 3 || (userId != null && reporterIds.contains(userId)) || artifact?.audioUrl.isNullOrEmpty()) {
+                        if (modStatus == ModerationStatus.HIDDEN || reportCount >= 3L || (userId != null && reporterIds.contains(userId)) || artifact?.audioUrl.isNullOrEmpty()) {
                             null
                         } else {
                             // HARDENING: Slim artifacts before they hit the view layer
-                            artifact?.slimForFeed()
+                            artifact.slimForFeed()
                         }
                     }
             }
@@ -602,66 +585,6 @@ class ArtifactRepository @Inject constructor(
     }
 
     /**
-     * Fetches all artifacts liked by a specific user.
-     * Uses the unified 'artifact_reactions' collection.
-     */
-    fun getLikedArtifacts(userId: String): Flow<List<Artifact>> = callbackFlow {
-        var lastErrorTime = 0L
-        val subscription = firestore.collection("artifact_reactions")
-            .whereEqualTo("userId", userId)
-            .orderBy("createdAt", Query.Direction.DESCENDING)
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    val now = System.currentTimeMillis()
-                    if (now - lastErrorTime > 5000) { // 5s throttle
-                        Log.e("ArtifactRepository", "Liked artifacts listener error: ${error.code}", error)
-                        lastErrorTime = now
-                    }
-                    trySend(emptyList())
-                    return@addSnapshotListener
-                }
-
-                val artifactIds = snapshot?.documents?.mapNotNull { it.getString("artifactId") } ?: emptyList()
-                
-                if (artifactIds.isEmpty()) {
-                    trySend(emptyList())
-                    return@addSnapshotListener
-                }
-
-                repositoryScope.launch(Dispatchers.IO) {
-                    // Firestore 'whereIn' is limited to 10-30 items depending on version.
-                    // For a production profile, we'd paginate or chunk this.
-                    val chunks = artifactIds.chunked(10)
-                    val allLiked = mutableListOf<Artifact>()
-                    for (chunk in chunks) {
-                        val docs = firestore.collection("artifacts")
-                            .whereIn(com.google.firebase.firestore.FieldPath.documentId(), chunk)
-                            .get().await()
-                        
-                        val mappedChunk = withContext(Dispatchers.Default) {
-                            docs.documents.mapNotNull { doc ->
-                                val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
-                                if (artifact == null || artifact.audioUrl.isEmpty() || artifact.status != ArtifactStatus.ACTIVE) return@mapNotNull null
-                                
-                                val reportCount = doc.getLong("reportCount") ?: 0L
-                                val reporterIds = doc.get("reporterIds") as? List<*> ?: emptyList<String>()
-                                
-                                if (reportCount >= 3 || reporterIds.contains(userId)) {
-                                    null
-                                } else {
-                                    artifact
-                                }
-                            }
-                        }
-                        allLiked.addAll(mappedChunk)
-                    }
-                    trySend(allLiked.sortedByDescending { it.createdAt })
-                }
-            }
-        awaitClose { subscription.remove() }
-    }
-
-    /**
      * Persists a private emotional bookmark for an artifact.
      * OFFLINE-FIRST: Writes to local pending queue and triggers sync worker.
      */
@@ -671,6 +594,7 @@ class ArtifactRepository @Inject constructor(
         shelf: String = "Stayed With Me"
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
+            Log.d("ArtifactRepository", "Saving artifact for user: $userId")
             // 1. Record pending interaction
             val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
                 artifactId = artifact.id,
@@ -697,6 +621,7 @@ class ArtifactRepository @Inject constructor(
      */
     suspend fun unsaveArtifact(userId: String, artifactId: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
+            Log.d("ArtifactRepository", "Unsaving artifact for user: $userId")
             // 1. Record pending interaction
             val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
                 artifactId = artifactId,
@@ -768,7 +693,7 @@ class ArtifactRepository @Inject constructor(
                                 val reportCount = doc.getLong("reportCount") ?: 0L
                                 val reporterIds = doc.get("reporterIds") as? List<*> ?: emptyList<String>()
                                 
-                                if (reportCount >= 3 || reporterIds.contains(userId)) {
+                                if (reportCount >= 3L || reporterIds.contains(userId)) {
                                     null
                                 } else {
                                     artifact
@@ -796,10 +721,7 @@ class ArtifactRepository @Inject constructor(
         val originalFile = File(draft.localAudioPath)
         if (!originalFile.exists()) return@withContext Result.failure(Exception("File missing: ${draft.localAudioPath}"))
 
-        val fileToUpload = originalFile
-        val isTemp = false
-
-        if (fileToUpload.length() == 0L) {
+        if (originalFile.length() == 0L) {
             return@withContext Result.failure(Exception("File is empty, aborting upload"))
         }
 
@@ -813,13 +735,13 @@ class ArtifactRepository @Inject constructor(
                 .setContentType("audio/x-m4a")
                 .build()
 
-            while (currentRetry <= maxRetries) {
-                try {
-                    return@withContext withTimeout(60_000L * 5) { // 5-minute timeout
+            while (true) {
+                val loopResult: Result<String> = try {
+                    withTimeout(5.minutes) {
                         val uploadTask = if (draft.uploadSessionUri != null) {
-                            fileRef.putFile(fileToUpload.toUri(), metadata, draft.uploadSessionUri.toUri())
+                            fileRef.putFile(originalFile.toUri(), metadata, draft.uploadSessionUri.toUri())
                         } else {
-                            fileRef.putFile(fileToUpload.toUri(), metadata)
+                            fileRef.putFile(originalFile.toUri(), metadata)
                         }
 
                         val taskSnapshot = try {
@@ -837,7 +759,7 @@ class ArtifactRepository @Inject constructor(
                                 draftDao.updateSyncProgress(draft.id, 0, draft.totalBytes, null)
                                 
                                 // Restart without the session URI
-                                fileRef.putFile(Uri.fromFile(fileToUpload), metadata).addOnProgressListener { snapshot ->
+                                fileRef.putFile(Uri.fromFile(originalFile), metadata).addOnProgressListener { snapshot ->
                                     launch {
                                         onProgress(snapshot.bytesTransferred, snapshot.totalByteCount, snapshot.uploadSessionUri)
                                     }
@@ -848,7 +770,7 @@ class ArtifactRepository @Inject constructor(
                         }
 
                         // HARDENING: Retrieve downloadUrl from snapshot storage reference for better reliability
-                        val downloadUrl = retryMetadataFetch(taskSnapshot.storage)
+                        val downloadUrl = retryDownloadUrlFetch(taskSnapshot.storage)
                             ?: return@withTimeout Result.failure(Exception("Upload succeeded but URL retrieval timed out. Check Firebase Storage rules and App Check status."))
 
                         Result.success(downloadUrl)
@@ -858,29 +780,27 @@ class ArtifactRepository @Inject constructor(
                     
                     if (!isTransientError(e)) {
                         Log.e("ArtifactRepository", "Terminal upload failure: ${e.message}")
-                        return@withContext Result.failure(e)
+                        Result.failure<String>(e)
+                    } else {
+                        currentRetry++
+                        if (currentRetry > maxRetries) {
+                            Log.e("ArtifactRepository", "Max retries exceeded for transient error", e)
+                            Result.failure<String>(e)
+                        } else {
+                            val delayTime = (2.0.pow(currentRetry.toDouble()).toLong() * 1000L)
+                            Log.w("ArtifactRepository", "Upload attempt $currentRetry failed, retrying in $delayTime ms", e)
+                            delay(delayTime.milliseconds)
+                            continue // Loop again
+                        }
                     }
-
-                    currentRetry++
-                    if (currentRetry > maxRetries) {
-                        Log.e("ArtifactRepository", "Max retries exceeded for transient error", e)
-                        return@withContext Result.failure(e)
-                    }
-
-                    val delayTime = (2.0.pow(currentRetry.toDouble()).toLong() * 1000L)
-                    Log.w("ArtifactRepository", "Upload attempt $currentRetry failed, retrying in $delayTime ms", e)
-                    delay(delayTime)
                 }
+                return@withContext loopResult
             }
-            Result.failure(Exception("Max retries exceeded"))
+            @Suppress("UNREACHABLE_CODE")
+            Result.failure<String>(IllegalStateException("Unreachable"))
         } catch (e: Exception) {
             Log.e("ArtifactRepository", "Resumable upload failed", e)
-            Result.failure(e)
-        } finally {
-            if (isTemp) {
-                Log.d("ArtifactRepository", "Cleaning up temporary decrypted file")
-                fileToUpload.delete()
-            }
+            Result.failure<String>(e)
         }
     }
 
@@ -894,13 +814,13 @@ class ArtifactRepository @Inject constructor(
     /**
      * Hardening: Specifically retries the download URL fetch to handle eventual consistency.
      */
-    private suspend fun retryMetadataFetch(ref: com.google.firebase.storage.StorageReference): String? {
+    private suspend fun retryDownloadUrlFetch(ref: com.google.firebase.storage.StorageReference): String? {
         repeat(5) { attempt ->
             try {
                 return ref.downloadUrl.await().toString()
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 Log.w("ArtifactRepository", "Metadata fetch attempt ${attempt + 1} failed, retrying...")
-                delay(1000L * (attempt + 1))
+                delay((attempt + 1).seconds)
             }
         }
         return null
@@ -981,7 +901,7 @@ class ArtifactRepository @Inject constructor(
                     updatedAt = Timestamp.now()
                 )
             )
-            val artifactData = mapArtifactToFirestore(artifact)
+            val artifactData = mapArtifactToFirestoreData(artifact)
             
             // 2. Atomic Deterministic Write (Idempotent)
             firestore.runBatch { batch ->
@@ -1073,114 +993,6 @@ class ArtifactRepository @Inject constructor(
         } catch (e: Exception) {
             Log.e("ArtifactRepository", "Failed to fetch transcript from $url", e)
             Result.failure(e)
-        }
-    }
-
-    suspend fun deleteAllUserData(userId: String) = withContext(Dispatchers.IO) {
-        try {
-            // 1. Delete Firestore artifacts and associated data
-            val artifacts = firestore.collection("artifacts")
-                .whereEqualTo("userId", userId)
-                .get()
-                .await()
-
-            for (doc in artifacts.documents) {
-                val artifactId = doc.id
-                val audioUrl = doc.getString("audioUrl")
-                
-                // 1a. Delete storage file
-                if (audioUrl != null) deleteStorageFile(audioUrl)
-
-                // 1b. Delete associated reactions
-                val reactionsGlobal = firestore.collection("artifact_reactions").whereEqualTo("artifactId", artifactId).get().await()
-                reactionsGlobal.documents.forEach { it.reference.delete().await() }
-
-                val reactions = firestore.collection("reactions").whereEqualTo("artifactId", artifactId).get().await()
-                reactions.documents.forEach { it.reference.delete().await() }
-
-                // 1c. Delete associated comments
-                val artifactComments = firestore.collection("comments").whereEqualTo("artifactId", artifactId).get().await()
-                artifactComments.documents.forEach { it.reference.delete().await() }
-                
-                // 1d. Delete reaction counts
-                firestore.collection("artifact_reaction_counts").document(artifactId).delete().await()
-
-                // 1e. Delete the artifact itself
-                doc.reference.delete().await()
-            }
-
-            // 2. Delete Profile Picture if exists
-            val userDoc = firestore.collection("users").document(userId).get().await()
-            val profilePicUrl = userDoc.getString("profilePictureUrl")
-            if (profilePicUrl != null) deleteStorageFile(profilePicUrl)
-
-            // 3. Delete user sub-collections (Best effort for orphaning)
-            val userRef = firestore.collection("users").document(userId)
-            
-            val resonanceOut = userRef.collection("resonance_out").get().await()
-            resonanceOut.documents.forEach { it.reference.delete().await() }
-
-            val resonanceIn = userRef.collection("resonance_in").get().await()
-            resonanceIn.documents.forEach { it.reference.delete().await() }
-            
-            val following = userRef.collection("following").get().await()
-            following.documents.forEach { it.reference.delete().await() }
-            
-            val followers = userRef.collection("followers").get().await()
-            followers.documents.forEach { it.reference.delete().await() }
-            
-            val savedArtifacts = userRef.collection("savedArtifacts").get().await()
-            savedArtifacts.documents.forEach { it.reference.delete().await() }
-
-            // 4. Delete Username reservation
-            val usernameDocs = firestore.collection("usernames").whereEqualTo("uid", userId).get().await()
-            usernameDocs.documents.forEach { it.reference.delete().await() }
-
-            // 5. Delete Notifications
-            val notifications = firestore.collection("notifications").whereEqualTo("userId", userId).get().await()
-            notifications.documents.forEach { it.reference.delete().await() }
-
-            // 6. Delete Firestore drafts
-            val drafts = firestore.collection("drafts")
-                .whereEqualTo("userId", userId)
-                .get()
-                .await()
-            for (doc in drafts.documents) {
-                doc.reference.delete().await()
-            }
-
-            // 7. Delete comments by this user
-            val userComments = firestore.collection("comments")
-                .whereEqualTo("authorId", userId)
-                .get()
-                .await()
-            for (doc in userComments.documents) {
-                doc.reference.delete().await()
-            }
-
-            // 8. Delete local drafts
-            draftDao.deleteAll()
-
-        } catch (e: Exception) {
-            Log.e("ArtifactRepository", "Error during full data cleanup", e)
-            throw e
-        }
-    }
-
-    private suspend fun deleteStorageFile(url: String) {
-        if (!url.contains("firebasestorage")) return
-        try {
-            storage.getReferenceFromUrl(url).delete().await()
-        } catch (e: Exception) {
-            val isNotFound = e is com.google.firebase.storage.StorageException && 
-                e.errorCode == com.google.firebase.storage.StorageException.ERROR_OBJECT_NOT_FOUND
-            
-            if (isNotFound) {
-                Log.w("ArtifactRepository", "Storage file already gone, treating as success: $url")
-            } else {
-                Log.e("ArtifactRepository", "Failed to delete storage file: $url", e)
-                throw e // Re-throw if it's a real error (e.g. network)
-            }
         }
     }
 
@@ -1295,46 +1107,7 @@ class ArtifactRepository @Inject constructor(
         }
     }
 
-    /**
-     * Permanently deletes a published artifact from Firestore and triggers cascading cleanup.
-     * Use this for actual data removal after a grace period or via administrative action.
-     */
-    suspend fun hardDeleteArtifact(artifactId: String): Result<Unit> = withContext(Dispatchers.IO) {
-        return@withContext try {
-            val currentUserId = auth.currentUser?.uid ?: return@withContext Result.failure(Exception("Unauthenticated"))
-            
-            val artifactRef = firestore.collection("artifacts").document(artifactId)
-            val doc = artifactRef.get().await()
-            
-            if (!doc.exists()) {
-                artifactDao.deleteById(artifactId)
-                database.engagementDao().deleteEngagement(artifactId)
-                return@withContext Result.success(Unit)
-            }
-            
-            val ownerId = doc.getString("userId")
-            val isAdmin = isCurrentUserAdmin()
-            
-            if (ownerId != currentUserId && !isAdmin) {
-                return@withContext Result.failure(Exception("Unauthorized for hard delete"))
-            }
-            
-            // Delete Firestore anchor first. Cloud Function onArtifactDeleted will handle
-            // Storage removal, reactions, comments, and other associations.
-            artifactRef.delete().await()
-            
-            // Local cleanup
-            artifactDao.deleteById(artifactId)
-            database.engagementDao().deleteEngagement(artifactId)
-            
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Log.e("ArtifactRepository", "Hard delete failure for $artifactId", e)
-            Result.failure(e)
-        }
-    }
-
-    private fun mapArtifactToFirestore(artifact: Artifact): Map<String, Any?> {
+    private fun mapArtifactToFirestoreData(artifact: Artifact): Map<String, Any?> {
         return mapOf(
             "author" to mapOf(
                 "anonymousId" to artifact.author.anonymousId,

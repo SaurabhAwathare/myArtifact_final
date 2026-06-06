@@ -5,20 +5,21 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.saurabh.artifact.domain.IdentityScout
 import com.saurabh.artifact.domain.PublishingOrchestrator
-import com.saurabh.artifact.model.ArtifactDraftState
+import com.saurabh.artifact.model.ArtifactLifecycle
+import com.saurabh.artifact.model.DraftStatus
 import com.saurabh.artifact.model.TranscriptSegment
 import com.saurabh.artifact.repository.PublishApprovalRepository
+import com.saurabh.artifact.repository.TopicRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import kotlin.time.Duration.Companion.seconds
 
 @HiltViewModel
 class PublishFlowViewModel @Inject constructor(
     private val repository: PublishApprovalRepository,
+    private val topicRepository: TopicRepository,
     private val publishingOrchestrator: PublishingOrchestrator,
     private val identityScout: IdentityScout,
     private val auth: com.google.firebase.auth.FirebaseAuth,
@@ -32,6 +33,15 @@ class PublishFlowViewModel @Inject constructor(
 
     init {
         loadDraft()
+        loadTopics()
+    }
+
+    private fun loadTopics() {
+        viewModelScope.launch {
+            topicRepository.getSystemTopics().collect { topics ->
+                _uiState.update { it.copy(availableTopics = topics) }
+            }
+        }
     }
 
     private fun loadDraft() {
@@ -54,7 +64,7 @@ class PublishFlowViewModel @Inject constructor(
                             // In a real app, we'd parse JSON segments
                             listOf(TranscriptSegment(text = text, startMs = 0, endMs = draft.durationMs, confidence = 1.0f))
                         } else emptyList()
-                    } catch (e: Exception) {
+                    } catch (_: Exception) {
                         emptyList()
                     }
                 } ?: emptyList()
@@ -75,7 +85,7 @@ class PublishFlowViewModel @Inject constructor(
                         isListened = draft.isListened,
                         hasSensitiveInfo = validation.hasSensitiveInfo,
                         isHighRisk = validation.isHighRisk,
-                        sensitiveFlagCount = validation.sensitiveFlagCount
+                        sensitiveFlagCount = validation.sensitiveFlagCount,
                     )
                 }
             } else {
@@ -105,18 +115,6 @@ class PublishFlowViewModel @Inject constructor(
             }
             state.copy(tags = newTags)
         }
-    }
-
-    fun onConfirmComfortable(confirmed: Boolean) {
-        _uiState.update { it.copy(confirmedComfortable = confirmed) }
-    }
-
-    fun onConfirmSensitiveRemoved(confirmed: Boolean) {
-        _uiState.update { it.copy(confirmedSensitiveRemoved = confirmed) }
-    }
-
-    fun onConfirmComplete(confirmed: Boolean) {
-        _uiState.update { it.copy(confirmedComplete = confirmed) }
     }
 
     fun onApproveAndPublish() {
@@ -174,7 +172,7 @@ class PublishFlowViewModel @Inject constructor(
             }
             
             // 1. Psychological Pacing (Shortened for the ambient transition)
-            kotlinx.coroutines.delay(1000)
+            kotlinx.coroutines.delay(1.seconds)
 
             // 2. Submit to orchestrator (which triggers immutable freeze and WorkManager)
             val result = publishingOrchestrator.approveAndPublish(draftId, _uiState.value.transcript)
@@ -184,7 +182,7 @@ class PublishFlowViewModel @Inject constructor(
                 _uiState.update { it.copy(
                     isLoading = false, 
                     isSuccess = true, 
-                    currentState = ArtifactDraftState.APPROVED_FOR_PUBLISH 
+                    currentState = DraftStatus(lifecycle = ArtifactLifecycle.READY_TO_PUBLISH)
                 ) }
             } else {
                 _uiState.update { it.copy(isLoading = false, error = result.exceptionOrNull()?.message ?: "Approval failed") }

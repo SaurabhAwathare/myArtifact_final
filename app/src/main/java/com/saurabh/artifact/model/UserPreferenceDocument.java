@@ -16,9 +16,6 @@ public class UserPreferenceDocument {
     @Document.Id
     private String id;
 
-    @Document.Score
-    private int score;
-
     @Document.StringProperty
     private String primaryGoal;
 
@@ -36,14 +33,12 @@ public class UserPreferenceDocument {
         this.lastInteractionTimestamp = System.currentTimeMillis();
     }
 
+    @SuppressWarnings("unused")
     public String getNamespace() { return namespace; }
     public void setNamespace(String namespace) { this.namespace = namespace; }
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
-
-    public int getScore() { return score; }
-    public void setScore(int score) { this.score = score; }
 
     public String getPrimaryGoal() { return primaryGoal; }
     public void setPrimaryGoal(String primaryGoal) { this.primaryGoal = primaryGoal; }
@@ -54,6 +49,7 @@ public class UserPreferenceDocument {
     public String getDominantEmotion() { return dominantEmotion; }
     public void setDominantEmotion(String dominantEmotion) { this.dominantEmotion = dominantEmotion; }
 
+    @SuppressWarnings("unused")
     public long getLastInteractionTimestamp() { return lastInteractionTimestamp; }
     public void setLastInteractionTimestamp(long lastInteractionTimestamp) { this.lastInteractionTimestamp = lastInteractionTimestamp; }
 }

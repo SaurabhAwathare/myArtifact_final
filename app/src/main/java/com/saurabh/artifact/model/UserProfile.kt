@@ -14,6 +14,6 @@ data class UserProfile(
     val avatarColor: String = "#FFD700",
     val avatarConfig: AvatarConfig = AvatarConfig(),
     val isAnonymous: Boolean = true,
-    val resonanceInCount: Int = 0,
-    val resonanceOutCount: Int = 0
+    val resonanceInCount: Long = 0,
+    val resonanceOutCount: Long = 0
 )

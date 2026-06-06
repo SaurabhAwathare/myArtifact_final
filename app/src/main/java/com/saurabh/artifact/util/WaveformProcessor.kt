@@ -50,7 +50,7 @@ object WaveformProcessor {
         }
 
         // 4. Smoothing (Moving Average)
-        return applyMovingAverage(normalized, windowSize = 3)
+        return applyMovingAverage(normalized)
     }
 
     /**
@@ -84,14 +84,15 @@ object WaveformProcessor {
                     }
                 }
             }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             return emptyList()
         }
         
         return process(rawAmplitudes, targetSize)
     }
 
-    private fun applyMovingAverage(data: List<Float>, windowSize: Int): List<Float> {
+    private fun applyMovingAverage(data: List<Float>): List<Float> {
+        val windowSize = 3
         if (data.size < windowSize) return data
         val result = mutableListOf<Float>()
         val halfWindow = windowSize / 2

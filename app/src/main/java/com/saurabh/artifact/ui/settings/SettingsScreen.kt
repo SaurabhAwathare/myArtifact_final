@@ -10,13 +10,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Brightness6
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
@@ -35,7 +32,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import kotlin.time.Duration.Companion.seconds
 import androidx.credentials.CredentialManager
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -64,18 +61,16 @@ import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 fun SettingsScreen(
     onBackClick: () -> Unit,
     onLogoutSuccess: () -> Unit,
-    onNavigateToModeration: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val isAdmin by viewModel.isAdmin.collectAsStateWithLifecycle()
     val accountInfo by viewModel.accountInfo.collectAsStateWithLifecycle()
     val isAnonymous by viewModel.isAnonymous.collectAsStateWithLifecycle()
     val isDeleting by viewModel.isDeleting.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     
     var showDeleteConfirmation by remember { mutableStateOf(false) }
-    var showReauthDialog by remember { mutableStateOf(false) }
+    var showReauthenticationDialog by remember { mutableStateOf(false) }
     var showLogoutConfirmation by remember { mutableStateOf(false) }
     var showExportConfirmation by remember { mutableStateOf(false) }
     var showExportSuccess by remember { mutableStateOf(false) }
@@ -101,14 +96,14 @@ fun SettingsScreen(
                 }
                 is SettingsUiEvent.AccountDeleted -> {
                     snackbarHostState.showSnackbar(UiText.StringResource(R.string.account_deleted).asString(context))
-                    kotlinx.coroutines.delay(1000) // Brief delay to show snackbar
+                    kotlinx.coroutines.delay(1.seconds) // Brief delay to show snackbar
                     onLogoutSuccess()
                 }
                 is SettingsUiEvent.LoggedOut -> {
                     onLogoutSuccess()
                 }
-                is SettingsUiEvent.ReauthRequired -> {
-                    showReauthDialog = true
+                is SettingsUiEvent.ReauthenticationRequired -> {
+                    showReauthenticationDialog = true
                 }
                 is SettingsUiEvent.ExportInitiated -> {
                     showExportSuccess = true
@@ -241,9 +236,9 @@ fun SettingsScreen(
         )
     }
 
-    if (showReauthDialog) {
+    if (showReauthenticationDialog) {
         AlertDialog(
-            onDismissRequest = { showReauthDialog = false },
+            onDismissRequest = { showReauthenticationDialog = false },
             title = { Text("Authentication Required") },
             text = { 
                 Text(
@@ -254,7 +249,7 @@ fun SettingsScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        showReauthDialog = false
+                        showReauthenticationDialog = false
                         if (isAnonymous) {
                             viewModel.reauthenticateAndRetry()
                         } else {
@@ -276,7 +271,7 @@ fun SettingsScreen(
                                         val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
                                         viewModel.reauthenticateAndRetry(googleIdTokenCredential.idToken)
                                     }
-                                } catch (e: NoCredentialException) {
+                                } catch (_: NoCredentialException) {
                                     snackbarHostState.showSnackbar("No accounts found. Please sign in to Google first.")
                                 } catch (e: Exception) {
                                     snackbarHostState.showSnackbar(com.saurabh.artifact.ui.util.ErrorMessageMapper.map(e).asString(context))
@@ -289,7 +284,7 @@ fun SettingsScreen(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showReauthDialog = false }) {
+                TextButton(onClick = { showReauthenticationDialog = false }) {
                     Text("Cancel")
                 }
             }

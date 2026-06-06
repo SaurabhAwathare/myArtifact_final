@@ -2,6 +2,7 @@ package com.saurabh.artifact.ui.drafts.list
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.saurabh.artifact.audio.ArtifactCleanupManager
 import com.saurabh.artifact.audio.PlaybackCoordinator
 import com.saurabh.artifact.domain.PublishingOrchestrator
 import com.saurabh.artifact.repository.DraftRepository
@@ -26,6 +27,7 @@ class DraftListViewModel @Inject constructor(
     private val recordingRepository: RecordingRepository,
     private val draftRepository: DraftRepository,
     private val publishingOrchestrator: PublishingOrchestrator,
+    private val cleanupManager: ArtifactCleanupManager,
     val audioPlayer: PlaybackCoordinator
 ) : ViewModel() {
 
@@ -63,10 +65,7 @@ class DraftListViewModel @Inject constructor(
     fun deleteDraft(draftWithUpload: DraftWithUpload) {
         val draft = draftWithUpload.draft
         viewModelScope.launch {
-            if (audioPlayer.currentArtifact.value?.id == draft.id) {
-                audioPlayer.stop()
-            }
-            draftRepository.deleteDraftCompletely(draft.id)
+            cleanupManager.deleteDraft(draft.id)
         }
     }
 

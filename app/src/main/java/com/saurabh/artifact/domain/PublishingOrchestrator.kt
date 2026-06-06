@@ -2,7 +2,6 @@ package com.saurabh.artifact.domain
 
 import android.util.Log
 import androidx.work.*
-import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.worker.PublishingWorker
 import kotlinx.coroutines.Dispatchers
@@ -71,23 +70,6 @@ class PublishingOrchestrator @Inject constructor(
         .then(safetyWork)
         .then(finalStateWork)
         .enqueue()
-    }
-
-    suspend fun markForReview(draftId: String) = withContext(Dispatchers.IO) {
-        draftRepository.updateLifecycle(draftId, ArtifactLifecycle.REVIEW_REQUIRED)
-    }
-
-    suspend fun startReview(draftId: String) = withContext(Dispatchers.IO) {
-        // Just observing state here, but we could update if we had a REVIEWING lifecycle
-    }
-
-    suspend fun requestEmotionalConfirmation(draftId: String) = withContext(Dispatchers.IO) {
-        // Transitional state for emotional confirmation
-        draftRepository.updateProcessingStatus(draftId, ProcessingStatus.Active(ProcessingStage.SAFETY_CHECK))
-    }
-
-    suspend fun requestPublishApproval(draftId: String) = withContext(Dispatchers.IO) {
-        // Approval is implicit in READY_TO_PUBLISH
     }
 
     suspend fun approveAndPublish(

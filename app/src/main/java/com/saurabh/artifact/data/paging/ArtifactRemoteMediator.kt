@@ -61,12 +61,12 @@ class ArtifactRemoteMediator(
                 val modStatus = artifact.moderation.status
                 
                 val isModerated = modStatus == com.saurabh.artifact.model.ModerationStatus.HIDDEN || 
-                                 reportCount >= 3 || 
+                                 reportCount >= 3L || 
                                  reporterIds.contains(currentUserId)
 
                 // Filter out artifacts without audio URLs or that aren't active or are moderated
                 if (artifact.audioUrl.isNotEmpty() && !isModerated) {
-                    mapToEntity(artifact.copy(reportCount = reportCount.toInt(), reporterIds = reporterIds.map { it.toString() }))
+                    mapToEntity(artifact.copy(reportCount = reportCount, reporterIds = reporterIds.map { it.toString() }))
                 } else {
                     null
                 }

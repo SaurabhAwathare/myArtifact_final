@@ -15,6 +15,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Authoritative service for review validation and engagement tracking.
@@ -90,7 +91,7 @@ class ReviewAuthorityService @Inject constructor(
             @OptIn(FlowPreview::class)
             _currentProgress
                 .filterNotNull()
-                .sample(5000L) // Persist at most every 5 seconds
+                .sample(5000.milliseconds) // Persist at most every 5 seconds
                 .collect { progress ->
                     engagementRepository.saveEngagement(progress.evidence)
                 }
@@ -124,7 +125,7 @@ class ReviewAuthorityService @Inject constructor(
             artifactId = artifact.id,
             versionTag = "v1",
             durationMs = artifact.durationMs,
-            audioChecksum = artifact.checksum ?: ""
+            audioChecksum = artifact.checksum
         )
 
         activeTracker = DefaultReviewTracker(

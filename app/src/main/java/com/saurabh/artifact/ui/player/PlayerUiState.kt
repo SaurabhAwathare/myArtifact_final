@@ -28,7 +28,7 @@ data class PlayerUiState(
     val isSaved: Boolean = false,
     val isOwner: Boolean = false,
     val resonanceSummary: String = "",
-    val commentCount: Int = 0,
+    val commentCount: Long = 0,
     
     // Advanced Controls State
     val isSilenceSkipEnabled: Boolean = false,

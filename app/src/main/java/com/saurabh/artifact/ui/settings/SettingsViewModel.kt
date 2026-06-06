@@ -17,7 +17,7 @@ sealed class SettingsUiEvent {
     data class ShowMessage(val message: UiText) : SettingsUiEvent()
     object AccountDeleted : SettingsUiEvent()
     object LoggedOut : SettingsUiEvent()
-    object ReauthRequired : SettingsUiEvent()
+    object ReauthenticationRequired : SettingsUiEvent()
     object ExportInitiated : SettingsUiEvent()
 }
 
@@ -32,9 +32,6 @@ class SettingsViewModel @Inject constructor(
 
     val isAnonymous = authRepository.currentUser.map { it?.isAnonymous ?: true }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
-
-    val isAdmin = authRepository.privateSettings.map { it?.isAdmin ?: false }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     val accountInfo = authRepository.privateSettings
         .map { it?.let { p -> AccountInfo(p.realName, p.email) } }
@@ -102,7 +99,7 @@ class SettingsViewModel @Inject constructor(
             }.onFailure { e ->
                 if (e.message?.contains("RECENT_LOGIN_REQUIRED", ignoreCase = true) == true || 
                     e.message?.contains("reauthenticate", ignoreCase = true) == true) {
-                    _events.emit(SettingsUiEvent.ReauthRequired)
+                    _events.emit(SettingsUiEvent.ReauthenticationRequired)
                 } else {
                     _events.emit(SettingsUiEvent.ShowMessage(ErrorMessageMapper.map(e)))
                 }

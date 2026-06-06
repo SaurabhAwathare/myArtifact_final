@@ -20,25 +20,20 @@ data class User(
     var usernameUpdatedAt: Timestamp? = null,
     @ServerTimestamp var createdAt: Timestamp? = null,
     @ServerTimestamp var lastSeen: Timestamp? = null,
-    var emotionPreferences: Map<String, Int> = emptyMap(),
+    var emotionPreferences: Map<String, Long> = emptyMap(),
     
     // Resonance & Profile
     var bio: String = "",
-    var resonanceInCount: Int = 0,
-    var resonanceOutCount: Int = 0,
-    var followersCount: Int = 0, // Keep for backward compatibility/migration
-    var followingCount: Int = 0, // Keep for backward compatibility/migration
+    var resonanceInCount: Long = 0,
+    var resonanceOutCount: Long = 0,
+    var followersCount: Long = 0, // Keep for backward compatibility/migration
+    var followingCount: Long = 0, // Keep for backward compatibility/migration
 
     // Engagement
     var lastActivityTimestamp: Timestamp? = null,
-    var softStreakCount: Int = 0,
-    var totalContributions: Int = 0,
-    var lastPromptId: String = "",
-    
-    // Missing fields causing warnings
-    // Missing fields causing warnings
-    var displayName: String = "",
-    var fcmToken: String? = null
+    var softStreakCount: Long = 0,
+    var totalContributions: Long = 0,
+    var lastPromptId: String = ""
 ) {
     /**
      * Derives the user's current dominant emotion based on interaction history.

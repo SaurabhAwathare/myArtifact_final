@@ -16,6 +16,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import kotlin.time.Duration.Companion.milliseconds
 
 enum class UsernameAvailability {
     CHECKING, AVAILABLE, TAKEN, ERROR, NONE
@@ -35,13 +36,10 @@ class IdentityViewModel @Inject constructor(
     val avatarConfig: StateFlow<AvatarConfig> = _avatarConfig.asStateFlow()
 
     private val _username = MutableStateFlow("")
-    val username: StateFlow<String> = _username.asStateFlow()
 
     private val _usernameError = MutableStateFlow<String?>(null)
-    val usernameError: StateFlow<String?> = _usernameError.asStateFlow()
 
     private val _availability = MutableStateFlow(UsernameAvailability.NONE)
-    val availability: StateFlow<UsernameAvailability> = _availability.asStateFlow()
 
     private val _suggestions = MutableStateFlow<List<String>>(emptyList())
     val suggestions: StateFlow<List<String>> = _suggestions.asStateFlow()
@@ -89,7 +87,6 @@ class IdentityViewModel @Inject constructor(
     }
 
     private val _validationResult = MutableStateFlow<UsernameValidationResult?>(null)
-    val validationResult: StateFlow<UsernameValidationResult?> = _validationResult.asStateFlow()
 
     private fun validateUsername(name: String) {
         if (name.isEmpty()) {
@@ -116,7 +113,7 @@ class IdentityViewModel @Inject constructor(
 
         availabilityCheckJob = viewModelScope.launch {
             _availability.value = UsernameAvailability.CHECKING
-            delay(500) // Debounce
+            delay(500.milliseconds) // Debounce
             
             try {
                 val isAvailable = userProfileManager.isUsernameAvailable(name)
@@ -139,13 +136,6 @@ class IdentityViewModel @Inject constructor(
         } else {
             _suggestions.value = emptyList()
         }
-    }
-
-    fun randomizePresence() {
-        _avatarConfig.value = _avatarConfig.value.copy(
-            seed = java.util.UUID.randomUUID().toString(),
-            theme = "AURIC"
-        )
     }
 
     fun onUsernameChange(name: String) {

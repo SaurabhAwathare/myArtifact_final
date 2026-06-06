@@ -1,8 +1,6 @@
 package com.saurabh.artifact.ui.profile.components
 
-import androidx.compose.animation.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -11,7 +9,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
@@ -25,7 +22,6 @@ import com.saurabh.artifact.ui.components.WaveformContext
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.theme.Spacing
 import java.text.SimpleDateFormat
-import java.util.*
 
 /**
  * A specialized card for the Profile screen that emphasizes "intentional emotional ownership".
@@ -45,11 +41,11 @@ fun ProfileArtifactCard(
     isSaved: Boolean = false,
     onUnsave: () -> Unit = {},
     isBuffering: Boolean = false,
-    progress: Float = 0f
+    progress: Float = 0f,
 ) {
-    var showMenu by remember { mutableStateOf(false) }
-    var showRenameDialog by remember { mutableStateOf(false) }
-    var showDeleteDialog by remember { mutableStateOf(false) }
+    var showMenu by remember { mutableStateOf(value = false) }
+    var showRenameDialog by remember { mutableStateOf(value = false) }
+    var showDeleteDialog by remember { mutableStateOf(value = false) }
 
     val configuration = LocalConfiguration.current
     val locale = ConfigurationCompat.getLocales(configuration)[0] ?: configuration.locales[0]
@@ -175,7 +171,7 @@ fun ProfileArtifactCard(
                         com.saurabh.artifact.ui.components.ResonanceDisplay(
                             counts = com.saurabh.artifact.model.ArtifactReactionCounts(
                                 artifactId = artifact.id,
-                                totalCount = artifact.reactionCount,
+                                totalCount = artifact.reactionCount.toInt(),
                                 visibility = artifact.reactionVisibility
                             ),
                             isOwner = isOwner
@@ -183,8 +179,7 @@ fun ProfileArtifactCard(
 
                         StatItem(
                             icon = Icons.Rounded.ChatBubbleOutline,
-                            count = artifact.commentCount,
-                            label = "responses"
+                            count = artifact.commentCount
                         )
                     }
                 }
@@ -206,9 +201,10 @@ fun ProfileArtifactCard(
             onRenameClick = { showRenameDialog = true },
             onDeleteClick = { showDeleteDialog = true },
             onUnsaveClick = onUnsave,
-            onViewCommentsClick = onViewComments,
-            onDismiss = { showMenu = false }
-        )
+            onViewCommentsClick = onViewComments
+        ) {
+            showMenu = false
+        }
     }
 
     if (showRenameDialog) {
@@ -237,8 +233,7 @@ fun ProfileArtifactCard(
 @Composable
 private fun StatItem(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
-    count: Int,
-    label: String
+    count: Long
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Icon(
@@ -249,7 +244,7 @@ private fun StatItem(
         )
         Spacer(modifier = Modifier.width(4.dp))
         Text(
-            text = "$count $label",
+            text = "$count responses",
             style = ArtifactTheme.typography.labelSmall,
             color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.6f)
         )

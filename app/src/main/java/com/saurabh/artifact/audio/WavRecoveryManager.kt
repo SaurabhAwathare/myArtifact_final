@@ -68,7 +68,7 @@ class WavRecoveryManager(
             if (!isRiff || !isWave) return false
 
             // Check if the data size in header matches actual file size
-            val dataSizeInHeader = readIntLittleEndian(header, 40)
+            val dataSizeInHeader = readDataSizeFromHeader(header)
             return dataSizeInHeader.toLong() == (file.length() - 44)
         }
     }
@@ -133,11 +133,12 @@ class WavRecoveryManager(
             if (file.length() > targetSize) {
                 raf.setLength(targetSize)
             }
-            raf.getFD().sync()
+            raf.fd.sync()
         }
     }
 
-    private fun readIntLittleEndian(data: ByteArray, offset: Int): Int {
+    private fun readDataSizeFromHeader(data: ByteArray): Int {
+        val offset = 40
         return (data[offset].toInt() and 0xff) or
                ((data[offset + 1].toInt() and 0xff) shl 8) or
                ((data[offset + 2].toInt() and 0xff) shl 16) or

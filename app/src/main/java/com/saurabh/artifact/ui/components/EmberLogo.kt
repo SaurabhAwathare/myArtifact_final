@@ -1,3 +1,5 @@
+@file:Suppress("SameParameterValue")
+
 package com.saurabh.artifact.ui.components
 
 import androidx.compose.animation.core.*

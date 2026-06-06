@@ -12,6 +12,7 @@ import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlin.time.Duration.Companion.milliseconds
 import java.io.File
 
 @HiltWorker
@@ -45,7 +46,7 @@ class SafetyAnalysisWorker @AssistedInject constructor(
             }
 
             // Simulation of additional AI processing if needed
-            delay(500)
+            delay(500.milliseconds)
             
             draftDao.update(draft.copy(
                 safetyAnalysis = safetyResult?.level?.name ?: "UNKNOWN",
@@ -63,7 +64,7 @@ class SafetyAnalysisWorker @AssistedInject constructor(
     private suspend fun updateSubState(id: String, stage: com.saurabh.artifact.model.ProcessingStage?, error: String? = null) {
         draftDao.getDraftById(id)?.let { draft ->
             val newProcessing = when {
-                error != null -> com.saurabh.artifact.model.ProcessingStatus.Failed(error)
+                error != null -> com.saurabh.artifact.model.ProcessingStatus.Failed()
                 stage != null -> com.saurabh.artifact.model.ProcessingStatus.Active(stage)
                 else -> com.saurabh.artifact.model.ProcessingStatus.Idle
             }

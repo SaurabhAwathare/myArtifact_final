@@ -5,14 +5,15 @@ import kotlinx.coroutines.delay
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.time.Duration.Companion.milliseconds
 
 @Singleton
 class PrivacyAnalysisEngine @Inject constructor(
     private val scanner: SensitiveInfoScanner
 ) {
 
-    suspend fun analyze(audioPath: String, transcriptPath: String? = null): PrivacyAnalysisResult {
-        delay(500) // Keep subtle UI feedback delay
+    suspend fun analyze(transcriptPath: String? = null): PrivacyAnalysisResult {
+        delay(500.milliseconds) // Keep subtle UI feedback delay
 
         val transcript = if (transcriptPath != null) {
             val file = File(transcriptPath)

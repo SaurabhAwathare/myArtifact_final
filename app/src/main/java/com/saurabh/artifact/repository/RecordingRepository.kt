@@ -1,20 +1,14 @@
 package com.saurabh.artifact.repository
 
 import android.util.Log
-import androidx.work.*
+import com.saurabh.artifact.audio.DraftDeletionManager
 import com.saurabh.artifact.audio.LocalDraftManager
+import com.saurabh.artifact.audio.WavRecoveryManager
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.model.*
-import com.saurabh.artifact.worker.AudioNormalizationWorker
-import com.saurabh.artifact.worker.PrivacyScanWorker
-import com.saurabh.artifact.worker.SafetyAnalysisWorker
-import com.saurabh.artifact.worker.TranscriptionWorker
-import com.saurabh.artifact.worker.WaveformWorker
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
@@ -26,9 +20,8 @@ class RecordingRepository @Inject constructor(
     private val draftDao: DraftDao,
     private val engagementRepository: EngagementRepository,
     private val localDraftManager: LocalDraftManager,
-    private val wavRecoveryManager: com.saurabh.artifact.audio.WavRecoveryManager,
-    private val deletionManager: com.saurabh.artifact.audio.DraftDeletionManager,
-    private val workManager: WorkManager
+    private val wavRecoveryManager: WavRecoveryManager,
+    private val deletionManager: DraftDeletionManager
 ) {
     
     suspend fun startDraft(draftId: String = UUID.randomUUID().toString()) = withContext(Dispatchers.IO) {
@@ -131,14 +124,6 @@ class RecordingRepository @Inject constructor(
         draftDao.updateMetadata(id, title, emotion)
     }
 
-    suspend fun deleteDraft(draft: ArtifactDraftEntity) {
-        deletionManager.deleteDraft(draft.id)
-    }
-
-    suspend fun deleteDraftById(id: String) = withContext(Dispatchers.IO) {
-        deletionManager.deleteDraft(id)
-    }
-
     suspend fun recoverInterruptedDrafts(): List<ArtifactDraftEntity> {
         Log.d("RecordingRepository", "Starting recovery check...")
         
@@ -164,13 +149,13 @@ class RecordingRepository @Inject constructor(
                 val recoveryResult = wavRecoveryManager.recover(file, lastDurableBytes = draft.durableBytes)
                 
                 val (newLifecycle, newProcessing) = when (recoveryResult) {
-                    com.saurabh.artifact.audio.WavRecoveryManager.RecoveryResult.REPAIRED,
-                    com.saurabh.artifact.audio.WavRecoveryManager.RecoveryResult.FULLY_RECOVERED,
-                    com.saurabh.artifact.audio.WavRecoveryManager.RecoveryResult.TRUNCATED -> 
+                    WavRecoveryManager.RecoveryResult.REPAIRED,
+                    WavRecoveryManager.RecoveryResult.FULLY_RECOVERED,
+                    WavRecoveryManager.RecoveryResult.TRUNCATED -> 
                         ArtifactLifecycle.PROCESSING to ProcessingStatus.Idle
-                    com.saurabh.artifact.audio.WavRecoveryManager.RecoveryResult.CORRUPTED,
-                    com.saurabh.artifact.audio.WavRecoveryManager.RecoveryResult.NOT_FOUND -> 
-                        ArtifactLifecycle.DELETED to ProcessingStatus.Failed("Corruption detected")
+                    WavRecoveryManager.RecoveryResult.CORRUPTED,
+                    WavRecoveryManager.RecoveryResult.NOT_FOUND ->
+                        ArtifactLifecycle.DELETED to ProcessingStatus.Failed()
                 }
 
                 val updated = draft.copy(

@@ -50,14 +50,10 @@ sealed class PublishState {
     data class Error(
         override val draftId: String,
         override val title: String,
-        val message: String,
-        val isRecoverable: Boolean = true
+        val message: String
     ) : PublishState()
 
     enum class PreparationStep {
-        INITIALIZING,
-        SNAPSHOTING,
-        HASHING,
-        VALIDATING
+        INITIALIZING
     }
 }

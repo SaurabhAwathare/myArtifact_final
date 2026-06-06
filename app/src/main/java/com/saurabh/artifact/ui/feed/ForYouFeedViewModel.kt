@@ -2,6 +2,7 @@ package com.saurabh.artifact.ui.feed
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.saurabh.artifact.audio.ArtifactCleanupManager
 import com.saurabh.artifact.audio.PlaybackCoordinator
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.AuthRepository
@@ -14,14 +15,16 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 
 @HiltViewModel
 class ForYouFeedViewModel @Inject constructor(
     private val feedComposer: FeedComposer,
     private val feedRepository: FeedRepository,
-    private val artifactRepository: com.saurabh.artifact.repository.ArtifactRepository,
     private val authRepository: AuthRepository,
     val audioPlayer: PlaybackCoordinator,
+    private val cleanupManager: ArtifactCleanupManager,
     private val reviewAuthorityService: com.saurabh.artifact.audio.ReviewAuthorityService,
 ) : ViewModel() {
 
@@ -34,7 +37,7 @@ class ForYouFeedViewModel @Inject constructor(
     val currentlyPlayingArtifact: StateFlow<Artifact?> = audioPlayer.currentArtifact
 
     val isPlaying = audioPlayer.isPlaying
-    val currentPosition = audioPlayer.currentPosition
+    val currentPosition: Flow<Duration> = audioPlayer.currentPosition
 
     init {
         loadFeed()
@@ -75,7 +78,7 @@ class ForYouFeedViewModel @Inject constructor(
             audioPlayer.togglePlayPause()
         } else {
             // If it was unfinished, start from the last position
-            val startPos = if (feedArtifact.isUnfinished) feedArtifact.lastPositionMs else 0L
+            val startPos = if (feedArtifact.isUnfinished) feedArtifact.lastPositionMs.milliseconds else Duration.ZERO
             
             // Extract the relevant collection from the current feed state
             val collection = when (val state = feedState.value) {
@@ -99,7 +102,7 @@ class ForYouFeedViewModel @Inject constructor(
         }
     }
 
-    private fun updateSession(artifact: Artifact, position: Long) {
+    private fun updateSession(artifact: Artifact, position: Duration) {
         val userId = authRepository.currentUser.value?.uid ?: return
         val currentProgress = reviewAuthorityService.currentProgress.value
         val isValidated = currentProgress?.artifactId == artifact.id && currentProgress.isValidationMet
@@ -109,7 +112,7 @@ class ForYouFeedViewModel @Inject constructor(
                 ListeningSession(
                     userId = userId,
                     artifactId = artifact.id,
-                    lastPositionMs = position,
+                    lastPositionMs = position.inWholeMilliseconds,
                     totalDurationMs = artifact.durationMs,
                     isCompleted = isValidated
                 )
@@ -119,7 +122,7 @@ class ForYouFeedViewModel @Inject constructor(
 
     fun deleteArtifact(artifactId: String) {
         viewModelScope.launch {
-            artifactRepository.deletePublishedArtifact(artifactId)
+            cleanupManager.deleteArtifact(artifactId)
                 .onSuccess {
                     // Optimistic UI: Remove from the current feed state immediately
                     val currentState = _feedState.value

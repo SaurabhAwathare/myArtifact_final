@@ -2,11 +2,10 @@ package com.saurabh.artifact.ui.drafts.edit
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.saurabh.artifact.audio.ArtifactCleanupManager
 import com.saurabh.artifact.audio.PlaybackCoordinator
 import com.saurabh.artifact.audio.PlaybackType
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
-import com.saurabh.artifact.model.Artifact
-import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.model.Emotion
 import com.saurabh.artifact.repository.RecordingRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -17,7 +16,8 @@ import javax.inject.Inject
 @HiltViewModel
 class DraftEditViewModel @Inject constructor(
     private val recordingRepository: RecordingRepository,
-    private val playbackCoordinator: PlaybackCoordinator
+    private val playbackCoordinator: PlaybackCoordinator,
+    private val cleanupManager: ArtifactCleanupManager
 ) : ViewModel() {
 
     private val _draft = MutableStateFlow<ArtifactDraftEntity?>(null)
@@ -83,10 +83,7 @@ class DraftEditViewModel @Inject constructor(
     fun deleteDraft(onDeleted: () -> Unit) {
         val currentDraft = _draft.value ?: return
         viewModelScope.launch {
-            if (playbackCoordinator.currentArtifact.value?.id == currentDraft.id) {
-                playbackCoordinator.stop()
-            }
-            recordingRepository.deleteDraft(currentDraft)
+            cleanupManager.deleteDraft(currentDraft.id)
             onDeleted()
         }
     }

@@ -10,22 +10,20 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.model.ArtifactLifecycle
+import com.saurabh.artifact.model.ProcessingStage
+import com.saurabh.artifact.model.ProcessingStatus
+import com.saurabh.artifact.model.SyncStatus
 import com.saurabh.artifact.repository.DraftWithUpload
 import java.text.SimpleDateFormat
 import java.util.*
@@ -154,17 +152,15 @@ fun PublishingItem(
     
     val syncStatus = task?.status ?: draft.status.publication
     val progress = when (syncStatus) {
-        is com.saurabh.artifact.model.SyncStatus.Uploading -> {
+        is SyncStatus.Uploading -> {
             if (task != null && task.totalBytes > 0) {
                 task.uploadedBytes.toFloat() / task.totalBytes
             } else syncStatus.progress
         }
         else -> 0f
     }
-    val isFailed = syncStatus is com.saurabh.artifact.model.SyncStatus.Failed
-    val isWaiting = syncStatus is com.saurabh.artifact.model.SyncStatus.WaitingForNetwork || 
-                   syncStatus is com.saurabh.artifact.model.SyncStatus.Queued
-    val isFinalizing = syncStatus is com.saurabh.artifact.model.SyncStatus.Finalizing
+    val isFailed = syncStatus is SyncStatus.Failed
+    val isFinalizing = syncStatus is SyncStatus.Finalizing
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -187,7 +183,7 @@ fun PublishingItem(
                             modifier = Modifier.weight(1f)
                         )
                         
-                        if (syncStatus is com.saurabh.artifact.model.SyncStatus.Uploading) {
+                        if (syncStatus is SyncStatus.Uploading) {
                             Text(
                                 text = "${(progress * 100).toInt()}%",
                                 style = MaterialTheme.typography.labelMedium,
@@ -199,21 +195,21 @@ fun PublishingItem(
                     Text(
                         text = when {
                             isFailed -> "Upload failed"
-                            syncStatus is com.saurabh.artifact.model.SyncStatus.WaitingForNetwork -> "Waiting for connection... 📡"
+                            syncStatus is SyncStatus.WaitingForNetwork -> "Waiting for connection... 📡"
                             isFinalizing -> "Finalizing reflection..."
-                            syncStatus is com.saurabh.artifact.model.SyncStatus.Uploading -> "Releasing your voice..."
+                            syncStatus is SyncStatus.Uploading -> "Releasing your voice..."
                             else -> "Queued for upload..."
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = when {
                             isFailed -> MaterialTheme.colorScheme.error
-                            syncStatus is com.saurabh.artifact.model.SyncStatus.WaitingForNetwork -> MaterialTheme.colorScheme.primary
+                            syncStatus is SyncStatus.WaitingForNetwork -> MaterialTheme.colorScheme.primary
                             else -> MaterialTheme.colorScheme.onSurfaceVariant
                         }
                     )
                 }
 
-                if (isFailed && !isWaiting) {
+                if (isFailed) {
                     IconButton(onClick = onRetry) {
                         Icon(Icons.Default.Refresh, "Retry", tint = MaterialTheme.colorScheme.primary)
                     }
@@ -226,7 +222,7 @@ fun PublishingItem(
 
             Spacer(Modifier.height(12.dp))
 
-            if (isFailed && !isWaiting) {
+            if (isFailed) {
                 LinearProgressIndicator(
                     progress = { progress },
                     modifier = Modifier.fillMaxWidth().clip(CircleShape),
@@ -265,7 +261,7 @@ fun DraftItem(
     
     var showMenu by remember { mutableStateOf(false) }
 
-    val isProcessing = draft.status.processing is com.saurabh.artifact.model.ProcessingStatus.Active || 
+    val isProcessing = draft.status.processing is ProcessingStatus.Active || 
         draft.lifecycle == ArtifactLifecycle.PROCESSING
 
     Card(
@@ -294,11 +290,11 @@ fun DraftItem(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = if (draft.status.publication is com.saurabh.artifact.model.SyncStatus.Recovering) {
+                        text = if (draft.status.publication is SyncStatus.Recovering) {
                             "Recovering reflection • $date"
                         } else date,
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (draft.status.publication is com.saurabh.artifact.model.SyncStatus.Recovering) {
+                        color = if (draft.status.publication is SyncStatus.Recovering) {
                             MaterialTheme.colorScheme.primary
                         } else {
                             MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
@@ -377,34 +373,35 @@ fun StatusBadge(draft: ArtifactDraftEntity) {
     val state = draft.status.processing
     val syncStatus = draft.status.publication
 
-    val isProcessing = state is com.saurabh.artifact.model.ProcessingStatus.Active || 
+    val isProcessing = state is ProcessingStatus.Active || 
         draft.lifecycle == ArtifactLifecycle.PROCESSING
 
-    val isInterrupted = syncStatus is com.saurabh.artifact.model.SyncStatus.Recovering
+    val isInterrupted = syncStatus is SyncStatus.Recovering
 
     val color = when {
         isInterrupted -> MaterialTheme.colorScheme.primary
         isProcessing -> MaterialTheme.colorScheme.secondary
-        state is com.saurabh.artifact.model.ProcessingStatus.Failed -> MaterialTheme.colorScheme.error
+        state is ProcessingStatus.Failed -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     
     val text = when {
         isInterrupted -> "🌙 Held Safely"
-        state is com.saurabh.artifact.model.ProcessingStatus.Active -> {
+        state is ProcessingStatus.Active -> {
             when (state.stage) {
-                com.saurabh.artifact.model.ProcessingStage.TRANSCODING -> "✨ Preparing audio..."
-                com.saurabh.artifact.model.ProcessingStage.SAVING -> "✨ Saving..."
-                com.saurabh.artifact.model.ProcessingStage.NORMALIZING -> "✨ Normalizing audio..."
-                com.saurabh.artifact.model.ProcessingStage.TRANSCRIBING -> "✨ Transcribing using AI..."
-                com.saurabh.artifact.model.ProcessingStage.WAVEFORM_GENERATION -> "✨ Generating waveform..."
-                com.saurabh.artifact.model.ProcessingStage.SAFETY_CHECK -> "✨ Safety check..."
-                com.saurabh.artifact.model.ProcessingStage.PRIVACY_SCANNING -> "✨ Privacy scan..."
+                ProcessingStage.TRANSCODING -> "✨ Preparing audio..."
+                ProcessingStage.SAVING -> "✨ Saving..."
+                ProcessingStage.NORMALIZING -> "✨ Normalizing audio..."
+                ProcessingStage.TRANSCRIBING -> "✨ Transcribing using AI..."
+                ProcessingStage.WAVEFORM_GENERATION -> "✨ Generating waveform..."
+                ProcessingStage.SAFETY_CHECK -> "✨ Safety check..."
+                ProcessingStage.PRIVACY_SCANNING -> "✨ Privacy scan..."
                 else -> "✨ Enhancing..."
             }
         }
-        else -> if (state is com.saurabh.artifact.model.ProcessingStatus.Failed) "❌ Error" 
-                else draft.lifecycle.name.replace("_", " ").lowercase().capitalize(java.util.Locale.ROOT)
+        else -> if (state is ProcessingStatus.Failed) "❌ Error" 
+                else draft.lifecycle.name.replace("_", " ").lowercase()
+                    .replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }
     }
 
     Surface(

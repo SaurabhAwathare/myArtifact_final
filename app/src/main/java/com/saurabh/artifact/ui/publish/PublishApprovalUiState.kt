@@ -1,6 +1,8 @@
 package com.saurabh.artifact.ui.publish
 
-import com.saurabh.artifact.model.ArtifactDraftState
+import com.saurabh.artifact.model.ArtifactLifecycle
+import com.saurabh.artifact.model.DraftStatus
+import com.saurabh.artifact.model.TopicTag
 import com.saurabh.artifact.model.TranscriptSegment
 
 data class PublishApprovalUiState(
@@ -9,6 +11,7 @@ data class PublishApprovalUiState(
     val description: String = "",
     val emotion: String = "",
     val tags: List<String> = emptyList(),
+    val availableTopics: List<TopicTag> = emptyList(),
     val transcript: List<TranscriptSegment> = emptyList(),
     val audioDurationMs: Long = 0,
     val isPublic: Boolean = true,
@@ -31,7 +34,7 @@ data class PublishApprovalUiState(
     val privacyWarnings: List<String> = emptyList(),
     val isPrivacyNudgeBypassed: Boolean = false,
     
-    val currentState: ArtifactDraftState = ArtifactDraftState.READY_TO_REVIEW
+    val currentState: DraftStatus = DraftStatus(lifecycle = ArtifactLifecycle.REVIEW_REQUIRED)
 ) {
     val canApprove: Boolean get() = title.isNotBlank() && isListened && !isLoading
 }

@@ -11,6 +11,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -20,7 +23,7 @@ fun HoldToConfirmButton(
     onConfirm: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    holdDurationMs: Long = 2000L
+    holdDuration: Duration = 2.seconds
 ) {
     var isHolding by remember { mutableStateOf(false) }
     var progress by remember { mutableFloatStateOf(0f) }
@@ -42,14 +45,15 @@ fun HoldToConfirmButton(
                         progress = 0f
                         val startTime = System.currentTimeMillis()
                         val holdJob = scope.launch {
+                            val durationMs = holdDuration.inWholeMilliseconds
                             while (isHolding && progress < 1f) {
                                 val elapsed = System.currentTimeMillis() - startTime
-                                progress = (elapsed.toFloat() / holdDurationMs).coerceIn(0f, 1f)
+                                progress = (elapsed.toFloat() / durationMs).coerceIn(0f, 1f)
                                 if (progress >= 1f) {
                                     onConfirm()
                                     isHolding = false
                                 }
-                                delay(16)
+                                delay(16.milliseconds)
                             }
                         }
                         try {
@@ -81,6 +85,19 @@ fun HoldToConfirmButton(
                 text = if (isHolding) "Keep holding..." else text,
                 style = MaterialTheme.typography.labelLarge,
                 modifier = Modifier.padding(horizontal = 24.dp)
+            )
+        }
+    }
+}
+
+@Composable
+@androidx.compose.ui.tooling.preview.Preview
+fun HoldToConfirmButtonPreview() {
+    MaterialTheme {
+        Box(modifier = Modifier.padding(16.dp)) {
+            HoldToConfirmButton(
+                text = "Hold to Delete",
+                onConfirm = { println("Confirmed!") }
             )
         }
     }

@@ -376,7 +376,7 @@ fun ArtifactCard(
                                 ResonanceDisplay(
                                     counts = com.saurabh.artifact.model.ArtifactReactionCounts(
                                         artifactId = artifact.id,
-                                        totalCount = artifact.reactionCount,
+                                        totalCount = artifact.reactionCount.toInt(),
                                         visibility = artifact.reactionVisibility
                                     ),
                                     isOwner = isOwner

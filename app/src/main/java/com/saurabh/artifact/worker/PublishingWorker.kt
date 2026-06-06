@@ -10,9 +10,13 @@ import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import com.google.firebase.auth.FirebaseAuth
 import com.saurabh.artifact.R
+import com.saurabh.artifact.audio.ArtifactCleanupManager
 import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.ArtifactRepository
+import com.saurabh.artifact.repository.DraftRepository
+import com.saurabh.artifact.repository.UserRepository
+import com.saurabh.artifact.security.UploadGuard
 import com.saurabh.artifact.util.NotificationHelper
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -24,11 +28,11 @@ import kotlinx.coroutines.withContext
 class PublishingWorker @AssistedInject constructor(
     @Assisted private val appContext: Context,
     @Assisted workerParams: WorkerParameters,
-    private val draftRepository: com.saurabh.artifact.repository.DraftRepository,
+    private val draftRepository: DraftRepository,
     private val artifactRepository: ArtifactRepository,
-    private val userRepository: com.saurabh.artifact.repository.UserRepository,
-    private val cleanupManager: com.saurabh.artifact.audio.ArtifactCleanupManager,
-    private val uploadGuard: com.saurabh.artifact.security.UploadGuard
+    private val userRepository: UserRepository,
+    private val cleanupManager: ArtifactCleanupManager,
+    private val uploadGuard: UploadGuard
 ) : CoroutineWorker(appContext, workerParams) {
 
     private var startTime = System.currentTimeMillis()

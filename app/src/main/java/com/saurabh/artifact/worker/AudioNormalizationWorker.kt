@@ -9,6 +9,7 @@ import com.saurabh.artifact.model.*
 import com.saurabh.artifact.model.ProcessingStage
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -27,7 +28,7 @@ class AudioNormalizationWorker @AssistedInject constructor(
             updateSubState(draftId, ProcessingStage.NORMALIZING)
             
             // Simulation of audio normalization
-            delay(2000) 
+            delay(2.seconds)
             
             Result.success()
         } catch (e: Exception) {
@@ -39,7 +40,7 @@ class AudioNormalizationWorker @AssistedInject constructor(
     private suspend fun updateSubState(id: String, stage: ProcessingStage?, error: String? = null) {
         draftDao.getDraftById(id)?.let { draft ->
             val newProcessing = when {
-                error != null -> ProcessingStatus.Failed(error)
+                error != null -> ProcessingStatus.Failed()
                 stage != null -> ProcessingStatus.Active(stage)
                 else -> ProcessingStatus.Idle
             }
