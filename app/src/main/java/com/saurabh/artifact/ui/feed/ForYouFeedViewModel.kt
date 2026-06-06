@@ -3,7 +3,6 @@ package com.saurabh.artifact.ui.feed
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.saurabh.artifact.audio.PlaybackCoordinator
-import com.saurabh.artifact.audio.PlaybackType
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.FeedRepository
@@ -23,8 +22,7 @@ class ForYouFeedViewModel @Inject constructor(
     private val artifactRepository: com.saurabh.artifact.repository.ArtifactRepository,
     private val authRepository: AuthRepository,
     val audioPlayer: PlaybackCoordinator,
-    private val reviewSessionManager: com.saurabh.artifact.audio.ReviewSessionManager,
-    private val reviewAuthorityService: com.saurabh.artifact.audio.ReviewAuthorityService
+    private val reviewAuthorityService: com.saurabh.artifact.audio.ReviewAuthorityService,
 ) : ViewModel() {
 
     private val _feedState = MutableStateFlow<FeedCompositionState>(FeedCompositionState.Loading)
@@ -94,7 +92,7 @@ class ForYouFeedViewModel @Inject constructor(
             combine(currentPosition, isPlaying, currentlyPlayingArtifact) { pos, playing, artifact ->
                 Triple(pos, playing, artifact)
             }.collect { (pos, playing, artifact) ->
-                if (playing && artifact != null) {
+                if (playing && (artifact != null)) {
                     updateSession(artifact, pos)
                 }
             }
@@ -135,10 +133,5 @@ class ForYouFeedViewModel @Inject constructor(
                     _message.emit(ErrorMessageMapper.map(e))
                 }
         }
-    }
-
-    override fun onCleared() {
-        super.onCleared()
-        // audioPlayer.stop() // Optional: depends if we want background play
     }
 }

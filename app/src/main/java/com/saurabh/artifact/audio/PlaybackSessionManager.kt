@@ -8,18 +8,19 @@ import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
-import com.google.common.util.concurrent.MoreExecutors
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.repository.EngagementRepository
 import dagger.Lazy
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.cancelChildren
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * Single global owner of the playback session.
@@ -52,7 +53,7 @@ class PlaybackSessionManager @Inject constructor(
     private var controllerFuture: ListenableFuture<MediaController>? = null
 
     // Tracking which system owns the current playback session
-    enum class InteractionOwner { NONE, PUBLIC_PLAYER, REVIEW_PLAYER, SERVICE }
+    enum class InteractionOwner { NONE, PUBLIC_PLAYER, REVIEW_PLAYER }
     private val _interactionOwner = MutableStateFlow(InteractionOwner.NONE)
     val interactionOwner: StateFlow<InteractionOwner> = _interactionOwner.asStateFlow()
     
@@ -89,7 +90,7 @@ class PlaybackSessionManager @Inject constructor(
     private var cleanupSyncJob: Job? = null
     
     private var errorRetryCount = 0
-    private val MAX_RETRIES = 3
+    private val maxRetries = 3
 
     private val _isBuffering = MutableStateFlow(false)
     val isBuffering: StateFlow<Boolean> = _isBuffering.asStateFlow()
@@ -104,7 +105,6 @@ class PlaybackSessionManager @Inject constructor(
     val error: SharedFlow<String> = _error.asSharedFlow()
 
     private val _queue = MutableStateFlow<List<Artifact>>(emptyList())
-    val queue: StateFlow<List<Artifact>> = _queue.asStateFlow()
 
     init {
         // Sync settings from DataStore
@@ -166,7 +166,7 @@ class PlaybackSessionManager @Inject constructor(
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
             val message = when (error.errorCode) {
                 androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED -> {
-                    if (errorRetryCount < MAX_RETRIES) {
+                    if (errorRetryCount < maxRetries) {
                         attemptRetry()
                         "Searching for connection... (${errorRetryCount + 1})"
                     } else {
@@ -236,23 +236,13 @@ class PlaybackSessionManager @Inject constructor(
         return controllerLock.withLock {
             if (controller != null) return@withLock controller
             
-            val completer = CompletableDeferred<MediaController>()
             val sessionToken = SessionToken(context, ComponentName(context, PlaybackService::class.java))
             val future = MediaController.Builder(context, sessionToken).buildAsync()
             
-            future.addListener({
-                try {
-                    val instance = future.get()
-                    instance.addListener(playerListener)
-                    completer.complete(instance)
-                } catch (e: Exception) {
-                    Log.e("PlaybackSessionManager", "Failed to init MediaController", e)
-                    completer.completeExceptionally(e)
-                }
-            }, MoreExecutors.directExecutor())
-            
             try {
-                controller = completer.await()
+                val instance = future.await()
+                instance.addListener(playerListener)
+                controller = instance
                 controllerFuture = future
                 _isPlaying.value = controller?.isPlaying ?: false
                 _durationMs.value = controller?.duration?.coerceAtLeast(0) ?: 0
@@ -265,6 +255,7 @@ class PlaybackSessionManager @Inject constructor(
                 
                 controller
             } catch (e: Exception) {
+                Log.e("PlaybackSessionManager", "Failed to init MediaController", e)
                 null
             }
         }
@@ -290,10 +281,6 @@ class PlaybackSessionManager @Inject constructor(
                 _queue.value = queueItems
             }
         }
-    }
-
-    private fun restorePlaybackState() {
-        // Redundant - removed in favor of PlaybackService.onPlaybackResumption
     }
 
     fun play(
@@ -351,28 +338,6 @@ class PlaybackSessionManager @Inject constructor(
             
             settingsDataStore.updateLastArtifactId(artifact.id)
             settingsDataStore.updateQueue(newQueue.map { it.id }, startIndex)
-        }
-    }
-
-    fun addToQueue(artifacts: List<Artifact>) {
-        scope.launch {
-            val player = getController() ?: return@launch
-            val mediaItems = artifacts.map { createMediaItem(it) }
-            player.addMediaItems(mediaItems)
-            _queue.value = _queue.value + artifacts
-        }
-    }
-
-    fun playNext(artifact: Artifact) {
-        scope.launch {
-            val player = getController() ?: return@launch
-            val mediaItem = createMediaItem(artifact)
-            val nextIndex = if (player.mediaItemCount > 0) player.currentMediaItemIndex + 1 else 0
-            player.addMediaItem(nextIndex, mediaItem)
-            
-            val currentQueue = _queue.value.toMutableList()
-            currentQueue.add(nextIndex, artifact)
-            _queue.value = currentQueue
         }
     }
 
@@ -457,16 +422,6 @@ class PlaybackSessionManager @Inject constructor(
         }
     }
 
-    fun skipForward(millis: Long = 10_000L) {
-        val newPos = (_currentPosition.value + millis).coerceAtMost(_durationMs.value)
-        seekTo(newPos)
-    }
-
-    fun skipBackward(millis: Long = 10_000L) {
-        val newPos = (_currentPosition.value - millis).coerceAtLeast(0L)
-        seekTo(newPos)
-    }
-
     fun stop() {
         scope.launch {
             getController()?.stop()
@@ -475,18 +430,6 @@ class PlaybackSessionManager @Inject constructor(
             _activePlayback.value = null
             _isPlaying.value = false
             _queue.value = emptyList()
-        }
-    }
-
-    fun stopIfType(type: PlaybackType) {
-        if (_activePlayback.value?.playbackType == type) {
-            stop()
-        }
-    }
-
-    fun stopIfOwner(owner: InteractionOwner) {
-        if (_interactionOwner.value == owner) {
-            stop()
         }
     }
 
@@ -501,7 +444,7 @@ class PlaybackSessionManager @Inject constructor(
                     _durationMs.value = dur
                     updatePositionSync()
                 }
-                delay(1000)
+                delay(1.seconds)
             }
         }
     }
@@ -536,7 +479,7 @@ class PlaybackSessionManager @Inject constructor(
     private fun attemptRetry() {
         errorRetryCount++
         scope.launch {
-            delay(2000L * errorRetryCount) // Exponential backoff
+            delay((2 * errorRetryCount).seconds) // Exponential backoff
             controller?.prepare()
             controller?.play()
         }

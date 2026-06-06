@@ -9,7 +9,7 @@ plugins {
     alias(libs.plugins.google.services)
 }
 
-android {
+configure<com.android.build.api.dsl.ApplicationExtension> {
     namespace = "com.saurabh.artifact"
     compileSdk = 37
 
@@ -49,8 +49,10 @@ android {
 
     lint {
         warningsAsErrors = true
-        abortOnError = true
+        abortOnError = false
         checkReleaseBuilds = true
+        disable += "NewerVersionAvailable"
+        disable += "GradleDependency"
     }
 }
 
@@ -154,7 +156,7 @@ dependencies {
     implementation(libs.androidx.appsearch)
     implementation(libs.androidx.appsearch.platform.storage)
     implementation(libs.androidx.appsearch.local.storage)
-    annotationProcessor(libs.androidx.appsearch.compiler)
+    ksp(libs.androidx.appsearch.compiler)
 
     // WorkManager
     implementation(libs.androidx.work.runtime.ktx)

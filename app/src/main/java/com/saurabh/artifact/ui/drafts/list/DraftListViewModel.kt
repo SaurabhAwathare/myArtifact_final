@@ -3,16 +3,13 @@ package com.saurabh.artifact.ui.drafts.list
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.saurabh.artifact.audio.PlaybackCoordinator
-import com.saurabh.artifact.audio.PlaybackType
 import com.saurabh.artifact.domain.PublishingOrchestrator
-import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.repository.DraftRepository
 import com.saurabh.artifact.repository.DraftWithUpload
 import com.saurabh.artifact.repository.RecordingRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -39,7 +36,6 @@ class DraftListViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val isPlaying = audioPlayer.isPlaying
-    val currentlyPlayingArtifact = audioPlayer.currentArtifact
 
     private val _events = MutableSharedFlow<DraftListUiEvent>()
     val events = _events.asSharedFlow()
@@ -64,28 +60,10 @@ class DraftListViewModel @Inject constructor(
         }
     }
 
-    fun playDraft(draftWithUpload: DraftWithUpload) {
-        val draft = draftWithUpload.draft
-        if (draft.status.publication is com.saurabh.artifact.model.SyncStatus.Recovering) {
-            // If recovering, we should first try to process it before playing
-            viewModelScope.launch {
-                publishingOrchestrator.startProcessing(draft.id)
-            }
-        }
-
-        val currentPlaying = audioPlayer.currentArtifact.value
-        val draftIdString = draft.id.toString()
-        if (currentPlaying?.id == draftIdString) {
-            audioPlayer.togglePlayPause()
-        } else {
-            audioPlayer.playDraftPreview(draftIdString)
-        }
-    }
-
     fun deleteDraft(draftWithUpload: DraftWithUpload) {
         val draft = draftWithUpload.draft
         viewModelScope.launch {
-            if (audioPlayer.currentArtifact.value?.id == draft.id.toString()) {
+            if (audioPlayer.currentArtifact.value?.id == draft.id) {
                 audioPlayer.stop()
             }
             draftRepository.deleteDraftCompletely(draft.id)
@@ -110,10 +88,5 @@ class DraftListViewModel @Inject constructor(
                 )
             ))
         }
-    }
-
-    override fun onCleared() {
-        super.onCleared()
-        // Playback ownership is now handled by the Coordinator.
     }
 }
