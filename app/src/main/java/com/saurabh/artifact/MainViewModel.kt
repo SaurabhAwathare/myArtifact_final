@@ -33,8 +33,8 @@ data class BackupWarning(
 class MainViewModel @Inject constructor(
     private val onboardingManager: OnboardingManager,
     private val authRepository: AuthRepository,
-    private val settingsRepository: SettingsRepository,
-    private val startupCoordinator: StartupCoordinator,
+    settingsRepository: SettingsRepository,
+    startupCoordinator: StartupCoordinator,
     private val draftDao: DraftDao
 ) : ViewModel() {
 

@@ -17,11 +17,9 @@ import androidx.compose.ui.graphics.graphicsLayer
  * Transitions should feel like air or water, never mechanical.
  */
 object MotionTokens {
-    const val DURATION_INSTANT = 100
     const val DURATION_SHORT = 300
     const val DURATION_MEDIUM = 600
     const val DURATION_LONG = 900
-    const val DURATION_ATMOSPHERIC = 1200
 
     // Bessel-inspired "Calm Easing" for natural, weighted movement.
     val CalmEasing = CubicBezierEasing(0.48f, 0.15f, 0.25f, 0.99f)

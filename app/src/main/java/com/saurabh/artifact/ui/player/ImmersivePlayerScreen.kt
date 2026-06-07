@@ -424,7 +424,7 @@ fun ImmersiveDraftPlayerPreview() {
                 author = AuthorSnapshot(name = "Silent Wanderer", sigil = "A1"),
                 emotion = "Peaceful",
                 amplitudeData = List(100) { (it % 10) / 10f },
-                isDraft = true
+                status = com.saurabh.artifact.model.ArtifactStatus.DRAFT
             ),
             uiState = PlayerUiState(
                 isPlaying = false,

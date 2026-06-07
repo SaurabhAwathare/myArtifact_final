@@ -58,6 +58,7 @@ data class ArtifactComment(
 ) {
     @get:PropertyName("creatorReaction")
     @set:PropertyName("creatorReaction")
+    @Suppress("unused")
     var creatorReactionString: String?
         get() = creatorReaction?.id
         set(value) {
@@ -76,17 +77,5 @@ data class EmotionalResponseSummary(
     val topEmotions: Map<String, Int> = emptyMap(),
     val resonanceScore: Float = 0f,
     val lastUpdated: Timestamp = Timestamp.now(),
-    val aiInsight: String? = null
-)
-
-/**
- * Configuration for how comments behave on a specific artifact.
- */
-@Serializable
-data class ArtifactCommentSettings(
-    val artifactId: String = "",
-    val defaultVisibility: VisibilityLayer = VisibilityLayer.BRIDGE,
-    val isCommentingEnabled: Boolean = true,
-    val requireCompletionToComment: Boolean = true,
-    val revealDelayHours: Int = 0
+    val aiInsight: String? = null,
 )

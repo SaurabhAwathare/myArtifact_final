@@ -6,8 +6,6 @@ import com.saurabh.artifact.data.local.EngagementDao
 import com.saurabh.artifact.domain.review.EngagementEvidence
 import com.saurabh.artifact.model.UserArtifactEngagement
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.util.BitSet
 import javax.inject.Inject
@@ -19,10 +17,6 @@ class EngagementRepository @Inject constructor(
     private val firestore: FirebaseFirestore,
     private val authRepository: AuthRepository
 ) {
-
-    fun observeEngagement(artifactId: String): Flow<EngagementEvidence?> {
-        return engagementDao.observeEngagement(artifactId).map { it?.toDomain() }
-    }
 
     suspend fun getEngagement(artifactId: String): EngagementEvidence? {
         return engagementDao.getEngagement(artifactId)?.toDomain()
@@ -44,7 +38,7 @@ class EngagementRepository @Inject constructor(
         }
     }
 
-    private suspend fun syncToCloud(engagement: ArtifactEngagement) {
+    private fun syncToCloud(engagement: ArtifactEngagement) {
         val userId = authRepository.currentUserId
         if (userId.isEmpty()) return
 
@@ -67,7 +61,7 @@ class EngagementRepository @Inject constructor(
             firestore.collection("users").document(userId)
                 .collection("engagement").document(engagement.artifactId)
                 .set(remoteData)
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             // Log error or handle offline sync
         }
     }

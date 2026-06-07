@@ -2,7 +2,6 @@ package com.saurabh.artifact.util
 
 import android.content.Context
 import com.saurabh.artifact.data.local.DraftDao
-import com.saurabh.artifact.model.ArtifactDraftState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File

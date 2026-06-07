@@ -16,11 +16,12 @@ data class EngagementEvidence(
     val lastPositionMs: Long = 0L, // Current playback position for resuming
     val furthestPositionMs: Long = 0L, // Max position reached through valid playback
     val hasReachedEnd: Boolean = false,
-    val lastUpdated: Long = System.currentTimeMillis()
+    val lastUpdated: Long = System.currentTimeMillis(),
 ) {
     /**
      * Calculates the total "Raw Effort" (wall clock time).
      */
+    @Suppress("unused")
     fun getTotalEffortMs(): Long = effortMap.values.sum()
 
     /**

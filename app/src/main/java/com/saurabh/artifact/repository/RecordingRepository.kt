@@ -11,24 +11,17 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class RecordingRepository @Inject constructor(
     private val draftDao: DraftDao,
-    private val engagementRepository: EngagementRepository,
     private val localDraftManager: LocalDraftManager,
     private val wavRecoveryManager: WavRecoveryManager,
     private val deletionManager: DraftDeletionManager,
 ) {
     
-    suspend fun startDraft(draftId: String = UUID.randomUUID().toString()) = withContext(Dispatchers.IO) {
-        val file = localDraftManager.createDraftFile(draftId)
-        createDraft(draftId, file.absolutePath, 0)
-    }
-
     suspend fun createDraft(
         id: String,
         path: String,
@@ -69,29 +62,6 @@ class RecordingRepository @Inject constructor(
         )
     }
 
-    suspend fun finalizeRecording(
-        id: String,
-        audioPath: String,
-        checksum: String? = null,
-        title: String? = null
-    ) = withContext(Dispatchers.IO) {
-        val draft = draftDao.getDraftById(id) ?: return@withContext
-        val finalFile = File(audioPath)
-        val finalSize = if (finalFile.exists()) finalFile.length() else 0L
-        
-        draftDao.update(
-            draft.copy(
-                localAudioPath = audioPath,
-            status = draft.status.copy(lifecycle = ArtifactLifecycle.PROCESSING),
-            checksum = checksum,
-            isEncrypted = false,
-            durationMs = draft.durationMs,
-            durableBytes = finalSize, // Finalize durable bytes to full file size
-            title = title ?: draft.title,
-            updatedAt = System.currentTimeMillis()
-        ))
-    }
-
     fun observeDrafts(): Flow<List<ArtifactDraftEntity>> = draftDao.observeDrafts()
 
     fun observeDraft(id: String): Flow<ArtifactDraftEntity?> = draftDao.observeDraftById(id)
@@ -102,15 +72,6 @@ class RecordingRepository @Inject constructor(
 
     suspend fun updateDraft(draft: ArtifactDraftEntity) {
         draftDao.update(draft.copy(updatedAt = System.currentTimeMillis()))
-    }
-
-    suspend fun updateReviewProgress(id: String, positionMs: Long) = withContext(Dispatchers.IO) {
-        // Delegates to EngagementRepository for unified tracking
-        engagementRepository.updateLastPosition(id, positionMs)
-    }
-
-    suspend fun updateLastPlaybackPosition(id: String, positionMs: Long) = withContext(Dispatchers.IO) {
-        engagementRepository.updateLastPosition(id, positionMs)
     }
 
     suspend fun renameDraft(id: String, newTitle: String?) = withContext(Dispatchers.IO) {

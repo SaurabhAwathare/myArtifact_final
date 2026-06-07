@@ -10,11 +10,13 @@ import javax.inject.Singleton
 
 @Module
 @InstallIn(SingletonComponent::class)
+@Suppress("unused")
 abstract class RepositoryModule {
 
     @Binds
     @Singleton
+    @Suppress("unused")
     abstract fun bindTopicRepository(
-        topicRepositoryImpl: TopicRepositoryImpl
+        topicRepositoryImpl: TopicRepositoryImpl,
     ): TopicRepository
 }

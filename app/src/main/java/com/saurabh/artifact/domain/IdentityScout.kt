@@ -13,8 +13,6 @@ import javax.inject.Singleton
 @Singleton
 class IdentityScout @Inject constructor() {
 
-    private val commonEmailDomains = setOf("gmail", "yahoo", "outlook", "hotmail", "icloud", "protonmail")
-
     /**
      * Scans a target string (username or content) for leaks of the user's real identity.
      */
@@ -160,7 +158,7 @@ class IdentityScout @Inject constructor() {
     }
 
     /**
-     * Extracts the prefix from an email address (e.g., 'saurabh' from 'saurabh@gmail.com').
+     * Extracts the prefix from an email address (e.g., 'user' from 'user@example.com').
      */
     private fun extractEmailPrefix(email: String?): String? {
         if (email.isNullOrBlank()) return null
@@ -207,30 +205,27 @@ class IdentityScout @Inject constructor() {
 
         var i = 0
         while (i < txt.length) {
-            val c = txt[i]
-            
             // Basic Metaphone rules
-            when (c) {
+            when (val c = txt[i]) {
                 'A', 'E', 'I', 'O', 'U' -> if (i == 0) sb.append(c) // Only keep vowels at the start
                 'B' -> sb.append('B')
                 'C' -> {
                     // C -> X (SH) if followed by IA or H, else S if followed by I, E, Y, else K
                     if (i + 1 < txt.length) {
-                        val next = txt[i+1]
-                        if (next == 'H') {
-                            sb.append('X')
-                            i++
-                        } else if (next == 'I' || next == 'E' || next == 'Y') {
-                            sb.append('S')
-                        } else {
-                            sb.append('K')
+                        when (txt[i + 1]) {
+                            'H' -> {
+                                sb.append('X')
+                                i++
+                            }
+                            'I', 'E', 'Y' -> sb.append('S')
+                            else -> sb.append('K')
                         }
                     } else {
                         sb.append('K')
                     }
                 }
                 'D' -> {
-                    if (i + 1 < txt.length && txt[i+1] == 'G' && (i + 2 < txt.length && (txt[i+2] == 'E' || txt[i+2] == 'I' || txt[i+2] == 'Y'))) {
+                    if (i + 1 < txt.length && txt[i + 1] == 'G' && (i + 2 < txt.length && (txt[i + 2] == 'E' || txt[i + 2] == 'I' || txt[i + 2] == 'Y'))) {
                         sb.append('J')
                         i++
                     } else {
@@ -239,8 +234,11 @@ class IdentityScout @Inject constructor() {
                 }
                 'F', 'J', 'L', 'M', 'N', 'R' -> sb.append(c)
                 'G' -> {
-                    if (i + 1 < txt.length && (txt[i+1] == 'I' || txt[i+1] == 'E' || txt[i+1] == 'Y')) {
-                        sb.append('J')
+                    if (i + 1 < txt.length) {
+                        when (txt[i + 1]) {
+                            'I', 'E', 'Y' -> sb.append('J')
+                            else -> sb.append('K')
+                        }
                     } else {
                         sb.append('K')
                     }
@@ -253,11 +251,14 @@ class IdentityScout @Inject constructor() {
                         if (i == 0) sb.append('H')
                     }
                 }
-                'K' -> if (i > 0 && txt[i-1] == 'C') { /* Skip */ } else sb.append('K')
-                'P' -> if (i + 1 < txt.length && txt[i+1] == 'H') { sb.append('F'); i++ } else sb.append('P')
+                'K' -> if (i > 0 && txt[i - 1] == 'C') { /* Skip */ } else sb.append('K')
+                'P' -> if (i + 1 < txt.length && txt[i + 1] == 'H') {
+                    sb.append('F')
+                    i++
+                } else sb.append('P')
                 'Q' -> sb.append('K')
                 'S' -> {
-                    if (i + 1 < txt.length && txt[i+1] == 'H') {
+                    if (i + 1 < txt.length && txt[i + 1] == 'H') {
                         sb.append('X')
                         i++
                     } else {
@@ -265,11 +266,21 @@ class IdentityScout @Inject constructor() {
                     }
                 }
                 'T' -> {
-                    if (i + 1 < txt.length && txt[i+1] == 'H') {
-                        sb.append('0') // Theta
-                        i++
-                    } else if (i + 1 < txt.length && txt[i+1] == 'I' && (i + 2 < txt.length && (txt[i+2] == 'A' || txt[i+2] == 'O'))) {
-                        sb.append('X')
+                    if (i + 1 < txt.length) {
+                        when (txt[i + 1]) {
+                            'H' -> {
+                                sb.append('0') // Theta
+                                i++
+                            }
+                            'I' -> {
+                                if (i + 2 < txt.length && (txt[i + 2] == 'A' || txt[i + 2] == 'O')) {
+                                    sb.append('X')
+                                } else {
+                                    sb.append('T')
+                                }
+                            }
+                            else -> sb.append('T')
+                        }
                     } else {
                         sb.append('T')
                     }

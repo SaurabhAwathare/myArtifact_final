@@ -1,31 +1,43 @@
 package com.saurabh.artifact.security
 
 import android.content.Context
-import androidx.security.crypto.EncryptedFile
-import androidx.security.crypto.MasterKey
+import com.google.crypto.tink.KeyTemplates
+import com.google.crypto.tink.StreamingAead
+import com.google.crypto.tink.streamingaead.StreamingAeadConfig
+import com.google.crypto.tink.integration.android.AndroidKeysetManager
 import java.io.File
-import java.security.SecureRandom
+import java.io.InputStream
+import java.io.OutputStream
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.PBEKeySpec
 
 object SecurityArchitecture {
 
-    /**
-     * Creates an EncryptedFile instance for secure local storage of audio drafts.
-     * Prefers hardware-backed security (StrongBox or TEE).
-     */
-    fun getEncryptedFile(context: Context, file: File): EncryptedFile {
-        val masterKey = MasterKey.Builder(context)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .setRequestStrongBoxBacked(true) // Prefer StrongBox for hardware-level security
+    private fun getStreamingAead(context: Context): StreamingAead {
+        StreamingAeadConfig.register()
+        return AndroidKeysetManager.Builder()
+            .withSharedPref(context, "streaming_master_keyset", "streaming_master_key_preference")
+            .withKeyTemplate(KeyTemplates.get("AES256_GCM_HKDF_4KB"))
+            .withMasterKeyUri("android-keystore://streaming_master_key")
             .build()
-        
-        return EncryptedFile.Builder(
-            context,
-            file,
-            masterKey,
-            EncryptedFile.FileEncryptionScheme.AES256_GCM_HKDF_4KB
-        ).build()
+            .keysetHandle
+            .getPrimitive(StreamingAead::class.java)
+    }
+
+    /**
+     * Returns a decrypting input stream for the given file.
+     */
+    fun openDecryptingStream(context: Context, file: File): InputStream {
+        val streamingAead = getStreamingAead(context)
+        return streamingAead.newDecryptingStream(file.inputStream(), null)
+    }
+
+    /**
+     * Returns an encrypting output stream for the given file.
+     */
+    fun openEncryptingStream(context: Context, file: File): OutputStream {
+        val streamingAead = getStreamingAead(context)
+        return streamingAead.newEncryptingStream(file.outputStream(), null)
     }
 
     /**
@@ -39,38 +51,5 @@ object SecurityArchitecture {
         val spec = PBEKeySpec(passphrase.toCharArray(), salt, iterations, keyLength)
         val skf = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
         return skf.generateSecret(spec).encoded
-    }
-
-    /**
-     * Securely deletes a file by overwriting it with random data before deletion.
-     * This is critical for privacy-first applications.
-     */
-    fun secureDelete(file: File) {
-        if (file.exists() && file.isFile) {
-            val length = file.length()
-            val secureRandom = SecureRandom()
-            val randomData = ByteArray(1024)
-            
-            file.outputStream().use { fos ->
-                var written = 0L
-                while (written < length) {
-                    secureRandom.nextBytes(randomData)
-                    val toWrite = minOf(randomData.size.toLong(), length - written).toInt()
-                    fos.write(randomData, 0, toWrite)
-                    written += toWrite
-                }
-                fos.flush()
-            }
-        }
-        file.delete()
-    }
-
-    /**
-     * Generates a temporary secure file path for editing operations.
-     */
-    fun createSecureTempFile(context: Context, suffix: String = ".mp3"): File {
-        val tempDir = File(context.cacheDir, "secure_edits")
-        if (!tempDir.exists()) tempDir.mkdirs()
-        return File(tempDir, "tmp_${System.currentTimeMillis()}_${SecureRandom().nextInt(1000)}$suffix")
     }
 }

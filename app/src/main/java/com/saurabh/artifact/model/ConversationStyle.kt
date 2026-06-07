@@ -10,8 +10,8 @@ import kotlinx.serialization.Serializable
 enum class ConversationStyle(
     val label: String,
     val description: String,
-    val iconEmoji: String,
-    val energyLevel: EnergyLevel
+    @Suppress("unused") val iconEmoji: String,
+    @Suppress("unused") val energyLevel: EnergyLevel,
 ) {
     STORYTELLING(
         "Storytelling",
@@ -122,6 +122,7 @@ data class ListeningMode(
     val excludedStyles: Set<ConversationStyle> = emptySet()
 ) {
     companion object {
+        @Suppress("unused")
         val BEDTIME = ListeningMode(
             id = "bedtime",
             name = "Bedtime Listening",
@@ -129,6 +130,7 @@ data class ListeningMode(
             excludedStyles = setOf(ConversationStyle.RANT, ConversationStyle.CHAOTIC)
         )
         
+        @Suppress("unused")
         val FOCUS = ListeningMode(
             id = "focus",
             name = "Deep Focus",
@@ -136,6 +138,7 @@ data class ListeningMode(
             preferredStyles = setOf(ConversationStyle.REFLECTIVE, ConversationStyle.LATE_NIGHT)
         )
         
+        @Suppress("unused")
         val ENERGY_BOOST = ListeningMode(
             id = "energy_boost",
             name = "Energy Boost",

@@ -22,17 +22,14 @@ enum class ValidationReason {
 
     // Safety
     HARASSMENT,
-    SEXUAL_CONTENT,
     HATEFUL_LANGUAGE,
     RESERVED_NAME,
 
     // Atmosphere
-    AGGRESSIVE_TONE,
     OVERLY_NEGATIVE,
 
     // Availability
     ALREADY_TAKEN,
-    CHECK_FAILED
 }
 
 /**

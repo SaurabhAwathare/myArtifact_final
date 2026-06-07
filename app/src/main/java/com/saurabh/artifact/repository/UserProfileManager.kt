@@ -6,7 +6,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -41,11 +40,6 @@ class UserProfileManager @Inject constructor(
     val userProfile: Flow<com.saurabh.artifact.model.UserProfile> = sessionManager.userProfile
 
     /**
-     * SSOT flow for Avatar Seed.
-     */
-    val activeAvatarSeed: Flow<String> = sessionManager.userProfile.map { it.avatarSeed }
-
-    /**
      * SSOT flow for Avatar Config.
      */
     val activeAvatarConfig: Flow<com.saurabh.artifact.model.AvatarConfig> = sessionManager.userProfile.map { it.avatarConfig }
@@ -54,26 +48,6 @@ class UserProfileManager @Inject constructor(
      * SSOT flow for the active username.
      */
     val activeUsername: Flow<String> = sessionManager.userProfile.map { it.username }
-
-    /**
-     * Updates the user's avatar seed.
-     */
-    suspend fun updateAvatarSeed(seed: String) {
-        // 1. Update SSOT immediately for UI responsiveness
-        sessionManager.updateAvatarSeed(seed)
-        
-        // 2. Sync to Firestore if authenticated (Eventual Consistency)
-        val userId = authRepository.currentUser.value?.uid
-        if (userId != null) {
-            try {
-                // Read current config to preserve other fields
-                val currentProfile = sessionManager.userProfile.first()
-                userRepository.updateAvatarConfig(userId, currentProfile.avatarConfig.copy(seed = seed))
-            } catch (e: Exception) {
-                android.util.Log.e("UserProfileManager", "Failed to sync avatar seed to Firestore", e)
-            }
-        }
-    }
 
     /**
      * Updates the user's avatar configuration.

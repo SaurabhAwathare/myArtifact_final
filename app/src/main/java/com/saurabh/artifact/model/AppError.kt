@@ -10,45 +10,45 @@ sealed class AppError : Exception() {
     abstract val technicalMessage: String
     override val message: String? get() = technicalMessage
 
-    object PermissionDenied : AppError() {
-        override val technicalMessage: String = "Permission denied"
-    }
+    data class PermissionDenied(
+        override val technicalMessage: String = "Permission denied",
+    ) : AppError()
 
-    object Unauthenticated : AppError() {
-        override val technicalMessage: String = "User is not authenticated"
-    }
+    data class Unauthenticated(
+        override val technicalMessage: String = "User is not authenticated",
+    ) : AppError()
 
     data class UsernameTaken(
         val username: String,
-        override val technicalMessage: String = "Username '$username' is already taken"
+        override val technicalMessage: String = "Username '$username' is already taken",
     ) : AppError()
 
     data class UserNotFound(
         val userId: String,
-        override val technicalMessage: String = "User with ID '$userId' not found"
+        override val technicalMessage: String = "User with ID '$userId' not found",
     ) : AppError()
 
-    object NetworkFailure : AppError() {
-        override val technicalMessage: String = "Network failure"
-    }
+    data class NetworkFailure(
+        override val technicalMessage: String = "Network failure",
+    ) : AppError()
 
     data class Unknown(
         val original: Throwable,
-        override val technicalMessage: String = original.message ?: "An unknown error occurred"
+        override val technicalMessage: String = original.message ?: "An unknown error occurred",
     ) : AppError()
 
     @Suppress("unused")
     data class InvalidInput(
         val details: String,
-        override val technicalMessage: String = "Invalid input: $details"
+        override val technicalMessage: String = "Invalid input: $details",
     ) : AppError()
 
     companion object {
         fun from(e: Throwable): AppError = when (e) {
             is com.google.firebase.firestore.FirebaseFirestoreException -> {
                 when (e.code) {
-                    com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED -> PermissionDenied
-                    com.google.firebase.firestore.FirebaseFirestoreException.Code.UNAVAILABLE -> NetworkFailure
+                    com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED -> PermissionDenied()
+                    com.google.firebase.firestore.FirebaseFirestoreException.Code.UNAVAILABLE -> NetworkFailure()
                     else -> Unknown(e)
                 }
             }

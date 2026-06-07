@@ -31,7 +31,7 @@ import com.google.firebase.firestore.FirebaseFirestoreException
 class UserRepository @Inject constructor(
     private val auth: FirebaseAuth,
     private val firestore: FirebaseFirestore,
-    private val notificationRepository: NotificationRepository
+    private val notificationRepository: NotificationRepository,
 ) {
     private val usersCollection = firestore.collection("users")
     private val usernamesCollection = firestore.collection("usernames")
@@ -78,14 +78,14 @@ class UserRepository @Inject constructor(
                 val historyRef = userRef.collection("private").document("identity_history")
                     .collection("log").document()
                 
-                transaction.set(historyRef, mapOf(
+                transaction[historyRef] = mapOf(
                     "oldName" to (anonymousSnapshot?.anonymousName ?: "Unknown"),
                     "newName" to newName,
                     "oldSigil" to (anonymousSnapshot?.anonymousSigil ?: ""),
                     "newSigil" to newSigil,
                     "timestamp" to FieldValue.serverTimestamp(),
-                    "reason" to "USER_REFRESH"
-                ))
+                    "reason" to "USER_REFRESH",
+                )
 
                 // 2. Update Profile
                 transaction.update(
@@ -96,7 +96,7 @@ class UserRepository @Inject constructor(
                         "avatarSeed" to newSeed,
                         "avatarConfig" to (anonymousSnapshot?.avatarConfig ?: AvatarConfig()).copy(
                             seed = newSeed,
-                            theme = "AURIC" // Refreshing identity always reverts to brand-standard Aura
+                            theme = "AURIC", // Refreshing identity always reverts to brand-standard Aura
                         ),
                         "usernameUpdatedAt" to FieldValue.serverTimestamp()
                     )
@@ -145,7 +145,7 @@ class UserRepository @Inject constructor(
                 val usernameRef = usernamesCollection.document(normalizedUsername)
 
                 // 1. Check if the username is already taken
-                val usernameDoc = transaction.get(usernameRef)
+                val usernameDoc = transaction[usernameRef]
                 if (usernameDoc.exists()) {
                     val existingUserId = usernameDoc.getString("uid") ?: usernameDoc.getString("userId")
                     if (existingUserId != userId) {
@@ -154,24 +154,25 @@ class UserRepository @Inject constructor(
                 }
 
                 // 2. Get current user to find old username for cleanup
-                val userDoc = transaction.get(userRef)
+                val userDoc = transaction[userRef]
                 val oldUsername = userDoc.getString("anonymousName")?.lowercase()?.trim()
 
                 // 3. Reserve the new username
-                transaction.set(usernameRef, mapOf(
+                transaction[usernameRef] = mapOf(
                     "uid" to userId,
                     "createdAt" to FieldValue.serverTimestamp()
-                ))
+                )
 
                 // 4. Update the user profile
-                transaction.update(userRef, mapOf(
-                    "anonymousName" to username, // This is the chosen "pseudonym"
+                transaction.update(
+                    userRef, mapOf(
+                        "anonymousName" to username, // This is the chosen "pseudonym"
                     "isAnonymous" to false, // They've chosen a name, though still "artifact" anonymous
                     "usernameUpdatedAt" to FieldValue.serverTimestamp()
                 ))
 
                 // 5. Clean up old username reservation
-                if (oldUsername != null && oldUsername != normalizedUsername) {
+                if ((oldUsername != null) && (oldUsername != normalizedUsername)) {
                     transaction.delete(usernamesCollection.document(oldUsername))
                 }
             }.await()
@@ -222,7 +223,7 @@ class UserRepository @Inject constructor(
 
         // 2. Atomic Check & Create via Transaction
         return firestore.runTransaction { transaction ->
-            val snapshot = transaction.get(userRef)
+            val snapshot = transaction[userRef]
             
             if (snapshot.exists()) {
                 // Safe deserialization
@@ -253,8 +254,8 @@ class UserRepository @Inject constructor(
                     accountStatus = "ACTIVE"
                 )
 
-                transaction.set(userRef, newProfile)
-                transaction.set(privateRef, privateSettings)
+                transaction[userRef] = newProfile
+                transaction[privateRef] = privateSettings
                 newProfile
             }
         }.await()
@@ -296,7 +297,7 @@ class UserRepository @Inject constructor(
                 return@addSnapshotListener
             }
 
-            if (snapshot != null && snapshot.exists()) {
+            if ((snapshot != null) && snapshot.exists()) {
                 try {
                     val user = snapshot.toObject(User::class.java)?.copy(id = userId)
                     if (user == null) {
@@ -340,13 +341,13 @@ class UserRepository @Inject constructor(
                 val resonanceOutRef = currentUserRef.collection("resonance_out").document(targetUserId.trim())
                 val resonanceInRef = targetUserRef.collection("resonance_in").document(currentUserId.trim())
 
-                val resonanceDoc = transaction.get(resonanceOutRef)
+                val resonanceDoc = transaction[resonanceOutRef]
                 if (resonanceDoc.exists()) return@runTransaction // Already resonating
 
                 // 1. Create relationship markers
                 val timestamp = FieldValue.serverTimestamp()
-                transaction.set(resonanceOutRef, mapOf("createdAt" to timestamp))
-                transaction.set(resonanceInRef, mapOf("createdAt" to timestamp))
+                transaction[resonanceOutRef] = mapOf("createdAt" to timestamp)
+                transaction[resonanceInRef] = mapOf("createdAt" to timestamp)
 
                 // 2. Increment counters
                 transaction.update(currentUserRef, "resonanceOutCount", FieldValue.increment(1))
@@ -383,7 +384,7 @@ class UserRepository @Inject constructor(
                 val resonanceOutRef = currentUserRef.collection("resonance_out").document(targetUserId.trim())
                 val resonanceInRef = targetUserRef.collection("resonance_in").document(currentUserId.trim())
 
-                val resonanceDoc = transaction.get(resonanceOutRef)
+                val resonanceDoc = transaction[resonanceOutRef]
                 if (!resonanceDoc.exists()) return@runTransaction // Not resonating
 
                 // 1. Remove relationship markers
@@ -391,8 +392,8 @@ class UserRepository @Inject constructor(
                 transaction.delete(resonanceInRef)
 
                 // 2. Decrement counters (safely)
-                val currentUserDoc = transaction.get(currentUserRef)
-                val targetUserDoc = transaction.get(targetUserRef)
+                val currentUserDoc = transaction[currentUserRef]
+                val targetUserDoc = transaction[targetUserRef]
 
                 val outCount = currentUserDoc.getLong("resonanceOutCount") ?: currentUserDoc.getLong("followingCount") ?: 0L
                 val inCount = targetUserDoc.getLong("resonanceInCount") ?: targetUserDoc.getLong("followersCount") ?: 0L
@@ -416,7 +417,7 @@ class UserRepository @Inject constructor(
      */
     fun observeIsResonating(currentUserId: String, targetUserId: String): Flow<Boolean> {
         if (currentUserId.isBlank() || targetUserId.isBlank()) {
-            return flowOf(false)
+            return flowOf(value = false)
         }
 
         val modernRef = usersCollection.document(currentUserId.trim())
@@ -438,10 +439,10 @@ class UserRepository @Inject constructor(
             if (error != null) {
                 // HARDENING: Do not crash or hang on error (e.g. Permission Denied)
                 // Just assume document doesn't exist/isn't accessible
-                trySend(false)
+                trySend(element = false)
                 return@addSnapshotListener
             }
-            trySend(snapshot?.exists() ?: false)
+            trySend(element = snapshot?.exists() ?: false)
         }
         awaitClose { registration.remove() }
     }
@@ -490,9 +491,7 @@ class UserRepository @Inject constructor(
                 .orderBy("createdAt", Query.Direction.DESCENDING)
                 .limit(limit.toLong())
 
-            if (lastVisible != null) {
-                query = query.startAfter(lastVisible)
-            }
+            lastVisible?.let { query = query.startAfter(it) }
 
             val snapshot = query.get().await()
             if (snapshot.isEmpty) return@withContext Result.success(emptyList<User>() to null)

@@ -25,8 +25,4 @@ object ReflectionPromptProvider {
     fun getRandomPrompt(): ReflectionPrompt {
         return prompts.random()
     }
-
-    fun getAllPrompts(): List<ReflectionPrompt> {
-        return prompts
-    }
 }

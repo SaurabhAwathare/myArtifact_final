@@ -9,7 +9,7 @@ import javax.inject.Inject
 
 class ReactionUseCase @Inject constructor(
     private val reactionRepository: ReactionRepository,
-    private val artifactRepository: ArtifactRepository
+    private val artifactRepository: ArtifactRepository,
 ) {
     suspend fun toggleReaction(
         artifactId: String,
@@ -21,6 +21,7 @@ class ReactionUseCase @Inject constructor(
         }
     }
 
+    @Suppress("unused")
     suspend fun setVisibilityMode(
         artifactId: String,
         mode: ReactionVisibilityMode

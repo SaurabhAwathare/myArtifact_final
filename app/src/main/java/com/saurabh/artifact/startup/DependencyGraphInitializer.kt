@@ -6,6 +6,7 @@ import androidx.startup.Initializer
 /**
  * Empty initializer that acts as a boundary for core dependency availability.
  */
+@Suppress("unused")
 class DependencyGraphInitializer : Initializer<Unit> {
     override fun create(context: Context) {
         // No-op. Hilt will handle dependency injection, 

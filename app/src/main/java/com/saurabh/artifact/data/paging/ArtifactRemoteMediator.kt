@@ -52,21 +52,27 @@ class ArtifactRemoteMediator(
 
             val snapshot = query.limit(state.config.pageSize.toLong()).get().await()
             val artifacts = snapshot.documents.mapNotNull { doc ->
-                val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
-                if (artifact == null) return@mapNotNull null
+                val artifact =
+                    doc.toObject(Artifact::class.java)?.copy(id = doc.id) ?: return@mapNotNull null
 
-                // Moderation Filter: Hide if HIDDEN or if reports are high or if current user reported it
+                // Moderation Filter: Hide if HIDDEN or if reports/safety concerns are high or if current user reported it
                 val reportCount = doc.getLong("reportCount") ?: 0L
+                val safetyConcernCount = doc.getLong("safetyConcernCount") ?: 0L
                 val reporterIds = doc.get("reporterIds") as? List<*> ?: emptyList<String>()
                 val modStatus = artifact.moderation.status
                 
                 val isModerated = modStatus == com.saurabh.artifact.model.ModerationStatus.HIDDEN || 
                                  reportCount >= 3L || 
+                                 safetyConcernCount >= 3L ||
                                  reporterIds.contains(currentUserId)
 
                 // Filter out artifacts without audio URLs or that aren't active or are moderated
                 if (artifact.audioUrl.isNotEmpty() && !isModerated) {
-                    mapToEntity(artifact.copy(reportCount = reportCount, reporterIds = reporterIds.map { it.toString() }))
+                    mapToEntity(artifact.copy(
+                        reportCount = reportCount, 
+                        safetyConcernCount = safetyConcernCount,
+                        reporterIds = reporterIds.map { it.toString() }
+                    ))
                 } else {
                     null
                 }
@@ -112,6 +118,7 @@ class ArtifactRemoteMediator(
             reactionCount = artifact.reactionCount,
             commentCount = artifact.commentCount,
             reportCount = artifact.reportCount,
+            safetyConcernCount = artifact.safetyConcernCount,
             reporterIds = artifact.reporterIds,
             amplitudeData = artifact.amplitudeData,
             transcriptUrl = artifact.transcriptUrl,

@@ -22,6 +22,8 @@ import androidx.compose.ui.unit.sp
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.theme.GoldAura500
 import com.saurabh.artifact.ui.theme.Obsidian950
+import kotlin.math.PI
+import kotlin.math.sin
 import kotlinx.coroutines.delay
 
 @Composable
@@ -87,7 +89,7 @@ fun AnimatedWaveform() {
     val infiniteTransition = rememberInfiniteTransition(label = "waveform")
     val phase by infiniteTransition.animateFloat(
         initialValue = 0f,
-        targetValue = 2f * Math.PI.toFloat(),
+        targetValue = 2f * PI.toFloat(),
         animationSpec = infiniteRepeatable(
             animation = tween(2000, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
@@ -103,7 +105,7 @@ fun AnimatedWaveform() {
         for (i in 0..width.toInt() step 10) {
             val x = i.toFloat()
             val normalizedX = x / width
-            val sine = Math.sin((normalizedX * 2 * Math.PI + phase).toDouble()).toFloat()
+            val sine = sin(normalizedX * 2 * PI + phase).toFloat()
             val lineHeight = (sine * height / 2) + (height / 4)
             
             drawLine(

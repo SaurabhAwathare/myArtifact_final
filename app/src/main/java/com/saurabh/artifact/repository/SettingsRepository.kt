@@ -159,9 +159,4 @@ class SettingsRepository @Inject constructor(
             Result.failure(e)
         }
     }
-
-    fun exportUserData(): Result<String> {
-        // Implementation for data export trigger (e.g., generate a signed URL or prepare a file)
-        return Result.success("Export initiated. You will receive an email shortly.")
-    }
 }

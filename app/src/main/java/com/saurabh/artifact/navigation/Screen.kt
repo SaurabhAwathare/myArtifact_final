@@ -4,7 +4,6 @@ import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
 sealed class Screen(val route: String) {
-    object Splash : Screen("splash")
     object Onboarding : Screen("onboarding")
     object Login : Screen("login")
     object Home : Screen("home")
@@ -77,12 +76,7 @@ sealed class Screen(val route: String) {
         }
     }
 
-    object PublishApproval : Screen("publish_approval/{draftId}") {
-        fun createRoute(draftId: String): String {
-            val encodedId = URLEncoder.encode(draftId, StandardCharsets.UTF_8.toString())
-            return "publish_approval/$encodedId"
-        }
-    }
+    object PublishApproval : Screen("publish_approval/{draftId}")
 
     object PublishPreparation : Screen("publish_preparation/{draftId}") {
         fun createRoute(draftId: String): String {

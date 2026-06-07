@@ -1,7 +1,6 @@
 package com.saurabh.artifact.model
 
 import com.google.firebase.Timestamp
-import kotlinx.serialization.Serializable
 import com.saurabh.artifact.ui.util.UiText
 
 /**
@@ -21,7 +20,6 @@ data class FeedArtifact(
 enum class FeedRecommendationReason(val label: String) {
     RESONATING_PRESENCE("From a presence you resonate with"),
     EMOTIONAL_RESONANCE("Resonates with your mood"),
-    SIMILAR_TOPIC("A topic you've explored"),
     CONTINUE_LISTENING("Pick up where you left off"),
     DISCOVERY("A voice you might connect with")
 }
@@ -50,15 +48,6 @@ data class EmotionalCompatibilityProfile(
 )
 
 /**
- * Represents a resonance relationship (Private by design).
- */
-data class ResonanceRelation(
-    val resonatingId: String,
-    val resonatedId: String,
-    val createdAt: Timestamp = Timestamp.now()
-)
-
-/**
  * State of the feed composition.
  */
 sealed class FeedCompositionState {
@@ -66,13 +55,3 @@ sealed class FeedCompositionState {
     data class Success(val items: List<FeedArtifact>) : FeedCompositionState()
     data class Error(val message: UiText) : FeedCompositionState()
 }
-
-/**
- * Signals used for ranking.
- */
-data class FeedRankingSignals(
-    val relationshipStrength: Float = 0f,
-    val emotionalAlignment: Float = 0f,
-    val recencyBonus: Float = 0f,
-    val completionProbability: Float = 0f
-)

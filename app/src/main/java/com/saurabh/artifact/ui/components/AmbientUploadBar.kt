@@ -41,7 +41,6 @@ fun AmbientUploadBar(
         if (state == null) return@AnimatedVisibility
 
         val isError = state is PublishState.Error
-        val isCompleted = state is PublishState.Published
 
         Surface(
             modifier = Modifier

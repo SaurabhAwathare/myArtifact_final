@@ -33,7 +33,7 @@ class PublishViewModel @Inject constructor(
                         title = it.title.ifBlank { draft.title ?: "" },
                         emotion = it.emotion ?: try { 
                             draft.emotion?.let { Emotion.valueOf(it) } 
-                        } catch (e: Exception) { null }
+                        } catch (_: Exception) { null }
                     ) }
                 }
             }

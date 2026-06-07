@@ -30,10 +30,6 @@ data class Artifact(
     var isPublic: Boolean = true,
     var visibility: Visibility = Visibility.PUBLIC,
     var status: ArtifactStatus = ArtifactStatus.DRAFT,
-    @Deprecated("Use status == ArtifactStatus.DRAFT or ArtifactStatus.PENDING_UPLOAD instead")
-    @get:PropertyName("isDraft")
-    @set:PropertyName("isDraft")
-    var isDraft: Boolean = false,
     var durationMs: Long = 0,
     var checksum: String = "", // Added for tamper resistance and deduplication
     var title: String = "",
@@ -63,8 +59,14 @@ data class Artifact(
     // Missing fields causing warnings
     var authorAnonymousName: String = "",
     var authorId: String = "",
-    var username: String = ""
+    var username: String = "",
 ) {
+    /**
+     * Helper to check if the artifact is in a draft state.
+     */
+    val isDraft: Boolean
+        get() = (status == ArtifactStatus.DRAFT) || (status == ArtifactStatus.PENDING_UPLOAD)
+
     @get:Exclude
     val authorAvatarConfig: AvatarConfig
         get() = author.avatarConfig
@@ -79,7 +81,7 @@ data class Artifact(
             transcript = emptyList(),
             amplitudeData = if (amplitudeData.size > 64) amplitudeData.take(64) else amplitudeData,
             flaggedSegments = emptyList(),
-            reporterIds = emptyList()
+            reporterIds = emptyList(),
         )
     }
 }
@@ -115,11 +117,12 @@ data class TranscriptSegment(
     var startMs: Long = 0,
     var endMs: Long = 0,
     var confidence: Float = 0f,
-    var words: List<WordToken> = emptyList()
+    var words: List<WordToken> = emptyList(),
 ) {
     /**
      * Removes per-word timing to save memory when only the segment text is needed.
      */
+    @Suppress("unused")
     fun slim(): TranscriptSegment = this.copy(words = emptyList())
 }
 
@@ -128,7 +131,7 @@ data class TranscriptSegment(
 data class WordToken(
     var word: String = "",
     var startMs: Long = 0,
-    var endMs: Long = 0
+    var endMs: Long = 0,
 )
 
 @Immutable
@@ -141,12 +144,12 @@ data class FlaggedSegment(
     var originalText: String = "",
     var confidence: Float = 0f,
     var isRedacted: Boolean = true,
-    var userDecision: String = "PENDING" // "REDACT", "KEEP", "PENDING"
+    var userDecision: String = "PENDING", // "REDACT", "KEEP", "PENDING"
 )
 
 @Serializable
 enum class PiiType {
-    NAME, LOCATION, PHONE, EMAIL, ID_NUMBER, OTHER
+    NAME, LOCATION, PHONE, EMAIL, @Suppress("unused") ID_NUMBER, OTHER
 }
 
 /**
@@ -157,22 +160,22 @@ data class ArtifactDetail(
     val id: String = "",
     val amplitudeData: List<Float> = emptyList(),
     val comments: List<ArtifactComment> = emptyList(),
-    val reactionCounts: ArtifactReactionCounts? = null
+    val reactionCounts: ArtifactReactionCounts? = null,
 )
 
 data class Reply(
     val id: String = "",
     val artifactId: String = "",
     val message: String = "",
-    val createdAt: Timestamp = Timestamp.now()
+    val createdAt: Timestamp = Timestamp.now(),
 )
 
 enum class NotificationType {
     RESONANCE,    // General reaction
     REFLECTION,   // Comment/Reply
-    SUPPORT,      // Strength/Space
-    PRESENCE,     // Witnessed/Viewed (future)
-    SYSTEM        // Upload/Admin
+    @Suppress("unused") SUPPORT,      // Strength/Space
+    @Suppress("unused") PRESENCE,     // Witnessed/Viewed (future)
+    @Suppress("unused") SYSTEM        // Upload/Admin
 }
 
 data class NotificationItem(
@@ -182,5 +185,5 @@ data class NotificationItem(
     val artifactId: String = "",
     val type: NotificationType = NotificationType.RESONANCE,
     val createdAt: Timestamp = Timestamp.now(),
-    val isRead: Boolean = false
+    val isRead: Boolean = false,
 )

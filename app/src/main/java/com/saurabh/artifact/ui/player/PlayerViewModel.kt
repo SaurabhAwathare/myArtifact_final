@@ -33,9 +33,9 @@ class PlayerViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val reactionUseCase: ReactionUseCase,
     private val playerInteractionUseCase: PlayerInteractionUseCase,
-    private val getPlayerContextUseCase: GetPlayerContextUseCase,
+    getPlayerContextUseCase: GetPlayerContextUseCase,
     private val artifactRepository: ArtifactRepository,
-    private val reviewSessionManager: ReviewSessionManager,
+    reviewSessionManager: ReviewSessionManager,
     private val deleteArtifactUseCase: DeleteArtifactUseCase
 ) : ViewModel() {
 

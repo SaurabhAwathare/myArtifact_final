@@ -2,7 +2,6 @@ package com.saurabh.artifact.repository
 
 import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.CredentialManager
-import com.google.firebase.auth.AuthCredential
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
@@ -105,15 +104,6 @@ class AuthRepository @Inject constructor(
     suspend fun signInWithGoogle(idToken: String): Result<FirebaseUser?> {
         return try {
             val credential = GoogleAuthProvider.getCredential(idToken, null)
-            val result = firebaseAuth.signInWithCredential(credential).await()
-            Result.success(result.user)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
-    suspend fun signInWithCredential(credential: AuthCredential): Result<FirebaseUser?> {
-        return try {
             val result = firebaseAuth.signInWithCredential(credential).await()
             Result.success(result.user)
         } catch (e: Exception) {

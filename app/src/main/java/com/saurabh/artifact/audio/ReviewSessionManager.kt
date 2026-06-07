@@ -61,7 +61,7 @@ class ReviewSessionManager @Inject constructor(
                 audioUrl = "file://${draft.localAudioPath}",
                 title = draft.title ?: "Your Draft",
                 durationMs = draft.durationMs,
-                isDraft = true
+                status = ArtifactStatus.DRAFT
             )
 
             playbackSessionManager.play(

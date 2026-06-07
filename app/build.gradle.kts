@@ -164,7 +164,7 @@ dependencies {
     ksp(libs.androidx.hilt.work.compiler)
 
     // Security
-    implementation(libs.androidx.security.crypto)
+    implementation(libs.tink.android)
     implementation(libs.bip39)
     implementation(libs.sqlcipher)
 

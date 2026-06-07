@@ -4,7 +4,6 @@ import android.util.Log
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.Query
 import com.saurabh.artifact.model.*
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
@@ -12,12 +11,9 @@ import androidx.paging.PagingData
 import com.saurabh.artifact.data.paging.CommentPagingSource
 import com.saurabh.artifact.service.ModerationService
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
-import java.io.File
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -105,47 +101,6 @@ class CommentRepository @Inject constructor(
     }
 
     /**
-     * Listens to comments for a specific artifact.
-     * Logic is filtered here, but MUST be backed by Firestore Security Rules.
-     */
-    fun getComments(artifactId: String, currentUserId: String, artifactOwnerId: String): Flow<List<ArtifactComment>> = callbackFlow {
-        val query = firestore.collection("comments")
-            .whereEqualTo("artifactId", artifactId)
-            .orderBy("createdAt", Query.Direction.DESCENDING)
-
-        val subscription = query.addSnapshotListener { snapshot, error ->
-            if (error != null) {
-                trySend(emptyList())
-                return@addSnapshotListener
-            }
-
-            val allComments = snapshot?.documents?.mapNotNull { doc ->
-                doc.toObject(ArtifactComment::class.java)?.copy(id = doc.id)
-            } ?: emptyList()
-
-            // Client-side filtering as a secondary safety layer
-            val now = Timestamp.now()
-            val filtered = allComments.filter { comment ->
-                val isAuthor = comment.authorId == currentUserId
-                val isOwner = artifactOwnerId == currentUserId
-                
-                when (comment.visibilityLayer) {
-                    VisibilityLayer.SANCTUARY -> isAuthor
-                    VisibilityLayer.BRIDGE -> isAuthor || isOwner
-                    VisibilityLayer.RESONANCE -> {
-                        // Resonances are visible to all if revealed, otherwise only author/owner
-                        val isRevealed = comment.revealAt == null || comment.revealAt <= now
-                        isAuthor || isOwner || isRevealed
-                    }
-                }
-            }
-            
-            trySend(filtered)
-        }
-        awaitClose { subscription.remove() }
-    }
-
-    /**
      * Returns a Pager for comments of a specific artifact.
      */
     fun getCommentsPager(
@@ -169,7 +124,7 @@ class CommentRepository @Inject constructor(
         try {
             val doc = firestore.collection("comments").document(commentId).get().await()
             doc.toObject(ArtifactComment::class.java)?.copy(id = doc.id)
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             null
         }
     }
@@ -215,7 +170,7 @@ class CommentRepository @Inject constructor(
                 .collection("insights").document("summary")
                 .get().await()
             doc.toObject(EmotionalResponseSummary::class.java)
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             null
         }
     }

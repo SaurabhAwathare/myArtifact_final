@@ -14,15 +14,15 @@ import kotlinx.serialization.UseSerializers
  * Designed for resonance, shared understanding, and quiet support.
  */
 @Serializable
-enum class ReactionType(val id: String, val label: String, val atmosphericLabel: String, val emoji: String, val semanticValue: Float) {
-    I_HEAR_YOU("i_hear_you", "I hear you", "Someone stayed with you quietly", "🫂", 1.0f),
-    SENDING_STRENGTH("sending_strength", "Sending strength", "Strength was sent your way", "💫", 1.2f),
-    RELATABLE("relatable", "Relatable", "Your words found a home in someone", "🐚", 0.9f),
-    STAY_STRONG("stay_strong", "Stay strong", "Someone is holding a candle for you", "🕯️", 1.1f),
-    HOLDING_SPACE("holding_space", "Holding space", "Someone is holding space for you", "🕯️", 1.0f),
-    THANK_YOU("thank_you", "Thank you", "A quiet thank-you was left behind", "🙏", 0.8f),
-    FELT_DEEPLY("felt_deeply", "Felt deeply", "This rippled deeply through a heart", "🌊", 1.3f),
-    RESPECTFUL_DISAGREEMENT("respectfully_disagree", "Respectfully disagree", "Someone sees this differently, gently", "🧘", 0.5f);
+enum class ReactionType(val id: String, val label: String, val atmosphericLabel: String, val emoji: String) {
+    I_HEAR_YOU("i_hear_you", "I hear you", "Someone stayed with you quietly", "🫂"),
+    SENDING_STRENGTH("sending_strength", "Sending strength", "Strength was sent your way", "💫"),
+    RELATABLE("relatable", "Relatable", "Your words found a home in someone", "🐚"),
+    STAY_STRONG("stay_strong", "Stay strong", "Someone is holding a candle for you", "🕯️"),
+    HOLDING_SPACE("holding_space", "Holding space", "Someone is holding space for you", "🕯️"),
+    THANK_YOU("thank_you", "Thank you", "A quiet thank-you was left behind", "🙏"),
+    FELT_DEEPLY("felt_deeply", "Felt deeply", "This rippled deeply through a heart", "🌊"),
+    RESPECTFUL_DISAGREEMENT("respectfully_disagree", "Respectfully disagree", "Someone sees this differently, gently", "🧘");
 
     companion object {
         fun fromId(id: String): ReactionType {

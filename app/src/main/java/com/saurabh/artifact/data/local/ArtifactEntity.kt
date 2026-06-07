@@ -24,6 +24,7 @@ data class ArtifactEntity(
     val reactionCount: Long,
     val commentCount: Long,
     val reportCount: Long = 0,
+    val safetyConcernCount: Long = 0,
     val reporterIds: List<String> = emptyList(),
     val amplitudeData: List<Float>,
     val transcriptUrl: String? = null,

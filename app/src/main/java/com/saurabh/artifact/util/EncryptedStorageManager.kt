@@ -1,8 +1,7 @@
 package com.saurabh.artifact.util
 
 import android.content.Context
-import androidx.security.crypto.EncryptedFile
-import androidx.security.crypto.MasterKeys
+import com.saurabh.artifact.security.SecurityArchitecture
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.io.InputStream
@@ -14,26 +13,12 @@ import javax.inject.Singleton
 class EncryptedStorageManager @Inject constructor(
     @param:ApplicationContext private val context: Context
 ) {
-    private val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
-
     fun getEncryptedOutputStream(file: File): OutputStream {
-        val encryptedFile = EncryptedFile.Builder(
-            file,
-            context,
-            masterKeyAlias,
-            EncryptedFile.FileEncryptionScheme.AES256_GCM_HKDF_4KB
-        ).build()
-        return encryptedFile.openFileOutput()
+        return SecurityArchitecture.openEncryptingStream(context, file)
     }
 
     fun getEncryptedInputStream(file: File): InputStream {
-        val encryptedFile = EncryptedFile.Builder(
-            file,
-            context,
-            masterKeyAlias,
-            EncryptedFile.FileEncryptionScheme.AES256_GCM_HKDF_4KB
-        ).build()
-        return encryptedFile.openFileInput()
+        return SecurityArchitecture.openDecryptingStream(context, file)
     }
 
     fun deleteSecurely(file: File) {
@@ -52,7 +37,7 @@ class EncryptedStorageManager @Inject constructor(
             }
             out.flush()
             out.close()
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             // Fallback to normal delete if zero-fill fails
         }
         file.delete()

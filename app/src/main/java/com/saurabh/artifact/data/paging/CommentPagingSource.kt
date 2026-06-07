@@ -42,8 +42,7 @@ class CommentPagingSource(
             val now = Timestamp.now()
             
             val comments = snapshot.documents.mapNotNull { doc ->
-                val comment = doc.toObject(ArtifactComment::class.java)?.copy(id = doc.id)
-                if (comment == null) return@mapNotNull null
+                val comment = doc.toObject(ArtifactComment::class.java)?.copy(id = doc.id) ?: return@mapNotNull null
                 
                 // Existing filtering logic from CommentRepository
                 val isAuthor = comment.authorId == currentUserId

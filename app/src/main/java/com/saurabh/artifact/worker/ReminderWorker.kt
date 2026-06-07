@@ -9,6 +9,7 @@ import com.saurabh.artifact.util.NotificationHelper
 import androidx.hilt.work.HiltWorker
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import kotlin.random.Random
 
 /**
  * A periodic worker that sends gentle, daily reflection reminders.
@@ -49,6 +50,6 @@ class ReminderWorker @AssistedInject constructor(
      */
     private fun getSafetyLevel(): String {
         // Simulate rare high-risk detection for testing override
-        return if (Math.random() < 0.1) "HIGH" else "LOW"
+        return if (Random.nextFloat() < 0.1f) "HIGH" else "LOW"
     }
 }

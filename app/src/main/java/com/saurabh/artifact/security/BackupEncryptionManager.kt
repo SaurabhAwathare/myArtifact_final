@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
-import cash.z.ecc.android.bip39.Mnemonics
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -24,17 +23,6 @@ class BackupEncryptionManager @Inject constructor(
 ) {
     private val mnemonicKey = stringPreferencesKey("recovery_mnemonic")
     private val backupSaltKey = stringPreferencesKey("backup_salt")
-
-    /**
-     * Generates a new BIP39 mnemonic and stores it locally.
-     * This is only called once during onboarding or when backup is enabled.
-     */
-    suspend fun generateRecoveryPhrase(): String {
-        val words = Mnemonics.MnemonicCode(Mnemonics.WordCount.COUNT_12).words
-        val phrase = words.joinToString(" ") { it.concatToString() }
-        context.backupPrefs.edit { it[mnemonicKey] = phrase }
-        return phrase
-    }
 
     /**
      * Retrieves the stored recovery phrase.
@@ -76,18 +64,5 @@ class BackupEncryptionManager @Inject constructor(
         
         val ciphertext = cipher.doFinal(data)
         return iv + ciphertext // Prepend IV for storage
-    }
-
-    /**
-     * Decrypts data from cloud backup.
-     */
-    suspend fun decryptFromBackup(encryptedData: ByteArray): ByteArray {
-        val key = getBackupKey()
-        val iv = encryptedData.sliceArray(0 until 12)
-        val ciphertext = encryptedData.sliceArray(12 until encryptedData.size)
-        
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, iv))
-        return cipher.doFinal(ciphertext)
     }
 }

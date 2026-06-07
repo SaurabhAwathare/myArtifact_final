@@ -39,8 +39,7 @@ class EncryptedFileDataSource(
         transferInitializing(dataSpec)
         
         try {
-            val encryptedFile = SecurityArchitecture.getEncryptedFile(context, file)
-            inputStream = encryptedFile.openFileInput()
+            inputStream = SecurityArchitecture.openDecryptingStream(context, file)
             
             // Seeking logic: EncryptedFile's InputStream might not support mark/reset,
             // so we skip from the beginning.

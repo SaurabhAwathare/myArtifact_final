@@ -334,7 +334,7 @@ class ArtifactRepository @Inject constructor(
     ): Result<Unit> = withContext(Dispatchers.IO) {
         return@withContext try {
             val userId = auth.currentUser?.uid 
-                ?: return@withContext Result.failure(AppError.Unauthenticated)
+                ?: return@withContext Result.failure(AppError.Unauthenticated())
 
             // 1. Check for duplicate reports in a transaction (optional, but good for data integrity)
             // For now, we'll use arrayUnion which is idempotent in Firestore
@@ -399,30 +399,6 @@ class ArtifactRepository @Inject constructor(
         }
     }
 
-    suspend fun sendReply(artifactId: String, message: String): Result<Unit> {
-        return try {
-            val artifactDoc = firestore.collection("artifacts").document(artifactId).get().await()
-            val artifactOwnerId = artifactDoc.getString("userId") ?: throw Exception("Owner not found")
-
-            val replyRef = firestore.collection("artifacts").document(artifactId).collection("replies").document()
-            val reply = Reply(id = replyRef.id, artifactId = artifactId, message = message, createdAt = Timestamp.now())
-            
-            firestore.runBatch { batch ->
-                batch.set(replyRef, reply)
-            }.await()
-
-            notificationRepository.createNotification(
-                userId = artifactOwnerId,
-                message = "REPLY_RECEIVED", // UI layer will map this
-                artifactId = artifactId
-            )
-
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
     @OptIn(androidx.paging.ExperimentalPagingApi::class)
     fun getArtifactsPager(emotion: String?): Flow<PagingData<Artifact>> {
         val currentUserId = auth.currentUser?.uid ?: ""
@@ -438,7 +414,7 @@ class ArtifactRepository @Inject constructor(
             pagingSourceFactory = { artifactDao.getArtifactsPaged() }
         ).flow.map { pagingData ->
             pagingData.filter { entity ->
-                entity.reportCount < 3 && !entity.reporterIds.contains(currentUserId)
+                entity.reportCount < 3 && entity.safetyConcernCount < 3 && !entity.reporterIds.contains(currentUserId)
             }.map { entity -> mapArtifactEntityToArtifact(entity) }
         }
     }
@@ -470,6 +446,7 @@ class ArtifactRepository @Inject constructor(
             reactionCount = entity.reactionCount,
             commentCount = entity.commentCount,
             reportCount = entity.reportCount,
+            safetyConcernCount = entity.safetyConcernCount,
             reporterIds = entity.reporterIds,
             amplitudeData = entity.amplitudeData,
             transcriptUrl = entity.transcriptUrl
@@ -497,6 +474,7 @@ class ArtifactRepository @Inject constructor(
             reactionCount = artifact.reactionCount,
             commentCount = artifact.commentCount,
             reportCount = artifact.reportCount,
+            safetyConcernCount = artifact.safetyConcernCount,
             reporterIds = artifact.reporterIds,
             amplitudeData = artifact.amplitudeData,
             transcriptUrl = artifact.transcriptUrl,
@@ -780,12 +758,12 @@ class ArtifactRepository @Inject constructor(
                     
                     if (!isTransientError(e)) {
                         Log.e("ArtifactRepository", "Terminal upload failure: ${e.message}")
-                        Result.failure<String>(e)
+                        Result.failure(e)
                     } else {
                         currentRetry++
                         if (currentRetry > maxRetries) {
                             Log.e("ArtifactRepository", "Max retries exceeded for transient error", e)
-                            Result.failure<String>(e)
+                            Result.failure(e)
                         } else {
                             val delayTime = (2.0.pow(currentRetry.toDouble()).toLong() * 1000L)
                             Log.w("ArtifactRepository", "Upload attempt $currentRetry failed, retrying in $delayTime ms", e)
@@ -797,10 +775,10 @@ class ArtifactRepository @Inject constructor(
                 return@withContext loopResult
             }
             @Suppress("UNREACHABLE_CODE")
-            Result.failure<String>(IllegalStateException("Unreachable"))
+            Result.failure(IllegalStateException("Unreachable"))
         } catch (e: Exception) {
             Log.e("ArtifactRepository", "Resumable upload failed", e)
-            Result.failure<String>(e)
+            Result.failure(e)
         }
     }
 
@@ -885,7 +863,6 @@ class ArtifactRepository @Inject constructor(
                 isPublic = isPublic,
                 visibility = if (isPublic) Visibility.PUBLIC else Visibility.PRIVATE,
                 status = status,
-                isDraft = false,
                 durationMs = draft.durationMs,
                 title = draft.title ?: "Untitled Artifact",
                 description = draft.description ?: "",

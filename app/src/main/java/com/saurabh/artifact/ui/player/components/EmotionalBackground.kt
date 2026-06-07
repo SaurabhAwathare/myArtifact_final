@@ -10,6 +10,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import com.saurabh.artifact.ui.theme.*
+import kotlin.math.PI
+import kotlin.math.cos
 
 /**
  * EmotionalBackground - A dynamic, atmospheric background engine.
@@ -84,5 +86,5 @@ private fun getEmotionalTheme(emotion: String): EmotionalThemeColors {
 }
 
 private val SineEaseInOut = Easing { fraction ->
-    -(Math.cos(Math.PI * fraction).toFloat() - 1f) / 2f
+    -(cos(PI * fraction).toFloat() - 1f) / 2f
 }

@@ -28,7 +28,7 @@ class DraftListViewModel @Inject constructor(
     private val draftRepository: DraftRepository,
     private val publishingOrchestrator: PublishingOrchestrator,
     private val cleanupManager: ArtifactCleanupManager,
-    val audioPlayer: PlaybackCoordinator
+    audioPlayer: PlaybackCoordinator
 ) : ViewModel() {
 
     val drafts: StateFlow<List<DraftWithUpload>> = draftRepository.observeActiveDraftsWithUploads()

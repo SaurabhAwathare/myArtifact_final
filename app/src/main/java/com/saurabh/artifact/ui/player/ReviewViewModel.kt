@@ -15,7 +15,7 @@ import kotlin.time.Duration.Companion.seconds
 
 @HiltViewModel
 class ReviewViewModel @Inject constructor(
-    private val reviewSessionManager: ReviewSessionManager,
+    reviewSessionManager: ReviewSessionManager,
     private val playbackCoordinator: PlaybackCoordinator,
     private val draftDao: DraftDao
 ) : ViewModel() {

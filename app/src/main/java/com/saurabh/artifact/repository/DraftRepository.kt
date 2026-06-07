@@ -3,7 +3,6 @@ package com.saurabh.artifact.repository
 import androidx.room.withTransaction
 import com.saurabh.artifact.data.local.*
 import com.saurabh.artifact.model.*
-import com.saurabh.artifact.util.StorageManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -16,14 +15,11 @@ import javax.inject.Singleton
 class DraftRepository @Inject constructor(
     private val draftDao: DraftDao,
     private val uploadTaskDao: UploadTaskDao,
-    private val draftsDatabase: AppDatabase,
-    private val storageManager: StorageManager
+    private val draftsDatabase: AppDatabase
 ) {
     suspend fun getDraft(id: String): ArtifactDraftEntity? = withContext(Dispatchers.IO) {
         draftDao.getDraftById(id)
     }
-
-    fun observeDraft(id: String): Flow<ArtifactDraftEntity?> = draftDao.observeDraftById(id)
 
     fun observeDrafts(): Flow<List<ArtifactDraftEntity>> = draftDao.observeDrafts()
 
@@ -71,8 +67,6 @@ class DraftRepository @Inject constructor(
             processing
         }
     }
-
-    fun observeUploadTask(draftId: String): Flow<UploadTaskEntity?> = uploadTaskDao.observeTaskByDraftId(draftId)
 
     fun observeAllUploadTasks(): Flow<List<UploadTaskEntity>> = uploadTaskDao.observeAllTasks()
 
@@ -130,14 +124,6 @@ class DraftRepository @Inject constructor(
             val newStatus = transform(draft.status)
             draftDao.updateStatus(draftId, newStatus)
         }
-    }
-
-    suspend fun updateLifecycle(draftId: String, lifecycle: ArtifactLifecycle) = updateStatus(draftId) {
-        it.copy(lifecycle = lifecycle)
-    }
-
-    suspend fun updateProcessingStatus(draftId: String, processing: ProcessingStatus) = updateStatus(draftId) {
-        it.copy(processing = processing)
     }
 
     suspend fun updateUploadProgress(draftId: String, uploaded: Long, total: Long, sessionUri: String?) = withContext(Dispatchers.IO) {

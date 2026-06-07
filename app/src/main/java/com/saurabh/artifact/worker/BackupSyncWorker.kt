@@ -27,7 +27,7 @@ class BackupSyncWorker @AssistedInject constructor(
     private val authRepository: AuthRepository,
     private val backupEncryptionManager: BackupEncryptionManager,
     private val storage: FirebaseStorage,
-    private val connectivityObserver: ConnectivityObserver
+    private val connectivityObserver: ConnectivityObserver,
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
@@ -39,8 +39,8 @@ class BackupSyncWorker @AssistedInject constructor(
 
         // 1. Get drafts that are not published and not yet backed up
         val pendingDrafts = draftDao.getAllDrafts().filter { 
-            it.status.lifecycle != ArtifactLifecycle.PUBLISHED && 
-            it.status.backup !is SyncStatus.Synced 
+            (it.status.lifecycle != ArtifactLifecycle.PUBLISHED) && 
+            (it.status.backup !is SyncStatus.Synced)
         }
 
         if (pendingDrafts.isEmpty()) return Result.success()
@@ -49,9 +49,10 @@ class BackupSyncWorker @AssistedInject constructor(
         for (draft in pendingDrafts) {
             try {
                 // 2. Update status to Encrypting
-                draftDao.updateStatus(draft.id, draft.status.copy(
-                    processing = ProcessingStatus.Active(ProcessingStage.ENCRYPTING_BACKUP)
-                ))
+                draftDao.updateStatus(
+                    draft.id, 
+                    draft.status.copy(processing = ProcessingStatus.Active(ProcessingStage.ENCRYPTING_BACKUP)),
+                )
 
                 val audioFile = File(draft.localAudioPath)
                 if (!audioFile.exists()) continue
@@ -65,10 +66,13 @@ class BackupSyncWorker @AssistedInject constructor(
                 backupRef.putBytes(encryptedData).await()
 
                 // 5. Update DB status to Synced
-                draftDao.updateStatus(draft.id, draft.status.copy(
-                    processing = ProcessingStatus.Idle,
-                    backup = SyncStatus.Synced
-                ))
+                draftDao.updateStatus(
+                    draft.id, 
+                    draft.status.copy(
+                        processing = ProcessingStatus.Idle,
+                        backup = SyncStatus.Synced,
+                    ),
+                )
                 successCount++
             } catch (e: Exception) {
                 Log.e("BackupSyncWorker", "Failed to backup draft ${draft.id}", e)

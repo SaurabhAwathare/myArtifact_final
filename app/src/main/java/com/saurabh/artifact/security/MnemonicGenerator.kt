@@ -1,7 +1,5 @@
 package com.saurabh.artifact.security
 
-import cash.z.ecc.android.bip39.Mnemonics
-import java.security.SecureRandom
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.PBEKeySpec
 
@@ -9,27 +7,6 @@ import javax.crypto.spec.PBEKeySpec
  * Generates and validates BIP-39 mnemonic phrases for recovery.
  */
 object MnemonicGenerator {
-
-    /**
-     * Generates a new 12-word mnemonic phrase.
-     */
-    fun generateMnemonic(): List<String> {
-        val entropy = ByteArray(16) // 128 bits for 12 words
-        SecureRandom().nextBytes(entropy)
-        return Mnemonics.MnemonicCode(entropy).words.map { String(it) }
-    }
-
-    /**
-     * Validates a mnemonic phrase.
-     */
-    fun validateMnemonic(words: List<String>): Boolean {
-        return try {
-            Mnemonics.MnemonicCode(words.joinToString(" ")).validate()
-            true
-        } catch (e: Exception) {
-            false
-        }
-    }
 
     /**
      * Converts a mnemonic phrase to a deterministic seed for key derivation.

@@ -17,6 +17,9 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.util.WaveformProcessor
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.random.Random
 
 /**
  * AmbientWaveform - A premium, atmospheric audio visualization.
@@ -202,14 +205,14 @@ enum class WaveformContext(
 }
 
 private val SineEaseInOut = Easing { fraction ->
-    -(Math.cos(Math.PI * fraction).toFloat() - 1f) / 2f
+    -(cos(PI * fraction).toFloat() - 1f) / 2f
 }
 
 @Preview(showBackground = true, backgroundColor = 0xFF0A0A0A)
 @Composable
 fun PreviewAmbientWaveform() {
     ArtifactTheme {
-        val mockAmplitudes = List(100) { (Math.random().toFloat() * 0.8f) + 0.1f }
+        val mockAmplitudes = List(100) { (Random.nextFloat() * 0.8f) + 0.1f }
         AmbientWaveform(
             amplitudes = mockAmplitudes,
             progress = 0.4f,
