@@ -1,5 +1,10 @@
 package com.saurabh.artifact.ui.player
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -19,6 +24,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.ui.components.AmbientWaveform
 import com.saurabh.artifact.ui.components.WaveformContext
+import com.saurabh.artifact.ui.player.components.TranscriptSyncView
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.theme.Spacing
 import androidx.compose.ui.tooling.preview.Preview
@@ -40,6 +46,9 @@ fun ReviewPlayerScreen(
     val reviewState by viewModel.reviewState.collectAsStateWithLifecycle()
     val playbackState by viewModel.playbackState.collectAsStateWithLifecycle()
     val draft by viewModel.draft.collectAsStateWithLifecycle()
+    val transcriptSegments by viewModel.transcriptSegments.collectAsStateWithLifecycle()
+
+    var showTranscript by remember { mutableStateOf(false) }
 
     LaunchedEffect(draftId) {
         viewModel.startReview(draftId)
@@ -60,11 +69,15 @@ fun ReviewPlayerScreen(
             draft = draft,
             reviewState = reviewState,
             playbackState = playbackState,
+            transcriptSegments = transcriptSegments,
+            showTranscript = showTranscript,
+            onToggleTranscript = { showTranscript = !showTranscript },
             onClose = onClose,
             onTogglePlayback = { viewModel.togglePlayback() },
             onRewind = { viewModel.rewind() },
             onForward = { viewModel.forward() },
-            onSetPlaybackSpeed = { viewModel.setPlaybackSpeed(it) }
+            onSetPlaybackSpeed = { viewModel.setPlaybackSpeed(it) },
+            onSeekToPosition = { viewModel.seekToPosition(it) }
         )
     }
 }
@@ -133,7 +146,11 @@ fun ReviewPlayerScreenPreview() {
             onTogglePlayback = {},
             onRewind = {},
             onForward = {},
-            onSetPlaybackSpeed = {}
+            onSetPlaybackSpeed = {},
+            transcriptSegments = emptyList(),
+            showTranscript = false,
+            onToggleTranscript = {},
+            onSeekToPosition = {}
         )
     }
 }
@@ -143,11 +160,15 @@ private fun ReviewPlayerContent(
     draft: ArtifactDraftEntity?,
     reviewState: com.saurabh.artifact.audio.ReviewState,
     playbackState: PlaybackUiState,
+    transcriptSegments: List<com.saurabh.artifact.model.TranscriptSegment>,
+    showTranscript: Boolean,
+    onToggleTranscript: () -> Unit,
     onClose: () -> Unit,
     onTogglePlayback: () -> Unit,
     onRewind: () -> Unit,
     onForward: () -> Unit,
     onSetPlaybackSpeed: (Float) -> Unit,
+    onSeekToPosition: (Long) -> Unit,
 ) {
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -186,26 +207,55 @@ private fun ReviewPlayerContent(
                         color = ArtifactTheme.colors.onSurfaceMuted
                     )
 
-                    // Empty placeholder for symmetry
-                    Box(Modifier.size(48.dp))
+                    IconButton(onClick = onToggleTranscript) {
+                        Icon(
+                            imageVector = if (showTranscript) Icons.Rounded.GraphicEq else Icons.Rounded.Description,
+                            contentDescription = if (showTranscript) "Show Visualization" else "Show Transcript",
+                            tint = if (showTranscript) ArtifactTheme.colors.waveformActive else ArtifactTheme.colors.onSurfaceMuted
+                        )
+                    }
                 }
 
-                Spacer(modifier = Modifier.weight(1f))
+                Spacer(modifier = Modifier.weight(0.1f))
 
-                // Central Reflection Space
+                // Central Content Space (Visualization or Transcript)
                 Box(
                     modifier = Modifier
-                        .size(240.dp)
-                        .clip(CircleShape)
-                        .background(ArtifactTheme.colors.surfaceHearth.copy(alpha = 0.5f)),
+                        .weight(1f)
+                        .fillMaxWidth(),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        Icons.Rounded.GraphicEq,
-                        contentDescription = null,
-                        modifier = Modifier.size(120.dp),
-                        tint = ArtifactTheme.colors.waveformActive.copy(alpha = 0.1f)
-                    )
+                    AnimatedContent(
+                        targetState = showTranscript,
+                        transitionSpec = {
+                            fadeIn(animationSpec = tween(500)) togetherWith fadeOut(animationSpec = tween(500))
+                        },
+                        label = "ContentTransition"
+                    ) { isShowingTranscript ->
+                        if (isShowingTranscript) {
+                            TranscriptSyncView(
+                                segments = transcriptSegments,
+                                currentPosition = playbackState.currentPositionMs,
+                                onSegmentClick = onSeekToPosition,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .size(240.dp)
+                                    .clip(CircleShape)
+                                    .background(ArtifactTheme.colors.surfaceHearth.copy(alpha = 0.5f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Rounded.GraphicEq,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(120.dp),
+                                    tint = ArtifactTheme.colors.waveformActive.copy(alpha = 0.1f)
+                                )
+                            }
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(Spacing.ExtraLarge))

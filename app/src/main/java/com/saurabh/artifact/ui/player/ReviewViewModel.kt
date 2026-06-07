@@ -6,6 +6,7 @@ import com.saurabh.artifact.audio.PlaybackCoordinator
 import com.saurabh.artifact.audio.ReviewSessionManager
 import com.saurabh.artifact.data.local.DraftDao
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -13,6 +14,7 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class ReviewViewModel @Inject constructor(
     reviewSessionManager: ReviewSessionManager,
@@ -37,6 +39,16 @@ class ReviewViewModel @Inject constructor(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    val transcriptSegments = draft.map { draftEntity ->
+        draftEntity?.transcriptSegmentsJson?.let { json ->
+            try {
+                kotlinx.serialization.json.Json.decodeFromString<List<com.saurabh.artifact.model.TranscriptSegment>>(json)
+            } catch (_: Exception) {
+                emptyList()
+            }
+        } ?: emptyList()
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     fun startReview(draftId: String) {
         playbackCoordinator.playDraftPreview(draftId)
     }
@@ -49,9 +61,8 @@ class ReviewViewModel @Inject constructor(
         playbackCoordinator.setPlaybackSpeed(speed)
     }
 
-    fun seekTo(progress: Float) {
-        val duration = reviewState.value.durationMs
-        playbackCoordinator.seekTo((progress * duration).toLong().milliseconds)
+    fun seekToPosition(positionMs: Long) {
+        playbackCoordinator.seekTo(positionMs.milliseconds)
     }
 
     fun rewind() {

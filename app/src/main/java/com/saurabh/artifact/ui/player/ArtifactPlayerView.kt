@@ -1,29 +1,27 @@
 package com.saurabh.artifact.ui.player
 
-import androidx.compose.animation.*
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.saurabh.artifact.ui.player.components.*
-import com.saurabh.artifact.ui.theme.EmberGlow
 import com.saurabh.artifact.ui.components.motion.MotionTokens
-import com.saurabh.artifact.ui.components.ArtifactAvatar
+import com.saurabh.artifact.ui.player.components.AdvancedControlsSheet
 import com.saurabh.artifact.ui.theme.ZIndexTokens
 
 @Composable
@@ -35,6 +33,17 @@ fun ArtifactPlayerView(
     viewModel: PlayerViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // Observe interaction errors from the ViewModel
+    LaunchedEffect(Unit) {
+        viewModel.interactionError.collect { errorMessage ->
+            snackbarHostState.showSnackbar(
+                message = errorMessage,
+                duration = SnackbarDuration.Short
+            )
+        }
+    }
     
     // Safety check: if nothing is playing and we're hidden, render nothing.
     if ((uiState.currentArtifact == null) && (uiState.playerMode == PlayerMode.HIDDEN)) return
@@ -105,5 +114,14 @@ fun ArtifactPlayerView(
                 )
             }
         }
+
+        // 3. Error Notifications
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 120.dp)
+                .zIndex(ZIndexTokens.FULL_SCREEN_OVERLAYS + 1f)
+        )
     }
 }

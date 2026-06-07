@@ -32,6 +32,7 @@ import androidx.paging.compose.itemKey
 import kotlinx.coroutines.delay
 import androidx.compose.ui.zIndex
 import com.saurabh.artifact.ui.components.ArtifactCard
+import com.saurabh.artifact.ui.components.ArtifactFeedCard
 import com.saurabh.artifact.ui.components.EmberLogo
 import com.saurabh.artifact.ui.components.CrisisSupportCard
 import com.saurabh.artifact.ui.components.EmotionList
@@ -333,7 +334,8 @@ private fun FeedContent(
                                 artifactId = item.artifact.id,
                                 viewModel = viewModel,
                                 onReportClick = onReportClick,
-                                onNavigateToComments = onNavigateToComments
+                                onNavigateToComments = onNavigateToComments,
+                                feedArtifact = item
                             )
                         }
                         item(key = "divider_unf") {
@@ -431,11 +433,16 @@ fun ArtifactItem(
     artifactId: String,
     viewModel: FeedViewModel,
     onReportClick: (String) -> Unit,
-    onNavigateToComments: (String, String) -> Unit
+    onNavigateToComments: (String, String) -> Unit,
+    feedArtifact: FeedArtifact? = null
 ) {
     // Isolated State Collection: This item ONLY recomposes when its specific artifact data or status changes
     val artifact by remember(viewModel, artifactId) {
         viewModel.getArtifactFlow(artifactId)
+    }.collectAsStateWithLifecycle(initialValue = null)
+
+    val reason by remember(viewModel, artifactId) {
+        viewModel.getRecommendationReason(artifactId)
     }.collectAsStateWithLifecycle(initialValue = null)
 
     val playingArtifact by viewModel.currentlyPlayingArtifact.collectAsStateWithLifecycle()
@@ -446,25 +453,52 @@ fun ArtifactItem(
     val isPlaying = isPlayingGlobal && isCurrent
     val isCurrentBuffering = isBuffering && isCurrent
     
-    artifact?.let { 
+    val effectiveArtifact = artifact ?: feedArtifact?.artifact
+    
+    effectiveArtifact?.let { art ->
         LaunchedEffect(Unit) {
             StartupMetrics.onFirstArtifactRendered()
         }
-        ArtifactCard(
-            artifact = it,
-            isPlaying = isPlaying,
-            isBuffering = isCurrentBuffering,
-            onPlayClick = { 
-                viewModel.playAudio(it) 
-                viewModel.onArtifactFocused(artifactId)
-            },
-            onReportClick = { onReportClick(artifactId) },
-            onDeleteClick = { viewModel.deleteArtifact(artifactId) },
-            onFeedbackClick = { viewModel.submitFeedback(artifactId, FeedbackType.NOT_FOR_ME) },
-            onSettingsClick = { viewModel.showSettingsComingSoon() },
-            onCommentClick = { onNavigateToComments(artifactId, it.userId) },
-            currentUserId = viewModel.currentUserId
+
+        val displayFeedArtifact = feedArtifact ?: FeedArtifact(
+            artifact = art,
+            reason = reason ?: com.saurabh.artifact.model.FeedRecommendationReason.DISCOVERY
         )
+
+        // Use ArtifactFeedCard if we have a specific reason (not default discovery) or it's an unfinished item
+        if (reason != null || feedArtifact != null) {
+            ArtifactFeedCard(
+                feedArtifact = displayFeedArtifact,
+                isPlaying = isPlaying,
+                isBuffering = isCurrentBuffering,
+                onPlayClick = { 
+                    viewModel.playAudio(art) 
+                    viewModel.onArtifactFocused(artifactId)
+                },
+                onReportClick = { onReportClick(artifactId) },
+                onDeleteClick = { viewModel.deleteArtifact(artifactId) },
+                onFeedbackClick = { viewModel.submitFeedback(artifactId, FeedbackType.NOT_FOR_ME) },
+                onSettingsClick = { viewModel.showSettingsComingSoon() },
+                onCommentClick = { onNavigateToComments(artifactId, art.userId) },
+                currentUserId = viewModel.currentUserId
+            )
+        } else {
+            ArtifactCard(
+                artifact = art,
+                isPlaying = isPlaying,
+                isBuffering = isCurrentBuffering,
+                onPlayClick = { 
+                    viewModel.playAudio(art) 
+                    viewModel.onArtifactFocused(artifactId)
+                },
+                onReportClick = { onReportClick(artifactId) },
+                onDeleteClick = { viewModel.deleteArtifact(artifactId) },
+                onFeedbackClick = { viewModel.submitFeedback(artifactId, FeedbackType.NOT_FOR_ME) },
+                onSettingsClick = { viewModel.showSettingsComingSoon() },
+                onCommentClick = { onNavigateToComments(artifactId, art.userId) },
+                currentUserId = viewModel.currentUserId
+            )
+        }
     }
 }
 

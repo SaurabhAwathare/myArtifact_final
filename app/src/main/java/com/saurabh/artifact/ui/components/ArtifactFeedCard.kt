@@ -10,6 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.unit.dp
 import com.saurabh.artifact.model.FeedArtifact
+import com.saurabh.artifact.ui.feed.HydrationLevel
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.theme.Spacing
 
@@ -23,11 +24,16 @@ fun ArtifactFeedCard(
     isPlaying: Boolean,
     onPlayClick: () -> Unit,
     modifier: Modifier = Modifier,
+    isBuffering: Boolean = false,
+    hydrationLevel: HydrationLevel = HydrationLevel.FULL,
     currentPosition: Long = 0,
-    onDeleteClick: () -> Unit = {}
+    onReportClick: () -> Unit = {},
+    onDeleteClick: () -> Unit = {},
+    onFeedbackClick: () -> Unit = {},
+    onSettingsClick: () -> Unit = {},
+    onCommentClick: () -> Unit = {},
+    currentUserId: String? = null
 ) {
-    val currentUser = ArtifactTheme.currentUser
-
     Column(modifier = modifier) {
         // Recommendation Context Label
         Row(
@@ -54,10 +60,16 @@ fun ArtifactFeedCard(
             artifact = feedArtifact.artifact,
             isPlaying = isPlaying,
             onPlayClick = onPlayClick,
+            isBuffering = isBuffering,
+            hydrationLevel = hydrationLevel,
             currentPosition = if (feedArtifact.isUnfinished && !isPlaying) feedArtifact.lastPositionMs else currentPosition,
             durationMs = feedArtifact.artifact.durationMs,
+            onReportClick = onReportClick,
             onDeleteClick = onDeleteClick,
-            currentUserId = currentUser?.id
+            onFeedbackClick = onFeedbackClick,
+            onSettingsClick = onSettingsClick,
+            onCommentClick = onCommentClick,
+            currentUserId = currentUserId
         )
     }
 }

@@ -30,7 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.MaterialTheme
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.layout.*
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.startup.StartupStage
 import com.saurabh.artifact.ui.theme.LocalStartupStage
@@ -40,6 +40,7 @@ import com.saurabh.artifact.navigation.NavGraph
 import com.saurabh.artifact.audio.RecordingSessionManager
 import com.saurabh.artifact.audio.PublishStateManager
 import com.saurabh.artifact.ui.player.ArtifactPlayerView
+import com.saurabh.artifact.ui.player.PlayerViewModel
 import com.saurabh.artifact.ui.recording.components.MiniRecorder
 import com.saurabh.artifact.ui.components.AmbientUploadBar
 import com.saurabh.artifact.navigation.Screen
@@ -172,6 +173,7 @@ fun AuthenticatedIsland(
     onboardingManager: com.saurabh.artifact.util.OnboardingManager
 ) {
     val startupState by mainViewModel.startupState.collectAsStateWithLifecycle()
+    val playerViewModel: PlayerViewModel = hiltViewModel()
 
     // Debug logging for startup state
     androidx.compose.runtime.LaunchedEffect(startupState) {
@@ -201,7 +203,8 @@ fun AuthenticatedIsland(
                         startDestination = startDestination,
                         recordingSessionManager = recordingSessionManager,
                         onboardingManager = onboardingManager,
-                        onReportArtifact = { mainViewModel.showReportSheet(it) }
+                        onReportArtifact = { mainViewModel.showReportSheet(it) },
+                        onPlayArtifactById = { playerViewModel.playArtifactById(it) }
                     )
 
                     // Global Overlay Management
@@ -221,7 +224,8 @@ fun AuthenticatedIsland(
                             onNavigateToComments = { artifactId, userId ->
                                 navController.navigate(Screen.Comments.createRoute(artifactId, userId))
                             },
-                            onReportArtifact = { mainViewModel.showReportSheet(it) }
+                            onReportArtifact = { mainViewModel.showReportSheet(it) },
+                            playerViewModel = playerViewModel
                         )
 
                         if (reportingArtifactId != null) {

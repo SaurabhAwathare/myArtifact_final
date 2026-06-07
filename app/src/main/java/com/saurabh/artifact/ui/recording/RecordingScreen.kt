@@ -39,7 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.lerp
 import androidx.core.content.ContextCompat
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.saurabh.artifact.data.local.RecordingStatus
 import com.saurabh.artifact.ui.recording.components.*
 import com.saurabh.artifact.ui.theme.*

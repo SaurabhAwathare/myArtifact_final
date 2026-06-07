@@ -23,6 +23,7 @@ fun NavGraph(
     recordingSessionManager: RecordingSessionManager,
     onboardingManager: OnboardingManager,
     onReportArtifact: (String) -> Unit,
+    onPlayArtifactById: (String) -> Unit,
 ) {
     // Stability access via VisualTier to avoid top-level invalidation of the NavHost
     val isStable = com.saurabh.artifact.ui.theme.ArtifactTheme.isStable
@@ -68,7 +69,7 @@ fun NavGraph(
         }
     ) {
         authNavigation(navController, onboardingManager)
-        feedNavigation(navController, recordingSessionManager, onReportArtifact)
+        feedNavigation(navController, recordingSessionManager, onReportArtifact, onPlayArtifactById)
         profileNavigation(navController)
         recordingNavigation(navController)
     }

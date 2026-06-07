@@ -60,6 +60,8 @@ import com.saurabh.artifact.model.ArtifactComment
 import com.saurabh.artifact.model.AvatarConfig
 import com.saurabh.artifact.model.ReactionType
 import com.saurabh.artifact.ui.components.ArtifactAvatar
+import com.saurabh.artifact.ui.components.EmptyHearthState
+import com.saurabh.artifact.ui.components.TextCommentItem
 import com.saurabh.artifact.ui.components.moderation.ReportSheet
 import com.saurabh.artifact.ui.feed.CommentComposer
 import com.saurabh.artifact.ui.feed.CommentViewModel
@@ -104,7 +106,7 @@ fun CommentsScreen(
                 }
                 Spacer(modifier = Modifier.width(16.dp))
                 Text(
-                    "Reflections",
+                    text = if (uiState.currentUserId == ownerId) "The Hearth" else "Reflections",
                     style = ArtifactTheme.typography.titleMedium, 
                     color = ArtifactTheme.colors.onSurfaceMain,
                     fontWeight = FontWeight.Bold
@@ -150,13 +152,20 @@ fun CommentsScreen(
                             ) { index ->
                                 val comment = comments[index]
                                 if (comment != null) {
-                                    CommentCard(
-                                        comment = comment,
-                                        currentUserId = uiState.currentUserId,
-                                        ownerId = ownerId,
-                                        onReport = { reportingCommentId = comment.id },
-                                        onReact = { type -> viewModel.reactToComment(comment.id, type) }
-                                    )
+                                    if (comment.visibilityLayer == com.saurabh.artifact.model.VisibilityLayer.SANCTUARY) {
+                                        TextCommentItem(
+                                            comment = comment,
+                                            modifier = Modifier.padding(horizontal = 8.dp)
+                                        )
+                                    } else {
+                                        CommentCard(
+                                            comment = comment,
+                                            currentUserId = uiState.currentUserId,
+                                            ownerId = ownerId,
+                                            onReport = { reportingCommentId = comment.id },
+                                            onReact = { type -> viewModel.reactToComment(comment.id, type) }
+                                        )
+                                    }
                                 }
                             }
                             
@@ -190,11 +199,15 @@ fun CommentsScreen(
                                             modifier = Modifier.fillParentMaxSize(),
                                             contentAlignment = Alignment.Center
                                         ) {
-                                            Text(
-                                                "No echoes yet. Be the first to respond.",
-                                                style = ArtifactTheme.typography.bodyMedium,
-                                                color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.5f)
-                                            )
+                                            if (uiState.currentUserId == ownerId) {
+                                                EmptyHearthState()
+                                            } else {
+                                                Text(
+                                                    "No echoes yet. Be the first to respond.",
+                                                    style = ArtifactTheme.typography.bodyMedium,
+                                                    color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.5f)
+                                                )
+                                            }
                                         }
                                     }
                                 }

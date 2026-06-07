@@ -17,9 +17,9 @@ import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.CommentUnlockRepository
-import com.saurabh.artifact.repository.FeedRepository
 import com.saurabh.artifact.repository.SavedArtifactManager
 import com.saurabh.artifact.service.AdManager
+import com.saurabh.artifact.service.FeedComposer
 import com.saurabh.artifact.service.PersonalizationEngine
 import com.saurabh.artifact.service.SafetyLevel
 import com.saurabh.artifact.security.UploadGuard
@@ -55,6 +55,7 @@ data class FeedUiState(
     val artifactCache: Map<String, Artifact> = emptyMap(),
     val hydrationLevels: Map<String, HydrationLevel> = emptyMap(),
     val artifactDetails: Map<String, ArtifactDetail> = emptyMap(),
+    val recommendationReasons: Map<String, FeedRecommendationReason> = emptyMap(),
     val isRankedLoading: Boolean = false,
     val selectedEmotion: String? = null,
     val reflectionPrompt: ReflectionPrompt? = null,
@@ -72,7 +73,6 @@ class FeedViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val personalizationEngine: PersonalizationEngine,
     private val adManager: AdManager,
-    private val feedRepository: FeedRepository,
     private val memoryManager: MemoryManager,
     startupCoordinator: StartupCoordinator,
     savedArtifactManager: SavedArtifactManager,
@@ -82,6 +82,7 @@ class FeedViewModel @Inject constructor(
     private val reviewSessionManager: ReviewSessionManager,
     private val commentUnlockRepository: CommentUnlockRepository,
     private val uploadGuard: UploadGuard,
+    private val feedComposer: FeedComposer,
     getFeedFlowUseCase: GetFeedFlowUseCase,
     getPersonalizedFeedFlowUseCase: GetPersonalizedFeedFlowUseCase,
     private val getReflectionPromptUseCase: GetReflectionPromptUseCase
@@ -307,29 +308,23 @@ class FeedViewModel @Inject constructor(
             _uiState.update { it.copy(isRankedLoading = true) }
             
             runCatching {
-                val unfinishedSessions = withContext(Dispatchers.Default) {
-                    feedRepository.getUnfinishedSessions(userId)
-                }
-                
-                val discovery = artifactRepository.getCandidateArtifacts(userId = userId, limit = 20)
-
-                val unfinishedItems = unfinishedSessions.mapNotNull { session ->
-                    val artifact = discovery.find { it.id == session.artifactId } ?: return@mapNotNull null
-                    FeedArtifact(
-                        artifact = artifact,
-                        reason = FeedRecommendationReason.CONTINUE_LISTENING,
-                        isUnfinished = true,
-                        lastPositionMs = session.lastPositionMs
-                    )
+                val feedItems = withContext(Dispatchers.Default) {
+                    feedComposer.composeFeed(userId)
                 }
 
+                // Cache recommendation reasons for the UI
+                val reasons = feedItems.associateBy({ it.artifact.id }, { it.reason })
+                _uiState.update { it.copy(recommendationReasons = it.recommendationReasons + reasons) }
+
+                // Currently, we only expose the unfinished items to the UI for the top section
+                val unfinishedItems = feedItems.filter { it.isUnfinished }
                 _unfinishedArtifacts.value = unfinishedItems
                 
                 unfinishedItems.take(3).forEach { feedArtifact ->
                     audioPlayer.preCache(feedArtifact.artifact)
                 }
             }.onFailure {
-                Log.e("FeedViewModel", "Error loading unfinished items", it)
+                Log.e("FeedViewModel", "Error loading ranked feed", it)
             }
             _uiState.update { it.copy(isRankedLoading = false) }
         }
@@ -360,6 +355,10 @@ class FeedViewModel @Inject constructor(
 
     fun getArtifactFlow(id: String): Flow<Artifact?> {
         return _uiState.map { it.artifactCache[id] }.distinctUntilChanged()
+    }
+
+    fun getRecommendationReason(id: String): Flow<FeedRecommendationReason?> {
+        return _uiState.map { it.recommendationReasons[id] }.distinctUntilChanged()
     }
 
     fun clearError() {

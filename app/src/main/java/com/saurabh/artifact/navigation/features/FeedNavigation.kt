@@ -18,6 +18,7 @@ fun NavGraphBuilder.feedNavigation(
     navController: NavHostController,
     recordingSessionManager: RecordingSessionManager,
     onReportArtifact: (String) -> Unit,
+    onPlayArtifactById: (String) -> Unit,
 ) {
     composable(Screen.Home.route) {
         val onNavigateToProfile = remember(navController) {
@@ -98,8 +99,9 @@ fun NavGraphBuilder.feedNavigation(
     composable(Screen.Notifications.route) {
         NotificationScreen(
             onBackClick = { navController.popBackStack() },
-            onNotificationClick = {
-                // Logic to navigate to a specific artifact if needed
+            onNotificationClick = { artifactId ->
+                onPlayArtifactById(artifactId)
+                navController.popBackStack() // Return to feed to see the player
             }
         )
     }

@@ -42,15 +42,3 @@ enum class PlayerMode {
     MINI,
     FULLSCREEN
 }
-
-/**
- * Metadata specifically for the audio track, used for waveform and display.
- */
-data class ArtifactAudioMetadata(
-    val id: String,
-    val title: String,
-    val authorName: String,
-    val authorAvatarUrl: String?,
-    val waveformData: List<Float> = emptyList(),
-    val durationMillis: Long = 0L
-)
