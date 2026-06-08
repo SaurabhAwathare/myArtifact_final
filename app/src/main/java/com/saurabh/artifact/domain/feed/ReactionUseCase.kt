@@ -17,7 +17,7 @@ class ReactionUseCase @Inject constructor(
         type: ReactionType
     ): Result<Artifact?> {
         return reactionRepository.toggleReaction(artifactId, userId, type).map {
-            artifactRepository.getArtifactById(artifactId)
+            artifactRepository.getArtifactById(artifactId).getOrNull()
         }
     }
 

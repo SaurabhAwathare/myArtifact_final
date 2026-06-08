@@ -180,8 +180,12 @@ fun AvatarEditorScreen(
 }
 
 @Composable
-private fun EditorSection(title: String, content: @Composable () -> Unit) {
-    Column(modifier = Modifier.padding(vertical = 12.dp)) {
+private fun EditorSection(
+    title: String,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    Column(modifier = modifier.padding(vertical = 12.dp)) {
         Text(
             text = title,
             style = MaterialTheme.typography.titleSmall,
@@ -194,7 +198,12 @@ private fun EditorSection(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun OptionChip(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun OptionChip(
+    label: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
     FilterChip(
         selected = selected,
         onClick = onClick,
@@ -202,14 +211,20 @@ private fun OptionChip(label: String, selected: Boolean, onClick: () -> Unit) {
         colors = FilterChipDefaults.filterChipColors(
             selectedContainerColor = MaterialTheme.colorScheme.primary,
             selectedLabelColor = MaterialTheme.colorScheme.onPrimary
-        )
+        ),
+        modifier = modifier
     )
 }
 
 @Composable
-private fun ColorOption(colorHex: String, selected: Boolean, onClick: () -> Unit) {
+private fun ColorOption(
+    colorHex: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
     Box(
-        modifier = Modifier
+        modifier = modifier
             .size(40.dp)
             .clip(CircleShape)
             .background(Color(colorHex.toColorInt()))

@@ -1,25 +1,40 @@
 package com.saurabh.artifact.ui.avatar.renderer
 
+import androidx.compose.foundation.Canvas
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.core.graphics.toColorInt
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.core.graphics.toColorInt
 import com.saurabh.artifact.model.AvatarConfig
 import com.saurabh.artifact.model.avatar.*
 
 class CartoonRenderer : AvatarRenderer {
 
-    override fun DrawScope.render(config: AvatarConfig, animationState: AvatarAnimationState) {
-        val scale = size.minDimension / 100f // Normalize to 100x100 space
-        
-        drawFace(config, scale)
-        drawEyes(config, scale)
-        drawMouth(config, scale)
-        drawHair(config, scale)
-        drawAccessories(config, scale)
+    @Composable
+    override fun Render(
+        config: AvatarConfig,
+        animationState: AvatarAnimationState,
+        modifier: Modifier
+    ) {
+        Canvas(
+            modifier = modifier.drawWithCache {
+                onDrawBehind {
+                    val scale = size.minDimension / 100f // Normalize to 100x100 space
+                    
+                    drawFace(config, scale)
+                    drawEyes(config, scale)
+                    drawMouth(config, scale)
+                    drawHair(config, scale)
+                    drawAccessories(config, scale)
+                }
+            }
+        ) {}
     }
 
     private fun DrawScope.drawFace(config: AvatarConfig, scale: Float) {

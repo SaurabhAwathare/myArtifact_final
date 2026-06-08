@@ -57,7 +57,7 @@ class WaveformWorker @AssistedInject constructor(
     private suspend fun updateSubState(id: String, stage: ProcessingStage?, error: String? = null) {
         draftDao.getDraftById(id)?.let { draft ->
             val newProcessing = when {
-                error != null -> ProcessingStatus.Failed()
+                error != null -> ProcessingStatus.Failed
                 stage != null -> ProcessingStatus.Active(stage)
                 else -> ProcessingStatus.Idle
             }

@@ -26,5 +26,5 @@ sealed class SyncStatus {
     object Recovering : SyncStatus()
     
     @Serializable
-    data class Failed(val error: String, val recoverable: Boolean = true) : SyncStatus()
+    data class Failed(val error: String) : SyncStatus()
 }

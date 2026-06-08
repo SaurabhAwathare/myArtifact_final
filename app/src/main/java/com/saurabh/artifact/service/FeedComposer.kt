@@ -2,6 +2,7 @@ package com.saurabh.artifact.service
 
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.FeedRepository
+import com.saurabh.artifact.repository.PaginatedArtifacts
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import javax.inject.Inject
@@ -22,10 +23,10 @@ class FeedComposer @Inject constructor(
         val discoveryJob = async { repository.getDiscoveryCandidates(userId) }
         val profileJob = async { repository.getEmotionalProfile(userId) }
 
-        val resonated = resonatedJob.await()
-        val unfinishedSessions = unfinishedJob.await()
-        val discovery = discoveryJob.await()
-        val profile = profileJob.await() ?: EmotionalCompatibilityProfile(userId = userId)
+        val resonated = resonatedJob.await().getOrDefault(PaginatedArtifacts(emptyList(), null))
+        val unfinishedSessions = unfinishedJob.await().getOrDefault(emptyList())
+        val discovery = discoveryJob.await().getOrDefault(PaginatedArtifacts(emptyList(), null))
+        val profile = profileJob.await().getOrElse { EmotionalCompatibilityProfile(userId = userId) }
 
         // 1. Map Unfinished to FeedArtifacts
         val unfinishedItems = unfinishedSessions.mapNotNull { session ->

@@ -1,8 +1,5 @@
 package com.saurabh.artifact.ui.components.moderation
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -11,126 +8,94 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.zIndex
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
 import com.saurabh.artifact.model.ReportReason
 import com.saurabh.artifact.ui.theme.Spacing
-import com.saurabh.artifact.ui.theme.ZIndexTokens
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReportSheet(
     onReportSubmitted: (ReportReason, String) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
 ) {
     var selectedReason by remember { mutableStateOf<ReportReason?>(null) }
     var details by remember { mutableStateOf("") }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    Popup(
+    ModalBottomSheet(
         onDismissRequest = onDismiss,
-        properties = PopupProperties(focusable = true, excludeFromSystemGesture = true)
+        sheetState = sheetState,
+        shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+        dragHandle = { BottomSheetDefaults.DragHandle() },
+        containerColor = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        tonalElevation = 0.dp,
     ) {
-        Box(
+        // Sheet Content
+        Column(
             modifier = Modifier
-                .fillMaxSize()
-                .zIndex(ZIndexTokens.MODAL_OVERLAYS)
+                .fillMaxWidth()
+                .padding(horizontal = Spacing.Large)
+                .padding(bottom = Spacing.ExtraLarge + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding())
         ) {
-            // Scrim
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.6f))
-                    .clickable(enabled = true, onClick = onDismiss)
+            Text(
+                text = "Report content",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+            
+            Text(
+                text = "Help us understand what's wrong. Your report is anonymous.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(vertical = Spacing.Small)
             )
 
-            // Sheet Content
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .background(
-                        color = MaterialTheme.colorScheme.surface,
-                        shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)
-                    )
-                    .pointerInput(Unit) {
-                        detectTapGestures { /* Consume clicks to prevent dismissing when clicking sheet itself */ }
+            if (selectedReason == null) {
+                Spacer(modifier = Modifier.height(Spacing.Medium))
+                ReportReason.entries.forEach { reason ->
+                    ReportOption(reason = reason) {
+                        selectedReason = reason
                     }
-                    .padding(horizontal = Spacing.Large)
-                    .padding(top = 12.dp, bottom = Spacing.ExtraLarge)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .width(40.dp)
-                        .height(4.dp)
-                        .background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(2.dp))
-                        .align(Alignment.CenterHorizontally)
-                )
-
-                Spacer(modifier = Modifier.height(24.dp))
-
+                }
+            } else {
+                Spacer(modifier = Modifier.height(Spacing.Large))
                 Text(
-                    text = "Report content",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
+                    text = "Reason: ${selectedReason?.name?.replace("_", " ")?.lowercase()?.capitalize()}",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary
                 )
                 
-                Text(
-                    text = "Help us understand what's wrong. Your report is anonymous.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = Spacing.Small)
+                OutlinedTextField(
+                    value = details,
+                    onValueChange = { details = it },
+                    label = { Text("Add details (optional)") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = Spacing.Large),
+                    minLines = 3,
+                    shape = MaterialTheme.shapes.medium
                 )
 
-                if (selectedReason == null) {
-                    Spacer(modifier = Modifier.height(Spacing.Medium))
-                    ReportReason.entries.forEach { reason ->
-                        ReportOption(
-                            reason = reason,
-                            onClick = { selectedReason = reason }
-                        )
-                    }
-                } else {
-                    Spacer(modifier = Modifier.height(Spacing.Large))
-                    Text(
-                        text = "Reason: ${selectedReason?.name?.replace("_", " ")?.lowercase()?.capitalize()}",
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    
-                    OutlinedTextField(
-                        value = details,
-                        onValueChange = { details = it },
-                        label = { Text("Add details (optional)") },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = Spacing.Large),
-                        minLines = 3,
-                        shape = MaterialTheme.shapes.medium
-                    )
-
-                    Button(
-                        onClick = {
-                            selectedReason?.let { onReportSubmitted(it, details) }
-                            onDismiss()
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = MaterialTheme.shapes.medium
-                    ) {
-                        Text("Submit Report")
-                    }
-                    
-                    TextButton(
-                        onClick = { selectedReason = null },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Back", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+                Button(
+                    onClick = {
+                        selectedReason?.let { onReportSubmitted(it, details) }
+                        // Dismissing is handled by the parent calling onDismiss which removes the composable
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.medium
+                ) {
+                    Text("Submit Report")
+                }
+                
+                TextButton(
+                    onClick = { selectedReason = null },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Back", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
@@ -140,7 +105,7 @@ fun ReportSheet(
 @Composable
 private fun ReportOption(
     reason: ReportReason,
-    onClick: () -> Unit
+    onClick: () -> Unit,
 ) {
     Surface(
         onClick = onClick,

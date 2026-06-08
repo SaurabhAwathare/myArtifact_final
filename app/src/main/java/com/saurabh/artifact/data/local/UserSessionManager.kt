@@ -109,15 +109,6 @@ class UserSessionManager @Inject constructor(
     }
 
     /**
-     * Updates the user's avatar seed.
-     */
-    suspend fun updateAvatarSeed(seed: String) {
-        context.sessionDataStore.edit { preferences ->
-            preferences[avatarSeedKey] = seed
-        }
-    }
-
-    /**
      * Updates the user's avatar configuration.
      */
     suspend fun updateAvatarConfig(config: com.saurabh.artifact.model.AvatarConfig) {

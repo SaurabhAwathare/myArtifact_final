@@ -11,9 +11,9 @@ import coil.memory.MemoryCache
 import coil.request.CachePolicy
 import com.google.firebase.FirebaseApp
 import com.saurabh.artifact.startup.StartupCoordinator
-import com.saurabh.artifact.startup.StartupMetrics
 import com.saurabh.artifact.util.MemoryManager
 import com.saurabh.artifact.util.StartupTracer
+import dagger.Lazy
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -23,6 +23,7 @@ import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.milliseconds
 import javax.inject.Inject
 
+@Suppress("GrazieInspectionRunner")
 @HiltAndroidApp
 class ArtifactApplication : Application(), ImageLoaderFactory, Configuration.Provider {
 
@@ -36,22 +37,30 @@ class ArtifactApplication : Application(), ImageLoaderFactory, Configuration.Pro
             .build()
 
     @Inject
-    lateinit var memoryManager: MemoryManager
+    lateinit var memoryManager: Lazy<MemoryManager>
 
     @Inject
-    lateinit var startupCoordinator: StartupCoordinator
+    lateinit var startupCoordinator: Lazy<StartupCoordinator>
 
     private var _imageLoader: ImageLoader? = null
 
     override fun onCreate() {
         StartupTracer.mark("App onCreate Started")
-        StartupMetrics.onAppCreate()
         super.onCreate()
         
         // Use a dedicated scope for non-UI initialization to avoid blocking Main
         val initScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
         
         initScope.launch {
+            // Load native library in background to avoid blocking main thread
+            try {
+                // noinspection SpellCheckingInspection
+                System.loadLibrary("sqlcipher")
+                StartupTracer.mark("SQLCipher Loaded (Background)")
+            } catch (e: Exception) {
+                Log.e("ArtifactApp", "Failed to load sqlcipher", e)
+            }
+
             // Check if Firebase is already initialized (e.g., by FirebaseInitProvider)
             if (FirebaseApp.getApps(this@ArtifactApplication).isEmpty()) {
                 FirebaseApp.initializeApp(this@ArtifactApplication)
@@ -64,7 +73,7 @@ class ArtifactApplication : Application(), ImageLoaderFactory, Configuration.Pro
         // Defer coordinator slightly to allow App onCreate to complete and UI to bind
         initScope.launch(Dispatchers.Main) {
             delay(100.milliseconds) 
-            startupCoordinator.start()
+            startupCoordinator.get().start()
             StartupTracer.mark("StartupCoordinator Launched (Deferred)")
         }
     }
@@ -101,9 +110,7 @@ class ArtifactApplication : Application(), ImageLoaderFactory, Configuration.Pro
         Log.d("ArtifactApp", "onTrimMemory level: $level")
         
         // Notify centralized memory manager
-        if (::memoryManager.isInitialized) {
-            memoryManager.notifyTrim(level)
-        }
+        memoryManager.get().notifyTrim(level)
         
         // Release image caches if memory pressure is high
         if ((level >= TRIM_MEMORY_UI_HIDDEN) || (level >= 10 /* TRIM_MEMORY_RUNNING_LOW */)) {
@@ -112,9 +119,6 @@ class ArtifactApplication : Application(), ImageLoaderFactory, Configuration.Pro
     }
 
     companion object {
-        init {
-            // noinspection SpellCheckingInspection
-            System.loadLibrary("sqlcipher")
-        }
+        // Native libraries moved to background init in onCreate
     }
 }

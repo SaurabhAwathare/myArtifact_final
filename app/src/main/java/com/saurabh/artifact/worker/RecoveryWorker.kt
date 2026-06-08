@@ -25,9 +25,11 @@ class RecoveryWorker @AssistedInject constructor(
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         try {
             Log.d("RecoveryWorker", "Starting automated recovery scan...")
-            val recovered = recordingRepository.recoverInterruptedDrafts()
-            if (recovered.isNotEmpty()) {
-                Log.i("RecoveryWorker", "Successfully recovered ${recovered.size} interrupted recordings")
+            val recoveredResult = recordingRepository.recoverInterruptedDrafts()
+            recoveredResult.onSuccess { recovered ->
+                if (recovered.isNotEmpty()) {
+                    Log.i("RecoveryWorker", "Successfully recovered ${recovered.size} interrupted recordings")
+                }
             }
             Result.success()
         } catch (e: Exception) {

@@ -9,7 +9,7 @@ interface ReviewTracker {
     fun onPlaybackTick(currentPosMs: Long, realElapsedMs: Long, playbackSpeed: Float)
     
     /** Signals a jump in time, invalidating the "advancing normally" state. */
-    fun onSeekPerformed(targetPosMs: Long)
+    fun onSeekPerformed()
     
     /** Marks the terminal state of the audio. */
     fun onPlaybackEnded()
@@ -73,7 +73,7 @@ class DefaultReviewTracker(
         lastPlaybackPositionMs = currentPosMs
     }
 
-    override fun onSeekPerformed(targetPosMs: Long) {
+    override fun onSeekPerformed() {
         lastPlaybackPositionMs = -1L // Break the "advancing normally" chain
     }
 

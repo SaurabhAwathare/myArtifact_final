@@ -116,12 +116,17 @@ class IdentityViewModel @Inject constructor(
             delay(500.milliseconds) // Debounce
             
             try {
-                val isAvailable = userProfileManager.isUsernameAvailable(name)
-                _availability.value = if (isAvailable) {
-                    UsernameAvailability.AVAILABLE
-                } else {
-                    UsernameAvailability.TAKEN
-                }
+                userProfileManager.isUsernameAvailable(name)
+                    .onSuccess { isAvailable ->
+                        _availability.value = if (isAvailable) {
+                            UsernameAvailability.AVAILABLE
+                        } else {
+                            UsernameAvailability.TAKEN
+                        }
+                    }
+                    .onFailure {
+                        _availability.value = UsernameAvailability.ERROR
+                    }
             } catch (_: Exception) {
                 _availability.value = UsernameAvailability.ERROR
             }

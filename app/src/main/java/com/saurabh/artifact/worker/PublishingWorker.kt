@@ -40,7 +40,7 @@ class PublishingWorker @AssistedInject constructor(
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val draftId = inputData.getString(KEY_DRAFT_ID) ?: return@withContext Result.failure()
-        val draft = draftRepository.getDraft(draftId) ?: return@withContext Result.failure()
+        val draft = draftRepository.getDraft(draftId).getOrNull() ?: return@withContext Result.failure()
         
         startTime = System.currentTimeMillis()
 
@@ -61,7 +61,7 @@ class PublishingWorker @AssistedInject constructor(
         // 2. Security Validation (Approval Gate)
         if (!uploadGuard.validateApproval(draft, firebaseUser.uid)) {
             Log.e("PublishingWorker", "Unauthorized upload attempt for draft $draftId")
-            draftRepository.updateUploadStatus(draftId, SyncStatus.Failed("Approval validation failed", recoverable = false))
+            draftRepository.updateUploadStatus(draftId, SyncStatus.Failed("Approval validation failed"))
             return@withContext Result.failure()
         }
 
@@ -69,7 +69,7 @@ class PublishingWorker @AssistedInject constructor(
         val currentChecksum = artifactRepository.calculateChecksum(draft.localAudioPath)
         if (draft.checksum != null && draft.checksum != currentChecksum) {
             Log.e("PublishingWorker", "Integrity check failed for draft $draftId")
-            draftRepository.updateUploadStatus(draftId, SyncStatus.Failed("Integrity check failed", recoverable = false))
+            draftRepository.updateUploadStatus(draftId, SyncStatus.Failed("Integrity check failed"))
             return@withContext Result.failure()
         }
 
@@ -106,7 +106,7 @@ class PublishingWorker @AssistedInject constructor(
             } else null
 
             // 4.5 Fetch Anonymous Identity from Firestore
-            val userProfile = userRepository.getOrCreateProfile()
+            val userProfile = userRepository.getOrCreateProfile().getOrThrow()
 
             // 5. Pre-register Firestore Document (Checkpoint)
             // Note: Since we use draftId as artifactId, createArtifactDocument is idempotent
@@ -183,7 +183,7 @@ class PublishingWorker @AssistedInject constructor(
 
             withContext(NonCancellable) {
                 if (isPermanent) {
-                    draftRepository.updateUploadStatus(draftId, SyncStatus.Failed(e.message ?: "Permanent upload failure", recoverable = false))
+                    draftRepository.updateUploadStatus(draftId, SyncStatus.Failed(e.message ?: "Permanent upload failure"))
                     NotificationHelper.showUploadErrorNotification(appContext, draft.title ?: "Artifact")
                 } else {
                     // If it's a network error or transient, set to WaitingForNetwork or Queued

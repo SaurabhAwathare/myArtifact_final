@@ -27,12 +27,15 @@ class LoginViewModel @Inject constructor(
             authRepository.signInWithGoogle(idToken)
                 .onSuccess { firebaseUser ->
                     if (firebaseUser != null) {
-                        try {
+                        viewModelScope.launch {
                             userRepository.getOrCreateProfile()
-                            _loginState.value = LoginState.Success
-                        } catch (e: Exception) {
-                            Log.e("AUTH", "Profile creation failed", e)
-                            _loginState.value = LoginState.Error(ErrorMessageMapper.map(e))
+                                .onSuccess {
+                                    _loginState.value = LoginState.Success
+                                }
+                                .onFailure { e ->
+                                    Log.e("AUTH", "Profile creation failed", e)
+                                    _loginState.value = LoginState.Error(ErrorMessageMapper.map(e))
+                                }
                         }
                     } else {
                         _loginState.value = LoginState.Error(UiText.DynamicString("Google Sign-In failed: User is null"))

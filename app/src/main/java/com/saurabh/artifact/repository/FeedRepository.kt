@@ -22,14 +22,11 @@ class FeedRepository @Inject constructor(
     private val firestore: FirebaseFirestore
 ) {
 
-    /**
-     * Fetches artifacts from presences that the user resonates with, supporting pagination.
-     */
     suspend fun getResonatingArtifacts(
         userId: String, 
         limit: Int = 20,
         lastVisible: DocumentSnapshot? = null
-    ): PaginatedArtifacts = withContext(Dispatchers.IO) {
+    ): Result<PaginatedArtifacts> = withContext(Dispatchers.IO) {
         return@withContext try {
             val resonatedUserIds: List<String> = firestore.collection("users")
                 .document(userId)
@@ -39,7 +36,7 @@ class FeedRepository @Inject constructor(
                 .documents
                 .map { it.id }
 
-            if (resonatedUserIds.isEmpty()) return@withContext PaginatedArtifacts(emptyList(), null)
+            if (resonatedUserIds.isEmpty()) return@withContext Result.success(PaginatedArtifacts(emptyList(), null))
 
             val chunks = resonatedUserIds.chunked(10)
             val allArtifacts = mutableListOf<Artifact>()
@@ -83,19 +80,19 @@ class FeedRepository @Inject constructor(
             }
             
             val sorted = allArtifacts.asSequence().sortedByDescending { it.createdAt }.take(limit).toList()
-            PaginatedArtifacts(sorted, lastDocInBatch)
+            Result.success(PaginatedArtifacts(sorted, lastDocInBatch))
         } catch (e: Exception) {
             Log.e("FeedRepository", "Error fetching followed artifacts", e)
-            PaginatedArtifacts(emptyList(), null)
+            Result.failure(AppError.from(e))
         }
     }
 
     /**
      * Fetches unfinished listening sessions for a user.
      */
-    suspend fun getUnfinishedSessions(userId: String): List<ListeningSession> = withContext(Dispatchers.IO) {
+    suspend fun getUnfinishedSessions(userId: String): Result<List<ListeningSession>> = withContext(Dispatchers.IO) {
         return@withContext try {
-            firestore.collection("listening_sessions")
+            val sessions = firestore.collection("listening_sessions")
                 .whereEqualTo("userId", userId)
                 .whereEqualTo("isCompleted", false)
                 .orderBy("updatedAt", Query.Direction.DESCENDING)
@@ -103,24 +100,10 @@ class FeedRepository @Inject constructor(
                 .get()
                 .await()
                 .toObjects(ListeningSession::class.java)
+            Result.success(sessions)
         } catch (e: Exception) {
             Log.e("FeedRepository", "Error fetching unfinished sessions", e)
-            emptyList()
-        }
-    }
-
-    /**
-     * Updates or creates a listening session.
-     */
-    suspend fun updateListeningSession(session: ListeningSession): Unit = withContext(Dispatchers.IO) {
-        try {
-            val sessionId = "${session.userId}_${session.artifactId}"
-            firestore.collection("listening_sessions")
-                .document(sessionId)
-                .set(session.copy(updatedAt = Timestamp.now()))
-                .await()
-        } catch (e: Exception) {
-            Log.e("FeedRepository", "Error updating listening session", e)
+            Result.failure(AppError.from(e))
         }
     }
 
@@ -131,7 +114,7 @@ class FeedRepository @Inject constructor(
         userId: String? = null,
         limit: Int = 20,
         lastVisible: DocumentSnapshot? = null
-    ): PaginatedArtifacts = withContext(Dispatchers.IO) {
+    ): Result<PaginatedArtifacts> = withContext(Dispatchers.IO) {
         return@withContext try {
             var query = firestore.collection("artifacts")
                 .whereEqualTo("isPublic", true)
@@ -158,26 +141,32 @@ class FeedRepository @Inject constructor(
                 }
             }
             
-            PaginatedArtifacts(artifacts, snapshot.documents.lastOrNull())
+            Result.success(PaginatedArtifacts(artifacts, snapshot.documents.lastOrNull()))
         } catch (e: Exception) {
             Log.e("FeedRepository", "Error fetching discovery candidates", e)
-            PaginatedArtifacts(emptyList(), null)
+            Result.failure(AppError.from(e))
         }
     }
 
     /**
      * Fetches the user's emotional profile for ranking.
      */
-    suspend fun getEmotionalProfile(userId: String): EmotionalCompatibilityProfile? = withContext(Dispatchers.IO) {
+    suspend fun getEmotionalProfile(userId: String): Result<EmotionalCompatibilityProfile> = withContext(Dispatchers.IO) {
         return@withContext try {
-            firestore.collection("recommendation_profiles")
+            val doc = firestore.collection("recommendation_profiles")
                 .document(userId)
                 .get()
                 .await()
-                .toObject(EmotionalCompatibilityProfile::class.java)
+            
+            val profile = doc.toObject(EmotionalCompatibilityProfile::class.java)
+            if (profile != null) {
+                Result.success(profile)
+            } else {
+                Result.failure(AppError.NotFound("EmotionalProfile", userId))
+            }
         } catch (e: Exception) {
             Log.e("FeedRepository", "Error fetching emotional profile", e)
-            null
+            Result.failure(AppError.from(e))
         }
     }
 }

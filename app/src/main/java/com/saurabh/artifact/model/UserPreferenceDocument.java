@@ -37,8 +37,8 @@ public class UserPreferenceDocument {
     public String getNamespace() { return namespace; }
     public void setNamespace(String namespace) { this.namespace = namespace; }
 
-    public String getId() { return id; }
     public void setId(String id) { this.id = id; }
+    public String getId() { return id; }
 
     public String getPrimaryGoal() { return primaryGoal; }
     public void setPrimaryGoal(String primaryGoal) { this.primaryGoal = primaryGoal; }

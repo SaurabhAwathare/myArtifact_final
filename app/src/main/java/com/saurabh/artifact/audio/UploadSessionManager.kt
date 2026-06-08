@@ -68,27 +68,27 @@ class PublishStateManager @Inject constructor(
 
                     val newState = when {
                         draft.status.lifecycle == ArtifactLifecycle.PUBLISHED -> 
-                            PublishState.Published(id, title, draft.remoteArtifactId ?: id)
+                            PublishState.Published(draftId = id, title = title, artifactId = draft.remoteArtifactId ?: "")
                         
                         syncStatus is SyncStatus.Failed -> 
-                            PublishState.Error(id, title, syncStatus.error)
+                            PublishState.Error(draftId = id, title = title, message = syncStatus.error)
                         
                         syncStatus is SyncStatus.WaitingForNetwork -> 
-                            PublishState.Uploading(id, title, progress, isWaitingForNetwork = true)
+                            PublishState.Uploading(draftId = id, title = title, progress = progress, isWaitingForNetwork = true)
                         
                         syncStatus is SyncStatus.Uploading || syncStatus is SyncStatus.Finalizing -> {
                             if (progress < 0.95f && syncStatus !is SyncStatus.Finalizing) {
-                                PublishState.Uploading(id, title, progress)
+                                PublishState.Uploading(draftId = id, title = title, progress = progress)
                             } else {
-                                PublishState.Finalizing(id, title)
+                                PublishState.Finalizing(draftId = id, title = title)
                             }
                         }
                         
                         draft.status.lifecycle == ArtifactLifecycle.READY_TO_PUBLISH -> 
-                            PublishState.Preparing(id, title)
+                            PublishState.Preparing(draftId = id, title = title)
 
                         draft.status.lifecycle == ArtifactLifecycle.PROCESSING ->
-                            PublishState.Preparing(id, title) // Processing is a type of preparation
+                            PublishState.Preparing(draftId = id, title = title) // Processing is a type of preparation
                         
                         else -> null
                     }

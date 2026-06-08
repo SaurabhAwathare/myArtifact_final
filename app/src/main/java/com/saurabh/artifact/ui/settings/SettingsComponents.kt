@@ -25,10 +25,11 @@ import androidx.compose.foundation.layout.ColumnScope
 @Composable
 fun SettingsSection(
     title: String,
+    modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit
 ) {
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(vertical = 8.dp)
     ) {
@@ -50,13 +51,14 @@ fun SettingsSection(
 @Composable
 fun SettingsSwitch(
     title: String,
-    subtitle: String? = null,
-    icon: ImageVector? = null,
     checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    subtitle: String? = null,
+    icon: ImageVector? = null
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable { onCheckedChange(!checked) }
             .padding(16.dp),
@@ -88,13 +90,14 @@ fun SettingsSwitch(
 @Composable
 fun SettingsClickable(
     title: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
     subtitle: String? = null,
     icon: ImageVector? = null,
-    textColor: Color = MaterialTheme.colorScheme.onSurface,
-    onClick: () -> Unit
+    textColor: Color = MaterialTheme.colorScheme.onSurface
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
             .padding(16.dp),
@@ -125,12 +128,13 @@ fun SettingsClickable(
 @Composable
 fun SettingsInfoItem(
     title: String,
+    modifier: Modifier = Modifier,
     subtitle: String? = null,
     icon: ImageVector? = null,
     trailingContent: @Composable (() -> Unit)? = null
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -159,4 +163,3 @@ fun SettingsInfoItem(
         }
     }
 }
-

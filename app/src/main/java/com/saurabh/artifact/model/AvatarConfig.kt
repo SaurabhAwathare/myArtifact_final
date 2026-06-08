@@ -10,15 +10,15 @@ import kotlinx.serialization.Serializable
  */
 @Serializable
 data class AvatarConfig(
-    var seed: String = "",
-    var version: Int = 2,
-    var theme: String = "AURIC", // AURIC, CARTOON
-    var faceShape: FaceShape = FaceShape.ROUND,
-    var hairType: HairType = HairType.SHORT,
-    var eyeType: EyeType = EyeType.NEUTRAL,
-    var mouthType: MouthType = MouthType.SMILE,
-    var accessoryType: AccessoryType = AccessoryType.NONE,
-    var skinColor: String = "#FFDBAC",
-    var hairColor: String = "#4A2C2C",
-    var outfitColor: String = "#4A90E2"
+    val seed: String = "",
+    val version: Int = 2,
+    val theme: String = "AURIC", // AURIC, CARTOON
+    val faceShape: FaceShape = FaceShape.ROUND,
+    val hairType: HairType = HairType.SHORT,
+    val eyeType: EyeType = EyeType.NEUTRAL,
+    val mouthType: MouthType = MouthType.SMILE,
+    val accessoryType: AccessoryType = AccessoryType.NONE,
+    val skinColor: String = "#FFDBAC",
+    val hairColor: String = "#4A2C2C",
+    val outfitColor: String = "#4A90E2"
 )

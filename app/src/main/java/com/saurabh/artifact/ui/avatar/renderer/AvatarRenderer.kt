@@ -1,6 +1,7 @@
 package com.saurabh.artifact.ui.avatar.renderer
 
-import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import com.saurabh.artifact.model.AvatarConfig
 
 /**
@@ -8,15 +9,21 @@ import com.saurabh.artifact.model.AvatarConfig
  * Decouples drawing logic from Compose UI state management.
  */
 interface AvatarRenderer {
-    fun DrawScope.render(config: AvatarConfig, animationState: AvatarAnimationState)
+    @Composable
+    fun Render(
+        config: AvatarConfig,
+        animationState: AvatarAnimationState,
+        modifier: Modifier
+    )
 }
 
 /**
  * Encapsulates dynamic animation values used during rendering.
+ * Uses lambdas to defer state reads and avoid unnecessary recompositions.
  */
 data class AvatarAnimationState(
-    val pulse: Float = 1f,
-    val rotation: Float = 0f
+    val pulse: () -> Float = { 1f },
+    val rotation: () -> Float = { 0f }
 )
 
 /**

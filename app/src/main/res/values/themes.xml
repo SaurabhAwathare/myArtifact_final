@@ -1,4 +1,9 @@
 <resources>
-
     <style name="Theme.MyArtifact" parent="Theme.Material3.Dark.NoActionBar" />
+
+    <!-- Starting theme for the Splash Screen API -->
+    <style name="Theme.App.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#0C0505</item> <!-- Obsidian950 -->
+        <item name="postSplashScreenTheme">@style/Theme.MyArtifact</item>
+    </style>
 </resources>

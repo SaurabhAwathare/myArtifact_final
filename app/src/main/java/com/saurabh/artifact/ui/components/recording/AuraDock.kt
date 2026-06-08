@@ -103,7 +103,7 @@ fun AuraDock(
         // The Core Interaction Surface
         Surface(
             shape = CircleShape,
-            color = if (status == RecordingStatus.RECORDING) Color(0xFFD96B5F) else Color(0xFFD96B5F),
+            color = Color(0xFFD96B5F),
             tonalElevation = 6.dp,
             modifier = Modifier
                 .size(72.dp) // Slightly larger
@@ -122,12 +122,15 @@ fun AuraDock(
 }
 
 @Composable
-private fun AuraGlow(alpha: Float) {
+private fun AuraGlow(
+    alpha: Float,
+    modifier: Modifier = Modifier
+) {
     // Part 4 — Emotional Red Glow
     val color = Color(0xFFD96B5F)
     
     Canvas(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxSize()
             .blur(32.dp)
             .graphicsLayer { this.alpha = alpha }
@@ -146,7 +149,10 @@ private fun AuraGlow(alpha: Float) {
 }
 
 @Composable
-private fun MicrophoneGlyph(status: RecordingStatus) {
+private fun MicrophoneGlyph(
+    status: RecordingStatus,
+    modifier: Modifier = Modifier
+) {
     // Part 5 & 6 — Symbolic Clarity & Motion Restraint
     val transitionProgress by animateFloatAsState(
         targetValue = if (status == RecordingStatus.RECORDING) 1f else 0f,
@@ -161,7 +167,7 @@ private fun MicrophoneGlyph(status: RecordingStatus) {
     )
 
     Canvas(
-        modifier = Modifier
+        modifier = modifier
             .size(24.dp)
             .graphicsLayer {
                 // Subtle scale up when recording

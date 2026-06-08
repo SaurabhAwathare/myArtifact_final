@@ -13,24 +13,24 @@ class ProfileInteractionUseCase @Inject constructor(
     private val cleanupManager: ArtifactCleanupManager
 ) {
     suspend fun toggleResonance(currentUserId: String, targetUserId: String, wasResonating: Boolean): Result<Unit> {
-        return try {
-            if (wasResonating) {
-                userRepository.stopResonatingWithUser(currentUserId, targetUserId)
-            } else {
-                userRepository.resonateWithUser(currentUserId, targetUserId)
-            }
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Result.failure(e)
+        return if (wasResonating) {
+            userRepository.stopResonatingWithUser(currentUserId, targetUserId)
+        } else {
+            userRepository.resonateWithUser(currentUserId, targetUserId)
         }
     }
 
-    suspend fun renameDraft(draftId: String, newTitle: String) {
-        recordingRepository.renameDraft(draftId, newTitle)
+    suspend fun renameDraft(draftId: String, newTitle: String): Result<Unit> {
+        return recordingRepository.renameDraft(draftId, newTitle)
     }
 
-    suspend fun deleteDraft(draftId: String) {
-        cleanupManager.deleteDraft(draftId)
+    suspend fun deleteDraft(draftId: String): Result<Unit> {
+        return try {
+            cleanupManager.deleteDraft(draftId)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(com.saurabh.artifact.model.AppError.from(e))
+        }
     }
 
     suspend fun renamePublishedArtifact(artifactId: String, newTitle: String): Result<Unit> {

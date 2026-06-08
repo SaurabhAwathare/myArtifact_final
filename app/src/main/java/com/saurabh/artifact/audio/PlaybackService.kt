@@ -124,9 +124,9 @@ class PlaybackService : MediaLibraryService() {
                         val lastArtifactId = settingsDataStore.lastArtifactId.first()
 
                         val artifacts = if (lastIds.isNotEmpty()) {
-                            lastIds.mapNotNull { artifactRepository.getArtifactById(it) }
+                            lastIds.mapNotNull { artifactRepository.getArtifactById(it).getOrNull() }
                         } else if (lastArtifactId != null) {
-                            listOfNotNull(artifactRepository.getArtifactById(lastArtifactId))
+                            listOfNotNull(artifactRepository.getArtifactById(lastArtifactId).getOrNull())
                         } else {
                             emptyList()
                         }
@@ -134,7 +134,7 @@ class PlaybackService : MediaLibraryService() {
                         if (artifacts.isNotEmpty()) {
                             val mediaItems = artifacts.map { createMediaItem(it) }
                             val currentArtifact = artifacts.getOrNull(lastIndex) ?: artifacts.first()
-                            val pos = engagementRepository.getEngagement(currentArtifact.id)?.lastPositionMs ?: 0L
+                            val pos = engagementRepository.getEngagement(currentArtifact.id).getOrNull()?.lastPositionMs ?: 0L
                             
                             completer.set(
                                 MediaSession.MediaItemsWithStartPosition(

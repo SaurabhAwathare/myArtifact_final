@@ -99,7 +99,5 @@ data class ArtifactReactionCounts(
 
 enum class FeedbackType(val label: String, val description: String) {
     NOT_FOR_ME("Not for me", "I'd like to see less of this"),
-    TOO_INTENSE("Too intense", "This content feels overwhelming"),
-    REPETITIVE("Repetitive", "I've heard similar things recently"),
     SAFETY_CONCERN("Safety concern", "I'm worried about the author's wellbeing")
 }

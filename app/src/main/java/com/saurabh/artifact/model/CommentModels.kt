@@ -31,7 +31,6 @@ enum class AuthorType {
 enum class CommentModerationState {
     PENDING,
     APPROVED,
-    FLAGGED,
     BLOCKED,
     HIDDEN
 }

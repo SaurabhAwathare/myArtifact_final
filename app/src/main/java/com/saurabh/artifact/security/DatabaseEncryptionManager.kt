@@ -9,6 +9,8 @@ import com.google.crypto.tink.Aead
 import com.google.crypto.tink.KeyTemplates
 import com.google.crypto.tink.aead.AeadConfig
 import com.google.crypto.tink.integration.android.AndroidKeysetManager
+import com.saurabh.artifact.startup.StartupComponent
+import com.saurabh.artifact.startup.StartupCoordinator
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -22,7 +24,8 @@ private val Context.dataStore by preferencesDataStore(name = "db_encryption_pref
 
 @Singleton
 class DatabaseEncryptionManager @Inject constructor(
-    @param:ApplicationContext private val context: Context
+    @param:ApplicationContext private val context: Context,
+    private val startupCoordinator: StartupCoordinator
 ) {
     private val googleAead: Aead by lazy {
         AeadConfig.register()
@@ -35,12 +38,16 @@ class DatabaseEncryptionManager @Inject constructor(
             .getPrimitive(Aead::class.java)
     }
 
+    private var cachedPassphrase: ByteArray? = null
+
     /**
      * Gets or creates a high-entropy passphrase for the database.
      * The passphrase is encrypted using Google Tink and stored in DataStore.
      */
     fun getDatabasePassphrase(): ByteArray {
-        return runBlocking {
+        cachedPassphrase?.let { return it }
+
+        val passphrase = runBlocking {
             val encryptedPassphrase = context.dataStore.data
                 .map { preferences -> preferences[DB_PASSPHRASE_KEY] }
                 .first()
@@ -48,7 +55,15 @@ class DatabaseEncryptionManager @Inject constructor(
             if (encryptedPassphrase != null) {
                 try {
                     val encryptedBytes = Base64.decode(encryptedPassphrase, Base64.DEFAULT)
-                    googleAead.decrypt(encryptedBytes, null)
+                    val passphrase = googleAead.decrypt(encryptedBytes, null)
+                    
+                    // VALIDATION: Check if this passphrase can actually open the database
+                    if (!validatePassphrase(passphrase)) {
+                        android.util.Log.e("DatabaseEncryption", "Passphrase validation failed, generating new one")
+                        generateAndStoreNewPassphrase()
+                    } else {
+                        passphrase
+                    }
                 } catch (_: Exception) {
                     // If decryption fails (e.g., keyset changed), generate new one
                     generateAndStoreNewPassphrase()
@@ -56,6 +71,37 @@ class DatabaseEncryptionManager @Inject constructor(
             } else {
                 generateAndStoreNewPassphrase()
             }
+        }
+        
+        // Signal that the database encryption/access is ready
+        startupCoordinator.emitReadiness(StartupComponent.DATABASE)
+        cachedPassphrase = passphrase
+        return passphrase
+    }
+
+    /**
+     * Attempts to open the database with the given passphrase to verify its validity.
+     */
+    private fun validatePassphrase(passphrase: ByteArray): Boolean {
+        val dbFile = context.getDatabasePath("artifact_db")
+        if (!dbFile.exists()) return true // No database yet, passphrase is "valid"
+
+        var db: net.zetetic.database.sqlcipher.SQLiteDatabase? = null
+        return try {
+            db = net.zetetic.database.sqlcipher.SQLiteDatabase.openDatabase(
+                dbFile.absolutePath,
+                passphrase,
+                null,
+                net.zetetic.database.sqlcipher.SQLiteDatabase.OPEN_READONLY,
+                null
+            )
+            db?.rawExecSQL("SELECT COUNT(*) FROM sqlite_schema")
+            true
+        } catch (e: Exception) {
+            android.util.Log.e("DatabaseEncryption", "Database validation error: ${e.message}")
+            false
+        } finally {
+            db?.close()
         }
     }
 
@@ -69,8 +115,32 @@ class DatabaseEncryptionManager @Inject constructor(
         context.dataStore.edit { preferences ->
             preferences[DB_PASSPHRASE_KEY] = encryptedEncoded
         }
+
+        // CRITICAL: If we've generated a NEW passphrase, the old database file is now
+        // permanently unrecoverable. We MUST delete it to avoid 'file is not a database'
+        // (code 26) errors on the next open attempt.
+        deleteDatabaseFiles()
         
         return newPassphrase
+    }
+
+    /**
+     * Deletes the local database files to recover from corruption or key loss.
+     */
+    fun deleteDatabaseFiles() {
+        try {
+            val dbFile = context.getDatabasePath("artifact_db")
+            if (dbFile.exists()) {
+                dbFile.delete()
+                // Also delete journal/shm/wal files if they exist
+                context.getDatabasePath("artifact_db-journal").delete()
+                context.getDatabasePath("artifact_db-shm").delete()
+                context.getDatabasePath("artifact_db-wal").delete()
+                android.util.Log.w("DatabaseEncryption", "Deleted database files for recovery")
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("DatabaseEncryption", "Failed to delete database", e)
+        }
     }
 
     /**

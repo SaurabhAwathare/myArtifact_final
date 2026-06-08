@@ -14,7 +14,7 @@ sealed class ProcessingStatus {
     object Completed : ProcessingStatus()
     
     @Serializable
-    data class Failed(val message: String = "Unknown error") : ProcessingStatus()
+    object Failed : ProcessingStatus()
 }
 
 @Serializable

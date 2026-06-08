@@ -9,10 +9,12 @@ import androidx.compose.ui.zIndex
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
+import androidx.navigation.NavDestination
+import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.compose.currentBackStackEntryAsState
 import com.saurabh.artifact.audio.RecordingSessionManager
 import com.saurabh.artifact.audio.PublishStateManager
-import com.saurabh.artifact.navigation.Screen
+import com.saurabh.artifact.navigation.*
 import com.saurabh.artifact.ui.theme.ZIndexTokens
 import com.saurabh.artifact.ui.player.ArtifactPlayerView
 import com.saurabh.artifact.ui.player.PlayerViewModel
@@ -31,8 +33,8 @@ fun GlobalOverlayHost(
     onReportArtifact: (String) -> Unit,
     playerViewModel: PlayerViewModel = hiltViewModel(),
 ) {
-    val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
-    val showOverlays = isOverlayVisibleOnRoute(currentRoute)
+    val currentDestination = navController.currentBackStackEntryAsState().value?.destination
+    val showOverlays = isOverlayVisibleOnRoute(currentDestination)
     
     val uiState by playerViewModel.uiState.collectAsStateWithLifecycle()
     val recordingState by recordingSessionManager.sessionState.collectAsStateWithLifecycle()
@@ -63,7 +65,7 @@ fun GlobalOverlayHost(
                     status = recordingState.status,
                     durationSeconds = recordingState.durationSeconds,
                     onClick = {
-                        navController.navigate(Screen.InstantRecord.route) {
+                        navController.navigate(InstantRecord()) {
                             launchSingleTop = true
                         }
                     }
@@ -92,17 +94,19 @@ fun GlobalOverlayHost(
     }
 }
 
-fun isOverlayVisibleOnRoute(route: String?): Boolean {
-    if (route == null) return false
+fun isOverlayVisibleOnRoute(destination: NavDestination?): Boolean {
+    if (destination == null) return false
+    
     val screensWithoutOverlays = listOf(
-        Screen.InstantRecord.route,
-        Screen.PreRecordingWarning.route,
-        Screen.RecordingReview.route,
-        Screen.PublishPreparation.route,
-        Screen.PublishApproval.route,
-        Screen.IdentitySelection.route,
-        Screen.PresenceBuilder.route,
-        Screen.PostRecordingDecision.route
+        InstantRecord::class,
+        PreRecordingWarning::class,
+        RecordingReview::class,
+        PublishPreparation::class,
+        PublishApproval::class,
+        IdentitySelection::class,
+        PresenceBuilder::class,
+        PostRecordingDecision::class
     )
-    return route !in screensWithoutOverlays
+    
+    return screensWithoutOverlays.none { destination.hasRoute(it) }
 }

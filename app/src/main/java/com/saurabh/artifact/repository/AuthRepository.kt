@@ -7,6 +7,7 @@ import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
+import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.User
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -107,28 +108,28 @@ class AuthRepository @Inject constructor(
             val result = firebaseAuth.signInWithCredential(credential).await()
             Result.success(result.user)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(AppError.from(e))
         }
     }
 
     suspend fun reauthenticateWithGoogle(idToken: String): Result<Unit> {
-        val user = firebaseAuth.currentUser ?: return Result.failure(Exception("No user logged in"))
+        val user = firebaseAuth.currentUser ?: return Result.failure(AppError.Unauthenticated())
         return try {
             val credential = GoogleAuthProvider.getCredential(idToken, null)
             user.reauthenticate(credential).await()
             Result.success(Unit)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(AppError.from(e))
         }
     }
 
     suspend fun deleteCurrentUser(): Result<Unit> {
-        val user = firebaseAuth.currentUser ?: return Result.failure(Exception("No user logged in"))
+        val user = firebaseAuth.currentUser ?: return Result.failure(AppError.Unauthenticated())
         return try {
             user.delete().await()
             Result.success(Unit)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(AppError.from(e))
         }
     }
 
@@ -140,7 +141,7 @@ class AuthRepository @Inject constructor(
             firebaseAuth.signOut()
             Result.success(Unit)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(AppError.from(e))
         }
     }
 

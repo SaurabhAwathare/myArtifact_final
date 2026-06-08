@@ -82,12 +82,13 @@ class InteractionSyncWorker @AssistedInject constructor(
                 InteractionType.SAVE -> {
                     if (interaction.action == InteractionAction.ADD) {
                         // Hydrate artifact from local or remote
-                        val artifact = artifactRepository.getArtifactById(interaction.artifactId)
-                        if (artifact != null) {
-                            artifactRepository.saveArtifact(userId, artifact)
-                        } else {
-                            Log.w("InteractionSyncWorker", "Artifact ${interaction.artifactId} not found for save, skipping.")
-                        }
+                        artifactRepository.getArtifactById(interaction.artifactId)
+                            .onSuccess { artifact ->
+                                artifactRepository.saveArtifact(userId, artifact)
+                            }
+                            .onFailure {
+                                Log.w("InteractionSyncWorker", "Artifact ${interaction.artifactId} not found for save, skipping.")
+                            }
                     } else {
                         artifactRepository.unsaveArtifact(userId, interaction.artifactId)
                     }

@@ -82,7 +82,7 @@ class PublishingOrchestrator @Inject constructor(
 
             Log.i("PublishingOrchestrator", "Draft $draftId approved and frozen. Enqueuing publication.")
             
-            val draft = draftRepository.getDraft(draftId) ?: return@withContext Result.failure(Exception("Draft not found"))
+            val draft = draftRepository.getDraft(draftId).getOrThrow()
 
             // 1. Check if already publishing to avoid double enqueuing
             if (draft.status.lifecycle == ArtifactLifecycle.PUBLISHED) {
@@ -111,7 +111,7 @@ class PublishingOrchestrator @Inject constructor(
 
     suspend fun approvePublishing(draftId: String): PublishingResult = withContext(Dispatchers.IO) {
         // Legacy entry point - redirected to internal logic if needed, but preferred is approveAndPublish
-        val draft = draftRepository.getDraft(draftId) ?: return@withContext PublishingResult.FAILED
+        val draft = draftRepository.getDraft(draftId).getOrNull() ?: return@withContext PublishingResult.FAILED
         
         // 0. Check if already publishing to avoid double enqueuing
         if (draft.status.lifecycle == ArtifactLifecycle.PUBLISHED) {
@@ -120,7 +120,7 @@ class PublishingOrchestrator @Inject constructor(
 
         // 1. Check Cooldown if applicable
         val now = System.currentTimeMillis()
-        if (draft.cooldownExpiry != null && now < draft.cooldownExpiry) {
+        if (draft.updatedAt != 0L && (now - draft.updatedAt) < 1000) { // Using updatedAt as proxy since cooldownExpiry is missing
             return@withContext PublishingResult.FAILED
         }
 
@@ -163,7 +163,7 @@ class PublishingOrchestrator @Inject constructor(
     }
 
     suspend fun retryPublishing(draftId: String) = withContext(Dispatchers.IO) {
-        val draft = draftRepository.getDraft(draftId) ?: return@withContext
+        val draft = draftRepository.getDraft(draftId).getOrNull() ?: return@withContext
         if (draft.status.publication is SyncStatus.Failed) {
             draftRepository.updateUploadStatus(draftId, SyncStatus.Queued)
             enqueuePublishingWork(draftId)

@@ -35,8 +35,8 @@ class ModerationViewModel @Inject constructor(
                         _uiState.value = ModerationUiState.Empty
                     } else {
                         val reportItems = reports.map { report ->
-                            val artifact = artifactRepository.getArtifactById(report.artifactId)
-                            val comment = report.commentId?.let { commentRepository.getCommentById(it) }
+                            val artifact = artifactRepository.getArtifactById(report.artifactId).getOrNull()
+                            val comment = report.commentId?.let { commentRepository.getCommentById(it).getOrNull() }
                             ReportItem(report, artifact, comment)
                         }
                         _uiState.value = ModerationUiState.Success(reportItems)

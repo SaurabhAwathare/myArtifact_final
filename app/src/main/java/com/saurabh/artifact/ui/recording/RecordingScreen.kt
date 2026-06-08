@@ -53,6 +53,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -98,6 +99,10 @@ fun RecordingScreen(
         pageCount = { uiState.promptList.size }
     )
 
+    // Best practice: Use rememberUpdatedState for callbacks used in side effects
+    val currentOnFinished by rememberUpdatedState(onFinished)
+    val currentOnBack by rememberUpdatedState(onBack)
+
     // Sync pager state with ViewModel if needed (optional, but good for activePrompt tracking)
     LaunchedEffect(pagerState.currentPage) {
         viewModel.updatePromptIndex(pagerState.currentPage)
@@ -137,6 +142,8 @@ fun RecordingScreen(
             }
         }
     }
+    
+    val currentRequestPermission by rememberUpdatedState(requestPermission)
 
     if (showRationaleDialog) {
         AlertDialog(
@@ -219,7 +226,7 @@ fun RecordingScreen(
             when (event) {
                 is RecordingEvent.RequestStart -> {
                     if (uiState.status == RecordingStatus.IDLE || uiState.status == RecordingStatus.FAILED) {
-                        requestPermission()
+                        currentRequestPermission()
                     }
                 }
             }
@@ -229,9 +236,9 @@ fun RecordingScreen(
     // Handle Back Press
     BackHandler {
         if (uiState.status == RecordingStatus.RECORDING || uiState.status == RecordingStatus.PAUSED) {
-            onBack() // Navigation continues in background
+            currentOnBack() // Navigation continues in background
         } else {
-            onBack()
+            currentOnBack()
         }
     }
 
@@ -277,7 +284,7 @@ fun RecordingScreen(
     // Navigation when finished (Navigates to Decision Screen)
     LaunchedEffect(uiState.lastDraftId) {
         if (uiState.lastDraftId != null) {
-            onFinished(uiState.lastDraftId!!)
+            currentOnFinished(uiState.lastDraftId!!)
         }
     }
 

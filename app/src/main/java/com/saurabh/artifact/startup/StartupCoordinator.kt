@@ -9,7 +9,6 @@ import com.google.firebase.appcheck.FirebaseAppCheck
 import com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory
 import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
 import com.saurabh.artifact.BuildConfig
-import com.saurabh.artifact.util.NotificationHelper
 import com.saurabh.artifact.util.StartupTracer
 import com.saurabh.artifact.worker.ReminderWorker
 import com.saurabh.artifact.worker.RecoveryWorker
@@ -24,11 +23,23 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.first
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
+
+/**
+ * Defines the technical components that must be ready for the app to function.
+ */
+enum class StartupComponent {
+    CORE,
+    AUTH,
+    DATABASE,
+    SECURITY
+}
 
 /**
  * Centralized orchestrator for the Startup Island Architecture.
@@ -44,11 +55,25 @@ class StartupCoordinator @Inject constructor(
     private val _stage = MutableStateFlow(StartupStage.ARRIVAL)
     val stage = _stage.asStateFlow()
 
+    private val _readyComponents = MutableStateFlow<Set<StartupComponent>>(emptySet())
     private var isStarted = false
 
     /**
+     * Signals that a technical component is ready.
+     */
+    fun emitReadiness(component: StartupComponent) {
+        Log.d("Startup", "Readiness Signaled: $component")
+        _readyComponents.update { it + component }
+    }
+
+    private suspend fun awaitReadiness(component: StartupComponent) {
+        _readyComponents.first { it.contains(component) }
+        Log.d("Startup", "Readiness Confirmed: $component")
+    }
+
+    /**
      * Advances the startup sequence through its emotional stages.
-     * Uses intentional staggered delays to allow for "cognitive settling" and reduced system pressure.
+     * Uses intentional staggered delays combined with technical readiness signals.
      */
     fun start() {
         if (isStarted) return
@@ -59,8 +84,8 @@ class StartupCoordinator @Inject constructor(
             StartupTracer.mark("Startup Sequence Started")
             
             // PHASE 1: Immediate Core (Critical for UI availability)
-            // Still on Main thread but kept minimal
             initializeCore()
+            emitReadiness(StartupComponent.CORE)
             
             // STAGGER 1: Move to Presence after initial frame
             delay(500.milliseconds)
@@ -69,7 +94,8 @@ class StartupCoordinator @Inject constructor(
             
             // PHASE 2: Deferred & Background Initialization
             launch(Dispatchers.Default) {
-                // SECURITY: Delay slightly to avoid blocking first frame
+                // SECURITY: Wait for core and then install
+                awaitReadiness(StartupComponent.CORE)
                 delay(400.milliseconds) 
                 initializeSecurityProvider()
                 
@@ -79,23 +105,30 @@ class StartupCoordinator @Inject constructor(
                 StartupTracer.mark("Non-critical Services Initialized (Background)")
             }
 
+            // WAIT FOR AUTH before moving to Discovery
+            // This ensures we don't show the feed until we know who the user is
+            awaitReadiness(StartupComponent.AUTH)
+
             // STAGGER 2: Discovery (Partial Feed)
-            delay(1.seconds)
+            delay(500.milliseconds) // Reduced delay since we already waited for Auth
             _stage.value = StartupStage.DISCOVERY
             StartupTracer.mark("Transition: DISCOVERY")
 
+            // WAIT FOR DATABASE before Immersion (where comments/reactions live)
+            awaitReadiness(StartupComponent.DATABASE)
+
             // STAGGER 3: Immersion (Social/Reactions)
-            delay(1.seconds)
+            delay(500.milliseconds)
             _stage.value = StartupStage.IMMERSION
             StartupTracer.mark("Transition: IMMERSION")
 
             // STAGGER 4: Ritual (Media/Player)
-            delay(1500.milliseconds)
+            delay(1000.milliseconds)
             _stage.value = StartupStage.RITUAL
             StartupTracer.mark("Transition: RITUAL")
 
             // STAGGER 5: Stable (Full Fidelity)
-            delay(2.seconds)
+            delay(1.seconds)
             _stage.value = StartupStage.STABLE
             StartupTracer.mark("Transition: STABLE")
 
@@ -106,7 +139,6 @@ class StartupCoordinator @Inject constructor(
 
     private fun initializeCore() {
         Log.d("Startup", "Initializing Core Services (Sequenced)")
-        NotificationHelper.initNotificationChannels(context)
 
         // Initialize App Check synchronously to ensure tokens are ready before first network request
         try {
@@ -142,10 +174,13 @@ class StartupCoordinator @Inject constructor(
                     ProviderInstaller.installIfNeededAsync(context, object : ProviderInstaller.ProviderInstallListener {
                         override fun onProviderInstalled() {
                             Log.d("Startup", "Security provider initialized")
+                            emitReadiness(StartupComponent.SECURITY)
                         }
 
                         override fun onProviderInstallFailed(errorCode: Int, recoveryIntent: android.content.Intent?) {
                             Log.w("Startup", "Security provider failed: $errorCode")
+                            // We still emit readiness to unblock the sequence, but with a warning
+                            emitReadiness(StartupComponent.SECURITY)
                         }
                     })
                 }

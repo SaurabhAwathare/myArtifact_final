@@ -108,7 +108,7 @@ class UserRepository @Inject constructor(
                 message = "IDENTITY_REFRESHED|$newName|$newSigil" // UI layer will map this
             )
 
-            Result.success(getOrCreateProfile())
+            getOrCreateProfile()
         } catch (e: Exception) {
             Log.e("UserRepository", "refreshAnonymousIdentity failed for $userId", e)
             Result.failure(AppError.from(e))
@@ -193,72 +193,77 @@ class UserRepository @Inject constructor(
      * Checks if a username is available in Firestore.
      * Lightweight read-only check.
      */
-    suspend fun isUsernameAvailable(username: String): Boolean = withContext(Dispatchers.IO) {
-        if (username.isBlank()) return@withContext true
+    suspend fun isUsernameAvailable(username: String): Result<Boolean> = withContext(Dispatchers.IO) {
+        if (username.isBlank()) return@withContext Result.success(true)
         try {
             val doc = usernamesCollection.document(username.lowercase().trim()).get().await()
-            !doc.exists()
+            Result.success(!doc.exists())
         } catch (e: Exception) {
             Log.e("UserRepository", "Error checking username availability", e)
-            // Default to false on error to be safe, or true if we want to allow retry on submit
-            false
+            Result.failure(AppError.from(e))
         }
     }
 
-    suspend fun getOrCreateProfile(): User {
+    suspend fun getOrCreateProfile(): Result<User> = withContext(Dispatchers.IO) {
         // 1. Ensure Auth
-        val initialUser = auth.currentUser ?: throw IllegalStateException("Firebase Auth failed to provide a valid user.")
+        val initialUser = auth.currentUser ?: return@withContext Result.failure(AppError.Unauthenticated())
         
         try {
-            initialUser.reload().await()
-        } catch (e: Exception) {
-            Log.w("UserRepository", "Failed to reload user, might be deleted or session expired.", e)
-            auth.signOut()
-            throw e
-        }
-
-        val currentUser = auth.currentUser ?: throw IllegalStateException("Firebase Auth failed to provide a valid user after reload.")
-        val userRef = usersCollection.document(currentUser.uid)
-        val privateRef = userRef.collection("private").document("settings")
-
-        // 2. Atomic Check & Create via Transaction
-        return firestore.runTransaction { transaction ->
-            val snapshot = transaction[userRef]
-            
-            if (snapshot.exists()) {
-                // Safe deserialization
-                snapshot.toObject(User::class.java)?.copy(id = currentUser.uid)
-                    ?: throw IllegalStateException("User document exists but is malformed.")
-            } else {
-                // Initialize new fully anonymous profile
-                val anonymousId = "usr_${java.util.UUID.randomUUID().toString().take(5).uppercase()}"
-                val anonymousName = UsernameGenerator.generate()
-                val anonymousSigil = UsernameGenerator.deriveSigil(anonymousId)
-                val seed = java.util.UUID.randomUUID().toString()
-                
-                val newProfile = User(
-                    id = currentUser.uid,
-                    anonymousId = anonymousId,
-                    anonymousName = anonymousName,
-                    anonymousSigil = anonymousSigil,
-                    avatarSeed = seed,
-                    avatarConfig = AvatarConfig(seed = seed, theme = "AURIC"),
-                    isAnonymous = true,
-                    emotionalProfile = "New Soul"
-                )
-
-                val privateSettings = UserPrivateSettings(
-                    email = currentUser.email ?: "",
-                    realName = currentUser.displayName ?: "",
-                    isAdmin = false,
-                    accountStatus = "ACTIVE"
-                )
-
-                transaction[userRef] = newProfile
-                transaction[privateRef] = privateSettings
-                newProfile
+            try {
+                initialUser.reload().await()
+            } catch (e: Exception) {
+                Log.w("UserRepository", "Failed to reload user, might be deleted or session expired.", e)
+                auth.signOut()
+                return@withContext Result.failure(AppError.from(e))
             }
-        }.await()
+
+            val currentUser = auth.currentUser ?: return@withContext Result.failure(AppError.Unauthenticated())
+            val userRef = usersCollection.document(currentUser.uid)
+            val privateRef = userRef.collection("private").document("settings")
+
+            // 2. Atomic Check & Create via Transaction
+            val profile = firestore.runTransaction { transaction ->
+                val snapshot = transaction[userRef]
+                
+                if (snapshot.exists()) {
+                    // Safe deserialization
+                    snapshot.toObject(User::class.java)?.copy(id = currentUser.uid)
+                        ?: throw IllegalStateException("User document exists but is malformed.")
+                } else {
+                    // Initialize new fully anonymous profile
+                    val anonymousId = "usr_${java.util.UUID.randomUUID().toString().take(5).uppercase()}"
+                    val anonymousName = UsernameGenerator.generate()
+                    val anonymousSigil = UsernameGenerator.deriveSigil(anonymousId)
+                    val seed = java.util.UUID.randomUUID().toString()
+                    
+                    val newProfile = User(
+                        id = currentUser.uid,
+                        anonymousId = anonymousId,
+                        anonymousName = anonymousName,
+                        anonymousSigil = anonymousSigil,
+                        avatarSeed = seed,
+                        avatarConfig = AvatarConfig(seed = seed, theme = "AURIC"),
+                        isAnonymous = true,
+                        emotionalProfile = "New Soul"
+                    )
+
+                    val privateSettings = UserPrivateSettings(
+                        email = currentUser.email ?: "",
+                        realName = currentUser.displayName ?: "",
+                        isAdmin = false,
+                        accountStatus = "ACTIVE"
+                    )
+
+                    transaction[userRef] = newProfile
+                    transaction[privateRef] = privateSettings
+                    newProfile
+                }
+            }.await()
+            Result.success(profile)
+        } catch (e: Exception) {
+            Log.e("UserRepository", "getOrCreateProfile failed", e)
+            Result.failure(AppError.from(e))
+        }
     }
 
     /**
@@ -467,12 +472,18 @@ class UserRepository @Inject constructor(
         }
     }
 
-    suspend fun updateAvatarConfig(userId: String, config: AvatarConfig) = withContext(Dispatchers.IO) {
-        usersCollection.document(userId).update("avatarConfig", config).await()
-        notificationRepository.createNotification(
-            userId = userId,
-            message = "AVATAR_UPDATED"
-        )
+    suspend fun updateAvatarConfig(userId: String, config: AvatarConfig): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            usersCollection.document(userId).update("avatarConfig", config).await()
+            notificationRepository.createNotification(
+                userId = userId,
+                message = "AVATAR_UPDATED"
+            )
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("UserRepository", "updateAvatarConfig failed", e)
+            Result.failure(AppError.from(e))
+        }
     }
 
     /**
@@ -484,40 +495,44 @@ class UserRepository @Inject constructor(
         type: String, // "resonance_in" or "resonance_out"
         limit: Int = 20,
         lastVisible: DocumentSnapshot? = null
-    ): Result<Pair<List<User>, DocumentSnapshot?>> = withContext(Dispatchers.IO) {
-        try {
-            var query = usersCollection.document(userId.trim())
-                .collection(type)
-                .orderBy("createdAt", Query.Direction.DESCENDING)
-                .limit(limit.toLong())
+    ): Result<Pair<List<User>, DocumentSnapshot?>> {
+        return withContext(Dispatchers.IO) {
+            try {
+                var query = usersCollection.document(userId.trim())
+                    .collection(type)
+                    .orderBy("createdAt", Query.Direction.DESCENDING)
+                    .limit(limit.toLong())
 
-            lastVisible?.let { query = query.startAfter(it) }
+                lastVisible?.let { query = query.startAfter(it) }
 
-            val snapshot = query.get().await()
-            if (snapshot.isEmpty) return@withContext Result.success(emptyList<User>() to null)
+                val snapshot = query.get().await()
+                if (snapshot.isEmpty) return@withContext Result.success(emptyList<User>() to null)
 
-            val userIds = snapshot.documents.map { it.id }
-            
-            // Batch fetch User documents
-            // Note: whereIn has a limit of 10-30 depending on Firebase version, but typically 10 for many SDKs.
-            // We'll chunk if needed, but for a 20 limit we might need 2 chunks of 10.
-            val userChunks = userIds.chunked(10)
-            val users = mutableListOf<User>()
-            
-            for (chunk in userChunks) {
-                val userSnapshot = usersCollection.whereIn(FieldPath.documentId(), chunk).get().await()
-                users.addAll(userSnapshot.toObjects(User::class.java).mapIndexed { index, user ->
-                    user.copy(id = userSnapshot.documents[index].id)
-                })
+                val userIds = snapshot.documents.map { it.id }
+
+                // Batch fetch User documents
+                // Note: whereIn has a limit of 10-30 depending on Firebase version, but typically 10 for many SDKs.
+                // We'll chunk if needed, but for a 20 limit we might need 2 chunks of 10.
+                val userChunks = userIds.chunked(10)
+                val users = mutableListOf<User>()
+
+                for (chunk in userChunks) {
+                    val userSnapshot =
+                        usersCollection.whereIn(FieldPath.documentId(), chunk).get().await()
+                    users.addAll(
+                        userSnapshot.toObjects(User::class.java).mapIndexed { index, user ->
+                            user.copy(id = userSnapshot.documents[index].id)
+                        })
+                }
+
+                // Ensure order matches the resonance timestamp order
+                val orderedUsers = userIds.mapNotNull { id -> users.find { it.id == id } }
+
+                Result.success(orderedUsers to snapshot.documents.lastOrNull())
+            } catch (e: Exception) {
+                Log.e("UserRepository", "getResonanceUsers failed for $userId ($type)", e)
+                Result.failure(e)
             }
-
-            // Ensure order matches the resonance timestamp order
-            val orderedUsers = userIds.mapNotNull { id -> users.find { it.id == id } }
-
-            Result.success(orderedUsers to snapshot.documents.lastOrNull())
-        } catch (e: Exception) {
-            Log.e("UserRepository", "getResonanceUsers failed for $userId ($type)", e)
-            Result.failure(e)
         }
     }
 }

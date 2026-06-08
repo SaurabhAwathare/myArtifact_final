@@ -4,7 +4,6 @@ package com.saurabh.artifact.model
  * Represents a domain-specific error within the Artifact application.
  * Designed to separate user-facing messages from internal debugging details.
  */
-@Suppress("unused")
 sealed class AppError : Exception() {
     
     abstract val technicalMessage: String
@@ -32,12 +31,21 @@ sealed class AppError : Exception() {
         override val technicalMessage: String = "Network failure",
     ) : AppError()
 
+    data class NotFound(
+        val type: String,
+        val id: String,
+        override val technicalMessage: String = "$type with ID '$id' not found",
+    ) : AppError()
+
+    data class Conflict(
+        override val technicalMessage: String = "Operation conflict occurred",
+    ) : AppError()
+
     data class Unknown(
         val original: Throwable,
         override val technicalMessage: String = original.message ?: "An unknown error occurred",
     ) : AppError()
 
-    @Suppress("unused")
     data class InvalidInput(
         val details: String,
         override val technicalMessage: String = "Invalid input: $details",

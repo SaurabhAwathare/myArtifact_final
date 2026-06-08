@@ -4,6 +4,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.saurabh.artifact.data.local.ArtifactEngagement
 import com.saurabh.artifact.data.local.EngagementDao
 import com.saurabh.artifact.domain.review.EngagementEvidence
+import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.UserArtifactEngagement
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -18,23 +19,38 @@ class EngagementRepository @Inject constructor(
     private val authRepository: AuthRepository
 ) {
 
-    suspend fun getEngagement(artifactId: String): EngagementEvidence? {
-        return engagementDao.getEngagement(artifactId)?.toDomain()
+    suspend fun getEngagement(artifactId: String): Result<EngagementEvidence> = withContext(Dispatchers.IO) {
+        try {
+            val engagement = engagementDao.getEngagement(artifactId)?.toDomain()
+            if (engagement != null) {
+                Result.success(engagement)
+            } else {
+                Result.failure(AppError.NotFound("Engagement", artifactId))
+            }
+        } catch (e: Exception) {
+            Result.failure(AppError.from(e))
+        }
     }
 
-    suspend fun saveEngagement(evidence: EngagementEvidence) {
-        withContext(Dispatchers.IO) {
+    suspend fun saveEngagement(evidence: EngagementEvidence): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
             val entity = evidence.toEntity()
             engagementDao.insertEngagement(entity)
             
             // Sync to cloud if significant (e.g., furthest position updated)
             syncToCloud(entity)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(AppError.from(e))
         }
     }
 
-    suspend fun updateLastPosition(artifactId: String, positionMs: Long) {
-        withContext(Dispatchers.IO) {
+    suspend fun updateLastPosition(artifactId: String, positionMs: Long): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
             engagementDao.updateLastPosition(artifactId, positionMs)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(AppError.from(e))
         }
     }
 

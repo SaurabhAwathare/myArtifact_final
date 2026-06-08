@@ -3,6 +3,8 @@ package com.saurabh.artifact.ui.feed
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.FlowPreview
@@ -21,6 +23,8 @@ fun ViewportCoordinator(
     state: LazyListState,
     viewModel: FeedViewModel
 ) {
+    val currentViewModel by rememberUpdatedState(viewModel)
+
     LaunchedEffect(state) {
         snapshotFlow { state.layoutInfo.visibleItemsInfo }
             .debounce(300.milliseconds) // Wait for scrolling to slow down or stop
@@ -41,7 +45,7 @@ fun ViewportCoordinator(
                     val level = when {
                         // The most centered item gets FULL hydration
                         distanceFromCenter < item.size / 2 -> {
-                            viewModel.onArtifactFocused(key) // Trigger heavy data load
+                            currentViewModel.onArtifactFocused(key) // Trigger heavy data load
                             HydrationLevel.FULL
                         }
                         // Immediately visible items get ENRICHED
@@ -51,11 +55,11 @@ fun ViewportCoordinator(
                     }
                     
                     updates[key] = level
-                    viewModel.hydrateArtifact(key) // Mark as basic hydrated
+                    currentViewModel.hydrateArtifact(key) // Mark as basic hydrated
                 }
                 
                 if (updates.isNotEmpty()) {
-                    viewModel.updateHydrationLevels(updates)
+                    currentViewModel.updateHydrationLevels(updates)
                 }
             }
     }

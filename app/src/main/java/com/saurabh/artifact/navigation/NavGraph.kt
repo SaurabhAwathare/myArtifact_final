@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.Composable
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
+import androidx.navigation.navigation
 import com.saurabh.artifact.audio.RecordingSessionManager
 import com.saurabh.artifact.navigation.features.authNavigation
 import com.saurabh.artifact.navigation.features.feedNavigation
@@ -19,7 +20,7 @@ import com.saurabh.artifact.util.OnboardingManager
 @Composable
 fun NavGraph(
     navController: NavHostController,
-    startDestination: String,
+    startDestination: Any,
     recordingSessionManager: RecordingSessionManager,
     onboardingManager: OnboardingManager,
     onReportArtifact: (String) -> Unit,
@@ -68,9 +69,17 @@ fun NavGraph(
             )
         }
     ) {
-        authNavigation(navController, onboardingManager)
-        feedNavigation(navController, recordingSessionManager, onReportArtifact, onPlayArtifactById)
-        profileNavigation(navController)
-        recordingNavigation(navController)
+        navigation<AuthGraph>(startDestination = Onboarding) {
+            authNavigation(navController, onboardingManager)
+        }
+
+        navigation<MainGraph>(startDestination = Home) {
+            feedNavigation(navController, recordingSessionManager, onReportArtifact, onPlayArtifactById)
+            profileNavigation(navController)
+        }
+
+        navigation<RecordingGraph>(startDestination = DraftList) {
+            recordingNavigation(navController)
+        }
     }
 }

@@ -8,6 +8,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
@@ -45,12 +46,12 @@ val LocalArtifactColors = staticCompositionLocalOf {
     )
 }
 
-val LocalStartupStage = staticCompositionLocalOf { StartupStage.ARRIVAL }
+val LocalStartupStage = compositionLocalOf { StartupStage.ARRIVAL }
 
 /**
  * Provides the current authenticated user's profile globally.
  */
-val LocalUserProfile = staticCompositionLocalOf<com.saurabh.artifact.model.User?> { null }
+val LocalUserProfile = compositionLocalOf<com.saurabh.artifact.model.User?> { null }
 
 private val DarkColorScheme = darkColorScheme(
     primary = GoldAura500,

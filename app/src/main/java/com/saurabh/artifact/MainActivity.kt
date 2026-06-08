@@ -8,8 +8,8 @@ import android.os.Bundle
 import android.util.Log
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Box
@@ -17,18 +17,19 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.rememberNavController
 import com.saurabh.artifact.audio.PublishStateManager
 import com.saurabh.artifact.audio.RecordingSessionManager
-import com.saurabh.artifact.navigation.NavGraph
-import com.saurabh.artifact.navigation.Screen
+import com.saurabh.artifact.navigation.*
 import com.saurabh.artifact.startup.StartupStage
 import com.saurabh.artifact.ui.components.GlobalOverlayHost
 import com.saurabh.artifact.ui.components.moderation.ReportSheet
@@ -40,7 +41,6 @@ import com.saurabh.artifact.ui.theme.LocalStartupStage
 import com.saurabh.artifact.ui.theme.LocalUserProfile
 import com.saurabh.artifact.util.OnboardingManager
 import dagger.hilt.android.AndroidEntryPoint
-import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -54,8 +54,18 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var onboardingManager: OnboardingManager
 
+    @Inject
+    lateinit var publishStateManager: PublishStateManager
+
     override fun onCreate(savedInstanceState: Bundle?) {
+        val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
+        
+        // Hold the splash screen until we know where to go (Auth ready)
+        splashScreen.setKeepOnScreenCondition {
+            mainViewModel.startupState.value is AppStartupState.Initializing
+        }
+
         println("ReviewDebug: MainActivity onCreate - println test")
         Log.d("ReviewDebug", "MainActivity onCreate - APP STARTED")
         
@@ -70,7 +80,7 @@ class MainActivity : ComponentActivity() {
         // Begin deterministic initialization
         mainViewModel.start()
         
-        // enableEdgeToEdge() // Temporarily disabled to fix black screen issues
+        enableEdgeToEdge()
         
         observeStealthMode()
 
@@ -81,7 +91,8 @@ class MainActivity : ComponentActivity() {
                 AppRoot(
                     mainViewModel = mainViewModel, 
                     recordingSessionManager = recordingSessionManager,
-                    onboardingManager = onboardingManager
+                    onboardingManager = onboardingManager,
+                    publishStateManager = publishStateManager,
                 )
             }
         }
@@ -124,19 +135,16 @@ class MainActivity : ComponentActivity() {
 fun AppRoot(
     mainViewModel: MainViewModel,
     recordingSessionManager: RecordingSessionManager,
-    onboardingManager: OnboardingManager
+    onboardingManager: OnboardingManager,
+    publishStateManager: PublishStateManager
 ) {
     // Only collect the essential stage at the root
     val stage by mainViewModel.startupStage.collectAsStateWithLifecycle()
     val userProfile by mainViewModel.currentUserProfile.collectAsStateWithLifecycle()
 
-    Log.d("PERF_DEBUG", "AppRoot Recomposed. Stage: $stage")
-
-    val activity = LocalActivity.current ?: return
-    val publishStateManager = EntryPointAccessors.fromActivity(
-        activity,
-        MainActivityEntryPoint::class.java
-    ).publishStateManager()
+    SideEffect {
+        Log.d("PERF_DEBUG", "AppRoot Recomposed. Stage: $stage")
+    }
 
     CompositionLocalProvider(
         LocalStartupStage provides stage,
@@ -151,12 +159,6 @@ fun AppRoot(
             onboardingManager = onboardingManager
         )
     }
-}
-
-@dagger.hilt.EntryPoint
-@dagger.hilt.InstallIn(dagger.hilt.android.components.ActivityComponent::class)
-interface MainActivityEntryPoint {
-    fun publishStateManager(): PublishStateManager
 }
 
 @Composable
@@ -211,13 +213,13 @@ fun AuthenticatedIsland(
                             recordingSessionManager = recordingSessionManager,
                             publishStateManager = publishStateManager,
                             onNavigateToDraftEdit = { draftId ->
-                                navController.navigate(Screen.RecordingReview.createRoute(draftId))
+                                navController.navigate(RecordingReview(draftId))
                             },
                             onNavigateToPublish = { draftId ->
-                                navController.navigate(Screen.PublishPreparation.createRoute(draftId))
+                                navController.navigate(PublishPreparation(draftId))
                             },
                             onNavigateToComments = { artifactId, userId ->
-                                navController.navigate(Screen.Comments.createRoute(artifactId, userId))
+                                navController.navigate(Comments(artifactId, userId))
                             },
                             onReportArtifact = { mainViewModel.showReportSheet(it) },
                             playerViewModel = playerViewModel

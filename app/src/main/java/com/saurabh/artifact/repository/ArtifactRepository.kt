@@ -82,18 +82,27 @@ class ArtifactRepository @Inject constructor(
         }
     }
 
-    /**
-     * Cleans up old cached artifacts to prevent local DB growth.
-     */
-    suspend fun runCacheCleanup() = withContext(Dispatchers.IO) {
-        // Keep artifacts from the last 14 days
-        val twoWeeksAgo = System.currentTimeMillis() - (14 * 24 * 60 * 60 * 1000L)
-        artifactDao.deleteOldArtifacts(twoWeeksAgo)
+    suspend fun runCacheCleanup(): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            // Keep artifacts from the last 14 days
+            val twoWeeksAgo = System.currentTimeMillis() - (14 * 24 * 60 * 60 * 1000L)
+            artifactDao.deleteOldArtifacts(twoWeeksAgo)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(AppError.from(e))
+        }
     }
 
-    suspend fun getArtifactDetail(artifactId: String): ArtifactDetail = withContext(Dispatchers.IO) {
-        val doc = firestore.collection("artifacts").document(artifactId).get().await()
-        return@withContext mapDocumentToArtifactDetail(doc)
+    suspend fun getArtifactDetail(artifactId: String): Result<ArtifactDetail> = withContext(Dispatchers.IO) {
+        try {
+            val doc = firestore.collection("artifacts").document(artifactId).get().await()
+            if (!doc.exists()) {
+                return@withContext Result.failure(AppError.NotFound("ArtifactDetail", artifactId))
+            }
+            Result.success(mapDocumentToArtifactDetail(doc))
+        } catch (e: Exception) {
+            Result.failure(AppError.from(e))
+        }
     }
 
     private suspend fun mapDocumentToArtifactDetail(doc: com.google.firebase.firestore.DocumentSnapshot): ArtifactDetail = withContext(Dispatchers.Default) {
@@ -145,34 +154,38 @@ class ArtifactRepository @Inject constructor(
         awaitClose { subscription.remove() }
     }
 
-    suspend fun getArtifactById(artifactId: String, forceRefresh: Boolean = false): Artifact? = withContext(Dispatchers.IO) {
-        // 1. Try local cache first if not forcing refresh
-        if (!forceRefresh) {
-            val local = artifactDao.getArtifactById(artifactId)
-            if (local != null) {
-                // HARDENING: Implement 2-hour TTL for metadata freshness
-                val twoHoursMillis = 2 * 60 * 60 * 1000L
-                if (System.currentTimeMillis() - local.lastUpdated < twoHoursMillis) {
-                    return@withContext mapArtifactEntityToArtifact(local)
-                } else {
-                    Log.d("ArtifactRepository", "Cache expired for $artifactId, refreshing from Firestore")
+    suspend fun getArtifactById(artifactId: String, forceRefresh: Boolean = false): Result<Artifact> = withContext(Dispatchers.IO) {
+        try {
+            // 1. Try local cache first if not forcing refresh
+            if (!forceRefresh) {
+                val local = artifactDao.getArtifactById(artifactId)
+                if (local != null) {
+                    // HARDENING: Implement 2-hour TTL for metadata freshness
+                    val twoHoursMillis = 2 * 60 * 60 * 1000L
+                    if (System.currentTimeMillis() - local.lastUpdated < twoHoursMillis) {
+                        return@withContext Result.success(mapArtifactEntityToArtifact(local))
+                    } else {
+                        Log.d("ArtifactRepository", "Cache expired for $artifactId, refreshing from Firestore")
+                    }
                 }
             }
-        }
 
-        // 2. Fallback to Firestore (or forced refresh)
-        return@withContext try {
+            // 2. Fallback to Firestore (or forced refresh)
             val doc = firestore.collection("artifacts").document(artifactId).get().await()
             if (doc.exists()) {
                 val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
                 if (artifact != null) {
                     // Update local cache
                     artifactDao.insertAll(listOf(mapArtifactToEntity(artifact)))
-                    artifact
-                } else null
-            } else null
-        } catch (_: Exception) {
-            null
+                    Result.success(artifact)
+                } else {
+                    Result.failure(AppError.NotFound("Artifact", artifactId))
+                }
+            } else {
+                Result.failure(AppError.NotFound("Artifact", artifactId))
+            }
+        } catch (e: Exception) {
+            Result.failure(AppError.from(e))
         }
     }
 
@@ -507,52 +520,16 @@ class ArtifactRepository @Inject constructor(
         }
     }
 
-    /**
-     * Fetches a batch of raw candidates for client-side ranking.
-     */
-    suspend fun getCandidateArtifacts(userId: String? = null, limit: Long = 50): List<Artifact> = withContext(Dispatchers.IO) {
-        return@withContext try {
-            val snapshot = firestore.collection("artifacts")
-                .whereEqualTo("isPublic", true)
-                .whereEqualTo("status", ArtifactStatus.ACTIVE.name)
-                .orderBy("createdAt", Query.Direction.DESCENDING)
-                .limit(limit)
-                .get()
-                .await()
-            
-            withContext(Dispatchers.Default) {
-                snapshot.documents
-                    .mapNotNull { doc ->
-                        val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
-                        
-                        // Moderation Filter: Hide if HIDDEN or if reports are high (even if AI missed it)
-                        val reportCount = doc.getLong("reportCount") ?: 0L
-                        val reporterIds = doc["reporterIds"] as? List<*> ?: emptyList<String>()
-                        val modStatus = artifact?.moderation?.status ?: ModerationStatus.SAFE
-                        
-                        if (modStatus == ModerationStatus.HIDDEN || reportCount >= 3L || (userId != null && reporterIds.contains(userId)) || artifact?.audioUrl.isNullOrEmpty()) {
-                            null
-                        } else {
-                            // HARDENING: Slim artifacts before they hit the view layer
-                            artifact.slimForFeed()
-                        }
-                    }
-            }
-        } catch (e: Exception) {
-            Log.e("ArtifactRepository", "Error fetching candidates", e)
-            emptyList()
-        }
-    }
-
-    suspend fun recordPlay(userId: String?, emotion: String) {
-        if (emotion.isEmpty()) return
+    suspend fun recordPlay(userId: String?, emotion: String): Result<Unit> = withContext(Dispatchers.IO) {
+        if (emotion.isEmpty()) return@withContext Result.success(Unit)
         
-        // 1. Persist locally for immediate personalization (AppSearch)
-        personalizationEngine.get().recordInteraction(emotion)
-
-        // 2. Persist to Firestore if authenticated
-        if (userId == null) return
         try {
+            // 1. Persist locally for immediate personalization (AppSearch)
+            personalizationEngine.get().recordInteraction(emotion)
+
+            // 2. Persist to Firestore if authenticated
+            if (userId == null) return@withContext Result.success(Unit)
+            
             val userRef = firestore.collection("users").document(userId)
             firestore.runTransaction { transaction ->
                 val userDoc = transaction[userRef]
@@ -564,8 +541,10 @@ class ArtifactRepository @Inject constructor(
                     transaction.update(userRef, "emotionPreferences", newPrefs)
                 }
             }.await()
+            Result.success(Unit)
         } catch (e: Exception) {
             Log.e("ArtifactRepository", "Error recording play", e)
+            Result.failure(AppError.from(e))
         }
     }
 

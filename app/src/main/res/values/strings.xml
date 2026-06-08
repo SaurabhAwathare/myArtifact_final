@@ -14,7 +14,6 @@
     <string name="removed_from_journey">The reflection has been set free from your journey.</string>
     <string name="export_ready">Your reflections are ready for their journey.</string>
     <string name="export_failed">The journey was interrupted. Please try again.</string>
-    <string name="quiet_moment_interrupted">A quiet moment was interrupted. Please try again.</string>
     <string name="no_voice_yet">This reflection hasn\'t found its voice yet.</string>
     <string name="presence_needs_reaffirmation">Your presence needs to be reaffirmed.</string>
     <string name="presence_ritual_failed">The ritual could not be completed at this time.</string>

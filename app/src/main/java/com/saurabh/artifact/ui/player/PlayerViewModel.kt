@@ -215,11 +215,7 @@ class PlayerViewModel @Inject constructor(
         val artifact = uiState.value.currentArtifact ?: return
 
         viewModelScope.launch {
-            try {
-                playerInteractionUseCase.toggleSave(artifact)
-            } catch (e: Exception) {
-                _interactionError.emit("Could not preserve: ${e.message}")
-            }
+            playerInteractionUseCase.toggleSave(artifact)
         }
     }
 

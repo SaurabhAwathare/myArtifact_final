@@ -195,7 +195,8 @@ fun FeedScreen(
 @Composable
 private fun FeedTopBar(
     onNavigateToNotifications: () -> Unit,
-    onNavigateToProfile: () -> Unit
+    onNavigateToProfile: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val currentUser = ArtifactTheme.currentUser
 
@@ -226,7 +227,8 @@ private fun FeedTopBar(
             containerColor = MaterialTheme.colorScheme.background.copy(alpha = 0.95f),
             titleContentColor = MaterialTheme.colorScheme.onBackground,
             actionIconContentColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
-        )
+        ),
+        modifier = modifier
     )
 }
 
@@ -235,9 +237,10 @@ private fun FeedVibeHeader(
     selectedEmotion: String?,
     showRankedFeed: Boolean,
     onToggleFeed: (Boolean) -> Unit,
-    onEmotionSelect: (String?) -> Unit
+    onEmotionSelect: (String?) -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    Column(modifier = Modifier.padding(bottom = 8.dp)) {
+    Column(modifier = modifier.padding(bottom = 8.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.Start,
@@ -295,13 +298,17 @@ private fun FeedContent(
     stage: StartupStage,
     onNavigateToRecord: (String?) -> Unit,
     onReportClick: (String) -> Unit,
-    onNavigateToComments: (String, String) -> Unit
+    onNavigateToComments: (String, String) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val currentArtifacts = if (showRankedFeed) forYouArtifacts else recentArtifacts
     val isEmpty = currentArtifacts.itemCount == 0
     val isRefreshing = currentArtifacts.loadState.refresh is LoadState.Loading
 
-    FadeInContent(visible = !isRankedLoading || !isEmpty) {
+    FadeInContent(
+        visible = !isRankedLoading || !isEmpty,
+        modifier = modifier
+    ) {
         if (isEmpty) {
             if (isRefreshing || isRankedLoading) {
                 FeedLoadingState()
@@ -388,14 +395,18 @@ fun FeedHeader(
     viewModel: FeedViewModel, 
     reflectionPrompt: ReflectionPrompt?, 
     stage: StartupStage,
-    onNavigateToRecord: (String?) -> Unit
+    onNavigateToRecord: (String?) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val isPromptLoading by viewModel.isPromptLoading.collectAsStateWithLifecycle()
     val safetyLevel by viewModel.safetyLevel.collectAsStateWithLifecycle()
     val isCrisis by viewModel.isCrisis.collectAsStateWithLifecycle()
     val context = LocalContext.current
     
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
         if (isCrisis) {
             CrisisSupportCard(
                 onCallHelp = { 
@@ -434,6 +445,7 @@ fun ArtifactItem(
     viewModel: FeedViewModel,
     onReportClick: (String) -> Unit,
     onNavigateToComments: (String, String) -> Unit,
+    modifier: Modifier = Modifier,
     feedArtifact: FeedArtifact? = null
 ) {
     // Isolated State Collection: This item ONLY recomposes when its specific artifact data or status changes
@@ -480,7 +492,8 @@ fun ArtifactItem(
                 onFeedbackClick = { viewModel.submitFeedback(artifactId, FeedbackType.NOT_FOR_ME) },
                 onSettingsClick = { viewModel.showSettingsComingSoon() },
                 onCommentClick = { onNavigateToComments(artifactId, art.userId) },
-                currentUserId = viewModel.currentUserId
+                currentUserId = viewModel.currentUserId,
+                modifier = modifier
             )
         } else {
             ArtifactCard(
@@ -496,7 +509,8 @@ fun ArtifactItem(
                 onFeedbackClick = { viewModel.submitFeedback(artifactId, FeedbackType.NOT_FOR_ME) },
                 onSettingsClick = { viewModel.showSettingsComingSoon() },
                 onCommentClick = { onNavigateToComments(artifactId, art.userId) },
-                currentUserId = viewModel.currentUserId
+                currentUserId = viewModel.currentUserId,
+                modifier = modifier
             )
         }
     }
@@ -600,9 +614,11 @@ private fun NewContentIndicator(
 }
 
 @Composable
-fun LoadingIndicator() {
+fun LoadingIndicator(
+    modifier: Modifier = Modifier
+) {
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(16.dp),
         contentAlignment = Alignment.Center

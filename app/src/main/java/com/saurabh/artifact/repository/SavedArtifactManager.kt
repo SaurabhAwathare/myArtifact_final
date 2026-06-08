@@ -70,14 +70,14 @@ class SavedArtifactManager @Inject constructor(
                 } else {
                     _savedIds.value - artifact.id
                 }
-                _events.emit(SavedEvent.Failure(isSaved = !isSaved))
+                _events.emit(SavedEvent.Failure)
             }
         }
     }
 
     sealed class SavedEvent {
         data class Success(val isSaved: Boolean) : SavedEvent()
-        data class Failure(val isSaved: Boolean) : SavedEvent()
+        object Failure : SavedEvent()
     }
 
     fun isSaved(artifactId: String): Flow<Boolean> {

@@ -5,6 +5,7 @@ import androidx.paging.PagingState
 import com.google.firebase.firestore.DocumentSnapshot
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.repository.FeedRepository
+import com.saurabh.artifact.repository.PaginatedArtifacts
 import com.saurabh.artifact.service.FeedRanker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -35,13 +36,13 @@ class PersonalizedPagingSource(
                     userId = userId,
                     limit = pageSize,
                     lastVisible = key.resonatedLast
-                )
+                ).getOrDefault(PaginatedArtifacts(emptyList(), null))
 
                 val discoveryResult = feedRepository.getDiscoveryCandidates(
                     userId = userId,
                     limit = pageSize,
                     lastVisible = key.discoveryLast
-                )
+                ).getOrDefault(PaginatedArtifacts(emptyList(), null))
 
                 val combined = (resonatedResult.artifacts + discoveryResult.artifacts)
                     .distinctBy { it.id }

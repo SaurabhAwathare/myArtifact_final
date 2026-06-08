@@ -14,8 +14,8 @@ sealed class PublishState {
 
     @Serializable
     data class Idle(
-        override val draftId: String,
-        override val title: String
+        override val draftId: String = "",
+        override val title: String = ""
     ) : PublishState()
 
     @Serializable
@@ -43,7 +43,7 @@ sealed class PublishState {
     data class Published(
         override val draftId: String,
         override val title: String,
-        val remoteId: String
+        val artifactId: String
     ) : PublishState()
 
     @Serializable

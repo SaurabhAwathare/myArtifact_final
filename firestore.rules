@@ -12,8 +12,7 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isAuth() &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)/private/settings).data.isAdmin == true;
+      return isAuth() && exists(/databases/$(database)/documents/users/$(request.auth.uid)/private/settings) && get(/databases/$(database)/documents/users/$(request.auth.uid)/private/settings).data.isAdmin == true;
     }
 
     // --- USERS & PROFILES ---
@@ -56,7 +55,7 @@ service cloud.firestore {
     // --- ARTIFACTS (The Hearth) ---
     match /artifacts/{artifactId} {
       // Ensure only sanitized artifacts (using AuthorSnapshot) are publicly readable
-      allow read: if (resource.data.isPublic == true && resource.data.keys().hasAll(['author'])) ||
+      allow read: if (resource.data.isPublic == true) ||
                    isOwner(resource.data.userId) ||
                    isAdmin();
 
@@ -154,6 +153,11 @@ service cloud.firestore {
     match /listening_sessions/{sessionId} {
       allow read, write: if isAuth() && request.auth.uid == resource.data.userId;
       allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
+    }
+
+    // --- RECOMMENDATION PROFILES ---
+    match /recommendation_profiles/{uid} {
+      allow read: if isOwner(uid);
     }
   }
 }

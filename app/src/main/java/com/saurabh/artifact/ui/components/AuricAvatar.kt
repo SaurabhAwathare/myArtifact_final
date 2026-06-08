@@ -1,8 +1,8 @@
 package com.saurabh.artifact.ui.components
 
 import androidx.compose.animation.core.*
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -46,17 +46,22 @@ fun AuricAvatar(
         label = "rotation"
     )
 
-    val animationState = if (isStatic) {
-        AvatarAnimationState()
-    } else {
-        AvatarAnimationState(pulse = pulse, rotation = rotation)
+    val animationState = remember(isStatic) {
+        if (isStatic) {
+            AvatarAnimationState()
+        } else {
+            AvatarAnimationState(
+                pulse = { pulse },
+                rotation = { rotation }
+            )
+        }
     }
 
     Box(modifier = modifier.size(size)) {
-        Canvas(modifier = Modifier.size(size)) {
-            with(renderer) {
-                render(config, animationState)
-            }
-        }
+        renderer.Render(
+            config = config,
+            animationState = animationState,
+            modifier = Modifier.fillMaxSize()
+        )
     }
 }

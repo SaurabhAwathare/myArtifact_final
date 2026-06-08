@@ -115,18 +115,20 @@ class ReviewAuthorityService @Inject constructor(
         // Observe Seeks
         scope.launch {
             playbackSessionManager.seekEvent.collect { position ->
-                activeTracker?.onSeekPerformed(position)
+                activeTracker?.onSeekPerformed()
             }
         }
     }
 
     private suspend fun initializeSession(artifact: Artifact) {
-        val evidence = engagementRepository.getEngagement(artifact.id) ?: EngagementEvidence(
-            artifactId = artifact.id,
-            versionTag = "v1",
-            durationMs = artifact.durationMs,
-            audioChecksum = artifact.checksum,
-        )
+        val evidence = engagementRepository.getEngagement(artifact.id).getOrElse {
+            EngagementEvidence(
+                artifactId = artifact.id,
+                versionTag = "v1",
+                durationMs = artifact.durationMs,
+                audioChecksum = artifact.checksum,
+            )
+        }
 
         activeTracker = DefaultReviewTracker(
             initialEvidence = evidence,

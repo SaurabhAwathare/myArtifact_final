@@ -2,10 +2,9 @@ package com.saurabh.artifact.navigation.features
 
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
-import androidx.navigation.NavType
 import androidx.navigation.compose.composable
-import androidx.navigation.navArgument
-import com.saurabh.artifact.navigation.Screen
+import androidx.navigation.toRoute
+import com.saurabh.artifact.navigation.*
 import com.saurabh.artifact.ui.avatar.AvatarEditorScreen
 import com.saurabh.artifact.ui.avatar.PresenceBuilderScreen
 import com.saurabh.artifact.ui.identity.IdentitySelectionScreen
@@ -23,89 +22,72 @@ fun NavGraphBuilder.profileNavigation(
     }
 
     val onNavigateToIdentity = {
-        navController.navigate(Screen.IdentitySelection.route)
+        navController.navigate(IdentitySelection)
     }
 
     val onNavigateToSettings = {
-        navController.navigate(Screen.Settings.route)
+        navController.navigate(Settings)
     }
 
     val onNavigateToAvatarEditor = {
-        navController.navigate(Screen.AvatarEditor.route)
+        navController.navigate(AvatarEditor)
     }
 
     val onNavigateToComments = { artifactId: String, ownerId: String ->
-        navController.navigate(Screen.Comments.createRoute(artifactId, ownerId))
+        navController.navigate(Comments(artifactId, ownerId))
     }
 
     val onLogout = {
-        navController.navigate(Screen.Login.route) {
-            popUpTo(Screen.Login.route) { inclusive = true }
+        navController.navigate(Login) {
+            popUpTo(Login) { inclusive = true }
             launchSingleTop = true
         }
     }
 
-    composable(
-        route = Screen.Profile.ROUTE_TEMPLATE,
-        arguments = listOf(
-            navArgument("userId") {
-                type = NavType.StringType
-                nullable = true
-                defaultValue = null
-            }
-        )
-    ) { backStackEntry ->
-        val userId = backStackEntry.arguments?.getString("userId")
+    composable<Profile> { backStackEntry ->
+        val profile = backStackEntry.toRoute<Profile>()
         ProfileScreen(
-            userId = userId,
+            userId = profile.userId,
             onLogout = onLogout,
             onBack = onBack,
             onEditIdentity = onNavigateToIdentity,
             onNavigateToSettings = onNavigateToSettings,
             onNavigateToReview = { draftId ->
-                navController.navigate(Screen.RecordingReview.createRoute(draftId))
+                navController.navigate(RecordingReview(draftId))
             },
             onNavigateToResonanceList = { id, type, title ->
-                navController.navigate(Screen.ResonanceList.createRoute(id, type, title))
+                navController.navigate(ResonanceList(id, type, title))
             },
             onNavigateToComments = onNavigateToComments
         )
     }
 
-    composable(
-        route = Screen.ResonanceList.route,
-        arguments = listOf(
-            navArgument("userId") { type = NavType.StringType },
-            navArgument("type") { type = NavType.StringType },
-            navArgument("title") { 
-                type = NavType.StringType
-                nullable = true
-                defaultValue = "Resonators"
-            }
-        )
-    ) {
+    composable<ResonanceList> {
+        // We don't strictly need to extract them here if ResonanceListScreen uses ViewModel with SavedStateHandle
+        // but for consistency:
+        // val resonance = it.toRoute<ResonanceList>()
         ResonanceListScreen(
             onBack = onBack,
             onUserClick = { clickedUserId ->
-                navController.navigate(Screen.Profile.createRoute(clickedUserId))
+                navController.navigate(Profile(clickedUserId))
             }
         )
     }
 
-    composable(Screen.Settings.route) {
+    composable<Settings> {
         SettingsScreen(
             onBackClick = onBack,
             onLogoutSuccess = onLogout
         )
     }
 
-    composable(Screen.Moderation.route) {
+    composable<Moderation> {
         ModerationScreen(
             onBack = onBack
         )
     }
 
-    composable(Screen.IdentitySelection.route) {
+    composable<IdentitySelection> {
         IdentitySelectionScreen(
             onComplete = onBack,
             onBack = onBack,
@@ -113,14 +95,14 @@ fun NavGraphBuilder.profileNavigation(
         )
     }
 
-    composable(Screen.AvatarEditor.route) {
+    composable<AvatarEditor> {
         AvatarEditorScreen(
             onBack = onBack,
             onComplete = onBack
         )
     }
 
-    composable(Screen.PresenceBuilder.route) {
+    composable<PresenceBuilder> {
         PresenceBuilderScreen(
             onBack = onBack,
             onComplete = onBack

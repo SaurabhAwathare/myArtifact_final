@@ -136,7 +136,7 @@ class RecordingSessionManager @Inject constructor(
         var draft = draftDao.getDraftById(draftId)
         if (draft == null) {
             val file = localDraftManager.createDraftFile(draftId, "wav")
-            recordingRepository.createDraft(draftId, file.absolutePath, 0)
+            recordingRepository.createDraft(draftId, file.absolutePath, 0).getOrThrow()
             draft = draftDao.getDraftById(draftId)
         }
         

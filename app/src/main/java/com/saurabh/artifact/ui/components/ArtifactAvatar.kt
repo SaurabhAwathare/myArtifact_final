@@ -1,8 +1,8 @@
 package com.saurabh.artifact.ui.components
 
 import androidx.compose.animation.core.*
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -51,14 +51,14 @@ fun ArtifactAvatar(
     val animationState = if (isStatic) {
         AvatarAnimationState()
     } else {
-        AvatarAnimationState(pulse = pulse, rotation = rotation)
+        AvatarAnimationState(pulse = { pulse }, rotation = { rotation })
     }
 
     Box(modifier = modifier.size(size)) {
-        Canvas(modifier = Modifier.size(size)) {
-            with(renderer) {
-                render(config, animationState)
-            }
-        }
+        renderer.Render(
+            config = config,
+            animationState = animationState,
+            modifier = Modifier.fillMaxSize()
+        )
     }
 }

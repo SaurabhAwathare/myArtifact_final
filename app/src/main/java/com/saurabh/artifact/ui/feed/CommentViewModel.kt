@@ -82,24 +82,28 @@ class CommentViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isSubmitting = true, errorMessage = null) }
             
-            val user = userRepository.getOrCreateProfile()
-            
-            val result = repository.submitReflection(
-                artifactId = artifactId,
-                userId = auth.currentUserId,
-                content = content,
-                visibility = visibility,
-                authorType = authorType,
-                revealAt = revealAt,
-                authorName = if (authorType == AuthorType.PSEUDONYM) user.anonymousName else "Quiet Presence",
-                authorAvatarSeed = if (authorType == AuthorType.PSEUDONYM) user.avatarSeed else "ANONYMOUS_AURA"
-            )
+            userRepository.getOrCreateProfile()
+                .onSuccess { user ->
+                    val result = repository.submitReflection(
+                        artifactId = artifactId,
+                        userId = auth.currentUserId,
+                        content = content,
+                        visibility = visibility,
+                        authorType = authorType,
+                        revealAt = revealAt,
+                        authorName = if (authorType == AuthorType.PSEUDONYM) user.anonymousName else "Quiet Presence",
+                        authorAvatarSeed = if (authorType == AuthorType.PSEUDONYM) user.avatarSeed else "ANONYMOUS_AURA"
+                    )
 
-            if (result.isSuccess) {
-                _uiState.update { it.copy(isSubmitting = false, submissionSuccess = true) }
-            } else {
-                _uiState.update { it.copy(isSubmitting = false, errorMessage = result.exceptionOrNull()?.message) }
-            }
+                    if (result.isSuccess) {
+                        _uiState.update { it.copy(isSubmitting = false, submissionSuccess = true) }
+                    } else {
+                        _uiState.update { it.copy(isSubmitting = false, errorMessage = result.exceptionOrNull()?.message) }
+                    }
+                }
+                .onFailure { e ->
+                    _uiState.update { it.copy(isSubmitting = false, errorMessage = e.message) }
+                }
         }
     }
 

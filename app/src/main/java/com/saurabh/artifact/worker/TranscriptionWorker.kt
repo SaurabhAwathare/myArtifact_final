@@ -21,6 +21,7 @@ import java.io.File
  * Background worker to handle audio transcription and emotional analysis.
  * Uses a local-first approach with cloud fallback potential.
  */
+@Suppress("SameReturnValue", "SameReturnValue")
 @HiltWorker
 class TranscriptionWorker @AssistedInject constructor(
     @Assisted appContext: Context,
@@ -31,7 +32,7 @@ class TranscriptionWorker @AssistedInject constructor(
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val draftId = inputData.getString(KEY_DRAFT_ID) ?: return@withContext Result.failure()
-        val draft = recordingRepository.getDraft(draftId) ?: return@withContext Result.failure()
+        val draft = recordingRepository.getDraft(draftId).getOrNull() ?: return@withContext Result.failure()
         val file = File(draft.localAudioPath)
 
         if (!file.exists()) {
@@ -83,9 +84,9 @@ class TranscriptionWorker @AssistedInject constructor(
     }
 
     private suspend fun updateSubState(id: String, stage: com.saurabh.artifact.model.ProcessingStage?, error: String? = null) {
-        recordingRepository.getDraft(id)?.let { draft ->
+        recordingRepository.getDraft(id).onSuccess { draft ->
             val newProcessing = when {
-                error != null -> com.saurabh.artifact.model.ProcessingStatus.Failed()
+                error != null -> com.saurabh.artifact.model.ProcessingStatus.Failed
                 stage != null -> com.saurabh.artifact.model.ProcessingStatus.Active(stage)
                 else -> com.saurabh.artifact.model.ProcessingStatus.Idle
             }

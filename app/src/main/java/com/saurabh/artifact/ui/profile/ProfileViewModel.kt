@@ -196,28 +196,28 @@ class ProfileViewModel @Inject constructor(
     fun renameDraft(draftId: String, newTitle: String) {
         viewModelScope.launch {
             _isActionLoading.value = true
-            try {
-                profileInteractionUseCase.renameDraft(draftId, newTitle)
-                _message.value = UiText.StringResource(R.string.draft_renamed)
-            } catch (e: Exception) {
-                _message.value = ErrorMessageMapper.map(e)
-            } finally {
-                _isActionLoading.value = false
-            }
+            profileInteractionUseCase.renameDraft(draftId, newTitle)
+                .onSuccess {
+                    _message.value = UiText.StringResource(R.string.draft_renamed)
+                }
+                .onFailure { e ->
+                    _message.value = ErrorMessageMapper.map(e)
+                }
+            _isActionLoading.value = false
         }
     }
 
     fun deleteDraft(draftId: String) {
         viewModelScope.launch {
             _isActionLoading.value = true
-            try {
-                profileInteractionUseCase.deleteDraft(draftId)
-                _message.value = UiText.StringResource(R.string.draft_deleted)
-            } catch (e: Exception) {
-                _message.value = ErrorMessageMapper.map(e)
-            } finally {
-                _isActionLoading.value = false
-            }
+            profileInteractionUseCase.deleteDraft(draftId)
+                .onSuccess {
+                    _message.value = UiText.StringResource(R.string.draft_deleted)
+                }
+                .onFailure { e ->
+                    _message.value = ErrorMessageMapper.map(e)
+                }
+            _isActionLoading.value = false
         }
     }
 

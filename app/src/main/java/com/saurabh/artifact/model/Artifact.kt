@@ -20,46 +20,45 @@ enum class ArtifactStatus {
 
 @Immutable
 data class Artifact(
-    var id: String = "",
-    @get:Exclude var userId: String = "", // Internal UID - EXCLUDED FROM FIRESTORE PUBLIC
-    var author: AuthorSnapshot = AuthorSnapshot(),
-    var audioUrl: String = "",
-    var createdAt: Timestamp = Timestamp.now(),
+    val id: String = "",
+    @get:Exclude val userId: String = "", // Internal UID - EXCLUDED FROM FIRESTORE PUBLIC
+    val author: AuthorSnapshot = AuthorSnapshot(),
+    val audioUrl: String = "",
+    val createdAt: Timestamp = Timestamp.now(),
     @get:PropertyName("isPublic")
-    @set:PropertyName("isPublic")
-    var isPublic: Boolean = true,
-    var visibility: Visibility = Visibility.PUBLIC,
-    var status: ArtifactStatus = ArtifactStatus.DRAFT,
-    var durationMs: Long = 0,
-    var checksum: String = "", // Added for tamper resistance and deduplication
-    var title: String = "",
-    var description: String = "",
-    var reactions: Map<String, Long> = emptyMap(),
-    var emotion: String = "",
-    var emotionTag: String = "",
-    var emotionConfidence: Float = 0f,
-    var prompt: String = "",
-    var playCount: Long = 0,
-    var reactionCount: Long = 0,
-    var commentCount: Long = 0,
-    var moderationStatus: String = "CLEAN",
-    var toxicityScore: Float = 0f,
-    var reportCount: Long = 0,
-    var safetyConcernCount: Long = 0,
-    var reporterIds: List<String> = emptyList(),
-    @get:Exclude var transcript: List<TranscriptSegment> = emptyList(),
-    var transcriptUrl: String? = null,
-    var amplitudeData: List<Float> = emptyList(),
-    var flaggedSegments: List<FlaggedSegment> = emptyList(),
-    var moderation: ModerationMetadata = ModerationMetadata(),
-    var conversationMetadata: ArtifactConversationMetadata = ArtifactConversationMetadata(),
-    var reactionVisibility: ReactionVisibilityMode = ReactionVisibilityMode.APPROXIMATE,
-    var titleHistory: List<String> = emptyList(),
+    val isPublic: Boolean = true,
+    val visibility: Visibility = Visibility.PUBLIC,
+    val status: ArtifactStatus = ArtifactStatus.DRAFT,
+    val durationMs: Long = 0,
+    val checksum: String = "", // Added for tamper resistance and deduplication
+    val title: String = "",
+    val description: String = "",
+    val reactions: Map<String, Long> = emptyMap(),
+    val emotion: String = "",
+    val emotionTag: String = "",
+    val emotionConfidence: Float = 0f,
+    val prompt: String = "",
+    val playCount: Long = 0,
+    val reactionCount: Long = 0,
+    val commentCount: Long = 0,
+    val moderationStatus: String = "CLEAN",
+    val toxicityScore: Float = 0f,
+    val reportCount: Long = 0,
+    val safetyConcernCount: Long = 0,
+    val reporterIds: List<String> = emptyList(),
+    @get:Exclude val transcript: List<TranscriptSegment> = emptyList(),
+    val transcriptUrl: String? = null,
+    val amplitudeData: List<Float> = emptyList(),
+    val flaggedSegments: List<FlaggedSegment> = emptyList(),
+    val moderation: ModerationMetadata = ModerationMetadata(),
+    val conversationMetadata: ArtifactConversationMetadata = ArtifactConversationMetadata(),
+    val reactionVisibility: ReactionVisibilityMode = ReactionVisibilityMode.APPROXIMATE,
+    val titleHistory: List<String> = emptyList(),
 
     // Missing fields causing warnings
-    var authorAnonymousName: String = "",
-    var authorId: String = "",
-    var username: String = "",
+    val authorAnonymousName: String = "",
+    val authorId: String = "",
+    val username: String = "",
 ) {
     /**
      * Helper to check if the artifact is in a draft state.
@@ -112,12 +111,12 @@ fun List<TranscriptSegment>.findSegmentAt(positionMs: Long): TranscriptSegment? 
 @Immutable
 @Serializable
 data class TranscriptSegment(
-    var id: String = "",
-    var text: String = "",
-    var startMs: Long = 0,
-    var endMs: Long = 0,
-    var confidence: Float = 0f,
-    var words: List<WordToken> = emptyList(),
+    val id: String = "",
+    val text: String = "",
+    val startMs: Long = 0,
+    val endMs: Long = 0,
+    val confidence: Float = 0f,
+    val words: List<WordToken> = emptyList(),
 ) {
     /**
      * Removes per-word timing to save memory when only the segment text is needed.
@@ -129,22 +128,22 @@ data class TranscriptSegment(
 @Immutable
 @Serializable
 data class WordToken(
-    var word: String = "",
-    var startMs: Long = 0,
-    var endMs: Long = 0,
+    val word: String = "",
+    val startMs: Long = 0,
+    val endMs: Long = 0,
 )
 
 @Immutable
 @Serializable
 data class FlaggedSegment(
-    var id: String = "",
-    var type: PiiType = PiiType.OTHER, // e.g. "PHONE"
-    var startMs: Long = 0,
-    var endMs: Long = 0,
-    var originalText: String = "",
-    var confidence: Float = 0f,
-    var isRedacted: Boolean = true,
-    var userDecision: String = "PENDING", // "REDACT", "KEEP", "PENDING"
+    val id: String = "",
+    val type: PiiType = PiiType.OTHER, // e.g. "PHONE"
+    val startMs: Long = 0,
+    val endMs: Long = 0,
+    val originalText: String = "",
+    val confidence: Float = 0f,
+    val isRedacted: Boolean = true,
+    val userDecision: String = "PENDING", // "REDACT", "KEEP", "PENDING"
 )
 
 @Serializable
@@ -161,13 +160,6 @@ data class ArtifactDetail(
     val amplitudeData: List<Float> = emptyList(),
     val comments: List<ArtifactComment> = emptyList(),
     val reactionCounts: ArtifactReactionCounts? = null,
-)
-
-data class Reply(
-    val id: String = "",
-    val artifactId: String = "",
-    val message: String = "",
-    val createdAt: Timestamp = Timestamp.now(),
 )
 
 enum class NotificationType {

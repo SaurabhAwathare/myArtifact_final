@@ -1,5 +1,6 @@
 package com.saurabh.artifact.ui.drafts.edit
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.saurabh.artifact.audio.ArtifactCleanupManager
@@ -38,13 +39,16 @@ class DraftEditViewModel @Inject constructor(
     fun loadDraft(draftId: String) {
         viewModelScope.launch {
             _isLoading.value = true
-            val draftEntity = recordingRepository.getDraft(draftId)
-            _draft.value = draftEntity
-            _title.value = draftEntity?.title ?: ""
-            
-            // Try matching by name or label
-            _emotion.value = draftEntity?.emotion?.let { value ->
-                Emotion.entries.find { it.name == value || it.label == value }
+            recordingRepository.getDraft(draftId).onSuccess { draftEntity ->
+                _draft.value = draftEntity
+                _title.value = draftEntity.title ?: ""
+                
+                // Try matching by name or label
+                _emotion.value = draftEntity.emotion?.let { value ->
+                    Emotion.entries.find { it.name == value || it.label == value }
+                }
+            }.onFailure { e ->
+                Log.e("DraftEditViewModel", "Failed to load draft $draftId", e)
             }
             _isLoading.value = false
         }

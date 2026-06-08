@@ -466,7 +466,7 @@ class RecordingService : Service() {
                         if (finalFile?.exists() == true) finalFile.delete()
                         draftDao.getDraftById(draftId)?.let {
                             draftDao.update(it.copy(
-                                status = it.status.copy(processing = ProcessingStatus.Failed())
+                                status = it.status.copy(processing = ProcessingStatus.Failed)
                             ))
                         }
                     }

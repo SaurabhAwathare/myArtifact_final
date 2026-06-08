@@ -266,13 +266,13 @@ class PlaybackSessionManager @Inject constructor(
 
         if (currentMediaItem != null) {
             scope.launch {
-                val artifact = artifactRepository.get().getArtifactById(currentMediaItem.mediaId)
-                _currentArtifact.value = artifact
+                val artifactResult = artifactRepository.get().getArtifactById(currentMediaItem.mediaId)
+                _currentArtifact.value = artifactResult.getOrNull()
                 
                 val queueItems = mutableListOf<Artifact>()
                 for (i in 0 until controller.mediaItemCount) {
                     val item = controller.getMediaItemAt(i)
-                    artifactRepository.get().getArtifactById(item.mediaId)?.let { queueItems.add(it) }
+                    artifactRepository.get().getArtifactById(item.mediaId).onSuccess { queueItems.add(it) }
                 }
                 _queue.value = queueItems
             }
@@ -313,7 +313,7 @@ class PlaybackSessionManager @Inject constructor(
             val startIndex = newQueue.indexOfFirst { it.id == artifact.id }.coerceAtLeast(0)
 
             val restoredPosition = if (initialPosition == 0L) {
-                engagementRepository.getEngagement(artifact.id)?.lastPositionMs ?: 0L
+                engagementRepository.getEngagement(artifact.id).getOrNull()?.lastPositionMs ?: 0L
             } else {
                 initialPosition
             }

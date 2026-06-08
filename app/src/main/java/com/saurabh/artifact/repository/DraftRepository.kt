@@ -17,8 +17,17 @@ class DraftRepository @Inject constructor(
     private val uploadTaskDao: UploadTaskDao,
     private val draftsDatabase: AppDatabase
 ) {
-    suspend fun getDraft(id: String): ArtifactDraftEntity? = withContext(Dispatchers.IO) {
-        draftDao.getDraftById(id)
+    suspend fun getDraft(id: String): Result<ArtifactDraftEntity> = withContext(Dispatchers.IO) {
+        try {
+            val draft = draftDao.getDraftById(id)
+            if (draft != null) {
+                Result.success(draft)
+            } else {
+                Result.failure(AppError.NotFound("Draft", id))
+            }
+        } catch (e: Exception) {
+            Result.failure(AppError.from(e))
+        }
     }
 
     fun observeDrafts(): Flow<List<ArtifactDraftEntity>> = draftDao.observeDrafts()
@@ -94,61 +103,91 @@ class DraftRepository @Inject constructor(
         }
     }
 
-    suspend fun prepareForPublishing(draftId: String, initialStatus: SyncStatus) = withContext(Dispatchers.IO) {
-        draftsDatabase.withTransaction {
-            val draft = draftDao.getDraftById(draftId) ?: return@withTransaction
-            
-            // 1. Update Draft lifecycle to locking state
-            updateStatus(draftId) { 
-                it.copy(
-                    lifecycle = ArtifactLifecycle.READY_TO_PUBLISH,
-                    publication = initialStatus
-                )
+    suspend fun prepareForPublishing(draftId: String, initialStatus: SyncStatus): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            draftsDatabase.withTransaction {
+                val draft = draftDao.getDraftById(draftId) ?: throw Exception("Draft not found")
+                
+                // 1. Update Draft lifecycle to locking state
+                updateStatus(draftId) { 
+                    it.copy(
+                        lifecycle = ArtifactLifecycle.READY_TO_PUBLISH,
+                        publication = initialStatus
+                    )
+                }.getOrThrow()
+                
+                // 2. Initialize the separated upload task
+                uploadTaskDao.insert(UploadTaskEntity(
+                    draftId = draftId,
+                    workerId = null,
+                    status = initialStatus,
+                    uploadedBytes = 0,
+                    totalBytes = draft.totalBytes,
+                    sessionUri = draft.uploadSessionUri,
+                    audioUrl = draft.uploadedAudioUrl
+                ))
             }
-            
-            // 2. Initialize the separated upload task
-            uploadTaskDao.insert(UploadTaskEntity(
-                draftId = draftId,
-                workerId = null,
-                status = initialStatus,
-                uploadedBytes = 0,
-                totalBytes = draft.totalBytes,
-                sessionUri = draft.uploadSessionUri,
-                audioUrl = draft.uploadedAudioUrl
-            ))
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(AppError.from(e))
         }
     }
 
-    suspend fun updateStatus(draftId: String, transform: (DraftStatus) -> DraftStatus) = withContext(Dispatchers.IO) {
-        draftDao.getDraftById(draftId)?.let { draft ->
-            val newStatus = transform(draft.status)
-            draftDao.updateStatus(draftId, newStatus)
+    suspend fun updateStatus(draftId: String, transform: (DraftStatus) -> DraftStatus): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            draftDao.getDraftById(draftId)?.let { draft ->
+                val newStatus = transform(draft.status)
+                draftDao.updateStatus(draftId, newStatus)
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(AppError.from(e))
         }
     }
 
-    suspend fun updateUploadProgress(draftId: String, uploaded: Long, total: Long, sessionUri: String?) = withContext(Dispatchers.IO) {
-        uploadTaskDao.updateProgress(draftId, uploaded, total, sessionUri)
-    }
-
-    suspend fun updateUploadStatus(draftId: String, status: SyncStatus) = withContext(Dispatchers.IO) {
-        draftsDatabase.withTransaction {
-            uploadTaskDao.updateStatus(draftId, status)
-            // Synchronize with Draft status for UI observers that look at the draft directly
-            updateStatus(draftId) { it.copy(publication = status) }
+    suspend fun updateUploadProgress(draftId: String, uploaded: Long, total: Long, sessionUri: String?): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            uploadTaskDao.updateProgress(draftId, uploaded, total, sessionUri)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(AppError.from(e))
         }
     }
 
-    suspend fun updateUploadedAudioUrl(draftId: String, url: String) = withContext(Dispatchers.IO) {
-        draftsDatabase.withTransaction {
-            draftDao.updateUploadCheckpoint(draftId, url)
-            uploadTaskDao.updateAudioUrl(draftId, url)
+    suspend fun updateUploadStatus(draftId: String, status: SyncStatus): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            draftsDatabase.withTransaction {
+                uploadTaskDao.updateStatus(draftId, status)
+                // Synchronize with Draft status for UI observers that look at the draft directly
+                updateStatus(draftId) { it.copy(publication = status) }
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(AppError.from(e))
         }
     }
 
-    suspend fun markAsPublished(draftId: String, remoteId: String) = withContext(Dispatchers.IO) {
-        draftsDatabase.withTransaction {
-            draftDao.markAsPublished(draftId, remoteId)
-            uploadTaskDao.deleteByDraftId(draftId)
+    suspend fun updateUploadedAudioUrl(draftId: String, url: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            draftsDatabase.withTransaction {
+                draftDao.updateUploadCheckpoint(draftId, url)
+                uploadTaskDao.updateAudioUrl(draftId, url)
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(AppError.from(e))
+        }
+    }
+
+    suspend fun markAsPublished(draftId: String, remoteId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            draftsDatabase.withTransaction {
+                draftDao.markAsPublished(draftId, remoteId)
+                uploadTaskDao.deleteByDraftId(draftId)
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(AppError.from(e))
         }
     }
 }

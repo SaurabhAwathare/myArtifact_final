@@ -96,7 +96,7 @@ class CommentRepository @Inject constructor(
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e("CommentRepository", "Failed to submit reflection", e)
-            Result.failure(e)
+            Result.failure(AppError.from(e))
         }
     }
 
@@ -120,28 +120,21 @@ class CommentRepository @Inject constructor(
         ).flow
     }
 
-    suspend fun getCommentById(commentId: String): ArtifactComment? = withContext(Dispatchers.IO) {
+    suspend fun getCommentById(commentId: String): Result<ArtifactComment> = withContext(Dispatchers.IO) {
         try {
             val doc = firestore.collection("comments").document(commentId).get().await()
-            doc.toObject(ArtifactComment::class.java)?.copy(id = doc.id)
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    /**
-     * Updates the moderation state of a comment.
-     * This can be used by creators or admins.
-     */
-    suspend fun updateCommentModerationState(commentId: String, newState: CommentModerationState): Result<Unit> = withContext(Dispatchers.IO) {
-        try {
-            firestore.collection("comments").document(commentId)
-                .update("moderationState", newState.name)
-                .await()
-            Result.success(Unit)
+            if (doc.exists()) {
+                val comment = doc.toObject(ArtifactComment::class.java)?.copy(id = doc.id)
+                if (comment != null) {
+                    Result.success(comment)
+                } else {
+                    Result.failure(AppError.NotFound("Comment", commentId))
+                }
+            } else {
+                Result.failure(AppError.NotFound("Comment", commentId))
+            }
         } catch (e: Exception) {
-            Log.e("CommentRepository", "Failed to update moderation state", e)
-            Result.failure(e)
+            Result.failure(AppError.from(e))
         }
     }
 
@@ -157,21 +150,8 @@ class CommentRepository @Inject constructor(
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e("CommentRepository", "Failed to react to comment", e)
-            Result.failure(e)
+            Result.failure(AppError.from(e))
         }
     }
 
-    /**
-     * Fetches emotional insights aggregated for the creator.
-     */
-    suspend fun getEmotionalSummary(artifactId: String): EmotionalResponseSummary? = withContext(Dispatchers.IO) {
-        try {
-            val doc = firestore.collection("artifacts").document(artifactId)
-                .collection("insights").document("summary")
-                .get().await()
-            doc.toObject(EmotionalResponseSummary::class.java)
-        } catch (_: Exception) {
-            null
-        }
-    }
 }

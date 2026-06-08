@@ -52,40 +52,34 @@ class UserProfileManager @Inject constructor(
     /**
      * Updates the user's avatar configuration.
      */
-    suspend fun updateAvatarConfig(config: com.saurabh.artifact.model.AvatarConfig) {
+    suspend fun updateAvatarConfig(config: com.saurabh.artifact.model.AvatarConfig): Result<Unit> {
         // 1. Update SSOT immediately
         sessionManager.updateAvatarConfig(config)
         
         // 2. Sync to Firestore if authenticated (Eventual Consistency)
         val userId = authRepository.currentUser.value?.uid
         if (userId != null) {
-            try {
-                userRepository.updateAvatarConfig(userId, config)
-            } catch (e: Exception) {
-                android.util.Log.e("UserProfileManager", "Failed to sync avatar config to Firestore", e)
-            }
+            return userRepository.updateAvatarConfig(userId, config)
         }
+        return Result.success(Unit)
     }
 
     /**
      * Updates the user's anonymous username.
      */
-    suspend fun updateUsername(username: String) {
+    suspend fun updateUsername(username: String): Result<Unit> {
         // 1. Update SSOT immediately
         sessionManager.updateUsername(username)
         
         // 2. Sync to Firestore if authenticated (Eventual Consistency)
         val userId = authRepository.currentUser.value?.uid
         if (userId != null) {
-            try {
-                userRepository.createUsername(userId, username)
-            } catch (e: Exception) {
-                android.util.Log.e("UserProfileManager", "Failed to sync username to Firestore", e)
-            }
+            return userRepository.createUsername(userId, username)
         }
+        return Result.success(Unit)
     }
 
-    suspend fun isUsernameAvailable(username: String): Boolean {
+    suspend fun isUsernameAvailable(username: String): Result<Boolean> {
         return userRepository.isUsernameAvailable(username)
     }
 

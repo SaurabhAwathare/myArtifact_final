@@ -13,12 +13,6 @@ enum class ConversationStyle(
     @Suppress("unused") val iconEmoji: String,
     @Suppress("unused") val energyLevel: EnergyLevel,
 ) {
-    STORYTELLING(
-        "Storytelling",
-        "A narrative experience with a beginning, middle, and end.",
-        "📖",
-        EnergyLevel.MEDIUM
-    ),
     REFLECTIVE(
         "Reflective",
         "Deep introspection and internal questioning.",
@@ -37,23 +31,11 @@ enum class ConversationStyle(
         "😂",
         EnergyLevel.HIGH
     ),
-    COMFORT(
-        "Comfort",
-        "Soft, vulnerable sharing meant to provide warmth.",
-        "🫂",
-        EnergyLevel.LOW
-    ),
     CHAOTIC(
         "Chaotic",
         "High energy, rapid shifts, and raw emotional movement.",
         "🌀",
         EnergyLevel.HIGH
-    ),
-    ADVICE(
-        "Advice",
-        "Sharing lessons, perspective, or guidance.",
-        "💡",
-        EnergyLevel.MEDIUM
     ),
     LATE_NIGHT(
         "Late Night Thoughts",
@@ -61,12 +43,6 @@ enum class ConversationStyle(
         "🌙",
         EnergyLevel.LOW
     ),
-    STREAM_OF_CONSCIOUSNESS(
-        "Stream of Consciousness",
-        "Raw, wandering thoughts without a fixed destination.",
-        "🌊",
-        EnergyLevel.MEDIUM
-    )
 }
 
 /**
@@ -105,45 +81,5 @@ data class StyleSuggestion(
  */
 enum class StyleModerationState {
     SAFE,
-    SENSITIVE,      // Might need a trigger warning or soft distribution
-    VOLATILE,       // High rant energy + sensitive topics
-    RESTRICTED      // Violates safety guidelines
 }
 
-/**
- * Defines a listening mode preference for the user.
- */
-@Serializable
-data class ListeningMode(
-    val id: String,
-    val name: String,
-    val allowedEnergyLevels: Set<EnergyLevel>,
-    val preferredStyles: Set<ConversationStyle> = emptySet(),
-    val excludedStyles: Set<ConversationStyle> = emptySet()
-) {
-    companion object {
-        @Suppress("unused")
-        val BEDTIME = ListeningMode(
-            id = "bedtime",
-            name = "Bedtime Listening",
-            allowedEnergyLevels = setOf(EnergyLevel.LOW),
-            excludedStyles = setOf(ConversationStyle.RANT, ConversationStyle.CHAOTIC)
-        )
-        
-        @Suppress("unused")
-        val FOCUS = ListeningMode(
-            id = "focus",
-            name = "Deep Focus",
-            allowedEnergyLevels = setOf(EnergyLevel.LOW, EnergyLevel.MEDIUM),
-            preferredStyles = setOf(ConversationStyle.REFLECTIVE, ConversationStyle.LATE_NIGHT)
-        )
-        
-        @Suppress("unused")
-        val ENERGY_BOOST = ListeningMode(
-            id = "energy_boost",
-            name = "Energy Boost",
-            allowedEnergyLevels = setOf(EnergyLevel.HIGH),
-            preferredStyles = setOf(ConversationStyle.FUNNY, ConversationStyle.CHAOTIC, ConversationStyle.RANT)
-        )
-    }
-}

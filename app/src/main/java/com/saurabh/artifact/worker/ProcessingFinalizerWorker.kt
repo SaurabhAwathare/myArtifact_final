@@ -26,7 +26,8 @@ class ProcessingFinalizerWorker @AssistedInject constructor(
         val draftId = inputData.getString(KEY_DRAFT_ID) ?: return@withContext Result.failure()
         
         try {
-            val draft = recordingRepository.getDraft(draftId) ?: return@withContext Result.failure()
+            val draftResult = recordingRepository.getDraft(draftId)
+            val draft = draftResult.getOrNull() ?: return@withContext Result.failure()
             
             // Transition to REVIEW_REQUIRED
             recordingRepository.updateDraft(draft.copy(

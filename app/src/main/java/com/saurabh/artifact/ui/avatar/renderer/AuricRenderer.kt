@@ -1,61 +1,110 @@
 package com.saurabh.artifact.ui.avatar.renderer
 
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.center
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.graphicsLayer
 import com.saurabh.artifact.model.AvatarConfig
 import kotlin.math.abs
 
 class AuricRenderer : AvatarRenderer {
 
-    override fun DrawScope.render(config: AvatarConfig, animationState: AvatarAnimationState) {
-        val palette = generateAuraPalette(config.seed)
-        val sizePx = size.minDimension
+    @Composable
+    override fun Render(
+        config: AvatarConfig,
+        animationState: AvatarAnimationState,
+        modifier: Modifier
+    ) {
+        val palette = remember(config.seed) { generateAuraPalette(config.seed) }
 
-        // 1. Base Layer: Soft Ambient Glow
-        drawAuraLayer(
-            colors = palette.take(2),
-            radiusMult = 0.5f * animationState.pulse,
-            alpha = 0.4f
-        )
+        // Fix: Capture the latest animationState to prevent stale reads in derivedStateOf
+        val currentAnimationState by rememberUpdatedState(animationState)
 
-        // 2. Core Identity Layer: Multi-color Gradient
-        drawAuraLayer(
-            colors = palette,
-            radiusMult = 0.35f,
-            alpha = 0.8f,
-            rotation = animationState.rotation
-        )
+        // Example of derivedStateOf: Optimization for logic that depends on high-frequency state
+        // This only recomposes when the pulse crosses the "shimmer" threshold
+        val isShimmering by remember {
+            derivedStateOf { currentAnimationState.pulse() > 1.01f }
+        }
 
-        // 3. Highlight Layer: Center Brilliance
-        drawCircle(
-            brush = Brush.radialGradient(
-                0f to Color.White.copy(alpha = 0.3f),
-                0.6f to Color.Transparent,
-                center = center,
-                radius = sizePx * 0.25f
-            ),
-            radius = sizePx * 0.25f
-        )
+        Box(modifier = modifier) {
+            // 1. Base Layer: Soft Ambient Glow (Animated Pulse)
+            Canvas(
+                modifier = Modifier
+                    .matchParentSize()
+                    .graphicsLayer {
+                        val p = animationState.pulse()
+                        scaleX = p
+                        scaleY = p
+                        alpha = if (isShimmering) 0.5f else 0.4f
+                    }
+                    .drawWithCache {
+                        val colors = palette.take(2)
+                        onDrawBehind {
+                            drawAuraCircle(colors = colors, radiusMult = 0.5f)
+                        }
+                    }
+            ) {}
+
+            // 2. Core Identity Layer: Multi-color Gradient (Animated Rotation)
+            Canvas(
+                modifier = Modifier
+                    .matchParentSize()
+                    .graphicsLayer {
+                        rotationZ = animationState.rotation()
+                        alpha = 0.8f
+                    }
+                    .drawWithCache {
+                        onDrawBehind {
+                            drawAuraCircle(colors = palette, radiusMult = 0.35f)
+                        }
+                    }
+            ) {}
+
+            // 3. Highlight Layer: Center Brilliance (Static)
+            Canvas(
+                modifier = Modifier
+                    .matchParentSize()
+                    .drawWithCache {
+                        val centerOffset = size.center
+                        val radius = size.minDimension * 0.25f
+                        val brush = Brush.radialGradient(
+                            0f to Color.White.copy(alpha = 0.3f),
+                            0.6f to Color.Transparent,
+                            center = centerOffset,
+                            radius = radius
+                        )
+                        onDrawBehind {
+                            drawCircle(
+                                brush = brush,
+                                radius = radius
+                            )
+                        }
+                    }
+            ) {}
+        }
     }
 
-    private fun DrawScope.drawAuraLayer(
+    private fun DrawScope.drawAuraCircle(
         colors: List<Color>,
-        radiusMult: Float,
-        alpha: Float,
-        rotation: Float = 0f
+        radiusMult: Float
     ) {
         val radius = size.maxDimension * radiusMult
-        
-        rotate(rotation) {
-            drawCircle(
-                brush = Brush.linearGradient(
-                    colors = colors.map { it.copy(alpha = it.alpha * alpha) }
-                ),
-                radius = radius
-            )
-        }
+        drawCircle(
+            brush = Brush.linearGradient(
+                colors = colors
+            ),
+            radius = radius
+        )
     }
 
     private fun generateAuraPalette(seed: String): List<Color> {
