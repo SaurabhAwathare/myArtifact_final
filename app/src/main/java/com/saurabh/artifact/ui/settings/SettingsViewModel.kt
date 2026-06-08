@@ -50,26 +50,6 @@ class SettingsViewModel @Inject constructor(
     private val _isDeleting = MutableStateFlow(false)
     val isDeleting: StateFlow<Boolean> = _isDeleting.asStateFlow()
 
-    fun updateAnonymousMode(enabled: Boolean) {
-        update { it.copy(isAnonymousMode = enabled) }
-    }
-
-    fun updateNotifications(enabled: Boolean) {
-        update { it.copy(notificationsEnabled = enabled) }
-    }
-
-    fun updateSmartReminders(enabled: Boolean) {
-        update { it.copy(smartRemindersEnabled = enabled) }
-    }
-
-    fun updateEmotionalSafety(enabled: Boolean) {
-        update { it.copy(emotionalSafetyEnabled = enabled) }
-    }
-
-    fun updateDataConsent(enabled: Boolean) {
-        update { it.copy(dataCollectionConsent = enabled) }
-    }
-
     fun updateBiometricLock(enabled: Boolean) {
         update { it.copy(biometricLockEnabled = enabled) }
     }
@@ -110,13 +90,13 @@ class SettingsViewModel @Inject constructor(
     fun reauthenticateAndRetry(idToken: String? = null) {
         viewModelScope.launch {
             _isDeleting.value = true
-            val reauthResult = if (idToken != null) {
+            val reauthenticationResult = if (idToken != null) {
                 authRepository.reauthenticateWithGoogle(idToken)
             } else {
                 Result.failure(Exception("Google Sign-In verification required."))
             }
 
-            reauthResult.onSuccess {
+            reauthenticationResult.onSuccess {
                 val deleteResult = repository.deleteUserAccount()
                 _isDeleting.value = false
                 deleteResult.onSuccess {
@@ -129,10 +109,6 @@ class SettingsViewModel @Inject constructor(
                 _events.emit(SettingsUiEvent.ShowMessage(ErrorMessageMapper.map(e)))
             }
         }
-    }
-
-    fun deleteAccount() {
-        initiateDelete()
     }
 
     fun logout() {

@@ -222,7 +222,7 @@ fun ProfileScreen(
                                         isBuffering = uiState.isBuffering,
                                         currentPosition = uiState.currentPosition,
                                         duration = uiState.durationMs,
-                                        isSelf = uiState.isSelf,
+                                        isSelf = true,
                                         currentUserId = viewModel.currentUserId,
                                         onPlayClick = { viewModel.playAudio(it) },
                                         onRename = { artifact, newTitle -> 

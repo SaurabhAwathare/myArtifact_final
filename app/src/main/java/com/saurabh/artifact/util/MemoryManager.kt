@@ -1,6 +1,5 @@
 package com.saurabh.artifact.util
 
-import android.content.ComponentCallbacks2
 import android.util.Log
 import javax.inject.Inject
 import javax.inject.Singleton

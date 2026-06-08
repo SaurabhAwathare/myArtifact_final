@@ -2,7 +2,6 @@ package com.saurabh.artifact.util
 
 import android.content.res.Configuration
 import androidx.core.os.ConfigurationCompat
-import java.util.Locale
 
 object TimeUtils {
     /**

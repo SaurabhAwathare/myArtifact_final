@@ -9,7 +9,6 @@ import com.saurabh.artifact.audio.LocalDraftManager
 import com.saurabh.artifact.data.local.DraftDao
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
-import java.io.File
 
 /**
  * Reconciles the filesystem with the Room database to remove orphaned media files.

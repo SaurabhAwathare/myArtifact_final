@@ -22,7 +22,7 @@ class ReviewTrackerTest {
         }
         tracker.onPlaybackEnded()
         
-        val progress = tracker.getProgress()
+        val progress = tracker.progress
         assertTrue("Should be validated after normal playback. Coverage: ${progress.coveragePercent}", progress.isValidationMet)
         assertTrue("Coverage should be high: ${progress.coveragePercent}", progress.coveragePercent >= 0.95f)
         assertTrue(progress.effortPercent >= 0.75f)
@@ -42,7 +42,7 @@ class ReviewTrackerTest {
         }
         tracker.onPlaybackEnded()
         
-        val progress = tracker.getProgress()
+        val progress = tracker.progress
         // Effort at 4x with 2x penalty threshold:
         // Adjusted Effort = 2.5s * (2.0 / 4.0) = 1.25s
         // Effort Percent = 1.25 / 10 = 0.125 (12.5%)
@@ -68,7 +68,7 @@ class ReviewTrackerTest {
         tracker.onPlaybackTick(60000L, 1000L, 1.0f)
         tracker.onPlaybackEnded()
         
-        val progress = tracker.getProgress()
+        val progress = tracker.progress
         assertFalse("Should NOT be validated if effort is low and coverage is missing", progress.isValidationMet)
         assertTrue("Coverage should be low", progress.coveragePercent < 0.10f)
     }

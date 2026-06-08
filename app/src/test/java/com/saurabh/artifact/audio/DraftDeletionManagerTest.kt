@@ -1,6 +1,5 @@
 package com.saurabh.artifact.audio
 
-import android.content.Context
 import android.util.Log
 import androidx.room.withTransaction
 import androidx.work.OneTimeWorkRequest
@@ -18,9 +17,6 @@ import org.junit.Test
 import java.io.File
 
 class DraftDeletionManagerTest {
-    private val context = mockk<Context>(relaxed = true) {
-        every { applicationContext } returns this
-    }
     private val draftDao = mockk<DraftDao>(relaxed = true)
     private val uploadTaskDao = mockk<UploadTaskDao>(relaxed = true)
     private val database = mockk<AppDatabase>(relaxed = true)
@@ -46,7 +42,7 @@ class DraftDeletionManagerTest {
             uploadTaskDao = uploadTaskDao,
             draftsDatabase = database,
             storageManager = storageManager,
-            workManager = workManager
+            workManager = workManager,
         )
         
         coEvery { draftDao.getDraftById(any()) } returns null
@@ -58,6 +54,7 @@ class DraftDeletionManagerTest {
         coEvery { 
             database.withTransaction<Any>(any())
         } coAnswers {
+            @Suppress("UNCHECKED_CAST")
             val block = it.invocation.args[1] as suspend () -> Any
             block.invoke()
         }

@@ -28,13 +28,15 @@ class PublishViewModel @Inject constructor(
         viewModelScope.launch {
             recordingRepository.observeDraft(draftId).collect { draft ->
                 if (draft != null) {
-                    _uiState.update { it.copy(
-                        draft = draft,
-                        title = it.title.ifBlank { draft.title ?: "" },
-                        emotion = it.emotion ?: try { 
-                            draft.emotion?.let { Emotion.valueOf(it) } 
-                        } catch (_: Exception) { null }
-                    ) }
+                    _uiState.update { state ->
+                        state.copy(
+                            draft = draft,
+                            title = state.title.ifBlank { draft.title ?: "" },
+                            emotion = state.emotion ?: try { 
+                                draft.emotion?.let { Emotion.valueOf(it) } 
+                            } catch (_: Exception) { null }
+                        )
+                    }
                 }
             }
         }

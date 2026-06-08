@@ -4,9 +4,6 @@ package com.saurabh.artifact.ui.theme
  * Centralized Z-index tokens to manage UI layering consistency.
  */
 object ZIndexTokens {
-    /** The base application content (Feed, Profile, etc.) */
-    const val NAV_GRAPH = 0f
-    
     /** Floating ambient components like MiniPlayer, MiniRecorder, and UploadBar */
     const val MINI_OVERLAYS = 100f
     

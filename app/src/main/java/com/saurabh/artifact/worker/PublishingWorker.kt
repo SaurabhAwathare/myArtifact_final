@@ -2,16 +2,15 @@ package com.saurabh.artifact.worker
 
 import android.content.Context
 import android.util.Log
-import androidx.core.app.NotificationManagerCompat
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import com.google.firebase.auth.FirebaseAuth
-import com.saurabh.artifact.R
 import com.saurabh.artifact.audio.ArtifactCleanupManager
-import com.saurabh.artifact.data.local.DraftDao
-import com.saurabh.artifact.model.*
+import com.saurabh.artifact.model.ArtifactLifecycle
+import com.saurabh.artifact.model.ArtifactStatus
+import com.saurabh.artifact.model.SyncStatus
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.DraftRepository
 import com.saurabh.artifact.repository.UserRepository
@@ -20,8 +19,10 @@ import com.saurabh.artifact.util.NotificationHelper
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
+import com.google.firebase.storage.StorageException
+import java.io.IOException
 
 @HiltWorker
 class PublishingWorker @AssistedInject constructor(
@@ -77,7 +78,7 @@ class PublishingWorker @AssistedInject constructor(
         val remoteArtifact = artifactRepository.getArtifact(draftId).getOrNull()
         if (remoteArtifact != null && remoteArtifact.status == ArtifactStatus.ACTIVE) {
             Log.i("PublishingWorker", "Artifact $draftId is already ACTIVE on Firestore. Syncing local state.")
-            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+            withContext(NonCancellable) {
                 draftRepository.markAsPublished(draftId, draftId)
             }
             return@withContext Result.success()
@@ -161,15 +162,13 @@ class PublishingWorker @AssistedInject constructor(
                 transcriptUrl = transcriptUrl
             ).getOrThrow()
 
-            val remoteId = draftId
-
             // 9. Success - Atomically update state
-            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
-                draftRepository.markAsPublished(draftId, remoteId)
+            withContext(NonCancellable) {
+                draftRepository.markAsPublished(draftId, draftId)
             }
 
             // 10. Schedule Automatic Cleanup (30 days)
-            cleanupManager.scheduleRetentionCleanup(remoteId)
+            cleanupManager.scheduleRetentionCleanup(draftId)
 
             NotificationHelper.showUploadSuccessNotification(appContext, draft.title ?: "Artifact")
             Log.d("PublishingWorker", "Draft $draftId published successfully")
@@ -178,19 +177,19 @@ class PublishingWorker @AssistedInject constructor(
             Log.e("PublishingWorker", "Publishing failed for $draftId", e)
             
             // Check if it's a transient failure or permanent
-            val isPermanent = e is com.google.firebase.storage.StorageException && 
-                (e.errorCode == com.google.firebase.storage.StorageException.ERROR_NOT_AUTHORIZED || 
-                 e.errorCode == com.google.firebase.storage.StorageException.ERROR_OBJECT_NOT_FOUND)
+            val isPermanent = e is StorageException && 
+                (e.errorCode == StorageException.ERROR_NOT_AUTHORIZED || 
+                 e.errorCode == StorageException.ERROR_OBJECT_NOT_FOUND)
 
-            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+            withContext(NonCancellable) {
                 if (isPermanent) {
                     draftRepository.updateUploadStatus(draftId, SyncStatus.Failed(e.message ?: "Permanent upload failure", recoverable = false))
                     NotificationHelper.showUploadErrorNotification(appContext, draft.title ?: "Artifact")
                 } else {
                     // If it's a network error or transient, set to WaitingForNetwork or Queued
-                    val isNetworkError = e is java.io.IOException || 
-                                       (e is com.google.firebase.storage.StorageException && 
-                                        e.errorCode == com.google.firebase.storage.StorageException.ERROR_RETRY_LIMIT_EXCEEDED)
+                    val isNetworkError = e is IOException || 
+                                       (e is StorageException && 
+                                        e.errorCode == StorageException.ERROR_RETRY_LIMIT_EXCEEDED)
                     
                     val nextStatus = if (isNetworkError) SyncStatus.WaitingForNetwork else SyncStatus.Queued
                     draftRepository.updateUploadStatus(draftId, nextStatus)

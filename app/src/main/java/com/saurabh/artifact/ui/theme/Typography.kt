@@ -139,5 +139,3 @@ val ArtifactTypography = Typography(
     )
 )
 
-// Legacy compatibility
-val AppTypography = ArtifactTypography

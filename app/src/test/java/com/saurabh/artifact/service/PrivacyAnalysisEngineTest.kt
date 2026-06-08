@@ -1,7 +1,6 @@
 package com.saurabh.artifact.service
 
 import com.saurabh.artifact.domain.IdentityScout
-import com.saurabh.artifact.model.PiiType
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking

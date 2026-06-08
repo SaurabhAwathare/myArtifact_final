@@ -3,7 +3,15 @@ package com.saurabh.artifact.worker
 import android.content.Context
 import android.util.Log
 import androidx.hilt.work.HiltWorker
-import androidx.work.*
+import androidx.work.Constraints
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.BackoffPolicy
+import androidx.work.ExistingWorkPolicy
+import androidx.work.CoroutineWorker
+import androidx.work.WorkerParameters
+import kotlin.Result as KResult
 import com.google.firebase.auth.FirebaseAuth
 import com.saurabh.artifact.data.local.*
 import com.saurabh.artifact.model.ReactionType
@@ -60,7 +68,7 @@ class InteractionSyncWorker @AssistedInject constructor(
         }
     }
 
-    private suspend fun processInteraction(interaction: PendingInteractionEntity, userId: String): kotlin.Result<Unit> {
+    private suspend fun processInteraction(interaction: PendingInteractionEntity, userId: String): KResult<Unit> {
         return try {
             when (interaction.interactionType) {
                 InteractionType.REACTION -> {
@@ -79,16 +87,16 @@ class InteractionSyncWorker @AssistedInject constructor(
                             artifactRepository.saveArtifact(userId, artifact)
                         } else {
                             Log.w("InteractionSyncWorker", "Artifact ${interaction.artifactId} not found for save, skipping.")
-                            kotlin.Result.success(Unit)
                         }
                     } else {
                         artifactRepository.unsaveArtifact(userId, interaction.artifactId)
                     }
                 }
-                else -> kotlin.Result.failure(Exception("Unknown interaction type: ${interaction.interactionType}"))
+                else -> throw Exception("Unknown interaction type: ${interaction.interactionType}")
             }
+            KResult.success(Unit)
         } catch (e: Exception) {
-            kotlin.Result.failure(e)
+            KResult.failure(e)
         }
     }
     

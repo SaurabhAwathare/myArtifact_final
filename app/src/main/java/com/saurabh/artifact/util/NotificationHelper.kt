@@ -54,7 +54,7 @@ object NotificationHelper {
             val interactionsChannel = NotificationChannel(
                 CHANNEL_ID_INTERACTIONS,
                 CHANNEL_NAME_INTERACTIONS,
-                NotificationManager.IMPORTANCE_DEFAULT
+                NotificationManager.IMPORTANCE_DEFAULT,
             ).apply {
                 description = CHANNEL_DESC_INTERACTIONS
             }
@@ -63,7 +63,7 @@ object NotificationHelper {
             val remindersChannel = NotificationChannel(
                 CHANNEL_ID_REMINDERS,
                 CHANNEL_NAME_REMINDERS,
-                NotificationManager.IMPORTANCE_LOW
+                NotificationManager.IMPORTANCE_LOW,
             ).apply {
                 description = CHANNEL_DESC_REMINDERS
             }
@@ -278,12 +278,5 @@ object NotificationHelper {
         } catch (e: SecurityException) {
             Log.e("NotificationHelper", "SecurityException while showing upload error notification", e)
         }
-    }
-
-    /**
-     * Cancels the upload notification.
-     */
-    fun cancelUploadNotification(context: Context) {
-        NotificationManagerCompat.from(context).cancel(UPLOAD_NOTIFICATION_ID)
     }
 }

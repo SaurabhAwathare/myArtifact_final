@@ -9,6 +9,7 @@ import com.saurabh.artifact.audio.LocalDraftManager
 import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.ArtifactRepository
+import com.saurabh.artifact.audio.WavRecoveryManager
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
@@ -26,7 +27,7 @@ class TranscodingWorker @AssistedInject constructor(
     private val draftDao: DraftDao,
     private val localDraftManager: LocalDraftManager,
     private val artifactRepository: ArtifactRepository,
-    private val wavRecoveryManager: com.saurabh.artifact.audio.WavRecoveryManager,
+    private val wavRecoveryManager: WavRecoveryManager,
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
@@ -39,7 +40,6 @@ class TranscodingWorker @AssistedInject constructor(
             return@withContext Result.failure()
         }
 
-        var tempAacFile: File? = null
         try {
             // IDEMPOTENCY CHECK: If the artifact already exists and metadata is correct, skip
             val existingFile = File(draft.localAudioPath)
@@ -52,7 +52,7 @@ class TranscodingWorker @AssistedInject constructor(
             
             // 0. Defense-in-Depth: Validate and repair WAV header before transcoding
             val recoveryResult = wavRecoveryManager.recover(rawFile)
-            if (recoveryResult == com.saurabh.artifact.audio.WavRecoveryManager.RecoveryResult.CORRUPTED) {
+            if (recoveryResult == WavRecoveryManager.RecoveryResult.CORRUPTED) {
                 Log.e("TranscodingWorker", "Unrecoverable WAV header: CORRUPTED")
                 updateDraftStatus(draftId, null, "Unrecoverable WAV header")
                 return@withContext Result.failure()
@@ -83,8 +83,6 @@ class TranscodingWorker @AssistedInject constructor(
             Log.e("TranscodingWorker", "Transcoding failed", e)
             updateDraftStatus(draftId, null, "Transcoding failed: ${e.message}")
             Result.retry()
-        } finally {
-            tempAacFile?.delete()
         }
     }
 

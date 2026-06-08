@@ -1,20 +1,44 @@
 package com.saurabh.artifact.ui.recording.warning
 
-import androidx.compose.animation.*
-import androidx.compose.animation.core.*
+import androidx.compose.animation.core.EaseInOutSine
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -24,6 +48,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.saurabh.artifact.ui.theme.Obsidian950
+import com.saurabh.artifact.ui.theme.WarningBackgroundBottom
+import com.saurabh.artifact.ui.theme.WarningBackgroundTop
+import com.saurabh.artifact.ui.theme.WarningBorder
+import com.saurabh.artifact.ui.theme.WarningCard
+import com.saurabh.artifact.ui.theme.WarningRed
+import com.saurabh.artifact.ui.theme.WarningTextPrimary
+import com.saurabh.artifact.ui.theme.WarningTextSecondary
 
 @Composable
 fun PreRecordingWarningScreen(
@@ -56,7 +87,7 @@ fun PreRecordingWarningScreen(
     )
 
     Scaffold(
-        containerColor = Obsidian950
+        containerColor = WarningBackgroundBottom
     ) { innerPadding ->
         Box(
             modifier = Modifier
@@ -65,8 +96,8 @@ fun PreRecordingWarningScreen(
                 .background(
                     brush = Brush.verticalGradient(
                         colors = listOf(
-                            Color(0xFFE91E63).copy(alpha = alpha), // Subtle ambient red
-                            Color.Transparent
+                            WarningBackgroundTop.copy(alpha = alpha * 4),
+                            WarningBackgroundBottom
                         )
                     )
                 )
@@ -99,7 +130,7 @@ fun PreRecordingWarningScreen(
                 Icon(
                     imageVector = Icons.Default.Shield,
                     contentDescription = null,
-                    tint = Color(0xFFE91E63).copy(alpha = 0.8f),
+                    tint = WarningRed.copy(alpha = 0.8f),
                     modifier = Modifier.size(48.dp)
                 )
 
@@ -113,7 +144,7 @@ fun PreRecordingWarningScreen(
                         fontSize = 42.sp,
                         letterSpacing = (-1).sp
                     ),
-                    color = Color.White,
+                    color = WarningTextPrimary,
                     textAlign = TextAlign.Center
                 )
 
@@ -123,7 +154,7 @@ fun PreRecordingWarningScreen(
                 Text(
                     text = "Protect your safety and peace of mind.",
                     style = MaterialTheme.typography.bodyLarge,
-                    color = Color.White.copy(alpha = 0.4f),
+                    color = WarningTextSecondary,
                     textAlign = TextAlign.Center,
                     lineHeight = 24.sp
                 )
@@ -132,8 +163,9 @@ fun PreRecordingWarningScreen(
 
                 // 5. WARNING CARD
                 Surface(
-                    color = Color.White.copy(alpha = 0.03f),
+                    color = WarningCard,
                     shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(1.dp, WarningBorder),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
@@ -146,7 +178,7 @@ fun PreRecordingWarningScreen(
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 24.sp
                             ),
-                            color = Color(0xFFE91E63) // Warm emotional red
+                            color = WarningRed
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         
@@ -166,7 +198,7 @@ fun PreRecordingWarningScreen(
                                 Box(
                                     modifier = Modifier
                                         .size(6.dp)
-                                        .background(Color(0xFFE91E63).copy(alpha = 0.5f), CircleShape)
+                                        .background(WarningRed.copy(alpha = 0.5f), CircleShape)
                                 )
                                 Spacer(modifier = Modifier.width(16.dp))
                                 Text(
@@ -175,7 +207,7 @@ fun PreRecordingWarningScreen(
                                         fontSize = 20.sp,
                                         fontWeight = FontWeight.Light
                                     ),
-                                    color = Color.White.copy(alpha = 0.7f)
+                                    color = WarningTextSecondary
                                 )
                             }
                         }
@@ -188,14 +220,14 @@ fun PreRecordingWarningScreen(
                 Icon(
                     imageVector = Icons.Default.Favorite,
                     contentDescription = null,
-                    tint = Color(0xFFE91E63).copy(alpha = 0.4f),
+                    tint = WarningRed.copy(alpha = 0.4f),
                     modifier = Modifier.size(24.dp)
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
                     text = "Speak honestly. But protect yourself too.",
                     style = MaterialTheme.typography.bodyLarge,
-                    color = Color.White.copy(alpha = 0.5f),
+                    color = WarningTextSecondary,
                     textAlign = TextAlign.Center,
                     lineHeight = 28.sp,
                     fontWeight = FontWeight.Light
@@ -225,7 +257,7 @@ fun PreRecordingWarningScreen(
                             .background(
                                 brush = Brush.radialGradient(
                                     colors = listOf(
-                                        Color(0xFFE91E63).copy(alpha = 0.15f),
+                                        WarningRed.copy(alpha = 0.15f),
                                         Color.Transparent
                                     )
                                 ),
@@ -240,7 +272,7 @@ fun PreRecordingWarningScreen(
                             fontWeight = FontWeight.ExtraLight,
                             letterSpacing = (-2).sp
                         ),
-                        color = if (isReady) Color(0xFFE91E63).copy(alpha = 0.9f) else Color.White.copy(alpha = 0.9f),
+                        color = if (isReady) WarningRed.copy(alpha = 0.9f) else Color.White.copy(alpha = 0.9f),
                         modifier = Modifier.scale(if (isReady) 1f else pulseScale)
                     )
                 }
@@ -251,7 +283,7 @@ fun PreRecordingWarningScreen(
                     Text(
                         text = "Take a moment",
                         style = MaterialTheme.typography.labelLarge,
-                        color = Color.White.copy(alpha = 0.2f),
+                        color = WarningTextSecondary.copy(alpha = 0.2f),
                         letterSpacing = 2.sp
                     )
                 }

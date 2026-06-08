@@ -22,15 +22,4 @@ object Spacing {
     
     /** 32dp - Outer screen margins, major layout breaks */
     val ExtraLarge = 32.dp
-    
-    /** 48dp - Large hero headers, empty state offsets */
-    val TwoExtraLarge = 48.dp
-    
-    /** 64dp - Massive spacing for extreme visual separation */
-    val ThreeExtraLarge = 64.dp
-
-    // --- Icon Sizes ---
-    val IconSmall = 16.dp
-    val IconMedium = 24.dp
-    val IconLarge = 32.dp
 }

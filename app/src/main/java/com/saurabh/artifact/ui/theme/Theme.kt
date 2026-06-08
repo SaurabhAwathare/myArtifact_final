@@ -8,11 +8,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.State
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import com.saurabh.artifact.startup.StartupStage
@@ -54,11 +51,6 @@ val LocalStartupStage = staticCompositionLocalOf { StartupStage.ARRIVAL }
  * Provides the current authenticated user's profile globally.
  */
 val LocalUserProfile = staticCompositionLocalOf<com.saurabh.artifact.model.User?> { null }
-
-/**
- * Provides a stable reference to the stability state to prevent tree-wide invalidations.
- */
-val LocalIsStable = staticCompositionLocalOf<State<Boolean>> { mutableStateOf(true) }
 
 private val DarkColorScheme = darkColorScheme(
     primary = GoldAura500,
@@ -103,7 +95,6 @@ fun ArtifactTheme(
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            window.statusBarColor = colorScheme.background.toArgb()
             // Always use light status bar icons for dark background
             WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = false
         }
@@ -116,6 +107,7 @@ fun ArtifactTheme(
         MaterialTheme(
             colorScheme = colorScheme,
             typography = typography,
+            shapes = AppShapes,
             content = content
         )
     }

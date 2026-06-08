@@ -18,13 +18,11 @@ data class ArtifactEngagement(
     val lastPositionMs: Long, // Resume position
     val furthestPositionMs: Long, // Validation progress
     val hasReachedEnd: Boolean,
-    val lastUpdated: Long = System.currentTimeMillis()
+    val lastUpdated: Long = System.currentTimeMillis(),
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
-        if (javaClass != other?.javaClass) return false
-
-        other as ArtifactEngagement
+        if (other !is ArtifactEngagement) return false
 
         if (artifactId != other.artifactId) return false
         if (versionTag != other.versionTag) return false
@@ -35,22 +33,20 @@ data class ArtifactEngagement(
         if (lastPositionMs != other.lastPositionMs) return false
         if (furthestPositionMs != other.furthestPositionMs) return false
         if (hasReachedEnd != other.hasReachedEnd) return false
-        if (lastUpdated != other.lastUpdated) return false
-
-        return true
+        return lastUpdated == other.lastUpdated
     }
 
     override fun hashCode(): Int {
         var result = artifactId.hashCode()
-        result = 31 * result + versionTag.hashCode()
-        result = 31 * result + durationMs.hashCode()
-        result = 31 * result + audioChecksum.hashCode()
-        result = 31 * result + coverage.contentHashCode()
-        result = 31 * result + effortMap.hashCode()
-        result = 31 * result + lastPositionMs.hashCode()
-        result = 31 * result + furthestPositionMs.hashCode()
-        result = 31 * result + hasReachedEnd.hashCode()
-        result = 31 * result + lastUpdated.hashCode()
+        result = (31 * result) + versionTag.hashCode()
+        result = (31 * result) + durationMs.hashCode()
+        result = (31 * result) + audioChecksum.hashCode()
+        result = (31 * result) + coverage.contentHashCode()
+        result = (31 * result) + effortMap.hashCode()
+        result = (31 * result) + lastPositionMs.hashCode()
+        result = (31 * result) + furthestPositionMs.hashCode()
+        result = (31 * result) + hasReachedEnd.hashCode()
+        result = (31 * result) + lastUpdated.hashCode()
         return result
     }
 }

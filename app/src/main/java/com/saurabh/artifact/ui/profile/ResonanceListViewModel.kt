@@ -48,7 +48,7 @@ class ResonanceListViewModel @Inject constructor(
             isLastPage = false
         }
         
-        if (isLastPage && !refresh) return
+        if (isLastPage) return
         if (_uiState.value.isLoading && !refresh) return
         if (_uiState.value.isRefreshing) return
 

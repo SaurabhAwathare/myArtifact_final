@@ -5,7 +5,6 @@ import com.saurabh.artifact.security.SecurityArchitecture
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.io.InputStream
-import java.io.OutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -13,33 +12,7 @@ import javax.inject.Singleton
 class EncryptedStorageManager @Inject constructor(
     @param:ApplicationContext private val context: Context
 ) {
-    fun getEncryptedOutputStream(file: File): OutputStream {
-        return SecurityArchitecture.openEncryptingStream(context, file)
-    }
-
     fun getEncryptedInputStream(file: File): InputStream {
         return SecurityArchitecture.openDecryptingStream(context, file)
-    }
-
-    fun deleteSecurely(file: File) {
-        if (!file.exists()) return
-        
-        // Zero-fill before deletion for extra security
-        try {
-            val length = file.length()
-            val out = file.outputStream()
-            val zeros = ByteArray(8192)
-            var written = 0L
-            while (written < length) {
-                val toWrite = minOf(zeros.size.toLong(), length - written).toInt()
-                out.write(zeros, 0, toWrite)
-                written += toWrite
-            }
-            out.flush()
-            out.close()
-        } catch (_: Exception) {
-            // Fallback to normal delete if zero-fill fails
-        }
-        file.delete()
     }
 }

@@ -5,7 +5,7 @@ import java.util.concurrent.LinkedBlockingQueue
 /**
  * A thread-safe pool of ByteArray buffers to reduce GC pressure during high-frequency audio capture.
  */
-class BufferPool(private val bufferSize: Int, private val maxPoolSize: Int = 200) {
+class BufferPool(private val bufferSize: Int, maxPoolSize: Int = 200) {
     private val pool = LinkedBlockingQueue<ByteArray>(maxPoolSize)
 
     /**

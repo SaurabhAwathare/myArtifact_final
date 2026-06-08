@@ -1,53 +1,48 @@
 package com.saurabh.artifact
 
-import android.os.Build
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
-import android.view.WindowManager
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.ContextCompat
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.ui.draw.alpha
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.zIndex
-import androidx.compose.material3.Text
-import androidx.compose.material3.MaterialTheme
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.compose.foundation.layout.*
+import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
-import com.saurabh.artifact.ui.theme.ArtifactTheme
-import com.saurabh.artifact.startup.StartupStage
-import com.saurabh.artifact.ui.theme.LocalStartupStage
-import androidx.navigation.compose.rememberNavController
-import androidx.navigation.compose.currentBackStackEntryAsState
-import com.saurabh.artifact.navigation.NavGraph
-import com.saurabh.artifact.audio.RecordingSessionManager
-import com.saurabh.artifact.audio.PublishStateManager
-import com.saurabh.artifact.ui.player.ArtifactPlayerView
-import com.saurabh.artifact.ui.player.PlayerViewModel
-import com.saurabh.artifact.ui.recording.components.MiniRecorder
-import com.saurabh.artifact.ui.components.AmbientUploadBar
-import com.saurabh.artifact.navigation.Screen
-import dagger.hilt.android.AndroidEntryPoint
-import javax.inject.Inject
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.navigation.compose.rememberNavController
+import com.saurabh.artifact.audio.PublishStateManager
+import com.saurabh.artifact.audio.RecordingSessionManager
+import com.saurabh.artifact.navigation.NavGraph
+import com.saurabh.artifact.navigation.Screen
+import com.saurabh.artifact.startup.StartupStage
+import com.saurabh.artifact.ui.components.GlobalOverlayHost
+import com.saurabh.artifact.ui.components.moderation.ReportSheet
+import com.saurabh.artifact.ui.feed.FeedViewModel
+import com.saurabh.artifact.ui.player.PlayerViewModel
+import com.saurabh.artifact.ui.splash.SplashUI
+import com.saurabh.artifact.ui.theme.ArtifactTheme
+import com.saurabh.artifact.ui.theme.LocalStartupStage
+import com.saurabh.artifact.ui.theme.LocalUserProfile
+import com.saurabh.artifact.util.OnboardingManager
+import dagger.hilt.android.AndroidEntryPoint
+import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.launch
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -57,15 +52,15 @@ class MainActivity : ComponentActivity() {
     lateinit var recordingSessionManager: RecordingSessionManager
 
     @Inject
-    lateinit var onboardingManager: com.saurabh.artifact.util.OnboardingManager
+    lateinit var onboardingManager: OnboardingManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         println("ReviewDebug: MainActivity onCreate - println test")
-        android.util.Log.d("ReviewDebug", "MainActivity onCreate - APP STARTED")
+        Log.d("ReviewDebug", "MainActivity onCreate - APP STARTED")
         
         // Ensure logs are flushed
-        android.util.Log.i("ReviewDebug", "Checking if log level INFO works")
+        Log.i("ReviewDebug", "Checking if log level INFO works")
         Log.d("APP_FLOW", "1. MainActivity.onCreate")
         
         checkNotificationPermission()
@@ -92,7 +87,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onNewIntent(intent: android.content.Intent) {
+    override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         mainViewModel.onNewIntent(intent)
     }
@@ -129,7 +124,7 @@ class MainActivity : ComponentActivity() {
 fun AppRoot(
     mainViewModel: MainViewModel,
     recordingSessionManager: RecordingSessionManager,
-    onboardingManager: com.saurabh.artifact.util.OnboardingManager
+    onboardingManager: OnboardingManager
 ) {
     // Only collect the essential stage at the root
     val stage by mainViewModel.startupStage.collectAsStateWithLifecycle()
@@ -138,14 +133,14 @@ fun AppRoot(
     Log.d("PERF_DEBUG", "AppRoot Recomposed. Stage: $stage")
 
     val activity = LocalActivity.current ?: return
-    val publishStateManager = dagger.hilt.android.EntryPointAccessors.fromActivity(
+    val publishStateManager = EntryPointAccessors.fromActivity(
         activity,
         MainActivityEntryPoint::class.java
     ).publishStateManager()
 
     CompositionLocalProvider(
         LocalStartupStage provides stage,
-        com.saurabh.artifact.ui.theme.LocalUserProfile provides userProfile
+        LocalUserProfile provides userProfile
     ) {
         // Defer more expensive state collection until we are past Presence
         AuthenticatedIsland(
@@ -170,13 +165,13 @@ fun AuthenticatedIsland(
     mainViewModel: MainViewModel,
     recordingSessionManager: RecordingSessionManager,
     publishStateManager: PublishStateManager,
-    onboardingManager: com.saurabh.artifact.util.OnboardingManager
+    onboardingManager: OnboardingManager
 ) {
     val startupState by mainViewModel.startupState.collectAsStateWithLifecycle()
     val playerViewModel: PlayerViewModel = hiltViewModel()
 
     // Debug logging for startup state
-    androidx.compose.runtime.LaunchedEffect(startupState) {
+    LaunchedEffect(startupState) {
         Log.d("STARTUP_DEBUG", "startupState = $startupState")
     }
 
@@ -185,11 +180,11 @@ fun AuthenticatedIsland(
             val readyState = startupState as AppStartupState.Ready
             val startDestination = readyState.startDestination
 
-            androidx.compose.runtime.key(startDestination) {
+            key(startDestination) {
                 val navController = rememberNavController()
 
                 // Observe navigation events
-                androidx.compose.runtime.LaunchedEffect(navController) {
+                LaunchedEffect(navController) {
                     mainViewModel.navigationEvent.collect { route ->
                         navController.navigate(route) {
                             launchSingleTop = true
@@ -197,7 +192,7 @@ fun AuthenticatedIsland(
                     }
                 }
 
-                Box(modifier = androidx.compose.ui.Modifier.fillMaxSize()) {
+                Box(modifier = Modifier.fillMaxSize()) {
                     NavGraph(
                         navController = navController,
                         startDestination = startDestination,
@@ -211,7 +206,7 @@ fun AuthenticatedIsland(
                     if (stage >= StartupStage.RITUAL) {
                         val reportingArtifactId by mainViewModel.reportingArtifactId.collectAsStateWithLifecycle()
                         
-                        com.saurabh.artifact.ui.components.GlobalOverlayHost(
+                        GlobalOverlayHost(
                             navController = navController,
                             recordingSessionManager = recordingSessionManager,
                             publishStateManager = publishStateManager,
@@ -229,8 +224,8 @@ fun AuthenticatedIsland(
                         )
 
                         if (reportingArtifactId != null) {
-                            val feedViewModel: com.saurabh.artifact.ui.feed.FeedViewModel = hiltViewModel()
-                            com.saurabh.artifact.ui.components.moderation.ReportSheet(
+                            val feedViewModel: FeedViewModel = hiltViewModel()
+                            ReportSheet(
                                 onReportSubmitted = { reason, details ->
                                     reportingArtifactId?.let { id ->
                                         feedViewModel.reportArtifact(id, reason, details)
@@ -245,50 +240,7 @@ fun AuthenticatedIsland(
             }
         }
         else -> {
-            com.saurabh.artifact.ui.splash.SplashUI()
+            SplashUI()
         }
-    }
-}
-
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-@Composable
-fun ShellScreen() {
-    androidx.compose.material3.Scaffold(
-        topBar = {
-            androidx.compose.material3.CenterAlignedTopAppBar(
-                title = {
-                    com.saurabh.artifact.ui.components.BrandTitle(
-                        style = androidx.compose.material3.MaterialTheme.typography.titleLarge,
-                        modifier = androidx.compose.ui.Modifier.alpha(0.5f)
-                    )
-                },
-                colors = androidx.compose.material3.TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = androidx.compose.material3.MaterialTheme.colorScheme.background
-                )
-            )
-        }
-    ) { innerPadding ->
-        Box(
-            modifier = androidx.compose.ui.Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .background(androidx.compose.material3.MaterialTheme.colorScheme.background)
-        )
-    }
-}
-
-@Composable
-fun BootScreen() {
-    Box(
-        modifier = androidx.compose.ui.Modifier
-            .fillMaxSize()
-            .background(androidx.compose.ui.graphics.Color.Black),
-        contentAlignment = androidx.compose.ui.Alignment.Center
-    ) {
-        androidx.compose.material3.Text(
-            text = "Artifact",
-            style = androidx.compose.material3.MaterialTheme.typography.headlineMedium,
-            color = androidx.compose.ui.graphics.Color.White
-        )
     }
 }

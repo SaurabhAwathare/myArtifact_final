@@ -41,7 +41,6 @@ fun ProfileHeader(
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // Large Avatar
         Box(
             modifier = Modifier
                 .size(120.dp)
@@ -49,8 +48,14 @@ fun ProfileHeader(
                 .clickable(enabled = isSelf) { onEditClick() },
             contentAlignment = Alignment.Center
         ) {
+            val displayConfig = when {
+                isSelf -> avatarConfig
+                user != null -> user.avatarConfig
+                else -> AvatarConfig(seed = "fallback")
+            }
+
             ArtifactAvatar(
-                config = if (isSelf) avatarConfig else user?.avatarConfig ?: AvatarConfig(seed = user?.avatarSeed ?: ""),
+                config = displayConfig,
                 size = 110.dp
             )
         }

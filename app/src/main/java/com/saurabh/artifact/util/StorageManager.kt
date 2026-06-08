@@ -6,8 +6,6 @@ import android.os.StatFs
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
-import java.io.InputStream
-import java.io.OutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -17,12 +15,11 @@ import javax.inject.Singleton
  */
 @Singleton
 class StorageManager @Inject constructor(
-    @param:ApplicationContext private val context: Context
+    @param:ApplicationContext private val context: Context,
 ) {
 
     companion object {
         private const val MIN_STORAGE_REQUIRED_MB = 100L
-        private const val CRITICAL_STORAGE_THRESHOLD_MB = 20L
     }
 
     /**

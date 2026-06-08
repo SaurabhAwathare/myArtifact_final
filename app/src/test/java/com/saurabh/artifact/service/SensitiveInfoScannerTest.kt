@@ -5,7 +5,6 @@ import com.saurabh.artifact.model.PiiType
 import com.saurabh.artifact.model.TranscriptSegment
 import io.mockk.every
 import io.mockk.mockk
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 

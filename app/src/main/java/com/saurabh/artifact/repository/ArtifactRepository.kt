@@ -14,8 +14,16 @@ import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.StorageMetadata
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.data.local.DraftDao
+import com.saurabh.artifact.data.local.ArtifactEntity
+import com.saurabh.artifact.data.local.ArtifactDao
+import com.saurabh.artifact.data.local.AppDatabase
+import com.saurabh.artifact.data.local.PendingInteractionDao
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.service.ReflectionAIService
+import com.saurabh.artifact.service.PersonalizationEngine
+import com.google.firebase.auth.FirebaseAuth
+import android.content.Context
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineScope
@@ -28,7 +36,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
-import com.saurabh.artifact.data.local.ArtifactEntity
 import androidx.paging.filter
 import androidx.paging.map
 import com.saurabh.artifact.data.paging.ArtifactRemoteMediator
@@ -47,17 +54,17 @@ import kotlin.time.Duration.Companion.seconds
 @Suppress("SameParameterValue")
 @Singleton
 class ArtifactRepository @Inject constructor(
-    @param:dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context,
-    private val auth: com.google.firebase.auth.FirebaseAuth,
+    @param:ApplicationContext private val context: Context,
+    private val auth: FirebaseAuth,
     private val firestore: FirebaseFirestore,
     private val storage: FirebaseStorage,
     private val draftDao: DraftDao,
     private val aiService: dagger.Lazy<ReflectionAIService>,
-    private val personalizationEngine: dagger.Lazy<com.saurabh.artifact.service.PersonalizationEngine>,
+    private val personalizationEngine: dagger.Lazy<PersonalizationEngine>,
     private val notificationRepository: NotificationRepository,
-    private val artifactDao: com.saurabh.artifact.data.local.ArtifactDao,
-    private val database: com.saurabh.artifact.data.local.AppDatabase,
-    private val pendingInteractionDao: com.saurabh.artifact.data.local.PendingInteractionDao
+    private val artifactDao: ArtifactDao,
+    private val database: AppDatabase,
+    private val pendingInteractionDao: PendingInteractionDao
 ) {
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -91,7 +98,7 @@ class ArtifactRepository @Inject constructor(
 
     private suspend fun mapDocumentToArtifactDetail(doc: com.google.firebase.firestore.DocumentSnapshot): ArtifactDetail = withContext(Dispatchers.Default) {
         // Mandatory Fix: Downsample amplitudes to 64 points (from 128) to stay well within limits
-        val rawAmplitudes = doc["amplitudeData"] as? List<*> ?: emptyList<Any>()
+        val rawAmplitudes = (doc["amplitudeData"] as? List<*>) ?: emptyList<Any>()
         val downsampledAmplitudes = downsampleAmplitudes(rawAmplitudes, 64)
 
         // Fetch Reaction Counts - Still IO
@@ -630,7 +637,7 @@ class ArtifactRepository @Inject constructor(
                     trySend(emptySet())
                     return@addSnapshotListener
                 }
-                val ids = snapshot?.documents?.map { it.id }?.toSet() ?: emptySet()
+                val ids = snapshot?.documents?.asSequence()?.map { it.id }?.toSet() ?: emptySet()
                 trySend(ids)
             }
         awaitClose { subscription.remove() }
