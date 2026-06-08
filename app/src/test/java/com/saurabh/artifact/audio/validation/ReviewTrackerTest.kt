@@ -61,7 +61,7 @@ class ReviewTrackerTest {
         tracker.onPlaybackTick(1000L, 1000L, 1.0f)
         
         // 2. Seek to 59 seconds
-        tracker.onSeekPerformed(59000L)
+        tracker.onSeekPerformed()
         tracker.onPlaybackTick(59000L, 100L, 1.0f)
         
         // 3. Finish

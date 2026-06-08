@@ -8,6 +8,7 @@ import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
+import android.media.MediaRecorder
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
@@ -50,16 +51,31 @@ class RecordingService : Service() {
     private var timerJob: Job? = null
     private var pacingJob: Job? = null
     
+    private var wasPausedByFocusLoss = false
+    
     private var audioManager: AudioManager? = null
     private var audioFocusRequest: AudioFocusRequest? = null
     private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
         when (focusChange) {
-            AudioManager.AUDIOFOCUS_LOSS,
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK,
-            -> {
-                Log.d("RecordingService", "Audio focus lost ($focusChange). Pausing recording.")
+            AudioManager.AUDIOFOCUS_LOSS -> {
+                Log.d("RecordingService", "Audio focus lost (permanent). Pausing recording.")
+                wasPausedByFocusLoss = false
                 pauseRecording()
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                if (_recordingState.value.status == RecordingStatus.RECORDING) {
+                    Log.d("RecordingService", "Audio focus lost (transient: $focusChange). Pausing recording.")
+                    wasPausedByFocusLoss = true
+                    pauseRecording()
+                }
+            }
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                if (wasPausedByFocusLoss && _recordingState.value.status == RecordingStatus.PAUSED) {
+                    Log.d("RecordingService", "Audio focus regained. Resuming recording.")
+                    wasPausedByFocusLoss = false
+                    resumeRecording()
+                }
             }
         }
     }
@@ -95,7 +111,23 @@ class RecordingService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        audioRecorder = AudioRecorder(applicationContext)
+        audioRecorder = AudioRecorder(applicationContext).apply {
+            onError = { what, extra ->
+                Log.e("RecordingService", "Hardware error: what=$what, extra=$extra")
+                _recordingState.value = _recordingState.value.copy(
+                    status = RecordingStatus.FAILED,
+                    errorCode = "HARDWARE_ERROR_$what"
+                )
+                stopRecording()
+            }
+            onInfo = { what, extra ->
+                Log.i("RecordingService", "Hardware info: what=$what, extra=$extra")
+                if (what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_DURATION_REACHED || 
+                    what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_FILESIZE_REACHED) {
+                    stopRecording()
+                }
+            }
+        }
         audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
         
         val powerManager = getSystemService(POWER_SERVICE) as PowerManager
@@ -346,9 +378,14 @@ class RecordingService : Service() {
             Log.w("RecordingService", "pauseRecording() ignored: Status is not RECORDING")
             return
         }
+
+        // Only clear focus-loss flag if we are manually pausing
+        val focusLossState = wasPausedByFocusLoss
         
         audioRecorder?.pause()
         _recordingState.value = _recordingState.value.copy(status = RecordingStatus.PAUSED)
+        
+        wasPausedByFocusLoss = focusLossState
         
         _recordingState.value.draftId.let { id ->
             serviceScope.launch {
@@ -368,6 +405,7 @@ class RecordingService : Service() {
             return
         }
         
+        wasPausedByFocusLoss = false
         audioRecorder?.resume()
         _recordingState.value = _recordingState.value.copy(status = RecordingStatus.RECORDING)
         
@@ -390,6 +428,7 @@ class RecordingService : Service() {
             return
         }
 
+        wasPausedByFocusLoss = false
         serviceScope.launch {
             stopMutex.withLock {
                 // Re-check status inside lock to prevent race conditions
@@ -484,6 +523,7 @@ class RecordingService : Service() {
 
     fun cancelRecording() {
         try {
+            wasPausedByFocusLoss = false
             pacingJob?.cancel()
             audioRecorder?.stop()
             timerJob?.cancel()

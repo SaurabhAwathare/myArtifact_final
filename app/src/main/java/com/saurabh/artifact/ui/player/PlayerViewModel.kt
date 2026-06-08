@@ -241,6 +241,11 @@ class PlayerViewModel @Inject constructor(
 
     fun seekTo(position: Long) {
         playbackCoordinator.seekTo(position.milliseconds)
+        playbackCoordinator.updateScrubbingPosition(null)
+    }
+
+    fun onScrubbing(position: Long) {
+        playbackCoordinator.updateScrubbingPosition(position.milliseconds)
     }
 
     fun setPlaybackSpeed(speed: Float) {

@@ -27,7 +27,8 @@ fun WaveformScrubber(
     progress: Float,
     isPaused: Boolean,
     onSeek: (Float) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onScrubbing: (Float) -> Unit = {},
 ) {
     var isDragging by remember { mutableStateOf(false) }
     var dragProgress by remember { mutableFloatStateOf(progress) }
@@ -39,19 +40,28 @@ fun WaveformScrubber(
             .pointerInput(Unit) {
                 detectTapGestures { offset ->
                     val newProgress = (offset.x / size.width).coerceIn(0f, 1f)
+                    onScrubbing(newProgress)
                     onSeek(newProgress)
                 }
             }
             .pointerInput(Unit) {
                 detectDragGestures(
-                    onDragStart = { isDragging = true },
+                    onDragStart = { 
+                        isDragging = true 
+                        dragProgress = progress
+                    },
                     onDragEnd = {
                         isDragging = false
                         onSeek(dragProgress)
                     },
-                    onDragCancel = { isDragging = false },
+                    onDragCancel = { 
+                        isDragging = false 
+                        onScrubbing(progress) // Reset to actual position if needed, or just let it snap back
+                        onSeek(progress)
+                    },
                     onDrag = { change, _ ->
                         dragProgress = (change.position.x / size.width).coerceIn(0f, 1f)
+                        onScrubbing(dragProgress)
                         change.consume()
                     }
                 )

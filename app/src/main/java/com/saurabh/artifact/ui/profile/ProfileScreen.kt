@@ -276,7 +276,9 @@ fun ProfileScreen(
                     progress = if (uiState.durationMs > 0) uiState.currentPosition.toFloat() / uiState.durationMs else 0f,
                     onTogglePlayback = { viewModel.togglePlayback() },
                     onClick = { },
-                    modifier = Modifier.align(Alignment.BottomCenter)
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .navigationBarsPadding()
                 )
             }
         }

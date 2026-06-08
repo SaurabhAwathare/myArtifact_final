@@ -23,6 +23,12 @@ class AudioRecorder(private val context: Context) {
     private var isRecording = false
 
     /**
+     * Optional callbacks for hardware-level events.
+     */
+    var onError: ((Int, Int) -> Unit)? = null
+    var onInfo: ((Int, Int) -> Unit)? = null
+
+    /**
      * Configures and starts audio capture in the specified mode.
      * @param outputFile The destination file.
      * @param mode The recording format (AAC or WAV).
@@ -65,6 +71,14 @@ class AudioRecorder(private val context: Context) {
         
         mediaRecorder = recorder
         recorder.apply {
+            setOnErrorListener { _, what, extra ->
+                Log.e("AudioRecorder", "MediaRecorder error: what=$what, extra=$extra")
+                onError?.invoke(what, extra)
+            }
+            setOnInfoListener { _, what, extra ->
+                Log.d("AudioRecorder", "MediaRecorder info: what=$what, extra=$extra")
+                onInfo?.invoke(what, extra)
+            }
             setAudioSource(MediaRecorder.AudioSource.MIC)
             setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
             setAudioEncoder(MediaRecorder.AudioEncoder.AAC)

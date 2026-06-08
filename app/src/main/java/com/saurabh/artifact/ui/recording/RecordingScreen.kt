@@ -306,7 +306,6 @@ fun RecordingScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
                 .background(
                     brush = Brush.verticalGradient(
                         colors = listOf(
@@ -317,7 +316,9 @@ fun RecordingScreen(
                 )
         ) {
             Column(
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
             ) {
                 // TOP HALF - PROMPT SECTION (Swipeable)
                 Box(

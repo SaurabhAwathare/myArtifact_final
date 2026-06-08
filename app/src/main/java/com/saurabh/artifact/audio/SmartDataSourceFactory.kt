@@ -28,24 +28,31 @@ class SmartDataSourceFactory(
             
             private var cachedDataSource: DataSource? = null
             private var encryptedDataSource: DataSource? = null
+            private val listeners = mutableListOf<TransferListener>()
 
             private fun getCachedDataSource(): DataSource {
                 return cachedDataSource ?: CacheDataSource.Factory()
                     .setCache(cache)
                     .setUpstreamDataSourceFactory(defaultDataSourceFactory)
                     .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
-                    .createDataSource().also { cachedDataSource = it }
+                    .createDataSource().also { 
+                        cachedDataSource = it 
+                        listeners.forEach { listener -> it.addTransferListener(listener) }
+                    }
             }
 
             private fun getEncryptedDataSource(): DataSource {
                 return encryptedDataSource ?: encryptedDataSourceFactory.createDataSource()
-                    .also { encryptedDataSource = it }
+                    .also { 
+                        encryptedDataSource = it 
+                        listeners.forEach { listener -> it.addTransferListener(listener) }
+                    }
             }
 
             override fun addTransferListener(transferListener: TransferListener) {
-                // Add to both potentially used sources
-                // Note: These are lazy, so we might need to be careful if listeners are added before open
-                // In Media3, listeners are usually added by the caller before open
+                listeners.add(transferListener)
+                cachedDataSource?.addTransferListener(transferListener)
+                encryptedDataSource?.addTransferListener(transferListener)
             }
 
             override fun open(dataSpec: DataSpec): Long {

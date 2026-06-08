@@ -47,6 +47,7 @@ fun ImmersivePlayerScreen(
     onForward: () -> Unit,
     onSpeedChange: (Float) -> Unit,
     onSeek: (Float) -> Unit,
+    onScrubbing: (Float) -> Unit = {},
     onShowAdvanced: () -> Unit,
     onCommentClick: () -> Unit,
     onResonateClick: (com.saurabh.artifact.model.ReactionType) -> Unit = {},
@@ -299,6 +300,7 @@ fun ImmersivePlayerScreen(
                     progress = uiState.playbackProgress,
                     isPaused = !uiState.isPlaying,
                     onSeek = onSeek,
+                    onScrubbing = onScrubbing,
                     modifier = Modifier.fillMaxWidth()
                 )
             }

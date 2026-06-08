@@ -17,9 +17,12 @@ import com.google.common.collect.ImmutableList
 import androidx.media3.session.DefaultMediaNotificationProvider
 import com.saurabh.artifact.MainActivity
 import com.saurabh.artifact.util.NotificationHelper
+import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import dagger.hilt.android.AndroidEntryPoint
 
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.session.CommandButton
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionError
 import androidx.media3.session.SessionResult
@@ -45,6 +48,14 @@ class PlaybackService : MediaLibraryService() {
     private var mediaSession: MediaLibrarySession? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
+    companion object {
+        private val ARTIFACT_AUDIO_ATTRIBUTES = AudioAttributes.Builder()
+            .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+            .setUsage(C.USAGE_MEDIA)
+            .setSpatializationBehavior(C.SPATIALIZATION_BEHAVIOR_AUTO)
+            .build()
+    }
+
     @androidx.annotation.OptIn(UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
@@ -66,15 +77,26 @@ class PlaybackService : MediaLibraryService() {
         
         val dataSourceFactory = SmartDataSourceFactory(this)
         
-        val player = ExoPlayer.Builder(this)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(this).setDataSourceFactory(dataSourceFactory))
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-                    .setUsage(C.USAGE_MEDIA)
-                    .build(),
-                true,
+        // Optimized buffering for network resilience
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                30_000, // Min buffer 30s
+                60_000, // Max buffer 60s
+                2_500,  // Buffer for playback 2.5s
+                5_000   // Buffer for playback after rebuffer 5s
             )
+            .build()
+
+        val bandwidthMeter = DefaultBandwidthMeter.getSingletonInstance(this)
+
+        val player = ExoPlayer.Builder(this)
+            .setMediaSourceFactory(
+                DefaultMediaSourceFactory(this)
+                    .setDataSourceFactory(dataSourceFactory)
+            )
+            .setLoadControl(loadControl)
+            .setBandwidthMeter(bandwidthMeter)
+            .setAudioAttributes(ARTIFACT_AUDIO_ATTRIBUTES, true)
             .setHandleAudioBecomingNoisy(true) // Pause on headphone unplug
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .setSeekBackIncrementMs(10000)
@@ -87,7 +109,7 @@ class PlaybackService : MediaLibraryService() {
                 session: MediaSession,
                 controller: MediaSession.ControllerInfo,
                 customCommand: SessionCommand,
-                args: android.os.Bundle
+                args: android.os.Bundle,
             ): ListenableFuture<SessionResult> {
                 if (customCommand.customAction == "SET_SKIP_SILENCE") {
                     val enabled = args.getBoolean("enabled")
@@ -99,21 +121,50 @@ class PlaybackService : MediaLibraryService() {
 
             override fun onConnect(
                 session: MediaSession,
-                controller: MediaSession.ControllerInfo
+                controller: MediaSession.ControllerInfo,
             ): MediaSession.ConnectionResult {
                 val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
                     .add(SessionCommand("SET_SKIP_SILENCE", android.os.Bundle.EMPTY))
                     .build()
-                return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
+                
+                val builder = MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                     .setAvailableSessionCommands(sessionCommands)
-                    .build()
+
+                if (session.isMediaNotificationController(controller)) {
+                    val seekBackButton = CommandButton.Builder(CommandButton.ICON_UNDEFINED)
+                        .setDisplayName("Seek Back 10s")
+                        .setCustomIconResId(android.R.drawable.ic_media_rew)
+                        .setPlayerCommand(Player.COMMAND_SEEK_BACK)
+                        .setSlots(CommandButton.SLOT_BACK)
+                        .build()
+                    val seekForwardButton = CommandButton.Builder(CommandButton.ICON_UNDEFINED)
+                        .setDisplayName("Seek Forward 10s")
+                        .setCustomIconResId(android.R.drawable.ic_media_ff)
+                        .setPlayerCommand(Player.COMMAND_SEEK_FORWARD)
+                        .setSlots(CommandButton.SLOT_FORWARD)
+                        .build()
+                    
+                    val playerCommands = MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon()
+                        .add(Player.COMMAND_SEEK_BACK)
+                        .add(Player.COMMAND_SEEK_FORWARD)
+                        .remove(Player.COMMAND_SEEK_TO_PREVIOUS)
+                        .remove(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+                        .remove(Player.COMMAND_SEEK_TO_NEXT)
+                        .remove(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+                        .build()
+                    
+                    builder.setMediaButtonPreferences(listOf(seekBackButton, seekForwardButton))
+                        .setAvailablePlayerCommands(playerCommands)
+                }
+
+                return builder.build()
             }
 
             @UnstableApi
-            @Deprecated("Deprecated in MediaLibrarySession.Callback")
             override fun onPlaybackResumption(
                 mediaSession: MediaSession,
-                controller: MediaSession.ControllerInfo
+                controller: MediaSession.ControllerInfo,
+                isForPlayback: Boolean,
             ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
                 val completer = com.google.common.util.concurrent.SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
                 
@@ -140,7 +191,7 @@ class PlaybackService : MediaLibraryService() {
                                 MediaSession.MediaItemsWithStartPosition(
                                     mediaItems,
                                     lastIndex,
-                                    pos
+                                    pos,
                                 )
                             )
                         } else {
@@ -218,10 +269,12 @@ class PlaybackService : MediaLibraryService() {
                     .setArtist(artifact.author.name)
                     .setAlbumTitle("Reflections")
                     .setGenre(artifact.emotion)
-                    .setExtras(android.os.Bundle().apply {
-                        putString("author_sigil", artifact.author.sigil)
-                        putString("avatar_seed", artifact.author.avatarSeed)
-                    })
+                    .setExtras(
+                        android.os.Bundle().apply {
+                            putString("author_sigil", artifact.author.sigil)
+                            putString("avatar_seed", artifact.author.avatarSeed)
+                        }
+                    )
                     .build()
             )
             .build()
@@ -243,7 +296,7 @@ class PlaybackService : MediaLibraryService() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         val player = mediaSession?.player
-        if (player == null || (!player.playWhenReady) || (player.mediaItemCount == 0) || (player.playbackState == Player.STATE_IDLE)) {
+        if ((player == null) || (!player.playWhenReady) || (player.mediaItemCount == 0) || (player.playbackState == Player.STATE_IDLE)) {
             stopSelf()
         }
     }

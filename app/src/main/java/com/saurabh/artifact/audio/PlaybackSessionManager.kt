@@ -5,6 +5,7 @@ import android.content.Context
 import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
@@ -159,6 +160,19 @@ class PlaybackSessionManager @Inject constructor(
             }
         }
 
+        override fun onPositionDiscontinuity(
+            oldPosition: Player.PositionInfo,
+            newPosition: Player.PositionInfo,
+            reason: Int
+        ) {
+            updatePositionSync()
+        }
+
+        override fun onPlaybackParametersChanged(playbackParameters: androidx.media3.common.PlaybackParameters) {
+            _playbackSpeed.value = playbackParameters.speed
+            updatePositionSync()
+        }
+
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
             val message = when (error.errorCode) {
                 androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED -> {
@@ -291,7 +305,7 @@ class PlaybackSessionManager @Inject constructor(
             _activePlayback.value = ActivePlayback(artifact.id, playbackType)
             
             // Check if we are already playing this exact artifact to avoid redundant resets
-            if (player.currentMediaItem?.mediaId == artifact.id && player.playbackState != Player.STATE_IDLE) {
+            if ((player.currentMediaItem?.mediaId == artifact.id) && (player.playbackState != Player.STATE_IDLE)) {
                 if (initialPosition > 0 && kotlin.math.abs(player.currentPosition - initialPosition) > 2000) {
                     player.seekTo(initialPosition)
                 }
@@ -336,18 +350,12 @@ class PlaybackSessionManager @Inject constructor(
     }
 
     /**
-     * Pre-loads an artifact into the player without starting playback.
+     * Pre-loads an artifact into the cache in the background.
      */
+    @androidx.annotation.OptIn(UnstableApi::class)
     fun preCache(artifact: Artifact) {
-        scope.launch {
-            val player = getController() ?: return@launch
-            if (player.isPlaying) return@launch
-            
-            val mediaItem = createMediaItem(artifact)
-            player.addMediaItem(mediaItem)
-            player.prepare()
-            Log.d("PlaybackSessionManager", "Pre-cached artifact: ${artifact.id}")
-        }
+        MediaPreCacher.preCache(context, artifact.audioUrl)
+        Log.d("PlaybackSessionManager", "Enqueued background pre-cache: ${artifact.id}")
     }
 
     private fun createMediaItem(artifact: Artifact): MediaItem {
@@ -376,7 +384,7 @@ class PlaybackSessionManager @Inject constructor(
             val player = getController()
             player?.setPlaybackSpeed(speed)
             _playbackSpeed.value = speed
-            updatePositionSync()
+            // updatePositionSync() is now called from onPlaybackParametersChanged
 
             // Only persist to DataStore if we are playing a standard artifact
             if (_activePlayback.value?.playbackType == PlaybackType.ARTIFACT) {

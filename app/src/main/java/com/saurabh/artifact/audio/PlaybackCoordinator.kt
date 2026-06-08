@@ -40,21 +40,44 @@ class PlaybackCoordinator @Inject constructor(
     val sleepTimerRemaining: StateFlow<Duration?> = _sleepTimerRemaining.asStateFlow()
     private var sleepTimerJob: Job? = null
 
+    /**
+     * When the user is manually scrubbing (dragging a seek bar), this flow emits the 
+     * position they are dragging to. When not scrubbing, it emits null.
+     */
+    private val _scrubbingPosition = MutableStateFlow<Duration?>(null)
+    val scrubbingPosition: StateFlow<Duration?> = _scrubbingPosition.asStateFlow()
+
     @OptIn(ExperimentalCoroutinesApi::class)
-    val smoothPosition: Flow<Duration> = positionSync.flatMapLatest { sync ->
-        if (sync.isPlaying) {
-            flow {
-                while (true) {
-                    val elapsed = android.os.SystemClock.elapsedRealtime() - sync.timestampMs
-                    val currentMs = sync.positionMs + (elapsed * sync.speed).toLong()
-                    emit(currentMs.milliseconds)
-                    delay(32.milliseconds)
+    val smoothPosition: Flow<Duration> = combine(
+        positionSync,
+        _scrubbingPosition
+    ) { sync, scrubbing ->
+        // If the user is scrubbing, that takes precedence over the service's position
+        scrubbing ?: sync
+    }.flatMapLatest { state ->
+        when (state) {
+            is Duration -> flowOf(state) // Manual scrubbing position
+            is PlaybackSessionManager.PositionSync -> {
+                if (state.isPlaying) {
+                    flow {
+                        while (true) {
+                            val elapsed = android.os.SystemClock.elapsedRealtime() - state.timestampMs
+                            val currentMs = state.positionMs + (elapsed * state.speed).toLong()
+                            emit(currentMs.milliseconds)
+                            delay(32.milliseconds)
+                        }
+                    }
+                } else {
+                    flowOf(state.positionMs.milliseconds)
                 }
             }
-        } else {
-            flowOf(sync.positionMs.milliseconds)
+            else -> flowOf(Duration.ZERO)
         }
-    }
+    }.shareIn(
+        scope = scope,
+        started = SharingStarted.WhileSubscribed(stopTimeoutMillis = 5000),
+        replay = 1
+    )
 
     init {
         // Automatically stop ambient sound when main playback is cleared
@@ -108,6 +131,14 @@ class PlaybackCoordinator @Inject constructor(
 
     fun seekTo(position: Duration) {
         playbackSessionManager.seekTo(position.inWholeMilliseconds)
+    }
+
+    /**
+     * Called by the UI when the user starts or is currently scrubbing.
+     * Prevents the UI from jumping back to the old playback position during the drag.
+     */
+    fun updateScrubbingPosition(position: Duration?) {
+        _scrubbingPosition.value = position
     }
 
     fun setPlaybackSpeed(speed: Float) {

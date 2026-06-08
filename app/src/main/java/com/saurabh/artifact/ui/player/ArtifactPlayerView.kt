@@ -72,6 +72,7 @@ fun ArtifactPlayerView(
                 onForward = { viewModel.forward() },
                 onSpeedChange = { viewModel.setPlaybackSpeed(it) },
                 onSeek = { viewModel.seekTo((it * uiState.durationMs).toLong()) },
+                onScrubbing = { viewModel.onScrubbing((it * uiState.durationMs).toLong()) },
                 onShowAdvanced = { viewModel.setShowAdvancedControls(true) },
                 onCommentClick = { 
                     uiState.currentArtifact?.let { art ->
