@@ -2,6 +2,7 @@ package com.saurabh.artifact.audio
 
 import android.util.Log
 import androidx.work.Data
+import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.saurabh.artifact.repository.ArtifactRepository
@@ -71,6 +72,7 @@ class ArtifactCleanupManager @Inject constructor(
     /**
      * Schedules a delayed cleanup of local files for a published artifact.
      * This ensures local storage doesn't grow indefinitely.
+     * Uses Unique Work to prevent redundant scheduling.
      */
     fun scheduleRetentionCleanup(artifactId: String) {
         val inputData = Data.Builder()
@@ -78,12 +80,36 @@ class ArtifactCleanupManager @Inject constructor(
             .build()
 
         val cleanupRequest = OneTimeWorkRequestBuilder<CleanupWorker>()
-            .setInitialDelay(30, java.util.concurrent.TimeUnit.DAYS)
+            .setInitialDelay(RetentionPolicy.DEFAULT_RETENTION_DAYS, RetentionPolicy.RETENTION_TIME_UNIT)
             .setInputData(inputData)
             .addTag("retention_cleanup_$artifactId")
             .build()
 
-        workManager.enqueue(cleanupRequest)
+        workManager.enqueueUniqueWork(
+            "retention_cleanup_$artifactId",
+            ExistingWorkPolicy.KEEP,
+            cleanupRequest
+        )
+    }
+
+    /**
+     * Triggers an immediate sweep for all published artifacts if storage is low.
+     */
+    fun triggerEmergencyCleanup() {
+        val inputData = Data.Builder()
+            .putBoolean(CleanupWorker.KEY_EMERGENCY_MODE, true)
+            .build()
+
+        val cleanupRequest = OneTimeWorkRequestBuilder<CleanupWorker>()
+            .setInputData(inputData)
+            .addTag("emergency_cleanup")
+            .build()
+
+        workManager.enqueueUniqueWork(
+            "emergency_cleanup",
+            ExistingWorkPolicy.REPLACE,
+            cleanupRequest
+        )
     }
 
     private fun scheduleLocalCleanup(artifactId: String) {
@@ -96,6 +122,10 @@ class ArtifactCleanupManager @Inject constructor(
             .addTag("cleanup_$artifactId")
             .build()
 
-        workManager.enqueue(cleanupRequest)
+        workManager.enqueueUniqueWork(
+            "cleanup_$artifactId",
+            ExistingWorkPolicy.REPLACE,
+            cleanupRequest
+        )
     }
 }

@@ -9,31 +9,50 @@ import kotlin.math.max
  */
 object WaveformProcessor {
 
+    enum class SamplingMode {
+        COMPRESS, // Squeeze everything into targetSize (Playback)
+        SCROLL    // Take last targetSize samples (Recording)
+    }
+
     /**
      * Normalizes and smooths raw amplitude data.
      * @param rawAmplitudes List of raw amplitude values (usually 0 to 1 or 0 to 32767).
      * @param targetSize The number of bars to return.
+     * @param mode Sampling strategy (Compress or Scroll).
      * @return A list of normalized and smoothed amplitudes in the range [0.1, 1.0].
      */
     fun process(
         rawAmplitudes: List<Float>,
-        targetSize: Int
+        targetSize: Int,
+        mode: SamplingMode = SamplingMode.COMPRESS
     ): List<Float> {
         if (rawAmplitudes.isEmpty()) return List(targetSize) { 0.1f }
 
-        // 1. Sampling & Down-averaging
-        val sampled = if (rawAmplitudes.size > targetSize) {
-            val chunkSize = rawAmplitudes.size / targetSize
-            List(targetSize) { i ->
-                val chunk = rawAmplitudes.subList(i * chunkSize, (i + 1) * chunkSize)
-                chunk.maxOrNull() ?: 0f // Use Max for visual peaks instead of average
+        // 1. Sampling & Windowing
+        val sampled = when (mode) {
+            SamplingMode.COMPRESS -> {
+                if (rawAmplitudes.size > targetSize) {
+                    val chunkSize = rawAmplitudes.size / targetSize
+                    List(targetSize) { i ->
+                        val chunk = rawAmplitudes.subList(i * chunkSize, (i + 1) * chunkSize)
+                        chunk.maxOrNull() ?: 0f
+                    }
+                } else {
+                    val scale = targetSize.toFloat() / rawAmplitudes.size
+                    List(targetSize) { i ->
+                        val index = (i / scale).toInt().coerceIn(0, rawAmplitudes.size - 1)
+                        rawAmplitudes[index]
+                    }
+                }
             }
-        } else {
-            // Upsample if needed (simple linear interpolation or repeat)
-            val scale = targetSize.toFloat() / rawAmplitudes.size
-            List(targetSize) { i ->
-                val index = (i / scale).toInt().coerceIn(0, rawAmplitudes.size - 1)
-                rawAmplitudes[index]
+            SamplingMode.SCROLL -> {
+                if (rawAmplitudes.size >= targetSize) {
+                    // Take the most recent samples
+                    rawAmplitudes.takeLast(targetSize)
+                } else {
+                    // Pad with leading zeros (silence) until we have enough data
+                    List(targetSize - rawAmplitudes.size) { 0f } + rawAmplitudes
+                }
             }
         }
 

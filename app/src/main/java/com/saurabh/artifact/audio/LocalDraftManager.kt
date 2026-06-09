@@ -42,7 +42,7 @@ class LocalDraftManager @Inject constructor(
      */
     fun reconcileStorage(
         allDrafts: List<com.saurabh.artifact.data.local.ArtifactDraftEntity>,
-        gracePeriodMs: Long = 2 * 60 * 60 * 1000L
+        gracePeriodMs: Long = RetentionPolicy.RECONCILIATION_GRACE_PERIOD_MS
     ) {
         val now = System.currentTimeMillis()
         val validDraftIds = allDrafts.map { it.id }.toSet()

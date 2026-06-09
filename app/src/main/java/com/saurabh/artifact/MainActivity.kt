@@ -82,7 +82,7 @@ class MainActivity : ComponentActivity() {
         
         enableEdgeToEdge()
         
-        observeStealthMode()
+        observeSecurityFlags()
 
         setContent {
             Log.d("APP_FLOW", "2. Compose Root setContent")
@@ -103,10 +103,10 @@ class MainActivity : ComponentActivity() {
         mainViewModel.onNewIntent(intent)
     }
 
-    private fun observeStealthMode() {
+    private fun observeSecurityFlags() {
         lifecycleScope.launch {
-            mainViewModel.isStealthModeEnabled.collect { isEnabled ->
-                if (isEnabled) {
+            mainViewModel.isSecureFlagRequired.collect { isRequired ->
+                if (isRequired) {
                     window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
                 } else {
                     window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
@@ -201,7 +201,8 @@ fun AuthenticatedIsland(
                         recordingSessionManager = recordingSessionManager,
                         onboardingManager = onboardingManager,
                         onReportArtifact = { mainViewModel.showReportSheet(it) },
-                        onPlayArtifactById = { playerViewModel.playArtifactById(it) }
+                        onPlayArtifactById = { playerViewModel.playArtifactById(it) },
+                        onDestinationChanged = { mainViewModel.updateSecurityStatus(it) }
                     )
 
                     // Global Overlay Management

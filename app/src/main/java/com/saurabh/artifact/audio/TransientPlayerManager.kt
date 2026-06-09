@@ -30,12 +30,14 @@ import javax.inject.Singleton
 @Singleton
 class TransientPlayerManager @Inject constructor(
     @param:ApplicationContext private val context: Context,
+    private val playbackSessionManager: PlaybackSessionManager,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var player: ExoPlayer? = null
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private var audioFocusRequest: AudioFocusRequest? = null
     private var releaseJob: Job? = null
+    private var ownsFocus: Boolean = false
 
     private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
         when (focusChange) {
@@ -70,6 +72,18 @@ class TransientPlayerManager @Inject constructor(
         }
     }
 
+    init {
+        // Sync with main player: If we are piggybacking and main stops, we stop.
+        scope.launch {
+            playbackSessionManager.isPlaying.collect { mainIsPlaying ->
+                if (!mainIsPlaying && !ownsFocus && isPlaying.value) {
+                    Log.d("TransientPlayer", "Main player stopped while piggybacking. Stopping ambient.")
+                    stop()
+                }
+            }
+        }
+    }
+
     private fun scheduleRelease() {
         releaseJob?.cancel()
         releaseJob = scope.launch {
@@ -98,14 +112,20 @@ class TransientPlayerManager @Inject constructor(
             }
     }
 
-    private fun requestAudioFocus(): Boolean {
+    private fun requestAudioFocus(loop: Boolean): Boolean {
+        val focusType = if (loop) {
+            AudioManager.AUDIOFOCUS_GAIN
+        } else {
+            AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
+        }
+
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val attr = android.media.AudioAttributes.Builder()
                 .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
                 .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
                 .build()
             
-            audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+            audioFocusRequest = AudioFocusRequest.Builder(focusType)
                 .setAudioAttributes(attr)
                 .setOnAudioFocusChangeListener(audioFocusChangeListener)
                 .build()
@@ -116,18 +136,21 @@ class TransientPlayerManager @Inject constructor(
             audioManager.requestAudioFocus(
                 audioFocusChangeListener,
                 AudioManager.STREAM_MUSIC,
-                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
+                focusType
             ) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
         }
     }
 
     private fun abandonAudioFocus() {
+        if (!ownsFocus) return
+        
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             audioFocusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
         } else {
             @Suppress("DEPRECATION")
             audioManager.abandonAudioFocus(audioFocusChangeListener)
         }
+        ownsFocus = false
     }
 
     /**
@@ -137,7 +160,19 @@ class TransientPlayerManager @Inject constructor(
      * @param volume Volume level (0.0 to 1.0). Default is 0.5 to keep it "ambient".
      */
     fun play(url: String, loop: Boolean = false, volume: Float = 0.5f) {
-        if (!requestAudioFocus()) {
+        val mainIsPlaying = playbackSessionManager.isPlaying.value
+        
+        val focusGranted = if (mainIsPlaying) {
+            Log.d("TransientPlayer", "Main player is active. Piggybacking on focus.")
+            ownsFocus = false
+            true
+        } else {
+            Log.d("TransientPlayer", "Main player idle. Requesting focus (loop=$loop).")
+            ownsFocus = requestAudioFocus(loop)
+            ownsFocus
+        }
+
+        if (!focusGranted) {
             Log.w("TransientPlayer", "Could not acquire focus for ambient audio")
             return
         }

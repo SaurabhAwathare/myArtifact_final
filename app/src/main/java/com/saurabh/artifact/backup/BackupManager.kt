@@ -1,7 +1,7 @@
 package com.saurabh.artifact.backup
 
 import android.content.Context
-import com.saurabh.artifact.data.local.DraftDao
+import com.saurabh.artifact.security.BackupEncryptionManager
 import com.saurabh.artifact.security.MnemonicGenerator
 import com.saurabh.artifact.security.SecurityArchitecture
 import com.saurabh.artifact.util.EncryptedStorageManager
@@ -11,10 +11,6 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
-import javax.crypto.Cipher
-import javax.crypto.spec.GCMParameterSpec
-import javax.crypto.spec.SecretKeySpec
-import java.security.SecureRandom
 
 /**
  * Interface for cloud storage. 
@@ -27,8 +23,9 @@ interface CloudProvider {
 @Singleton
 class BackupManager @Inject constructor(
     @param:ApplicationContext private val context: Context,
-    private val draftDao: DraftDao,
+    private val draftDao: com.saurabh.artifact.data.local.DraftDao,
     private val encryptedStorageManager: EncryptedStorageManager,
+    private val backupEncryptionManager: BackupEncryptionManager,
     private val cloudProvider: CloudProvider
 ) {
 
@@ -39,9 +36,8 @@ class BackupManager @Inject constructor(
  */
 @Suppress("unused")
 suspend fun performBackup(mnemonic: List<String>) = withContext(Dispatchers.IO) {
-        val seed = MnemonicGenerator.toSeed(mnemonic)
-        val backupKey = SecurityArchitecture.deriveBackupKey(seed.decodeToString(), "artifact_backup_salt".toByteArray())
-        val secretKey = SecretKeySpec(backupKey, "AES")
+        // Ensure the manager is initialized with this mnemonic if it's a manual backup
+        backupEncryptionManager.saveMnemonic(mnemonic.joinToString(" "))
 
         val drafts = draftDao.getAllDrafts()
         
@@ -50,7 +46,7 @@ suspend fun performBackup(mnemonic: List<String>) = withContext(Dispatchers.IO) 
             if (localFile.exists()) {
                 val decryptedData = encryptedStorageManager.getEncryptedInputStream(localFile).use { it.readBytes() }
                 
-                val encryptedData = encryptData(decryptedData, secretKey)
+                val encryptedData = backupEncryptionManager.encryptForBackup(decryptedData)
                 
                 cloudProvider.upload("draft_${draft.id}.enc", encryptedData)
             }
@@ -61,19 +57,8 @@ suspend fun performBackup(mnemonic: List<String>) = withContext(Dispatchers.IO) 
         val dbFile = context.getDatabasePath("artifact_db")
         if (dbFile.exists()) {
             val dbData = dbFile.readBytes()
-            val encryptedDb = encryptData(dbData, secretKey)
+            val encryptedDb = backupEncryptionManager.encryptForBackup(dbData)
             cloudProvider.upload("metadata.db.enc", encryptedDb)
         }
-    }
-
-    private fun encryptData(data: ByteArray, key: SecretKeySpec): ByteArray {
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        val iv = ByteArray(12)
-        SecureRandom().nextBytes(iv)
-        val spec = GCMParameterSpec(128, iv)
-        cipher.init(Cipher.ENCRYPT_MODE, key, spec)
-        
-        val encrypted = cipher.doFinal(data)
-        return iv + encrypted // Prepend IV
     }
 }

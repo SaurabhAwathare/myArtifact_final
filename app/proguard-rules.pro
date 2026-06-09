@@ -23,5 +23,6 @@
 # AppSearch
 -keep class androidx.appsearch.app.DocumentClassFactory { *; }
 -keep class * implements androidx.appsearch.app.DocumentClassFactory { *; }
+-keep class com.saurabh.artifact.model.** { *; }
 -keep class **.$$__AppSearch__* { *; }
 -keep @androidx.appsearch.annotation.Document class * { *; }

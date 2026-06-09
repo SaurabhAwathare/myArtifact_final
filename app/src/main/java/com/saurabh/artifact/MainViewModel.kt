@@ -40,6 +40,14 @@ class MainViewModel @Inject constructor(
     val isStealthModeEnabled = observeStealthModeUseCase()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
+    private val _isCurrentScreenSensitive = MutableStateFlow(false)
+
+    val isSecureFlagRequired = combine(
+        isStealthModeEnabled,
+        _isCurrentScreenSensitive
+    ) { stealth, sensitive -> stealth || sensitive }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
     private val _navigationEvent = MutableSharedFlow<Any>(replay = 0)
     val navigationEvent = _navigationEvent.asSharedFlow()
 
@@ -92,5 +100,24 @@ class MainViewModel @Inject constructor(
 
     fun dismissReportSheet() {
         _reportingArtifactId.value = null
+    }
+
+    /**
+     * Updates whether the currently visible route is considered sensitive.
+     * Sensitive screens automatically trigger FLAG_SECURE regardless of global stealth mode.
+     */
+    fun updateSecurityStatus(route: String?) {
+        val sensitiveRoutes = listOf(
+            "com.saurabh.artifact.navigation.Settings",
+            "com.saurabh.artifact.navigation.DraftList",
+            "com.saurabh.artifact.navigation.DraftEdit",
+            "com.saurabh.artifact.navigation.RecordingReview",
+            "com.saurabh.artifact.navigation.PublishPreparation",
+            "com.saurabh.artifact.navigation.InstantRecord",
+            "com.saurabh.artifact.navigation.IdentitySelection",
+            "com.saurabh.artifact.navigation.Moderation"
+        )
+        // Check if current route matches any sensitive route identifiers
+        _isCurrentScreenSensitive.value = route != null && sensitiveRoutes.any { route.contains(it) }
     }
 }

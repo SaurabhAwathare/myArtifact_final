@@ -73,7 +73,8 @@ import androidx.compose.ui.util.lerp
 import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.saurabh.artifact.data.local.RecordingStatus
-import com.saurabh.artifact.ui.recording.components.NewRecordingWaveform
+import com.saurabh.artifact.ui.components.AmbientWaveform
+import com.saurabh.artifact.ui.components.WaveformContext
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.theme.GoldAura500
 import com.saurabh.artifact.ui.theme.Obsidian900
@@ -426,9 +427,12 @@ fun RecordingScreen(
                     verticalArrangement = Arrangement.SpaceBetween
                 ) {
                     // Live Waveform (Warm amber energy)
-                    NewRecordingWaveform(
-                        amplitude = uiState.currentAmplitude,
-                        isRecording = uiState.status == RecordingStatus.RECORDING,
+                    AmbientWaveform(
+                        amplitudes = uiState.amplitudes,
+                        liveAmplitude = uiState.currentAmplitude,
+                        progress = 0f, // Not used in SCROLL mode
+                        samplingMode = com.saurabh.artifact.util.WaveformProcessor.SamplingMode.SCROLL,
+                        context = WaveformContext.Recording,
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth()

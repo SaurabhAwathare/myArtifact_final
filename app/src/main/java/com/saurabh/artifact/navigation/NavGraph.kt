@@ -24,6 +24,7 @@ fun NavGraph(
     onboardingManager: OnboardingManager,
     onReportArtifact: (String) -> Unit,
     onPlayArtifactById: (String) -> Unit,
+    onDestinationChanged: (String?) -> Unit = {}
 ) {
     // Stability access via VisualTier to avoid top-level invalidation of the NavHost
     val isStable = com.saurabh.artifact.ui.theme.ArtifactTheme.isStable
@@ -31,8 +32,10 @@ fun NavGraph(
     Log.d("NAV_DEBUG", "NavGraph rendering. Start destination = $startDestination")
 
     androidx.compose.runtime.LaunchedEffect(navController) {
-        navController.currentBackStackEntryFlow.collect {
-            Log.d("NAV_DEBUG", "Current route = ${it.destination.route}")
+        navController.currentBackStackEntryFlow.collect { entry ->
+            val route = entry.destination.route
+            Log.d("NAV_DEBUG", "Current route = $route")
+            onDestinationChanged(route)
         }
     }
 

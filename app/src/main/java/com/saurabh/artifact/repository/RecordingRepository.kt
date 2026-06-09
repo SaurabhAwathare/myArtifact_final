@@ -1,6 +1,7 @@
 package com.saurabh.artifact.repository
 
 import android.util.Log
+import com.saurabh.artifact.audio.ArtifactCleanupManager
 import com.saurabh.artifact.audio.DraftDeletionManager
 import com.saurabh.artifact.audio.LocalDraftManager
 import com.saurabh.artifact.audio.WavRecoveryManager
@@ -20,6 +21,7 @@ class RecordingRepository @Inject constructor(
     private val localDraftManager: LocalDraftManager,
     private val wavRecoveryManager: WavRecoveryManager,
     private val deletionManager: DraftDeletionManager,
+    private val cleanupManager: ArtifactCleanupManager,
 ) {
     
     suspend fun createDraft(
@@ -183,6 +185,9 @@ class RecordingRepository @Inject constructor(
                 val allDrafts = draftDao.getAllDrafts()
                 localDraftManager.reconcileStorage(allDrafts)
                 
+                // Trigger emergency cleanup if storage is critically low
+                cleanupManager.triggerEmergencyCleanup()
+
                 // 3. Authoritative cleanup for DELETING drafts
                 val deletingDrafts = draftDao.getDraftsByLifecycle(ArtifactLifecycle.DELETING)
                 deletingDrafts.forEach { draft ->

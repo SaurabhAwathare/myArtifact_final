@@ -1,55 +1,28 @@
-package com.saurabh.artifact.model;
+package com.saurabh.artifact.model
 
-import androidx.appsearch.annotation.Document;
-import java.util.ArrayList;
-import java.util.List;
+import androidx.appsearch.annotation.Document
 
 /**
  * AppSearch document representing user preferences and interaction history.
- * Written in Java to ensure compatibility with annotationProcessor in this environment.
+ * Converted to Kotlin to ensure reliable KSP processing for AppSearch.
  */
 @Document
-public class UserPreferenceDocument {
+data class UserPreferenceDocument(
     @Document.Namespace
-    private String namespace;
+    val namespace: String,
 
     @Document.Id
-    private String id;
+    val id: String,
 
     @Document.StringProperty
-    private String primaryGoal;
+    val primaryGoal: String? = null,
 
     @Document.StringProperty
-    private List<String> goals;
+    val goals: List<String> = emptyList(),
 
     @Document.StringProperty
-    private String dominantEmotion;
+    val dominantEmotion: String? = null,
 
     @Document.LongProperty
-    private long lastInteractionTimestamp;
-
-    public UserPreferenceDocument() {
-        this.goals = new ArrayList<>();
-        this.lastInteractionTimestamp = System.currentTimeMillis();
-    }
-
-    @SuppressWarnings("unused")
-    public String getNamespace() { return namespace; }
-    public void setNamespace(String namespace) { this.namespace = namespace; }
-
-    public void setId(String id) { this.id = id; }
-    public String getId() { return id; }
-
-    public String getPrimaryGoal() { return primaryGoal; }
-    public void setPrimaryGoal(String primaryGoal) { this.primaryGoal = primaryGoal; }
-
-    public List<String> getGoals() { return goals; }
-    public void setGoals(List<String> goals) { this.goals = goals; }
-
-    public String getDominantEmotion() { return dominantEmotion; }
-    public void setDominantEmotion(String dominantEmotion) { this.dominantEmotion = dominantEmotion; }
-
-    @SuppressWarnings("unused")
-    public long getLastInteractionTimestamp() { return lastInteractionTimestamp; }
-    public void setLastInteractionTimestamp(long lastInteractionTimestamp) { this.lastInteractionTimestamp = lastInteractionTimestamp; }
-}
+    val lastInteractionTimestamp: Long = System.currentTimeMillis(),
+)

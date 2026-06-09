@@ -181,14 +181,14 @@ class PersonalizationEngine @Inject constructor(
                 val newAffinities = counts.mapValues { it.value / total }
                 _interactionAffinities.value = newAffinities
 
-                val doc = UserPreferenceDocument().apply {
-                    namespace = NAMESPACE
-                    id = PROFILE_ID
-                    primaryGoal = currentProfile.primaryGoal
-                    goals = updatedEmotions
-                    dominantEmotion = newDominantEmotion
+                val doc = UserPreferenceDocument(
+                    namespace = NAMESPACE,
+                    id = PROFILE_ID,
+                    primaryGoal = currentProfile.primaryGoal,
+                    goals = updatedEmotions,
+                    dominantEmotion = newDominantEmotion,
                     lastInteractionTimestamp = System.currentTimeMillis()
-                }
+                )
 
                 session.putAsync(PutDocumentsRequest.Builder().addDocuments(doc).build()).await()
             } catch (e: Exception) {

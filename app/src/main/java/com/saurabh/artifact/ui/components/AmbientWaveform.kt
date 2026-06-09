@@ -12,10 +12,13 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.saurabh.artifact.ui.theme.ArtifactTheme
+import com.saurabh.artifact.ui.theme.GoldAura500
 import com.saurabh.artifact.util.WaveformProcessor
 import kotlin.math.PI
 import kotlin.math.cos
@@ -32,6 +35,8 @@ fun AmbientWaveform(
     modifier: Modifier = Modifier,
     isPaused: Boolean = false,
     isStatic: Boolean = false,
+    liveAmplitude: Float? = null,
+    samplingMode: WaveformProcessor.SamplingMode = WaveformProcessor.SamplingMode.COMPRESS,
     context: WaveformContext = WaveformContext.Player
 ) {
     if (isStatic && context == WaveformContext.Feed) {
@@ -39,7 +44,7 @@ fun AmbientWaveform(
         return
     }
 
-    val activeColor = ArtifactTheme.colors.waveformActive
+    val activeColor = if (context == WaveformContext.Recording) GoldAura500 else ArtifactTheme.colors.waveformActive
     val inactiveColor = ArtifactTheme.colors.waveformInactive
     val emotionalTokens = ArtifactTheme.emotional
 
@@ -50,8 +55,15 @@ fun AmbientWaveform(
         label = "WaveformProgress"
     )
 
+    // 1b. Live Amplitude Animation (Ultra-fast for Recording)
+    val animatedLiveAmplitude by animateFloatAsState(
+        targetValue = liveAmplitude ?: 0f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow),
+        label = "LiveAmplitude"
+    )
+
     // 2. Breathing Animation (Idle State) - ONLY if not static
-    val breathingScale = if (isStatic) 1f else {
+    val breathingScale = if (isStatic || context == WaveformContext.Recording) 1f else {
         val infiniteTransition = rememberInfiniteTransition(label = "WaveformBreathing")
         infiniteTransition.animateFloat(
             initialValue = 0.95f,
@@ -64,8 +76,8 @@ fun AmbientWaveform(
         ).value
     }
 
-    // 3. Horizontal Drift (The Resonance) - ONLY if not static
-    val driftPhase = if (isStatic) 0f else {
+    // 3. Horizontal Drift (The Resonance) - ONLY if not static and NOT recording
+    val driftPhase = if (isStatic || context == WaveformContext.Recording) 0f else {
         val infiniteTransition = rememberInfiniteTransition(label = "WaveformDrift")
         infiniteTransition.animateFloat(
             initialValue = 0f,
@@ -86,8 +98,8 @@ fun AmbientWaveform(
     )
 
     // 5. Process Amplitudes based on Context
-    val processedAmplitudes = remember(amplitudes, context) {
-        WaveformProcessor.process(amplitudes, context.barCount)
+    val processedAmplitudes = remember(amplitudes, context, samplingMode) {
+        WaveformProcessor.process(amplitudes, context.barCount, samplingMode)
     }
 
     Canvas(
@@ -103,16 +115,38 @@ fun AmbientWaveform(
                     val centerY = size.height / 2f
                     
                     val cycleWidth = barWidthPx + gapPx
-                    val driftOffset = if (!isPaused && !isStatic) driftPhase * cycleWidth else 0f
+                    val driftOffset = if (!isPaused && !isStatic && context != WaveformContext.Recording) {
+                        driftPhase * cycleWidth
+                    } else 0f
+
+                    // Recording Glow Effect
+                    if (context == WaveformContext.Recording && animatedLiveAmplitude > 0.1f) {
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(activeColor.copy(alpha = 0.15f * animatedLiveAmplitude), Color.Transparent),
+                                center = Offset(size.width - 40.dp.toPx(), centerY),
+                                radius = 80.dp.toPx()
+                            ),
+                            radius = 80.dp.toPx(),
+                            center = Offset(size.width - 40.dp.toPx(), centerY)
+                        )
+                    }
 
                     processedAmplitudes.forEachIndexed { index, amp ->
                         val x = index * cycleWidth + driftOffset
                         val rawHeight = amp * size.height * 0.8f
                         
-                        val height = if (isPaused) rawHeight * breathingScale else rawHeight
+                        // If recording and it's the last bar, use the live amplitude
+                        val height = if (context == WaveformContext.Recording && index == processedAmplitudes.size - 1) {
+                            (animatedLiveAmplitude * size.height * 0.8f).coerceAtLeast(4.dp.toPx())
+                        } else if (isPaused) {
+                            rawHeight * breathingScale
+                        } else {
+                            rawHeight
+                        }
                         
-                        val barProgress = index.toFloat() / processedAmplitudes.size
-                        val isActive = barProgress <= animatedProgress
+                        val barProgress = index.toFloat() / (processedAmplitudes.size - 1)
+                        val isActive = if (context == WaveformContext.Recording) true else barProgress <= animatedProgress
                         
                         val color = if (isActive) {
                             activeColor
@@ -122,29 +156,40 @@ fun AmbientWaveform(
 
                         // Draw subtle glow shadow for active bars
                         if (isActive && !isStatic) {
+                            val alphaMult = if (context == WaveformContext.Recording) {
+                                // Fade out older bars in recording
+                                (index.toFloat() / processedAmplitudes.size).coerceIn(0.2f, 1f)
+                            } else 1f
+
                             drawRoundRect(
-                                color = activeColor.copy(alpha = glowIntensity * 0.5f),
+                                color = activeColor.copy(alpha = glowIntensity * 0.5f * alphaMult),
                                 topLeft = Offset(x - 2f, centerY - (height + 4f) / 2f),
                                 size = Size(barWidthPx + 4f, height + 4f),
                                 cornerRadius = cornerRadius
                             )
                         }
 
+                        val barAlpha = if (context == WaveformContext.Recording) {
+                            (index.toFloat() / processedAmplitudes.size).coerceIn(0.3f, 1f)
+                        } else 1f
+
                         drawRoundRect(
-                            color = color,
+                            color = color.copy(alpha = color.alpha * barAlpha),
                             topLeft = Offset(x, centerY - height / 2f),
                             size = Size(barWidthPx, height),
                             cornerRadius = cornerRadius
                         )
 
                         // 6. The "Pulse of Presence" (Leading Edge)
-                        val progressIndex = (animatedProgress * (processedAmplitudes.size - 1)).toInt()
-                        if (isActive && index == progressIndex && !isStatic) {
-                            drawCircle(
-                                color = activeColor.copy(alpha = glowIntensity),
-                                radius = height * 0.6f,
-                                center = Offset(x + barWidthPx / 2f, centerY)
-                            )
+                        if (context != WaveformContext.Recording) {
+                            val progressIndex = (animatedProgress * (processedAmplitudes.size - 1)).toInt()
+                            if (isActive && index == progressIndex && !isStatic) {
+                                drawCircle(
+                                    color = activeColor.copy(alpha = glowIntensity),
+                                    radius = height * 0.6f,
+                                    center = Offset(x + barWidthPx / 2f, centerY)
+                                )
+                            }
                         }
                     }
                 }
