@@ -1,8 +1,10 @@
 package com.saurabh.artifact.model
 
 import com.google.firebase.Timestamp
+import com.google.firebase.firestore.Exclude
 import com.google.firebase.firestore.PropertyName
 import com.google.firebase.firestore.ServerTimestamp
+import com.saurabh.artifact.util.SecureString
 
 data class User(
     val id: String = "",
@@ -47,10 +49,29 @@ data class User(
  * This is NEVER exposed to other users via Firestore rules.
  */
 data class UserPrivateSettings(
-    val email: String = "",
-    val realName: String = "", // Sourced from Google Auth, kept private
+    @get:Exclude @set:Exclude
+    var secureEmail: SecureString = SecureString.empty(),
+    @get:Exclude @set:Exclude
+    var secureRealName: SecureString = SecureString.empty(),
+    
     val fcmToken: String? = null,
     val isAdmin: Boolean = false,
     val accountStatus: String = "ACTIVE", // ACTIVE, SHADOW_BANNED, BANNED
     val metadata: Map<String, Any> = emptyMap()
-)
+) {
+    // Firestore compatibility properties
+    @get:PropertyName("email")
+    @set:PropertyName("email")
+    var email: String
+        get() = secureEmail.toUnsecureString()
+        set(value) { secureEmail = SecureString.fromString(value) }
+
+    @get:PropertyName("realName")
+    @set:PropertyName("realName")
+    var realName: String
+        get() = secureRealName.toUnsecureString()
+        set(value) { secureRealName = SecureString.fromString(value) }
+
+    // No-arg constructor for Firestore
+    constructor() : this(SecureString.empty(), SecureString.empty())
+}

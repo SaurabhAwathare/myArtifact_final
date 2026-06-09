@@ -5,6 +5,7 @@ import android.util.Log
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.model.TranscriptSegment
+import com.saurabh.artifact.security.UploadGuard
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -17,7 +18,9 @@ import javax.inject.Singleton
 @Singleton
 class PublishApprovalRepository @Inject constructor(
     @param:ApplicationContext private val context: Context,
-    private val draftDao: DraftDao
+    private val draftDao: DraftDao,
+    private val uploadGuard: UploadGuard,
+    private val authRepository: AuthRepository // Assuming it exists based on other VMs
 ) {
 
     suspend fun getDraft(id: String): ArtifactDraftEntity? = withContext(Dispatchers.IO) {
@@ -59,10 +62,24 @@ class PublishApprovalRepository @Inject constructor(
             val metadataJson = Json.encodeToString(metadata)
             
             // 2. Generate Hash for Integrity
+            val currentChecksum = MessageDigest.getInstance("SHA-256")
+                .digest(frozenAudioFile.readBytes())
+                .joinToString("") { "%02x".format(it) }
+
             val contentToHash = transcriptJson + frozenAudioFile.length() + metadataJson
             val hash = MessageDigest.getInstance("SHA-256")
                 .digest(contentToHash.toByteArray())
                 .joinToString("") { "%02x".format(it) }
+            
+            val timestamp = System.currentTimeMillis()
+            val userId = authRepository.currentUserId
+            val fingerprint = uploadGuard.getDeviceFingerprint()
+            val token = uploadGuard.generateApprovalToken(
+                userId = userId,
+                draftId = draftId,
+                checksum = currentChecksum,
+                timestamp = timestamp
+            )
 
             // 3. Persist Snapshot
             draftDao.freezeSnapshot(
@@ -70,7 +87,10 @@ class PublishApprovalRepository @Inject constructor(
                 transcriptJson = transcriptJson,
                 audioPath = frozenAudioFile.absolutePath,
                 metadataJson = metadataJson,
-                hash = hash
+                hash = hash,
+                token = token,
+                fingerprint = fingerprint,
+                timestamp = timestamp
             )
             
             // Note: We don't update lifecycle here anymore, 

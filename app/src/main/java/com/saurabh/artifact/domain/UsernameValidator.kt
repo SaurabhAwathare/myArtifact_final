@@ -3,6 +3,7 @@ package com.saurabh.artifact.domain
 import com.saurabh.artifact.model.ModerationWarning
 import com.saurabh.artifact.model.UsernameValidationResult
 import com.saurabh.artifact.model.ValidationReason
+import com.saurabh.artifact.util.SecureString
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -22,7 +23,7 @@ class UsernameValidator @Inject constructor(
     private val safetyBlocklist = listOf("kill", "hate", "hurt", "attack", "death", "die", "murder", "blood")
     private val negativeToneList = listOf("loser", "ugly", "stupid", "worthless", "depressed", "failure", "hate_myself")
 
-    fun validate(username: String, realName: String? = null, email: String? = null): UsernameValidationResult {
+    fun validate(username: String, realName: SecureString? = null, email: SecureString? = null): UsernameValidationResult {
         if (username.isBlank()) return UsernameValidationResult(isValid = false)
 
         val normalized = username.lowercase(Locale.ROOT).trim()

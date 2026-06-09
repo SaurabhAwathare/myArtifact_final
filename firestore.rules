@@ -12,7 +12,9 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isAuth() && exists(/databases/$(database)/documents/users/$(request.auth.uid)/private/settings) && get(/databases/$(database)/documents/users/$(request.auth.uid)/private/settings).data.isAdmin == true;
+      return isAuth() &&
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)/private/settings) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)/private/settings).data.isAdmin == true;
     }
 
     // --- USERS & PROFILES ---
@@ -20,24 +22,37 @@ service cloud.firestore {
       allow read: if isOwner(uid) ||
                    (isAuth() && !resource.data.keys().hasAny(['email', 'displayName', 'realName', 'fcmToken']));
 
-      allow write: if isOwner(uid) &&
-                   !(request.resource.data.diff(resource.data).affectedKeys().hasAny(['isAdmin', 'accountStatus', 'email', 'realName']));
+      // Secure write: Prevent self-promotion to admin on update
+      allow update: if isOwner(uid) &&
+                   !(request.resource.data.diff(resource.data).affectedKeys()
+                     .hasAny(['isAdmin', 'accountStatus', 'email', 'realName']));
+
+      // Prevent self-promotion on creation
+      allow create: if isOwner(uid) &&
+                    !("isAdmin" in request.resource.data) &&
+                    !("accountStatus" in request.resource.data);
 
       match /private/settings {
         allow read: if isOwner(uid) || isAdmin();
-        allow write: if isOwner(uid) &&
-                     !(request.resource.data.diff(resource.data).affectedKeys().hasAny(['isAdmin', 'accountStatus']));
+
+        allow create: if isOwner(uid) &&
+                      request.resource.data.isAdmin == false &&
+                      request.resource.data.accountStatus == 'ACTIVE';
+
+        allow update: if isOwner(uid) &&
+                     !(request.resource.data.diff(resource.data).affectedKeys()
+                       .hasAny(['isAdmin', 'accountStatus']));
+
         allow write: if isAdmin();
       }
 
-      // Resonance & Engagement (The Pulse)
+      // Resonance & Engagement
       match /resonance_in/{targetId} { allow read: if isAuth(); }
       match /resonance_out/{targetId} { allow read: if isAuth(); }
       match /followers/{targetId} { allow read: if isAuth(); }
       match /following/{targetId} { allow read: if isAuth(); }
       match /engagement/{id} { allow read, write: if isOwner(uid); }
 
-      // Private Interaction State
       match /private/interactions/reactions/{artifactId} {
         allow read, write: if isOwner(uid);
       }
@@ -46,7 +61,6 @@ service cloud.firestore {
         allow read, write: if isOwner(uid);
       }
 
-      // Ownership mapping for artifacts (Private)
       match /private/published_artifacts/artifacts/{artifactId} {
         allow read, write: if isOwner(uid);
       }
@@ -54,69 +68,55 @@ service cloud.firestore {
 
     // --- ARTIFACTS (The Hearth) ---
     match /artifacts/{artifactId} {
-      // Ensure only sanitized artifacts (using AuthorSnapshot) are publicly readable
       allow read: if (resource.data.isPublic == true) ||
                    isOwner(resource.data.userId) ||
                    isAdmin();
 
-      // Create: Enforce author snapshot integrity and no direct UID exposure if possible
+      // Fix Identity Spoofing: Ensure userId matches current user
       allow create: if isAuth() &&
+                    request.resource.data.userId == request.auth.uid &&
                     request.resource.data.author.keys().hasAll(['anonymousId', 'name']);
 
       allow update, delete: if isAdmin() || isOwner(resource.data.userId);
 
-      // Aggregate Resonance (The Echo)
       match /stats/resonance {
         allow read: if true;
-        allow write: if false; // Only Cloud Functions
+        allow write: if false;
       }
     }
 
-    // --- REFLECTIONS (The Intimacy Layers) ---
+    // --- COMMENTS (The Intimacy Layers) ---
     match /comments/{commentId} {
       allow read: if isAuth() && (
-        // 1. Author Access (Sanctuary)
         resource.data.authorId == request.auth.uid ||
-
-        // 2. Artifact Owner Access (Bridge) - Exclude Sanctuary
-        // Note: Using cached artifactOwnerId for performance and reliability
-        (resource.data.artifactOwnerId == request.auth.uid &&
-         resource.data.visibilityLayer != 'SANCTUARY') ||
-
-        // 3. Public Resonance (After Reveal)
-        (resource.data.visibilityLayer == 'RESONANCE' &&
-         resource.data.moderationState == 'APPROVED' &&
-         (resource.data.revealAt == null || resource.data.revealAt <= request.time))
+        (resource.data.artifactOwnerId == request.auth.uid && resource.data.visibilityLayer != 'SANCTUARY') ||
+        (resource.data.visibilityLayer == 'RESONANCE' && resource.data.moderationState == 'APPROVED' && (resource.data.revealAt == null || resource.data.revealAt <= request.time))
       );
 
       allow create: if isAuth() &&
-                    request.resource.data.authorId == request.auth.uid &&
+                    request.resource.data.authorId == request.auth.uid && // Identity check
                     (
                       request.resource.data.artifactOwnerId == request.auth.uid ||
                       get(/databases/$(database)/documents/listening_sessions/$(request.auth.uid + '_' + request.resource.data.artifactId)).data.isCompleted == true
                     );
 
-      // Update: Authors can edit their content, but not sensitive metadata
-      allow update: if isOwner(resource.data.authorId) &&
+      allow update: if (isOwner(resource.data.authorId) &&
                     !(request.resource.data.diff(resource.data).affectedKeys()
-                      .hasAny(['authorId', 'artifactId', 'artifactOwnerId'])) ||
+                      .hasAny(['authorId', 'artifactId', 'artifactOwnerId']))) ||
                     isAdmin();
 
-      // Delete: Authors, Artifact Owners, and Admins can delete
       allow delete: if isOwner(resource.data.authorId) ||
                     isOwner(resource.data.artifactOwnerId) ||
                     isAdmin();
     }
 
-    // --- REACTION COUNTS (Legacy Support & Aggregates) ---
     match /artifact_reaction_counts/{artifactId} {
       allow read: if true;
-      allow write: if false; // Only Cloud Functions or Admin
+      allow write: if false;
     }
 
     // --- IDENTITY & ANTI-ENUMERATION ---
     match /usernames/{id} {
-      // Prevent enumeration: only allow existence check via specific document read if authenticated
       allow read: if isAuth();
       allow create: if isAuth() && request.resource.data.uid == request.auth.uid;
       allow delete: if isAuth() && resource.data.uid == request.auth.uid;
@@ -124,41 +124,42 @@ service cloud.firestore {
 
     // --- CONSOLIDATED REACTIONS ---
     match /artifact_reactions/{id} {
-      // Only readable by the owner or the artifact owner
       allow read: if isAuth() && (
         resource.data.userId == request.auth.uid ||
         resource.data.artifactOwnerId == request.auth.uid
       );
-      // Create/Write: Only the user who reacted can create/modify their own reaction
+      // Identity check on creation/update
       allow create, update: if isAuth() && request.resource.data.userId == request.auth.uid;
-      // Delete: Either the user who reacted or the artifact owner can delete
+
       allow delete: if isAuth() && (
         resource.data.userId == request.auth.uid ||
         resource.data.artifactOwnerId == request.auth.uid
       );
     }
 
-    // --- OTHER COLLECTIONS ---
+    // --- NOTIFICATIONS & REPORTS ---
     match /notifications/{id} {
-      allow read, write: if isAuth() && request.auth.uid == resource.data.userId;
-      allow create: if isAuth();
+      // Only readable by the target user
+      allow read: if isAuth() && request.auth.uid == resource.data.userId;
+      // Users can only delete their own notifications
+      allow delete: if isAuth() && request.auth.uid == resource.data.userId;
+      // Prevent spam: client-side creation only allowed for SELF (e.g. self-reminders)
+      // Most notifications should be created by Cloud Functions
+      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
     }
 
     match /reports/{id} {
-      allow create: if isAuth();
+      allow create: if isAuth() && request.resource.data.reporterId == request.auth.uid;
       allow read, write: if isAdmin();
     }
 
-    // --- LISTENING SESSIONS ---
     match /listening_sessions/{sessionId} {
       allow read, write: if isAuth() && request.auth.uid == resource.data.userId;
       allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
     }
 
-    // --- RECOMMENDATION PROFILES ---
     match /recommendation_profiles/{uid} {
       allow read: if isOwner(uid);
     }
   }
 }
-

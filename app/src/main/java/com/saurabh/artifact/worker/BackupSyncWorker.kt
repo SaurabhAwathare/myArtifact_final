@@ -14,6 +14,7 @@ import com.saurabh.artifact.model.SyncStatus
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.security.BackupEncryptionManager
 import com.saurabh.artifact.util.ConnectivityObserver
+import com.saurabh.artifact.util.EncryptedStorageManager
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.tasks.await
@@ -25,6 +26,7 @@ class BackupSyncWorker @AssistedInject constructor(
     @Assisted params: WorkerParameters,
     private val draftDao: DraftDao,
     private val authRepository: AuthRepository,
+    private val encryptedStorageManager: EncryptedStorageManager,
     private val backupEncryptionManager: BackupEncryptionManager,
     private val storage: FirebaseStorage,
     private val connectivityObserver: ConnectivityObserver,
@@ -57,8 +59,13 @@ class BackupSyncWorker @AssistedInject constructor(
                 val audioFile = File(draft.localAudioPath)
                 if (!audioFile.exists()) continue
 
-                // 3. Encrypt for Backup
-                val audioData = audioFile.readBytes()
+                // 3. Encrypt for Backup (Decrypt local file first if it's encrypted)
+                val audioData = if (draft.isEncrypted) {
+                    encryptedStorageManager.getEncryptedInputStream(audioFile).use { it.readBytes() }
+                } else {
+                    audioFile.readBytes()
+                }
+
                 val encryptedData = backupEncryptionManager.encryptForBackup(audioData)
 
                 // 4. Upload to "backups" folder in Firebase Storage

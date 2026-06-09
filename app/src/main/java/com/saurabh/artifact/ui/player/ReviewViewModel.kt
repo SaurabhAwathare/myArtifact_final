@@ -40,7 +40,7 @@ class ReviewViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     val transcriptSegments = draft.map { draftEntity ->
-        draftEntity?.transcriptSegmentsJson?.let { json ->
+        draftEntity?.transcriptSegmentsJson?.toUnsecureString()?.let { json ->
             try {
                 kotlinx.serialization.json.Json.decodeFromString<List<com.saurabh.artifact.model.TranscriptSegment>>(json)
             } catch (_: Exception) {

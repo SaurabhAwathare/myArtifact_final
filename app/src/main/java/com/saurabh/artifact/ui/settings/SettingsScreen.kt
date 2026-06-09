@@ -135,8 +135,8 @@ fun SettingsScreen(
                 if (!isAnonymous && accountInfo != null) {
                     SettingsSection(title = "Account") {
                         SettingsInfoItem(
-                            title = accountInfo?.realName ?: "Anonymous User",
-                            subtitle = accountInfo?.email,
+                            title = accountInfo?.realName?.toUnsecureString() ?: "Anonymous User",
+                            subtitle = accountInfo?.email?.toUnsecureString(),
                             icon = Icons.Default.Person,
                             trailingContent = {
                                 Surface(

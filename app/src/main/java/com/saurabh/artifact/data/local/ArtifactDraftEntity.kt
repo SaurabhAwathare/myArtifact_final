@@ -3,6 +3,7 @@ package com.saurabh.artifact.data.local
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.saurabh.artifact.model.*
+import com.saurabh.artifact.util.SecureString
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -71,12 +72,12 @@ data class ArtifactDraftEntity(
     val uploadedAudioUrl: String? = null,
 
     // Immutable Snapshot for Publishing
-    val frozenTranscriptJson: String? = null,
+    val frozenTranscriptJson: SecureString? = null,
     val frozenAudioPath: String? = null,
-    val frozenMetadataJson: String? = null,
+    val frozenMetadataJson: SecureString? = null,
     val snapshotHash: String? = null,
 
     // Final Ritual Data
-    val transcriptSegmentsJson: String? = null,
-    val sensitiveEntitiesJson: String? = null,
+    val transcriptSegmentsJson: SecureString? = null,
+    val sensitiveEntitiesJson: SecureString? = null,
 )

@@ -2,8 +2,28 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
+
+    // 1. Artifacts: Flat structure with userId prefix (e.g., artifacts/UID_ID.m4a)
+    match /artifacts/{fileName} {
+      // Public artifacts might need public read, but business logic suggests authenticated read for now
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && fileName.startsWith(request.auth.uid + "_");
+    }
+
+    // 2. Transcripts: Flat structure with userId prefix (e.g., transcripts/UID_ID.json)
+    match /transcripts/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && fileName.startsWith(request.auth.uid + "_");
+    }
+
+    // 3. Backups: Folder structure (backups/UID/file.enc)
+    match /backups/{userId}/{allPaths=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Default: Deny everything else
     match /{allPaths=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if false;
     }
   }
 }

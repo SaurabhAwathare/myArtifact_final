@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.saurabh.artifact.domain.IdentityScout
 import com.saurabh.artifact.domain.PublishingOrchestrator
+import com.saurabh.artifact.util.SecureString
 import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.model.DraftStatus
 import com.saurabh.artifact.model.TranscriptSegment
@@ -120,8 +121,8 @@ class PublishFlowViewModel @Inject constructor(
     fun onApproveAndPublish() {
         if (!_uiState.value.canApprove) return
 
-        val realName = auth.currentUser?.displayName
-        val email = auth.currentUser?.email
+        val realName = auth.currentUser?.displayName?.let { SecureString.fromString(it) }
+        val email = auth.currentUser?.email?.let { SecureString.fromString(it) }
         val allWarnings = mutableListOf<com.saurabh.artifact.model.ModerationWarning>()
 
         // 1. Scan Metadata & Transcript for Leaks
@@ -131,6 +132,9 @@ class PublishFlowViewModel @Inject constructor(
         _uiState.value.transcript.forEach { segment ->
             allWarnings.addAll(identityScout.detectLeaks(segment.text, realName, email))
         }
+
+        realName?.clear()
+        email?.clear()
 
         val uniqueWarnings = allWarnings.distinctBy { it.reason }
         val riskScore = identityScout.calculateRiskScore(uniqueWarnings)

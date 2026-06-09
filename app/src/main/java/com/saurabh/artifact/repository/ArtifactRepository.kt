@@ -790,22 +790,13 @@ class ArtifactRepository @Inject constructor(
         return null
     }
 
+    /**
+     * Calculates the SHA-256 checksum of a file.
+     * @deprecated Use FileIntegrity.calculateChecksum() instead.
+     */
+    @Deprecated("Use FileIntegrity.calculateChecksum()", ReplaceWith("FileIntegrity.calculateChecksum(filePath)"))
     fun calculateChecksum(filePath: String): String {
-        return try {
-            val digest = MessageDigest.getInstance("SHA-256")
-            val file = File(filePath)
-            if (!file.exists()) return ""
-            val inputStream = FileInputStream(file)
-            val buffer = ByteArray(8192)
-            var bytesRead: Int
-            while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-                digest.update(buffer, 0, bytesRead)
-            }
-            digest.digest().joinToString("") { "%02x".format(it) }
-        } catch (e: Exception) {
-            Log.e("ArtifactRepository", "Checksum calculation failed", e)
-            ""
-        }
+        return com.saurabh.artifact.util.FileIntegrity.calculateChecksum(filePath)
     }
 
     suspend fun createArtifactDocument(
@@ -824,7 +815,7 @@ class ArtifactRepository @Inject constructor(
     ): Result<String> = withContext(Dispatchers.IO) {
         return@withContext try {
             // 1. Recover Transcript from Frozen Snapshot
-            val transcript = draft.frozenTranscriptJson?.let { json ->
+            val transcript = draft.frozenTranscriptJson?.toUnsecureString()?.let { json ->
                 try {
                     kotlinx.serialization.json.Json.decodeFromString<List<TranscriptSegment>>(json)
                 } catch (e: Exception) {

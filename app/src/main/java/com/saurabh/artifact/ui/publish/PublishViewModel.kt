@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.domain.IdentityScout
+import com.saurabh.artifact.util.SecureString
 import com.saurabh.artifact.domain.PublishArtifactUseCase
 import com.saurabh.artifact.model.Emotion
 import com.saurabh.artifact.model.PublishingResult
@@ -52,11 +53,14 @@ class PublishViewModel @Inject constructor(
 
     fun onPublishClick() {
         val title = _uiState.value.title
-        val realName = auth.currentUser?.displayName
-        val email = auth.currentUser?.email
+        val realName = auth.currentUser?.displayName?.let { SecureString.fromString(it) }
+        val email = auth.currentUser?.email?.let { SecureString.fromString(it) }
 
         val warnings = identityScout.detectLeaks(title, realName, email)
         
+        realName?.clear()
+        email?.clear()
+
         if (warnings.isNotEmpty()) {
             _uiState.update { it.copy(
                 showPrivacyNudge = true,

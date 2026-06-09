@@ -11,6 +11,7 @@ import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.User
 import com.saurabh.artifact.model.AvatarConfig
 import com.saurabh.artifact.model.UserPrivateSettings
+import com.saurabh.artifact.util.SecureString
 import com.saurabh.artifact.util.UsernameGenerator
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
@@ -248,8 +249,8 @@ class UserRepository @Inject constructor(
                     )
 
                     val privateSettings = UserPrivateSettings(
-                        email = currentUser.email ?: "",
-                        realName = currentUser.displayName ?: "",
+                        secureEmail = SecureString.fromString(currentUser.email ?: ""),
+                        secureRealName = SecureString.fromString(currentUser.displayName ?: ""),
                         isAdmin = false,
                         accountStatus = "ACTIVE"
                     )

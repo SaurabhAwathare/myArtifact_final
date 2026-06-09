@@ -6,6 +6,7 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.saurabh.artifact.repository.RecordingRepository
+import com.saurabh.artifact.security.DatabaseEncryptionManager
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
@@ -19,12 +20,17 @@ import kotlinx.coroutines.withContext
 class RecoveryWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted workerParams: WorkerParameters,
-    private val recordingRepository: RecordingRepository
+    private val recordingRepository: RecordingRepository,
+    private val encryptionManager: DatabaseEncryptionManager
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         try {
             Log.d("RecoveryWorker", "Starting automated recovery scan...")
+            
+            // Periodically refresh encryption metadata to ensure it uses the latest master key
+            encryptionManager.refreshEncryptionMetadata()
+
             val recoveredResult = recordingRepository.recoverInterruptedDrafts()
             recoveredResult.onSuccess { recovered ->
                 if (recovered.isNotEmpty()) {

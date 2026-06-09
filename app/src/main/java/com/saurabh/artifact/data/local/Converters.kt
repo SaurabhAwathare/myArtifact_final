@@ -88,4 +88,12 @@ class Converters {
     } catch (_: Exception) {
         SyncStatus.Queued
     }
+
+    @TypeConverter
+    fun fromSecureString(secureString: com.saurabh.artifact.util.SecureString?): String? = 
+        secureString?.toUnsecureString()
+
+    @TypeConverter
+    fun toSecureString(value: String?): com.saurabh.artifact.util.SecureString? = 
+        value?.let { com.saurabh.artifact.util.SecureString.fromString(it) }
 }

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.saurabh.artifact.repository.UserProfileManager
 import com.saurabh.artifact.util.UsernameGenerator
+import com.saurabh.artifact.util.SecureString
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.ui.util.UiText
 import com.saurabh.artifact.ui.util.ErrorMessageMapper
@@ -95,9 +96,14 @@ class IdentityViewModel @Inject constructor(
             return
         }
 
-        val realName = auth.currentUser?.displayName
-        val email = auth.currentUser?.email
+        val currentUser = auth.currentUser
+        val realName = currentUser?.displayName?.let { SecureString.fromString(it) }
+        val email = currentUser?.email?.let { SecureString.fromString(it) }
         val result = validator.validate(name, realName, email)
+        
+        // Clear secure strings immediately after use
+        realName?.clear()
+        email?.clear()
         
         _validationResult.value = result
         _usernameError.value = if (result.isValid) null else result.warnings.firstOrNull()?.message ?: "Invalid username"

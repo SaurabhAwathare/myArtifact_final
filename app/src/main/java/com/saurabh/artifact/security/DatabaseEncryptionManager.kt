@@ -15,8 +15,13 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
+import net.zetetic.database.sqlcipher.SQLiteDatabase
 import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
+import java.io.File
 import java.security.SecureRandom
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -59,12 +64,15 @@ class DatabaseEncryptionManager @Inject constructor(
                     
                     // VALIDATION: Check if this passphrase can actually open the database
                     if (!validatePassphrase(passphrase)) {
-                        android.util.Log.e("DatabaseEncryption", "Passphrase validation failed, generating new one")
+                        android.util.Log.e("DatabaseEncryption", "Passphrase validation failed, attempting recovery")
+                        // If validation fails, it might be a genuinely corrupted DB or wrong key.
+                        // We generate a new one, but keep the old DB renamed.
                         generateAndStoreNewPassphrase()
                     } else {
                         passphrase
                     }
-                } catch (_: Exception) {
+                } catch (e: Exception) {
+                    android.util.Log.e("DatabaseEncryption", "Decryption failed: ${e.message}", e)
                     // If decryption fails (e.g., keyset changed), generate new one
                     generateAndStoreNewPassphrase()
                 }
@@ -80,52 +88,142 @@ class DatabaseEncryptionManager @Inject constructor(
     }
 
     /**
+     * Rotates the underlying database passphrase non-destructively.
+     * This is useful for periodic security refreshes.
+     */
+    @Synchronized
+    fun rotateDatabasePassphrase(): Result<Unit> {
+        return try {
+            val oldPassphrase = getDatabasePassphrase()
+            val newPassphrase = generateSecureRandomPassphrase()
+            
+            val dbFile = context.getDatabasePath("artifact_db")
+            if (dbFile.exists()) {
+                val db = SQLiteDatabase.openDatabase(
+                    dbFile.absolutePath,
+                    oldPassphrase,
+                    null,
+                    SQLiteDatabase.OPEN_READWRITE,
+                    null
+                )
+                db.use { openedDb ->
+                    openedDb.changePassword(newPassphrase)
+                }
+                android.util.Log.i("DatabaseEncryption", "Database passphrase rotated successfully")
+            }
+            
+            runBlocking {
+                saveEncryptedPassphrase(newPassphrase)
+            }
+            cachedPassphrase = newPassphrase
+            Result.success(Unit)
+        } catch (e: Exception) {
+            android.util.Log.e("DatabaseEncryption", "Rotation failed", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Re-encrypts the existing passphrase with the current Tink Master Key.
+     * Use this when Tink keys have rotated but the database passphrase itself is fine.
+     */
+    fun refreshEncryptionMetadata(): Result<Unit> {
+        return try {
+            val currentPassphrase = getDatabasePassphrase()
+            runBlocking {
+                saveEncryptedPassphrase(currentPassphrase)
+            }
+            android.util.Log.i("DatabaseEncryption", "Encryption metadata refreshed")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            android.util.Log.e("DatabaseEncryption", "Refresh failed", e)
+            Result.failure(e)
+        }
+    }
+
+    private suspend fun saveEncryptedPassphrase(passphrase: ByteArray) {
+        val encryptedBytes = googleAead.encrypt(passphrase, null)
+        val encryptedEncoded = Base64.encodeToString(encryptedBytes, Base64.DEFAULT)
+        
+        context.dataStore.edit { preferences ->
+            preferences[DB_PASSPHRASE_KEY] = encryptedEncoded
+        }
+    }
+
+    private fun generateSecureRandomPassphrase(): ByteArray {
+        val bytes = ByteArray(32)
+        SecureRandom().nextBytes(bytes)
+        return bytes
+    }
+
+    /**
      * Attempts to open the database with the given passphrase to verify its validity.
      */
     private fun validatePassphrase(passphrase: ByteArray): Boolean {
         val dbFile = context.getDatabasePath("artifact_db")
         if (!dbFile.exists()) return true // No database yet, passphrase is "valid"
 
-        var db: net.zetetic.database.sqlcipher.SQLiteDatabase? = null
         return try {
-            db = net.zetetic.database.sqlcipher.SQLiteDatabase.openDatabase(
+            SQLiteDatabase.openDatabase(
                 dbFile.absolutePath,
                 passphrase,
                 null,
-                net.zetetic.database.sqlcipher.SQLiteDatabase.OPEN_READONLY,
+                SQLiteDatabase.OPEN_READONLY,
                 null
-            )
-            db?.rawExecSQL("SELECT COUNT(*) FROM sqlite_schema")
+            ).use { db ->
+                db.rawExecSQL("SELECT COUNT(*) FROM sqlite_schema")
+            }
             true
         } catch (e: Exception) {
             android.util.Log.e("DatabaseEncryption", "Database validation error: ${e.message}")
             false
-        } finally {
-            db?.close()
         }
     }
 
     private suspend fun generateAndStoreNewPassphrase(): ByteArray {
-        val newPassphrase = ByteArray(32)
-        SecureRandom().nextBytes(newPassphrase)
-        
-        val encryptedBytes = googleAead.encrypt(newPassphrase, null)
-        val encryptedEncoded = Base64.encodeToString(encryptedBytes, Base64.DEFAULT)
-        
-        context.dataStore.edit { preferences ->
-            preferences[DB_PASSPHRASE_KEY] = encryptedEncoded
-        }
+        val newPassphrase = generateSecureRandomPassphrase()
+        saveEncryptedPassphrase(newPassphrase)
 
         // CRITICAL: If we've generated a NEW passphrase, the old database file is now
-        // permanently unrecoverable. We MUST delete it to avoid 'file is not a database'
-        // (code 26) errors on the next open attempt.
-        deleteDatabaseFiles()
+        // permanently unrecoverable by the current app instance.
+        // We RENAME it instead of deleting it for safety.
+        renameCorruptedDatabase()
         
         return newPassphrase
     }
 
     /**
-     * Deletes the local database files to recover from corruption or key loss.
+     * Renames the local database files to "corrupted" to allow for recovery and avoid blocking the app.
+     */
+    private fun renameCorruptedDatabase() {
+        try {
+            val dbFile = context.getDatabasePath("artifact_db")
+            if (dbFile.exists()) {
+                val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+                val corruptedDbFile = File(dbFile.absolutePath + "_corrupted_$timestamp")
+                dbFile.renameTo(corruptedDbFile)
+                
+                // Also rename sidecar files if they exist
+                renameFile(File(dbFile.absolutePath + "-journal"), timestamp)
+                renameFile(File(dbFile.absolutePath + "-shm"), timestamp)
+                renameFile(File(dbFile.absolutePath + "-wal"), timestamp)
+                
+                android.util.Log.w("DatabaseEncryption", "Renamed corrupted database to ${corruptedDbFile.name}")
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("DatabaseEncryption", "Failed to rename corrupted database", e)
+        }
+    }
+
+    private fun renameFile(file: File, timestamp: String) {
+        if (file.exists()) {
+            file.renameTo(File(file.absolutePath + "_corrupted_$timestamp"))
+        }
+    }
+
+    /**
+     * Deletes the local database files (Hard Reset).
+     * Only use this for explicit manual resets or clear data scenarios.
      */
     fun deleteDatabaseFiles() {
         try {

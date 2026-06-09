@@ -2,6 +2,7 @@ package com.saurabh.artifact.domain
 
 import com.saurabh.artifact.model.ModerationWarning
 import com.saurabh.artifact.model.ValidationReason
+import com.saurabh.artifact.util.SecureString
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -18,15 +19,18 @@ class IdentityScout @Inject constructor() {
      */
     fun detectLeaks(
         target: String,
-        realName: String?,
-        email: String?
+        realName: SecureString?,
+        email: SecureString?
     ): List<ModerationWarning> {
         val warnings = mutableListOf<ModerationWarning>()
         if (target.isBlank()) return warnings
 
         val normalizedTarget = normalize(target)
-        val nameTokens = tokenizeName(realName)
-        val emailPrefix = extractEmailPrefix(email)
+        val plainRealName = realName?.toUnsecureString()
+        val plainEmail = email?.toUnsecureString()
+
+        val nameTokens = tokenizeName(plainRealName)
+        val emailPrefix = extractEmailPrefix(plainEmail)
 
         // 1. Check for Real Name Tokens & Phonetic Motifs
         for (token in nameTokens) {

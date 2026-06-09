@@ -7,6 +7,7 @@ import com.google.crypto.tink.streamingaead.StreamingAeadConfig
 import com.google.crypto.tink.integration.android.AndroidKeysetManager
 import java.io.File
 import java.io.InputStream
+import java.io.OutputStream
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.PBEKeySpec
 
@@ -29,6 +30,14 @@ object SecurityArchitecture {
     fun openDecryptingStream(context: Context, file: File): InputStream {
         val streamingAead = getStreamingAead(context)
         return streamingAead.newDecryptingStream(file.inputStream(), null)
+    }
+
+    /**
+     * Returns an encrypting output stream for the given file.
+     */
+    fun openEncryptingStream(context: Context, file: File): OutputStream {
+        val streamingAead = getStreamingAead(context)
+        return streamingAead.newEncryptingStream(file.outputStream(), null)
     }
 
     /**

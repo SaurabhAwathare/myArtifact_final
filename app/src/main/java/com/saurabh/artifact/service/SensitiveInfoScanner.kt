@@ -1,6 +1,7 @@
 package com.saurabh.artifact.service
 
 import com.saurabh.artifact.domain.IdentityScout
+import com.saurabh.artifact.util.SecureString
 import com.saurabh.artifact.model.PiiType
 import com.saurabh.artifact.model.TranscriptSegment
 import com.saurabh.artifact.model.FlaggedSegment
@@ -23,8 +24,8 @@ class SensitiveInfoScanner @Inject constructor(
 
     fun scan(transcript: List<TranscriptSegment>): List<FlaggedSegment> {
         val flagged = mutableListOf<FlaggedSegment>()
-        val realName = auth.currentUser?.displayName
-        val email = auth.currentUser?.email
+        val realName = auth.currentUser?.displayName?.let { SecureString.fromString(it) }
+        val email = auth.currentUser?.email?.let { SecureString.fromString(it) }
         
         transcript.forEach { segment ->
             // 1. Scan for Phone Numbers
@@ -77,6 +78,9 @@ class SensitiveInfoScanner @Inject constructor(
             }
         }
         
+        realName?.clear()
+        email?.clear()
+
         return flagged.distinctBy { it.originalText + it.startMs }
     }
 

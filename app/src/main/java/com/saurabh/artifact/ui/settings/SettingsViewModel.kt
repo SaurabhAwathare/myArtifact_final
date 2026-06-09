@@ -7,6 +7,7 @@ import com.saurabh.artifact.model.UserSettings
 import com.saurabh.artifact.repository.SettingsRepository
 import com.saurabh.artifact.ui.util.UiText
 import com.saurabh.artifact.ui.util.ErrorMessageMapper
+import com.saurabh.artifact.util.SecureString
 import com.saurabh.artifact.R
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
@@ -21,7 +22,7 @@ sealed class SettingsUiEvent {
     object ExportInitiated : SettingsUiEvent()
 }
 
-data class AccountInfo(val realName: String, val email: String)
+data class AccountInfo(val realName: SecureString, val email: SecureString)
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
@@ -34,7 +35,7 @@ class SettingsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
 
     val accountInfo = authRepository.privateSettings
-        .map { it?.let { p -> AccountInfo(p.realName, p.email) } }
+        .map { it?.let { p -> AccountInfo(p.secureRealName, p.secureEmail) } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     val uiState: StateFlow<UserSettings> = repository.userSettings

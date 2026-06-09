@@ -6,10 +6,11 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.saurabh.artifact.audio.LocalDraftManager
+import com.saurabh.artifact.util.EncryptedStorageManager
 import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.model.*
-import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.audio.WavRecoveryManager
+import com.saurabh.artifact.util.FileIntegrity
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
@@ -26,7 +27,7 @@ class TranscodingWorker @AssistedInject constructor(
     @Assisted workerParams: WorkerParameters,
     private val draftDao: DraftDao,
     private val localDraftManager: LocalDraftManager,
-    private val artifactRepository: ArtifactRepository,
+    private val encryptedStorageManager: EncryptedStorageManager,
     private val wavRecoveryManager: WavRecoveryManager,
 ) : CoroutineWorker(appContext, workerParams) {
 
@@ -58,13 +59,13 @@ class TranscodingWorker @AssistedInject constructor(
                 return@withContext Result.failure()
             }
 
-            // 1. Transcode raw WAV to finalized location
+            // 1. Transcode raw WAV to finalized location (Encrypted)
             val finalAudioFile = localDraftManager.createDraftFile(draftId, "m4a")
-            Log.d("TranscodingWorker", "Atmospheric Step: Refining audio essence...")
-            transcodeWavToAac(rawFile, finalAudioFile)
+            Log.d("TranscodingWorker", "Atmospheric Step: Refining audio essence (securing reflection)...")
+            transcodeAndEncrypt(rawFile, finalAudioFile)
             
             // 2. Metadata Extraction (Checksum)
-            val checksum = artifactRepository.calculateChecksum(finalAudioFile.absolutePath)
+            val checksum = FileIntegrity.calculateChecksum(finalAudioFile.absolutePath)
             
             // 3. Securely delete intermediate files
             rawFile.delete()
@@ -73,7 +74,7 @@ class TranscodingWorker @AssistedInject constructor(
             draftDao.update(draft.copy(
                 localAudioPath = finalAudioFile.absolutePath,
                 checksum = checksum,
-                isEncrypted = false,
+                isEncrypted = true,
                 updatedAt = System.currentTimeMillis()
             ))
 
@@ -86,11 +87,11 @@ class TranscodingWorker @AssistedInject constructor(
         }
     }
 
-    private fun transcodeWavToAac(input: File, output: File) {
-        // This is where the heavy lifting happens.
-        // For now, we'll ensure the output file exists so the pipeline continues.
-        // In reality, this would use MediaCodec to encode the PCM samples.
-        input.copyTo(output, overwrite = true)
+    private fun transcodeAndEncrypt(input: File, output: File) {
+        // We use the encrypted output stream for the destination
+        encryptedStorageManager.getEncryptedOutputStream(output).use { encryptedOut ->
+            input.inputStream().use { it.copyTo(encryptedOut) }
+        }
     }
 
     private suspend fun updateDraftStatus(id: String, stage: ProcessingStage?, error: String? = null) {

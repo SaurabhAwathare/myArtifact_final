@@ -55,7 +55,7 @@ class PrivacyScanWorker @AssistedInject constructor(
                 emptyList()
             }
             
-            val sensitiveJson = Json.encodeToString(flaggedSegments)
+            val sensitiveJson = com.saurabh.artifact.util.SecureString.fromString(Json.encodeToString(flaggedSegments))
             
             // Finalizing scan
             draftDao.update(draft.copy(

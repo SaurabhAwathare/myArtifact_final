@@ -1,6 +1,7 @@
 package com.saurabh.artifact.domain
 
 import com.saurabh.artifact.model.ValidationReason
+import com.saurabh.artifact.util.SecureString
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -10,7 +11,7 @@ class IdentityScoutTest {
 
     @Test
     fun `detect real name in username`() {
-        val realName = "Saurabh Awathare"
+        val realName = SecureString.fromString("Saurabh Awathare")
         val warnings = scout.detectLeaks("saurabh_98", realName, null)
         
         assertTrue(warnings.any { it.reason == ValidationReason.REAL_NAME })
@@ -18,7 +19,7 @@ class IdentityScoutTest {
 
     @Test
     fun `detect partial name in username`() {
-        val realName = "Saurabh Awathare"
+        val realName = SecureString.fromString("Saurabh Awathare")
         val warnings = scout.detectLeaks("awathare_x", realName, null)
         
         assertTrue(warnings.any { it.reason == ValidationReason.REAL_NAME })
@@ -26,7 +27,7 @@ class IdentityScoutTest {
 
     @Test
     fun `detect email prefix in username`() {
-        val email = "saurabh.music@gmail.com"
+        val email = SecureString.fromString("saurabh.music@gmail.com")
         val warnings = scout.detectLeaks("saurabhmusic_relic", null, email)
         
         assertTrue(warnings.any { it.reason == ValidationReason.EMAIL_ADDRESS })
@@ -41,15 +42,15 @@ class IdentityScoutTest {
 
     @Test
     fun `no leaks in anonymous name`() {
-        val realName = "Saurabh Awathare"
-        val warnings = scout.detectLeaks("Quiet Lantern", realName, "saurabh@gmail.com")
+        val realName = SecureString.fromString("Saurabh Awathare")
+        val warnings = scout.detectLeaks("Quiet Lantern", realName, SecureString.fromString("saurabh@gmail.com"))
         
         assertTrue(warnings.isEmpty())
     }
 
     @Test
     fun `detect motif reuse through phonetic similarity`() {
-        val realName = "Saurabh"
+        val realName = SecureString.fromString("Saurabh")
         // "Saurya" -> normalized "saurya"
         // "Saurabh" -> normalized "saurabh"
         // Distance between "saurya" and "saurabh":

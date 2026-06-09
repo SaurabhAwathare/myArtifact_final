@@ -106,8 +106,8 @@ interface DraftDao {
         markAsApproved(id, newStatus)
     }
 
-    @Query("UPDATE artifact_drafts SET frozenTranscriptJson = :transcriptJson, frozenAudioPath = :audioPath, frozenMetadataJson = :metadataJson, snapshotHash = :hash, updatedAt = :timestamp WHERE id = :id")
-    suspend fun freezeSnapshot(id: String, transcriptJson: String, audioPath: String, metadataJson: String, hash: String, timestamp: Long = System.currentTimeMillis())
+    @Query("UPDATE artifact_drafts SET frozenTranscriptJson = :transcriptJson, frozenAudioPath = :audioPath, frozenMetadataJson = :metadataJson, snapshotHash = :hash, approvalToken = :token, deviceFingerprint = :fingerprint, updatedAt = :timestamp WHERE id = :id")
+    suspend fun freezeSnapshot(id: String, transcriptJson: String, audioPath: String, metadataJson: String, hash: String, token: String, fingerprint: String, timestamp: Long = System.currentTimeMillis())
 
     @Query("UPDATE artifact_drafts SET status = :status, updatedAt = :timestamp WHERE id = :id")
     suspend fun updateSyncStatus(id: String, status: DraftStatus, timestamp: Long = System.currentTimeMillis())

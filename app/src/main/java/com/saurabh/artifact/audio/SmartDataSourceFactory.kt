@@ -15,7 +15,7 @@ import androidx.media3.datasource.cache.CacheDataSource
  */
 @UnstableApi
 class SmartDataSourceFactory(
-    context: Context
+    private val context: Context
 ) : DataSource.Factory {
 
     private val defaultDataSourceFactory = DefaultDataSource.Factory(context)
@@ -57,7 +57,17 @@ class SmartDataSourceFactory(
 
             override fun open(dataSpec: DataSpec): Long {
                 val path = dataSpec.uri.path ?: ""
-                currentDataSource = if (path.contains("encrypted_drafts")) {
+                
+                // Detection logic: 
+                // 1. Explicit marker in path (legacy)
+                // 2. Query parameter in URI (cleaner for future-proofing)
+                // 3. Local file check: If it's in our internal storage and not a raw WAV, it's encrypted.
+                
+                val isEncrypted = path.contains("encrypted_drafts") || 
+                                 dataSpec.uri.getQueryParameter("encrypted") == "true" ||
+                                 (path.startsWith(this@SmartDataSourceFactory.context.filesDir.absolutePath) && !path.endsWith(".wav"))
+                
+                currentDataSource = if (isEncrypted) {
                     getEncryptedDataSource()
                 } else {
                     getCachedDataSource()

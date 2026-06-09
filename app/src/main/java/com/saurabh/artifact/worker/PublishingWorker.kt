@@ -58,18 +58,10 @@ class PublishingWorker @AssistedInject constructor(
             return@withContext Result.failure()
         }
 
-        // 2. Security Validation (Approval Gate)
+        // 2. Security & Integrity Validation (Unified Approval Gate)
         if (!uploadGuard.validateApproval(draft, firebaseUser.uid)) {
-            Log.e("PublishingWorker", "Unauthorized upload attempt for draft $draftId")
-            draftRepository.updateUploadStatus(draftId, SyncStatus.Failed("Approval validation failed"))
-            return@withContext Result.failure()
-        }
-
-        // 3. Integrity Validation
-        val currentChecksum = artifactRepository.calculateChecksum(draft.localAudioPath)
-        if (draft.checksum != null && draft.checksum != currentChecksum) {
-            Log.e("PublishingWorker", "Integrity check failed for draft $draftId")
-            draftRepository.updateUploadStatus(draftId, SyncStatus.Failed("Integrity check failed"))
+            Log.e("PublishingWorker", "Security or Integrity validation failed for draft $draftId")
+            draftRepository.updateUploadStatus(draftId, SyncStatus.Failed("Security/Integrity validation failed"))
             return@withContext Result.failure()
         }
 
@@ -101,7 +93,7 @@ class PublishingWorker @AssistedInject constructor(
                 artifactRepository.uploadTranscript(
                     userId = firebaseUser.uid,
                     draftId = draft.id,
-                    transcriptJson = draft.frozenTranscriptJson
+                    transcriptJson = draft.frozenTranscriptJson.toUnsecureString()
                 ).getOrNull()
             } else null
 
