@@ -36,7 +36,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
-import androidx.paging.filter
 import androidx.paging.map
 import com.saurabh.artifact.data.paging.ArtifactRemoteMediator
 import kotlinx.coroutines.flow.map
@@ -422,6 +421,8 @@ class ArtifactRepository @Inject constructor(
     @OptIn(androidx.paging.ExperimentalPagingApi::class)
     fun getArtifactsPager(emotion: String?): Flow<PagingData<Artifact>> {
         val currentUserId = auth.currentUser?.uid ?: ""
+        val userIdPattern = "%\"$currentUserId\"%"
+        
         return Pager(
             config = PagingConfig(
                 pageSize = 10,
@@ -431,11 +432,9 @@ class ArtifactRepository @Inject constructor(
                 maxSize = 30
             ),
             remoteMediator = ArtifactRemoteMediator(firestore, database, currentUserId, emotion),
-            pagingSourceFactory = { artifactDao.getArtifactsPaged() }
+            pagingSourceFactory = { artifactDao.getArtifactsPaged(userIdPattern) }
         ).flow.map { pagingData ->
-            pagingData.filter { entity ->
-                entity.reportCount < 3 && entity.safetyConcernCount < 3 && !entity.reporterIds.contains(currentUserId)
-            }.map { entity -> mapArtifactEntityToArtifact(entity) }
+            pagingData.map { entity -> mapArtifactEntityToArtifact(entity) }
         }
     }
 
@@ -460,7 +459,7 @@ class ArtifactRepository @Inject constructor(
             durationMs = entity.durationMs,
             title = entity.title,
             description = entity.description,
-            emotion = entity.emotion,
+            emotion = entity.emotion.label,
             emotionTag = entity.emotionTag,
             playCount = entity.playCount,
             reactionCount = entity.reactionCount,
@@ -488,7 +487,10 @@ class ArtifactRepository @Inject constructor(
             durationMs = artifact.durationMs,
             title = artifact.title,
             description = artifact.description,
-            emotion = artifact.emotion,
+            emotion = Emotion.entries.find { 
+                it.name.equals(artifact.emotion, ignoreCase = true) || 
+                it.label.equals(artifact.emotion, ignoreCase = true) 
+            } ?: Emotion.NEUTRAL,
             emotionTag = artifact.emotionTag,
             playCount = artifact.playCount,
             reactionCount = artifact.reactionCount,
@@ -843,8 +845,8 @@ class ArtifactRepository @Inject constructor(
                 durationMs = draft.durationMs,
                 title = draft.title ?: "Untitled Artifact",
                 description = draft.description ?: "",
-                emotion = draft.emotion ?: "",
-                emotionTag = draft.emotion ?: "",
+                emotion = draft.emotion?.label ?: "",
+                emotionTag = draft.emotion?.label ?: "",
                 prompt = "",
                 transcript = transcript,
                 transcriptUrl = transcriptUrl,

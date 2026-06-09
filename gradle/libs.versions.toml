@@ -38,6 +38,8 @@ composeBom = "2026.05.01"
 appsearch = "1.1.0"
 paging = "3.5.0"
 mockk = "1.14.11"
+robolectric = "4.12"
+androidxTestCore = "1.6.1"
 kotlinxCoroutinesGuava = "1.11.0"
 playServicesBase = "18.10.0"
 tink = "1.15.0"
@@ -84,6 +86,8 @@ androidx-core-splashscreen = { group = "androidx.core", name = "core-splashscree
 material = { group = "com.google.android.material", name = "material", version.ref = "material" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
 mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
+robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
+androidx-test-core = { group = "androidx.test", name = "core", version.ref = "androidxTestCore" }
 kotlinx-coroutines-guava = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-guava", version.ref = "kotlinxCoroutinesGuava" }
 play-services-base = { group = "com.google.android.gms", name = "play-services-base", version.ref = "playServicesBase" }
 tink-android = { group = "com.google.crypto.tink", name = "tink-android", version.ref = "tink" }

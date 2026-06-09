@@ -3,6 +3,8 @@ package com.saurabh.artifact.data.local
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
+import com.saurabh.artifact.model.EmotionResult
+
 @Entity(tableName = "queued_uploads")
 data class QueuedUpload(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -12,9 +14,7 @@ data class QueuedUpload(
     val title: String,
     val isPublic: Boolean,
     val duration: Long,
-    val emotion: String,
-    val emotionTag: String = "",
-    val emotionConfidence: Float = 0f,
+    val emotionResult: EmotionResult,
     val avatarSeed: String = "",
     val prompt: String = "",
     val redactionFilter: String = "",

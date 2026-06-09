@@ -125,7 +125,7 @@ class RecordingRepository @Inject constructor(
         }
     }
 
-    suspend fun updateDraftMetadata(id: String, title: String?, emotion: String?): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun updateDraftMetadata(id: String, title: String?, emotion: Emotion?): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             draftDao.updateMetadata(id, title, emotion)
             Result.success(Unit)

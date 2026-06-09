@@ -8,6 +8,7 @@ import com.saurabh.artifact.domain.PublishingOrchestrator
 import com.saurabh.artifact.util.SecureString
 import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.model.DraftStatus
+import com.saurabh.artifact.model.Emotion
 import com.saurabh.artifact.model.TranscriptSegment
 import com.saurabh.artifact.repository.PublishApprovalRepository
 import com.saurabh.artifact.repository.TopicRepository
@@ -78,7 +79,7 @@ class PublishFlowViewModel @Inject constructor(
                         draftId = draftId,
                         title = draft.title ?: "Untitled",
                         description = draft.description ?: "",
-                        emotion = draft.emotion ?: "",
+                        emotion = draft.emotion?.label ?: "",
                         tags = draft.tags,
                         transcript = transcript,
                         audioDurationMs = draft.durationMs,
@@ -170,7 +171,7 @@ class PublishFlowViewModel @Inject constructor(
                 repository.updateDraft(draft.copy(
                     title = _uiState.value.title,
                     description = _uiState.value.description,
-                    emotion = _uiState.value.emotion,
+                    emotion = Emotion.entries.find { it.label.equals(_uiState.value.emotion, ignoreCase = true) },
                     tags = _uiState.value.tags
                 ))
             }

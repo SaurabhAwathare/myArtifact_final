@@ -33,9 +33,7 @@ class PublishViewModel @Inject constructor(
                         state.copy(
                             draft = draft,
                             title = state.title.ifBlank { draft.title ?: "" },
-                            emotion = state.emotion ?: try { 
-                                draft.emotion?.let { Emotion.valueOf(it) } 
-                            } catch (_: Exception) { null }
+                            emotion = state.emotion ?: draft.emotion
                         )
                     }
                 }
@@ -90,7 +88,7 @@ class PublishViewModel @Inject constructor(
             // Save metadata first
             recordingRepository.updateDraft(draft.copy(
                 title = _uiState.value.title,
-                emotion = _uiState.value.emotion?.name
+                emotion = _uiState.value.emotion
             ))
 
             publishArtifactUseCase(draft.localAudioPath)

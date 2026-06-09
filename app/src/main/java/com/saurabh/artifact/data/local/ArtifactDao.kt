@@ -8,8 +8,12 @@ interface ArtifactDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(artifacts: List<ArtifactEntity>)
 
-    @Query("SELECT * FROM artifacts ORDER BY createdAt DESC")
-    fun getArtifactsPaged(): PagingSource<Int, ArtifactEntity>
+    @Query("""
+        SELECT * FROM artifacts 
+        WHERE (reportCount < 3 AND safetyConcernCount < 3 AND reporterIds NOT LIKE :userIdPattern)
+        ORDER BY createdAt DESC
+    """)
+    fun getArtifactsPaged(userIdPattern: String): PagingSource<Int, ArtifactEntity>
 
     @Query("DELETE FROM artifacts")
     suspend fun clearAll()

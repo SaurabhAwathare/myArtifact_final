@@ -3,9 +3,12 @@ package com.saurabh.artifact.data.local
 import androidx.room.TypeConverter
 import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.model.DraftStatus
+import com.saurabh.artifact.model.Emotion
+import com.saurabh.artifact.model.EmotionResult
 import com.saurabh.artifact.model.EmotionalTone
 import com.saurabh.artifact.model.PromptCategory
 import com.saurabh.artifact.model.SyncStatus
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 class Converters {
@@ -40,13 +43,39 @@ class Converters {
     }
 
     @TypeConverter
-    fun fromEmotionalTone(tone: EmotionalTone): String = tone.name
+    fun fromEmotionalTone(tone: EmotionalTone?): String? = tone?.name
 
     @TypeConverter
-    fun toEmotionalTone(value: String): EmotionalTone = try {
-        EmotionalTone.valueOf(value)
-    } catch (_: Exception) {
-        EmotionalTone.REFLECTIVE
+    fun toEmotionalTone(value: String?): EmotionalTone? = value?.let {
+        try {
+            EmotionalTone.valueOf(it)
+        } catch (_: Exception) {
+            EmotionalTone.REFLECTIVE
+        }
+    }
+
+    @TypeConverter
+    fun fromEmotion(value: Emotion?): String? = value?.name
+
+    @TypeConverter
+    fun toEmotion(value: String?): Emotion? = value?.let {
+        try {
+            Emotion.valueOf(it)
+        } catch (_: Exception) {
+            Emotion.NEUTRAL
+        }
+    }
+
+    @TypeConverter
+    fun fromEmotionResult(value: EmotionResult?): String? = value?.let { Json.encodeToString(it) }
+
+    @TypeConverter
+    fun toEmotionResult(value: String?): EmotionResult? = value?.let {
+        try {
+            Json.decodeFromString(it)
+        } catch (_: Exception) {
+            EmotionResult(Emotion.NEUTRAL, 0f)
+        }
     }
 
     @TypeConverter

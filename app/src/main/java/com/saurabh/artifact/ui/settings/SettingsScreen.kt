@@ -2,6 +2,7 @@ package com.saurabh.artifact.ui.settings
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -138,6 +139,11 @@ fun SettingsScreen(
                             title = accountInfo?.realName?.toUnsecureString() ?: "Anonymous User",
                             subtitle = accountInfo?.email?.toUnsecureString(),
                             icon = Icons.Default.Person,
+                            modifier = Modifier.clickable { 
+                                if (!isAnonymous && accountInfo != null) {
+                                    viewModel.copyEmailToClipboard(context)
+                                }
+                            },
                             trailingContent = {
                                 Surface(
                                     color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),

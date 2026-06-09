@@ -42,11 +42,7 @@ class DraftEditViewModel @Inject constructor(
             recordingRepository.getDraft(draftId).onSuccess { draftEntity ->
                 _draft.value = draftEntity
                 _title.value = draftEntity.title ?: ""
-                
-                // Try matching by name or label
-                _emotion.value = draftEntity.emotion?.let { value ->
-                    Emotion.entries.find { it.name == value || it.label == value }
-                }
+                _emotion.value = draftEntity.emotion
             }.onFailure { e ->
                 Log.e("DraftEditViewModel", "Failed to load draft $draftId", e)
             }
@@ -68,7 +64,7 @@ class DraftEditViewModel @Inject constructor(
             recordingRepository.updateDraftMetadata(
                 id = currentDraft.id,
                 title = _title.value,
-                emotion = _emotion.value?.name
+                emotion = _emotion.value
             )
         }
     }

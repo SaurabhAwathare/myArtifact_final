@@ -1,6 +1,7 @@
 package com.saurabh.artifact.ui.settings
 
 import com.saurabh.artifact.security.DataExportManager
+import com.saurabh.artifact.util.ClipboardGuard
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.saurabh.artifact.model.UserSettings
@@ -28,7 +29,8 @@ data class AccountInfo(val realName: SecureString, val email: SecureString)
 class SettingsViewModel @Inject constructor(
     private val repository: SettingsRepository,
     private val authRepository: com.saurabh.artifact.repository.AuthRepository,
-    private val dataExportManager: DataExportManager
+    private val dataExportManager: DataExportManager,
+    private val clipboardGuard: ClipboardGuard
 ) : ViewModel() {
 
     val isAnonymous = authRepository.currentUser.map { it?.isAnonymous ?: true }
@@ -133,6 +135,21 @@ class SettingsViewModel @Inject constructor(
                 .onFailure {
                     _events.emit(SettingsUiEvent.ShowMessage(UiText.StringResource(R.string.export_failed)))
                 }
+        }
+    }
+
+    /**
+     * Demonstrates secure copying of sensitive user data.
+     */
+    fun copyEmailToClipboard(context: android.content.Context) {
+        val email = accountInfo.value?.email?.toUnsecureString() ?: return
+        clipboardGuard.copySensitive(
+            context = context,
+            label = "User Email",
+            text = email
+        )
+        viewModelScope.launch {
+            _events.emit(SettingsUiEvent.ShowMessage(UiText.DynamicString("Email copied. Will clear in 60s.")))
         }
     }
 }

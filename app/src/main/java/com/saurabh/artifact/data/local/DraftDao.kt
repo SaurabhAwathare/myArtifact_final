@@ -58,7 +58,7 @@ interface DraftDao {
     suspend fun updateTitle(id: String, title: String?, timestamp: Long = System.currentTimeMillis())
 
     @Query("UPDATE artifact_drafts SET title = :title, emotion = :emotion, updatedAt = :timestamp WHERE id = :id")
-    suspend fun updateMetadata(id: String, title: String?, emotion: String?, timestamp: Long = System.currentTimeMillis())
+    suspend fun updateMetadata(id: String, title: String?, emotion: Emotion?, timestamp: Long = System.currentTimeMillis())
 
     @Query("UPDATE artifact_drafts SET uploadedAudioUrl = :url, updatedAt = :timestamp WHERE id = :id")
     suspend fun updateUploadCheckpoint(id: String, url: String, timestamp: Long = System.currentTimeMillis())

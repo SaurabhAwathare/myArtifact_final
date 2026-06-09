@@ -2,6 +2,7 @@ package com.saurabh.artifact.data.local
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import com.saurabh.artifact.model.Emotion
 
 @Entity(tableName = "artifacts")
 data class ArtifactEntity(
@@ -18,7 +19,7 @@ data class ArtifactEntity(
     val durationMs: Long,
     val title: String,
     val description: String,
-    val emotion: String,
+    val emotion: Emotion,
     val emotionTag: String,
     val playCount: Long,
     val reactionCount: Long,

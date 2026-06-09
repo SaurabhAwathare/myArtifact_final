@@ -1,8 +1,11 @@
 package com.saurabh.artifact.model
 
+import kotlinx.serialization.Serializable
+
 /**
  * Core emotional states for reflective framing.
  */
+@Serializable
 enum class Emotion(val label: String, val emoji: String) {
     HAPPY("Happy", "😊"),
     SAD("Sad", "😢"),
@@ -18,6 +21,7 @@ enum class Emotion(val label: String, val emoji: String) {
     NEUTRAL("Neutral", "😐")
 }
 
+@Serializable
 data class EmotionResult(
     val emotion: Emotion,
     val confidence: Float

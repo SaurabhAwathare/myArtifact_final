@@ -10,6 +10,7 @@ import com.google.firebase.firestore.Query
 import com.saurabh.artifact.data.local.AppDatabase
 import com.saurabh.artifact.data.local.ArtifactEntity
 import com.saurabh.artifact.model.Artifact
+import com.saurabh.artifact.model.Emotion
 import kotlinx.coroutines.tasks.await
 
 @OptIn(ExperimentalPagingApi::class)
@@ -112,7 +113,10 @@ class ArtifactRemoteMediator(
             durationMs = artifact.durationMs,
             title = artifact.title,
             description = artifact.description,
-            emotion = artifact.emotion,
+            emotion = Emotion.entries.find { 
+                it.name.equals(artifact.emotion, ignoreCase = true) || 
+                it.label.equals(artifact.emotion, ignoreCase = true) 
+            } ?: Emotion.NEUTRAL,
             emotionTag = artifact.emotionTag,
             playCount = artifact.playCount,
             reactionCount = artifact.reactionCount,

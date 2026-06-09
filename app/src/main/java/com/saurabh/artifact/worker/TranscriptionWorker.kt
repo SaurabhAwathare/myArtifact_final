@@ -6,6 +6,7 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.saurabh.artifact.audio.LocalDraftManager
+import com.saurabh.artifact.model.EmotionalTone
 import com.saurabh.artifact.repository.RecordingRepository
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -102,8 +103,8 @@ class TranscriptionWorker @AssistedInject constructor(
         return "This is a placeholder transcript for the emotionally rich voice recording."
     }
 
-    private fun analyzeEmotionalTone(): String {
-        return "Warm, Intimate, Calm"
+    private fun analyzeEmotionalTone(): EmotionalTone {
+        return EmotionalTone.REFLECTIVE
     }
 
     companion object {
