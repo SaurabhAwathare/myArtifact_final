@@ -32,12 +32,13 @@ data class UserPreferenceProfile(
 @Singleton
 class PersonalizationEngine @Inject constructor(
     @param:ApplicationContext private val context: Context,
-    onboardingManager: OnboardingManager
+    private val onboardingManager: OnboardingManager
 ) {
     private val engineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val searchSession = MutableStateFlow<AppSearchSession?>(null)
 
-    private val _interactionAffinities = MutableStateFlow<Map<String, Double>>(emptyMap())
+    private val _userProfile = MutableStateFlow(UserPreferenceProfile())
+    val userProfile: StateFlow<UserPreferenceProfile> = _userProfile.asStateFlow()
 
     private var isInitializing = false
 
@@ -87,22 +88,17 @@ class PersonalizationEngine @Inject constructor(
 
                 searchSession.value = session
                 Log.d(TAG, "AppSearch initialized successfully.")
+
+                // Load initial profile from disk once
+                loadProfileFromDisk(session)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to initialize AppSearch", e)
             }
         }
     }
 
-    /**
-     * Safe fetch of the user preference profile.
-     * Fix for NoSuchElementException: Uses safe map access and nullability checks
-     * instead of relying on internal Optional unwrapping which can crash.
-     */
-    val userProfile: StateFlow<UserPreferenceProfile> = combine(
-        onboardingManager.isOnboardingCompleted,
-        searchSession.filterNotNull(),
-        _interactionAffinities // We can still combine with this for immediate updates
-    ) { _, session, inMemoryAffinities ->
+    @RequiresApi(Build.VERSION_CODES.S)
+    private suspend fun loadProfileFromDisk(session: AppSearchSession) {
         try {
             val result = session.getByDocumentIdAsync(
                 GetByDocumentIdRequest.Builder(NAMESPACE)
@@ -111,82 +107,80 @@ class PersonalizationEngine @Inject constructor(
             ).await()
 
             val documentWrapper = result.successes[PROFILE_ID]
-            val document = if (documentWrapper != null) {
-                try {
-                    documentWrapper.toDocumentClass(UserPreferenceDocument::class.java)
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to map document to class, likely schema mismatch", e)
-                    null
-                }
-            } else null
+            val document = documentWrapper?.toDocumentClass(UserPreferenceDocument::class.java)
 
             if (document != null) {
-                // Calculate affinities from persisted goals if in-memory is empty
-                val affinities = if (inMemoryAffinities.isEmpty() && document.goals.isNotEmpty()) {
-                    val counts = document.goals.groupingBy { it }.eachCount()
-                    val total = document.goals.size.toDouble()
-                    counts.mapValues { it.value / total }
-                } else inMemoryAffinities
+                val counts = document.goals.groupingBy { it }.eachCount()
+                val total = document.goals.size.toDouble()
+                val affinities = counts.mapValues { it.value / total }
 
-                UserPreferenceProfile(
+                _userProfile.value = UserPreferenceProfile(
                     primaryGoal = document.primaryGoal,
-                    goals = document.goals?.toSet() ?: emptySet(),
+                    goals = document.goals.toSet(),
                     dominantEmotion = document.dominantEmotion,
                     affinityScores = affinities
                 )
-            } else {
-                UserPreferenceProfile(affinityScores = inMemoryAffinities)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error fetching from AppSearch, returning default profile", e)
-            UserPreferenceProfile(affinityScores = inMemoryAffinities)
+            Log.e(TAG, "Error loading initial profile from AppSearch", e)
         }
-    }.stateIn(
-        scope = engineScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = UserPreferenceProfile()
-    )
+    }
 
     /**
      * Records a new interaction and persists it to AppSearch.
      * @param weight Positive for positive resonance, negative for "Not for me" signals.
      */
     fun recordInteraction(emotion: String, weight: Float = 1.0f) {
-        engineScope.launch {
+        // Immediate in-memory update on Dispatchers.Default for responsiveness
+        engineScope.launch(Dispatchers.Default) {
             try {
-                val session = searchSession.value ?: return@launch
-                val currentProfile = userProfile.value
+                val currentProfile = _userProfile.value
 
                 // Update goals based on weight
                 val updatedEmotions = if (weight > 0) {
-                    // Add multiple times for higher weights to increase affinity faster
                     val count = if (weight > 1.0f) 2 else 1
                     val next = currentProfile.goals.toMutableList()
                     repeat(count) { next.add(emotion) }
-                    // Keep history capped to prevent unbounded growth
                     if (next.size > 200) next.takeLast(200) else next
                 } else {
-                    // If negative, we remove instances of this emotion to reduce affinity
                     val list = currentProfile.goals.toMutableList()
                     list.remove(emotion)
                     list
                 }
                 
-                // Calculate dominant emotion from history
                 val counts = updatedEmotions.groupingBy { it }.eachCount()
                 val newDominantEmotion = counts.maxByOrNull { it.value }?.key
-                
-                // Update affinity scores (normalized)
                 val total = updatedEmotions.size.toDouble()
                 val newAffinities = counts.mapValues { it.value / total }
-                _interactionAffinities.value = newAffinities
 
+                val newProfile = currentProfile.copy(
+                    goals = updatedEmotions.toSet(),
+                    dominantEmotion = newDominantEmotion,
+                    affinityScores = newAffinities
+                )
+                
+                // Update memory immediately
+                _userProfile.value = newProfile
+
+                // Persist to disk asynchronously on IO
+                persistProfileToDisk(newProfile)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to update interaction in memory", e)
+            }
+        }
+    }
+
+    private fun persistProfileToDisk(profile: UserPreferenceProfile) {
+        engineScope.launch(Dispatchers.IO) {
+            try {
+                val session = searchSession.value ?: return@launch
+                
                 val doc = UserPreferenceDocument(
                     namespace = NAMESPACE,
                     id = PROFILE_ID,
-                    primaryGoal = currentProfile.primaryGoal,
-                    goals = updatedEmotions,
-                    dominantEmotion = newDominantEmotion,
+                    primaryGoal = profile.primaryGoal,
+                    goals = profile.goals.toList(),
+                    dominantEmotion = profile.dominantEmotion,
                     lastInteractionTimestamp = System.currentTimeMillis()
                 )
 

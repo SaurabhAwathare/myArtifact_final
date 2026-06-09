@@ -4,6 +4,7 @@ import com.saurabh.artifact.model.Artifact
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -22,7 +23,7 @@ class FeedRankerTest {
     }
 
     @Test
-    fun `rank should prioritize personalization`() {
+    fun `rank should prioritize personalization`() = runTest {
         val artifacts = listOf(
             createArtifact("1", "Calm"),
             createArtifact("2", "Angry")
@@ -38,7 +39,7 @@ class FeedRankerTest {
     }
 
     @Test
-    fun `rank should apply emotion diversity`() {
+    fun `rank should apply emotion diversity`() = runTest {
         // Create 10 "Calm" artifacts and 10 "Happy" ones
         val calmArtifacts = (1..10).map { i -> createArtifact("C$i", "Calm") }
         val happyArtifacts = (1..10).map { i -> createArtifact("H$i", "Happy") }

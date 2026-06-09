@@ -2,6 +2,8 @@ package com.saurabh.artifact.service
 
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.User
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -27,8 +29,8 @@ class FeedRanker @Inject constructor(
     /**
      * Ranks a list of candidate artifacts based on resonance and diversity.
      */
-    fun rank(artifacts: List<Artifact>, user: User?, currentMood: String?): List<Artifact> {
-        if (artifacts.isEmpty()) return emptyList()
+    suspend fun rank(artifacts: List<Artifact>, user: User?, currentMood: String?): List<Artifact> = withContext(Dispatchers.Default) {
+        if (artifacts.isEmpty()) return@withContext emptyList<Artifact>()
 
         val scoredList = artifacts.map { artifact ->
             val score = calculateScore(artifact, user, currentMood)
@@ -42,7 +44,7 @@ class FeedRanker @Inject constructor(
             .toList()
 
         // 2. Apply Diversity Filters (Author, Emotion, and Style Pacing)
-        return applyDiversity(sorted)
+        applyDiversity(sorted)
     }
 
     private fun calculateScore(artifact: Artifact, user: User?, currentMood: String?): Double {

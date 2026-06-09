@@ -1,12 +1,8 @@
 package com.saurabh.artifact.data.local
 
-import android.content.Context
-import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.emptyPreferences
-import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.*
 import com.saurabh.artifact.model.UserProfile
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
@@ -14,31 +10,35 @@ import kotlinx.serialization.json.Json
 import java.io.IOException
 import java.util.UUID
 import javax.inject.Inject
+import javax.inject.Named
 import javax.inject.Singleton
-
-private val Context.sessionDataStore by preferencesDataStore(name = "user_session")
 
 @Singleton
 class UserSessionManager @Inject constructor(
-    @param:ApplicationContext private val context: Context,
+    @Named("sessionDataStore") private val dataStore: DataStore<Preferences>,
     private val blockStoreManager: BlockStoreManager,
 ) {
-    private val anonymousIdKey = stringPreferencesKey("anonymous_id")
-    private val avatarSeedKey = stringPreferencesKey("avatar_seed")
-    private val avatarConfigKey = stringPreferencesKey("avatar_config_json")
-    private val avatarColorKey = stringPreferencesKey("avatar_color")
-    private val usernameKey = stringPreferencesKey("username")
-    private val sigilKey = stringPreferencesKey("sigil")
-    private val isAnonymousKey = androidx.datastore.preferences.core.booleanPreferencesKey("is_anonymous")
-    private val resonanceInKey = androidx.datastore.preferences.core.longPreferencesKey("resonance_in")
-    private val resonanceOutKey = androidx.datastore.preferences.core.longPreferencesKey("resonance_out")
-    private val activeDraftIdKey = stringPreferencesKey("active_draft_id")
-    private val activePromptIdKey = stringPreferencesKey("active_prompt_id")
+    private object PreferencesKeys {
+        val ANONYMOUS_ID = stringPreferencesKey("anonymous_id")
+        val AVATAR_SEED = stringPreferencesKey("avatar_seed")
+        val AVATAR_CONFIG_JSON = stringPreferencesKey("avatar_config_json")
+        val AVATAR_COLOR = stringPreferencesKey("avatar_color")
+        val USERNAME = stringPreferencesKey("username")
+        val SIGIL = stringPreferencesKey("sigil")
+        val IS_ANONYMOUS = booleanPreferencesKey("is_anonymous")
+        val RESONANCE_IN = longPreferencesKey("resonance_in")
+        val RESONANCE_OUT = longPreferencesKey("resonance_out")
+        val ACTIVE_DRAFT_ID = stringPreferencesKey("active_draft_id")
+        val ACTIVE_PROMPT_ID = stringPreferencesKey("active_prompt_id")
+        
+        // Legacy/Migration keys
+        val IDENTITY_EMOJI = stringPreferencesKey("identity_emoji")
+    }
 
     /**
      * Retrieves the current anonymous profile. 
      */
-    val userProfile: Flow<UserProfile> = context.sessionDataStore.data
+    val userProfile: Flow<UserProfile> = dataStore.data
         .catch { exception ->
             if (exception is IOException) {
                 emit(emptyPreferences())
@@ -47,22 +47,20 @@ class UserSessionManager @Inject constructor(
             }
         }
         .map { preferences ->
-            val id = preferences[anonymousIdKey] ?: run {
-                val blockStoreId = blockStoreManager.getAnonymousId()
-                val idToUse = blockStoreId ?: UUID.randomUUID().toString()
-                ensureAnonymousId(idToUse)
-                idToUse
-            }
-            // Migration logic: if seed is missing, use legacy emoji if present, else generate random
-            val seed = preferences[avatarSeedKey] ?: preferences[stringPreferencesKey("identity_emoji")] ?: UUID.randomUUID().toString()
-            val username = preferences[usernameKey] ?: com.saurabh.artifact.util.UsernameGenerator.generate()
-            val sigil = preferences[sigilKey] ?: com.saurabh.artifact.util.UsernameGenerator.deriveSigil(id)
-            val avatarColor = preferences[avatarColorKey] ?: "#FFD700"
-            val isAnonymous = preferences[isAnonymousKey] ?: true
-            val resonanceIn = preferences[resonanceInKey] ?: 0L
-            val resonanceOut = preferences[resonanceOutKey] ?: 0L
+            val id = preferences[PreferencesKeys.ANONYMOUS_ID] ?: ("gen_" + UUID.randomUUID().toString().take(8))
             
-            val configJson = preferences[avatarConfigKey]
+            val seed = preferences[PreferencesKeys.AVATAR_SEED] 
+                ?: preferences[PreferencesKeys.IDENTITY_EMOJI] 
+                ?: UUID.randomUUID().toString()
+                
+            val username = preferences[PreferencesKeys.USERNAME] ?: com.saurabh.artifact.util.UsernameGenerator.generate()
+            val sigil = preferences[PreferencesKeys.SIGIL] ?: com.saurabh.artifact.util.UsernameGenerator.deriveSigil(id)
+            val avatarColor = preferences[PreferencesKeys.AVATAR_COLOR] ?: "#FFD700"
+            val isAnonymous = preferences[PreferencesKeys.IS_ANONYMOUS] ?: true
+            val resonanceIn = preferences[PreferencesKeys.RESONANCE_IN] ?: 0L
+            val resonanceOut = preferences[PreferencesKeys.RESONANCE_OUT] ?: 0L
+            
+            val configJson = preferences[PreferencesKeys.AVATAR_CONFIG_JSON]
             val config = configJson?.let { 
                 try {
                     Json.decodeFromString<com.saurabh.artifact.model.AvatarConfig>(it).copy(seed = seed)
@@ -85,25 +83,25 @@ class UserSessionManager @Inject constructor(
             )
         }
 
-    val activePromptId: Flow<String?> = context.sessionDataStore.data
-        .map { preferences -> preferences[activePromptIdKey] }
+    val activePromptId: Flow<String?> = dataStore.data
+        .map { preferences -> preferences[PreferencesKeys.ACTIVE_PROMPT_ID] }
 
     suspend fun setActiveDraftId(id: String?) {
-        context.sessionDataStore.edit { preferences ->
+        dataStore.edit { preferences ->
             if (id == null) {
-                preferences.remove(activeDraftIdKey)
+                preferences.remove(PreferencesKeys.ACTIVE_DRAFT_ID)
             } else {
-                preferences[activeDraftIdKey] = id
+                preferences[PreferencesKeys.ACTIVE_DRAFT_ID] = id
             }
         }
     }
 
     suspend fun setActivePromptId(id: String?) {
-        context.sessionDataStore.edit { preferences ->
+        dataStore.edit { preferences ->
             if (id == null) {
-                preferences.remove(activePromptIdKey)
+                preferences.remove(PreferencesKeys.ACTIVE_PROMPT_ID)
             } else {
-                preferences[activePromptIdKey] = id
+                preferences[PreferencesKeys.ACTIVE_PROMPT_ID] = id
             }
         }
     }
@@ -112,10 +110,9 @@ class UserSessionManager @Inject constructor(
      * Updates the user's avatar configuration.
      */
     suspend fun updateAvatarConfig(config: com.saurabh.artifact.model.AvatarConfig) {
-        context.sessionDataStore.edit { preferences ->
-            // Update both to maintain backward compatibility and query efficiency
-            preferences[avatarConfigKey] = Json.encodeToString(config)
-            preferences[avatarSeedKey] = config.seed
+        dataStore.edit { preferences ->
+            preferences[PreferencesKeys.AVATAR_CONFIG_JSON] = Json.encodeToString(config)
+            preferences[PreferencesKeys.AVATAR_SEED] = config.seed
         }
     }
 
@@ -123,8 +120,8 @@ class UserSessionManager @Inject constructor(
      * Updates the user's identity username.
      */
     suspend fun updateUsername(username: String) {
-        context.sessionDataStore.edit { preferences ->
-            preferences[usernameKey] = username
+        dataStore.edit { preferences ->
+            preferences[PreferencesKeys.USERNAME] = username
         }
     }
 
@@ -132,16 +129,16 @@ class UserSessionManager @Inject constructor(
      * Synchronizes local DataStore with a remote User profile from Firestore.
      */
     suspend fun syncFromRemote(user: com.saurabh.artifact.model.User) {
-        context.sessionDataStore.edit { preferences ->
-            preferences[anonymousIdKey] = user.anonymousId
-            preferences[usernameKey] = user.anonymousName
-            preferences[sigilKey] = user.anonymousSigil
-            preferences[avatarSeedKey] = user.avatarSeed
-            preferences[avatarColorKey] = user.avatarColor
-            preferences[avatarConfigKey] = Json.encodeToString(user.avatarConfig)
-            preferences[isAnonymousKey] = user.isAnonymous
-            preferences[resonanceInKey] = user.resonanceInCount
-            preferences[resonanceOutKey] = user.resonanceOutCount
+        dataStore.edit { preferences ->
+            preferences[PreferencesKeys.ANONYMOUS_ID] = user.anonymousId
+            preferences[PreferencesKeys.USERNAME] = user.anonymousName
+            preferences[PreferencesKeys.SIGIL] = user.anonymousSigil
+            preferences[PreferencesKeys.AVATAR_SEED] = user.avatarSeed
+            preferences[PreferencesKeys.AVATAR_COLOR] = user.avatarColor
+            preferences[PreferencesKeys.AVATAR_CONFIG_JSON] = Json.encodeToString(user.avatarConfig)
+            preferences[PreferencesKeys.IS_ANONYMOUS] = user.isAnonymous
+            preferences[PreferencesKeys.RESONANCE_IN] = user.resonanceInCount
+            preferences[PreferencesKeys.RESONANCE_OUT] = user.resonanceOutCount
         }
     }
 
@@ -149,14 +146,20 @@ class UserSessionManager @Inject constructor(
      * Clears all session data. Used during sign out.
      */
     suspend fun clear() {
-        context.sessionDataStore.edit { it.clear() }
+        dataStore.edit { it.clear() }
     }
 
-    private suspend fun ensureAnonymousId(id: String) {
-        context.sessionDataStore.edit { preferences ->
-            if (preferences[anonymousIdKey] == null) {
-                preferences[anonymousIdKey] = id
-                blockStoreManager.saveAnonymousId(id)
+    /**
+     * Ensures that an anonymous ID exists, saving it if necessary.
+     * This should be called from the UI or a Repository at startup, NOT from within userProfile Flow.
+     */
+    suspend fun ensureAnonymousId() {
+        dataStore.edit { preferences ->
+            if (preferences[PreferencesKeys.ANONYMOUS_ID] == null) {
+                val blockStoreId = blockStoreManager.getAnonymousId()
+                val idToUse = blockStoreId ?: UUID.randomUUID().toString()
+                preferences[PreferencesKeys.ANONYMOUS_ID] = idToUse
+                blockStoreManager.saveAnonymousId(idToUse)
             }
         }
     }

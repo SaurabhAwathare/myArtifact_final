@@ -81,7 +81,7 @@ class DraftDeletionManagerTest {
         deletionManager.deleteDraft(draftId)
 
         coVerify {
-            draftDao.updateStatus(draftId, any())
+            draftDao.markAsDeleting(draftId)
             storageManager.deleteDirectoryRecursively(draftDir)
             draftDao.deleteById(draftId)
         }

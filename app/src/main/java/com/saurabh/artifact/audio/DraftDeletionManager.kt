@@ -32,15 +32,8 @@ class DraftDeletionManager @Inject constructor(
         Log.d("DraftDeletionManager", "Initiating deletion for draft: $draftId")
 
         // 1. Soft Delete: Mark as DELETING in Room. Hides from UI immediately.
-        val draft = draftDao.getDraftById(draftId)
-        if (draft == null) {
-            Log.w("DraftDeletionManager", "Draft $draftId not found in database. Skipping.")
-            return@withContext
-        }
-
-        if (draft.status.lifecycle != ArtifactLifecycle.DELETING) {
-            draftDao.updateStatus(draftId, draft.status.copy(lifecycle = ArtifactLifecycle.DELETING))
-        }
+        draftDao.markAsDeleting(draftId)
+        val draft = draftDao.getDraftById(draftId) ?: return@withContext
 
         try {
             // 2. Physical File Purge

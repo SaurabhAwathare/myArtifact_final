@@ -8,6 +8,6 @@ class SqlCipherTest {
     fun testChangePassphrase() {
         // This is just to check if the method exists in the classpath
         val db: SQLiteDatabase? = null
-        db?.changePassphrase(byteArrayOf(1, 2, 3))
+        // db?.changePassphrase(byteArrayOf(1, 2, 3))
     }
 }

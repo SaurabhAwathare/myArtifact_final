@@ -38,6 +38,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import androidx.paging.map
 import com.saurabh.artifact.data.paging.ArtifactRemoteMediator
+import com.saurabh.artifact.util.NetworkUtils
 import kotlinx.coroutines.flow.map
 import java.io.File
 import java.io.FileInputStream
@@ -774,7 +775,7 @@ class ArtifactRepository @Inject constructor(
      * Determines if an error is transient (retriable) or terminal.
      */
     fun isTransientError(e: Throwable): Boolean {
-        return Companion.isTransientError(e)
+        return NetworkUtils.isTransientError(e)
     }
 
     /**
@@ -1103,34 +1104,7 @@ class ArtifactRepository @Inject constructor(
 
     companion object {
         fun isTransientError(e: Throwable): Boolean {
-            return when (e) {
-                is java.net.SocketTimeoutException,
-                is java.net.UnknownHostException,
-                is java.net.ConnectException,
-                is java.net.SocketException,
-                is java.io.InterruptedIOException -> true
-                is com.google.firebase.storage.StorageException -> {
-                    when (e.errorCode) {
-                        com.google.firebase.storage.StorageException.ERROR_RETRY_LIMIT_EXCEEDED,
-                        com.google.firebase.storage.StorageException.ERROR_NOT_AUTHENTICATED, // Often transient token issue
-                        com.google.firebase.storage.StorageException.ERROR_QUOTA_EXCEEDED,
-                        com.google.firebase.storage.StorageException.ERROR_NOT_AUTHORIZED -> true // Can be transient if token expired
-                        else -> {
-                            val httpCode = e.httpResultCode
-                            httpCode == 408 || httpCode == 429 || httpCode >= 500
-                        }
-                    }
-                }
-                is com.google.firebase.firestore.FirebaseFirestoreException -> {
-                    when (e.code) {
-                        com.google.firebase.firestore.FirebaseFirestoreException.Code.UNAVAILABLE,
-                        com.google.firebase.firestore.FirebaseFirestoreException.Code.DEADLINE_EXCEEDED,
-                        com.google.firebase.firestore.FirebaseFirestoreException.Code.ABORTED -> true
-                        else -> false
-                    }
-                }
-                else -> false
-            }
+            return NetworkUtils.isTransientError(e)
         }
     }
 }

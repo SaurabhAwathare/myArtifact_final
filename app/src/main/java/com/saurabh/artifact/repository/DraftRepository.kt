@@ -135,9 +135,11 @@ class DraftRepository @Inject constructor(
 
     suspend fun updateStatus(draftId: String, transform: (DraftStatus) -> DraftStatus): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            draftDao.getDraftById(draftId)?.let { draft ->
-                val newStatus = transform(draft.status)
-                draftDao.updateStatus(draftId, newStatus)
+            draftsDatabase.withTransaction {
+                draftDao.getDraftById(draftId)?.let { draft ->
+                    val newStatus = transform(draft.status)
+                    draftDao.updateStatus(draftId, newStatus)
+                }
             }
             Result.success(Unit)
         } catch (e: Exception) {

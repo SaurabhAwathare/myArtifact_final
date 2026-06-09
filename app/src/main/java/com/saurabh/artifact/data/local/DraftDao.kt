@@ -106,6 +106,15 @@ interface DraftDao {
         markAsApproved(id, newStatus)
     }
 
+    @Transaction
+    suspend fun markAsDeleting(id: String) {
+        val draft = getDraftById(id) ?: return
+        if (draft.lifecycle != ArtifactLifecycle.DELETING) {
+            val newStatus = draft.status.copy(lifecycle = ArtifactLifecycle.DELETING)
+            updateStatusAndLifecycle(id, newStatus, ArtifactLifecycle.DELETING)
+        }
+    }
+
     @Query("UPDATE artifact_drafts SET frozenTranscriptJson = :transcriptJson, frozenAudioPath = :audioPath, frozenMetadataJson = :metadataJson, snapshotHash = :hash, approvalToken = :token, deviceFingerprint = :fingerprint, updatedAt = :timestamp WHERE id = :id")
     suspend fun freezeSnapshot(id: String, transcriptJson: String, audioPath: String, metadataJson: String, hash: String, token: String, fingerprint: String, timestamp: Long = System.currentTimeMillis())
 

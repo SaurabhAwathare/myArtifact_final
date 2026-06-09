@@ -11,6 +11,7 @@ import com.saurabh.artifact.data.local.AppDatabase
 import com.saurabh.artifact.data.local.ArtifactEntity
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.Emotion
+import com.saurabh.artifact.util.NetworkUtils
 import kotlinx.coroutines.tasks.await
 
 @OptIn(ExperimentalPagingApi::class)
@@ -51,7 +52,9 @@ class ArtifactRemoteMediator(
                 query = query.startAfter(lastTimestamp)
             }
 
-            val snapshot = query.limit(state.config.pageSize.toLong()).get().await()
+            val snapshot = NetworkUtils.retryWithBackoff {
+                query.limit(state.config.pageSize.toLong()).get().await()
+            }
             val artifacts = snapshot.documents.mapNotNull { doc ->
                 val artifact =
                     doc.toObject(Artifact::class.java)?.copy(id = doc.id) ?: return@mapNotNull null

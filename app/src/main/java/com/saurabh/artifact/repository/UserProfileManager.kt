@@ -24,6 +24,11 @@ class UserProfileManager @Inject constructor(
     private val managerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     init {
+        // Initialize anonymous ID if missing
+        managerScope.launch {
+            sessionManager.ensureAnonymousId()
+        }
+
         // Background Sync: Listen to Firestore updates and push them into the local SSOT
         managerScope.launch {
             authRepository.userData.collectLatest { firestoreUser ->
