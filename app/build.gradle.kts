@@ -8,6 +8,7 @@ plugins {
 
     alias(libs.plugins.google.services)
     alias(libs.plugins.firebase.perf)
+    alias(libs.plugins.firebase.crashlytics)
     alias(libs.plugins.androidx.baselineprofile)
 }
 
@@ -128,6 +129,7 @@ dependencies {
     implementation(libs.firebase.analytics)
     implementation(libs.firebase.appcheck.playintegrity)
     implementation(libs.firebase.appcheck.debug)
+    implementation(libs.firebase.crashlytics)
     implementation(libs.firebase.perf)
 
     // Credential Manager
