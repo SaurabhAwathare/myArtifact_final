@@ -20,3 +20,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "My Artifact"
 include(":app")
+include(":baselineprofile")

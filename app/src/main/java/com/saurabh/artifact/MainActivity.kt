@@ -43,19 +43,20 @@ import com.saurabh.artifact.util.OnboardingManager
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import dagger.Lazy
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     private val mainViewModel: MainViewModel by viewModels()
 
     @Inject
-    lateinit var recordingSessionManager: RecordingSessionManager
+    lateinit var recordingSessionManager: Lazy<RecordingSessionManager>
 
     @Inject
-    lateinit var onboardingManager: OnboardingManager
+    lateinit var onboardingManager: Lazy<OnboardingManager>
 
     @Inject
-    lateinit var publishStateManager: PublishStateManager
+    lateinit var publishStateManager: Lazy<PublishStateManager>
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
@@ -90,9 +91,9 @@ class MainActivity : ComponentActivity() {
             ArtifactTheme {
                 AppRoot(
                     mainViewModel = mainViewModel, 
-                    recordingSessionManager = recordingSessionManager,
-                    onboardingManager = onboardingManager,
-                    publishStateManager = publishStateManager,
+                    recordingSessionManager = recordingSessionManager.get(),
+                    onboardingManager = onboardingManager.get(),
+                    publishStateManager = publishStateManager.get(),
                 )
             }
         }

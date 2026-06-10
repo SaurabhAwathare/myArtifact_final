@@ -14,7 +14,7 @@ sealed class SyncStatus {
     object WaitingForNetwork : SyncStatus()
     
     @Serializable
-    data class Uploading(val progress: Float) : SyncStatus()
+    object Uploading : SyncStatus()
     
     @Serializable
     object Synced : SyncStatus()

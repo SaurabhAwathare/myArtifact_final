@@ -135,6 +135,9 @@ interface DraftDao {
     @Query("DELETE FROM artifact_drafts WHERE id = :id")
     suspend fun deleteById(id: String)
 
+    @Query("DELETE FROM artifact_drafts WHERE lifecycle = 'PUBLISHED' AND updatedAt < :timestamp")
+    suspend fun deleteOldPublishedDrafts(timestamp: Long)
+
     @Query("DELETE FROM artifact_drafts")
     suspend fun deleteAll()
 }

@@ -1,24 +1,36 @@
 package com.saurabh.artifact
 
-import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.ext.junit.runners.AndroidJUnit4
-
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import dagger.hilt.android.testing.HiltAndroidRule
+import dagger.hilt.android.testing.HiltAndroidTest
+import org.junit.Rule
 import org.junit.Test
-import org.junit.runner.RunWith
-
-import org.junit.Assert.*
 
 /**
- * Instrumented test, which will execute on an Android device.
- *
- * See [testing documentation](http://d.android.com/tools/testing).
+ * Instrumented integration test that verifies the app's startup flow and core branding.
+ * This test replaces the default template and uses Hilt for dependency injection.
  */
-@RunWith(AndroidJUnit4::class)
+@HiltAndroidTest
 class ExampleInstrumentedTest {
+
+    @get:Rule(order = 0)
+    val hiltRule = HiltAndroidRule(this)
+
+    @get:Rule(order = 1)
+    val composeTestRule = createAndroidComposeRule<MainActivity>()
+
     @Test
-    fun useAppContext() {
-        // Context of the app under test.
-        val appContext = InstrumentationRegistry.getInstrumentation().targetContext
-        assertEquals("com.saurabh.artifact", appContext.packageName)
+    fun app_launches_and_shows_branding() {
+        // Hilt will inject dependencies before the test starts
+        
+        // Wait for the app to pass the splash screen and settle on the initial destination.
+        // We look for the "myArtifact" brand title which is present on both Feed and Login screens.
+        composeTestRule.waitUntil(timeoutMillis = 5000) {
+            composeTestRule.onAllNodes(hasText("myArtifact", substring = true)).fetchSemanticsNodes().isNotEmpty()
+        }
+
+        // Assert that the branding is visible
+        composeTestRule.onNode(hasText("myArtifact", substring = true)).assertExists()
     }
 }

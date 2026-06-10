@@ -24,6 +24,7 @@ import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.model.ProcessingStage
 import com.saurabh.artifact.model.ProcessingStatus
 import com.saurabh.artifact.model.SyncStatus
+import com.saurabh.artifact.model.progress
 import com.saurabh.artifact.repository.DraftWithUpload
 import java.text.SimpleDateFormat
 import java.util.*
@@ -152,11 +153,7 @@ fun PublishingItem(
     
     val syncStatus = task?.status ?: draft.status.publication
     val progress = when (syncStatus) {
-        is SyncStatus.Uploading -> {
-            if (task != null && task.totalBytes > 0) {
-                task.uploadedBytes.toFloat() / task.totalBytes
-            } else syncStatus.progress
-        }
+        is SyncStatus.Uploading -> (task ?: draft).progress
         else -> 0f
     }
     val isFailed = syncStatus is SyncStatus.Failed

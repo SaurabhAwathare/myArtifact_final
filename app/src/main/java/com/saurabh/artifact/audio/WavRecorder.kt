@@ -41,9 +41,10 @@ class WavRecorder(
     private var writerJob: Job? = null
 
     // Dedicated high-priority thread for audio capture
-    private val captureDispatcher = Executors.newSingleThreadExecutor { runnable ->
+    private val executor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "AudioCaptureThread")
-    }.asCoroutineDispatcher()
+    }
+    private val captureDispatcher = executor.asCoroutineDispatcher()
 
     private var bufferPool: BufferPool? = null
 
@@ -290,6 +291,17 @@ class WavRecorder(
             release()
         }
         audioRecord = null
+    }
+
+    /**
+     * Fully releases all resources, including threads and scopes.
+     * Should be called when the recorder is no longer needed.
+     */
+    fun release() {
+        stop()
+        scope.cancel()
+        executor.shutdown()
+        audioChannel.close()
     }
 
 }

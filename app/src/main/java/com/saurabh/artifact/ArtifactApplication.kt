@@ -9,7 +9,6 @@ import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import coil.request.CachePolicy
-import com.google.firebase.FirebaseApp
 import com.saurabh.artifact.startup.StartupCoordinator
 import com.saurabh.artifact.util.MemoryManager
 import com.saurabh.artifact.util.StartupTracer
@@ -45,34 +44,14 @@ class ArtifactApplication : Application(), ImageLoaderFactory, Configuration.Pro
     private var _imageLoader: ImageLoader? = null
 
     override fun onCreate() {
-        StartupTracer.mark("App onCreate Started")
         super.onCreate()
         
         // Use a dedicated scope for non-UI initialization to avoid blocking Main
         val initScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
         
-        initScope.launch {
-            // Load native library in background to avoid blocking main thread
-            try {
-                // noinspection SpellCheckingInspection
-                System.loadLibrary("sqlcipher")
-                StartupTracer.mark("SQLCipher Loaded (Background)")
-            } catch (e: Exception) {
-                Log.e("ArtifactApp", "Failed to load sqlcipher", e)
-            }
-
-            // Check if Firebase is already initialized (e.g., by FirebaseInitProvider)
-            if (FirebaseApp.getApps(this@ArtifactApplication).isEmpty()) {
-                FirebaseApp.initializeApp(this@ArtifactApplication)
-                StartupTracer.mark("Firebase Initialized (Background Explicit)")
-            } else {
-                StartupTracer.mark("Firebase Already Initialized")
-            }
-        }
-
         // Defer coordinator slightly to allow App onCreate to complete and UI to bind
         initScope.launch(Dispatchers.Main) {
-            delay(100.milliseconds) 
+            delay(50.milliseconds) // Reduced delay
             startupCoordinator.get().start()
             StartupTracer.mark("StartupCoordinator Launched (Deferred)")
         }

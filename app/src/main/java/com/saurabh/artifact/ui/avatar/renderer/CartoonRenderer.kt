@@ -2,6 +2,7 @@ package com.saurabh.artifact.ui.avatar.renderer
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
@@ -22,24 +23,27 @@ class CartoonRenderer : AvatarRenderer {
         animationState: AvatarAnimationState,
         modifier: Modifier
     ) {
+        // Cache parsed colors to avoid per-frame parsing
+        val skinColor = remember(config.skinColor) { Color(config.skinColor.toColorInt()) }
+        val hairColor = remember(config.hairColor) { Color(config.hairColor.toColorInt()) }
+        
         Canvas(
             modifier = modifier.drawWithCache {
+                val scale = size.minDimension / 100f // Normalize to 100x100 space
+                
+                // Pre-calculate common geometry if needed, or just draw
                 onDrawBehind {
-                    val scale = size.minDimension / 100f // Normalize to 100x100 space
-                    
-                    drawFace(config, scale)
+                    drawFace(config, skinColor, scale)
                     drawEyes(config, scale)
                     drawMouth(config, scale)
-                    drawHair(config, scale)
+                    drawHair(config, hairColor, scale)
                     drawAccessories(config, scale)
                 }
             }
         ) {}
     }
 
-    private fun DrawScope.drawFace(config: AvatarConfig, scale: Float) {
-        val color = Color(config.skinColor.toColorInt())
-        
+    private fun DrawScope.drawFace(config: AvatarConfig, color: Color, scale: Float) {
         when (config.faceShape) {
             FaceShape.ROUND -> {
                 drawCircle(color = color, center = center, radius = 40f * scale)
@@ -173,10 +177,8 @@ class CartoonRenderer : AvatarRenderer {
         }
     }
 
-    private fun DrawScope.drawHair(config: AvatarConfig, scale: Float) {
+    private fun DrawScope.drawHair(config: AvatarConfig, hairColor: Color, scale: Float) {
         if (config.hairType == HairType.NONE) return
-        
-        val hairColor = Color(config.hairColor.toColorInt())
         
         when (config.hairType) {
             HairType.SHORT -> {

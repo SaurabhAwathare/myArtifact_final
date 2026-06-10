@@ -149,7 +149,10 @@ class DraftRepository @Inject constructor(
 
     suspend fun updateUploadProgress(draftId: String, uploaded: Long, total: Long, sessionUri: String?): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            uploadTaskDao.updateProgress(draftId, uploaded, total, sessionUri)
+            draftsDatabase.withTransaction {
+                uploadTaskDao.updateProgress(draftId, uploaded, total, sessionUri)
+                draftDao.updateSyncProgress(draftId, uploaded, total, sessionUri)
+            }
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(AppError.from(e))

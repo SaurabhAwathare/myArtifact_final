@@ -7,6 +7,8 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 
     alias(libs.plugins.google.services)
+    alias(libs.plugins.firebase.perf)
+    alias(libs.plugins.androidx.baselineprofile)
 }
 
 configure<com.android.build.api.dsl.ApplicationExtension> {
@@ -20,7 +22,7 @@ configure<com.android.build.api.dsl.ApplicationExtension> {
         versionCode = 1
         versionName = "1.0"
 
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunner = "com.saurabh.artifact.HiltTestRunner"
     }
 
     buildTypes {
@@ -53,6 +55,12 @@ configure<com.android.build.api.dsl.ApplicationExtension> {
         checkReleaseBuilds = true
         disable += "NewerVersionAvailable"
         disable += "GradleDependency"
+    }
+
+    baselineProfile {
+        filter {
+            include("com.saurabh.artifact.**")
+        }
     }
 }
 
@@ -120,6 +128,7 @@ dependencies {
     implementation(libs.firebase.analytics)
     implementation(libs.firebase.appcheck.playintegrity)
     implementation(libs.firebase.appcheck.debug)
+    implementation(libs.firebase.perf)
 
     // Credential Manager
     implementation(libs.androidx.credentials)
@@ -169,6 +178,7 @@ dependencies {
     implementation(libs.sqlcipher)
 
     // Testing
+    implementation(libs.androidx.profileinstaller)
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.mockk)
@@ -178,6 +188,8 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+    androidTestImplementation(libs.hilt.android.testing)
+    kspAndroidTest(libs.hilt.compiler)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)

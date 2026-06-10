@@ -19,4 +19,7 @@ interface EngagementDao {
     
     @Query("UPDATE artifact_engagement SET lastPositionMs = :positionMs, lastUpdated = :timestamp WHERE artifactId = :artifactId")
     suspend fun updateLastPosition(artifactId: String, positionMs: Long, timestamp: Long = System.currentTimeMillis())
+
+    @Query("DELETE FROM artifact_engagement WHERE lastUpdated < :timestamp")
+    suspend fun deleteOldEngagements(timestamp: Long)
 }

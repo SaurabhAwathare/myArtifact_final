@@ -5,6 +5,7 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.saurabh.artifact.model.SyncStatus
+import com.saurabh.artifact.model.UploadProgress
 
 @Entity(
     tableName = "upload_tasks",
@@ -23,9 +24,9 @@ data class UploadTaskEntity(
     val draftId: String,
     val workerId: String?, // ID of the WorkManager worker currently handling this
     val status: SyncStatus = SyncStatus.Queued,
-    val uploadedBytes: Long = 0,
-    val totalBytes: Long = 0,
+    override val uploadedBytes: Long = 0,
+    override val totalBytes: Long = 0,
     val sessionUri: String? = null,
     val audioUrl: String? = null,
     val lastUpdated: Long = System.currentTimeMillis()
-)
+) : UploadProgress

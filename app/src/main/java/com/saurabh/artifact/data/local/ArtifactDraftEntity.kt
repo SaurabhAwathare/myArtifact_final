@@ -30,8 +30,8 @@ data class ArtifactDraftEntity(
     val lifecycle: ArtifactLifecycle = ArtifactLifecycle.RECORDING,
     
     // Upload Progress
-    val uploadedBytes: Long = 0,
-    val totalBytes: Long = 0,
+    override val uploadedBytes: Long = 0,
+    override val totalBytes: Long = 0,
     val uploadSessionUri: String? = null,
     val uploadAttemptCount: Int = 0,
     
@@ -80,4 +80,4 @@ data class ArtifactDraftEntity(
     // Final Ritual Data
     val transcriptSegmentsJson: SecureString? = null,
     val sensitiveEntitiesJson: SecureString? = null,
-)
+) : UploadProgress

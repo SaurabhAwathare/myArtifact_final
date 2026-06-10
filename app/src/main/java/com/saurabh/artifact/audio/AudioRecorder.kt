@@ -139,6 +139,9 @@ class AudioRecorder(private val context: Context) {
                 }
                 RecordingMode.WAV_LOSSLESS -> {
                     wavRecorder?.stop()
+                    // We don't null out wavRecorder here if we want to reuse it, 
+                    // but since startWAV creates a new one, we should release it.
+                    wavRecorder?.release()
                     wavRecorder = null
                 }
             }
@@ -147,6 +150,15 @@ class AudioRecorder(private val context: Context) {
         } finally {
             isRecording = false
         }
+    }
+
+    /**
+     * Releases all underlying resources.
+     */
+    fun release() {
+        stop()
+        onError = null
+        onInfo = null
     }
 
     val maxAmplitude: Int

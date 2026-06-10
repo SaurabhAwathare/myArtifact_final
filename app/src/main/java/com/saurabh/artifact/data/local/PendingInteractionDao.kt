@@ -22,4 +22,7 @@ interface PendingInteractionDao {
 
     @Query("SELECT COUNT(*) FROM pending_interactions")
     fun getCount(): Flow<Int>
+
+    @Query("DELETE FROM pending_interactions WHERE createdAt < :timestamp")
+    suspend fun deleteOldInteractions(timestamp: Long)
 }

@@ -3,6 +3,7 @@ package com.saurabh.artifact.audio
 import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.repository.DraftRepository
 import com.saurabh.artifact.model.*
+import com.saurabh.artifact.model.progress
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -61,10 +62,7 @@ class PublishStateManager @Inject constructor(
                     val id = draft.id
                     
                     val syncStatus = task?.status ?: draft.status.publication
-                    val uploaded = task?.uploadedBytes ?: draft.uploadedBytes
-                    val total = task?.totalBytes ?: draft.totalBytes
-
-                    val progress = if (total > 0) uploaded.toFloat() / total.toFloat() else 0f
+                    val progress = (task ?: draft).progress
 
                     val newState = when {
                         draft.status.lifecycle == ArtifactLifecycle.PUBLISHED -> 

@@ -25,4 +25,19 @@ object RetentionPolicy {
      * Standard time unit for retention scheduling.
      */
     val RETENTION_TIME_UNIT = TimeUnit.DAYS
+
+    /**
+     * Duration to keep engagement data (playback progress, coverage) in the local DB.
+     */
+    const val ENGAGEMENT_RETENTION_DAYS = 60L
+
+    /**
+     * Duration to keep pending interaction logs (offline reactions/saves).
+     */
+    const val INTERACTION_RETENTION_DAYS = 30L
+
+    /**
+     * Duration to keep local draft metadata for published artifacts.
+     */
+    const val DRAFT_RETENTION_DAYS = 30L
 }

@@ -86,7 +86,7 @@ class PublishingWorker @AssistedInject constructor(
         
         try {
             // 4. Update state to UPLOADING
-            draftRepository.updateUploadStatus(draftId, SyncStatus.Uploading(0f))
+            draftRepository.updateUploadStatus(draftId, SyncStatus.Uploading)
 
             // 4.2 Upload Transcript (New)
             val transcriptUrl = if (draft.frozenTranscriptJson != null) {

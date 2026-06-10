@@ -15,4 +15,7 @@ interface QueuedUploadDao {
 
     @Delete
     suspend fun delete(upload: QueuedUpload)
+
+    @Query("DELETE FROM queued_uploads WHERE createdAt < :timestamp")
+    suspend fun deleteOldQueuedUploads(timestamp: Long)
 }

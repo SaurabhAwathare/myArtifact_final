@@ -383,6 +383,7 @@ class RecordingService : Service() {
         val focusLossState = wasPausedByFocusLoss
         
         audioRecorder?.pause()
+        timerJob?.cancel()
         _recordingState.value = _recordingState.value.copy(status = RecordingStatus.PAUSED)
         
         wasPausedByFocusLoss = focusLossState
@@ -407,6 +408,7 @@ class RecordingService : Service() {
         
         wasPausedByFocusLoss = false
         audioRecorder?.resume()
+        startTimer()
         _recordingState.value = _recordingState.value.copy(status = RecordingStatus.RECORDING)
         
         _recordingState.value.draftId.let { id ->
@@ -439,7 +441,7 @@ class RecordingService : Service() {
 
                 try {
                     Log.d("RecordingService", "Finalizing session. State set to FINALIZING.")
-                    _recordingState.value = _recordingState.value.copy(status = RecordingStatus.PREPARING) // Use PREPARING as a proxy for FINALIZING if not available in enum, or add it
+                    _recordingState.value = _recordingState.value.copy(status = RecordingStatus.PREPARING) 
 
                     pacingJob?.cancel()
                     Log.d("RecordingService", "Stopping recording hardware...")
@@ -448,13 +450,12 @@ class RecordingService : Service() {
                     abandonAudioFocus()
                     restoreRingerMode()
                     
-                    // CRITICAL: Allow file buffers to flush and OS to sync file descriptors.
-                    // Increased delay to ensure durability.
-                    delay(500.milliseconds)
-                    
                     if (wakeLock?.isHeld == true) {
                         wakeLock?.release()
                     }
+                    
+                    // CRITICAL: Allow file buffers to flush and OS to sync file descriptors.
+                    delay(500.milliseconds)
                     
                     val finalFile = _recordingState.value.outputFile
                     val draftId = _recordingState.value.draftId
@@ -522,35 +523,18 @@ class RecordingService : Service() {
     }
 
     fun cancelRecording() {
-        try {
-            wasPausedByFocusLoss = false
-            pacingJob?.cancel()
-            audioRecorder?.stop()
-            timerJob?.cancel()
-            abandonAudioFocus()
-            restoreRingerMode()
-            
-            if (wakeLock?.isHeld == true) {
-                wakeLock?.release()
-            }
-            
-            val file = _recordingState.value.outputFile
-            val draftId = _recordingState.value.draftId
+        cleanup()
+        
+        val file = _recordingState.value.outputFile
+        val draftId = _recordingState.value.draftId
 
-            if (file?.exists() == true) {
-                file.delete()
-            }
+        if (file?.exists() == true) {
+            file.delete()
+        }
 
-            serviceScope.launch {
-                draftDao.getDraftById(draftId)?.let { draftDao.delete(it) }
-                userSessionManager.setActiveDraftId(null)
-            }
-        } catch (e: Exception) {
-            Log.e("RecordingService", "Error canceling recording", e)
-        } finally {
-            _recordingState.value = RecordingState(status = RecordingStatus.IDLE)
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
+        serviceScope.launch {
+            draftDao.getDraftById(draftId)?.let { draftDao.delete(it) }
+            userSessionManager.setActiveDraftId(null)
         }
     }
 
@@ -688,17 +672,32 @@ class RecordingService : Service() {
     }
 
     override fun onDestroy() {
-        super.onDestroy()
-        serviceScope.cancel()
         Log.d("RecordingService", "Service onDestroy() invoked.")
         
-        // Only stop if the service is being killed while still active
-        if ((_recordingState.value.status == RecordingStatus.RECORDING) || 
-            (_recordingState.value.status == RecordingStatus.PAUSED)) {
-            Log.w("RecordingService", "Clean up: Stopping active recording on destroy.")
-            stopRecording()
-        }
+        // 1. Stop hardware and release resources synchronously first
+        cleanup()
         
+        // 2. Cancel the service scope
+        serviceScope.cancel()
+        
+        super.onDestroy()
+    }
+
+    private fun cleanup() {
+        wasPausedByFocusLoss = false
+        pacingJob?.cancel()
+        timerJob?.cancel()
+        
+        // Stop and release audio hardware
+        audioRecorder?.release()
+        
+        abandonAudioFocus()
+        restoreRingerMode()
+        
+        if (wakeLock?.isHeld == true) {
+            wakeLock?.release()
+        }
+
         // Reset global state on destruction to signal completion or idle
         _recordingState.value = RecordingState(status = RecordingStatus.IDLE)
         _amplitude.value = 0

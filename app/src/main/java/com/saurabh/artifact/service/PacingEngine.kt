@@ -10,6 +10,7 @@ class PacingEngine @Inject constructor() {
     /**
      * Re-orders the feed to ensure emotional variety and prevent overstimulation.
      * Heuristic: Avoid more than 2 "High Intensity" artifacts in a row.
+     * Complexity: O(N) time, O(N) space.
      */
     fun paceFeed(items: List<FeedArtifact>): List<FeedArtifact> {
         if (items.size < 3) return items

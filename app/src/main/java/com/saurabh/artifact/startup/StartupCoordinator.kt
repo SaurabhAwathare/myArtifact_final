@@ -88,7 +88,7 @@ class StartupCoordinator @Inject constructor(
             emitReadiness(StartupComponent.CORE)
             
             // STAGGER 1: Move to Presence after initial frame
-            delay(500.milliseconds)
+            delay(200.milliseconds) // Reduced from 500ms
             _stage.value = StartupStage.PRESENCE
             StartupTracer.mark("Transition: PRESENCE")
             
@@ -96,7 +96,7 @@ class StartupCoordinator @Inject constructor(
             launch(Dispatchers.Default) {
                 // SECURITY: Wait for core and then install
                 awaitReadiness(StartupComponent.CORE)
-                delay(400.milliseconds) 
+                delay(200.milliseconds) // Reduced from 400ms
                 initializeSecurityProvider()
                 
                 // BACKGROUND: Schedule tasks away from Main
@@ -110,7 +110,7 @@ class StartupCoordinator @Inject constructor(
             awaitReadiness(StartupComponent.AUTH)
 
             // STAGGER 2: Discovery (Partial Feed)
-            delay(500.milliseconds) // Reduced delay since we already waited for Auth
+            delay(200.milliseconds) // Reduced from 500ms
             _stage.value = StartupStage.DISCOVERY
             StartupTracer.mark("Transition: DISCOVERY")
 
@@ -118,17 +118,17 @@ class StartupCoordinator @Inject constructor(
             awaitReadiness(StartupComponent.DATABASE)
 
             // STAGGER 3: Immersion (Social/Reactions)
-            delay(500.milliseconds)
+            delay(300.milliseconds) // Reduced from 500ms
             _stage.value = StartupStage.IMMERSION
             StartupTracer.mark("Transition: IMMERSION")
 
             // STAGGER 4: Ritual (Media/Player)
-            delay(1000.milliseconds)
+            delay(500.milliseconds) // Reduced from 1000ms
             _stage.value = StartupStage.RITUAL
             StartupTracer.mark("Transition: RITUAL")
 
             // STAGGER 5: Stable (Full Fidelity)
-            delay(1.seconds)
+            delay(500.milliseconds) // Reduced from 1s
             _stage.value = StartupStage.STABLE
             StartupTracer.mark("Transition: STABLE")
 
