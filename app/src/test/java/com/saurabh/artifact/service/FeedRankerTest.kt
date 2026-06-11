@@ -1,6 +1,8 @@
 package com.saurabh.artifact.service
 
 import com.saurabh.artifact.model.Artifact
+import com.saurabh.artifact.model.UserSettings
+import com.saurabh.artifact.repository.SettingsRepository
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,12 +16,15 @@ class FeedRankerTest {
 
     private lateinit var feedRanker: FeedRanker
     private val personalizationEngine = mockk<PersonalizationEngine>()
+    private val settingsRepository = mockk<SettingsRepository>()
+    private val userSettingsFlow = MutableStateFlow(UserSettings())
 
     @Before
     fun setup() {
+        every { settingsRepository.userSettings } returns userSettingsFlow
         every { personalizationEngine.userProfile } returns MutableStateFlow(UserPreferenceProfile())
         every { personalizationEngine.scoreContent(any(), any()) } returns 0.5
-        feedRanker = FeedRanker(personalizationEngine)
+        feedRanker = FeedRanker(personalizationEngine, settingsRepository)
     }
 
     @Test

@@ -7,6 +7,7 @@ import androidx.annotation.RequiresApi
 import androidx.appsearch.app.*
 import androidx.appsearch.platformstorage.PlatformStorage
 import com.saurabh.artifact.model.UserPreferenceDocument
+import com.saurabh.artifact.repository.SettingsRepository
 import com.saurabh.artifact.util.OnboardingManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -32,15 +33,33 @@ data class UserPreferenceProfile(
 @Singleton
 class PersonalizationEngine @Inject constructor(
     @param:ApplicationContext private val context: Context,
-    private val onboardingManager: OnboardingManager
+    private val onboardingManager: OnboardingManager,
+    private val settingsRepository: SettingsRepository
 ) {
-    private val engineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val engineScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val searchSession = MutableStateFlow<AppSearchSession?>(null)
 
     private val _userProfile = MutableStateFlow(UserPreferenceProfile())
     val userProfile: StateFlow<UserPreferenceProfile> = _userProfile.asStateFlow()
 
+    private val dataCollectionConsent = settingsRepository.userSettings
+        .map { it.dataCollectionConsent }
+        .distinctUntilChanged()
+        .stateIn(engineScope, SharingStarted.Eagerly, false)
+
     private var isInitializing = false
+
+    init {
+        // Monitor consent changes to trigger cleanup
+        // Note: collectLatest is used to ensure we only process the most recent state
+        engineScope.launch {
+            dataCollectionConsent.collectLatest { consent ->
+                if (!consent) {
+                    clearLocalData()
+                }
+            }
+        }
+    }
 
     /**
      * Safety check for initialization. Can be called by clients to ensure
@@ -99,6 +118,10 @@ class PersonalizationEngine @Inject constructor(
 
     @RequiresApi(Build.VERSION_CODES.S)
     private suspend fun loadProfileFromDisk(session: AppSearchSession) {
+        if (!dataCollectionConsent.value) {
+            Log.d(TAG, "Skipping profile load: Data collection consent not granted.")
+            return
+        }
         try {
             val result = session.getByDocumentIdAsync(
                 GetByDocumentIdRequest.Builder(NAMESPACE)
@@ -131,43 +154,42 @@ class PersonalizationEngine @Inject constructor(
      * @param weight Positive for positive resonance, negative for "Not for me" signals.
      */
     fun recordInteraction(emotion: String, weight: Float = 1.0f) {
-        // Immediate in-memory update on Dispatchers.Default for responsiveness
-        engineScope.launch(Dispatchers.Default) {
-            try {
-                val currentProfile = _userProfile.value
-
-                // Update goals based on weight
-                val updatedEmotions = if (weight > 0) {
-                    val count = if (weight > 1.0f) 2 else 1
-                    val next = currentProfile.goals.toMutableList()
-                    repeat(count) { next.add(emotion) }
-                    if (next.size > 200) next.takeLast(200) else next
-                } else {
-                    val list = currentProfile.goals.toMutableList()
-                    list.remove(emotion)
-                    list
-                }
-                
-                val counts = updatedEmotions.groupingBy { it }.eachCount()
-                val newDominantEmotion = counts.maxByOrNull { it.value }?.key
-                val total = updatedEmotions.size.toDouble()
-                val newAffinities = counts.mapValues { it.value / total }
-
-                val newProfile = currentProfile.copy(
-                    goals = updatedEmotions.toSet(),
-                    dominantEmotion = newDominantEmotion,
-                    affinityScores = newAffinities
-                )
-                
-                // Update memory immediately
-                _userProfile.value = newProfile
-
-                // Persist to disk asynchronously on IO
-                persistProfileToDisk(newProfile)
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to update interaction in memory", e)
-            }
+        val hasConsent = dataCollectionConsent.value
+        Log.d(TAG, "recordInteraction: emotion=$emotion, weight=$weight, hasConsent=$hasConsent")
+        if (!hasConsent) {
+            return
         }
+        
+        val currentProfile = _userProfile.value
+
+        // Update goals based on weight
+        val updatedEmotions = if (weight > 0) {
+            val count = if (weight > 1.0f) 2 else 1
+            val next = currentProfile.goals.toMutableList()
+            repeat(count) { next.add(emotion) }
+            if (next.size > 200) next.takeLast(200) else next
+        } else {
+            val list = currentProfile.goals.toMutableList()
+            list.remove(emotion)
+            list
+        }
+        
+        val counts = updatedEmotions.groupingBy { it }.eachCount()
+        val newDominantEmotion = counts.maxByOrNull { it.value }?.key
+        val total = updatedEmotions.size.toDouble()
+        val newAffinities = counts.mapValues { it.value / total }
+
+        val newProfile = currentProfile.copy(
+            goals = updatedEmotions.toSet(),
+            dominantEmotion = newDominantEmotion,
+            affinityScores = newAffinities
+        )
+        
+        // Update memory immediately
+        _userProfile.value = newProfile
+
+        // Persist to disk asynchronously on IO
+        persistProfileToDisk(newProfile)
     }
 
     private fun persistProfileToDisk(profile: UserPreferenceProfile) {
@@ -216,11 +238,34 @@ class PersonalizationEngine @Inject constructor(
      * Scores content based on the current personalized profile.
      */
     fun scoreContent(artifactEmotion: String, profile: UserPreferenceProfile): Double {
+        if (!dataCollectionConsent.value) return 0.5
+
         val emotionMatch = if (artifactEmotion == profile.dominantEmotion) 1.0 else 0.0
         val affinity = profile.affinityScores[artifactEmotion] ?: 0.0
         
         // Weighed towards long-term affinity (0.6) and immediate dominant emotion (0.4)
         return (emotionMatch * 0.4) + (affinity * 0.6)
+    }
+
+    /**
+     * Clears all local personalization data from AppSearch and memory.
+     */
+    fun clearLocalData() {
+        _userProfile.value = UserPreferenceProfile()
+        
+        engineScope.launch(Dispatchers.IO) {
+            try {
+                val session = searchSession.value ?: return@launch
+                session.removeAsync(
+                    RemoveByDocumentIdRequest.Builder(NAMESPACE)
+                        .addIds(PROFILE_ID)
+                        .build()
+                ).await()
+                Log.d(TAG, "Local personalization data cleared.")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to clear personalization data from AppSearch", e)
+            }
+        }
     }
 
     companion object {

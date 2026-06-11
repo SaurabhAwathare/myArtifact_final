@@ -2,6 +2,7 @@ package com.saurabh.artifact.service
 
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.User
+import com.saurabh.artifact.repository.SettingsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
@@ -17,6 +18,7 @@ import kotlin.math.pow
 @Singleton
 class FeedRanker @Inject constructor(
     private val personalizationEngine: PersonalizationEngine,
+    private val settingsRepository: SettingsRepository
 ) {
 
     private val personalizationWeight = 0.30f
@@ -69,6 +71,10 @@ class FeedRanker @Inject constructor(
      * Higher score if the artifact's conversational style matches user affinity.
      */
     private fun calculateStyleMatch(artifact: Artifact, profile: UserPreferenceProfile): Double {
+        // If data collection is disabled, we don't have affinity scores, so return neutral
+        val hasConsent = personalizationEngine.userProfile.value.affinityScores.isNotEmpty()
+        if (!hasConsent) return 0.5
+
         val styleLabel = artifact.conversationMetadata.primaryStyle?.name ?: return 0.5
         return profile.affinityScores[styleLabel] ?: 0.5
     }

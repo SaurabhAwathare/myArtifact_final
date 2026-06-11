@@ -32,6 +32,7 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -61,6 +62,7 @@ class ArtifactRepository @Inject constructor(
     private val draftDao: DraftDao,
     private val aiService: dagger.Lazy<ReflectionAIService>,
     private val personalizationEngine: dagger.Lazy<PersonalizationEngine>,
+    private val settingsRepository: dagger.Lazy<SettingsRepository>,
     private val notificationRepository: NotificationRepository,
     private val artifactDao: ArtifactDao,
     private val database: AppDatabase,
@@ -326,10 +328,13 @@ class ArtifactRepository @Inject constructor(
 
             // Trigger local re-ranking if it's "Not for me"
             if (type == FeedbackType.NOT_FOR_ME) {
-                val artifact = firestore.collection("artifacts").document(artifactId).get().await()
-                val emotion = artifact.getString("emotion") ?: ""
-                if (emotion.isNotEmpty()) {
-                    personalizationEngine.get().recordInteraction(emotion, weight = -1.0f)
+                val hasConsent = settingsRepository.get().userSettings.first().dataCollectionConsent
+                if (hasConsent) {
+                    val artifact = firestore.collection("artifacts").document(artifactId).get().await()
+                    val emotion = artifact.getString("emotion") ?: ""
+                    if (emotion.isNotEmpty()) {
+                        personalizationEngine.get().recordInteraction(emotion, weight = -1.0f)
+                    }
                 }
             }
 
@@ -527,11 +532,15 @@ class ArtifactRepository @Inject constructor(
         if (emotion.isEmpty()) return@withContext Result.success(Unit)
         
         try {
-            // 1. Persist locally for immediate personalization (AppSearch)
-            personalizationEngine.get().recordInteraction(emotion)
+            val hasConsent = settingsRepository.get().userSettings.first().dataCollectionConsent
 
-            // 2. Persist to Firestore if authenticated
-            if (userId == null) return@withContext Result.success(Unit)
+            // 1. Persist locally for immediate personalization (AppSearch) if consent given
+            if (hasConsent) {
+                personalizationEngine.get().recordInteraction(emotion)
+            }
+
+            // 2. Persist to Firestore if authenticated AND consent given
+            if (userId == null || !hasConsent) return@withContext Result.success(Unit)
             
             val userRef = firestore.collection("users").document(userId)
             firestore.runTransaction { transaction ->
