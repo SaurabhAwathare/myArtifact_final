@@ -18,6 +18,7 @@ val EmotionList = listOf(
     Emotion.ANXIOUS,
     Emotion.ANGRY,
     Emotion.MOTIVATED,
+    Emotion.MIXED,
     Emotion.NEUTRAL
 )
 

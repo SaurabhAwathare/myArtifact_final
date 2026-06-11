@@ -13,6 +13,7 @@ import javax.inject.Named
 import javax.inject.Singleton
 
 private val Context.sessionDataStore: DataStore<Preferences> by preferencesDataStore(name = "user_session")
+private val Context.debugDataStore: DataStore<Preferences> by preferencesDataStore(name = "debug_settings")
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -23,5 +24,12 @@ object DataStoreModule {
     @Named("sessionDataStore")
     fun provideSessionDataStore(@ApplicationContext context: Context): DataStore<Preferences> {
         return context.sessionDataStore
+    }
+
+    @Provides
+    @Singleton
+    @Named("debugDataStore")
+    fun provideDebugDataStore(@ApplicationContext context: Context): DataStore<Preferences> {
+        return context.debugDataStore
     }
 }

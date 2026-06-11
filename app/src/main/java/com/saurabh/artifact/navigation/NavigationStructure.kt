@@ -54,6 +54,9 @@ data class ResonanceList(val userId: String, val type: String, val title: String
 object Settings : Route
 
 @Serializable
+object DebugMenu : Route
+
+@Serializable
 object Moderation : Route
 
 @Serializable

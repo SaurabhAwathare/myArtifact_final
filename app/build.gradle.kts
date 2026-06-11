@@ -131,6 +131,7 @@ dependencies {
     implementation(libs.firebase.appcheck.debug)
     implementation(libs.firebase.crashlytics)
     implementation(libs.firebase.perf)
+    implementation(libs.firebase.ai)
 
     // Credential Manager
     implementation(libs.androidx.credentials)
@@ -178,6 +179,8 @@ dependencies {
     implementation(libs.tink.android)
     implementation(libs.bip39)
     implementation(libs.sqlcipher)
+    implementation(libs.mlkit.entity.extraction)
+    implementation(libs.kotlinx.coroutines.play.services)
 
     // Testing
     implementation(libs.androidx.profileinstaller)

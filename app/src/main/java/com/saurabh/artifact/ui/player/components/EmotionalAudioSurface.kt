@@ -143,6 +143,8 @@ private fun getEmotionalTheme(emotion: String): PlayerEmotionalThemeColors {
         "calm" -> PlayerEmotionalThemeColors(TrustMoss, Obsidian900)
         "angry" -> PlayerEmotionalThemeColors(Color(0xFFE91E63), Color(0xFF310000))
         "lonely" -> PlayerEmotionalThemeColors(Color(0xFF90CAF9), Color(0xFF001021))
+        "mixed" -> PlayerEmotionalThemeColors(Color(0xFF9C27B0), Color(0xFFFF9800))
+        "unclear" -> PlayerEmotionalThemeColors(Color(0xFF9E9E9E), Color(0xFF607D8B))
         else -> PlayerEmotionalThemeColors(GoldAura400, Obsidian900)
     }
 }

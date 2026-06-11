@@ -55,18 +55,22 @@ import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.FeedArtifact
 import com.saurabh.artifact.model.ReflectionPrompt
 import com.saurabh.artifact.model.FeedbackType
+import com.saurabh.artifact.BuildConfig
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.paging.LoadState
 import kotlin.time.Duration.Companion.milliseconds
 
 
-@OptIn(ExperimentalMaterial3Api::class, kotlinx.coroutines.FlowPreview::class)
+@OptIn(ExperimentalMaterial3Api::class, kotlinx.coroutines.FlowPreview::class, ExperimentalFoundationApi::class)
 @Composable
 fun FeedScreen(
     onNavigateToRecord: (String?) -> Unit,
     onNavigateToProfile: () -> Unit,
     onNavigateToNotifications: () -> Unit,
     onNavigateToComments: (String, String) -> Unit,
+    onNavigateToDebugMenu: () -> Unit,
     onReportArtifact: (String) -> Unit,
     viewModel: FeedViewModel = hiltViewModel(),
 ) {
@@ -122,7 +126,8 @@ fun FeedScreen(
         topBar = {
             FeedTopBar(
                 onNavigateToNotifications = onNavigateToNotifications,
-                onNavigateToProfile = onNavigateToProfile
+                onNavigateToProfile = onNavigateToProfile,
+                onNavigateToDebugMenu = onNavigateToDebugMenu
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -191,11 +196,12 @@ fun FeedScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun FeedTopBar(
     onNavigateToNotifications: () -> Unit,
     onNavigateToProfile: () -> Unit,
+    onNavigateToDebugMenu: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val currentUser = ArtifactTheme.currentUser
@@ -204,7 +210,18 @@ private fun FeedTopBar(
         title = {
             BrandTitle(
                 style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.alpha(0.8f)
+                modifier = Modifier
+                    .alpha(0.8f)
+                    .then(
+                        if (BuildConfig.DEBUG) {
+                            Modifier.combinedClickable(
+                                onClick = {},
+                                onLongClick = onNavigateToDebugMenu
+                            )
+                        } else {
+                            Modifier
+                        }
+                    )
             )
         },
         actions = {

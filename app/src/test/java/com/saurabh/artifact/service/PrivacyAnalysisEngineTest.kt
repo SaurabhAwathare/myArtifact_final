@@ -12,7 +12,8 @@ class PrivacyAnalysisEngineTest {
 
     private val scout = IdentityScout()
     private val auth = mockk<com.google.firebase.auth.FirebaseAuth>(relaxed = true)
-    private val scanner = SensitiveInfoScanner(scout, auth)
+    private val extractor = mockk<EntityExtractorWrapper>(relaxed = true)
+    private val scanner = SensitiveInfoScanner(scout, auth, extractor)
     private val engine = PrivacyAnalysisEngine(scanner)
 
     @Test

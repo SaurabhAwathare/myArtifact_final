@@ -17,6 +17,10 @@ fun NavGraphBuilder.feedNavigation(
     onReportArtifact: (String) -> Unit,
     onPlayArtifactById: (String) -> Unit,
 ) {
+    val onNavigateToDebugMenu = {
+        navController.navigate(DebugMenu)
+    }
+
     composable<Home> {
         val onNavigateToProfile = remember(navController) {
             {
@@ -51,6 +55,7 @@ fun NavGraphBuilder.feedNavigation(
             onNavigateToProfile = onNavigateToProfile,
             onNavigateToNotifications = onNavigateToNotifications,
             onNavigateToComments = onNavigateToComments,
+            onNavigateToDebugMenu = onNavigateToDebugMenu,
             onReportArtifact = onReportArtifact
         )
     }
@@ -89,6 +94,7 @@ fun NavGraphBuilder.feedNavigation(
             onNavigateToProfile = onNavigateToProfile,
             onNavigateToNotifications = onNavigateToNotifications,
             onNavigateToComments = onNavigateToComments,
+            onNavigateToDebugMenu = onNavigateToDebugMenu,
             onReportArtifact = onReportArtifact
         )
     }

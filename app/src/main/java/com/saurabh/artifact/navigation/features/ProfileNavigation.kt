@@ -12,6 +12,7 @@ import com.saurabh.artifact.ui.moderation.ModerationScreen
 import com.saurabh.artifact.ui.profile.ProfileScreen
 import com.saurabh.artifact.ui.profile.ResonanceListScreen
 import com.saurabh.artifact.ui.settings.SettingsScreen
+import com.saurabh.artifact.ui.debug.DebugMenuScreen
 
 fun NavGraphBuilder.profileNavigation(
     navController: NavHostController,
@@ -27,6 +28,10 @@ fun NavGraphBuilder.profileNavigation(
 
     val onNavigateToSettings = {
         navController.navigate(Settings)
+    }
+
+    val onNavigateToDebugMenu = {
+        navController.navigate(DebugMenu)
     }
 
     val onNavigateToAvatarEditor = {
@@ -78,6 +83,13 @@ fun NavGraphBuilder.profileNavigation(
         SettingsScreen(
             onBackClick = onBack,
             onLogoutSuccess = onLogout
+        )
+    }
+
+    composable<DebugMenu> {
+        DebugMenuScreen(
+            onBackClick = onBack,
+            onNavigateToModeration = { navController.navigate(Moderation) }
         )
     }
 

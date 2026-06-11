@@ -24,9 +24,29 @@ class GetReflectionPromptUseCase @Inject constructor(
         emotion: String?,
         context: String?
     ): PromptResult = withContext(Dispatchers.Default) {
+        // 1. Evaluate Safety first (Single Source of Truth)
         val assessment = safetyEvaluator.evaluate(context)
         adManager.updateSafetyContext(assessment)
 
+        // 2. Short-circuit if high risk or crisis detected
+        if (assessment.level == SafetyLevel.HIGH || assessment.isCrisis) {
+            return@withContext PromptResult(
+                prompt = assessment.suggestedPrompt,
+                safetyLevel = assessment.level,
+                isCrisis = assessment.isCrisis
+            )
+        }
+
+        // 3. If medium risk with a suggestion, use that instead of generating
+        if (assessment.level == SafetyLevel.MEDIUM && assessment.suggestedPrompt != null) {
+            return@withContext PromptResult(
+                prompt = assessment.suggestedPrompt,
+                safetyLevel = assessment.level,
+                isCrisis = false
+            )
+        }
+
+        // 4. Otherwise, proceed with AI generation
         val prompt = artifactRepository.getSmartReflectionPrompt(
             emotion = emotion,
             context = context,

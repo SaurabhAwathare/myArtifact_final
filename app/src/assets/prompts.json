@@ -1,0 +1,227 @@
+[
+  {
+    "id": "sr_1",
+    "question": "What has been on your mind lately?",
+    "category": "SELF_REFLECTION",
+    "tone": "REFLECTIVE"
+  },
+  {
+    "id": "sr_2",
+    "question": "What emotion have you been carrying silently?",
+    "category": "SELF_REFLECTION",
+    "tone": "REFLECTIVE"
+  },
+  {
+    "id": "sr_3",
+    "question": "What's something you never said out loud?",
+    "category": "SELF_REFLECTION",
+    "tone": "REFLECTIVE"
+  },
+  {
+    "id": "sr_4",
+    "question": "What exhausted you recently?",
+    "category": "SELF_REFLECTION",
+    "tone": "REFLECTIVE"
+  },
+  {
+    "id": "sr_5",
+    "question": "What have you been avoiding emotionally?",
+    "category": "SELF_REFLECTION",
+    "tone": "REFLECTIVE"
+  },
+  {
+    "id": "sr_6",
+    "question": "What made today feel meaningful?",
+    "category": "SELF_REFLECTION",
+    "tone": "GENTLE"
+  },
+  {
+    "id": "sr_7",
+    "question": "If your current mood was a weather pattern, what would it be?",
+    "category": "SELF_REFLECTION",
+    "tone": "REFLECTIVE"
+  },
+  {
+    "id": "sr_8",
+    "question": "What is a part of yourself you've been neglecting?",
+    "category": "SELF_REFLECTION",
+    "tone": "REFLECTIVE"
+  },
+  {
+    "id": "rel_1",
+    "question": "Who do you wish understood you better?",
+    "category": "RELATIONSHIPS",
+    "tone": "REFLECTIVE"
+  },
+  {
+    "id": "rel_2",
+    "question": "When was the last time you truly felt understood?",
+    "category": "RELATIONSHIPS",
+    "tone": "GENTLE"
+  },
+  {
+    "id": "rel_3",
+    "question": "What boundary do you need to set to protect your peace?",
+    "category": "RELATIONSHIPS",
+    "tone": "REFLECTIVE"
+  },
+  {
+    "id": "anx_1",
+    "question": "What uncertainty has been weighing on you?",
+    "category": "ANXIETY",
+    "tone": "REFLECTIVE",
+    "mood": "Anxiety"
+  },
+  {
+    "id": "anx_2",
+    "question": "What is one thing you can touch, see, and hear right now to ground yourself?",
+    "category": "ANXIETY",
+    "tone": "GENTLE",
+    "mood": "Anxiety"
+  },
+  {
+    "id": "anx_3",
+    "question": "What would you tell a friend who was feeling exactly how you feel now?",
+    "category": "ANXIETY",
+    "tone": "GENTLE",
+    "mood": "Anxiety"
+  },
+  {
+    "id": "lon_1",
+    "question": "What does loneliness feel like in your body right now?",
+    "category": "LONELINESS",
+    "tone": "REFLECTIVE",
+    "mood": "Loneliness"
+  },
+  {
+    "id": "lon_2",
+    "question": "What is a small way you can be a good companion to yourself this evening?",
+    "category": "LONELINESS",
+    "tone": "GENTLE",
+    "mood": "Loneliness"
+  },
+  {
+    "id": "gro_1",
+    "question": "What changed you recently?",
+    "category": "GROWTH",
+    "tone": "REFLECTIVE"
+  },
+  {
+    "id": "gro_2",
+    "question": "What is a lesson you keep learning over and over?",
+    "category": "GROWTH",
+    "tone": "REFLECTIVE"
+  },
+  {
+    "id": "gra_1",
+    "question": "What small thing brought you a moment of peace today?",
+    "category": "GRATITUDE",
+    "tone": "GENTLE"
+  },
+  {
+    "id": "gra_2",
+    "question": "What's one thing you're grateful for today?",
+    "category": "GRATITUDE",
+    "tone": "REFLECTIVE"
+  },
+  {
+    "id": "gra_3",
+    "question": "What is one small win you had today?",
+    "category": "GRATITUDE",
+    "tone": "GENTLE"
+  },
+  {
+    "id": "pur_1",
+    "question": "What makes you feel most like yourself?",
+    "category": "PURPOSE",
+    "tone": "REFLECTIVE"
+  },
+  {
+    "id": "pur_2",
+    "question": "If you had no obligations tomorrow, how would you spend your time?",
+    "category": "PURPOSE",
+    "tone": "REFLECTIVE"
+  },
+  {
+    "id": "cre_1",
+    "question": "If you could create anything without fear of judgment, what would it be?",
+    "category": "CREATIVITY",
+    "tone": "HOPEFUL"
+  },
+  {
+    "id": "com_1",
+    "question": "What’s something you wish people understood about you?",
+    "category": "COMFORT",
+    "tone": "GENTLE"
+  },
+  {
+    "id": "com_2",
+    "question": "What does 'home' feel like to you right now?",
+    "category": "COMFORT",
+    "tone": "GENTLE"
+  },
+  {
+    "id": "ima_1",
+    "question": "If your younger self met you today, what would they notice?",
+    "category": "IMAGINATION",
+    "tone": "REFLECTIVE"
+  },
+  {
+    "id": "fun_1",
+    "question": "What’s a weird thought you had recently?",
+    "category": "FUN",
+    "tone": "GENTLE"
+  },
+  {
+    "id": "gri_1",
+    "question": "If you could send a gentle message to your past self today, what would it say?",
+    "category": "AI_GUIDED",
+    "tone": "REFLECTIVE",
+    "mood": "Grief"
+  },
+  {
+    "id": "joy_1",
+    "question": "How can you ripple this feeling of joy out to someone else today?",
+    "category": "AI_GUIDED",
+    "tone": "HOPEFUL",
+    "mood": "Joy"
+  },
+  {
+    "id": "pea_1",
+    "question": "What part of your environment is reflecting this peace back to you?",
+    "category": "AI_GUIDED",
+    "tone": "GENTLE",
+    "mood": "Peace"
+  },
+  {
+    "id": "morning_1",
+    "question": "What is your primary intention for how you want to show up today?",
+    "category": "CHECK_IN",
+    "tone": "HOPEFUL",
+    "mood": "Morning"
+  },
+  {
+    "id": "sha_1",
+    "question": "What is a trait in others that triggers you, and where might it live in you?",
+    "category": "SELF_REFLECTION",
+    "tone": "REFLECTIVE"
+  },
+  {
+    "id": "phy_1",
+    "question": "What is your body trying to tell you that you've been ignoring?",
+    "category": "COMFORT",
+    "tone": "REFLECTIVE"
+  },
+  {
+    "id": "fut_1",
+    "question": "In one year, what will you be glad you started today?",
+    "category": "GROWTH",
+    "tone": "HOPEFUL"
+  },
+  {
+    "id": "soc_1",
+    "question": "When do you feel most 'on stage' in your social life?",
+    "category": "RELATIONSHIPS",
+    "tone": "REFLECTIVE"
+  }
+]

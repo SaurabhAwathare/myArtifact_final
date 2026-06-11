@@ -115,7 +115,8 @@ class MainViewModel @Inject constructor(
             "com.saurabh.artifact.navigation.PublishPreparation",
             "com.saurabh.artifact.navigation.InstantRecord",
             "com.saurabh.artifact.navigation.IdentitySelection",
-            "com.saurabh.artifact.navigation.Moderation"
+            "com.saurabh.artifact.navigation.Moderation",
+            "com.saurabh.artifact.navigation.DebugMenu"
         )
         // Check if current route matches any sensitive route identifiers
         _isCurrentScreenSensitive.value = route != null && sensitiveRoutes.any { route.contains(it) }

@@ -18,6 +18,8 @@ enum class Emotion(val label: String, val emoji: String) {
     GRATEFUL("Grateful", "🙏"),
     OVERWHELMED("Overwhelmed", "🌊"),
     MOTIVATED("Motivated", "🔥"),
+    MIXED("Mixed", "🎭"),
+    UNCLEAR("Unclear", "🌫️"),
     NEUTRAL("Neutral", "😐")
 }
 
