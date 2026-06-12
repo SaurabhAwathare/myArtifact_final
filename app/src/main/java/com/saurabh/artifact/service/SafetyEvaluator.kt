@@ -61,7 +61,7 @@ class SafetyEvaluator @Inject constructor() {
                 return SafetyResult(
                     level = finalLevel,
                     matchedPattern = pattern.pattern,
-                    isCrisis = finalLevel == SafetyLevel.HIGH,
+                    isCrisis = true,
                     confidence = confidence,
                     suggestedPrompt = ReflectionPrompt(
                         id = "safety_high",

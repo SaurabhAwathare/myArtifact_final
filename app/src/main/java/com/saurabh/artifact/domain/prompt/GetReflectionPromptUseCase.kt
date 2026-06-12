@@ -42,7 +42,7 @@ class GetReflectionPromptUseCase @Inject constructor(
             return@withContext PromptResult(
                 prompt = assessment.suggestedPrompt,
                 safetyLevel = assessment.level,
-                isCrisis = false
+                isCrisis = assessment.isCrisis
             )
         }
 

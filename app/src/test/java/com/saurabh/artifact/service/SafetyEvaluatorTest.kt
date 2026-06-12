@@ -22,12 +22,13 @@ class SafetyEvaluatorTest {
     }
 
     @Test
-    fun `negated high risk match downgrades to MEDIUM level`() {
+    fun `negated high risk match downgrades to MEDIUM level but stays CRISIS`() {
         val result = evaluator.evaluate("I am not going to kill myself")
         // "not" should reduce confidence by 0.5, bringing it to 0.5
         // Level should be MEDIUM since 0.5 < 0.6
+        // isCrisis should be true for all high-risk patterns
         assertEquals(SafetyLevel.MEDIUM, result.level)
-        assertFalse(result.isCrisis)
+        assertTrue(result.isCrisis)
         assertEquals(0.5f, result.confidence)
     }
 
@@ -42,11 +43,11 @@ class SafetyEvaluatorTest {
     }
 
     @Test
-    fun `combined negation and context significantly reduces confidence`() {
+    fun `combined negation and context significantly reduces confidence but stays CRISIS`() {
         // Negation (-0.5) + Context (-0.3) = 0.2
         val result = evaluator.evaluate("I am not thinking about suicide because of that movie")
         assertEquals(SafetyLevel.MEDIUM, result.level)
-        assertFalse(result.isCrisis)
+        assertTrue(result.isCrisis)
         assertEquals(0.2f, result.confidence, 0.01f)
     }
 

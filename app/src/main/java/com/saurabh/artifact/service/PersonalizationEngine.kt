@@ -8,7 +8,6 @@ import androidx.appsearch.app.*
 import androidx.appsearch.platformstorage.PlatformStorage
 import com.saurabh.artifact.model.UserPreferenceDocument
 import com.saurabh.artifact.repository.SettingsRepository
-import com.saurabh.artifact.util.OnboardingManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -33,8 +32,7 @@ data class UserPreferenceProfile(
 @Singleton
 class PersonalizationEngine @Inject constructor(
     @param:ApplicationContext private val context: Context,
-    private val onboardingManager: OnboardingManager,
-    private val settingsRepository: SettingsRepository
+    settingsRepository: SettingsRepository
 ) {
     private val engineScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val searchSession = MutableStateFlow<AppSearchSession?>(null)

@@ -13,6 +13,8 @@ import com.saurabh.artifact.model.AvatarConfig
 import com.saurabh.artifact.model.UserPrivateSettings
 import com.saurabh.artifact.util.SecureString
 import com.saurabh.artifact.util.UsernameGenerator
+import com.saurabh.artifact.data.local.UserDao
+import com.saurabh.artifact.data.local.UserLocalEntity
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
@@ -33,7 +35,7 @@ class UserRepository @Inject constructor(
     private val auth: FirebaseAuth,
     private val firestore: FirebaseFirestore,
     private val notificationRepository: NotificationRepository,
-    private val userDao: com.saurabh.artifact.data.local.UserDao,
+    private val userDao: UserDao,
 ) {
     private val usersCollection = firestore.collection("users")
     private val usernamesCollection = firestore.collection("usernames")
@@ -303,8 +305,8 @@ class UserRepository @Inject constructor(
         }
     }
 
-    private fun mapUserToLocal(user: com.saurabh.artifact.model.User): com.saurabh.artifact.data.local.UserLocalEntity {
-        return com.saurabh.artifact.data.local.UserLocalEntity(
+    private fun mapUserToLocal(user: User): UserLocalEntity {
+        return UserLocalEntity(
             id = user.id,
             anonymousId = user.anonymousId,
             anonymousName = user.anonymousName,
@@ -315,8 +317,8 @@ class UserRepository @Inject constructor(
         )
     }
 
-    private fun mapLocalToUser(local: com.saurabh.artifact.data.local.UserLocalEntity): com.saurabh.artifact.model.User {
-        return com.saurabh.artifact.model.User(
+    private fun mapLocalToUser(local: UserLocalEntity): User {
+        return User(
             id = local.id,
             anonymousId = local.anonymousId,
             anonymousName = local.anonymousName,

@@ -10,6 +10,8 @@ import android.util.Log
 import kotlinx.coroutines.*
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * A security utility that manages sensitive data in the system clipboard.
@@ -31,13 +33,13 @@ class ClipboardGuard @Inject constructor() {
      * @param context Application context.
      * @param label A user-visible label for the clip.
      * @param text The sensitive content to copy.
-     * @param autoClearDelayMs Delay before the clipboard is wiped. Defaults to 60 seconds.
+     * @param autoClearDelay Delay before the clipboard is wiped. Defaults to 60 seconds.
      */
     fun copySensitive(
         context: Context,
         label: String,
         text: String,
-        autoClearDelayMs: Long = 60_000
+        autoClearDelay: Duration = 60.seconds
     ) {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         val clip = ClipData.newPlainText(label, text)
@@ -50,14 +52,14 @@ class ClipboardGuard @Inject constructor() {
         }
 
         clipboard.setPrimaryClip(clip)
-        Log.d("ClipboardGuard", "Sensitive data copied to clipboard. Scheduled for clearing in ${autoClearDelayMs}ms.")
+        Log.d("ClipboardGuard", "Sensitive data copied to clipboard. Scheduled for clearing in $autoClearDelay.")
 
         // Cancel any pending clear job to avoid race conditions
         clearJob?.cancel()
 
         // Schedule automatic clearing
         clearJob = guardScope.launch {
-            delay(autoClearDelayMs)
+            delay(autoClearDelay)
             clearIfMatches(clipboard, text)
         }
     }
@@ -82,12 +84,5 @@ class ClipboardGuard @Inject constructor() {
                 Log.d("ClipboardGuard", "Clipboard clearing skipped: content has changed.")
             }
         }
-    }
-
-    /**
-     * Call this when the application or the relevant lifecycle is being destroyed.
-     */
-    fun shutdown() {
-        guardScope.cancel()
     }
 }

@@ -55,7 +55,25 @@ class WavRecorder(
      */
     private val audioChannel = Channel<AudioBuffer>(capacity = 100)
 
-    private data class AudioBuffer(val data: ByteArray, val size: Int)
+    private data class AudioBuffer(val data: ByteArray, val size: Int) {
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (javaClass != other?.javaClass) return false
+
+            other as AudioBuffer
+
+            if (!data.contentEquals(other.data)) return false
+            if (size != other.size) return false
+
+            return true
+        }
+
+        override fun hashCode(): Int {
+            var result = data.contentHashCode()
+            result = 31 * result + size
+            return result
+        }
+    }
 
     // Durability Constants
     private val syncIntervalBytes = 1 * 1024 * 1024L // 1MB Durability Barrier (reduced from 5MB)

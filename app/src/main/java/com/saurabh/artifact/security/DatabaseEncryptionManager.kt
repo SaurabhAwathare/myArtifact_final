@@ -32,7 +32,7 @@ class DatabaseEncryptionManager @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val startupCoordinator: StartupCoordinator
 ) {
-    private val googleAead: Aead by lazy {
+    private val googleAEAD: Aead by lazy {
         AeadConfig.register()
         AndroidKeysetManager.Builder()
             .withSharedPref(context, "master_keyset", "master_key_preference")
@@ -47,7 +47,7 @@ class DatabaseEncryptionManager @Inject constructor(
 
     /**
      * Gets or creates a high-entropy passphrase for the database.
-     * The passphrase is encrypted using Google Tink and stored in DataStore.
+     * The passphrase is encrypted using Google TINK and stored in DataStore.
      */
     fun getDatabasePassphrase(): ByteArray {
         cachedPassphrase?.let { return it }
@@ -60,7 +60,7 @@ class DatabaseEncryptionManager @Inject constructor(
             if (encryptedPassphrase != null) {
                 try {
                     val encryptedBytes = Base64.decode(encryptedPassphrase, Base64.DEFAULT)
-                    val passphrase = googleAead.decrypt(encryptedBytes, null)
+                    val passphrase = googleAEAD.decrypt(encryptedBytes, null)
                     
                     // VALIDATION: Check if this passphrase can actually open the database
                     if (!validatePassphrase(passphrase)) {
@@ -88,44 +88,8 @@ class DatabaseEncryptionManager @Inject constructor(
     }
 
     /**
-     * Rotates the underlying database passphrase non-destructively.
-     * This is useful for periodic security refreshes.
-     */
-    @Synchronized
-    fun rotateDatabasePassphrase(): Result<Unit> {
-        return try {
-            val oldPassphrase = getDatabasePassphrase()
-            val newPassphrase = generateSecureRandomPassphrase()
-            
-            val dbFile = context.getDatabasePath("artifact_db")
-            if (dbFile.exists()) {
-                val db = SQLiteDatabase.openDatabase(
-                    dbFile.absolutePath,
-                    oldPassphrase,
-                    null,
-                    SQLiteDatabase.OPEN_READWRITE,
-                    null
-                )
-                db.use { openedDb ->
-                    openedDb.changePassword(newPassphrase)
-                }
-                android.util.Log.i("DatabaseEncryption", "Database passphrase rotated successfully")
-            }
-            
-            runBlocking {
-                saveEncryptedPassphrase(newPassphrase)
-            }
-            cachedPassphrase = newPassphrase
-            Result.success(Unit)
-        } catch (e: Exception) {
-            android.util.Log.e("DatabaseEncryption", "Rotation failed", e)
-            Result.failure(e)
-        }
-    }
-
-    /**
-     * Re-encrypts the existing passphrase with the current Tink Master Key.
-     * Use this when Tink keys have rotated but the database passphrase itself is fine.
+     * Re-encrypts the existing passphrase with the current TINK Master Key.
+     * Use this when TINK keys have rotated but the database passphrase itself is fine.
      */
     fun refreshEncryptionMetadata(): Result<Unit> {
         return try {
@@ -142,7 +106,7 @@ class DatabaseEncryptionManager @Inject constructor(
     }
 
     private suspend fun saveEncryptedPassphrase(passphrase: ByteArray) {
-        val encryptedBytes = googleAead.encrypt(passphrase, null)
+        val encryptedBytes = googleAEAD.encrypt(passphrase, null)
         val encryptedEncoded = Base64.encodeToString(encryptedBytes, Base64.DEFAULT)
         
         context.dataStore.edit { preferences ->
@@ -218,26 +182,6 @@ class DatabaseEncryptionManager @Inject constructor(
     private fun renameFile(file: File, timestamp: String) {
         if (file.exists()) {
             file.renameTo(File(file.absolutePath + "_corrupted_$timestamp"))
-        }
-    }
-
-    /**
-     * Deletes the local database files (Hard Reset).
-     * Only use this for explicit manual resets or clear data scenarios.
-     */
-    fun deleteDatabaseFiles() {
-        try {
-            val dbFile = context.getDatabasePath("artifact_db")
-            if (dbFile.exists()) {
-                dbFile.delete()
-                // Also delete journal/shm/wal files if they exist
-                context.getDatabasePath("artifact_db-journal").delete()
-                context.getDatabasePath("artifact_db-shm").delete()
-                context.getDatabasePath("artifact_db-wal").delete()
-                android.util.Log.w("DatabaseEncryption", "Deleted database files for recovery")
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("DatabaseEncryption", "Failed to delete database", e)
         }
     }
 

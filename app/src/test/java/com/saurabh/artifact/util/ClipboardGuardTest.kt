@@ -17,6 +17,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import kotlin.time.Duration.Companion.milliseconds
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -49,9 +50,9 @@ class ClipboardGuardTest {
     @Test
     fun `copySensitive clears clipboard after delay`() = runTest {
         val text = "Clear Me"
-        val delay = 1000L
+        val delay = 1000.milliseconds
         
-        clipboardGuard.copySensitive(context, "Label", text, autoClearDelayMs = delay)
+        clipboardGuard.copySensitive(context, "Label", text, autoClearDelay = delay)
         
         // Before delay
         assertEquals(text, clipboardManager.primaryClip?.getItemAt(0)?.text.toString())
@@ -64,7 +65,7 @@ class ClipboardGuardTest {
         // Since ClipboardGuard uses guardScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
         // Robolectric's main looper will handle the execution.
         
-        shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(delay + 100))
+        shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(delay.inWholeMilliseconds + 100))
         
         assertNull(clipboardManager.primaryClip)
     }
@@ -73,14 +74,14 @@ class ClipboardGuardTest {
     fun `clearIfMatches does not clear if content changed`() = runTest {
         val originalText = "Original"
         val newText = "New Content"
-        val delay = 1000L
+        val delay = 1000.milliseconds
         
-        clipboardGuard.copySensitive(context, "Label", originalText, autoClearDelayMs = delay)
+        clipboardGuard.copySensitive(context, "Label", originalText, autoClearDelay = delay)
         
         // Simulate user copying something else before auto-clear
         clipboardManager.setPrimaryClip(ClipData.newPlainText("New Label", newText))
         
-        shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(delay + 100))
+        shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(delay.inWholeMilliseconds + 100))
         
         // Should NOT be cleared because it doesn't match originalText
         assertEquals(newText, clipboardManager.primaryClip?.getItemAt(0)?.text.toString())

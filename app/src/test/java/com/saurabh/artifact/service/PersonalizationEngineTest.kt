@@ -4,7 +4,6 @@ import android.content.Context
 import android.os.Build
 import com.saurabh.artifact.model.UserSettings
 import com.saurabh.artifact.repository.SettingsRepository
-import com.saurabh.artifact.util.OnboardingManager
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
@@ -26,7 +25,6 @@ import org.robolectric.annotation.Config
 class PersonalizationEngineTest {
 
     private val context = mockk<Context>(relaxed = true)
-    private val onboardingManager = mockk<OnboardingManager>(relaxed = true)
     private val settingsRepository = mockk<SettingsRepository>(relaxed = true)
     private val userSettingsFlow = MutableStateFlow(UserSettings(dataCollectionConsent = false))
 
@@ -37,7 +35,7 @@ class PersonalizationEngineTest {
     fun setup() {
         Dispatchers.setMain(testDispatcher)
         every { settingsRepository.userSettings } returns userSettingsFlow
-        engine = PersonalizationEngine(context, onboardingManager, settingsRepository)
+        engine = PersonalizationEngine(context, settingsRepository)
     }
 
     @After
