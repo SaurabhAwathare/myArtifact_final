@@ -8,6 +8,7 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.CacheWriter
+import com.saurabh.artifact.util.CoroutineExceptionHandlerUtils
 import kotlinx.coroutines.*
 import java.util.concurrent.ConcurrentHashMap
 
@@ -17,7 +18,11 @@ import java.util.concurrent.ConcurrentHashMap
  */
 @UnstableApi
 object MediaPreCacher {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val scope = CoroutineScope(
+        SupervisorJob() + 
+        Dispatchers.IO + 
+        CoroutineExceptionHandlerUtils.create("MediaPreCacher", "Caching failure")
+    )
     private val activeJobs = ConcurrentHashMap<String, Job>()
 
     /**
@@ -52,7 +57,7 @@ object MediaPreCacher {
                 Log.d("MediaPreCacher", "Successfully pre-cached: $url")
             } catch (e: Exception) {
                 if (e is CancellationException) {
-                    Log.d("MediaPreCacher", "Pre-cache cancelled for: $url")
+                    Log.d("MediaPreCacher", "Pre-cache canceled for: $url")
                 } else {
                     Log.e("MediaPreCacher", "Failed to pre-cache: $url", e)
                 }

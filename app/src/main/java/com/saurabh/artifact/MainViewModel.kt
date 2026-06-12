@@ -16,6 +16,7 @@ import javax.inject.Inject
 
 sealed class AppStartupState {
     object Initializing : AppStartupState()
+    object Rescue : AppStartupState()
     data class Ready(val startDestination: Any) : AppStartupState()
 }
 
@@ -60,6 +61,11 @@ class MainViewModel @Inject constructor(
     fun start() {
         if (isStarted) return
         isStarted = true
+
+        if (startupCoordinator.isRescueModeActive) {
+            _startupState.value = AppStartupState.Rescue
+            return
+        }
 
         viewModelScope.launch {
             try {

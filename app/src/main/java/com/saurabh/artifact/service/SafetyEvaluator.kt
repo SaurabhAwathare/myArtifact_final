@@ -22,6 +22,7 @@ data class SafetyResult(
 @Singleton
 class SafetyEvaluator @Inject constructor() {
 
+    private val tag = "SafetyEvaluator"
     private val negationPrefixes = listOf("don't", "not", "never", "won't", "stopped", "isn't", "aren't", "wasn't")
     private val exclusionContexts = listOf("movie", "song", "lyrics", "book", "character", "quote", "story", "video", "film")
 
@@ -55,7 +56,7 @@ class SafetyEvaluator @Inject constructor() {
                 val confidence = evaluateConfidence(normalized, pattern.pattern)
                 val finalLevel = if (confidence < 0.6f) SafetyLevel.MEDIUM else SafetyLevel.HIGH
                 
-                logWarning("SafetyEvaluator", "HIGH RISK PATTERN MATCHED: ${pattern.pattern} (Confidence: $confidence -> Level: $finalLevel)")
+                logWarning("HIGH RISK PATTERN MATCHED: ${pattern.pattern} (Confidence: $confidence -> Level: $finalLevel)")
                 
                 return SafetyResult(
                     level = finalLevel,
@@ -78,7 +79,7 @@ class SafetyEvaluator @Inject constructor() {
         mediumRiskPatterns.forEach { pattern ->
             if (pattern.containsMatchIn(normalized)) {
                 val confidence = evaluateConfidence(normalized, pattern.pattern)
-                logDebug("SafetyEvaluator", "MEDIUM RISK PATTERN MATCHED: ${pattern.pattern} (Confidence: $confidence)")
+                logDebug("MEDIUM RISK PATTERN MATCHED: ${pattern.pattern} (Confidence: $confidence)")
 
                 return SafetyResult(
                     level = SafetyLevel.MEDIUM,
@@ -103,18 +104,18 @@ class SafetyEvaluator @Inject constructor() {
         return SafetyResult(SafetyLevel.LOW)
     }
 
-    private fun logWarning(tag: String, message: String) {
+    private fun logWarning(message: String) {
         try {
             Log.w(tag, message)
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             println("[$tag] WARNING: $message")
         }
     }
 
-    private fun logDebug(tag: String, message: String) {
+    private fun logDebug(message: String) {
         try {
             Log.d(tag, message)
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             println("[$tag] DEBUG: $message")
         }
     }

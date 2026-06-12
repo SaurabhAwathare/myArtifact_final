@@ -7,7 +7,7 @@
   },
   {
     "id": "sr_2",
-    "question": "What emotion have you been carrying silently?",
+    "question": "How does [EMOTION] feel in your body right now?",
     "category": "SELF_REFLECTION",
     "tone": "REFLECTIVE"
   },
@@ -49,14 +49,14 @@
   },
   {
     "id": "anx_1",
-    "question": "What uncertainty has been weighing on you?",
+    "question": "What specifically triggered this feeling of [EMOTION]?",
     "category": "ANXIETY",
     "tone": "REFLECTIVE",
     "mood": "Anxious"
   },
   {
     "id": "lon_1",
-    "question": "What does loneliness feel like in your body right now?",
+    "question": "If [EMOTION] had a color or a shape, what would it look like?",
     "category": "LONELINESS",
     "tone": "REFLECTIVE"
   },

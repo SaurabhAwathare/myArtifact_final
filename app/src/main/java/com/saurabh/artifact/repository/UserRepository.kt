@@ -33,6 +33,7 @@ class UserRepository @Inject constructor(
     private val auth: FirebaseAuth,
     private val firestore: FirebaseFirestore,
     private val notificationRepository: NotificationRepository,
+    private val userDao: com.saurabh.artifact.data.local.UserDao,
 ) {
     private val usersCollection = firestore.collection("users")
     private val usernamesCollection = firestore.collection("usernames")
@@ -109,7 +110,15 @@ class UserRepository @Inject constructor(
                 message = "IDENTITY_REFRESHED|$newName|$newSigil" // UI layer will map this
             )
 
-            getOrCreateProfile()
+            val finalProfileResult = getOrCreateProfile()
+            finalProfileResult.onSuccess { profile ->
+                try {
+                    userDao.insertProfile(mapUserToLocal(profile))
+                } catch (e: Exception) {
+                    Log.e("UserRepository", "Failed to update cached identity after refresh", e)
+                }
+            }
+            finalProfileResult
         } catch (e: Exception) {
             Log.e("UserRepository", "refreshAnonymousIdentity failed for $userId", e)
             Result.failure(AppError.from(e))
@@ -182,6 +191,11 @@ class UserRepository @Inject constructor(
                 userId = userId,
                 message = "USERNAME_UPDATED|$username"
             )
+
+            // Update cache
+            getCachedProfile()?.let { cached ->
+                userDao.insertProfile(mapUserToLocal(cached.copy(anonymousName = username, isAnonymous = false)))
+            }
 
             Result.success(Unit)
         } catch (e: Exception) {
@@ -260,11 +274,61 @@ class UserRepository @Inject constructor(
                     newProfile
                 }
             }.await()
+            
+            // Cache the profile locally
+            try {
+                userDao.insertProfile(mapUserToLocal(profile))
+            } catch (e: Exception) {
+                Log.e("UserRepository", "Failed to cache user profile locally", e)
+            }
+
             Result.success(profile)
         } catch (e: Exception) {
             Log.e("UserRepository", "getOrCreateProfile failed", e)
             Result.failure(AppError.from(e))
         }
+    }
+
+    /**
+     * Fetches the user profile from the local cache.
+     * Useful for offline-first scenarios or when network is unavailable.
+     */
+    suspend fun getCachedProfile(): User? = withContext(Dispatchers.IO) {
+        val currentUserId = auth.currentUser?.uid ?: return@withContext null
+        return@withContext try {
+            userDao.getProfile(currentUserId)?.let { mapLocalToUser(it) }
+        } catch (e: Exception) {
+            Log.e("UserRepository", "Error fetching cached profile", e)
+            null
+        }
+    }
+
+    private fun mapUserToLocal(user: com.saurabh.artifact.model.User): com.saurabh.artifact.data.local.UserLocalEntity {
+        return com.saurabh.artifact.data.local.UserLocalEntity(
+            id = user.id,
+            anonymousId = user.anonymousId,
+            anonymousName = user.anonymousName,
+            anonymousSigil = user.anonymousSigil,
+            avatarSeed = user.avatarSeed,
+            avatarColor = user.avatarColor,
+            avatarConfigJson = kotlinx.serialization.json.Json.encodeToString(user.avatarConfig)
+        )
+    }
+
+    private fun mapLocalToUser(local: com.saurabh.artifact.data.local.UserLocalEntity): com.saurabh.artifact.model.User {
+        return com.saurabh.artifact.model.User(
+            id = local.id,
+            anonymousId = local.anonymousId,
+            anonymousName = local.anonymousName,
+            anonymousSigil = local.anonymousSigil,
+            avatarSeed = local.avatarSeed,
+            avatarColor = local.avatarColor,
+            avatarConfig = try {
+                kotlinx.serialization.json.Json.decodeFromString(local.avatarConfigJson)
+            } catch (_: Exception) {
+                AvatarConfig(seed = local.avatarSeed)
+            }
+        )
     }
 
     /**

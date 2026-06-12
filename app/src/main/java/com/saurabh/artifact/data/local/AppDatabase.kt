@@ -14,8 +14,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ArtifactDraftEntity::class,
         UploadTaskEntity::class,
         PendingInteractionEntity::class,
+        UserLocalEntity::class,
     ],
-    version = 43,
+    version = 46,
     autoMigrations = [
         // Auto-migrations can be added here for simple schema changes
     ],
@@ -30,6 +31,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun draftDao(): DraftDao
     abstract fun uploadTaskDao(): UploadTaskDao
     abstract fun pendingInteractionDao(): PendingInteractionDao
+    abstract fun userDao(): UserDao
 
     companion object {
         // Migrations have been moved to DatabaseMigrations.kt

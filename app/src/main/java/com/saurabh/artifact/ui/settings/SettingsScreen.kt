@@ -1,5 +1,8 @@
 package com.saurabh.artifact.ui.settings
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -15,7 +18,9 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.AlertDialog
@@ -43,19 +48,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import kotlin.time.Duration.Companion.seconds
-import androidx.credentials.CredentialManager
+import androidx.fragment.app.FragmentActivity
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.saurabh.artifact.R
+import com.saurabh.artifact.auth.CredentialResult
+import com.saurabh.artifact.ui.components.NotificationRationaleDialog
 import com.saurabh.artifact.ui.util.UiText
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import androidx.credentials.GetCredentialRequest
-import androidx.credentials.CustomCredential
-import androidx.credentials.exceptions.NoCredentialException
-import com.google.android.libraries.identity.googleid.GetGoogleIdOption
-import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -75,12 +79,44 @@ fun SettingsScreen(
     var showLogoutConfirmation by remember { mutableStateOf(false) }
     var showExportConfirmation by remember { mutableStateOf(false) }
     var showExportSuccess by remember { mutableStateOf(false) }
+    var showNotificationRationale by remember { mutableStateOf(false) }
+    var pendingActionAfterPermission by remember { mutableStateOf<(() -> Unit)?>(null) }
 
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val serverClientId = stringResource(R.string.default_web_client_id)
     
-    val credentialManager = remember { CredentialManager.create(context) }
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            pendingActionAfterPermission?.invoke()
+        }
+        pendingActionAfterPermission = null
+    }
+
+    val handleNotificationToggle: (Boolean, (Boolean) -> Unit) -> Unit = { enabled, updateFn ->
+        if (enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val hasPermission = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+
+            if (!hasPermission) {
+                pendingActionAfterPermission = { updateFn(true) }
+                val activity = context as? FragmentActivity
+                if (activity != null && ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.POST_NOTIFICATIONS)) {
+                    showNotificationRationale = true
+                } else {
+                    permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
+            } else {
+                updateFn(true)
+            }
+        } else {
+            updateFn(enabled)
+        }
+    }
 
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/zip"),
@@ -162,6 +198,24 @@ fun SettingsScreen(
                 }
 
                 SettingsSection(title = "Privacy") {
+                    SettingsSwitch(
+                        title = "Notifications",
+                        subtitle = "Stay connected with reflections",
+                        icon = Icons.Default.Notifications,
+                        checked = uiState.notificationsEnabled,
+                        onCheckedChange = { enabled ->
+                            handleNotificationToggle(enabled) { viewModel.updateNotifications(it) }
+                        }
+                    )
+                    SettingsSwitch(
+                        title = "Smart Reminders",
+                        subtitle = "Gentle nudges for your ritual",
+                        icon = Icons.Default.Schedule,
+                        checked = uiState.smartRemindersEnabled,
+                        onCheckedChange = { enabled ->
+                            handleNotificationToggle(enabled) { viewModel.updateSmartReminders(it) }
+                        }
+                    )
                     SettingsSwitch(
                         title = "Biometric Lock",
                         subtitle = "Secure your private space",
@@ -260,27 +314,21 @@ fun SettingsScreen(
                             viewModel.reauthenticateAndRetry()
                         } else {
                             coroutineScope.launch {
-                                try {
-                                    val googleIdOption = GetGoogleIdOption.Builder()
-                                        .setFilterByAuthorizedAccounts(false)
-                                        .setServerClientId(serverClientId)
-                                        .build()
-
-                                    val request = GetCredentialRequest.Builder()
-                                        .addCredentialOption(googleIdOption)
-                                        .build()
-
-                                    val result = credentialManager.getCredential(context, request)
-                                    val credential = result.credential
-                                    
-                                    if (credential is CustomCredential && credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
-                                        val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
-                                        viewModel.reauthenticateAndRetry(googleIdTokenCredential.idToken)
+                                val result = viewModel.credentialHelper.getGoogleCredential(
+                                    context = context,
+                                    serverClientId = serverClientId,
+                                    filterByAuthorizedAccounts = false // For re-auth, we might want to allow choosing again
+                                )
+                                when (result) {
+                                    is CredentialResult.Success -> {
+                                        viewModel.reauthenticateAndRetry(result.idToken)
                                     }
-                                } catch (_: NoCredentialException) {
-                                    snackbarHostState.showSnackbar("No accounts found. Please sign in to Google first.")
-                                } catch (e: Exception) {
-                                    snackbarHostState.showSnackbar(com.saurabh.artifact.ui.util.ErrorMessageMapper.map(e).asString(context))
+                                    is CredentialResult.Failure -> {
+                                        snackbarHostState.showSnackbar(result.message.asString(context))
+                                    }
+                                    is CredentialResult.Canceled -> {
+                                        // User swiped away
+                                    }
                                 }
                             }
                         }
@@ -362,5 +410,19 @@ fun SettingsScreen(
             }
         )
     }
-}
 
+    if (showNotificationRationale) {
+        NotificationRationaleDialog(
+            onConfirm = {
+                showNotificationRationale = false
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
+            },
+            onDismiss = {
+                showNotificationRationale = false
+                pendingActionAfterPermission = null
+            }
+        )
+    }
+}

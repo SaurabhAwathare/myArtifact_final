@@ -27,7 +27,7 @@ class ReflectionAIServiceTest {
     fun setup() {
         promptRepository = mockk()
         safetyEvaluator = SafetyEvaluator() // Use real evaluator for validation logic
-        service = ReflectionAIServiceImpl(promptRepository, safetyEvaluator)
+        service = ReflectionAIServiceImpl(promptRepository, safetyEvaluator, mockk(relaxed = true))
     }
 
     @Test
@@ -43,19 +43,18 @@ class ReflectionAIServiceTest {
             tone = EmotionalTone.REFLECTIVE
         )
         
-        coEvery { promptRepository.getRandomPrompt(any()) } returns fallbackPrompt
+        coEvery { promptRepository.getSmartFallback(any()) } returns fallbackPrompt
         
         val result = service.generatePrompt("Joy", null, "Morning")
         
         assertTrue(result.isSuccess)
         val prompt = result.getOrThrow()
-        assertTrue(prompt.id.startsWith("fallback_"))
         assertEquals(fallbackPrompt.question, prompt.question)
     }
 
     @Test
     fun `generatePrompt returns generic fallback when repository is empty`() = runTest {
-        coEvery { promptRepository.getRandomPrompt(any()) } returns null
+        coEvery { promptRepository.getSmartFallback(any()) } returns null
         
         val result = service.generatePrompt("Joy", null, "Morning")
         

@@ -63,6 +63,10 @@ export const onReplyCreated = functions.firestore
           title: "A Quiet Resonance 🕯️",
           body: "A new reflection has gathered on your artifact",
         },
+        data: {
+          artifactId: artifactId,
+          channelId: "replies_channel",
+        },
         token: fcmToken,
         android: {
           priority: "high",

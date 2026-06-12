@@ -35,4 +35,31 @@ interface UploadTaskDao {
 
     @Query("DELETE FROM upload_tasks WHERE draftId = :draftId")
     suspend fun deleteByDraftId(draftId: String)
+
+    @Transaction
+    suspend fun tryAcquireOwnership(draftId: String, newOwner: UploadOwner, timeoutThreshold: Long): Boolean {
+        val task = getTaskByDraftId(draftId) ?: return false
+        val now = System.currentTimeMillis()
+        
+        // Ownership is available if:
+        // 1. It's currently unowned
+        // 2. It's already owned by the same component
+        // 3. The current ownership has timed out (lastUpdated < timeoutThreshold)
+        val canAcquire = task.owner == null || 
+                         task.owner == newOwner || 
+                         task.lastUpdated < timeoutThreshold
+        
+        return if (canAcquire) {
+            updateOwnership(draftId, newOwner, now)
+            true
+        } else {
+            false
+        }
+    }
+
+    @Query("UPDATE upload_tasks SET owner = :owner, lastUpdated = :timestamp WHERE draftId = :draftId")
+    suspend fun updateOwnership(draftId: String, owner: UploadOwner?, timestamp: Long = System.currentTimeMillis())
+
+    @Query("UPDATE upload_tasks SET owner = NULL WHERE draftId = :draftId")
+    suspend fun releaseOwnership(draftId: String)
 }

@@ -9,11 +9,13 @@ import com.google.firebase.appcheck.FirebaseAppCheck
 import com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory
 import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
 import com.saurabh.artifact.BuildConfig
+import com.saurabh.artifact.util.CoroutineExceptionHandlerUtils
 import com.saurabh.artifact.util.StartupTracer
 import com.saurabh.artifact.worker.ReminderWorker
 import com.saurabh.artifact.worker.RecoveryWorker
 import com.saurabh.artifact.worker.CleanupOrphanFilesWorker
 import com.saurabh.artifact.worker.PublishingRecoveryWorker
+import com.saurabh.artifact.util.RescueTracker
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
@@ -38,7 +40,8 @@ enum class StartupComponent {
     CORE,
     AUTH,
     DATABASE,
-    SECURITY
+    SECURITY,
+    RECOVERY
 }
 
 /**
@@ -50,13 +53,20 @@ class StartupCoordinator @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val workManager: WorkManager
 ) {
-    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val scope = CoroutineScope(
+        Dispatchers.Main + 
+        SupervisorJob() + 
+        CoroutineExceptionHandlerUtils.create("StartupCoordinator", "Orchestrator failure")
+    )
     
     private val _stage = MutableStateFlow(StartupStage.ARRIVAL)
     val stage = _stage.asStateFlow()
 
     private val _readyComponents = MutableStateFlow<Set<StartupComponent>>(emptySet())
     private var isStarted = false
+    
+    private var _isRescueModeActive = false
+    val isRescueModeActive: Boolean get() = _isRescueModeActive
 
     /**
      * Signals that a technical component is ready.
@@ -79,10 +89,18 @@ class StartupCoordinator @Inject constructor(
         if (isStarted) return
         isStarted = true
 
+        val rescueTracker = RescueTracker.getInstance(context)
+        _isRescueModeActive = rescueTracker.isRescueModeRequired()
+
         scope.launch {
-            Log.d("Startup", "Starting Optimized Sequence: ARRIVAL")
+            Log.d("Startup", "Starting Optimized Sequence: ARRIVAL (RescueMode=$_isRescueModeActive)")
             StartupTracer.mark("Startup Sequence Started")
             
+            if (_isRescueModeActive) {
+                initializeRescueMode()
+                return@launch
+            }
+
             // PHASE 1: Immediate Core (Critical for UI availability)
             initializeCore()
             emitReadiness(StartupComponent.CORE)
@@ -254,5 +272,24 @@ class StartupCoordinator @Inject constructor(
             ExistingWorkPolicy.KEEP,
             recoveryRequest
         )
+    }
+
+    private fun initializeRescueMode() {
+        Log.w("Startup", "INITIALIZING IN RESCUE MODE")
+        
+        // Skip background tasks, skip most stagings
+        // Only initialize absolute minimum for the Rescue UI
+        scope.launch {
+            initializeCore()
+            emitReadiness(StartupComponent.CORE)
+            
+            // Advance to a state where UI can bind
+            delay(200.milliseconds)
+            _stage.value = StartupStage.PRESENCE
+            
+            // Signal that we are ready for the Rescue Screen
+            emitReadiness(StartupComponent.RECOVERY)
+            Log.d("Startup", "Rescue Mode Readiness Emitted")
+        }
     }
 }

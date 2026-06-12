@@ -62,8 +62,10 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -91,6 +93,7 @@ fun RecordingScreen(
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val activity = context as? Activity
+    val haptic = LocalHapticFeedback.current
 
     var showRationaleDialog by remember { mutableStateOf(false) }
     var showPermanentDenialDialog by remember { mutableStateOf(false) }
@@ -265,6 +268,7 @@ fun RecordingScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         viewModel.cancelRecording()
                         showDeleteConfirmation = false
                         onBack()
@@ -450,6 +454,15 @@ fun RecordingScreen(
                             color = Color.White.copy(alpha = 0.9f)
                         )
                         
+                        if (uiState.isStorageLow && uiState.error == null) {
+                            Text(
+                                text = "Low storage space",
+                                color = Color(0xFFFFB74D), // Amber warning
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                        }
+
                         uiState.error?.let { error ->
                             val errorMessage = when (error) {
                                 is RecordingError.PermissionDenied -> "Permission Denied"
@@ -502,6 +515,8 @@ fun EnhancedRecordingControls(
     onDeleteClick: () -> Unit,
     onFinishClick: () -> Unit
 ) {
+    val haptic = LocalHapticFeedback.current
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -569,7 +584,10 @@ fun EnhancedRecordingControls(
 
             // Inner Button
             Button(
-                onClick = onRecordClick,
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onRecordClick()
+                },
                 modifier = Modifier.size(80.dp),
                 shape = CircleShape,
                 colors = ButtonDefaults.buttonColors(
@@ -591,7 +609,12 @@ fun EnhancedRecordingControls(
 
         // Finish/Pause Button (Subtle)
         IconButton(
-            onClick = if (status == RecordingStatus.RECORDING) onPauseClick else onFinishClick,
+            onClick = {
+                if (status != RecordingStatus.IDLE) {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                }
+                if (status == RecordingStatus.RECORDING) onPauseClick() else onFinishClick()
+            },
             modifier = Modifier.size(48.dp)
         ) {
             Icon(

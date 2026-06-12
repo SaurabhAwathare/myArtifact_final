@@ -130,7 +130,8 @@ class RecordingViewModel @Inject constructor(
                     currentOutputFile = state.outputFile?.absolutePath,
                     amplitudes = state.amplitudes,
                     lastDraftId = if (state.status == RecordingStatus.COMPLETED) state.draftId else it.lastDraftId,
-                    lastDraftPath = if (state.status == RecordingStatus.COMPLETED) state.outputFile?.absolutePath else it.lastDraftPath
+                    lastDraftPath = if (state.status == RecordingStatus.COMPLETED) state.outputFile?.absolutePath else it.lastDraftPath,
+                    isStorageLow = state.isStorageLow
                 ) }
 
                 if (state.status == RecordingStatus.COMPLETED && state.draftId.isNotEmpty()) {
@@ -219,7 +220,8 @@ data class RecordingUiState(
     val promptList: List<ReflectionPrompt> = emptyList(),
     val currentPromptIndex: Int = 0,
     val amplitudes: List<Float> = emptyList(),
-    val currentAmplitude: Float = 0f
+    val currentAmplitude: Float = 0f,
+    val isStorageLow: Boolean = false
 )
 
 enum class RecordingFlowState {

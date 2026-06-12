@@ -69,4 +69,9 @@ object DatabaseModule {
     fun providePendingInteractionDao(database: AppDatabase): com.saurabh.artifact.data.local.PendingInteractionDao {
         return database.pendingInteractionDao()
     }
+
+    @Provides
+    fun provideUserDao(database: AppDatabase): com.saurabh.artifact.data.local.UserDao {
+        return database.userDao()
+    }
 }

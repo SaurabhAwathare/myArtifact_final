@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.google.devtools.ksp)
+    id("kotlin-kapt")
     alias(libs.plugins.hilt)
     alias(libs.plugins.kotlin.serialization)
 
@@ -168,7 +169,7 @@ dependencies {
     implementation(libs.androidx.appsearch)
     implementation(libs.androidx.appsearch.platform.storage)
     implementation(libs.androidx.appsearch.local.storage)
-    ksp(libs.androidx.appsearch.compiler)
+    kapt(libs.androidx.appsearch.compiler)
 
     // WorkManager
     implementation(libs.androidx.work.runtime.ktx)

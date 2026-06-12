@@ -63,7 +63,8 @@ class RecordingSessionManager @Inject constructor(
             draftId = serviceState.draftId.ifEmpty { draft?.id ?: "" },
             outputFile = serviceState.outputFile,
             errorCode = serviceState.errorCode,
-            ritualRemainingSeconds = ritualSecs
+            ritualRemainingSeconds = ritualSecs,
+            isStorageLow = serviceState.isStorageLow
         )
     }.stateIn(
         scope = managerScope,
@@ -199,6 +200,7 @@ class RecordingSessionManager @Inject constructor(
         val draftId: String = "",
         val outputFile: java.io.File? = null,
         val errorCode: String? = null,
-        val ritualRemainingSeconds: Int = 0
+        val ritualRemainingSeconds: Int = 0,
+        val isStorageLow: Boolean = false
     )
 }

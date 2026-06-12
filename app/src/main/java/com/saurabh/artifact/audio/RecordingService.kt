@@ -14,6 +14,8 @@ import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
+import com.saurabh.artifact.util.CoroutineExceptionHandlerUtils
+import com.saurabh.artifact.util.ArtifactLogger
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import com.saurabh.artifact.MainActivity
@@ -45,7 +47,11 @@ class RecordingService : Service() {
     private val binder = RecordingBinder()
     @Inject lateinit var publishingOrchestrator: PublishingOrchestrator
 
-    private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val serviceScope = CoroutineScope(
+        Dispatchers.Main + 
+        SupervisorJob() + 
+        CoroutineExceptionHandlerUtils.create("RecordingService", "ServiceScope failure")
+    )
     
     private var audioRecorder: AudioRecorder? = null
     private var timerJob: Job? = null
@@ -113,7 +119,7 @@ class RecordingService : Service() {
         super.onCreate()
         audioRecorder = AudioRecorder(applicationContext).apply {
             onError = { what, extra ->
-                Log.e("RecordingService", "Hardware error: what=$what, extra=$extra")
+                ArtifactLogger.e("RecordingService", "Hardware error: what=$what, extra=$extra")
                 _recordingState.value = _recordingState.value.copy(
                     status = RecordingStatus.FAILED,
                     errorCode = "HARDWARE_ERROR_$what"
@@ -124,8 +130,16 @@ class RecordingService : Service() {
                 Log.i("RecordingService", "Hardware info: what=$what, extra=$extra")
                 if (what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_DURATION_REACHED || 
                     what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_FILESIZE_REACHED) {
+                    if (what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_FILESIZE_REACHED) {
+                        _recordingState.value = _recordingState.value.copy(errorCode = "STORAGE_FULL")
+                    }
                     stopRecording()
                 }
+            }
+            onStorageError = { e ->
+                ArtifactLogger.e("RecordingService", "Storage error during recording", e)
+                _recordingState.value = _recordingState.value.copy(errorCode = "STORAGE_FULL")
+                stopRecording()
             }
         }
         audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
@@ -175,7 +189,7 @@ class RecordingService : Service() {
                 Log.d("RecordingService", "Silent mode enabled (Original: $originalRingerMode)")
             }
         } catch (e: Exception) {
-            Log.e("RecordingService", "Failed to enable silent mode", e)
+            ArtifactLogger.e("RecordingService", "Failed to enable silent mode", e)
         }
     }
 
@@ -189,7 +203,7 @@ class RecordingService : Service() {
                 }
             }
         } catch (e: Exception) {
-            Log.e("RecordingService", "Failed to restore ringer mode", e)
+            ArtifactLogger.e("RecordingService", "Failed to restore ringer mode", e)
         }
     }
 
@@ -248,7 +262,7 @@ class RecordingService : Service() {
                 startForeground(NOTIFICATION_ID, notification)
             }
         } catch (e: Exception) {
-            Log.e("RecordingService", "Foreground startup failed", e)
+            ArtifactLogger.e("RecordingService", "Foreground startup failed", e)
             _recordingState.value = RecordingState(status = RecordingStatus.FAILED)
             stopSelf()
             return START_NOT_STICKY
@@ -263,7 +277,7 @@ class RecordingService : Service() {
     fun startRecording(draftId: String = "") {
         // Permission Check inside Service (Defense in Depth)
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            Log.e("RecordingService", "startRecording failed: Permission RECORD_AUDIO not granted")
+            ArtifactLogger.e("RecordingService", "startRecording failed: Permission RECORD_AUDIO not granted")
             _recordingState.value = RecordingState(status = RecordingStatus.FAILED, errorCode = "PERMISSION_DENIED")
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
@@ -272,7 +286,7 @@ class RecordingService : Service() {
 
         // Storage Check
         if (!storageManager.isStorageAvailable()) {
-            Log.e("RecordingService", "startRecording failed: Low storage (${storageManager.getAvailableStorageMb()} MB available)")
+            ArtifactLogger.e("RecordingService", "startRecording failed: Low storage (${storageManager.getAvailableStorageMb()} MB available)")
             _recordingState.value = RecordingState(status = RecordingStatus.FAILED, errorCode = "STORAGE_FULL")
             // Trigger emergency cleanup in background
             serviceScope.launch(Dispatchers.IO) {
@@ -290,7 +304,7 @@ class RecordingService : Service() {
 
         // Audio Focus Management: Ensure we have the microphone path cleared
         if (!requestAudioFocus()) {
-            Log.e("RecordingService", "Could not acquire audio focus. Recording aborted.")
+            ArtifactLogger.e("RecordingService", "Could not acquire audio focus. Recording aborted.")
             _recordingState.value = RecordingState(status = RecordingStatus.FAILED, errorCode = "HARDWARE_IN_USE")
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
@@ -307,11 +321,11 @@ class RecordingService : Service() {
             
             val draft = draftDao.getDraftById(finalDraftId)
             val file = draft?.let { File(it.localAudioPath) } ?: run {
-                localDraftManager.createDraftFile(finalDraftId, "m4a")
+                localDraftManager.createDraftFile(finalDraftId, "wav")
             }
 
             if (draft == null) {
-                recordingRepository.createDraft(finalDraftId, file.absolutePath, 0)
+                recordingRepository.createDraft(finalDraftId, file.absolutePath, 0, mimeType = "audio/wav")
             }
 
             try {
@@ -338,7 +352,7 @@ class RecordingService : Service() {
                 } ?: false
 
                 if (!started) {
-                    Log.e("RecordingService", "Audio recorder startup timed out")
+                    ArtifactLogger.e("RecordingService", "Audio recorder startup timed out")
                     _recordingState.value = RecordingState(status = RecordingStatus.FAILED)
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
@@ -365,7 +379,7 @@ class RecordingService : Service() {
                 updateNotification(0, RecordingStatus.RECORDING)
                 Log.d("RecordingService", "startRecording successful. State updated to RECORDING.")
             } catch (e: Exception) {
-                Log.e("RecordingService", "startRecording failed: ${e.message}", e)
+                ArtifactLogger.e("RecordingService", "startRecording failed: ${e.message}", e)
                 _recordingState.value = _recordingState.value.copy(status = RecordingStatus.FAILED)
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
@@ -496,12 +510,12 @@ class RecordingService : Service() {
                                     status = RecordingStatus.COMPLETED
                                 )
                             } catch (e: Exception) {
-                                Log.e("RecordingService", "Hand-off failed", e)
+                                ArtifactLogger.e("RecordingService", "Hand-off failed", e)
                                 // Handle error state if needed
                             }
                         }
                     } else {
-                        Log.e("RecordingService", "Output file validation failed: file=${finalFile?.exists()}, length=${finalFile?.length()}")
+                        ArtifactLogger.e("RecordingService", "Output file validation failed: file=${finalFile?.exists()}, length=${finalFile?.length()}")
                         _recordingState.value = _recordingState.value.copy(status = RecordingStatus.FAILED)
                         if (finalFile?.exists() == true) finalFile.delete()
                         draftDao.getDraftById(draftId)?.let {
@@ -511,7 +525,7 @@ class RecordingService : Service() {
                         }
                     }
                 } catch (e: Exception) {
-                    Log.e("RecordingService", "Error during stopRecording flow", e)
+                    ArtifactLogger.e("RecordingService", "Error during stopRecording flow", e)
                     _recordingState.value = _recordingState.value.copy(status = RecordingStatus.FAILED)
                 } finally {
                     Log.d("RecordingService", "Stopping service foreground and self")
@@ -559,9 +573,18 @@ class RecordingService : Service() {
                 if (_recordingState.value.status == RecordingStatus.RECORDING) {
                     internalAmplitudes.add(normalizedAmplitude)
 
-                    // Critical Storage Check during recording: Every 2s, check for < 50MB
-                    if (tick % 40 == 0 && storageManager.getAvailableStorageMb() < 50) { 
-                        Log.e("RecordingService", "Emergency stop: Storage critically low (< 50MB)")
+                    // Storage Monitoring
+                    val availableMb = storageManager.getAvailableStorageMb()
+                    
+                    // Update storage low flag
+                    if (_recordingState.value.isStorageLow != (availableMb < 200)) {
+                        _recordingState.value = _recordingState.value.copy(isStorageLow = availableMb < 200)
+                    }
+
+                    // Emergency stop: Storage critically low (< 50MB)
+                    if (tick % 40 == 0 && availableMb < 50) { 
+                        ArtifactLogger.e("RecordingService", "Emergency stop: Storage critically low ($availableMb MB)")
+                        _recordingState.value = _recordingState.value.copy(errorCode = "STORAGE_FULL")
                         withContext(Dispatchers.Main) {
                             stopRecording()
                         }
@@ -622,7 +645,10 @@ class RecordingService : Service() {
         val statusText = when (status) {
             RecordingStatus.PREPARING -> "Creating a calm space..."
             RecordingStatus.PAUSED -> "Holding your reflection..."
-            RecordingStatus.RECORDING -> "Listening to your essence..."
+            RecordingStatus.RECORDING -> {
+                if (_recordingState.value.isStorageLow) "Listening... (Storage Low)"
+                else "Listening to your essence..."
+            }
             RecordingStatus.COMPLETED -> "Reflection secured."
             else -> "myArtifact"
         }
@@ -655,7 +681,7 @@ class RecordingService : Service() {
         try {
             notificationManager.notify(NOTIFICATION_ID, createNotification(seconds, status))
         } catch (e: SecurityException) {
-            Log.e("RecordingService", "SecurityException while updating notification", e)
+            ArtifactLogger.e("RecordingService", "SecurityException while updating notification", e)
         }
     }
 
@@ -726,7 +752,8 @@ class RecordingService : Service() {
             val checksum: String? = null,
             val isEncrypted: Boolean = false,
             val draftId: String = "",
-            val errorCode: String? = null
+            val errorCode: String? = null,
+            val isStorageLow: Boolean = false
         )
     }
 }

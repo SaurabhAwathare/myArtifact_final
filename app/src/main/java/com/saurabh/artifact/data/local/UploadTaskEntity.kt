@@ -7,6 +7,10 @@ import androidx.room.PrimaryKey
 import com.saurabh.artifact.model.SyncStatus
 import com.saurabh.artifact.model.UploadProgress
 
+enum class UploadOwner {
+    SERVICE, WORKER
+}
+
 @Entity(
     tableName = "upload_tasks",
     foreignKeys = [
@@ -28,5 +32,6 @@ data class UploadTaskEntity(
     override val totalBytes: Long = 0,
     val sessionUri: String? = null,
     val audioUrl: String? = null,
+    val owner: UploadOwner? = null,
     val lastUpdated: Long = System.currentTimeMillis()
 ) : UploadProgress

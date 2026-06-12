@@ -18,7 +18,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -28,15 +27,10 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.credentials.CredentialManager
-import androidx.credentials.CustomCredential
-import androidx.credentials.GetCredentialRequest
-import androidx.credentials.exceptions.NoCredentialException
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.google.android.libraries.identity.googleid.GetGoogleIdOption
-import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.saurabh.artifact.R
+import com.saurabh.artifact.auth.CredentialResult
 import com.saurabh.artifact.ui.theme.GoldAura500
 import com.saurabh.artifact.ui.theme.Obsidian950
 import kotlinx.coroutines.launch
@@ -51,7 +45,6 @@ fun LoginScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val serverClientId = stringResource(R.string.default_web_client_id)
-    val credentialManager = remember { CredentialManager.create(context) }
 
     LaunchedEffect(loginState) {
         if (loginState is LoginState.Success) {
@@ -92,17 +85,21 @@ fun LoginScreen(
                 Button(
                     onClick = {
                         scope.launch {
-                            launchGoogleSignIn(
+                            val result = viewModel.credentialHelper.getGoogleCredential(
                                 context = context,
-                                credentialManager = credentialManager,
-                                serverClientId = serverClientId,
-                                onTokenReceived = { token ->
-                                    viewModel.signInWithGoogle(token)
-                                },
-                                onError = { message ->
-                                    viewModel.onError(message)
-                                }
+                                serverClientId = serverClientId
                             )
+                            when (result) {
+                                is CredentialResult.Success -> {
+                                    viewModel.signInWithGoogle(result.idToken)
+                                }
+                                is CredentialResult.Failure -> {
+                                    viewModel.onError(result.message.asString(context))
+                                }
+                                is CredentialResult.Canceled -> {
+                                    // User swiped away, no need to show error
+                                }
+                            }
                         }
                     },
                     modifier = Modifier
@@ -141,54 +138,5 @@ fun LoginScreen(
                 textAlign = TextAlign.Center
             )
         }
-    }
-}
-
-suspend fun launchGoogleSignIn(
-    context: android.content.Context,
-    credentialManager: CredentialManager,
-    serverClientId: String,
-    onTokenReceived: (String) -> Unit,
-    onError: (String) -> Unit
-) {
-    try {
-        val googleIdOption = GetGoogleIdOption.Builder()
-            .setServerClientId(serverClientId)
-            .setFilterByAuthorizedAccounts(false)
-            .build()
-
-        val request = GetCredentialRequest.Builder()
-            .addCredentialOption(googleIdOption)
-            .build()
-
-        val result = credentialManager.getCredential(
-            context = context,
-            request = request
-        )
-
-        val credential = result.credential
-
-        if (
-            credential is CustomCredential &&
-            credential.type ==
-            GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
-        ) {
-            val googleCredential =
-                GoogleIdTokenCredential.createFrom(
-                    credential.data
-                )
-
-            onTokenReceived(
-                googleCredential.idToken
-            )
-        } else {
-            onError("Google credential unavailable")
-        }
-    } catch (_: NoCredentialException) {
-        onError("No accounts found. Please sign in to your Google account first.")
-    } catch (e: Exception) {
-        onError(
-            e.message ?: "Google sign-in failed"
-        )
     }
 }

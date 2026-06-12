@@ -27,6 +27,7 @@ class AudioRecorder(private val context: Context) {
      */
     var onError: ((Int, Int) -> Unit)? = null
     var onInfo: ((Int, Int) -> Unit)? = null
+    var onStorageError: ((Exception) -> Unit)? = null
 
     /**
      * Configures and starts audio capture in the specified mode.
@@ -86,6 +87,16 @@ class AudioRecorder(private val context: Context) {
             setAudioSamplingRate(44100)
             setAudioEncodingBitRate(128000) // High quality AAC
             setOutputFile(outputFile.absolutePath)
+
+            // Set a native file size limit based on available space (with 20MB safety buffer)
+            // This is a defense-in-depth measure for AAC.
+            val stats = android.os.StatFs(context.filesDir.absolutePath)
+            val availableBytes = stats.availableBlocksLong * stats.blockSizeLong
+            val safetyBuffer = 20 * 1024 * 1024L
+            if (availableBytes > safetyBuffer) {
+                setMaxFileSize(availableBytes - safetyBuffer)
+            }
+
             prepare()
             start()
         }
@@ -93,6 +104,7 @@ class AudioRecorder(private val context: Context) {
 
     private fun startWAV(outputFile: File, onDurableSync: ((Long) -> Unit)? = null) {
         wavRecorder = WavRecorder(outputFile, onDurableSync = onDurableSync).apply {
+            onStorageError = { this@AudioRecorder.onStorageError?.invoke(it) }
             start()
         }
         isRecording = true

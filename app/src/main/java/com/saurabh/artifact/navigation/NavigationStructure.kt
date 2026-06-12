@@ -28,6 +28,9 @@ object Onboarding : Route
 @Serializable
 object Login : Route
 
+@Serializable
+object RescueMode : Route
+
 // --- Main / Feed Routes ---
 
 @Serializable

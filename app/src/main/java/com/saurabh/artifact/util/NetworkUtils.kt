@@ -1,5 +1,8 @@
 package com.saurabh.artifact.util
 
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.util.Log
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.storage.StorageException
@@ -13,6 +16,17 @@ import kotlin.time.Duration.Companion.seconds
 
 object NetworkUtils {
     private const val TAG = "NetworkUtils"
+
+    /**
+     * Checks if the device has an active internet connection.
+     */
+    fun isNetworkAvailable(context: Context): Boolean {
+        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val network = connectivityManager.activeNetwork ?: return false
+        val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+    }
 
     /**
      * Retries a suspending block with exponential backoff if a transient error occurs.

@@ -1,5 +1,6 @@
 package com.saurabh.artifact.ui.player
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.saurabh.artifact.audio.PlaybackCoordinator
@@ -36,6 +37,7 @@ import kotlin.time.Duration.Companion.seconds
 
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
+    private val savedStateHandle: SavedStateHandle,
     private val playbackCoordinator: PlaybackCoordinator,
     private val authRepository: AuthRepository,
     private val reactionUseCase: ReactionUseCase,
@@ -46,7 +48,7 @@ class PlayerViewModel @Inject constructor(
     private val deleteArtifactUseCase: DeleteArtifactUseCase
 ) : ViewModel() {
 
-    private val _isExpanded = MutableStateFlow(false)
+    private val _isExpanded = savedStateHandle.getStateFlow("is_expanded", false)
     private val _showAdvancedControls = MutableStateFlow(false)
 
     private val _interactionError = MutableSharedFlow<String>(replay = 0)
@@ -74,7 +76,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     private fun resetState() {
-        _isExpanded.value = false
+        setExpanded(false)
         _showAdvancedControls.value = false
         playbackCoordinator.stop()
     }
@@ -100,88 +102,102 @@ class PlayerViewModel @Inject constructor(
         )
     }.distinctUntilChanged()
 
-    // UI Control State
-    private val uiControlState = combine(
-        _isExpanded,
-        _showAdvancedControls,
-        playbackCoordinator.sleepTimerRemaining
-    ) { expanded, advanced, timer ->
-        UiControlSubState(
-            isExpanded = expanded,
-            showAdvancedControls = advanced,
-            sleepTimerRemaining = timer
-        )
-    }.distinctUntilChanged()
-
     // Isolated transcript lookup - Optimized with Binary Search and Distinct emission
     private val currentTranscriptSegment = combine(
         playbackCoordinator.currentArtifact,
         playbackCoordinator.smoothPosition
     ) { artifact, position ->
         artifact?.transcript?.findSegmentAt(position.inWholeMilliseconds)
+    }.distinctUntilChanged { old, new ->
+        old?.id == new?.id
+    }
+
+    private val staticState = combine(
+        playbackCoordinator.currentArtifact,
+        metadata,
+        _isExpanded,
+        _showAdvancedControls
+    ) { artifact, md, expanded, advanced ->
+        val isOwner = artifact?.userId == authRepository.currentUserId
+        val isMetadataSynced = artifact != null && md.artifactId == artifact.id
+        val mode = when {
+            artifact == null -> PlayerMode.HIDDEN
+            expanded -> PlayerMode.FULLSCREEN
+            else -> PlayerMode.MINI
+        }
+
+        PlayerStaticState(
+            artifact = artifact,
+            isOwner = isOwner,
+            isCommentUnlocked = if (isMetadataSynced) md.isCommentUnlocked else false,
+            isResonated = if (isMetadataSynced) md.isResonated else false,
+            selectedReactionType = md.selectedReactionType,
+            isResonating = if (isMetadataSynced) md.isResonating else false,
+            isSaved = if (isMetadataSynced) md.isSaved else false,
+            resonanceSummary = if (isMetadataSynced) md.resonanceSummary else "",
+            commentCount = if (isMetadataSynced) md.commentCount else 0,
+            playerMode = mode,
+            isExpanded = expanded,
+            showAdvancedControls = advanced
+        )
+    }.distinctUntilChanged()
+
+    private val dynamicState = combine(
+        playbackState,
+        reviewSessionManager.reviewProgress,
+        currentTranscriptSegment,
+        playbackCoordinator.sleepTimerRemaining
+    ) { pb, reviewState, transcriptSegment, sleepTimer ->
+        val progress = if (pb.duration > Duration.ZERO) (pb.position / pb.duration).toFloat() else 0f
+        val furthestProgress = if (reviewState.artifactId == pb.artifact?.id) reviewState.progress else 0f
+
+        PlayerDynamicState(
+            isPlaying = pb.isPlaying,
+            isBuffering = pb.isBuffering,
+            currentPosition = pb.position.inWholeMilliseconds,
+            durationMs = pb.duration.inWholeMilliseconds,
+            playbackSpeed = pb.speed,
+            playbackProgress = progress,
+            listeningProgress = furthestProgress,
+            isSilenceSkipEnabled = pb.isSilenceSkipEnabled,
+            sleepTimerMillisRemaining = sleepTimer?.inWholeMilliseconds,
+            currentTranscriptSegment = transcriptSegment
+        )
     }.distinctUntilChanged()
 
     val uiState: StateFlow<PlayerUiState> = combine(
-        playbackState,
-        metadata,
-        uiControlState,
-        reviewSessionManager.reviewProgress,
-        currentTranscriptSegment
-    ) { pb, md, ctrl, reviewState, transcriptSegment ->
-        mapToUiState(pb, md, ctrl, reviewState, transcriptSegment)
+        staticState,
+        dynamicState
+    ) { static, dynamic ->
+        PlayerUiState(
+            currentArtifact = static.artifact,
+            isPlaying = dynamic.isPlaying,
+            isBuffering = dynamic.isBuffering,
+            currentPosition = dynamic.currentPosition,
+            durationMs = dynamic.durationMs,
+            playbackSpeed = dynamic.playbackSpeed,
+            playbackProgress = dynamic.playbackProgress,
+            listeningProgress = dynamic.listeningProgress,
+            isCommentUnlocked = static.isCommentUnlocked,
+            isExpanded = static.isExpanded,
+            playerMode = static.playerMode,
+            isResonated = static.isResonated,
+            selectedReactionType = static.selectedReactionType,
+            isResonating = static.isResonating,
+            isSaved = static.isSaved,
+            isOwner = static.isOwner,
+            resonanceSummary = static.resonanceSummary,
+            commentCount = static.commentCount,
+            isSilenceSkipEnabled = dynamic.isSilenceSkipEnabled,
+            sleepTimerMillisRemaining = dynamic.sleepTimerMillisRemaining,
+            currentTranscriptSegment = dynamic.currentTranscriptSegment,
+            showAdvancedControls = static.showAdvancedControls
+        )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = PlayerUiState()
     )
-
-    private fun mapToUiState(
-        pb: PlaybackSubState,
-        md: PlayerMetadata,
-        ctrl: UiControlSubState,
-        reviewState: ReviewState,
-        transcriptSegment: TranscriptSegment?
-    ): PlayerUiState {
-        val artifact = pb.artifact
-        val isOwner = artifact?.userId == authRepository.currentUserId
-        
-        // SYNC VALIDATION: Ensure metadata matches the current artifact to prevent transition flicker
-        val isMetadataSynced = artifact != null && md.artifactId == artifact.id
-        
-        val progress = if (pb.duration > Duration.ZERO) (pb.position / pb.duration).toFloat() else 0f
-        val furthestProgress = if (reviewState.artifactId == artifact?.id) reviewState.progress else 0f
-        
-        val mode = when {
-            artifact == null -> PlayerMode.HIDDEN
-            ctrl.isExpanded -> PlayerMode.FULLSCREEN
-            else -> PlayerMode.MINI
-        }
-
-        return PlayerUiState(
-            currentArtifact = artifact,
-            isPlaying = pb.isPlaying,
-            isBuffering = pb.isBuffering,
-            currentPosition = pb.position.inWholeMilliseconds,
-            durationMs = pb.duration.inWholeMilliseconds, // ExoPlayer duration is the source of truth
-            playbackSpeed = pb.speed,
-            isCommentUnlocked = if (isMetadataSynced) md.isCommentUnlocked else false,
-            playbackProgress = progress,
-            listeningProgress = furthestProgress,
-            isExpanded = ctrl.isExpanded,
-            playerMode = mode,
-            isResonated = if (isMetadataSynced) md.isResonated else false,
-            selectedReactionType = md.selectedReactionType,
-            isResonating = if (isMetadataSynced) md.isResonating else false,
-            isSaved = if (isMetadataSynced) md.isSaved else false,
-            isOwner = isOwner,
-            resonanceSummary = if (isMetadataSynced) md.resonanceSummary else "",
-            commentCount = if (isMetadataSynced) md.commentCount else 0, // md.commentCount is live
-            isSilenceSkipEnabled = pb.isSilenceSkipEnabled,
-            sleepTimerMillisRemaining = ctrl.sleepTimerRemaining?.inWholeMilliseconds,
-            currentTranscriptSegment = transcriptSegment,
-            showAdvancedControls = ctrl.showAdvancedControls
-        )
-    }
 
     fun toggleResonate(type: ReactionType = metadata.value.selectedReactionType) {
         val artifact = uiState.value.currentArtifact ?: return
@@ -220,7 +236,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun playArtifact(artifact: Artifact, collection: List<Artifact> = emptyList()) {
-        _isExpanded.value = true
+        setExpanded(true)
         playbackCoordinator.playArtifact(
             artifact = artifact,
             collection = collection
@@ -257,7 +273,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun setExpanded(expanded: Boolean) {
-        _isExpanded.value = expanded
+        savedStateHandle["is_expanded"] = expanded
     }
 
     fun setShowAdvancedControls(show: Boolean) {
@@ -288,7 +304,7 @@ class PlayerViewModel @Inject constructor(
             deleteArtifactUseCase.execute(artifact)
                 .onSuccess {
                     playbackCoordinator.stop()
-                    _isExpanded.value = false
+                    setExpanded(false)
                 }.onFailure { e ->
                     _interactionError.emit("Unable to delete: ${e.message}")
                 }
@@ -310,8 +326,30 @@ private data class PlaybackSubState(
     val isSilenceSkipEnabled: Boolean
 )
 
-private data class UiControlSubState(
-    val isExpanded: Boolean,
-    val showAdvancedControls: Boolean,
-    val sleepTimerRemaining: Duration?
+private data class PlayerStaticState(
+    val artifact: Artifact? = null,
+    val isOwner: Boolean = false,
+    val isCommentUnlocked: Boolean = false,
+    val isResonated: Boolean = false,
+    val selectedReactionType: ReactionType = ReactionType.I_HEAR_YOU,
+    val isResonating: Boolean = false,
+    val isSaved: Boolean = false,
+    val resonanceSummary: String = "",
+    val commentCount: Long = 0,
+    val playerMode: PlayerMode = PlayerMode.HIDDEN,
+    val isExpanded: Boolean = false,
+    val showAdvancedControls: Boolean = false
+)
+
+private data class PlayerDynamicState(
+    val isPlaying: Boolean = false,
+    val isBuffering: Boolean = false,
+    val currentPosition: Long = 0,
+    val durationMs: Long = 0,
+    val playbackSpeed: Float = 1.0f,
+    val playbackProgress: Float = 0f,
+    val listeningProgress: Float = 0f,
+    val isSilenceSkipEnabled: Boolean = false,
+    val sleepTimerMillisRemaining: Long? = null,
+    val currentTranscriptSegment: TranscriptSegment? = null
 )

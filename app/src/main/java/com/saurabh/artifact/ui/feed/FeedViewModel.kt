@@ -29,6 +29,7 @@ import com.saurabh.artifact.util.MemoryManager
 import com.saurabh.artifact.util.MemoryTrimable
 import com.saurabh.artifact.util.StartupTracer
 import com.saurabh.artifact.ui.util.UiText
+import com.saurabh.artifact.ui.util.UiError
 import com.saurabh.artifact.ui.util.ErrorMessageMapper
 import com.saurabh.artifact.R
 import com.google.firebase.firestore.FirebaseFirestore
@@ -64,7 +65,7 @@ data class FeedUiState(
     val isCrisis: Boolean = false,
     val isRefreshing: Boolean = false,
     val hasNewContent: Boolean = false,
-    val error: UiText? = null
+    val error: UiError? = null
 )
 
 @HiltViewModel
@@ -152,16 +153,17 @@ class FeedViewModel @Inject constructor(
         // Listen for save events
         viewModelScope.launch {
             savedArtifactManager.events.collect { event ->
-                val uiText = when (event) {
+                val error = when (event) {
                     is SavedArtifactManager.SavedEvent.Success -> {
-                        if (event.isSaved) UiText.StringResource(R.string.saved_to_journey)
+                        val text = if (event.isSaved) UiText.StringResource(R.string.saved_to_journey)
                         else UiText.StringResource(R.string.removed_from_journey)
+                        UiError(text)
                     }
                     is SavedArtifactManager.SavedEvent.Failure -> {
-                        UiText.StringResource(R.string.generic_error)
+                        UiError(UiText.StringResource(R.string.generic_error))
                     }
                 }
-                _uiState.update { it.copy(error = uiText) }
+                _uiState.update { it.copy(error = error) }
             }
         }
     }
@@ -369,11 +371,11 @@ class FeedViewModel @Inject constructor(
         viewModelScope.launch {
             cleanupManager.deleteArtifact(artifactId)
                 .onSuccess {
-                    _uiState.update { it.copy(error = UiText.StringResource(R.string.reflection_deleted)) }
+                    _uiState.update { it.copy(error = UiError(UiText.StringResource(R.string.reflection_deleted))) }
                     _refreshTrigger.value += 1
                 }
                 .onFailure { e ->
-                    _uiState.update { it.copy(error = ErrorMessageMapper.map(e)) }
+                    _uiState.update { it.copy(error = ErrorMessageMapper.mapToUiError(e, onRetry = { deleteArtifact(artifactId) })) }
                 }
         }
     }
@@ -383,7 +385,7 @@ class FeedViewModel @Inject constructor(
     }
 
     fun showSettingsComingSoon() {
-        _uiState.update { it.copy(error = UiText.DynamicString("Resonance settings coming soon.")) }
+        _uiState.update { it.copy(error = UiError(UiText.DynamicString("Resonance settings coming soon."))) }
     }
 
     fun playAudio(artifact: Artifact) {
@@ -403,7 +405,7 @@ class FeedViewModel @Inject constructor(
             }
         } catch (e: Exception) {
             Log.e("FeedViewModel", "Error playing audio", e)
-            _uiState.update { it.copy(error = UiText.StringResource(R.string.generic_error)) }
+            _uiState.update { it.copy(error = UiError(UiText.StringResource(R.string.generic_error))) }
         }
     }
 
@@ -412,32 +414,32 @@ class FeedViewModel @Inject constructor(
             val deviceId = uploadGuard.getDeviceFingerprint().hashCode()
             artifactRepository.submitReport(artifactId, reason, details, deviceId)
                 .onSuccess {
-                    _uiState.update { it.copy(error = UiText.DynamicString("Report submitted anonymously. Thank you for keeping Artifact safe.")) }
+                    _uiState.update { it.copy(error = UiError(UiText.DynamicString("Report submitted anonymously. Thank you for keeping Artifact safe."))) }
                     _refreshTrigger.value += 1
                 }
                 .onFailure { e ->
-                    _uiState.update { it.copy(error = ErrorMessageMapper.map(e)) }
+                    _uiState.update { it.copy(error = ErrorMessageMapper.mapToUiError(e, onRetry = { reportArtifact(artifactId, reason, details) })) }
                 }
         }
     }
 
     fun submitFeedback(artifactId: String, type: FeedbackType) {
         val userId = authRepository.currentUser.value?.uid ?: run {
-            _uiState.update { it.copy(error = UiText.StringResource(R.string.unauthenticated_presence)) }
+            _uiState.update { it.copy(error = UiError(UiText.StringResource(R.string.unauthenticated_presence))) }
             return
         }
         viewModelScope.launch {
             artifactRepository.submitPrivateFeedback(artifactId, userId, type).onSuccess {
                 if (type == FeedbackType.SAFETY_CONCERN) {
-                    _uiState.update { it.copy(error = UiText.DynamicString("Thanks for your concern. We'll look into this immediately.")) }
+                    _uiState.update { it.copy(error = UiError(UiText.DynamicString("Thanks for your concern. We'll look into this immediately."))) }
                 } else {
-                    _uiState.update { it.copy(error = UiText.DynamicString("Feedback received. This helps improve your feed.")) }
+                    _uiState.update { it.copy(error = UiError(UiText.DynamicString("Feedback received. This helps improve your feed."))) }
                     if (type == FeedbackType.NOT_FOR_ME) {
                         loadRankedFeed()
                     }
                 }
             }.onFailure { e ->
-                _uiState.update { it.copy(error = ErrorMessageMapper.map(e)) }
+                _uiState.update { it.copy(error = ErrorMessageMapper.mapToUiError(e, onRetry = { submitFeedback(artifactId, type) })) }
             }
         }
     }

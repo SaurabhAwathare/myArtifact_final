@@ -12,6 +12,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.EngagementRepository
+import com.saurabh.artifact.util.CoroutineExceptionHandlerUtils
 import dagger.Lazy
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
@@ -41,7 +42,11 @@ class PlaybackSessionManager @Inject constructor(
     private val analytics: PlaybackAnalyticsManager,
     private val artifactRepository: Lazy<ArtifactRepository>,
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val scope = CoroutineScope(
+        SupervisorJob() + 
+        Dispatchers.Main + 
+        CoroutineExceptionHandlerUtils.create("PlaybackSessionManager", "Playback scope failure")
+    )
     private val controllerLock = Mutex()
     
     data class PositionSync(

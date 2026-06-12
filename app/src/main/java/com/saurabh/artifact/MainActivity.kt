@@ -1,5 +1,6 @@
 package com.saurabh.artifact
 
+import android.app.Activity
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -21,6 +22,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalView
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -35,6 +37,7 @@ import com.saurabh.artifact.ui.components.GlobalOverlayHost
 import com.saurabh.artifact.ui.components.moderation.ReportSheet
 import com.saurabh.artifact.ui.feed.FeedViewModel
 import com.saurabh.artifact.ui.player.PlayerViewModel
+import com.saurabh.artifact.ui.recovery.RescueScreen
 import com.saurabh.artifact.ui.splash.SplashUI
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.theme.LocalStartupStage
@@ -70,11 +73,12 @@ class MainActivity : ComponentActivity() {
         println("ReviewDebug: MainActivity onCreate - println test")
         Log.d("ReviewDebug", "MainActivity onCreate - APP STARTED")
         
+        // SIMULATE CRASH LOOP for verification
+        // throw RuntimeException("Test Crash for Rescue Mode")
+
         // Ensure logs are flushed
         Log.i("ReviewDebug", "Checking if log level INFO works")
         Log.d("APP_FLOW", "1. MainActivity.onCreate")
-        
-        checkNotificationPermission()
         
         mainViewModel.onNewIntent(intent)
         
@@ -112,21 +116,6 @@ class MainActivity : ComponentActivity() {
                 } else {
                     window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
                 }
-            }
-        }
-    }
-
-    private fun checkNotificationPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val hasPermission = ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) == PackageManager.PERMISSION_GRANTED
-
-            if (!hasPermission) {
-                registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
-                    Log.d("Notifications", "POST_NOTIFICATIONS granted: $isGranted")
-                }.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
         }
     }
@@ -179,6 +168,18 @@ fun AuthenticatedIsland(
     }
 
     when (startupState) {
+        is AppStartupState.Rescue -> {
+            val view = LocalView.current
+            RescueScreen(
+                onRestart = {
+                    // Trigger a process restart
+                    val activity = (view.context as Activity)
+                    val intent = activity.intent
+                    activity.finish()
+                    activity.startActivity(intent)
+                }
+            )
+        }
         is AppStartupState.Ready -> {
             val readyState = startupState as AppStartupState.Ready
             val startDestination = readyState.startDestination

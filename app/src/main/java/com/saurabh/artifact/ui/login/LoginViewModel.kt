@@ -3,6 +3,7 @@ package com.saurabh.artifact.ui.login
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.saurabh.artifact.auth.CredentialHelper
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.ui.util.UiText
 import com.saurabh.artifact.ui.util.ErrorMessageMapper
@@ -16,6 +17,7 @@ import javax.inject.Inject
 class LoginViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val userRepository: com.saurabh.artifact.repository.UserRepository,
+    val credentialHelper: CredentialHelper
 ) : ViewModel() {
 
     private val _loginState = MutableStateFlow<LoginState>(LoginState.Idle)

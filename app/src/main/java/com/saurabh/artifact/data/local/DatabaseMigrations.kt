@@ -609,6 +609,26 @@ object DatabaseMigrations {
         }
     }
 
+    val MIGRATION_45_46 = object : Migration(45, 46) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `current_user_profile` (
+                    `id` TEXT NOT NULL, 
+                    `anonymousId` TEXT NOT NULL, 
+                    `anonymousName` TEXT NOT NULL, 
+                    `anonymousSigil` TEXT NOT NULL, 
+                    `avatarSeed` TEXT NOT NULL, 
+                    `avatarColor` TEXT NOT NULL, 
+                    `avatarConfigJson` TEXT NOT NULL, 
+                    `lastUpdated` INTEGER NOT NULL, 
+                    PRIMARY KEY(`id`)
+                )
+            """.trimIndent()
+            )
+        }
+    }
+
     val ALL_MIGRATIONS = arrayOf(
         MIGRATION_1_2,
         MIGRATION_2_3,
@@ -637,6 +657,7 @@ object DatabaseMigrations {
         MIGRATION_38_39,
         MIGRATION_39_40,
         MIGRATION_41_42,
-        MIGRATION_42_43
+        MIGRATION_42_43,
+        MIGRATION_45_46
     )
 }

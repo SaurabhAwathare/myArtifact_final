@@ -64,7 +64,7 @@ data class ArtifactDraftEntity(
     val version: Int = 1,
 
     // Recording Session Info
-    val mimeType: String = "audio/mpeg",
+    val mimeType: String = "audio/wav",
     val amplitudeData: List<Float> = emptyList(),
     val reactionVisibility: ReactionVisibilityMode? = null,
 

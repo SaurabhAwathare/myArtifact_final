@@ -109,12 +109,15 @@ fun FeedScreen(
 
     val context = LocalContext.current
     LaunchedEffect(error) {
-        error?.let { uiText ->
-            snackbarHostState.showSnackbar(
-                message = uiText.asString(context),
-                actionLabel = "Retry",
-                duration = SnackbarDuration.Short
+        error?.let { uiError ->
+            val result = snackbarHostState.showSnackbar(
+                message = uiError.message.asString(context),
+                actionLabel = uiError.actionLabel?.asString(context),
+                duration = if (uiError.actionLabel != null) SnackbarDuration.Indefinite else SnackbarDuration.Short
             )
+            if (result == SnackbarResult.ActionPerformed) {
+                uiError.onAction?.invoke()
+            }
             viewModel.clearError()
         }
     }

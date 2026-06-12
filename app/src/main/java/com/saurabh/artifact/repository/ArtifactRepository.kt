@@ -3,6 +3,8 @@ package com.saurabh.artifact.repository
 import android.net.Uri
 import androidx.core.net.toUri
 import android.util.Log
+import com.saurabh.artifact.util.CoroutineExceptionHandlerUtils
+import com.saurabh.artifact.util.ArtifactLogger
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
@@ -68,7 +70,11 @@ class ArtifactRepository @Inject constructor(
     private val database: AppDatabase,
     private val pendingInteractionDao: PendingInteractionDao
 ) {
-    private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val repositoryScope = CoroutineScope(
+        SupervisorJob() + 
+        Dispatchers.Main + 
+        CoroutineExceptionHandlerUtils.create("ArtifactRepository", "RepositoryScope failure")
+    )
 
     suspend fun getArtifact(artifactId: String): Result<Artifact> = withContext(Dispatchers.IO) {
         try {
@@ -142,7 +148,7 @@ class ArtifactRepository @Inject constructor(
         val docRef = firestore.collection("artifacts").document(artifactId)
         val subscription = docRef.addSnapshotListener { snapshot, error ->
             if (error != null) {
-                Log.e("ArtifactRepository", "Error observing artifact $artifactId", error)
+                ArtifactLogger.e("ArtifactRepository", "Error observing artifact $artifactId", error)
                 trySend(null)
                 return@addSnapshotListener
             }
@@ -204,7 +210,7 @@ class ArtifactRepository @Inject constructor(
             }
             Result.success(reports)
         } catch (e: Exception) {
-            Log.e("ArtifactRepository", "Error fetching reports", e)
+            ArtifactLogger.e("ArtifactRepository", "Error fetching reports", e)
             Result.failure(e)
         }
     }
@@ -244,7 +250,7 @@ class ArtifactRepository @Inject constructor(
             }.await()
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("ArtifactRepository", "Error resolving report", e)
+            ArtifactLogger.e("ArtifactRepository", "Error resolving report", e)
             Result.failure(e)
         }
     }
@@ -340,7 +346,7 @@ class ArtifactRepository @Inject constructor(
 
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("ArtifactRepository", "Private feedback failed", e)
+            ArtifactLogger.e("ArtifactRepository", "Private feedback failed", e)
             Result.failure(e)
         }
     }
@@ -398,7 +404,7 @@ class ArtifactRepository @Inject constructor(
                         .await()
                 }
             } catch (e: Exception) {
-                Log.e("ArtifactRepository", "Report metadata update failed", e)
+                ArtifactLogger.e("ArtifactRepository", "Report metadata update failed", e)
             }
 
             // 4. Update local Room DB for immediate hiding
@@ -414,12 +420,12 @@ class ArtifactRepository @Inject constructor(
                     }
                 }
             } catch (e: Exception) {
-                Log.e("ArtifactRepository", "Local moderation update failed", e)
+                ArtifactLogger.e("ArtifactRepository", "Local moderation update failed", e)
             }
                 
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("ArtifactRepository", "Report submission failed", e)
+            ArtifactLogger.e("ArtifactRepository", "Report submission failed", e)
             Result.failure(AppError.from(e))
         }
     }
@@ -555,7 +561,7 @@ class ArtifactRepository @Inject constructor(
             }.await()
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("ArtifactRepository", "Error recording play", e)
+            ArtifactLogger.e("ArtifactRepository", "Error recording play", e)
             Result.failure(AppError.from(e))
         }
     }
@@ -586,7 +592,7 @@ class ArtifactRepository @Inject constructor(
 
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("ArtifactRepository", "Failed to queue save for artifact ${artifact.id}", e)
+            ArtifactLogger.e("ArtifactRepository", "Failed to queue save for artifact ${artifact.id}", e)
             Result.failure(e)
         }
     }
@@ -612,7 +618,7 @@ class ArtifactRepository @Inject constructor(
 
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("ArtifactRepository", "Failed to queue unsave for artifact $artifactId", e)
+            ArtifactLogger.e("ArtifactRepository", "Failed to queue unsave for artifact $artifactId", e)
             Result.failure(e)
         }
     }
@@ -755,12 +761,12 @@ class ArtifactRepository @Inject constructor(
                     if (e is CancellationException) throw e
                     
                     if (!isTransientError(e)) {
-                        Log.e("ArtifactRepository", "Terminal upload failure: ${e.message}")
+                        ArtifactLogger.e("ArtifactRepository", "Terminal upload failure: ${e.message}")
                         Result.failure(e)
                     } else {
                         currentRetry++
                         if (currentRetry > maxRetries) {
-                            Log.e("ArtifactRepository", "Max retries exceeded for transient error", e)
+                            ArtifactLogger.e("ArtifactRepository", "Max retries exceeded for transient error", e)
                             Result.failure(e)
                         } else {
                             val delayTime = (2.0.pow(currentRetry.toDouble()).toLong() * 1000L)
@@ -775,7 +781,7 @@ class ArtifactRepository @Inject constructor(
             @Suppress("UNREACHABLE_CODE")
             Result.failure(IllegalStateException("Unreachable"))
         } catch (e: Exception) {
-            Log.e("ArtifactRepository", "Resumable upload failed", e)
+            ArtifactLogger.e("ArtifactRepository", "Resumable upload failed", e)
             Result.failure(e)
         }
     }
@@ -831,7 +837,7 @@ class ArtifactRepository @Inject constructor(
                 try {
                     kotlinx.serialization.json.Json.decodeFromString<List<TranscriptSegment>>(json)
                 } catch (e: Exception) {
-                    Log.e("ArtifactRepository", "Failed to decode frozen transcript", e)
+                    ArtifactLogger.e("ArtifactRepository", "Failed to decode frozen transcript", e)
                     emptyList()
                 }
             } ?: emptyList()
@@ -893,7 +899,7 @@ class ArtifactRepository @Inject constructor(
 
             Result.success(draft.id)
         } catch (e: Exception) {
-            Log.e("ArtifactRepository", "Firestore write failed", e)
+            ArtifactLogger.e("ArtifactRepository", "Firestore write failed", e)
             Result.failure(e)
         }
     }
@@ -921,7 +927,7 @@ class ArtifactRepository @Inject constructor(
                 .update(updates).await()
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("ArtifactRepository", "Failed to finalize artifact $artifactId", e)
+            ArtifactLogger.e("ArtifactRepository", "Failed to finalize artifact $artifactId", e)
             Result.failure(e)
         }
     }
@@ -944,7 +950,7 @@ class ArtifactRepository @Inject constructor(
             val downloadUrl = fileRef.downloadUrl.await().toString()
             Result.success(downloadUrl)
         } catch (e: Exception) {
-            Log.e("ArtifactRepository", "Transcript upload failed", e)
+            ArtifactLogger.e("ArtifactRepository", "Transcript upload failed", e)
             Result.failure(e)
         }
     }
@@ -957,7 +963,7 @@ class ArtifactRepository @Inject constructor(
             val transcript = kotlinx.serialization.json.Json.decodeFromString<List<TranscriptSegment>>(json)
             Result.success(transcript)
         } catch (e: Exception) {
-            Log.e("ArtifactRepository", "Failed to fetch transcript from $url", e)
+            ArtifactLogger.e("ArtifactRepository", "Failed to fetch transcript from $url", e)
             Result.failure(e)
         }
     }
@@ -1000,7 +1006,7 @@ class ArtifactRepository @Inject constructor(
 
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("ArtifactRepository", "Rename failed", e)
+            ArtifactLogger.e("ArtifactRepository", "Rename failed", e)
             Result.failure(e)
         }
     }
@@ -1017,7 +1023,7 @@ class ArtifactRepository @Inject constructor(
                 .get().await()
             settingsDoc.getBoolean("isAdmin") == true
         } catch (e: Exception) {
-            Log.e("ArtifactRepository", "Failed to check admin status", e)
+            ArtifactLogger.e("ArtifactRepository", "Failed to check admin status", e)
             false
         }
     }
@@ -1063,12 +1069,12 @@ class ArtifactRepository @Inject constructor(
                 // Also clear from Drafts if orphaned
                 draftDao.getDraftByArtifactId(artifactId)?.let { draftDao.deleteById(it.id) }
             } catch (e: Exception) {
-                Log.e("ArtifactRepository", "Local sync failed after soft-delete", e)
+                ArtifactLogger.e("ArtifactRepository", "Local sync failed after soft-delete", e)
             }
 
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("ArtifactRepository", "Soft delete failure for $artifactId", e)
+            ArtifactLogger.e("ArtifactRepository", "Soft delete failure for $artifactId", e)
             Result.failure(e)
         }
     }

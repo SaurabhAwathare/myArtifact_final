@@ -25,6 +25,11 @@
     <string name="account_deleted">Your presence has been dissolved from this space.</string>
     <string name="generic_error">Something unexpected happened. Let\'s try again in a moment.</string>
 
+    <!-- Recovery Actions -->
+    <string name="action_retry">Retry</string>
+    <string name="action_reauthenticate">Log In</string>
+    <string name="action_support">Support</string>
+
     <!-- Notification Messages -->
     <string name="notification_reply_received">Someone replied to your artifact 💬</string>
     <string name="notification_new_artifact">You published a new artifact: %s ✨</string>

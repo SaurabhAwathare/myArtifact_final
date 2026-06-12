@@ -28,6 +28,10 @@ object NotificationHelper {
     const val CHANNEL_NAME_INTERACTIONS = "Resonances"
     const val CHANNEL_DESC_INTERACTIONS = "Quiet notifications for reflections and reactions to your shared artifacts."
 
+    const val CHANNEL_ID_REPLIES = "replies_channel"
+    const val CHANNEL_NAME_REPLIES = "New Reflections"
+    const val CHANNEL_DESC_REPLIES = "Immediate updates when someone responds to your artifact."
+
     const val CHANNEL_ID_REMINDERS = "reminders_channel"
     const val CHANNEL_NAME_REMINDERS = "Reminders"
     const val CHANNEL_DESC_REMINDERS = "Gentle nudges to help you stay connected with your feelings."
@@ -57,6 +61,15 @@ object NotificationHelper {
                 NotificationManager.IMPORTANCE_DEFAULT,
             ).apply {
                 description = CHANNEL_DESC_INTERACTIONS
+            }
+
+            // Create Replies Channel (IMPORTANCE_HIGH for visibility)
+            val repliesChannel = NotificationChannel(
+                CHANNEL_ID_REPLIES,
+                CHANNEL_NAME_REPLIES,
+                NotificationManager.IMPORTANCE_HIGH,
+            ).apply {
+                description = CHANNEL_DESC_REPLIES
             }
             
             // Create Reminders Channel (IMPORTANCE_LOW for subtlety)
@@ -88,7 +101,9 @@ object NotificationHelper {
                 setShowBadge(false)
             }
             
-            notificationManager.createNotificationChannels(listOf(interactionsChannel, remindersChannel, uploadsChannel, playbackChannel))
+            notificationManager.createNotificationChannels(
+                listOf(interactionsChannel, repliesChannel, remindersChannel, uploadsChannel, playbackChannel)
+            )
         }
     }
 
@@ -109,9 +124,10 @@ object NotificationHelper {
     fun buildUploadProgressNotification(
         context: Context,
         title: String,
-        progress: Int
+        progress: Int,
+        draftId: String? = null
     ): android.app.Notification {
-        return NotificationCompat.Builder(context, CHANNEL_ID_UPLOADS)
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID_UPLOADS)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle("Uploading artifact...")
             .setContentText("$title • $progress% complete")
@@ -119,20 +135,35 @@ object NotificationHelper {
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
-            .build()
+
+        if (draftId != null) {
+            val cancelIntent = Intent(context, com.saurabh.artifact.audio.UploadService::class.java).apply {
+                action = com.saurabh.artifact.audio.UploadService.ACTION_CANCEL
+                putExtra(com.saurabh.artifact.audio.UploadService.EXTRA_DRAFT_ID, draftId)
+            }
+            val cancelPendingIntent = PendingIntent.getService(
+                context, 
+                draftId.hashCode(), 
+                cancelIntent, 
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+            builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, "Cancel", cancelPendingIntent)
+        }
+
+        return builder.build()
     }
 
     /**
      * Updates an existing upload progress notification.
      */
-    fun updateUploadProgress(context: Context, title: String, progress: Int) {
+    fun updateUploadProgress(context: Context, title: String, progress: Int, draftId: String? = null) {
         if (!hasNotificationPermission(context)) {
             Log.d("NotificationHelper", "Trace: Skipping progress update (no permission)")
             return
         }
         
         Log.d("NotificationHelper", "Trace: Updating upload progress for $title to $progress%")
-        val notification = buildUploadProgressNotification(context, title, progress)
+        val notification = buildUploadProgressNotification(context, title, progress, draftId)
         try {
             NotificationManagerCompat.from(context).notify(UPLOAD_NOTIFICATION_ID, notification)
         } catch (e: SecurityException) {
@@ -168,7 +199,8 @@ object NotificationHelper {
         context: Context,
         title: String,
         message: String,
-        artifactId: String? = null
+        artifactId: String? = null,
+        channelId: String = CHANNEL_ID_INTERACTIONS
     ) {
         if (!hasNotificationPermission(context)) {
             Log.w("NotificationHelper", "Skipping interaction notification: Permission not granted.")
@@ -187,11 +219,18 @@ object NotificationHelper {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        val builder = NotificationCompat.Builder(context, CHANNEL_ID_INTERACTIONS)
+        // Determine priority based on channel
+        val priority = if (channelId == CHANNEL_ID_REPLIES) {
+            NotificationCompat.PRIORITY_HIGH
+        } else {
+            NotificationCompat.PRIORITY_DEFAULT
+        }
+
+        val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(R.mipmap.ic_launcher) // Standardize to mipmap for compatibility
             .setContentTitle(title)
             .setContentText(message)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setPriority(priority)
             .setCategory(NotificationCompat.CATEGORY_SOCIAL)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)

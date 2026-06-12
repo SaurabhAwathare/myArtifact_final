@@ -4,6 +4,7 @@ import android.util.Log
 import com.saurabh.artifact.audio.ArtifactCleanupManager
 import com.saurabh.artifact.audio.DraftDeletionManager
 import com.saurabh.artifact.audio.LocalDraftManager
+import com.saurabh.artifact.audio.WavHeaderUtils
 import com.saurabh.artifact.audio.WavRecoveryManager
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.data.local.DraftDao
@@ -30,6 +31,7 @@ class RecordingRepository @Inject constructor(
         durationMs: Long,
         checksum: String? = null,
         isEncrypted: Boolean = false,
+        mimeType: String = "audio/wav"
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
             val draft = ArtifactDraftEntity(
@@ -39,6 +41,7 @@ class RecordingRepository @Inject constructor(
                 durationMs = durationMs,
                 checksum = checksum,
                 isEncrypted = isEncrypted,
+                mimeType = mimeType,
                 status = DraftStatus(
                     lifecycle = if (durationMs > 0) ArtifactLifecycle.PROCESSING else ArtifactLifecycle.RECORDING,
                     publication = SyncStatus.LocalOnly
@@ -169,8 +172,19 @@ class RecordingRepository @Inject constructor(
                             ArtifactLifecycle.DELETED to ProcessingStatus.Failed
                     }
 
+                    // Calculate recovered duration
+                    val recoveredAudioBytes = file.length() - WavHeaderUtils.HEADER_SIZE
+                    val recoveredDurationMs = WavHeaderUtils.calculateDurationMs(
+                        audioDataLength = recoveredAudioBytes.coerceAtLeast(0),
+                        sampleRate = 44100, // Matching WavRecoveryManager defaults
+                        channels = 1,
+                        bitsPerSample = 16
+                    )
+
                     val updated = draft.copy(
                         status = draft.status.copy(lifecycle = newLifecycle, processing = newProcessing),
+                        durationMs = if (newLifecycle == ArtifactLifecycle.PROCESSING) recoveredDurationMs else draft.durationMs,
+                        durableBytes = if (newLifecycle == ArtifactLifecycle.PROCESSING) recoveredAudioBytes.coerceAtLeast(0) else draft.durableBytes,
                         updatedAt = System.currentTimeMillis()
                     )
                     draftDao.update(updated)

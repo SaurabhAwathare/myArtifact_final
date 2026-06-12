@@ -7,7 +7,7 @@ import androidx.appsearch.annotation.Document
  * Converted to Kotlin to ensure reliable KSP processing for AppSearch.
  */
 @Document
-data class UserPreferenceDocument(
+public data class UserPreferenceDocument(
     @Document.Namespace
     val namespace: String,
 
@@ -25,4 +25,7 @@ data class UserPreferenceDocument(
 
     @Document.LongProperty
     val lastInteractionTimestamp: Long = System.currentTimeMillis(),
-)
+) {
+    // Explicit no-arg constructor if needed by some AppSearch versions
+    constructor() : this("", "", null, emptyList(), null, System.currentTimeMillis())
+}

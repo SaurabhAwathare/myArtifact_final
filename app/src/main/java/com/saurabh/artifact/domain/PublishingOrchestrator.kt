@@ -1,9 +1,12 @@
 package com.saurabh.artifact.domain
 
+import android.content.Context
 import android.util.Log
 import androidx.work.*
+import com.saurabh.artifact.audio.UploadService
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.worker.PublishingWorker
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
@@ -12,6 +15,7 @@ import javax.inject.Singleton
 
 @Singleton
 class PublishingOrchestrator @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val draftRepository: com.saurabh.artifact.repository.DraftRepository,
     private val approvalRepository: com.saurabh.artifact.repository.PublishApprovalRepository,
     private val connectivityObserver: com.saurabh.artifact.util.ConnectivityObserver,
@@ -99,7 +103,11 @@ class PublishingOrchestrator @Inject constructor(
 
             draftRepository.prepareForPublishing(draftId, initialStatus)
 
-            // 3. Trigger Publishing Worker
+            // 3. Trigger Publishing Hybrid Solution
+            // Immediate Start via Service
+            UploadService.start(context, draftId)
+            
+            // Trigger Publishing Worker as fallback
             enqueuePublishingWork(draftId)
             
             Result.success(Unit)

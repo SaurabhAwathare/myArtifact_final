@@ -4,6 +4,7 @@ import com.saurabh.artifact.security.DataExportManager
 import com.saurabh.artifact.util.ClipboardGuard
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.saurabh.artifact.auth.CredentialHelper
 import com.saurabh.artifact.model.UserSettings
 import com.saurabh.artifact.repository.SettingsRepository
 import com.saurabh.artifact.ui.util.UiText
@@ -30,7 +31,8 @@ class SettingsViewModel @Inject constructor(
     private val repository: SettingsRepository,
     private val authRepository: com.saurabh.artifact.repository.AuthRepository,
     private val dataExportManager: DataExportManager,
-    private val clipboardGuard: ClipboardGuard
+    private val clipboardGuard: ClipboardGuard,
+    val credentialHelper: CredentialHelper
 ) : ViewModel() {
 
     val isAnonymous = authRepository.currentUser.map { it?.isAnonymous ?: true }
@@ -63,6 +65,14 @@ class SettingsViewModel @Inject constructor(
 
     fun updateStealthMode(enabled: Boolean) {
         update { it.copy(stealthModeEnabled = enabled) }
+    }
+
+    fun updateNotifications(enabled: Boolean) {
+        update { it.copy(notificationsEnabled = enabled) }
+    }
+
+    fun updateSmartReminders(enabled: Boolean) {
+        update { it.copy(smartRemindersEnabled = enabled) }
     }
 
     private fun update(reducer: (UserSettings) -> UserSettings) {

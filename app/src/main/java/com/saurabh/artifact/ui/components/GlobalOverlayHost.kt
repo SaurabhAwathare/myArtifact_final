@@ -22,6 +22,17 @@ import com.saurabh.artifact.ui.player.PlayerMode
 import com.saurabh.artifact.ui.player.components.MiniPlayer
 import com.saurabh.artifact.ui.recording.components.MiniRecorder
 
+private val ScreensWithoutOverlays = listOf(
+    InstantRecord::class,
+    PreRecordingWarning::class,
+    RecordingReview::class,
+    PublishPreparation::class,
+    PublishApproval::class,
+    IdentitySelection::class,
+    PresenceBuilder::class,
+    PostRecordingDecision::class
+)
+
 @Composable
 fun GlobalOverlayHost(
     navController: NavController,
@@ -96,17 +107,5 @@ fun GlobalOverlayHost(
 
 fun isOverlayVisibleOnRoute(destination: NavDestination?): Boolean {
     if (destination == null) return false
-    
-    val screensWithoutOverlays = listOf(
-        InstantRecord::class,
-        PreRecordingWarning::class,
-        RecordingReview::class,
-        PublishPreparation::class,
-        PublishApproval::class,
-        IdentitySelection::class,
-        PresenceBuilder::class,
-        PostRecordingDecision::class
-    )
-    
-    return screensWithoutOverlays.none { destination.hasRoute(it) }
+    return ScreensWithoutOverlays.none { destination.hasRoute(it) }
 }

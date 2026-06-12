@@ -1,5 +1,6 @@
 package com.saurabh.artifact.service
 
+import android.content.Context
 import android.util.Log
 import com.google.firebase.Firebase
 import com.google.firebase.ai.ai
@@ -11,6 +12,8 @@ import com.saurabh.artifact.model.EmotionalTone
 import com.saurabh.artifact.model.PromptCategory
 import com.saurabh.artifact.model.ReflectionPrompt
 import com.saurabh.artifact.repository.PromptRepository
+import com.saurabh.artifact.util.NetworkUtils
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
@@ -30,7 +33,8 @@ interface ReflectionAIService {
 @Singleton
 class ReflectionAIServiceImpl @Inject constructor(
     private val promptRepository: PromptRepository,
-    private val safetyEvaluator: SafetyEvaluator
+    private val safetyEvaluator: SafetyEvaluator,
+    @param:ApplicationContext private val context: Context
 ) : ReflectionAIService {
 
     companion object {
@@ -73,6 +77,13 @@ class ReflectionAIServiceImpl @Inject constructor(
         contextSummary: String?,
         timeOfDay: String?
     ): Result<ReflectionPrompt> {
+        // 1. Fail-Fast Connectivity Check
+        if (!NetworkUtils.isNetworkAvailable(context)) {
+            Log.d(TAG, "Device is offline. Using smart local fallback.")
+            val fallback = promptRepository.getSmartFallback(emotion)
+            return Result.success(fallback ?: getHardcodedFallback())
+        }
+
         return try {
             withTimeout(GENERATION_TIMEOUT) {
                 val promptText = buildPrompt(emotion, contextSummary, timeOfDay)
@@ -99,23 +110,22 @@ class ReflectionAIServiceImpl @Inject constructor(
         } catch (e: Exception) {
             if (e is CancellationException && e !is TimeoutCancellationException) throw e
             
-            Log.e(TAG, "AI generation failed or timed out. Falling back to repository.", e)
+            val reason = if (e is TimeoutCancellationException) "Timeout" else "Error"
+            Log.e(TAG, "AI generation failed ($reason). Falling back to repository.", e)
             
-            // 4. Fallback Logic: Use deterministic prompts if AI fails
-            val fallback = promptRepository.getRandomPrompt(emotion)
-            if (fallback != null) {
-                Result.success(fallback.copy(id = "fallback_${fallback.id}", category = PromptCategory.AI_GUIDED))
-            } else {
-                Result.success(
-                    ReflectionPrompt(
-                        id = "fallback_generic",
-                        question = "What's resting on your heart in this quiet moment?",
-                        category = PromptCategory.GENERAL,
-                        tone = EmotionalTone.REFLECTIVE
-                    )
-                )
-            }
+            // 4. Fallback Logic: Use smart local fallback if AI fails or times out
+            val fallback = promptRepository.getSmartFallback(emotion)
+            Result.success(fallback ?: getHardcodedFallback())
         }
+    }
+
+    private fun getHardcodedFallback(): ReflectionPrompt {
+        return ReflectionPrompt(
+            id = "fallback_generic",
+            question = "What's resting on your heart in this quiet moment?",
+            category = PromptCategory.GENERAL,
+            tone = EmotionalTone.REFLECTIVE
+        )
     }
 
     private fun buildPrompt(emotion: String?, context: String?, timeOfDay: String?): String {

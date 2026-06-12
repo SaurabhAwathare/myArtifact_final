@@ -12,6 +12,8 @@ import coil.request.CachePolicy
 import com.saurabh.artifact.startup.StartupCoordinator
 import com.saurabh.artifact.util.MemoryManager
 import com.saurabh.artifact.util.StartupTracer
+import com.saurabh.artifact.util.RescueTracker
+import com.saurabh.artifact.util.CoroutineExceptionHandlerUtils
 import dagger.Lazy
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
@@ -20,6 +22,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 import javax.inject.Inject
 
 @Suppress("GrazieInspectionRunner")
@@ -46,14 +49,42 @@ class ArtifactApplication : Application(), ImageLoaderFactory, Configuration.Pro
     override fun onCreate() {
         super.onCreate()
         
+        setupRescueTracker()
+        
         // Use a dedicated scope for non-UI initialization to avoid blocking Main
-        val initScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+        val initScope = CoroutineScope(
+            Dispatchers.Default + 
+            SupervisorJob() + 
+            CoroutineExceptionHandlerUtils.create("ArtifactApp", "InitScope failure")
+        )
         
         // Defer coordinator slightly to allow App onCreate to complete and UI to bind
         initScope.launch(Dispatchers.Main) {
             delay(50.milliseconds) // Reduced delay
             startupCoordinator.get().start()
             StartupTracer.mark("StartupCoordinator Launched (Deferred)")
+        }
+    }
+
+    private fun setupRescueTracker() {
+        val rescueTracker = RescueTracker.getInstance(this)
+        
+        // Intercept crashes to note them in the tracker
+        val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            rescueTracker.noteCrash()
+            defaultHandler?.uncaughtException(thread, throwable)
+        }
+
+        // If the app stays alive for 15 seconds, consider it a successful startup
+        CoroutineScope(
+            Dispatchers.Default + 
+            CoroutineExceptionHandlerUtils.create("ArtifactApp", "RescueTracker scope failure") {
+                rescueTracker.noteCrash()
+            }
+        ).launch {
+            delay(15.seconds)
+            rescueTracker.onStartupSuccess()
         }
     }
 

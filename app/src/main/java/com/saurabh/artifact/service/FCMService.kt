@@ -18,20 +18,40 @@ class FCMService : FirebaseMessagingService() {
 
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
         super.onMessageReceived(remoteMessage)
-        
-        // 1. Handle Notification Payload (Automatic background handling)
+
+        val data = remoteMessage.data
+        val artifactId = data["artifactId"]
+        val channelId = data["channelId"] ?: NotificationHelper.CHANNEL_ID_INTERACTIONS
+
+        // 1. Handle Notification Payload
+        // If a notification block is present, it will be handled by the system in the background.
+        // In the foreground, we handle it manually here.
         remoteMessage.notification?.let { notification ->
             val title = notification.title ?: "myArtifact"
             val body = notification.body ?: "Someone engaged with your artifact 💬"
-            NotificationHelper.showInteractionNotification(this, title, body, remoteMessage.data["artifactId"])
+            
+            NotificationHelper.showInteractionNotification(
+                context = this,
+                title = title,
+                message = body,
+                artifactId = artifactId,
+                channelId = channelId
+            )
+            return // Early return to prevent duplicate notification from data payload
         }
 
-        // 2. Handle Data Payload (For custom handling or when app is in foreground)
-        if (remoteMessage.data.isNotEmpty()) {
-            val title = remoteMessage.data["title"] ?: "New Interaction"
-            val message = remoteMessage.data["message"] ?: "Someone sent you a reaction!"
-            val artifactId = remoteMessage.data["artifactId"]
-            NotificationHelper.showInteractionNotification(this, title, message, artifactId)
+        // 2. Handle Data Payload (Fallback for data-only messages)
+        if (data.isNotEmpty()) {
+            val title = data["title"] ?: "New Interaction"
+            val message = data["message"] ?: "Someone sent you a reaction!"
+            
+            NotificationHelper.showInteractionNotification(
+                context = this,
+                title = title,
+                message = message,
+                artifactId = artifactId,
+                channelId = channelId
+            )
         }
     }
 

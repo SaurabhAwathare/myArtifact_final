@@ -1,5 +1,6 @@
 package com.saurabh.artifact.ui.player
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
@@ -47,6 +48,11 @@ fun ArtifactPlayerView(
     
     // Safety check: if nothing is playing and we're hidden, render nothing.
     if ((uiState.currentArtifact == null) && (uiState.playerMode == PlayerMode.HIDDEN)) return
+
+    // Handle back press to minimize player if expanded
+    BackHandler(enabled = uiState.playerMode == PlayerMode.FULLSCREEN) {
+        viewModel.setExpanded(false)
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         // 1. FULLSCREEN IMMERSIVE PLAYER
