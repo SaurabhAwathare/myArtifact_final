@@ -15,6 +15,7 @@ fun LazyListScope.draftSection(
     isBuffering: Boolean,
     onPlayClick: (ArtifactDraftEntity) -> Unit,
     onRename: (ArtifactDraftEntity, String) -> Unit,
+    onPublishClick: (ArtifactDraftEntity) -> Unit = {},
     onDelete: (ArtifactDraftEntity) -> Unit
 ) {
     if (drafts.isNotEmpty()) {
@@ -40,6 +41,7 @@ fun LazyListScope.draftSection(
                     isBuffering = isCurrent && isBuffering,
                     onPlayClick = { onPlayClick(draft) },
                     onRename = { newTitle -> onRename(draft, newTitle) },
+                    onPublishClick = { onPublishClick(draft) },
                     onDelete = { onDelete(draft) },
                     onViewComments = null // Drafts don't have comments
                 )

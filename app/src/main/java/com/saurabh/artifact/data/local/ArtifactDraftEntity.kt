@@ -56,6 +56,7 @@ data class ArtifactDraftEntity(
     val transcriptionState: String = "IDLE",
     val remoteArtifactId: String? = null,
     val emotionalTone: EmotionalTone? = null,
+    val primaryStyle: ConversationStyle? = null,
     val safetyAnalysis: String? = null,
     val interruptionReason: String? = null,
     val lastCheckpointTimestamp: Long = System.currentTimeMillis(),

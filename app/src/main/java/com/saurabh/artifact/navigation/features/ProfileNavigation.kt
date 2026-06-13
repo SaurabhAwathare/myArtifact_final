@@ -30,10 +30,6 @@ fun NavGraphBuilder.profileNavigation(
         navController.navigate(Settings)
     }
 
-    val onNavigateToDebugMenu = {
-        navController.navigate(DebugMenu)
-    }
-
     val onNavigateToAvatarEditor = {
         navController.navigate(AvatarEditor)
     }
@@ -59,6 +55,9 @@ fun NavGraphBuilder.profileNavigation(
             onNavigateToSettings = onNavigateToSettings,
             onNavigateToReview = { draftId ->
                 navController.navigate(RecordingReview(draftId))
+            },
+            onNavigateToPublish = { draftId ->
+                navController.navigate(PublishPreparation(draftId))
             },
             onNavigateToResonanceList = { id, type, title ->
                 navController.navigate(ResonanceList(id, type, title))

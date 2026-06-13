@@ -6,6 +6,7 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.saurabh.artifact.audio.LocalDraftManager
+import com.saurabh.artifact.model.ConversationStyle
 import com.saurabh.artifact.model.EmotionalTone
 import com.saurabh.artifact.repository.RecordingRepository
 import dagger.assisted.Assisted
@@ -67,11 +68,15 @@ class TranscriptionWorker @AssistedInject constructor(
 
             // 3. Perform Emotional Analysis
             val emotionalTone = analyzeEmotionalTone()
+            
+            // 4. Perform Conversational Style Analysis
+            val conversationStyle = analyzeConversationStyle()
 
-            // 4. Update Repository
+            // 5. Update Repository
             recordingRepository.updateDraft(draft.copy(
                 localTranscriptPath = transcriptPath,
                 emotionalTone = emotionalTone,
+                primaryStyle = conversationStyle,
                 updatedAt = System.currentTimeMillis()
             ))
 
@@ -105,6 +110,12 @@ class TranscriptionWorker @AssistedInject constructor(
 
     private fun analyzeEmotionalTone(): EmotionalTone {
         return EmotionalTone.REFLECTIVE
+    }
+
+    private fun analyzeConversationStyle(): ConversationStyle {
+        // Placeholder: In a future iteration, this will use the transcript
+        // or audio energy levels to categorize the style.
+        return ConversationStyle.REFLECTIVE
     }
 
     companion object {

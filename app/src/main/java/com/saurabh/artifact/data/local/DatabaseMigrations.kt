@@ -629,6 +629,44 @@ object DatabaseMigrations {
         }
     }
 
+    val MIGRATION_46_47 = object : Migration(46, 47) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            // Version 46 schema was actually missing safetyConcernCount and primaryStyle 
+            // from the artifacts table compared to the entity.
+            
+            // Check artifacts table for safetyConcernCount
+            val cursorArtifacts = db.query("PRAGMA table_info(`artifacts`)")
+            var hasSafetyConcernCount = false
+            var hasPrimaryStyle = false
+            while (cursorArtifacts.moveToNext()) {
+                val name = cursorArtifacts.getString(cursorArtifacts.getColumnIndexOrThrow("name"))
+                if (name == "safetyConcernCount") hasSafetyConcernCount = true
+                if (name == "primaryStyle") hasPrimaryStyle = true
+            }
+            cursorArtifacts.close()
+            
+            if (!hasSafetyConcernCount) {
+                db.execSQL("ALTER TABLE `artifacts` ADD COLUMN `safetyConcernCount` INTEGER NOT NULL DEFAULT 0")
+            }
+            if (!hasPrimaryStyle) {
+                db.execSQL("ALTER TABLE `artifacts` ADD COLUMN `primaryStyle` TEXT")
+            }
+
+            // Check upload_tasks for owner
+            val cursorUploadTasks = db.query("PRAGMA table_info(`upload_tasks`)")
+            var hasOwner = false
+            while (cursorUploadTasks.moveToNext()) {
+                if (cursorUploadTasks.getString(cursorUploadTasks.getColumnIndexOrThrow("name")) == "owner") {
+                    hasOwner = true
+                }
+            }
+            cursorUploadTasks.close()
+            if (!hasOwner) {
+                db.execSQL("ALTER TABLE `upload_tasks` ADD COLUMN `owner` TEXT")
+            }
+        }
+    }
+
     val ALL_MIGRATIONS = arrayOf(
         MIGRATION_1_2,
         MIGRATION_2_3,
@@ -658,6 +696,7 @@ object DatabaseMigrations {
         MIGRATION_39_40,
         MIGRATION_41_42,
         MIGRATION_42_43,
-        MIGRATION_45_46
+        MIGRATION_45_46,
+        MIGRATION_46_47
     )
 }

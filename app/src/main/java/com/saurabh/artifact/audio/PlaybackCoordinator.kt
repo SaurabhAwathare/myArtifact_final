@@ -26,7 +26,7 @@ class PlaybackCoordinator @Inject constructor(
     val isBuffering = playbackSessionManager.isBuffering
     
     val currentPosition: Flow<Duration> = playbackSessionManager.currentPosition.map { it.milliseconds }
-    val positionSync = playbackSessionManager.positionSync
+    private val positionSync = playbackSessionManager.positionSync
     
     val duration: Flow<Duration> = playbackSessionManager.durationMs.map { it.milliseconds }
     
@@ -40,12 +40,7 @@ class PlaybackCoordinator @Inject constructor(
     val sleepTimerRemaining: StateFlow<Duration?> = _sleepTimerRemaining.asStateFlow()
     private var sleepTimerJob: Job? = null
 
-    /**
-     * When the user is manually scrubbing (dragging a seek bar), this flow emits the 
-     * position they are dragging to. When not scrubbing, it emits null.
-     */
     private val _scrubbingPosition = MutableStateFlow<Duration?>(null)
-    val scrubbingPosition: StateFlow<Duration?> = _scrubbingPosition.asStateFlow()
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val smoothPosition: Flow<Duration> = combine(

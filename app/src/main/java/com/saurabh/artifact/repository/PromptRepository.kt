@@ -5,7 +5,6 @@ import com.saurabh.artifact.data.local.PromptDao
 import com.saurabh.artifact.data.local.toDomainModel
 import com.saurabh.artifact.data.local.toEntity
 import com.saurabh.artifact.model.ReflectionPrompt
-import com.saurabh.artifact.util.NetworkUtils
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -19,14 +18,14 @@ import javax.inject.Singleton
 @Singleton
 class PromptRepository @Inject constructor(
     private val promptDao: PromptDao,
-    @param:ApplicationContext private val context: Context
+    @param:ApplicationContext private val context: Context,
 ) {
 
     private val json = Json { ignoreUnknownKeys = true }
 
     /**
      * Selects the least recently used prompt (context-aware if mood provided)
-     * and expands templates like [EMOTION].
+     * and expands templates like `EMOTION`.
      */
     suspend fun getSmartFallback(mood: String? = null): ReflectionPrompt? = withContext(Dispatchers.IO) {
         initializeIfEmpty()
@@ -42,8 +41,11 @@ class PromptRepository @Inject constructor(
             val domainModel = it.toDomainModel()
             
             // Template Expansion: Inject the current emotion if placeholder exists
-            if (mood != null && domainModel.question.contains("[EMOTION]")) {
-                val expandedQuestion = domainModel.question.replace("[EMOTION]", mood.capitalize(Locale.getDefault()))
+            if (mood != null && (domainModel.question.contains("[EMOTION]"))) {
+                val expandedQuestion = domainModel.question.replace(
+                    "[EMOTION]",
+                    mood.replaceFirstChar { char -> if (char.isLowerCase()) char.titlecase(Locale.getDefault()) else char.toString() }
+                )
                 domainModel.copy(question = expandedQuestion)
             } else {
                 domainModel
@@ -68,21 +70,6 @@ class PromptRepository @Inject constructor(
 
     fun getAllPrompts(): Flow<List<ReflectionPrompt>> = 
         promptDao.getAllPrompts().map { list -> list.map { it.toDomainModel() } }
-
-    /**
-     * Fetches a random prompt from the database, optionally filtered by mood.
-     */
-    suspend fun getRandomPrompt(mood: String? = null): ReflectionPrompt? = withContext(Dispatchers.IO) {
-        initializeIfEmpty() // Ensure we have prompts if this is called early
-        
-        val entity = if (mood != null) {
-            promptDao.getRandomPromptByMood(mood) ?: promptDao.getRandomPrompt()
-        } else {
-            promptDao.getRandomPrompt()
-        }
-        
-        entity?.toDomainModel()
-    }
 
     /**
      * Records that a prompt was used to help track variety in the future.

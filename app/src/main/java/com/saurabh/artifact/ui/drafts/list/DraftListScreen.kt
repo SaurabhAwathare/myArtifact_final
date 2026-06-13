@@ -35,6 +35,7 @@ fun DraftListScreen(
     onBack: () -> Unit,
     onReviewDraft: (String) -> Unit,
     onEditDraft: (String) -> Unit,
+    onPublishDraft: (String) -> Unit,
     viewModel: DraftListViewModel = hiltViewModel()
 ) {
     val drafts by viewModel.drafts.collectAsState()
@@ -46,6 +47,7 @@ fun DraftListScreen(
             when (event) {
                 is DraftListUiEvent.NavigateToReview -> onReviewDraft(event.draftId)
                 is DraftListUiEvent.NavigateToEdit -> onEditDraft(event.draftId)
+                is DraftListUiEvent.NavigateToPublish -> onPublishDraft(event.draftId)
             }
         }
     }
@@ -107,6 +109,7 @@ fun DraftListScreen(
                             draftWithUpload = draftWithUpload,
                             onClick = { viewModel.onDraftClicked(draftWithUpload) },
                             onEdit = { viewModel.onEditClicked(draftWithUpload.draft.id) },
+                            onPublish = { viewModel.onPublishClicked(draftWithUpload.draft.id) },
                             onDelete = {
                                 draftToDelete = draftWithUpload
                             }
@@ -249,6 +252,7 @@ fun DraftItem(
     draftWithUpload: DraftWithUpload,
     onClick: () -> Unit,
     onEdit: () -> Unit,
+    onPublish: () -> Unit,
     onDelete: () -> Unit
 ) {
     val draft = draftWithUpload.draft
@@ -329,6 +333,14 @@ fun DraftItem(
                                 onEdit()
                             },
                             leadingIcon = { Icon(Icons.Default.Edit, null) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Publish Artifact") },
+                            onClick = {
+                                showMenu = false
+                                onPublish()
+                            },
+                            leadingIcon = { Icon(Icons.Default.Publish, null, tint = MaterialTheme.colorScheme.primary) }
                         )
                         DropdownMenuItem(
                             text = { Text("Delete Draft") },

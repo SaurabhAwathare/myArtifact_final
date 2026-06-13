@@ -9,17 +9,6 @@ import kotlinx.serialization.Serializable
 @Serializable
 sealed interface Route
 
-// --- Graphs ---
-
-@Serializable
-object AuthGraph
-
-@Serializable
-object MainGraph
-
-@Serializable
-object RecordingGraph
-
 // --- Auth Routes ---
 
 @Serializable
@@ -27,9 +16,6 @@ object Onboarding : Route
 
 @Serializable
 object Login : Route
-
-@Serializable
-object RescueMode : Route
 
 // --- Main / Feed Routes ---
 

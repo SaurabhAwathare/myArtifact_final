@@ -21,6 +21,7 @@ fun ArtifactManagementBottomSheet(
     isOwner: Boolean,
     isDraft: Boolean,
     onRenameClick: () -> Unit,
+    onPublishClick: () -> Unit = {},
     onDeleteClick: () -> Unit,
     onViewCommentsClick: (() -> Unit)? = null,
     isSaved: Boolean = false,
@@ -49,6 +50,18 @@ fun ArtifactManagementBottomSheet(
                         onDismiss()
                     }
                 )
+
+                if (isDraft) {
+                    ManagementActionItem(
+                        icon = Icons.Rounded.Publish,
+                        label = "Publish Artifact",
+                        textColor = ArtifactTheme.colors.waveformActive,
+                        onClick = {
+                            onPublishClick()
+                            onDismiss()
+                        }
+                    )
+                }
             }
 
             if (isSaved) {

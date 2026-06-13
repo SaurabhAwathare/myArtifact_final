@@ -286,7 +286,7 @@ class RecordingService : Service() {
 
         // Storage Check
         if (!storageManager.isStorageAvailable()) {
-            ArtifactLogger.e("RecordingService", "startRecording failed: Low storage (${storageManager.getAvailableStorageMb()} MB available)")
+            ArtifactLogger.e("RecordingService", "startRecording failed: Low storage (${storageManager.availableStorageMb} MB available)")
             _recordingState.value = RecordingState(status = RecordingStatus.FAILED, errorCode = "STORAGE_FULL")
             // Trigger emergency cleanup in background
             serviceScope.launch(Dispatchers.IO) {
@@ -574,7 +574,7 @@ class RecordingService : Service() {
                     internalAmplitudes.add(normalizedAmplitude)
 
                     // Storage Monitoring
-                    val availableMb = storageManager.getAvailableStorageMb()
+                    val availableMb = storageManager.availableStorageMb
                     
                     // Update storage low flag
                     if (_recordingState.value.isStorageLow != (availableMb < 200)) {

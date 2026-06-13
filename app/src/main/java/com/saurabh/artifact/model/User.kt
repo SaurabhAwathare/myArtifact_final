@@ -34,7 +34,7 @@ data class User(
     val lastActivityTimestamp: Timestamp? = null,
     val softStreakCount: Long = 0,
     val totalContributions: Long = 0,
-    val lastPromptId: String = ""
+    val lastPromptId: String = "",
 ) {
     /**
      * Derives the user's current dominant emotion based on interaction history.
@@ -71,7 +71,4 @@ data class UserPrivateSettings(
     var realName: String
         get() = secureRealName.toUnsecureString()
         set(value) { secureRealName = SecureString.fromString(value) }
-
-    // No-arg constructor for Firestore
-    constructor() : this(SecureString.empty(), SecureString.empty())
 }

@@ -6,44 +6,48 @@ import kotlinx.serialization.Serializable
  * Describes the conversational energy and expression style of an artifact.
  * Distinct from emotions, which describe how the user feels.
  */
-@Serializable
-enum class ConversationStyle(
-    val label: String,
-    val description: String,
-    @Suppress("unused") val iconEmoji: String,
-    @Suppress("unused") val energyLevel: EnergyLevel,
-) {
-    REFLECTIVE(
-        "Reflective",
-        "Deep introspection and internal questioning.",
-        "🤔",
-        EnergyLevel.LOW
-    ),
-    RANT(
-        "Rant",
-        "Raw emotional venting and unfiltered expression.",
-        "🔥",
-        EnergyLevel.HIGH
-    ),
-    FUNNY(
-        "Funny",
-        "A humorous or lighthearted experience.",
-        "😂",
-        EnergyLevel.HIGH
-    ),
-    CHAOTIC(
-        "Chaotic",
-        "High energy, rapid shifts, and raw emotional movement.",
-        "🌀",
-        EnergyLevel.HIGH
-    ),
-    LATE_NIGHT(
-        "Late Night Thoughts",
-        "Calm, quiet monologue, often recorded in solitude.",
-        "🌙",
-        EnergyLevel.LOW
-    ),
-}
+    @Serializable
+    enum class ConversationStyle(
+        val label: String,
+        val description: String,
+        @Suppress("unused") val iconEmoji: String,
+        @Suppress("unused") val energyLevel: EnergyLevel,
+    ) {
+        REFLECTIVE(
+            "Reflective",
+            "Deep introspection and internal questioning.",
+            "🤔",
+            EnergyLevel.LOW
+        ),
+        @Suppress("unused")
+        RANT(
+            "Rant",
+            "Raw emotional venting and unfiltered expression.",
+            "🔥",
+            EnergyLevel.HIGH
+        ),
+        @Suppress("unused")
+        FUNNY(
+            "Funny",
+            "A humorous or lighthearted experience.",
+            "😂",
+            EnergyLevel.HIGH
+        ),
+        @Suppress("unused")
+        CHAOTIC(
+            "Chaotic",
+            "High energy, rapid shifts, and raw emotional movement.",
+            "🌀",
+            EnergyLevel.HIGH
+        ),
+        @Suppress("unused")
+        LATE_NIGHT(
+            "Late Night Thoughts",
+            "Calm, quiet monologue, often recorded in solitude.",
+            "🌙",
+            EnergyLevel.LOW
+        ),
+    }
 
 /**
  * Energy levels help determine emotional pacing and listening modes.

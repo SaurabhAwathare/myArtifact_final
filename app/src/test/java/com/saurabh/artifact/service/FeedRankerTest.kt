@@ -24,7 +24,7 @@ class FeedRankerTest {
         every { settingsRepository.userSettings } returns userSettingsFlow
         every { personalizationEngine.userProfile } returns MutableStateFlow(UserPreferenceProfile())
         every { personalizationEngine.scoreContent(any(), any()) } returns 0.5
-        feedRanker = FeedRanker(personalizationEngine, settingsRepository)
+        feedRanker = FeedRanker(personalizationEngine)
     }
 
     @Test

@@ -30,6 +30,9 @@ fun NavGraphBuilder.recordingNavigation(
             },
             onEditDraft = { draftId ->
                 navController.navigate(DraftEdit(draftId))
+            },
+            onPublishDraft = { draftId ->
+                navController.navigate(PublishPreparation(draftId))
             }
         )
     }

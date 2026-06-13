@@ -11,13 +11,6 @@ import com.saurabh.artifact.BuildConfig
  */
 object ArtifactLogger {
 
-    fun v(tag: String, message: String) {
-        Log.v(tag, message)
-        if (!BuildConfig.DEBUG) {
-            FirebaseCrashlytics.getInstance().log("V/$tag: $message")
-        }
-    }
-
     fun d(tag: String, message: String) {
         Log.d(tag, message)
         if (!BuildConfig.DEBUG) {

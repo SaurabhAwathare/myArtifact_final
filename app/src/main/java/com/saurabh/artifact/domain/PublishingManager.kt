@@ -1,6 +1,5 @@
 package com.saurabh.artifact.domain
 
-import android.content.Context
 import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.storage.StorageException
@@ -12,8 +11,6 @@ import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.DraftRepository
 import com.saurabh.artifact.repository.UserRepository
 import com.saurabh.artifact.security.UploadGuard
-import com.saurabh.artifact.util.NotificationHelper
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
@@ -23,7 +20,6 @@ import javax.inject.Singleton
 
 @Singleton
 class PublishingManager @Inject constructor(
-    @ApplicationContext private val context: Context,
     private val draftRepository: DraftRepository,
     private val artifactRepository: ArtifactRepository,
     private val userRepository: UserRepository,

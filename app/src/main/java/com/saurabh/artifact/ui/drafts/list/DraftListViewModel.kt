@@ -20,6 +20,7 @@ import javax.inject.Inject
 sealed class DraftListUiEvent {
     data class NavigateToReview(val draftId: String) : DraftListUiEvent()
     data class NavigateToEdit(val draftId: String) : DraftListUiEvent()
+    data class NavigateToPublish(val draftId: String) : DraftListUiEvent()
 }
 
 @HiltViewModel
@@ -59,6 +60,12 @@ class DraftListViewModel @Inject constructor(
     fun onEditClicked(draftId: String) {
         viewModelScope.launch {
             _events.emit(DraftListUiEvent.NavigateToEdit(draftId))
+        }
+    }
+
+    fun onPublishClicked(draftId: String) {
+        viewModelScope.launch {
+            _events.emit(DraftListUiEvent.NavigateToPublish(draftId))
         }
     }
 

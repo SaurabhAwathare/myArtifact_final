@@ -1,17 +1,13 @@
 package com.saurabh.artifact
 
 import android.app.Activity
-import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager
-import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,7 +19,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
-import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -31,7 +26,10 @@ import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.rememberNavController
 import com.saurabh.artifact.audio.PublishStateManager
 import com.saurabh.artifact.audio.RecordingSessionManager
-import com.saurabh.artifact.navigation.*
+import com.saurabh.artifact.navigation.Comments
+import com.saurabh.artifact.navigation.NavGraph
+import com.saurabh.artifact.navigation.PublishPreparation
+import com.saurabh.artifact.navigation.RecordingReview
 import com.saurabh.artifact.startup.StartupStage
 import com.saurabh.artifact.ui.components.GlobalOverlayHost
 import com.saurabh.artifact.ui.components.moderation.ReportSheet
@@ -43,10 +41,10 @@ import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.theme.LocalStartupStage
 import com.saurabh.artifact.ui.theme.LocalUserProfile
 import com.saurabh.artifact.util.OnboardingManager
+import dagger.Lazy
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 import javax.inject.Inject
-import dagger.Lazy
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {

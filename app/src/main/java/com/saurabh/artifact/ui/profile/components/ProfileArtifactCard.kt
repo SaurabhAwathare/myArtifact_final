@@ -37,6 +37,7 @@ fun ProfileArtifactCard(
     onRename: (String) -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
+    onPublishClick: () -> Unit = {},
     onViewComments: (() -> Unit)? = null,
     isSaved: Boolean = false,
     onUnsave: () -> Unit = {},
@@ -199,6 +200,7 @@ fun ProfileArtifactCard(
             isDraft = isDraft,
             isSaved = isSaved,
             onRenameClick = { showRenameDialog = true },
+            onPublishClick = onPublishClick,
             onDeleteClick = { showDeleteDialog = true },
             onUnsaveClick = onUnsave,
             onViewCommentsClick = onViewComments

@@ -4,6 +4,8 @@
 
     <uses-sdk tools:overrideLibrary="com.google.mlkit.nl.entityextraction" />
 
+    <attribution android:tag="audio_recording" android:label="@string/app_name" />
+
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />

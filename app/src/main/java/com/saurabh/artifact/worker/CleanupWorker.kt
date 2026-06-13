@@ -60,7 +60,7 @@ class CleanupWorker @AssistedInject constructor(
     private suspend fun performEmergencyCleanup(): Result {
         Log.i("CleanupWorker", "Starting emergency storage cleanup...")
         
-        val availableMb = storageManager.getAvailableStorageMb()
+        val availableMb = storageManager.availableStorageMb
         if (availableMb > RetentionPolicy.EMERGENCY_STORAGE_THRESHOLD_MB) {
             Log.d("CleanupWorker", "Storage still above threshold ($availableMb MB). Skipping emergency cleanup.")
             return Result.success()

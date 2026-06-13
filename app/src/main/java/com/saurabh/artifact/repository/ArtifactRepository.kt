@@ -1,51 +1,70 @@
 package com.saurabh.artifact.repository
 
+import android.content.Context
 import android.net.Uri
-import androidx.core.net.toUri
 import android.util.Log
-import com.saurabh.artifact.util.CoroutineExceptionHandlerUtils
-import com.saurabh.artifact.util.ArtifactLogger
+import androidx.core.net.toUri
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
+import androidx.paging.map
 import com.google.firebase.Timestamp
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.StorageMetadata
-import com.saurabh.artifact.data.local.ArtifactDraftEntity
-import com.saurabh.artifact.data.local.DraftDao
-import com.saurabh.artifact.data.local.ArtifactEntity
-import com.saurabh.artifact.data.local.ArtifactDao
 import com.saurabh.artifact.data.local.AppDatabase
+import com.saurabh.artifact.data.local.ArtifactDao
+import com.saurabh.artifact.data.local.ArtifactDraftEntity
+import com.saurabh.artifact.data.local.ArtifactEntity
+import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.data.local.PendingInteractionDao
-import com.saurabh.artifact.model.*
-import com.saurabh.artifact.service.ReflectionAIService
+import com.saurabh.artifact.data.paging.ArtifactRemoteMediator
+import com.saurabh.artifact.model.AppError
+import com.saurabh.artifact.model.Artifact
+import com.saurabh.artifact.model.ArtifactComment
+import com.saurabh.artifact.model.ArtifactConversationMetadata
+import com.saurabh.artifact.model.ArtifactDetail
+import com.saurabh.artifact.model.ArtifactReactionCounts
+import com.saurabh.artifact.model.ArtifactStatus
+import com.saurabh.artifact.model.AuthorSnapshot
+import com.saurabh.artifact.model.AvatarConfig
+import com.saurabh.artifact.model.CommentModerationState
+import com.saurabh.artifact.model.Emotion
+import com.saurabh.artifact.model.FeedbackType
+import com.saurabh.artifact.model.ModerationMetadata
+import com.saurabh.artifact.model.ModerationStatus
+import com.saurabh.artifact.model.PromptCategory
+import com.saurabh.artifact.model.ReactionVisibilityMode
+import com.saurabh.artifact.model.ReflectionPrompt
+import com.saurabh.artifact.model.ReportReason
+import com.saurabh.artifact.model.ReportStatus
+import com.saurabh.artifact.model.TranscriptSegment
+import com.saurabh.artifact.model.UserReport
+import com.saurabh.artifact.model.Visibility
 import com.saurabh.artifact.service.PersonalizationEngine
-import com.google.firebase.auth.FirebaseAuth
-import android.content.Context
+import com.saurabh.artifact.service.ReflectionAIService
+import com.saurabh.artifact.util.ArtifactLogger
+import com.saurabh.artifact.util.CoroutineExceptionHandlerUtils
+import com.saurabh.artifact.util.NetworkUtils
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
-import androidx.paging.map
-import com.saurabh.artifact.data.paging.ArtifactRemoteMediator
-import com.saurabh.artifact.util.NetworkUtils
-import kotlinx.coroutines.flow.map
 import java.io.File
-import java.io.FileInputStream
-import java.security.MessageDigest
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -480,7 +499,10 @@ class ArtifactRepository @Inject constructor(
             safetyConcernCount = entity.safetyConcernCount,
             reporterIds = entity.reporterIds,
             amplitudeData = entity.amplitudeData,
-            transcriptUrl = entity.transcriptUrl
+            transcriptUrl = entity.transcriptUrl,
+            conversationMetadata = ArtifactConversationMetadata(
+                primaryStyle = entity.primaryStyle
+            )
         )
     }
 
@@ -503,6 +525,7 @@ class ArtifactRepository @Inject constructor(
                 it.name.equals(artifact.emotion, ignoreCase = true) || 
                 it.label.equals(artifact.emotion, ignoreCase = true) 
             } ?: Emotion.NEUTRAL,
+            primaryStyle = artifact.conversationMetadata.primaryStyle,
             emotionTag = artifact.emotionTag,
             playCount = artifact.playCount,
             reactionCount = artifact.reactionCount,
@@ -868,6 +891,10 @@ class ArtifactRepository @Inject constructor(
                 transcriptUrl = transcriptUrl,
                 amplitudeData = draft.amplitudeData,
                 reactionVisibility = draft.reactionVisibility ?: ReactionVisibilityMode.APPROXIMATE,
+                conversationMetadata = ArtifactConversationMetadata(
+                    primaryStyle = draft.primaryStyle,
+                    isAIGenerated = true
+                ),
                 moderation = ModerationMetadata(
                     status = ModerationStatus.SAFE,
                     updatedAt = Timestamp.now()
@@ -1081,6 +1108,7 @@ class ArtifactRepository @Inject constructor(
 
     private fun mapArtifactToFirestoreData(artifact: Artifact): Map<String, Any?> {
         return mapOf(
+            "userId" to artifact.userId,
             "author" to mapOf(
                 "anonymousId" to artifact.author.anonymousId,
                 "name" to artifact.author.name,
@@ -1113,7 +1141,11 @@ class ArtifactRepository @Inject constructor(
             "reactionCount" to artifact.reactionCount,
             "commentCount" to artifact.commentCount,
             "reportCount" to artifact.reportCount,
-            "transcriptUrl" to artifact.transcriptUrl
+            "transcriptUrl" to artifact.transcriptUrl,
+            "conversationMetadata" to mapOf(
+                "primaryStyle" to artifact.conversationMetadata.primaryStyle?.name,
+                "isAIGenerated" to artifact.conversationMetadata.isAIGenerated
+            )
         )
     }
 

@@ -3,7 +3,6 @@ package com.saurabh.artifact.data.local
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
-import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [
@@ -16,7 +15,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PendingInteractionEntity::class,
         UserLocalEntity::class,
     ],
-    version = 46,
+    version = 47,
     autoMigrations = [
         // Auto-migrations can be added here for simple schema changes
     ],

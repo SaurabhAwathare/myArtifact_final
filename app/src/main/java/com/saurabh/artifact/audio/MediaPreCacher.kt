@@ -68,18 +68,4 @@ object MediaPreCacher {
         activeJobs[url] = job
     }
 
-    /**
-     * Cancels an ongoing pre-cache job.
-     */
-    fun cancel(url: String) {
-        activeJobs.remove(url)?.cancel()
-    }
-    
-    /**
-     * Cancels all active pre-cache jobs.
-     */
-    fun cancelAll() {
-        activeJobs.values.forEach { it.cancel() }
-        activeJobs.clear()
-    }
 }

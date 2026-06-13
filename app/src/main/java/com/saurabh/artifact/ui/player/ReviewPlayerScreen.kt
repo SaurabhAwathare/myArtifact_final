@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -16,8 +17,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -31,6 +34,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.roundToInt
 
 /**
  * A dedicated, private screen for reviewing draft artifacts.
@@ -50,6 +54,9 @@ fun ReviewPlayerScreen(
 
     var showTranscript by remember { mutableStateOf(false) }
 
+    // Gesture State for swipe-down to collapse
+    var offsetY by remember { mutableFloatStateOf(0f) }
+
     LaunchedEffect(draftId) {
         viewModel.startReview(draftId)
     }
@@ -62,7 +69,27 @@ fun ReviewPlayerScreen(
     }
 
     Surface(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .offset { IntOffset(0, offsetY.roundToInt()) }
+            .pointerInput(Unit) {
+                detectVerticalDragGestures(
+                    onVerticalDrag = { change, dragAmount ->
+                        change.consume()
+                        // Only allow downward drag
+                        offsetY = (offsetY + dragAmount).coerceAtLeast(0f)
+                    },
+                    onDragEnd = {
+                        if (offsetY > 300f) {
+                            onClose()
+                        }
+                        offsetY = 0f
+                    },
+                    onDragCancel = {
+                        offsetY = 0f
+                    }
+                )
+            },
         color = ArtifactTheme.colors.surfaceLoom
     ) {
         ReviewPlayerContent(
@@ -188,6 +215,8 @@ private fun ReviewPlayerContent(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
                     .padding(Spacing.Large),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
@@ -198,7 +227,7 @@ private fun ReviewPlayerContent(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     IconButton(onClick = onClose) {
-                        Icon(Icons.Rounded.ExpandMore, "Close", tint = ArtifactTheme.colors.onSurfaceMuted)
+                        Icon(Icons.Rounded.KeyboardArrowDown, "Close", tint = ArtifactTheme.colors.onSurfaceMuted)
                     }
 
                     Text(

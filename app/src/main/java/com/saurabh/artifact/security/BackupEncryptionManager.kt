@@ -12,7 +12,6 @@ import com.google.crypto.tink.integration.android.AndroidKeysetManager
 import com.google.crypto.tink.subtle.AesGcmJce
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
 import javax.crypto.spec.SecretKeySpec
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -54,7 +53,7 @@ class BackupEncryptionManager @Inject constructor(
         return try {
             val encrypted = Base64.decode(stored, Base64.DEFAULT)
             localAead.decrypt(encrypted, null).decodeToString()
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             null
         }
     }
@@ -87,6 +86,7 @@ class BackupEncryptionManager @Inject constructor(
     /**
      * Decrypts data from cloud backup.
      */
+    @Suppress("unused")
     suspend fun decryptFromBackup(encryptedData: ByteArray): ByteArray {
         val key = getBackupKey()
         val primitive = AesGcmJce(key.encoded)

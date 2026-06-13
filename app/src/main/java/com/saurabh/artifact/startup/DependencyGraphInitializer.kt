@@ -11,6 +11,7 @@ import com.saurabh.artifact.util.StartupTracer
  * foundational initializer that sets up core tracing and system components
  * before the Application class is even created.
  */
+@Suppress("unused")
 class DependencyGraphInitializer : Initializer<Unit> {
     override fun create(context: Context) {
         // Start tracing at the absolute earliest point in the process lifecycle
@@ -21,7 +22,6 @@ class DependencyGraphInitializer : Initializer<Unit> {
 
         // Load native library as early as possible
         try {
-            // noinspection SpellCheckingInspection
             System.loadLibrary("sqlcipher")
             StartupTracer.mark("SQLCipher Loaded")
         } catch (e: Exception) {

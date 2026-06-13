@@ -38,7 +38,8 @@ class GetReflectionPromptUseCaseTest {
             suggestedPrompt = safetyPrompt
         )
         
-        every { safetyEvaluator.evaluate(context) } returns safetyResult
+        // Mock combined input: "I want to end it all" (emotion is null)
+        every { safetyEvaluator.evaluate("I want to end it all") } returns safetyResult
         
         // Act
         val result = useCase.invoke(null, context)
@@ -55,15 +56,17 @@ class GetReflectionPromptUseCaseTest {
     @Test
     fun `invoke with low risk context calls AI service`() = runTest {
         // Arrange
+        val emotion = "Joy"
         val context = "I had a great day at the park"
         val aiPrompt = ReflectionPrompt(id = "ai", question = "What made it great?", category = PromptCategory.AI_GUIDED)
         val safetyResult = SafetyResult(level = SafetyLevel.LOW, isCrisis = false)
         
-        every { safetyEvaluator.evaluate(context) } returns safetyResult
+        // Mock combined input: "Joy I had a great day at the park"
+        every { safetyEvaluator.evaluate("Joy I had a great day at the park") } returns safetyResult
         coEvery { artifactRepository.getSmartReflectionPrompt(any(), eq(context), any()) } returns aiPrompt
         
         // Act
-        val result = useCase.invoke("Joy", context)
+        val result = useCase.invoke(emotion, context)
         
         // Assert
         assertEquals(aiPrompt, result.prompt)
@@ -72,6 +75,33 @@ class GetReflectionPromptUseCaseTest {
         
         // Verify AI service WAS called
         coVerify(exactly = 1) { artifactRepository.getSmartReflectionPrompt("Joy", context, any()) }
+    }
+
+    @Test
+    fun `invoke with crisis in emotion is caught even if context is safe`() = runTest {
+        // Arrange
+        val emotion = "suicidal"
+        val context = "I am at the park"
+        val safetyPrompt = ReflectionPrompt(id = "safety", question = "Help is here", category = PromptCategory.GENERAL)
+        val safetyResult = SafetyResult(
+            level = SafetyLevel.HIGH,
+            isCrisis = true,
+            suggestedPrompt = safetyPrompt
+        )
+        
+        // Mock combined input: "suicidal I am at the park"
+        every { safetyEvaluator.evaluate("suicidal I am at the park") } returns safetyResult
+        
+        // Act
+        val result = useCase.invoke(emotion, context)
+        
+        // Assert
+        assertEquals(safetyPrompt, result.prompt)
+        assertEquals(SafetyLevel.HIGH, result.safetyLevel)
+        assertTrue(result.isCrisis)
+        
+        // Verify AI service was NEVER called
+        coVerify(exactly = 0) { artifactRepository.getSmartReflectionPrompt(any(), any(), any()) }
     }
 
     @Test
@@ -85,7 +115,8 @@ class GetReflectionPromptUseCaseTest {
             suggestedPrompt = safetyPrompt
         )
         
-        every { safetyEvaluator.evaluate(context) } returns safetyResult
+        // Mock combined input: "I feel so alone" (emotion is null)
+        every { safetyEvaluator.evaluate("I feel so alone") } returns safetyResult
         
         // Act
         val result = useCase.invoke(null, context)

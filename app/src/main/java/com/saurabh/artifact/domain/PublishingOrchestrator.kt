@@ -15,7 +15,7 @@ import javax.inject.Singleton
 
 @Singleton
 class PublishingOrchestrator @Inject constructor(
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
     private val draftRepository: com.saurabh.artifact.repository.DraftRepository,
     private val approvalRepository: com.saurabh.artifact.repository.PublishApprovalRepository,
     private val connectivityObserver: com.saurabh.artifact.util.ConnectivityObserver,

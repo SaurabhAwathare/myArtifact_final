@@ -51,6 +51,9 @@ class ArtifactApplication : Application(), ImageLoaderFactory, Configuration.Pro
         
         setupRescueTracker()
         
+        // Initialize Notification Channels
+        com.saurabh.artifact.util.NotificationHelper.initNotificationChannels(this)
+        
         // Use a dedicated scope for non-UI initialization to avoid blocking Main
         val initScope = CoroutineScope(
             Dispatchers.Default + 

@@ -21,7 +21,7 @@ enum class ArtifactStatus {
 @Immutable
 data class Artifact(
     val id: String = "",
-    @get:Exclude val userId: String = "", // Internal UID - EXCLUDED FROM FIRESTORE PUBLIC
+    val userId: String = "", // Internal UID - Required for security rules ownership check
     val author: AuthorSnapshot = AuthorSnapshot(),
     val audioUrl: String = "",
     val createdAt: Timestamp = Timestamp.now(),

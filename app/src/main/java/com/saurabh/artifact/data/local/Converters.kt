@@ -8,7 +8,6 @@ import com.saurabh.artifact.model.EmotionResult
 import com.saurabh.artifact.model.EmotionalTone
 import com.saurabh.artifact.model.PromptCategory
 import com.saurabh.artifact.model.SyncStatus
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 class Converters {

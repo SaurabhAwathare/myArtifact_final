@@ -1,6 +1,5 @@
 package com.saurabh.artifact.service
 
-import com.google.mlkit.nl.entityextraction.Entity
 import com.google.mlkit.nl.entityextraction.EntityAnnotation
 import com.google.mlkit.nl.entityextraction.EntityExtraction
 import com.google.mlkit.nl.entityextraction.EntityExtractionParams
@@ -27,7 +26,7 @@ class MlKitEntityExtractorWrapper @Inject constructor() : EntityExtractorWrapper
         return try {
             entityExtractor.downloadModelIfNeeded().await()
             true
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             false
         }
     }

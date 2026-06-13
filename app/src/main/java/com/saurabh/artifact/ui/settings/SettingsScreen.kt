@@ -169,16 +169,14 @@ fun SettingsScreen(
                     .padding(padding)
                     .verticalScroll(rememberScrollState())
             ) {
-                if (!isAnonymous && accountInfo != null) {
+                accountInfo?.let { info ->
                     SettingsSection(title = "Account") {
                         SettingsInfoItem(
-                            title = accountInfo?.realName?.toUnsecureString() ?: "Anonymous User",
-                            subtitle = accountInfo?.email?.toUnsecureString(),
+                            title = info.realName.toUnsecureString(),
+                            subtitle = info.email.toUnsecureString(),
                             icon = Icons.Default.Person,
-                            modifier = Modifier.clickable { 
-                                if (!isAnonymous && accountInfo != null) {
-                                    viewModel.copyEmailToClipboard(context)
-                                }
+                            modifier = Modifier.clickable {
+                                viewModel.copyEmailToClipboard(context)
                             },
                             trailingContent = {
                                 Surface(

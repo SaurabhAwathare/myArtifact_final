@@ -25,8 +25,8 @@ data class DebugUiState(
 @HiltViewModel
 class DebugViewModel @Inject constructor(
     private val debugRepository: DebugRepository,
-    private val authRepository: AuthRepository,
-    private val uploadGuard: UploadGuard
+    authRepository: AuthRepository,
+    uploadGuard: UploadGuard
 ) : ViewModel() {
 
     val uiState: StateFlow<DebugUiState> = combine(

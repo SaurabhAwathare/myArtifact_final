@@ -23,8 +23,8 @@ sealed class AppStartupState {
 @HiltViewModel
 class MainViewModel @Inject constructor(
     private val getInitialDestinationUseCase: GetInitialDestinationUseCase,
-    private val observeCurrentUserProfileUseCase: ObserveCurrentUserProfileUseCase,
-    private val observeStealthModeUseCase: ObserveStealthModeUseCase,
+    observeCurrentUserProfileUseCase: ObserveCurrentUserProfileUseCase,
+    observeStealthModeUseCase: ObserveStealthModeUseCase,
     private val startupCoordinator: StartupCoordinator
 ) : ViewModel() {
 

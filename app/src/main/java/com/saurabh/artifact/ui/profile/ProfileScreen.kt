@@ -31,6 +31,7 @@ fun ProfileScreen(
     onEditIdentity: () -> Unit,
     onNavigateToSettings: () -> Unit,
     onNavigateToReview: (String) -> Unit,
+    onNavigateToPublish: (String) -> Unit = {},
     onNavigateToResonanceList: (String, String, String) -> Unit = { _, _, _ -> },
     onNavigateToComments: (String, String) -> Unit = { _, _ -> },
     viewModel: ProfileViewModel = hiltViewModel()
@@ -209,6 +210,7 @@ fun ProfileScreen(
                                     onRename = { draft, newTitle -> 
                                         viewModel.renameDraft(draft.id, newTitle)
                                     },
+                                    onPublishClick = { draft -> onNavigateToPublish(draft.id) },
                                     onDelete = { draft -> 
                                         viewModel.deleteDraft(draft.id)
                                     }

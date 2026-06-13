@@ -28,10 +28,6 @@ data class TopicCategory(
     val colorHex: String = "#FFB300"
 )
 
-enum class SuggestionSource {
-    AI_EMBEDDING,
-}
-
 /**
  * Moderation state for user-created topics.
  */

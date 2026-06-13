@@ -2,7 +2,6 @@ package com.saurabh.artifact.service
 
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.User
-import com.saurabh.artifact.repository.SettingsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
@@ -18,7 +17,6 @@ import kotlin.math.pow
 @Singleton
 class FeedRanker @Inject constructor(
     private val personalizationEngine: PersonalizationEngine,
-    private val settingsRepository: SettingsRepository
 ) {
 
     private val personalizationWeight = 0.30f
@@ -32,7 +30,7 @@ class FeedRanker @Inject constructor(
      * Ranks a list of candidate artifacts based on resonance and diversity.
      */
     suspend fun rank(artifacts: List<Artifact>, user: User?, currentMood: String?): List<Artifact> = withContext(Dispatchers.Default) {
-        if (artifacts.isEmpty()) return@withContext emptyList<Artifact>()
+        if (artifacts.isEmpty()) return@withContext emptyList()
 
         val scoredList = artifacts.map { artifact ->
             val score = calculateScore(artifact, user, currentMood)

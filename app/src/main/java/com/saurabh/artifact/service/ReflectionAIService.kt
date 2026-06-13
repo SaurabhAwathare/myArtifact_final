@@ -34,13 +34,14 @@ interface ReflectionAIService {
 class ReflectionAIServiceImpl @Inject constructor(
     private val promptRepository: PromptRepository,
     private val safetyEvaluator: SafetyEvaluator,
+    private val moderationService: ModerationService,
     @param:ApplicationContext private val context: Context
 ) : ReflectionAIService {
 
     companion object {
         private const val TAG = "ReflectionAIService"
         private val GENERATION_TIMEOUT = 8.seconds
-        private const val MODEL_NAME = "gemini-1.5-flash"
+        private const val MODEL_NAME = "gemini-1.5-flash-latest"
     }
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -98,7 +99,13 @@ class ReflectionAIServiceImpl @Inject constructor(
                 // 2. Structured Output Parsing
                 val aiPrompt = json.decodeFromString<ReflectionPrompt>(jsonResponse)
 
-                // 3. Post-Generation Validation & Guardrails
+                // 3. Post-Generation Validation & Local Moderation Guardrails
+                val moderation = moderationService.analyzeLocal(aiPrompt.question)
+                if (moderation.isSensitive && (moderation.isCritical || moderation.isSpam)) {
+                    Log.w(TAG, "AI generated sensitive or low-quality content: ${moderation.message}")
+                    throw Exception("Unsafe AI content detected: ${moderation.message}")
+                }
+
                 val validatedPrompt = aiPrompt.copy(
                     id = "ai_${System.currentTimeMillis()}", // Force unique client-side ID
                     question = safetyEvaluator.filterAIOutput(aiPrompt.question),

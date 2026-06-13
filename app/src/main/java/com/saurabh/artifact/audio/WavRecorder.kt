@@ -1,9 +1,11 @@
 package com.saurabh.artifact.audio
 
 import android.annotation.SuppressLint
+import android.content.Context
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.os.Build
 import android.util.Log
 import android.os.Process
 import com.saurabh.artifact.util.BufferPool
@@ -23,6 +25,7 @@ import java.util.concurrent.Executors
  * Provides durability barriers to minimize data loss during system crashes.
  */
 class WavRecorder(
+    private val context: Context,
     private val outputFile: File,
     private val sampleRate: Int = 44100,
     private val channelConfig: Int = AudioFormat.CHANNEL_IN_MONO,
@@ -97,13 +100,34 @@ class WavRecorder(
             return
         }
 
-        audioRecord = AudioRecord(
-            MediaRecorder.AudioSource.MIC,
-            sampleRate,
-            channelConfig,
-            audioFormat,
-            minBufferSize * 2
-        )
+        val attributionContext = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            context.createAttributionContext("audio_recording")
+        } else {
+            context
+        }
+
+        audioRecord = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            AudioRecord.Builder()
+                .setContext(attributionContext)
+                .setAudioSource(MediaRecorder.AudioSource.MIC)
+                .setAudioFormat(
+                    AudioFormat.Builder()
+                        .setSampleRate(sampleRate)
+                        .setChannelMask(channelConfig)
+                        .setEncoding(audioFormat)
+                        .build()
+                )
+                .setBufferSizeInBytes(minBufferSize * 2)
+                .build()
+        } else {
+            AudioRecord(
+                MediaRecorder.AudioSource.MIC,
+                sampleRate,
+                channelConfig,
+                audioFormat,
+                minBufferSize * 2
+            )
+        }
 
         if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
             Log.e("WavRecorder", "AudioRecord initialization failed")

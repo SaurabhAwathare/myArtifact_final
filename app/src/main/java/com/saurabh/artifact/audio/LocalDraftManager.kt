@@ -64,7 +64,7 @@ class LocalDraftManager @Inject constructor(
         }
 
         // 2. Scan and prune the root drafts directory (directory level)
-        val rootDir = storageManager.getDraftsRootDirectory()
+        val rootDir = storageManager.draftsRootDirectory
         rootDir.listFiles()?.forEach { draftDir ->
             if (draftDir.isDirectory && draftDir.name.startsWith("draft_")) {
                 val draftId = draftDir.name.substringAfter("draft_")

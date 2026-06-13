@@ -63,8 +63,14 @@ class AudioRecorder(private val context: Context) {
     }
 
     private fun startAAC(outputFile: File) {
+        val attributionContext = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            context.createAttributionContext("audio_recording")
+        } else {
+            context
+        }
+
         val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            MediaRecorder(context)
+            MediaRecorder(attributionContext)
         } else {
             @Suppress("DEPRECATION")
             MediaRecorder()
@@ -103,7 +109,7 @@ class AudioRecorder(private val context: Context) {
     }
 
     private fun startWAV(outputFile: File, onDurableSync: ((Long) -> Unit)? = null) {
-        wavRecorder = WavRecorder(outputFile, onDurableSync = onDurableSync).apply {
+        wavRecorder = WavRecorder(context, outputFile, onDurableSync = onDurableSync).apply {
             onStorageError = { this@AudioRecorder.onStorageError?.invoke(it) }
             start()
         }

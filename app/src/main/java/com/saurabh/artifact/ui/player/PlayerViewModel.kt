@@ -5,7 +5,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.saurabh.artifact.audio.PlaybackCoordinator
 import com.saurabh.artifact.audio.ReviewSessionManager
-import com.saurabh.artifact.audio.ReviewState
 import com.saurabh.artifact.domain.feed.ReactionUseCase
 import com.saurabh.artifact.domain.player.DeleteArtifactUseCase
 import com.saurabh.artifact.domain.player.GetPlayerContextUseCase

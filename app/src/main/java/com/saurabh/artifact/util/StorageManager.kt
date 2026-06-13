@@ -26,14 +26,11 @@ class StorageManager @Inject constructor(
      * Checks if there is enough space to start or continue a recording.
      */
     fun isStorageAvailable(requiredMb: Long = MIN_STORAGE_REQUIRED_MB): Boolean {
-        return getAvailableStorageMb() > requiredMb
+        return availableStorageMb > requiredMb
     }
 
-    /**
-     * Returns available storage on the device in Megabytes.
-     */
-    fun getAvailableStorageMb(): Long {
-        return try {
+    val availableStorageMb: Long
+        get() = try {
             val stats = StatFs(context.filesDir.absolutePath)
             val availableBlocks = stats.availableBlocksLong
             val blockSize = stats.blockSizeLong
@@ -42,28 +39,27 @@ class StorageManager @Inject constructor(
             Log.e("StorageManager", "Failed to calculate storage", e)
             0L
         }
-    }
-
 
     /**
      * Resolves the root directory for all drafts.
      * Uses External Files Dir (Music) to ensure durability after reinstall if possible.
      */
-    fun getDraftsRootDirectory(): File {
-        val persistentDir = context.getExternalFilesDir(Environment.DIRECTORY_MUSIC)?.let { 
-            File(it, "Artifact/Drafts") 
-        } ?: File(context.filesDir, "Artifact/Drafts")
-        
-        return persistentDir.apply {
-            if (!exists()) mkdirs()
+    val draftsRootDirectory: File
+        get() {
+            val persistentDir = context.getExternalFilesDir(Environment.DIRECTORY_MUSIC)?.let {
+                File(it, "Artifact/Drafts")
+            } ?: File(context.filesDir, "Artifact/Drafts")
+
+            return persistentDir.apply {
+                if (!exists()) mkdirs()
+            }
         }
-    }
 
     /**
      * Resolves a specific directory for a draft ID.
      */
     fun getDraftDirectory(draftId: String): File {
-        return File(getDraftsRootDirectory(), "draft_$draftId").apply {
+        return File(draftsRootDirectory, "draft_$draftId").apply {
             if (!exists()) mkdirs()
         }
     }

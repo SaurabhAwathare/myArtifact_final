@@ -90,7 +90,7 @@ class WavRecoveryManager(
             if (file.length() > targetSize) {
                 raf.setLength(targetSize)
             }
-            raf.getFD().sync()
+            raf.fd.sync()
         }
     }
 }

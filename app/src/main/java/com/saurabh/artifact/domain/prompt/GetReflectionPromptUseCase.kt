@@ -12,37 +12,37 @@ import javax.inject.Inject
 data class PromptResult(
     val prompt: ReflectionPrompt?,
     val safetyLevel: SafetyLevel,
-    val isCrisis: Boolean
+    val isCrisis: Boolean = false,
 )
 
 class GetReflectionPromptUseCase @Inject constructor(
     private val artifactRepository: ArtifactRepository,
     private val safetyEvaluator: SafetyEvaluator,
-    private val adManager: AdManager
+    private val adManager: AdManager,
 ) {
     suspend operator fun invoke(
         emotion: String?,
-        context: String?
+        context: String?,
     ): PromptResult = withContext(Dispatchers.Default) {
         // 1. Evaluate Safety first (Single Source of Truth)
-        val assessment = safetyEvaluator.evaluate(context)
+        val assessment = safetyEvaluator.evaluate(listOfNotNull(emotion, context).joinToString(" "))
         adManager.updateSafetyContext(assessment)
 
-        // 2. Short-circuit if high risk or crisis detected
-        if (assessment.level == SafetyLevel.HIGH || assessment.isCrisis) {
+        // 2. Short-circuit if crisis detected
+        if (assessment.isCrisis) {
             return@withContext PromptResult(
                 prompt = assessment.suggestedPrompt,
                 safetyLevel = assessment.level,
-                isCrisis = assessment.isCrisis
+                isCrisis = true,
             )
         }
 
         // 3. If medium risk with a suggestion, use that instead of generating
-        if (assessment.level == SafetyLevel.MEDIUM && assessment.suggestedPrompt != null) {
+        if ((assessment.level == SafetyLevel.MEDIUM) && (assessment.suggestedPrompt != null)) {
             return@withContext PromptResult(
                 prompt = assessment.suggestedPrompt,
                 safetyLevel = assessment.level,
-                isCrisis = assessment.isCrisis
+                isCrisis = false,
             )
         }
 
@@ -50,18 +50,18 @@ class GetReflectionPromptUseCase @Inject constructor(
         val prompt = artifactRepository.getSmartReflectionPrompt(
             emotion = emotion,
             context = context,
-            timeOfDay = getTimeOfDayContext()
+            timeOfDay = getTimeOfDayContext(),
         )
 
         PromptResult(
             prompt = prompt,
             safetyLevel = assessment.level,
-            isCrisis = assessment.isCrisis
+            isCrisis = false,
         )
     }
 
     private fun getTimeOfDayContext(): String {
-        return when (java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)) {
+        return when (java.util.Calendar.getInstance()[java.util.Calendar.HOUR_OF_DAY]) {
             in 5..11 -> "Morning"
             in 12..16 -> "Afternoon"
             in 17..21 -> "Evening"
