@@ -25,7 +25,6 @@ import com.saurabh.artifact.ui.recording.components.MiniRecorder
 private val ScreensWithoutOverlays = listOf(
     InstantRecord::class,
     PreRecordingWarning::class,
-    RecordingReview::class,
     PublishPreparation::class,
     PublishApproval::class,
     IdentitySelection::class,
@@ -50,6 +49,13 @@ fun GlobalOverlayHost(
     val uiState by playerViewModel.uiState.collectAsStateWithLifecycle()
     val recordingState by recordingSessionManager.sessionState.collectAsStateWithLifecycle()
     val publishState by publishStateManager.currentPublishState.collectAsStateWithLifecycle()
+
+    // Observe Navigation Events for Review Completion
+    LaunchedEffect(Unit) {
+        playerViewModel.navigateToPublish.collect { draftId ->
+            onNavigateToPublish(draftId)
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         // 1. PLAYER SYSTEM

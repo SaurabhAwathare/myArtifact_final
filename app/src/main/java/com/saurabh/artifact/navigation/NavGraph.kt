@@ -14,6 +14,7 @@ import com.saurabh.artifact.navigation.features.feedNavigation
 import com.saurabh.artifact.navigation.features.profileNavigation
 import com.saurabh.artifact.navigation.features.recordingNavigation
 import com.saurabh.artifact.ui.components.motion.MotionTokens
+import com.saurabh.artifact.ui.player.PlayerViewModel
 import com.saurabh.artifact.util.OnboardingManager
 
 @Composable
@@ -24,6 +25,7 @@ fun NavGraph(
     onboardingManager: OnboardingManager,
     onReportArtifact: (String) -> Unit,
     onPlayArtifactById: (String) -> Unit,
+    playerViewModel: PlayerViewModel,
     onDestinationChanged: (String?) -> Unit = {}
 ) {
     // Stability access via VisualTier to avoid top-level invalidation of the NavHost
@@ -73,7 +75,7 @@ fun NavGraph(
     ) {
         authNavigation(navController, onboardingManager)
         feedNavigation(navController, recordingSessionManager, onReportArtifact, onPlayArtifactById)
-        profileNavigation(navController)
-        recordingNavigation(navController)
+        profileNavigation(navController, playerViewModel)
+        recordingNavigation(navController, playerViewModel)
     }
 }

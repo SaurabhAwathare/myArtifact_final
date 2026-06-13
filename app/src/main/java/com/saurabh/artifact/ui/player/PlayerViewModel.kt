@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -43,7 +44,7 @@ class PlayerViewModel @Inject constructor(
     private val playerInteractionUseCase: PlayerInteractionUseCase,
     getPlayerContextUseCase: GetPlayerContextUseCase,
     private val artifactRepository: ArtifactRepository,
-    reviewSessionManager: ReviewSessionManager,
+    private val reviewSessionManager: ReviewSessionManager,
     private val deleteArtifactUseCase: DeleteArtifactUseCase
 ) : ViewModel() {
 
@@ -52,6 +53,9 @@ class PlayerViewModel @Inject constructor(
 
     private val _interactionError = MutableSharedFlow<String>(replay = 0)
     val interactionError: SharedFlow<String> = _interactionError.asSharedFlow()
+
+    private val _navigateToPublish = MutableSharedFlow<String>(replay = 0)
+    val navigateToPublish: SharedFlow<String> = _navigateToPublish.asSharedFlow()
 
     // Consolidated metadata from UseCase - Live and Atomic
     private val metadata: StateFlow<PlayerMetadata> = getPlayerContextUseCase.execute(
@@ -166,8 +170,9 @@ class PlayerViewModel @Inject constructor(
 
     val uiState: StateFlow<PlayerUiState> = combine(
         staticState,
-        dynamicState
-    ) { static, dynamic ->
+        dynamicState,
+        reviewSessionManager.reviewProgress
+    ) { static, dynamic, review ->
         PlayerUiState(
             currentArtifact = static.artifact,
             isPlaying = dynamic.isPlaying,
@@ -190,13 +195,27 @@ class PlayerViewModel @Inject constructor(
             isSilenceSkipEnabled = dynamic.isSilenceSkipEnabled,
             sleepTimerMillisRemaining = dynamic.sleepTimerMillisRemaining,
             currentTranscriptSegment = dynamic.currentTranscriptSegment,
-            showAdvancedControls = static.showAdvancedControls
+            showAdvancedControls = static.showAdvancedControls,
+            coveragePercent = review.coveragePercent,
+            effortPercent = review.effortPercent,
+            isThresholdMet = review.isThresholdMet,
+            isPlaybackEnded = review.isPlaybackEnded
         )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = PlayerUiState()
     )
+
+    init {
+        viewModelScope.launch {
+            reviewSessionManager.reviewProgress.collect { state ->
+                if (state.isThresholdMet && state.artifactId != null) {
+                    _navigateToPublish.emit(state.artifactId)
+                }
+            }
+        }
+    }
 
     fun toggleResonate(type: ReactionType = metadata.value.selectedReactionType) {
         val artifact = uiState.value.currentArtifact ?: return

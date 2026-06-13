@@ -32,6 +32,7 @@ import com.saurabh.artifact.ui.components.ResonanceDisplay
 import com.saurabh.artifact.ui.player.components.*
 import com.saurabh.artifact.ui.theme.GoldAura400
 import com.saurabh.artifact.ui.theme.Obsidian950
+import com.saurabh.artifact.ui.player.components.ReviewInteractionLayer
 import kotlin.math.roundToInt
 
 /**
@@ -316,21 +317,28 @@ fun ImmersivePlayerScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             // 6. Interaction Layer
-            if (!artifact.isDraft) {
-                    PlayerInteractionBar(
-                        isResonated = uiState.isResonated,
-                        selectedReactionType = uiState.selectedReactionType,
-                        onResonateClick = onResonateClick,
-                        isResonating = uiState.isResonating,
-                        onResonateConnectionClick = onResonateConnectionClick,
-                        isSaved = uiState.isSaved,
-                        onSaveClick = onSaveClick,
-                        isCommentUnlocked = uiState.isCommentUnlocked,
-                        commentCount = uiState.commentCount,
-                        onCommentClick = onCommentClick,
-                        showResonance = !uiState.isOwner,
-                        showSave = !uiState.isOwner
-                    )
+            if (artifact.isDraft) {
+                ReviewInteractionLayer(
+                    uiState = uiState,
+                    onEditClick = onEditClick,
+                    onPublishClick = onPublishClick,
+                    onDeleteClick = { showDeleteConfirm = true }
+                )
+            } else {
+                PlayerInteractionBar(
+                    isResonated = uiState.isResonated,
+                    selectedReactionType = uiState.selectedReactionType,
+                    onResonateClick = onResonateClick,
+                    isResonating = uiState.isResonating,
+                    onResonateConnectionClick = onResonateConnectionClick,
+                    isSaved = uiState.isSaved,
+                    onSaveClick = onSaveClick,
+                    isCommentUnlocked = uiState.isCommentUnlocked,
+                    commentCount = uiState.commentCount,
+                    onCommentClick = onCommentClick,
+                    showResonance = !uiState.isOwner,
+                    showSave = !uiState.isOwner
+                )
             }
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -342,30 +350,8 @@ fun ImmersivePlayerScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // 7. Context Actions
-            if (artifact.isDraft) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 24.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    TextButton(onClick = onEditClick) {
-                        Text("Edit", color = Color.White.copy(alpha = 0.7f))
-                    }
-                    Button(
-                        onClick = onPublishClick,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.1f)),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text("Publish", color = Color.White)
-                    }
-                    TextButton(onClick = { showDeleteConfirm = true }) {
-                        Text("Delete", color = Color(0xFFE91E63).copy(alpha = 0.7f))
-                    }
-                }
-            } else {
+            // 7. Context Actions (Standardized for published artifacts)
+            if (!artifact.isDraft) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
@@ -411,6 +397,9 @@ fun ImmersivePlayerScreen(
                         )
                     }
                 }
+            } else {
+                // Ensure padding even if no context action bar
+                Spacer(modifier = Modifier.height(24.dp))
             }
         }
     }

@@ -117,7 +117,6 @@ class MainViewModel @Inject constructor(
             "com.saurabh.artifact.navigation.Settings",
             "com.saurabh.artifact.navigation.DraftList",
             "com.saurabh.artifact.navigation.DraftEdit",
-            "com.saurabh.artifact.navigation.RecordingReview",
             "com.saurabh.artifact.navigation.PublishPreparation",
             "com.saurabh.artifact.navigation.InstantRecord",
             "com.saurabh.artifact.navigation.IdentitySelection",

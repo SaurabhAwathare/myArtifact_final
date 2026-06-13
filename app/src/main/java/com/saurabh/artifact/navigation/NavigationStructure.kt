@@ -75,9 +75,6 @@ data class InstantRecord(val prompt: String? = null) : Route
 data class PostRecordingDecision(val draftId: String) : Route
 
 @Serializable
-data class RecordingReview(val draftId: String) : Route
-
-@Serializable
 data class PublishApproval(val draftId: String) : Route
 
 @Serializable

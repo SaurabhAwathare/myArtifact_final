@@ -7,7 +7,7 @@ import androidx.navigation.toRoute
 import com.saurabh.artifact.navigation.*
 import com.saurabh.artifact.ui.drafts.edit.DraftEditScreen
 import com.saurabh.artifact.ui.drafts.list.DraftListScreen
-import com.saurabh.artifact.ui.player.ReviewPlayerScreen
+import com.saurabh.artifact.ui.player.PlayerViewModel
 import com.saurabh.artifact.ui.publish.PublishApprovalScreen
 import com.saurabh.artifact.ui.publish.PublishPreparationScreen
 import com.saurabh.artifact.ui.recording.PostRecordingDecisionScreen
@@ -16,6 +16,7 @@ import com.saurabh.artifact.ui.recording.warning.PreRecordingWarningScreen
 
 fun NavGraphBuilder.recordingNavigation(
     navController: NavHostController,
+    playerViewModel: PlayerViewModel,
 ) {
     val onBack = {
         navController.popBackStack()
@@ -26,7 +27,9 @@ fun NavGraphBuilder.recordingNavigation(
         DraftListScreen(
             onBack = onBack,
             onReviewDraft = { draftId ->
-                navController.navigate(RecordingReview(draftId))
+                // Ensure we handle potential race condition if playArtifactById is called before ViewModel is fully ready
+                playerViewModel.playArtifactById(draftId)
+                playerViewModel.setExpanded(true)
             },
             onEditDraft = { draftId ->
                 navController.navigate(DraftEdit(draftId))
@@ -43,7 +46,9 @@ fun NavGraphBuilder.recordingNavigation(
             draftId = route.draftId,
             onBack = onBack,
             onReview = {
-                navController.navigate(RecordingReview(route.draftId))
+                // Phase 2: Route through Global Player
+                playerViewModel.playArtifactById(route.draftId)
+                playerViewModel.setExpanded(true)
             },
             onPublish = {
                 navController.navigate(PublishPreparation(route.draftId))
@@ -80,7 +85,12 @@ fun NavGraphBuilder.recordingNavigation(
         val route = backStackEntry.toRoute<PostRecordingDecision>()
         PostRecordingDecisionScreen(
             onReview = { draftId ->
-                navController.navigate(RecordingReview(draftId)) {
+                // Phase 2: Route through Global Player
+                playerViewModel.playArtifactById(draftId)
+                playerViewModel.setExpanded(true)
+                
+                // Return home so the player is visible on the home screen
+                navController.navigate(Home) {
                     popUpTo(PostRecordingDecision(route.draftId)) { inclusive = true }
                 }
             },
@@ -89,19 +99,6 @@ fun NavGraphBuilder.recordingNavigation(
                     popUpTo(PostRecordingDecision(route.draftId)) { inclusive = true }
                 }
             }
-        )
-    }
-
-    composable<RecordingReview> { backStackEntry ->
-        val route = backStackEntry.toRoute<RecordingReview>()
-        ReviewPlayerScreen(
-            draftId = route.draftId,
-            onReviewComplete = {
-                navController.navigate(PublishPreparation(route.draftId)) {
-                    popUpTo(RecordingReview(route.draftId)) { inclusive = true }
-                }
-            },
-            onClose = onBack
         )
     }
 

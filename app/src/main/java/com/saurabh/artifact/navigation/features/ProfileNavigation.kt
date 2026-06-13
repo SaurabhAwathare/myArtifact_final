@@ -13,9 +13,11 @@ import com.saurabh.artifact.ui.profile.ProfileScreen
 import com.saurabh.artifact.ui.profile.ResonanceListScreen
 import com.saurabh.artifact.ui.settings.SettingsScreen
 import com.saurabh.artifact.ui.debug.DebugMenuScreen
+import com.saurabh.artifact.ui.player.PlayerViewModel
 
 fun NavGraphBuilder.profileNavigation(
     navController: NavHostController,
+    playerViewModel: PlayerViewModel,
 ) {
     val onBack = {
         navController.popBackStack()
@@ -54,7 +56,9 @@ fun NavGraphBuilder.profileNavigation(
             onEditIdentity = onNavigateToIdentity,
             onNavigateToSettings = onNavigateToSettings,
             onNavigateToReview = { draftId ->
-                navController.navigate(RecordingReview(draftId))
+                // Phase 2: Route through Global Player
+                playerViewModel.playArtifactById(draftId)
+                playerViewModel.setExpanded(true)
             },
             onNavigateToPublish = { draftId ->
                 navController.navigate(PublishPreparation(draftId))

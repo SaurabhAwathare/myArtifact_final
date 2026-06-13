@@ -34,7 +34,13 @@ data class PlayerUiState(
     val isSilenceSkipEnabled: Boolean = false,
     val sleepTimerMillisRemaining: Long? = null,
     val currentTranscriptSegment: TranscriptSegment? = null,
-    val showAdvancedControls: Boolean = false
+    val showAdvancedControls: Boolean = false,
+
+    // Review Mode State (Phase 1)
+    val coveragePercent: Float = 0f,
+    val effortPercent: Float = 0f,
+    val isThresholdMet: Boolean = false,
+    val isPlaybackEnded: Boolean = false
 )
 
 enum class PlayerMode {

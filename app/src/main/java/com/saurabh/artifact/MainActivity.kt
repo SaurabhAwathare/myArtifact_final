@@ -27,9 +27,9 @@ import androidx.navigation.compose.rememberNavController
 import com.saurabh.artifact.audio.PublishStateManager
 import com.saurabh.artifact.audio.RecordingSessionManager
 import com.saurabh.artifact.navigation.Comments
+import com.saurabh.artifact.navigation.DraftEdit
 import com.saurabh.artifact.navigation.NavGraph
 import com.saurabh.artifact.navigation.PublishPreparation
-import com.saurabh.artifact.navigation.RecordingReview
 import com.saurabh.artifact.startup.StartupStage
 import com.saurabh.artifact.ui.components.GlobalOverlayHost
 import com.saurabh.artifact.ui.components.moderation.ReportSheet
@@ -202,6 +202,7 @@ fun AuthenticatedIsland(
                         onboardingManager = onboardingManager,
                         onReportArtifact = { mainViewModel.showReportSheet(it) },
                         onPlayArtifactById = { playerViewModel.playArtifactById(it) },
+                        playerViewModel = playerViewModel,
                         onDestinationChanged = { mainViewModel.updateSecurityStatus(it) }
                     )
 
@@ -214,7 +215,7 @@ fun AuthenticatedIsland(
                             recordingSessionManager = recordingSessionManager,
                             publishStateManager = publishStateManager,
                             onNavigateToDraftEdit = { draftId ->
-                                navController.navigate(RecordingReview(draftId))
+                                navController.navigate(DraftEdit(draftId))
                             },
                             onNavigateToPublish = { draftId ->
                                 navController.navigate(PublishPreparation(draftId))

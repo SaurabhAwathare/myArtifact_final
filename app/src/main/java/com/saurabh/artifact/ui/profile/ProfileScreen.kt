@@ -8,7 +8,6 @@ import androidx.compose.material.icons.automirrored.rounded.*
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -17,7 +16,6 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import com.saurabh.artifact.ui.components.BottomPlayer
 import com.saurabh.artifact.ui.profile.components.ProfileHeader
 import com.saurabh.artifact.ui.profile.components.draftSection
 import com.saurabh.artifact.ui.profile.components.userArtifactsList
@@ -269,19 +267,6 @@ fun ProfileScreen(
 
                     item { Spacer(modifier = Modifier.height(100.dp)) }
                 }
-            }
-
-            uiState.currentlyPlayingArtifact?.let { artifact ->
-                BottomPlayer(
-                    title = artifact.title,
-                    isPlaying = uiState.isPlaying,
-                    progress = if (uiState.durationMs > 0) uiState.currentPosition.toFloat() / uiState.durationMs else 0f,
-                    onTogglePlayback = { viewModel.togglePlayback() },
-                    onClick = { },
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .navigationBarsPadding()
-                )
             }
         }
     }
