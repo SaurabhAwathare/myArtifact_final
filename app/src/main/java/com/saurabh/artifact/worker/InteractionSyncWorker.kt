@@ -81,16 +81,13 @@ class InteractionSyncWorker @AssistedInject constructor(
                 }
                 InteractionType.SAVE -> {
                     if (interaction.action == InteractionAction.ADD) {
-                        // Hydrate artifact from local or remote
-                        artifactRepository.getArtifactById(interaction.artifactId)
-                            .onSuccess { artifact ->
-                                artifactRepository.saveArtifact(userId, artifact)
-                            }
-                            .onFailure {
-                                Log.w("InteractionSyncWorker", "Artifact ${interaction.artifactId} not found for save, skipping.")
-                            }
+                        artifactRepository.saveArtifactToFirestore(
+                            userId = userId,
+                            artifactId = interaction.artifactId,
+                            shelf = interaction.metadata ?: "Stayed With Me",
+                        )
                     } else {
-                        artifactRepository.unsaveArtifact(userId, interaction.artifactId)
+                        artifactRepository.unsaveArtifactFromFirestore(userId, interaction.artifactId)
                     }
                 }
                 else -> throw Exception("Unknown interaction type: ${interaction.interactionType}")

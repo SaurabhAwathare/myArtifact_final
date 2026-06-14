@@ -68,7 +68,8 @@ service cloud.firestore {
 
     // --- ARTIFACTS (The Hearth) ---
     match /artifacts/{artifactId} {
-      allow read: if (resource.data.isPublic == true) ||
+      allow read: if resource == null ||
+                   (resource.data.get('isPublic', false) == true) ||
                    isOwner(resource.data.userId) ||
                    isAdmin();
 
@@ -154,7 +155,7 @@ service cloud.firestore {
     }
 
     match /listening_sessions/{sessionId} {
-      allow read, write: if isAuth() && request.auth.uid == resource.data.userId;
+      allow read, write: if isAuth() && (resource == null || resource.data.userId == request.auth.uid);
       allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
     }
 

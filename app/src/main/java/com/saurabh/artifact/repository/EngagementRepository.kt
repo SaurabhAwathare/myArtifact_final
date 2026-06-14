@@ -74,11 +74,14 @@ class EngagementRepository @Inject constructor(
         )
 
         try {
+            val userIdPath = "/users/$userId/engagement/${engagement.artifactId}"
+            android.util.Log.d("EngagementRepository", "Syncing engagement to: $userIdPath")
+            
             firestore.collection("users").document(userId)
                 .collection("engagement").document(engagement.artifactId)
                 .set(remoteData)
-        } catch (_: Exception) {
-            // Log error or handle offline sync
+        } catch (e: Exception) {
+            android.util.Log.e("EngagementRepository", "Sync to cloud failed", e)
         }
     }
 

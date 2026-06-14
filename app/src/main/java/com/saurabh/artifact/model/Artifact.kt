@@ -55,6 +55,10 @@ data class Artifact(
     val reactionVisibility: ReactionVisibilityMode = ReactionVisibilityMode.APPROXIMATE,
     val titleHistory: List<String> = emptyList(),
 
+    // Field added for Firestore mapping consistency
+    @get:PropertyName("isDraft")
+    val isDraftField: Boolean = false,
+
     // Missing fields causing warnings
     val authorAnonymousName: String = "",
     val authorId: String = "",
@@ -63,6 +67,7 @@ data class Artifact(
     /**
      * Helper to check if the artifact is in a draft state.
      */
+    @get:Exclude
     val isDraft: Boolean
         get() = (status == ArtifactStatus.DRAFT) || (status == ArtifactStatus.PENDING_UPLOAD)
 

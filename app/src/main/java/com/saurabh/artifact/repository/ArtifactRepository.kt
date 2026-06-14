@@ -167,7 +167,11 @@ class ArtifactRepository @Inject constructor(
         val docRef = firestore.collection("artifacts").document(artifactId)
         val subscription = docRef.addSnapshotListener { snapshot, error ->
             if (error != null) {
-                ArtifactLogger.e("ArtifactRepository", "Error observing artifact $artifactId", error)
+                if (error.code == com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+                    Log.w("ArtifactRepository", "Access denied for artifact $artifactId (likely private)")
+                } else {
+                    ArtifactLogger.e("ArtifactRepository", "Error observing artifact $artifactId", error)
+                }
                 trySend(null)
                 return@addSnapshotListener
             }
@@ -642,6 +646,39 @@ class ArtifactRepository @Inject constructor(
             Result.success(Unit)
         } catch (e: Exception) {
             ArtifactLogger.e("ArtifactRepository", "Failed to queue unsave for artifact $artifactId", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Internal method to actually write the save to Firestore.
+     * Should be called by the Sync Worker, not the UI layer.
+     */
+    suspend fun saveArtifactToFirestore(userId: String, artifactId: String, shelf: String = "Stayed With Me"): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val docRef = firestore.collection("users").document(userId)
+                .collection("savedArtifacts").document(artifactId)
+
+            docRef.set(mapOf(
+                "savedAt" to Timestamp.now(),
+                "shelf" to shelf
+            )).await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Internal method to actually remove the save from Firestore.
+     */
+    suspend fun unsaveArtifactFromFirestore(userId: String, artifactId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            firestore.collection("users").document(userId)
+                .collection("savedArtifacts").document(artifactId)
+                .delete().await()
+            Result.success(Unit)
+        } catch (e: Exception) {
             Result.failure(e)
         }
     }
