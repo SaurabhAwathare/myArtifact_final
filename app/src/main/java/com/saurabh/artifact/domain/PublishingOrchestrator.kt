@@ -88,6 +88,12 @@ class PublishingOrchestrator @Inject constructor(
             
             val draft = draftRepository.getDraft(draftId).getOrThrow()
 
+            // 0. Strict Validation: Review Required
+            if (draft.status.lifecycle != ArtifactLifecycle.READY_TO_PUBLISH) {
+                Log.e("PublishingOrchestrator", "Attempted to publish unreviewed draft: $draftId")
+                return@withContext Result.failure(Exception("95% Review required before publishing."))
+            }
+
             // 1. Check if already publishing to avoid double enqueuing
             if (draft.status.lifecycle == ArtifactLifecycle.PUBLISHED) {
                 return@withContext Result.success(Unit)
@@ -121,7 +127,13 @@ class PublishingOrchestrator @Inject constructor(
         // Legacy entry point - redirected to internal logic if needed, but preferred is approveAndPublish
         val draft = draftRepository.getDraft(draftId).getOrNull() ?: return@withContext PublishingResult.FAILED
         
-        // 0. Check if already publishing to avoid double enqueuing
+        // 0. Strict Validation: Review Required
+        if (draft.status.lifecycle != ArtifactLifecycle.READY_TO_PUBLISH) {
+            Log.e("PublishingOrchestrator", "Attempted to publish unreviewed draft via legacy route: $draftId")
+            return@withContext PublishingResult.FAILED
+        }
+
+        // 0.2 Check if already publishing to avoid double enqueuing
         if (draft.status.lifecycle == ArtifactLifecycle.PUBLISHED) {
             return@withContext PublishingResult.ALREADY_IN_PROGRESS
         }
@@ -149,6 +161,12 @@ class PublishingOrchestrator @Inject constructor(
     }
 
     private fun enqueuePublishingWork(draftId: String) {
+        // Analytics
+        val bundle = android.os.Bundle().apply { putString("draft_id", draftId) }
+        try {
+             // Injected manually since it's a Singleton
+        } catch (_: Exception) {}
+
         val inputData = workDataOf(PublishingWorker.KEY_DRAFT_ID to draftId)
         
         val constraints = Constraints.Builder()

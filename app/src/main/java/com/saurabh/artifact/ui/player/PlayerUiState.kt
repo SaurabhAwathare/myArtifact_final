@@ -1,6 +1,7 @@
 package com.saurabh.artifact.ui.player
 
 import com.saurabh.artifact.model.Artifact
+import com.saurabh.artifact.model.PlayableArtifact
 import com.saurabh.artifact.model.TranscriptSegment
 import com.saurabh.artifact.model.ReactionType
 
@@ -9,6 +10,8 @@ import com.saurabh.artifact.model.ReactionType
  */
 data class PlayerUiState(
     val currentArtifact: Artifact? = null,
+    val currentPlayableArtifact: PlayableArtifact? = null,
+    val loadState: PlayerLoadState = PlayerLoadState.IDLE,
     val isPlaying: Boolean = false,
     val isBuffering: Boolean = false,
     val currentPosition: Long = 0L,
@@ -38,10 +41,16 @@ data class PlayerUiState(
 
     // Review Mode State (Phase 1)
     val coveragePercent: Float = 0f,
-    val effortPercent: Float = 0f,
     val isThresholdMet: Boolean = false,
     val isPlaybackEnded: Boolean = false
 )
+
+enum class PlayerLoadState {
+    IDLE,
+    LOADING,
+    LOADED,
+    ERROR
+}
 
 enum class PlayerMode {
     HIDDEN,

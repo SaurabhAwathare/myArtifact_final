@@ -5,7 +5,6 @@ package com.saurabh.artifact.audio.validation
  */
 data class ReviewResult(
     val coveragePercent: Float,
-    val effortPercent: Float,
     val reachedEnd: Boolean,
     val isValid: Boolean
 )

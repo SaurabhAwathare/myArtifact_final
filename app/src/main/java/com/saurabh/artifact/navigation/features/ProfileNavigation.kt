@@ -14,6 +14,7 @@ import com.saurabh.artifact.ui.profile.ResonanceListScreen
 import com.saurabh.artifact.ui.settings.SettingsScreen
 import com.saurabh.artifact.ui.debug.DebugMenuScreen
 import com.saurabh.artifact.ui.player.PlayerViewModel
+import com.saurabh.artifact.model.PlaybackSource
 
 fun NavGraphBuilder.profileNavigation(
     navController: NavHostController,
@@ -56,12 +57,10 @@ fun NavGraphBuilder.profileNavigation(
             onEditIdentity = onNavigateToIdentity,
             onNavigateToSettings = onNavigateToSettings,
             onNavigateToReview = { draftId ->
-                // Phase 2: Route through Global Player
-                playerViewModel.playArtifactById(draftId)
-                playerViewModel.setExpanded(true)
+                navController.navigate(PublishingStudio(draftId))
             },
             onNavigateToPublish = { draftId ->
-                navController.navigate(PublishPreparation(draftId))
+                navController.navigate(PublishingStudio(draftId))
             },
             onNavigateToResonanceList = { id, type, title ->
                 navController.navigate(ResonanceList(id, type, title))

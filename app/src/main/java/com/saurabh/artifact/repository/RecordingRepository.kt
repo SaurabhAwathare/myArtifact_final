@@ -137,6 +137,22 @@ class RecordingRepository @Inject constructor(
         }
     }
 
+    suspend fun updateStudioState(
+        id: String,
+        step: String,
+        review: Boolean,
+        title: Boolean,
+        emotion: Boolean,
+        approval: Boolean
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            draftDao.updateStudioState(id, step, review, title, emotion, approval)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(AppError.from(e))
+        }
+    }
+
     suspend fun recoverInterruptedDrafts(): Result<List<ArtifactDraftEntity>> = withContext(Dispatchers.IO) {
         try {
             Log.d("RecordingRepository", "Starting recovery check...")

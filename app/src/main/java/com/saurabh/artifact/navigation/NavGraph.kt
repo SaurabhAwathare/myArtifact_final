@@ -76,6 +76,6 @@ fun NavGraph(
         authNavigation(navController, onboardingManager)
         feedNavigation(navController, recordingSessionManager, onReportArtifact, onPlayArtifactById)
         profileNavigation(navController, playerViewModel)
-        recordingNavigation(navController, playerViewModel)
+        recordingNavigation(navController)
     }
 }

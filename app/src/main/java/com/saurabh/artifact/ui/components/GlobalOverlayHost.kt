@@ -29,7 +29,10 @@ private val ScreensWithoutOverlays = listOf(
     PublishApproval::class,
     IdentitySelection::class,
     PresenceBuilder::class,
-    PostRecordingDecision::class
+    PostRecordingDecision::class,
+    PublishingStudio::class,
+    DraftEdit::class,
+    DraftList::class
 )
 
 @Composable
@@ -37,8 +40,8 @@ fun GlobalOverlayHost(
     navController: NavController,
     recordingSessionManager: RecordingSessionManager,
     publishStateManager: PublishStateManager,
-    onNavigateToDraftEdit: (String) -> Unit,
-    onNavigateToPublish: (String) -> Unit,
+    onNavigateToDraftEdit: (String) -> Unit = { id -> navController.navigate(PublishingStudio(id)) },
+    onNavigateToPublish: (String) -> Unit = { id -> navController.navigate(PublishingStudio(id)) },
     onNavigateToComments: (String, String) -> Unit,
     onReportArtifact: (String) -> Unit,
     playerViewModel: PlayerViewModel = hiltViewModel(),

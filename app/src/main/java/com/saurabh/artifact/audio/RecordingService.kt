@@ -555,7 +555,7 @@ class RecordingService : Service() {
     private fun startTimer() {
         timerJob?.cancel()
         timerJob = serviceScope.launch {
-            var seconds = 0L
+            var seconds = _recordingState.value.durationSeconds
             var tick = 0
             
             // Reusable buffer for amplitudes to reduce allocation churn

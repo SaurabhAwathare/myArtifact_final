@@ -135,7 +135,7 @@ fun PlaybackSpeedSelector(
     onSpeedSelected: (Float) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val speeds = listOf(0.8f, 1.0f, 1.2f, 1.5f)
+    val speeds = listOf(1.0f, 1.2f, 1.5f, 2.0f)
 
     Row(
         modifier = modifier.fillMaxWidth(),

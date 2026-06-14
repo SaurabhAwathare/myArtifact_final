@@ -25,10 +25,12 @@ class ProfileInteractionUseCase @Inject constructor(
     }
 
     suspend fun deleteDraft(draftId: String): Result<Unit> {
+        android.util.Log.d("ProfileInteractionUseCase", "Delegating draft deletion to CleanupManager: $draftId")
         return try {
             cleanupManager.deleteDraft(draftId)
             Result.success(Unit)
         } catch (e: Exception) {
+            android.util.Log.e("ProfileInteractionUseCase", "Error during draft deletion: $draftId", e)
             Result.failure(com.saurabh.artifact.model.AppError.from(e))
         }
     }
@@ -38,6 +40,7 @@ class ProfileInteractionUseCase @Inject constructor(
     }
 
     suspend fun deletePublishedArtifact(artifactId: String): Result<Unit> {
+        android.util.Log.d("ProfileInteractionUseCase", "Delegating artifact deletion to CleanupManager: $artifactId")
         return cleanupManager.deleteArtifact(artifactId)
     }
 }

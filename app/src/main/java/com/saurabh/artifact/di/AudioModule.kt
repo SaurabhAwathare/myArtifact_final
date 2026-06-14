@@ -38,9 +38,10 @@ object AudioModule {
     fun providePlaybackCoordinator(
         playbackSessionManager: PlaybackSessionManager,
         reviewSessionManager: ReviewSessionManager,
-        transientPlayerManager: com.saurabh.artifact.audio.TransientPlayerManager
+        transientPlayerManager: com.saurabh.artifact.audio.TransientPlayerManager,
+        analytics: PlaybackAnalyticsManager
     ): PlaybackCoordinator = 
-        PlaybackCoordinator(playbackSessionManager, reviewSessionManager, transientPlayerManager)
+        PlaybackCoordinator(playbackSessionManager, reviewSessionManager, transientPlayerManager, analytics)
 
     @Provides
     @Singleton

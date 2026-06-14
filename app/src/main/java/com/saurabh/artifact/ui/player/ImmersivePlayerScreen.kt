@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.saurabh.artifact.model.Artifact
+import com.saurabh.artifact.model.PlayableArtifact
 import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.ui.components.ResonanceDisplay
 import com.saurabh.artifact.ui.player.components.*
@@ -40,7 +41,8 @@ import kotlin.math.roundToInt
  */
 @Composable
 fun ImmersivePlayerScreen(
-    artifact: Artifact,
+    artifact: Artifact?,
+    playableArtifact: PlayableArtifact?,
     uiState: PlayerUiState,
     onCollapse: () -> Unit,
     onTogglePlayback: () -> Unit,
@@ -125,8 +127,9 @@ fun ImmersivePlayerScreen(
             }
     ) {
         // 1. Emotional Background Engine
+        val currentEmotion = playableArtifact?.emotion ?: artifact?.emotion ?: ""
         EmotionalBackground(
-            emotion = artifact.emotion,
+            emotion = currentEmotion,
             modifier = Modifier.fillMaxSize()
         )
 
@@ -200,7 +203,7 @@ fun ImmersivePlayerScreen(
                 ) { isShowingTranscript ->
                     if (isShowingTranscript) {
                         TranscriptOverlay(
-                            segments = artifact.transcript,
+                            segments = artifact?.transcript ?: emptyList(),
                             currentPosition = uiState.currentPosition,
                             modifier = Modifier.fillMaxSize()
                         )
@@ -209,9 +212,13 @@ fun ImmersivePlayerScreen(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center
                         ) {
-                            if (artifact.isDraft) {
+                            val isDraft = playableArtifact?.originalDraft != null || artifact?.isDraft == true
+                            val title = playableArtifact?.title ?: artifact?.title ?: "Untitled"
+                            val emotion = playableArtifact?.emotion ?: artifact?.emotion ?: ""
+                            
+                            if (isDraft) {
                                 EmotionalAudioSurface(
-                                    emotion = artifact.emotion,
+                                    emotion = emotion,
                                     isPlaying = uiState.isPlaying,
                                     modifier = Modifier
                                         .size(280.dp)
@@ -223,13 +230,16 @@ fun ImmersivePlayerScreen(
                                 ) {
                                     // Keep a subtle emotional glow behind the avatar
                                     EmotionalAudioSurface(
-                                        emotion = artifact.emotion,
+                                        emotion = emotion,
                                         isPlaying = uiState.isPlaying,
                                         modifier = Modifier.fillMaxSize().alpha(0.3f)
                                     )
                                     
+                                    val avatarConfig = artifact?.authorAvatarConfig 
+                                        ?: com.saurabh.artifact.model.AvatarConfig(seed = playableArtifact?.avatarSeed ?: "")
+                                        
                                     com.saurabh.artifact.ui.components.ArtifactAvatar(
-                                        config = artifact.authorAvatarConfig,
+                                        config = avatarConfig,
                                         size = 180.dp
                                     )
                                 }
@@ -238,7 +248,7 @@ fun ImmersivePlayerScreen(
                             Spacer(modifier = Modifier.height(32.dp))
                             
                             Text(
-                                text = artifact.title,
+                                text = title,
                                 style = MaterialTheme.typography.headlineMedium,
                                 color = Color.White,
                                 fontWeight = FontWeight.Bold,
@@ -247,7 +257,7 @@ fun ImmersivePlayerScreen(
                             
                             Spacer(modifier = Modifier.height(12.dp))
                             
-                            if (artifact.isDraft) {
+                            if (isDraft) {
                                 Text(
                                     text = "Private Draft",
                                     style = MaterialTheme.typography.bodyLarge,
@@ -257,20 +267,23 @@ fun ImmersivePlayerScreen(
                             } else {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
+                                        val authorName = playableArtifact?.authorName ?: artifact?.author?.name ?: ""
+                                        val authorSigil = playableArtifact?.authorSigil ?: artifact?.author?.sigil ?: ""
+                                        
                                         Text(
-                                            text = artifact.author.name,
+                                            text = authorName,
                                             style = MaterialTheme.typography.bodyLarge,
                                             color = Color.White.copy(alpha = 0.5f),
                                             fontWeight = FontWeight.Medium
                                         )
-                                        if (artifact.author.sigil.isNotEmpty()) {
+                                        if (authorSigil.isNotEmpty()) {
                                             Text(
                                                 text = " · ",
                                                 style = MaterialTheme.typography.bodyLarge,
                                                 color = Color.White.copy(alpha = 0.2f)
                                             )
                                             Text(
-                                                text = artifact.author.sigil,
+                                                text = authorSigil,
                                                 style = MaterialTheme.typography.bodyMedium,
                                                 color = Color.White.copy(alpha = 0.4f),
                                                 fontWeight = FontWeight.Light
@@ -281,7 +294,7 @@ fun ImmersivePlayerScreen(
                                     // Unified Metadata Display (Matches Feed)
                                     ResonanceDisplay(
                                         summary = uiState.resonanceSummary,
-                                        isOwner = artifact.userId == uiState.currentArtifact?.userId
+                                        isOwner = uiState.isOwner
                                     )
                                 }
                             }
@@ -296,8 +309,12 @@ fun ImmersivePlayerScreen(
                     .padding(vertical = 24.dp)
                     .zIndex(5f)
             ) {
+                val amplitudes = playableArtifact?.originalDraft?.amplitudeData 
+                    ?: artifact?.amplitudeData 
+                    ?: emptyList()
+                    
                 WaveformScrubber(
-                    amplitudes = artifact.amplitudeData,
+                    amplitudes = amplitudes,
                     progress = uiState.playbackProgress,
                     isPaused = !uiState.isPlaying,
                     onSeek = onSeek,
@@ -317,7 +334,8 @@ fun ImmersivePlayerScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             // 6. Interaction Layer
-            if (artifact.isDraft) {
+            val isDraft = playableArtifact?.originalDraft != null || artifact?.isDraft == true
+            if (isDraft) {
                 ReviewInteractionLayer(
                     uiState = uiState,
                     onEditClick = onEditClick,
@@ -351,7 +369,7 @@ fun ImmersivePlayerScreen(
             Spacer(modifier = Modifier.height(32.dp))
 
             // 7. Context Actions (Standardized for published artifacts)
-            if (!artifact.isDraft) {
+            if (!isDraft) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
@@ -431,7 +449,8 @@ fun ImmersiveDraftPlayerPreview() {
             onSpeedChange = {},
             onSeek = {},
             onShowAdvanced = {},
-            onCommentClick = {}
+            onCommentClick = {},
+            playableArtifact = null
         )
     }
 }

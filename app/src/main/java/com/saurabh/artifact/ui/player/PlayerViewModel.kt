@@ -11,11 +11,14 @@ import com.saurabh.artifact.domain.player.GetPlayerContextUseCase
 import com.saurabh.artifact.domain.player.PlayerInteractionUseCase
 import com.saurabh.artifact.domain.player.PlayerMetadata
 import com.saurabh.artifact.model.Artifact
+import com.saurabh.artifact.model.PlayableArtifact
+import com.saurabh.artifact.model.PlaybackSource
 import com.saurabh.artifact.model.ReactionType
 import com.saurabh.artifact.model.TranscriptSegment
 import com.saurabh.artifact.model.findSegmentAt
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.AuthRepository
+import com.saurabh.artifact.repository.PlayableArtifactRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,6 +47,7 @@ class PlayerViewModel @Inject constructor(
     private val playerInteractionUseCase: PlayerInteractionUseCase,
     getPlayerContextUseCase: GetPlayerContextUseCase,
     private val artifactRepository: ArtifactRepository,
+    private val playableArtifactRepository: PlayableArtifactRepository,
     private val reviewSessionManager: ReviewSessionManager,
     private val deleteArtifactUseCase: DeleteArtifactUseCase
 ) : ViewModel() {
@@ -56,6 +60,9 @@ class PlayerViewModel @Inject constructor(
 
     private val _navigateToPublish = MutableSharedFlow<String>(replay = 0)
     val navigateToPublish: SharedFlow<String> = _navigateToPublish.asSharedFlow()
+
+    private val _currentPlayableArtifact = MutableStateFlow<PlayableArtifact?>(null)
+    private val _loadState = MutableStateFlow(PlayerLoadState.IDLE)
 
     // Consolidated metadata from UseCase - Live and Atomic
     private val metadata: StateFlow<PlayerMetadata> = getPlayerContextUseCase.execute(
@@ -171,10 +178,14 @@ class PlayerViewModel @Inject constructor(
     val uiState: StateFlow<PlayerUiState> = combine(
         staticState,
         dynamicState,
-        reviewSessionManager.reviewProgress
-    ) { static, dynamic, review ->
+        reviewSessionManager.reviewProgress,
+        _loadState,
+        _currentPlayableArtifact
+    ) { static, dynamic, review, loadState, playable ->
         PlayerUiState(
             currentArtifact = static.artifact,
+            currentPlayableArtifact = playable,
+            loadState = loadState,
             isPlaying = dynamic.isPlaying,
             isBuffering = dynamic.isBuffering,
             currentPosition = dynamic.currentPosition,
@@ -197,7 +208,6 @@ class PlayerViewModel @Inject constructor(
             currentTranscriptSegment = dynamic.currentTranscriptSegment,
             showAdvancedControls = static.showAdvancedControls,
             coveragePercent = review.coveragePercent,
-            effortPercent = review.effortPercent,
             isThresholdMet = review.isThresholdMet,
             isPlaybackEnded = review.isPlaybackEnded
         )
@@ -255,17 +265,39 @@ class PlayerViewModel @Inject constructor(
 
     fun playArtifact(artifact: Artifact, collection: List<Artifact> = emptyList()) {
         setExpanded(true)
+        _loadState.value = PlayerLoadState.LOADED
+        _currentPlayableArtifact.value = null // Clear playable as we have a real artifact
         playbackCoordinator.playArtifact(
             artifact = artifact,
             collection = collection
         )
     }
 
-    fun playArtifactById(artifactId: String) {
+    fun playArtifactById(artifactId: String, source: PlaybackSource = PlaybackSource.FEED_PLAYBACK) {
         viewModelScope.launch {
-            artifactRepository.getArtifact(artifactId).onSuccess { artifact ->
-                playArtifact(artifact)
-            }
+            setExpanded(true)
+            _loadState.value = PlayerLoadState.LOADING
+            
+            playableArtifactRepository.resolveArtifact(artifactId, source).fold(
+                onSuccess = { playable ->
+                    _currentPlayableArtifact.value = playable
+                    _loadState.value = PlayerLoadState.LOADED
+                    
+                    // Track resolution success with source context
+                    playbackCoordinator.trackPlayableStart(playable)
+                    
+                    if (playable.originalArtifact != null) {
+                        playArtifact(playable.originalArtifact)
+                    } else if (playable.originalDraft != null) {
+                        // For drafts, we use the reviewSessionManager to handle progress tracking
+                        reviewSessionManager.startReview(playable.id)
+                    }
+                },
+                onFailure = { error ->
+                    _loadState.value = PlayerLoadState.ERROR
+                    _interactionError.emit("Failed to load artifact: ${error.message}")
+                }
+            )
         }
     }
 

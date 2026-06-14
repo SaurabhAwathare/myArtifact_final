@@ -50,6 +50,7 @@ data class ArtifactDraftEntity(
     val publishConfidence: Float = 0f,
     val isEmotionalReady: Boolean = false,
     val maxReviewPositionMs: Long = 0,
+    val reviewProgress: Float = 0f,
     
     // Metadata & Recovery
     val deviceId: String? = null,
@@ -81,4 +82,11 @@ data class ArtifactDraftEntity(
     // Final Ritual Data
     val transcriptSegmentsJson: SecureString? = null,
     val sensitiveEntitiesJson: SecureString? = null,
+
+    // Publishing Studio Session State
+    val studioStep: String = "REVIEW",
+    val reviewCompleted: Boolean = false,
+    val titleCompleted: Boolean = false,
+    val emotionCompleted: Boolean = false,
+    val approvalCompleted: Boolean = false,
 ) : UploadProgress

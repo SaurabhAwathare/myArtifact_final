@@ -1,6 +1,7 @@
 package com.saurabh.artifact.audio
 
 import com.saurabh.artifact.model.Artifact
+import com.saurabh.artifact.model.PlayableArtifact
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import javax.inject.Inject
@@ -17,7 +18,8 @@ import kotlin.time.Duration.Companion.seconds
 class PlaybackCoordinator @Inject constructor(
     private val playbackSessionManager: PlaybackSessionManager,
     private val reviewSessionManager: ReviewSessionManager,
-    private val transientPlayerManager: TransientPlayerManager
+    private val transientPlayerManager: TransientPlayerManager,
+    private val analytics: PlaybackAnalyticsManager
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -35,6 +37,8 @@ class PlaybackCoordinator @Inject constructor(
     val playbackCompletedEvent = playbackSessionManager.playbackCompletedEvent
     val activePlayback = playbackSessionManager.activePlayback
     val error = playbackSessionManager.error
+
+    val reviewProgress = reviewSessionManager.reviewProgress
 
     private val _sleepTimerRemaining = MutableStateFlow<Duration?>(null)
     val sleepTimerRemaining: StateFlow<Duration?> = _sleepTimerRemaining.asStateFlow()
@@ -146,6 +150,10 @@ class PlaybackCoordinator @Inject constructor(
 
     fun preCache(artifact: Artifact) {
         playbackSessionManager.preCache(artifact)
+    }
+
+    fun trackPlayableStart(playable: PlayableArtifact) {
+        analytics.trackPlayableStart(playable)
     }
 
     fun startSleepTimer(duration: Duration) {

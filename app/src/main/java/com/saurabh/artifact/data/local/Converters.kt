@@ -98,16 +98,6 @@ class Converters {
     }
 
     @TypeConverter
-    fun fromEffortMap(value: Map<Float, Long>): String = Json.encodeToString(value)
-
-    @TypeConverter
-    fun toEffortMap(value: String): Map<Float, Long> = try {
-        Json.decodeFromString(value)
-    } catch (_: Exception) {
-        emptyMap()
-    }
-
-    @TypeConverter
     fun fromSyncStatus(status: SyncStatus): String = Json.encodeToString(status)
 
     @TypeConverter

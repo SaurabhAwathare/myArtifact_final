@@ -1,0 +1,21 @@
+# Task: Fix Artifact Review Flow Consistency
+
+- [/] Research and Planning
+    - [x] Analyze `PlayerViewModel` and `ArtifactPlayerView`
+    - [x] Analyze `ArtifactRepository` and `DraftDao`
+    - [x] Analyze recording flow navigation
+    - [/] Finalize Implementation Plan
+- [ ] Implementation
+    - [ ] Create `PlayableArtifact` model
+    - [ ] Create `PlayableArtifactRepository`
+    - [ ] Update `PlayerUiState` with load states
+    - [ ] Refactor `PlayerViewModel` for async resolution
+    - [ ] Update `ArtifactPlayerView` with loading/error UI
+    - [ ] Update `RecordingNavigation` to use new flow
+    - [ ] Add Analytics for review flow
+- [ ] Verification
+    - [ ] Run unit tests for repository resolution
+    - [ ] Manual verification of recording -> review flow
+    - [ ] Manual verification of draft list -> review flow
+    - [ ] Manual verification of feed playback
+    - [ ] Verify error states

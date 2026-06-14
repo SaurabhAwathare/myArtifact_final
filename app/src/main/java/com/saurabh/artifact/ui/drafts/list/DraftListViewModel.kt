@@ -65,7 +65,12 @@ class DraftListViewModel @Inject constructor(
 
     fun onPublishClicked(draftId: String) {
         viewModelScope.launch {
-            _events.emit(DraftListUiEvent.NavigateToPublish(draftId))
+            val draft = draftRepository.getDraft(draftId).getOrNull()
+            if (draft?.status?.lifecycle == com.saurabh.artifact.model.ArtifactLifecycle.READY_TO_PUBLISH) {
+                _events.emit(DraftListUiEvent.NavigateToPublish(draftId))
+            } else {
+                _events.emit(DraftListUiEvent.NavigateToReview(draftId))
+            }
         }
     }
 

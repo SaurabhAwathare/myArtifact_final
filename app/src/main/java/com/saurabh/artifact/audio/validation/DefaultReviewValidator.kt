@@ -20,16 +20,11 @@ class DefaultReviewValidator : ReviewValidator {
         
         val coveragePercent = evidence.coverage.cardinality().toFloat() / totalSegments
         
-        val adjustedEffortMs = evidence.getAdjustedEffortMs(policy.maxSpeedPenaltyThreshold)
-        val effortPercent = adjustedEffortMs.toFloat() / evidence.durationMs.coerceAtLeast(1)
-
         val isValid = coveragePercent >= policy.minCoverage &&
-                     effortPercent >= policy.minEffort &&
                      (!policy.requireReachedEnd || evidence.hasReachedEnd)
 
         return ReviewResult(
             coveragePercent = coveragePercent,
-            effortPercent = effortPercent,
             reachedEnd = evidence.hasReachedEnd,
             isValid = isValid
         )

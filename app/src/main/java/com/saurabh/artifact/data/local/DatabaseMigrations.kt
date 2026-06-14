@@ -667,6 +667,51 @@ object DatabaseMigrations {
         }
     }
 
+    val MIGRATION_48_49 = object : Migration(48, 49) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            // 1. Update artifact_drafts
+            db.execSQL("ALTER TABLE `artifact_drafts` ADD COLUMN `studioStep` TEXT NOT NULL DEFAULT 'REVIEW'")
+            db.execSQL("ALTER TABLE `artifact_drafts` ADD COLUMN `reviewCompleted` INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE `artifact_drafts` ADD COLUMN `titleCompleted` INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE `artifact_drafts` ADD COLUMN `emotionCompleted` INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE `artifact_drafts` ADD COLUMN `approvalCompleted` INTEGER NOT NULL DEFAULT 0")
+
+            // 2. Refactor artifact_engagement to remove effortMap
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `artifact_engagement_new` (
+                    `artifactId` TEXT NOT NULL, 
+                    `versionTag` TEXT NOT NULL, 
+                    `durationMs` INTEGER NOT NULL, 
+                    `audioChecksum` TEXT NOT NULL DEFAULT '', 
+                    `coverage` BLOB NOT NULL, 
+                    `lastPositionMs` INTEGER NOT NULL, 
+                    `furthestPositionMs` INTEGER NOT NULL, 
+                    `hasReachedEnd` INTEGER NOT NULL, 
+                    `lastUpdated` INTEGER NOT NULL DEFAULT 0, 
+                    PRIMARY KEY(`artifactId`)
+                )
+            """.trimIndent()
+            )
+
+            db.execSQL(
+                """
+                INSERT INTO artifact_engagement_new (
+                    artifactId, versionTag, durationMs, audioChecksum, 
+                    coverage, lastPositionMs, furthestPositionMs, hasReachedEnd, lastUpdated
+                )
+                SELECT 
+                    artifactId, versionTag, durationMs, audioChecksum, 
+                    coverage, lastPositionMs, furthestPositionMs, hasReachedEnd, lastUpdated
+                FROM artifact_engagement
+            """.trimIndent()
+            )
+
+            db.execSQL("DROP TABLE artifact_engagement")
+            db.execSQL("ALTER TABLE artifact_engagement_new RENAME TO artifact_engagement")
+        }
+    }
+
     val ALL_MIGRATIONS = arrayOf(
         MIGRATION_1_2,
         MIGRATION_2_3,
@@ -697,6 +742,7 @@ object DatabaseMigrations {
         MIGRATION_41_42,
         MIGRATION_42_43,
         MIGRATION_45_46,
-        MIGRATION_46_47
+        MIGRATION_46_47,
+        MIGRATION_48_49
     )
 }

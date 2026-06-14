@@ -27,7 +27,7 @@ interface DraftDao {
     @Query("SELECT * FROM artifact_drafts")
     suspend fun getAllDrafts(): List<ArtifactDraftEntity>
 
-    @Query("SELECT * FROM artifact_drafts ORDER BY updatedAt DESC")
+    @Query("SELECT * FROM artifact_drafts WHERE lifecycle NOT IN ('DELETED', 'DELETING') ORDER BY updatedAt DESC")
     fun observeDrafts(): Flow<List<ArtifactDraftEntity>>
 
     @Query("SELECT * FROM artifact_drafts WHERE status LIKE '%\"publication\":{\"type\":\"Uploading\"%' OR status LIKE '%\"publication\":\"Queued\"%'")
@@ -88,6 +88,9 @@ interface DraftDao {
     @Query("UPDATE artifact_drafts SET isEmotionalReady = :isReady, publishConfidence = :confidence, updatedAt = :timestamp WHERE id = :id")
     suspend fun updateEmotionalConfirmation(id: String, isReady: Boolean, confidence: Float, timestamp: Long = System.currentTimeMillis())
 
+    @Query("UPDATE artifact_drafts SET reviewProgress = :progress, updatedAt = :timestamp WHERE id = :id")
+    suspend fun updateReviewProgress(id: String, progress: Float, timestamp: Long = System.currentTimeMillis())
+
     @Query("UPDATE artifact_drafts SET cooldownExpiry = :expiry, updatedAt = :timestamp WHERE id = :id")
     suspend fun updateCooldown(id: String, expiry: Long?, timestamp: Long = System.currentTimeMillis())
 
@@ -131,6 +134,17 @@ interface DraftDao {
     @Query("SELECT * FROM artifact_drafts WHERE lifecycle = :lifecycle")
     suspend fun getDraftsByLifecycle(lifecycle: ArtifactLifecycle): List<ArtifactDraftEntity>
 
+
+    @Query("UPDATE artifact_drafts SET studioStep = :step, reviewCompleted = :review, titleCompleted = :title, emotionCompleted = :emotion, approvalCompleted = :approval, updatedAt = :timestamp WHERE id = :id")
+    suspend fun updateStudioState(
+        id: String, 
+        step: String, 
+        review: Boolean, 
+        title: Boolean, 
+        emotion: Boolean, 
+        approval: Boolean, 
+        timestamp: Long = System.currentTimeMillis()
+    )
 
     @Query("DELETE FROM artifact_drafts WHERE id = :id")
     suspend fun deleteById(id: String)

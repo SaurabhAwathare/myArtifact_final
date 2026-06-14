@@ -9,7 +9,6 @@ data class ReviewProgress(
     val artifactId: String,
     val durationMs: Long,
     val coveragePercent: Float,
-    val effortPercent: Float,
     val hasReachedEnd: Boolean,
     val isValidationMet: Boolean,
     val evidence: EngagementEvidence,

@@ -23,6 +23,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.cancelChildren
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -455,7 +456,7 @@ class PlaybackSessionManager @Inject constructor(
                     _durationMs.value = dur
                     updatePositionSync()
                 }
-                delay(1.seconds)
+                delay(100.milliseconds)
             }
         }
     }

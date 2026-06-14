@@ -39,6 +39,8 @@ fun LazyListScope.draftSection(
                     isOwner = true,
                     isPlaying = isCurrent && isPlaying,
                     isBuffering = isCurrent && isBuffering,
+                    isListened = draft.lifecycle == com.saurabh.artifact.model.ArtifactLifecycle.READY_TO_PUBLISH,
+                    reviewProgress = draft.reviewProgress,
                     onPlayClick = { onPlayClick(draft) },
                     onRename = { newTitle -> onRename(draft, newTitle) },
                     onPublishClick = { onPublishClick(draft) },

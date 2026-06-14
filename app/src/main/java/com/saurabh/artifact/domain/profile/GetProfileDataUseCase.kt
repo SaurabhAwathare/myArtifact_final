@@ -35,7 +35,11 @@ class GetProfileDataUseCase @Inject constructor(
             artifactRepository.getUserArtifacts(finalId, onlyActive = !isSelf),
             artifactRepository.getSavedArtifacts(finalId),
             if (isSelf) recordingRepository.observeDrafts().map { drafts ->
-                drafts.filter { it.lifecycle != com.saurabh.artifact.model.ArtifactLifecycle.PUBLISHED }
+                drafts.filter { 
+                    it.lifecycle != com.saurabh.artifact.model.ArtifactLifecycle.PUBLISHED &&
+                    it.lifecycle != com.saurabh.artifact.model.ArtifactLifecycle.DELETING &&
+                    it.lifecycle != com.saurabh.artifact.model.ArtifactLifecycle.DELETED
+                }
             } else flowOf(emptyList()),
             if (currentUserId.isNotEmpty()) userRepository.observeIsResonating(currentUserId, finalId) else flowOf(false)
         ) { profile, allArtifacts, saved, localDrafts, isResonating ->
@@ -43,7 +47,7 @@ class GetProfileDataUseCase @Inject constructor(
             ProfileData(
                 userProfile = profile,
                 publishedArtifacts = allArtifacts.filter { it.status == statusPublished },
-                cloudDrafts = allArtifacts.filter { it.status != statusPublished },
+                cloudDrafts = allArtifacts.filter { it.status != statusPublished && it.status != com.saurabh.artifact.model.ArtifactStatus.DELETED },
                 savedArtifacts = saved,
                 localDrafts = localDrafts,
                 isResonating = isResonating,

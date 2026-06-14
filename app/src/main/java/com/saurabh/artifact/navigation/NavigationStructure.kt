@@ -79,3 +79,6 @@ data class PublishApproval(val draftId: String) : Route
 
 @Serializable
 data class PublishPreparation(val draftId: String) : Route
+
+@Serializable
+data class PublishingStudio(val draftId: String) : Route

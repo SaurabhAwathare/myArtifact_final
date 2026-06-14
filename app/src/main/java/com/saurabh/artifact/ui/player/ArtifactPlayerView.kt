@@ -5,9 +5,12 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -21,8 +24,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.saurabh.artifact.ui.components.base.AppButton
+import com.saurabh.artifact.ui.components.base.AppEmptyState
 import com.saurabh.artifact.ui.components.motion.MotionTokens
 import com.saurabh.artifact.ui.player.components.AdvancedControlsSheet
+import com.saurabh.artifact.ui.theme.GoldAura400
+import com.saurabh.artifact.ui.theme.Obsidian950
 import com.saurabh.artifact.ui.theme.ZIndexTokens
 
 @Composable
@@ -55,6 +62,45 @@ fun ArtifactPlayerView(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
+        // 0. LOADING & ERROR OVERLAYS
+        if (uiState.loadState == PlayerLoadState.LOADING) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Obsidian950)
+                    .zIndex(ZIndexTokens.FULL_SCREEN_OVERLAYS + 2f),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(color = GoldAura400)
+            }
+        }
+
+        if (uiState.loadState == PlayerLoadState.ERROR) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Obsidian950)
+                    .zIndex(ZIndexTokens.FULL_SCREEN_OVERLAYS + 2f),
+                contentAlignment = Alignment.Center
+            ) {
+                AppEmptyState(
+                    title = "Something went wrong",
+                    description = uiState.error ?: "Failed to load artifact",
+                    emoji = "🌑",
+                    action = {
+                        AppButton(
+                            text = "Retry",
+                            onClick = {
+                                uiState.currentPlayableArtifact?.let { 
+                                    viewModel.playArtifactById(it.id, it.sourceType)
+                                }
+                            }
+                        )
+                    }
+                )
+            }
+        }
+
         // 1. FULLSCREEN IMMERSIVE PLAYER
         AnimatedVisibility(
             visible = uiState.playerMode == PlayerMode.FULLSCREEN,
@@ -68,39 +114,44 @@ fun ArtifactPlayerView(
             ),
             modifier = Modifier.zIndex(ZIndexTokens.FULL_SCREEN_OVERLAYS)
         ) {
-            val artifact = uiState.currentArtifact ?: return@AnimatedVisibility
-            ImmersivePlayerScreen(
-                artifact = artifact,
-                uiState = uiState,
-                onCollapse = { viewModel.setExpanded(expanded = false) },
-                onTogglePlayback = { viewModel.togglePlayPause() },
-                onRewind = { viewModel.rewind() },
-                onForward = { viewModel.forward() },
-                onSpeedChange = { viewModel.setPlaybackSpeed(it) },
-                onSeek = { viewModel.seekTo((it * uiState.durationMs).toLong()) },
-                onScrubbing = { viewModel.onScrubbing((it * uiState.durationMs).toLong()) },
-                onShowAdvanced = { viewModel.setShowAdvancedControls(true) },
-                onCommentClick = { 
-                    uiState.currentArtifact?.let { art ->
+            val artifact = uiState.currentArtifact
+            val playable = uiState.currentPlayableArtifact
+            
+            if (artifact != null || playable != null) {
+                ImmersivePlayerScreen(
+                    artifact = artifact,
+                    playableArtifact = playable,
+                    uiState = uiState,
+                    onCollapse = { viewModel.setExpanded(expanded = false) },
+                    onTogglePlayback = { viewModel.togglePlayPause() },
+                    onRewind = { viewModel.rewind() },
+                    onForward = { viewModel.forward() },
+                    onSpeedChange = { viewModel.setPlaybackSpeed(it) },
+                    onSeek = { viewModel.seekTo((it * uiState.durationMs).toLong()) },
+                    onScrubbing = { viewModel.onScrubbing((it * uiState.durationMs).toLong()) },
+                    onShowAdvanced = { viewModel.setShowAdvancedControls(true) },
+                    onCommentClick = { 
+                        (uiState.currentArtifact ?: uiState.currentPlayableArtifact?.originalArtifact)?.let { art ->
+                            viewModel.setExpanded(false)
+                            onNavigateToComments(art.id, art.userId)
+                        }
+                    },
+                    onResonateClick = { viewModel.toggleResonate(it) },
+                    onResonateConnectionClick = { viewModel.toggleResonanceConnection() },
+                    onSaveClick = { viewModel.toggleSave() },
+                    onEditClick = { 
                         viewModel.setExpanded(false)
-                        onNavigateToComments(art.id, art.userId)
+                        (artifact?.id ?: playable?.id)?.let { onNavigateToDraftEdit(it) }
+                    },
+                    onPublishClick = {
+                        viewModel.setExpanded(false)
+                        (artifact?.id ?: playable?.id)?.let { onNavigateToPublish(it) }
+                    },
+                    onDeleteClick = {
+                        viewModel.deleteCurrentArtifact()
                     }
-                },
-                onResonateClick = { viewModel.toggleResonate(it) },
-                onResonateConnectionClick = { viewModel.toggleResonanceConnection() },
-                onSaveClick = { viewModel.toggleSave() },
-                onEditClick = { 
-                    viewModel.setExpanded(false)
-                    onNavigateToDraftEdit(artifact.id)
-                },
-                onPublishClick = {
-                    viewModel.setExpanded(false)
-                    onNavigateToPublish(artifact.id)
-                },
-                onDeleteClick = {
-                    viewModel.deleteCurrentArtifact()
-                }
-            )
+                )
+            }
         }
 
         // 2. ADVANCED CONTROLS

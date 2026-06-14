@@ -27,14 +27,14 @@ import androidx.navigation.compose.rememberNavController
 import com.saurabh.artifact.audio.PublishStateManager
 import com.saurabh.artifact.audio.RecordingSessionManager
 import com.saurabh.artifact.navigation.Comments
-import com.saurabh.artifact.navigation.DraftEdit
 import com.saurabh.artifact.navigation.NavGraph
-import com.saurabh.artifact.navigation.PublishPreparation
+import com.saurabh.artifact.navigation.PublishingStudio
 import com.saurabh.artifact.startup.StartupStage
 import com.saurabh.artifact.ui.components.GlobalOverlayHost
 import com.saurabh.artifact.ui.components.moderation.ReportSheet
 import com.saurabh.artifact.ui.feed.FeedViewModel
 import com.saurabh.artifact.ui.player.PlayerViewModel
+import com.saurabh.artifact.model.PlaybackSource
 import com.saurabh.artifact.ui.recovery.RescueScreen
 import com.saurabh.artifact.ui.splash.SplashUI
 import com.saurabh.artifact.ui.theme.ArtifactTheme
@@ -201,7 +201,7 @@ fun AuthenticatedIsland(
                         recordingSessionManager = recordingSessionManager,
                         onboardingManager = onboardingManager,
                         onReportArtifact = { mainViewModel.showReportSheet(it) },
-                        onPlayArtifactById = { playerViewModel.playArtifactById(it) },
+                        onPlayArtifactById = { playerViewModel.playArtifactById(it, PlaybackSource.FEED_PLAYBACK) },
                         playerViewModel = playerViewModel,
                         onDestinationChanged = { mainViewModel.updateSecurityStatus(it) }
                     )
@@ -215,10 +215,10 @@ fun AuthenticatedIsland(
                             recordingSessionManager = recordingSessionManager,
                             publishStateManager = publishStateManager,
                             onNavigateToDraftEdit = { draftId ->
-                                navController.navigate(DraftEdit(draftId))
+                                navController.navigate(PublishingStudio(draftId))
                             },
                             onNavigateToPublish = { draftId ->
-                                navController.navigate(PublishPreparation(draftId))
+                                navController.navigate(PublishingStudio(draftId))
                             },
                             onNavigateToComments = { artifactId, userId ->
                                 navController.navigate(Comments(artifactId, userId))

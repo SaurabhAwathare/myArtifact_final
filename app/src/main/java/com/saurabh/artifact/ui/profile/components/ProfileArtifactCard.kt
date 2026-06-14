@@ -43,6 +43,8 @@ fun ProfileArtifactCard(
     onUnsave: () -> Unit = {},
     isBuffering: Boolean = false,
     progress: Float = 0f,
+    isListened: Boolean = false,
+    reviewProgress: Float = 0f,
 ) {
     var showMenu by remember { mutableStateOf(value = false) }
     var showRenameDialog by remember { mutableStateOf(value = false) }
@@ -155,11 +157,11 @@ fun ProfileArtifactCard(
                             modifier = Modifier
                                 .size(6.dp)
                                 .clip(CircleShape)
-                                .background(Color.White.copy(alpha = 0.3f))
+                                .background(if (isListened) ArtifactTheme.colors.waveformActive else Color.White.copy(alpha = 0.3f))
                         )
                         Spacer(modifier = Modifier.width(Spacing.Small))
                         Text(
-                            text = "Ready to review",
+                            text = if (isListened) "Ready to publish" else "Review to publish (${(reviewProgress * 100).toInt()}%)",
                             style = ArtifactTheme.typography.labelMedium,
                             color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.5f)
                         )
@@ -199,8 +201,11 @@ fun ProfileArtifactCard(
             isOwner = isOwner,
             isDraft = isDraft,
             isSaved = isSaved,
+            reviewProgress = reviewProgress,
+            isListened = isListened,
             onRenameClick = { showRenameDialog = true },
             onPublishClick = onPublishClick,
+            onReviewClick = onPlayClick,
             onDeleteClick = { showDeleteDialog = true },
             onUnsaveClick = onUnsave,
             onViewCommentsClick = onViewComments

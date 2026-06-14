@@ -49,18 +49,9 @@ fun ReviewInteractionLayer(
 
             // Coverage
             ProgressRow(
-                label = "Coverage",
+                label = "Review Progress",
                 percent = uiState.coveragePercent,
                 color = Color(0xFFFFB74D) // Ember Gold
-            )
-
-            Spacer(modifier = Modifier.height(Spacing.Small))
-
-            // Effort
-            ProgressRow(
-                label = "Effort",
-                percent = uiState.effortPercent,
-                color = Color(0xFF64B5F6) // Soft Blue
             )
 
             Spacer(modifier = Modifier.height(Spacing.Small))
@@ -97,16 +88,30 @@ fun ReviewInteractionLayer(
                 Text("Edit", color = Color.White.copy(alpha = 0.7f))
             }
             
-            Button(
-                onClick = onPublishClick,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color.White.copy(alpha = 0.1f),
-                    contentColor = Color.White
-                ),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.height(48.dp)
-            ) {
-                Text("Publish")
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Button(
+                    onClick = onPublishClick,
+                    enabled = uiState.isThresholdMet,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (uiState.isThresholdMet) ArtifactTheme.colors.waveformActive else Color.White.copy(alpha = 0.1f),
+                        contentColor = Color.White,
+                        disabledContainerColor = Color.White.copy(alpha = 0.05f),
+                        disabledContentColor = Color.White.copy(alpha = 0.3f)
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.height(48.dp)
+                ) {
+                    Text("Publish")
+                }
+                
+                if (!uiState.isThresholdMet) {
+                    Text(
+                        text = "95% review required",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.3f),
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
             }
             
             TextButton(onClick = onDeleteClick) {

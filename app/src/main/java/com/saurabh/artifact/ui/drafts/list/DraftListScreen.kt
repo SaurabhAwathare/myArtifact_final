@@ -33,9 +33,7 @@ import java.util.*
 @Composable
 fun DraftListScreen(
     onBack: () -> Unit,
-    onReviewDraft: (String) -> Unit,
-    onEditDraft: (String) -> Unit,
-    onPublishDraft: (String) -> Unit,
+    onNavigateToStudio: (String) -> Unit,
     viewModel: DraftListViewModel = hiltViewModel()
 ) {
     val drafts by viewModel.drafts.collectAsState()
@@ -45,9 +43,9 @@ fun DraftListScreen(
     LaunchedEffect(viewModel.events) {
         viewModel.events.collect { event ->
             when (event) {
-                is DraftListUiEvent.NavigateToReview -> onReviewDraft(event.draftId)
-                is DraftListUiEvent.NavigateToEdit -> onEditDraft(event.draftId)
-                is DraftListUiEvent.NavigateToPublish -> onPublishDraft(event.draftId)
+                is DraftListUiEvent.NavigateToReview -> onNavigateToStudio(event.draftId)
+                is DraftListUiEvent.NavigateToEdit -> onNavigateToStudio(event.draftId)
+                is DraftListUiEvent.NavigateToPublish -> onNavigateToStudio(event.draftId)
             }
         }
     }
@@ -335,12 +333,18 @@ fun DraftItem(
                             leadingIcon = { Icon(Icons.Default.Edit, null) }
                         )
                         DropdownMenuItem(
-                            text = { Text("Publish Artifact") },
+                            text = { 
+                                val isReady = draft.lifecycle == ArtifactLifecycle.READY_TO_PUBLISH
+                                Text(if (isReady) "Publish Artifact" else "Review to Publish (${(draft.reviewProgress * 100).toInt()}%)") 
+                            },
                             onClick = {
                                 showMenu = false
                                 onPublish()
                             },
-                            leadingIcon = { Icon(Icons.Default.Publish, null, tint = MaterialTheme.colorScheme.primary) }
+                            leadingIcon = { 
+                                val isReady = draft.lifecycle == ArtifactLifecycle.READY_TO_PUBLISH
+                                Icon(if (isReady) Icons.Default.Publish else Icons.Default.Headset, null, tint = MaterialTheme.colorScheme.primary) 
+                            }
                         )
                         DropdownMenuItem(
                             text = { Text("Delete Draft") },

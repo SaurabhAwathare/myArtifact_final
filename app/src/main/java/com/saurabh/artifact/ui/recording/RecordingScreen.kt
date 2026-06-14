@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -484,11 +485,11 @@ fun RecordingScreen(
                     // Redesigned Cinematic Controls
                     EnhancedRecordingControls(
                         status = uiState.status,
-                        onRecordClick = {
-                            if (uiState.status == RecordingStatus.RECORDING || uiState.status == RecordingStatus.PAUSED) {
-                                viewModel.stopRecording()
-                            } else {
-                                requestPermission()
+                        onPrimaryActionClick = {
+                            when (uiState.status) {
+                                RecordingStatus.RECORDING -> viewModel.stopRecording()
+                                RecordingStatus.PAUSED -> viewModel.resumeRecording()
+                                else -> requestPermission()
                             }
                         },
                         onPauseClick = {
@@ -510,7 +511,7 @@ fun RecordingScreen(
 @Composable
 fun EnhancedRecordingControls(
     status: RecordingStatus,
-    onRecordClick: () -> Unit,
+    onPrimaryActionClick: () -> Unit,
     onPauseClick: () -> Unit,
     onDeleteClick: () -> Unit,
     onFinishClick: () -> Unit
@@ -544,6 +545,7 @@ fun EnhancedRecordingControls(
             modifier = Modifier.size(120.dp)
         ) {
             val isRecording = status == RecordingStatus.RECORDING
+            val isPaused = status == RecordingStatus.PAUSED
             val infiniteTransition = rememberInfiniteTransition(label = "Heartbeat")
             
             val pulseScale by infiniteTransition.animateFloat(
@@ -574,7 +576,7 @@ fun EnhancedRecordingControls(
                     .background(
                         brush = Brush.radialGradient(
                             colors = listOf(
-                                Color(0xFFE91E63).copy(alpha = glowAlpha), // Deep rose/red glow
+                                Color(0xFFE91E63).copy(alpha = if (isPaused) glowAlpha * 0.5f else glowAlpha), // Deep rose/red glow
                                 Color.Transparent
                             )
                         ),
@@ -586,20 +588,32 @@ fun EnhancedRecordingControls(
             Button(
                 onClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onRecordClick()
+                    onPrimaryActionClick()
                 },
                 modifier = Modifier.size(80.dp),
                 shape = CircleShape,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isRecording) Color(0xFFE91E63) else Color.White.copy(alpha = 0.1f),
+                    containerColor = when {
+                        isRecording -> Color(0xFFE91E63)
+                        isPaused -> Color(0xFFE91E63).copy(alpha = 0.3f)
+                        else -> Color.White.copy(alpha = 0.1f)
+                    },
                     contentColor = Color.White
                 ),
                 contentPadding = PaddingValues(0.dp),
                 elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
             ) {
                 Icon(
-                    imageVector = if (isRecording) Icons.Default.Stop else Icons.Default.Mic,
-                    contentDescription = if (isRecording) "Stop" else "Record",
+                    imageVector = when {
+                        isRecording -> Icons.Default.Stop
+                        isPaused -> Icons.Default.PlayArrow
+                        else -> Icons.Default.Mic
+                    },
+                    contentDescription = when {
+                        isRecording -> "Stop Recording"
+                        isPaused -> "Resume Recording"
+                        else -> "Start Recording"
+                    },
                     modifier = Modifier.size(32.dp)
                 )
             }

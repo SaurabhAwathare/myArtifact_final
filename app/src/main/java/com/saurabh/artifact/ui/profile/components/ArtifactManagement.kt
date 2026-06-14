@@ -22,6 +22,9 @@ fun ArtifactManagementBottomSheet(
     isDraft: Boolean,
     onRenameClick: () -> Unit,
     onPublishClick: () -> Unit = {},
+    onReviewClick: () -> Unit = {},
+    isListened: Boolean = false,
+    reviewProgress: Float = 0f,
     onDeleteClick: () -> Unit,
     onViewCommentsClick: (() -> Unit)? = null,
     isSaved: Boolean = false,
@@ -52,12 +55,16 @@ fun ArtifactManagementBottomSheet(
                 )
 
                 if (isDraft) {
+                    val isReady = isListened
+                    val label = if (isReady) "Publish Artifact" else "Review to Publish (${(reviewProgress * 100).toInt()}%)"
+                    val icon = if (isReady) Icons.Rounded.Publish else Icons.Rounded.Headset
+                    
                     ManagementActionItem(
-                        icon = Icons.Rounded.Publish,
-                        label = "Publish Artifact",
-                        textColor = ArtifactTheme.colors.waveformActive,
+                        icon = icon,
+                        label = label,
+                        textColor = if (isReady) ArtifactTheme.colors.waveformActive else ArtifactTheme.colors.onSurfaceMuted,
                         onClick = {
-                            onPublishClick()
+                            if (isReady) onPublishClick() else onReviewClick()
                             onDismiss()
                         }
                     )

@@ -176,6 +176,13 @@ class ProfileViewModel @Inject constructor(
             _message.value = UiText.StringResource(R.string.no_voice_yet)
             return
         }
+        
+        // If it's a draft, handle review logic
+        if (artifact.isDraft) {
+             // Redundant since playAudio is for published list, 
+             // but keeping it robust for the union lists
+        }
+
         playbackCoordinator.playArtifact(artifact)
     }
 
@@ -208,13 +215,16 @@ class ProfileViewModel @Inject constructor(
     }
 
     fun deleteDraft(draftId: String) {
+        android.util.Log.d("ProfileViewModel", "User initiated delete for draft: $draftId")
         viewModelScope.launch {
             _isActionLoading.value = true
             profileInteractionUseCase.deleteDraft(draftId)
                 .onSuccess {
+                    android.util.Log.d("ProfileViewModel", "Delete success for draft: $draftId")
                     _message.value = UiText.StringResource(R.string.draft_deleted)
                 }
                 .onFailure { e ->
+                    android.util.Log.e("ProfileViewModel", "Delete failed for draft: $draftId", e)
                     _message.value = ErrorMessageMapper.map(e)
                 }
             _isActionLoading.value = false
@@ -236,13 +246,16 @@ class ProfileViewModel @Inject constructor(
     }
 
     fun deletePublishedArtifact(artifactId: String) {
+        android.util.Log.d("ProfileViewModel", "User initiated delete for artifact: $artifactId")
         viewModelScope.launch {
             _isActionLoading.value = true
             profileInteractionUseCase.deletePublishedArtifact(artifactId)
                 .onSuccess {
+                    android.util.Log.d("ProfileViewModel", "Delete success for artifact: $artifactId")
                     _message.value = UiText.StringResource(R.string.reflection_deleted)
                 }
                 .onFailure { e ->
+                    android.util.Log.e("ProfileViewModel", "Delete failed for artifact: $artifactId", e)
                     _message.value = ErrorMessageMapper.map(e)
                 }
             _isActionLoading.value = false

@@ -14,7 +14,6 @@ data class ArtifactEngagement(
     val durationMs: Long,
     val audioChecksum: String = "",
     val coverage: ByteArray, // Serialized BitSet
-    val effortMap: Map<Float, Long>, // Speed -> Time spent (ms)
     val lastPositionMs: Long, // Resume position
     val furthestPositionMs: Long, // Validation progress
     val hasReachedEnd: Boolean,
@@ -29,7 +28,6 @@ data class ArtifactEngagement(
         if (durationMs != other.durationMs) return false
         if (audioChecksum != other.audioChecksum) return false
         if (!coverage.contentEquals(other.coverage)) return false
-        if (effortMap != other.effortMap) return false
         if (lastPositionMs != other.lastPositionMs) return false
         if (furthestPositionMs != other.furthestPositionMs) return false
         if (hasReachedEnd != other.hasReachedEnd) return false
@@ -42,7 +40,6 @@ data class ArtifactEngagement(
         result = (31 * result) + durationMs.hashCode()
         result = (31 * result) + audioChecksum.hashCode()
         result = (31 * result) + coverage.contentHashCode()
-        result = (31 * result) + effortMap.hashCode()
         result = (31 * result) + lastPositionMs.hashCode()
         result = (31 * result) + furthestPositionMs.hashCode()
         result = (31 * result) + hasReachedEnd.hashCode()

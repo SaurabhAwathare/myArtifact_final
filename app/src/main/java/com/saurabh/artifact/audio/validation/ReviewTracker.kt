@@ -31,20 +31,16 @@ class DefaultReviewTracker(
     override fun onPlaybackTick(currentPosMs: Long, realElapsedMs: Long, playbackSpeed: Float) {
         if (currentEvidence.durationMs <= 0) return
 
-        // 1. Effort Tracking (Wall clock time categorized by speed)
-        if (realElapsedMs in (1 until 5000)) {
-            val updatedEffortMap = currentEvidence.effortMap.toMutableMap()
-            val currentEffort = updatedEffortMap.getOrDefault(playbackSpeed, 0L)
-            updatedEffortMap[playbackSpeed] = currentEffort + realElapsedMs
-            currentEvidence = currentEvidence.copy(effortMap = updatedEffortMap)
-        }
-
-        // 2. Coverage Tracking with Adaptive Scrub Tolerance
+        // 1. Coverage Tracking with Adaptive Speed-Aware Tolerance
+        // We use a baseline tolerance + a factor based on playback speed to account for Media3 update lag.
         val expectedDelta = (realElapsedMs * playbackSpeed).toLong()
-        val tolerance = getScrubTolerance(currentEvidence.durationMs)
+        val baseTolerance = getScrubTolerance(currentEvidence.durationMs)
+        val speedLagBuffer = (800 * playbackSpeed).toLong() // Increased to 800ms to handle variability
+        
+        val totalTolerance = baseTolerance + speedLagBuffer
         
         val isAdvancingNormally = (lastPlaybackPositionMs != -1L) &&
-                (currentPosMs in lastPlaybackPositionMs..(lastPlaybackPositionMs + expectedDelta + tolerance))
+                (currentPosMs in lastPlaybackPositionMs..(lastPlaybackPositionMs + expectedDelta + totalTolerance))
 
         // Mark coverage only if advancing normally to prevent "painting" via seeks.
         if (isAdvancingNormally) {
@@ -89,7 +85,6 @@ class DefaultReviewTracker(
                 artifactId = currentEvidence.artifactId,
                 durationMs = currentEvidence.durationMs,
                 coveragePercent = result.coveragePercent,
-                effortPercent = result.effortPercent,
                 hasReachedEnd = currentEvidence.hasReachedEnd,
                 isValidationMet = result.isValid,
                 evidence = currentEvidence,

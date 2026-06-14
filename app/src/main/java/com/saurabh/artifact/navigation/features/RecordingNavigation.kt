@@ -5,18 +5,14 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.composable
 import androidx.navigation.toRoute
 import com.saurabh.artifact.navigation.*
-import com.saurabh.artifact.ui.drafts.edit.DraftEditScreen
 import com.saurabh.artifact.ui.drafts.list.DraftListScreen
-import com.saurabh.artifact.ui.player.PlayerViewModel
-import com.saurabh.artifact.ui.publish.PublishApprovalScreen
-import com.saurabh.artifact.ui.publish.PublishPreparationScreen
+import com.saurabh.artifact.ui.publish.studio.PublishingStudioScreen
 import com.saurabh.artifact.ui.recording.PostRecordingDecisionScreen
 import com.saurabh.artifact.ui.recording.RecordingScreen
 import com.saurabh.artifact.ui.recording.warning.PreRecordingWarningScreen
 
 fun NavGraphBuilder.recordingNavigation(
     navController: NavHostController,
-    playerViewModel: PlayerViewModel,
 ) {
     val onBack = {
         navController.popBackStack()
@@ -26,32 +22,23 @@ fun NavGraphBuilder.recordingNavigation(
     composable<DraftList> {
         DraftListScreen(
             onBack = onBack,
-            onReviewDraft = { draftId ->
-                // Ensure we handle potential race condition if playArtifactById is called before ViewModel is fully ready
-                playerViewModel.playArtifactById(draftId)
-                playerViewModel.setExpanded(true)
-            },
-            onEditDraft = { draftId ->
-                navController.navigate(DraftEdit(draftId))
-            },
-            onPublishDraft = { draftId ->
-                navController.navigate(PublishPreparation(draftId))
+            onNavigateToStudio = { draftId ->
+                navController.navigate(PublishingStudio(draftId))
             }
         )
     }
 
     composable<DraftEdit> { backStackEntry ->
         val route = backStackEntry.toRoute<DraftEdit>()
-        DraftEditScreen(
+        PublishingStudioScreen(
             draftId = route.draftId,
-            onBack = onBack,
-            onReview = {
-                // Phase 2: Route through Global Player
-                playerViewModel.playArtifactById(route.draftId)
-                playerViewModel.setExpanded(true)
+            onFinish = {
+                navController.navigate(Home) {
+                    popUpTo(Home) { inclusive = true }
+                }
             },
-            onPublish = {
-                navController.navigate(PublishPreparation(route.draftId))
+            onCancel = {
+                navController.popBackStack()
             }
         )
     }
@@ -85,12 +72,8 @@ fun NavGraphBuilder.recordingNavigation(
         val route = backStackEntry.toRoute<PostRecordingDecision>()
         PostRecordingDecisionScreen(
             onReview = { draftId ->
-                // Phase 2: Route through Global Player
-                playerViewModel.playArtifactById(draftId)
-                playerViewModel.setExpanded(true)
-                
-                // Return home so the player is visible on the home screen
-                navController.navigate(Home) {
+                // Enter the unified Publishing Studio
+                navController.navigate(PublishingStudio(draftId)) {
                     popUpTo(PostRecordingDecision(route.draftId)) { inclusive = true }
                 }
             },
@@ -102,26 +85,47 @@ fun NavGraphBuilder.recordingNavigation(
         )
     }
 
-    composable<PublishPreparation> { backStackEntry ->
-        val route = backStackEntry.toRoute<PublishPreparation>()
-        PublishPreparationScreen(
+    composable<PublishingStudio> { backStackEntry ->
+        val route = backStackEntry.toRoute<PublishingStudio>()
+        PublishingStudioScreen(
             draftId = route.draftId,
-            onPublished = {
+            onFinish = {
                 navController.navigate(Home) {
                     popUpTo(Home) { inclusive = true }
                 }
             },
-            onCancel = onBack
+            onCancel = {
+                navController.popBackStack()
+            }
         )
     }
 
-    composable<PublishApproval> {
-        PublishApprovalScreen(
-            onNavigateBack = onBack,
-            onPublishSuccess = {
+    composable<PublishPreparation> { backStackEntry ->
+        val route = backStackEntry.toRoute<PublishPreparation>()
+        PublishingStudioScreen(
+            draftId = route.draftId,
+            onFinish = {
                 navController.navigate(Home) {
                     popUpTo(Home) { inclusive = true }
                 }
+            },
+            onCancel = {
+                navController.popBackStack()
+            }
+        )
+    }
+
+    composable<PublishApproval> { backStackEntry ->
+        val route = backStackEntry.toRoute<PublishApproval>()
+        PublishingStudioScreen(
+            draftId = route.draftId,
+            onFinish = {
+                navController.navigate(Home) {
+                    popUpTo(Home) { inclusive = true }
+                }
+            },
+            onCancel = {
+                navController.popBackStack()
             }
         )
     }
