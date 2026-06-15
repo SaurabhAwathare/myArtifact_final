@@ -8,7 +8,7 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 
     alias(libs.plugins.google.services)
-    alias(libs.plugins.firebase.perf)
+    // alias(libs.plugins.firebase.perf)
     alias(libs.plugins.firebase.crashlytics)
     alias(libs.plugins.androidx.baselineprofile)
 }
@@ -84,11 +84,13 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.core.splashscreen)
 
+    // Car App
+    implementation(libs.androidx.car.app)
+
     // Compose
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
-    implementation(libs.androidx.compose.ui.text.google.fonts)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.core)
@@ -126,12 +128,12 @@ dependencies {
     implementation(libs.firebase.firestore)
     implementation(libs.firebase.storage)
     implementation(libs.firebase.functions)
-    implementation(libs.firebase.messaging)
-    implementation(libs.firebase.analytics)
+    // implementation(libs.firebase.messaging)
+    // implementation(libs.firebase.analytics)
     implementation(libs.firebase.appcheck.playintegrity)
     implementation(libs.firebase.appcheck.debug)
     implementation(libs.firebase.crashlytics)
-    implementation(libs.firebase.perf)
+    // implementation(libs.firebase.perf)
     implementation(libs.firebase.ai)
 
     // Credential Manager

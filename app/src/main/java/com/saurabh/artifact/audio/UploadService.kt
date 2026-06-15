@@ -24,6 +24,17 @@ class UploadService : Service() {
 
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var uploadJob: Job? = null
+    
+    private lateinit var attributionContext: android.content.Context
+
+    override fun onCreate() {
+        super.onCreate()
+        attributionContext = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            createAttributionContext("data_sync")
+        } else {
+            this
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -65,7 +76,7 @@ class UploadService : Service() {
             }
 
             // 2. Start Foreground
-            val notification = NotificationHelper.buildUploadProgressNotification(this@UploadService, "Preparing...", 0, draftId)
+            val notification = NotificationHelper.buildUploadProgressNotification(attributionContext, "Preparing...", 0, draftId)
             startForeground(NotificationHelper.UPLOAD_NOTIFICATION_ID, notification)
 
             try {
@@ -76,10 +87,10 @@ class UploadService : Service() {
                     draftId = draftId,
                     onProgress = { transferred, total, _ ->
                         val progress = (transferred * 100 / total).toInt()
-                        NotificationHelper.updateUploadProgress(this@UploadService, title, progress, draftId)
+                        NotificationHelper.updateUploadProgress(attributionContext, title, progress, draftId)
                     }
                 ).onSuccess {
-                    NotificationHelper.showUploadSuccessNotification(this@UploadService, title)
+                    NotificationHelper.showUploadSuccessNotification(attributionContext, title)
                 }.onFailure { e ->
                     handleFailure(draftId, e as Exception)
                 }

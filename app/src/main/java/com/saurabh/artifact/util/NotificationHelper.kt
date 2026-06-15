@@ -153,6 +153,9 @@ object NotificationHelper {
         return builder.build()
     }
 
+    private var lastUploadUpdateTime = 0L
+    private const val UPLOAD_THROTTLE_MS = 300L
+
     /**
      * Updates an existing upload progress notification.
      */
@@ -161,6 +164,12 @@ object NotificationHelper {
             Log.d("NotificationHelper", "Trace: Skipping progress update (no permission)")
             return
         }
+
+        val currentTime = System.currentTimeMillis()
+        if (progress < 100 && currentTime - lastUploadUpdateTime < UPLOAD_THROTTLE_MS) {
+            return
+        }
+        lastUploadUpdateTime = currentTime
         
         Log.d("NotificationHelper", "Trace: Updating upload progress for $title to $progress%")
         val notification = buildUploadProgressNotification(context, title, progress, draftId)

@@ -21,6 +21,9 @@ interface ArtifactDao {
     @Query("SELECT * FROM artifacts WHERE id = :artifactId")
     suspend fun getArtifactById(artifactId: String): ArtifactEntity?
 
+    @Query("SELECT * FROM artifacts WHERE id IN (:ids)")
+    suspend fun getArtifactsByIds(ids: List<String>): List<ArtifactEntity>
+
     @Query("DELETE FROM artifacts WHERE id = :artifactId")
     suspend fun deleteById(artifactId: String)
 

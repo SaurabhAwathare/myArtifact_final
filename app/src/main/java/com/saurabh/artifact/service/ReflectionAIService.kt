@@ -40,8 +40,8 @@ class ReflectionAIServiceImpl @Inject constructor(
 
     companion object {
         private const val TAG = "ReflectionAIService"
-        private val GENERATION_TIMEOUT = 8.seconds
-        private const val MODEL_NAME = "gemini-1.5-flash-latest"
+        private val GENERATION_TIMEOUT = 15.seconds
+        private const val MODEL_NAME = "gemini-2.5-flash"
     }
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -57,7 +57,7 @@ class ReflectionAIServiceImpl @Inject constructor(
     )
 
     private val generativeModel by lazy {
-        Firebase.ai(backend = GenerativeBackend.googleAI()).generativeModel(
+        Firebase.ai(backend = GenerativeBackend.vertexAI()).generativeModel(
             modelName = MODEL_NAME,
             generationConfig = generationConfig {
                 responseMimeType = "application/json"

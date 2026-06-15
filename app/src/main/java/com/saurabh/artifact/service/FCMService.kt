@@ -1,5 +1,6 @@
 package com.saurabh.artifact.service
 
+/*
 import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
@@ -64,3 +65,4 @@ class FCMService : FirebaseMessagingService() {
             .addOnFailureListener { e -> Log.e("FCM", "Failed to update token", e) }
     }
 }
+*/

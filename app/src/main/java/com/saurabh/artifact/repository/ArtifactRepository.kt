@@ -220,6 +220,62 @@ class ArtifactRepository @Inject constructor(
         }
     }
 
+    /**
+     * Optimized batch fetch for hydration (e.g., playback resumption).
+     * Uses local cache first, then fetches missing items from Firestore in chunks.
+     */
+    suspend fun getArtifactsByIds(ids: List<String>): Result<List<Artifact>> = withContext(Dispatchers.IO) {
+        if (ids.isEmpty()) return@withContext Result.success(emptyList())
+        
+        try {
+            // 1. Fetch all from local Room
+            val localEntities = artifactDao.getArtifactsByIds(ids)
+            val twoHoursMillis = 2 * 60 * 60 * 1000L
+            val currentTime = System.currentTimeMillis()
+            
+            val validLocal = localEntities.filter { currentTime - it.lastUpdated < twoHoursMillis }
+                .associateBy { it.id }
+            
+            val missingIds = ids.filter { !validLocal.containsKey(it) }
+            
+            if (missingIds.isEmpty()) {
+                val ordered = ids.mapNotNull { id -> validLocal[id]?.let { mapArtifactEntityToArtifact(it) } }
+                return@withContext Result.success(ordered)
+            }
+
+            // 2. Fetch missing from Firestore in chunks (whereIn limit is 10/30 depending on SDK)
+            val fetchedRemote = mutableMapOf<String, Artifact>()
+            missingIds.chunked(10).forEach { chunk ->
+                val snapshot = firestore.collection("artifacts")
+                    .whereIn(com.google.firebase.firestore.FieldPath.documentId(), chunk)
+                    .get()
+                    .await()
+                
+                snapshot.documents.forEach { doc ->
+                    doc.toObject(Artifact::class.java)?.copy(id = doc.id)?.let { artifact ->
+                        fetchedRemote[doc.id] = artifact
+                    }
+                }
+            }
+
+            // 3. Update local cache with new results
+            if (fetchedRemote.isNotEmpty()) {
+                artifactDao.insertAll(fetchedRemote.values.map { mapArtifactToEntity(it) })
+            }
+
+            // 4. Combine and maintain original ID order
+            val results = ids.mapNotNull { id ->
+                val artifact = validLocal[id]?.let { mapArtifactEntityToArtifact(it) } ?: fetchedRemote[id]
+                artifact
+            }
+            
+            Result.success(results)
+        } catch (e: Exception) {
+            ArtifactLogger.e("ArtifactRepository", "Batch fetch failed for ${ids.size} items", e)
+            Result.failure(AppError.from(e))
+        }
+    }
+
     suspend fun getPendingReports(): Result<List<UserReport>> = withContext(Dispatchers.IO) {
         return@withContext try {
             val snapshot = firestore.collection("reports")

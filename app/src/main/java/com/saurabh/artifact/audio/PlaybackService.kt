@@ -47,6 +47,8 @@ class PlaybackService : MediaLibraryService() {
 
     private var mediaSession: MediaLibrarySession? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    
+    private lateinit var attributionContext: android.content.Context
 
     companion object {
         private val ARTIFACT_AUDIO_ATTRIBUTES = AudioAttributes.Builder()
@@ -61,7 +63,15 @@ class PlaybackService : MediaLibraryService() {
         super.onCreate()
         Log.d("PlaybackService", "onCreate - Initializing MediaSession")
         
+        attributionContext = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            createAttributionContext("media_playback")
+        } else {
+            this
+        }
+        
         // Ensure the service is recognized as a foreground-capable media service
+        // Use 'this' instead of 'attributionContext' for notification provider 
+        // to avoid potential system-level attribution issues during early init.
         val notificationProvider = DefaultMediaNotificationProvider.Builder(this)
             .setChannelId(NotificationHelper.CHANNEL_ID_PLAYBACK)
             .setChannelName(com.saurabh.artifact.R.string.playback_channel_name)
@@ -75,7 +85,7 @@ class PlaybackService : MediaLibraryService() {
     private fun initializeSession() {
         Log.d("PlaybackService", "Initializing ExoPlayer and MediaSession")
         
-        val dataSourceFactory = SmartDataSourceFactory(this)
+        val dataSourceFactory = SmartDataSourceFactory(attributionContext)
         
         // Optimized buffering for network resilience
         val loadControl = DefaultLoadControl.Builder()
@@ -102,6 +112,13 @@ class PlaybackService : MediaLibraryService() {
             .setSeekBackIncrementMs(10000)
             .setSeekForwardIncrementMs(10000)
             .build()
+
+        // Wait for basic metadata to be ready before attaching to session
+        player.addListener(object : Player.Listener {
+            override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
+                Log.d("PlaybackService", "Metadata updated for session sync: ${mediaMetadata.title}")
+            }
+        })
 
         val callback = object : MediaLibrarySession.Callback {
             @UnstableApi
@@ -167,6 +184,7 @@ class PlaybackService : MediaLibraryService() {
                 isForPlayback: Boolean,
             ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
                 val completer = com.google.common.util.concurrent.SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
+                val startTime = android.os.SystemClock.elapsedRealtime()
                 
                 serviceScope.launch {
                     try {
@@ -174,10 +192,16 @@ class PlaybackService : MediaLibraryService() {
                         val lastIndex = settingsDataStore.currentQueueIndex.first()
                         val lastArtifactId = settingsDataStore.lastArtifactId.first()
 
-                        val artifacts = if (lastIds.isNotEmpty()) {
-                            lastIds.mapNotNull { artifactRepository.getArtifactById(it).getOrNull() }
+                        val idsToFetch = if (lastIds.isNotEmpty()) {
+                            lastIds
                         } else if (lastArtifactId != null) {
-                            listOfNotNull(artifactRepository.getArtifactById(lastArtifactId).getOrNull())
+                            listOf(lastArtifactId)
+                        } else {
+                            emptyList()
+                        }
+
+                        val artifacts = if (idsToFetch.isNotEmpty()) {
+                            artifactRepository.getArtifactsByIds(idsToFetch).getOrDefault(emptyList())
                         } else {
                             emptyList()
                         }
@@ -187,17 +211,19 @@ class PlaybackService : MediaLibraryService() {
                             val currentArtifact = artifacts.getOrNull(lastIndex) ?: artifacts.first()
                             val pos = engagementRepository.getEngagement(currentArtifact.id).getOrNull()?.lastPositionMs ?: 0L
                             
-                            completer.set(
-                                MediaSession.MediaItemsWithStartPosition(
-                                    mediaItems,
-                                    lastIndex,
-                                    pos,
-                                )
+                            val result = MediaSession.MediaItemsWithStartPosition(
+                                mediaItems,
+                                lastIndex,
+                                pos,
                             )
+                            val duration = android.os.SystemClock.elapsedRealtime() - startTime
+                            Log.d("PlaybackService", "onPlaybackResumption - Success in ${duration}ms for ${artifacts.size} items")
+                            completer.set(result)
                         } else {
                             completer.setException(Exception("No items to resume"))
                         }
                     } catch (e: Exception) {
+                        Log.e("PlaybackService", "onPlaybackResumption - Failed", e)
                         completer.setException(e)
                     }
                 }
@@ -254,29 +280,32 @@ class PlaybackService : MediaLibraryService() {
             }
         }
 
-        mediaSession = MediaLibrarySession.Builder(this, player, callback)
+        mediaSession = MediaLibrarySession.Builder(attributionContext, player, callback)
             .setSessionActivity(createSessionActivityPendingIntent())
             .build()
     }
 
     private fun createMediaItem(artifact: com.saurabh.artifact.model.Artifact): MediaItem {
+        val metadata = MediaMetadata.Builder()
+            .setTitle(artifact.title)
+            .setArtist(artifact.author.name)
+            .setAlbumTitle("Reflections")
+            .setGenre(artifact.emotion)
+            .setIsBrowsable(false)
+            .setIsPlayable(true)
+            .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+            .setExtras(
+                android.os.Bundle().apply {
+                    putString("author_sigil", artifact.author.sigil)
+                    putString("avatar_seed", artifact.author.avatarSeed)
+                }
+            )
+            .build()
+
         return MediaItem.Builder()
             .setUri(artifact.audioUrl)
             .setMediaId(artifact.id)
-            .setMediaMetadata(
-                MediaMetadata.Builder()
-                    .setTitle(artifact.title)
-                    .setArtist(artifact.author.name)
-                    .setAlbumTitle("Reflections")
-                    .setGenre(artifact.emotion)
-                    .setExtras(
-                        android.os.Bundle().apply {
-                            putString("author_sigil", artifact.author.sigil)
-                            putString("avatar_seed", artifact.author.avatarSeed)
-                        }
-                    )
-                    .build()
-            )
+            .setMediaMetadata(metadata)
             .build()
     }
 

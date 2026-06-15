@@ -2,38 +2,34 @@ package com.saurabh.artifact.ui.theme
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.googlefonts.Font
-import androidx.compose.ui.text.googlefonts.GoogleFont
 import androidx.compose.ui.unit.sp
 import com.saurabh.artifact.R
 
 /**
  * Artifact "Humanist Intimacy" Typography System
  * 
+ * Migrated to Local Bundled Fonts to ensure zero-latency startup and offline reliability.
+ * 
  * Pairings:
  * - Instrument Serif: For titles, prompts, and "ancient-modern" character.
  * - Manrope: For body, transcripts, and UI clarity.
  */
 
-private val provider = GoogleFont.Provider(
-    providerAuthority = "com.google.android.gms.fonts",
-    providerPackage = "com.google.android.gms",
-    certificates = R.array.com_google_android_gms_fonts_certs
-)
-
 val InstrumentSerifFont = FontFamily(
-    Font(googleFont = GoogleFont("Instrument Serif"), fontProvider = provider)
+    Font(R.font.instrument_serif_regular, FontWeight.Normal)
 )
 
 val ManropeFont = FontFamily(
-    Font(googleFont = GoogleFont("Manrope"), fontProvider = provider)
+    Font(R.font.manrope_regular, FontWeight.Normal),
+    Font(R.font.manrope_medium, FontWeight.Medium)
 )
 
 /**
  * System-Default Typography for fast-boot Shell.
- * Avoids blocking on Google Fonts during critical startup traversal.
+ * Avoids blocking on font resolution during critical startup traversal.
  */
 val SafeTypography = Typography(
     displayLarge = TextStyle(
@@ -138,4 +134,3 @@ val ArtifactTypography = Typography(
         letterSpacing = 1.2.sp
     )
 )
-

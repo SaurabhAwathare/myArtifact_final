@@ -19,7 +19,7 @@ class ReviewSessionManager @Inject constructor(
     private val draftDao: DraftDao
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    @Inject lateinit var analytics: com.google.firebase.analytics.FirebaseAnalytics
+    // @Inject lateinit var analytics: com.google.firebase.analytics.FirebaseAnalytics
     
     val reviewProgress: StateFlow<ReviewState> = reviewAuthorityService.currentProgress
         .map { progress ->
@@ -57,10 +57,12 @@ class ReviewSessionManager @Inject constructor(
     }
 
     private fun trackReviewCompleted(artifactId: String) {
+        /*
         val bundle = android.os.Bundle().apply {
             putString("artifact_id", artifactId)
         }
         analytics.logEvent("review_completed", bundle)
+        */
     }
 
     private fun updatePersistedProgress(artifactId: String, progress: Float) {

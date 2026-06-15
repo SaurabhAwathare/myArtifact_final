@@ -158,7 +158,9 @@ class StartupCoordinator @Inject constructor(
     private fun initializeCore() {
         Log.d("Startup", "Initializing Core Services (Sequenced)")
 
-        // Initialize App Check synchronously to ensure tokens are ready before first network request
+        // DIAGNOSTIC: Disabling App Check to isolate SecurityException
+        Log.d("Startup", "DIAGNOSTIC: Firebase App Check initialization SKIPPED")
+        /*
         try {
             val appCheck = FirebaseAppCheck.getInstance()
             if (BuildConfig.DEBUG) {
@@ -177,6 +179,7 @@ class StartupCoordinator @Inject constructor(
         } catch (e: Exception) {
             Log.e("Startup", "Critical: App Check initialization failed", e)
         }
+        */
     }
 
     private fun initializeSecurityProvider() {
