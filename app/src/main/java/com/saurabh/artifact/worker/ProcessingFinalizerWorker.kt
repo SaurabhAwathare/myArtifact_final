@@ -13,7 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * Finalizes the local processing chain and transitions the draft to READY_TO_REVIEW.
+ * Finalizes the local processing chain and transitions the draft to REVIEW_REQUIRED.
  */
 @HiltWorker
 class ProcessingFinalizerWorker @AssistedInject constructor(
@@ -26,17 +26,8 @@ class ProcessingFinalizerWorker @AssistedInject constructor(
         val draftId = inputData.getString(KEY_DRAFT_ID) ?: return@withContext Result.failure()
         
         try {
-            val draftResult = recordingRepository.getDraft(draftId)
-            val draft = draftResult.getOrNull() ?: return@withContext Result.failure()
-            
-            // Transition to REVIEW_REQUIRED
-            recordingRepository.updateDraft(draft.copy(
-                status = draft.status.copy(
-                    lifecycle = ArtifactLifecycle.REVIEW_REQUIRED,
-                    processing = ProcessingStatus.Completed
-                ),
-                updatedAt = System.currentTimeMillis()
-            ))
+            // Targeted finalization update
+            recordingRepository.finalizeProcessing(draftId)
             
             Log.d("ProcessingFinalizer", "Local processing completed for $draftId. Ready for review.")
             Result.success()

@@ -1,5 +1,6 @@
 package com.saurabh.artifact.util
 
+import java.io.File
 import kotlin.math.ln
 import kotlin.math.max
 
@@ -56,6 +57,14 @@ object WaveformProcessor {
             }
         }
 
+        return processSampled(sampled)
+    }
+
+    /**
+     * Internal post-processing for already sampled data.
+     * Includes Logarithmic Scaling, Normalization, and Smoothing.
+     */
+    private fun processSampled(sampled: List<Float>): List<Float> {
         // 2. Logarithmic Scaling (Soft Compression)
         // Helps quiet parts be visible and loud parts not clip too harshly.
         val logScaled = sampled.map { amp ->
@@ -73,23 +82,39 @@ object WaveformProcessor {
     }
 
     /**
-     * Extracts waveform data from a raw PCM (16-bit) file.
+     * Extracts waveform data from a raw PCM (16-bit) file incrementally.
      */
-    fun extractFromPcm(pcmFile: java.io.File, targetSize: Int): List<Float> {
+    fun extractFromPcm(pcmFile: File, targetSize: Int): List<Float> {
         if (!pcmFile.exists() || pcmFile.length() == 0L) return emptyList()
-        
-        val rawAmplitudes = mutableListOf<Float>()
-        val buffer = ByteArray(4096)
-        
+
+        val fileLength = pcmFile.length()
+        val headerOffset = if (pcmFile.extension.lowercase() == "wav") 44L else 0L
+        val dataLength = fileLength - headerOffset
+        val totalSamples = dataLength / 2
+
+        // Fallback for very small files or empty data
+        if (totalSamples <= 0) return List(targetSize) { 0.1f }
+
+        if (totalSamples < targetSize) {
+            val rawAmplitudes = readAllSamples(pcmFile, headerOffset)
+            return process(rawAmplitudes, targetSize)
+        }
+
+        val samplesPerPeak = totalSamples / targetSize
+        val peaks = mutableListOf<Float>()
+
         try {
             pcmFile.inputStream().use { inputStream ->
-                // Skip WAV header (44 bytes) if it exists
-                if (pcmFile.extension.lowercase() == "wav") {
-                    inputStream.skip(44)
-                }
-                
-                var bytesRead: Int
-                while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                inputStream.skip(headerOffset)
+                val buffer = ByteArray(8192)
+                var currentMax = 0f
+                var samplesProcessed = 0L
+                var totalSamplesProcessed = 0L
+
+                while (peaks.size < targetSize) {
+                    val bytesRead = inputStream.read(buffer)
+                    if (bytesRead == -1) break
+
                     for (i in 0 until bytesRead step 2) {
                         if (i + 1 >= bytesRead) break
                         
@@ -98,16 +123,53 @@ object WaveformProcessor {
                         val high = buffer[i + 1].toInt()
                         val sample = (high shl 8) or low
                         
-                        val normalized = kotlin.math.abs(sample).toFloat() / 32768f
-                        rawAmplitudes.add(normalized)
+                        val amplitude = kotlin.math.abs(sample).toFloat() / 32768f
+                        if (amplitude > currentMax) currentMax = amplitude
+                        
+                        samplesProcessed++
+                        totalSamplesProcessed++
+
+                        if (samplesProcessed >= samplesPerPeak && peaks.size < targetSize) {
+                            peaks.add(currentMax)
+                            currentMax = 0f
+                            samplesProcessed = 0
+                        }
+                        
+                        if (peaks.size == targetSize) break
                     }
                 }
             }
         } catch (_: Exception) {
             return emptyList()
         }
-        
-        return process(rawAmplitudes, targetSize)
+
+        // Pad if we somehow didn't reach targetSize
+        while (peaks.size < targetSize) {
+            peaks.add(0.1f)
+        }
+
+        return processSampled(peaks)
+    }
+
+    private fun readAllSamples(pcmFile: File, headerOffset: Long): List<Float> {
+        val rawAmplitudes = mutableListOf<Float>()
+        val buffer = ByteArray(4096)
+        try {
+            pcmFile.inputStream().use { inputStream ->
+                inputStream.skip(headerOffset)
+                var bytesRead: Int
+                while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                    for (i in 0 until bytesRead step 2) {
+                        if (i + 1 >= bytesRead) break
+                        val low = buffer[i].toInt() and 0xff
+                        val high = buffer[i + 1].toInt()
+                        val sample = (high shl 8) or low
+                        rawAmplitudes.add(kotlin.math.abs(sample).toFloat() / 32768f)
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        return rawAmplitudes
     }
 
     private fun applyMovingAverage(data: List<Float>): List<Float> {

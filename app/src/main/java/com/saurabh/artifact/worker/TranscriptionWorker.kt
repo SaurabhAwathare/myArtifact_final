@@ -6,8 +6,7 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.saurabh.artifact.audio.LocalDraftManager
-import com.saurabh.artifact.model.ConversationStyle
-import com.saurabh.artifact.model.EmotionalTone
+import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.RecordingRepository
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -72,13 +71,13 @@ class TranscriptionWorker @AssistedInject constructor(
             // 4. Perform Conversational Style Analysis
             val conversationStyle = analyzeConversationStyle()
 
-            // 5. Update Repository
-            recordingRepository.updateDraft(draft.copy(
+            // 5. Update Repository with targeted update
+            recordingRepository.updateTranscriptionResult(
+                id = draftId,
                 localTranscriptPath = transcriptPath,
                 emotionalTone = emotionalTone,
-                primaryStyle = conversationStyle,
-                updatedAt = System.currentTimeMillis()
-            ))
+                primaryStyle = conversationStyle
+            )
 
             Log.d("TranscriptionWorker", "Transcription completed successfully")
             Result.success()
@@ -90,16 +89,12 @@ class TranscriptionWorker @AssistedInject constructor(
     }
 
     private suspend fun updateSubState(id: String, stage: com.saurabh.artifact.model.ProcessingStage?, error: String? = null) {
-        recordingRepository.getDraft(id).onSuccess { draft ->
-            val newProcessing = when {
-                error != null -> com.saurabh.artifact.model.ProcessingStatus.Failed
-                stage != null -> com.saurabh.artifact.model.ProcessingStatus.Active(stage)
-                else -> com.saurabh.artifact.model.ProcessingStatus.Idle
-            }
-            recordingRepository.updateDraft(draft.copy(
-                status = draft.status.copy(processing = newProcessing)
-            ))
+        val newProcessing = when {
+            error != null -> com.saurabh.artifact.model.ProcessingStatus.Failed
+            stage != null -> com.saurabh.artifact.model.ProcessingStatus.Active(stage)
+            else -> com.saurabh.artifact.model.ProcessingStatus.Idle
         }
+        recordingRepository.updateProcessingStatus(id, newProcessing)
     }
 
     private suspend fun performTranscription(file: File): String {

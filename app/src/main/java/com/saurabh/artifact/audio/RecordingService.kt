@@ -370,7 +370,8 @@ class RecordingService : Service() {
                 
                 draftDao.getDraftById(finalDraftId)?.let {
                     draftDao.update(it.copy(
-                        status = it.status.copy(lifecycle = ArtifactLifecycle.RECORDING, publication = SyncStatus.LocalOnly)
+                        status = it.status.copy(lifecycle = ArtifactLifecycle.RECORDING, publication = SyncStatus.LocalOnly),
+                        lifecycle = ArtifactLifecycle.RECORDING
                     ))
                 }
                 userSessionManager.setActiveDraftId(finalDraftId)
@@ -429,7 +430,8 @@ class RecordingService : Service() {
             serviceScope.launch {
                 draftDao.getDraftById(id)?.let {
                     draftDao.update(it.copy(
-                        status = it.status.copy(lifecycle = ArtifactLifecycle.RECORDING)
+                        status = it.status.copy(lifecycle = ArtifactLifecycle.RECORDING),
+                        lifecycle = ArtifactLifecycle.RECORDING
                     ))
                 }
             }
@@ -491,6 +493,7 @@ class RecordingService : Service() {
                                             lifecycle = ArtifactLifecycle.PROCESSING,
                                             processing = ProcessingStatus.Active(ProcessingStage.SAVING)
                                         ),
+                                        lifecycle = ArtifactLifecycle.PROCESSING,
                                         durableBytes = finalFile.length(), // Option A: Final durability update
                                         updatedAt = System.currentTimeMillis()
                                     ))

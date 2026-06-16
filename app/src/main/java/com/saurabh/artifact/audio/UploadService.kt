@@ -13,6 +13,9 @@ import com.saurabh.artifact.repository.DraftRepository
 import com.saurabh.artifact.util.NotificationHelper
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -29,6 +32,8 @@ class UploadService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        _isServiceRunning.value = true
+        _activeDraftId.value = null
         attributionContext = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
             createAttributionContext("data_sync")
         } else {
@@ -62,6 +67,7 @@ class UploadService : Service() {
             return
         }
 
+        _activeDraftId.value = draftId
         uploadJob = serviceScope.launch {
             // 1. Acquire Ownership (with 10 min timeout threshold)
             val timeoutThreshold = System.currentTimeMillis() - 10 * 60 * 1000L
@@ -133,6 +139,8 @@ class UploadService : Service() {
     }
 
     override fun onDestroy() {
+        _isServiceRunning.value = false
+        _activeDraftId.value = null
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -140,6 +148,12 @@ class UploadService : Service() {
     companion object {
         const val EXTRA_DRAFT_ID = "extra_draft_id"
         const val ACTION_CANCEL = "ACTION_CANCEL"
+
+        private val _isServiceRunning = MutableStateFlow(false)
+        val isServiceRunning: StateFlow<Boolean> = _isServiceRunning.asStateFlow()
+
+        private val _activeDraftId = MutableStateFlow<String?>(null)
+        val activeDraftId: StateFlow<String?> = _activeDraftId.asStateFlow()
 
         fun start(context: Context, draftId: String) {
             val intent = Intent(context, UploadService::class.java).apply {

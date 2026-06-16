@@ -29,8 +29,11 @@ class RecordingViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(RecordingUiState())
     val uiState: StateFlow<RecordingUiState> = _uiState.asStateFlow()
 
-    private val _events = Channel<RecordingEvent>()
+    private val _events = Channel<RecordingEvent>(capacity = Channel.BUFFERED)
     val events = _events.receiveAsFlow()
+
+    private val _navigationEvents = Channel<String>(capacity = Channel.BUFFERED)
+    val navigationEvents = _navigationEvents.receiveAsFlow()
 
     private var promptList: List<ReflectionPrompt> = emptyList()
     private var currentPromptIndex = 0
@@ -41,9 +44,8 @@ class RecordingViewModel @Inject constructor(
         
         // Immediate start for InstantRecord flow (Warning ritual handled in PreRecordingWarningScreen)
         _uiState.update { it.copy(flowState = RecordingFlowState.RECORDING) }
-
+        
         viewModelScope.launch {
-            // Signal UI to request permission and start if idle
             _events.send(RecordingEvent.RequestStart)
         }
     }
@@ -129,13 +131,15 @@ class RecordingViewModel @Inject constructor(
                     durationSeconds = state.durationSeconds,
                     currentOutputFile = state.outputFile?.absolutePath,
                     amplitudes = state.amplitudes,
-                    lastDraftId = if (state.status == RecordingStatus.COMPLETED) state.draftId else it.lastDraftId,
                     lastDraftPath = if (state.status == RecordingStatus.COMPLETED) state.outputFile?.absolutePath else it.lastDraftPath,
                     isStorageLow = state.isStorageLow
                 ) }
 
                 if (state.status == RecordingStatus.COMPLETED && state.draftId.isNotEmpty()) {
                     Log.d("RecordingViewModel", "Recording finalized via Manager. Draft ID: ${state.draftId}")
+                    viewModelScope.launch {
+                        _navigationEvents.send(state.draftId)
+                    }
                 }
             }
             .launchIn(viewModelScope)
@@ -213,7 +217,6 @@ data class RecordingUiState(
     val countdownSeconds: Int = 0,
     val durationSeconds: Long = 0,
     val currentOutputFile: String? = null,
-    val lastDraftId: String? = null,
     val lastDraftPath: String? = null,
     val isPromptVisible: Boolean = true,
     val currentPrompt: ReflectionPrompt? = null,

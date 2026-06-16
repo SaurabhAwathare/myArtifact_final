@@ -45,6 +45,10 @@ class IdentityViewModel @Inject constructor(
     private val _suggestions = MutableStateFlow<List<String>>(emptyList())
     val suggestions: StateFlow<List<String>> = _suggestions.asStateFlow()
 
+    private val _validationResult = MutableStateFlow<UsernameValidationResult?>(null)
+    private val _uiState = MutableStateFlow<IdentityUiState>(IdentityUiState.Idle)
+    val uiState: StateFlow<IdentityUiState> = _uiState.asStateFlow()
+
     val userProfile = authRepository.currentUser.flatMapLatest { user ->
         if (user != null) userRepository.streamUserProfile(user.uid)
         else flowOf(null)
@@ -87,8 +91,6 @@ class IdentityViewModel @Inject constructor(
         }
     }
 
-    private val _validationResult = MutableStateFlow<UsernameValidationResult?>(null)
-
     private fun validateUsername(name: String) {
         if (name.isEmpty()) {
             _usernameError.value = null
@@ -119,6 +121,13 @@ class IdentityViewModel @Inject constructor(
 
         availabilityCheckJob = viewModelScope.launch {
             _availability.value = UsernameAvailability.CHECKING
+
+            // If the name is the user's current name, it's available to them
+            if (name.equals(userProfile.value?.anonymousName, ignoreCase = true)) {
+                _availability.value = UsernameAvailability.AVAILABLE
+                return@launch
+            }
+
             delay(500.milliseconds) // Debounce
             
             try {
@@ -156,9 +165,6 @@ class IdentityViewModel @Inject constructor(
     fun selectSuggestion(suggestion: String) {
         _username.value = suggestion
     }
-
-    private val _uiState = MutableStateFlow<IdentityUiState>(IdentityUiState.Idle)
-    val uiState: StateFlow<IdentityUiState> = _uiState.asStateFlow()
 
     val usernameUiState: StateFlow<UsernameUiState> = combine(
         _username,

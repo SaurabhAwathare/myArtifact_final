@@ -712,6 +712,121 @@ object DatabaseMigrations {
         }
     }
 
+    val MIGRATION_49_50 = object : Migration(49, 50) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `artifact_drafts` ADD COLUMN `isDismissed` INTEGER NOT NULL DEFAULT 0")
+        }
+    }
+
+    val MIGRATION_50_51 = object : Migration(50, 51) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            // Fix for the schema mismatch at version 50.
+            // studioStep was removed from the entity but MIGRATION_49_50 didn't remove it from DB.
+            
+            // 1. Create temporary table with the correct schema (matching version 51/current entity)
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS `artifact_drafts_new` (
+                    `id` TEXT NOT NULL, 
+                    `localAudioPath` TEXT NOT NULL, 
+                    `rawPcmPath` TEXT, 
+                    `localTranscriptPath` TEXT, 
+                    `waveformPath` TEXT, 
+                    `title` TEXT, 
+                    `description` TEXT, 
+                    `emotion` TEXT, 
+                    `isPublic` INTEGER NOT NULL, 
+                    `isListened` INTEGER NOT NULL, 
+                    `tags` TEXT NOT NULL, 
+                    `durationMs` INTEGER NOT NULL, 
+                    `createdAt` INTEGER NOT NULL, 
+                    `updatedAt` INTEGER NOT NULL, 
+                    `status` TEXT NOT NULL, 
+                    `lifecycle` TEXT NOT NULL, 
+                    `uploadedBytes` INTEGER NOT NULL, 
+                    `totalBytes` INTEGER NOT NULL, 
+                    `uploadSessionUri` TEXT, 
+                    `uploadAttemptCount` INTEGER NOT NULL, 
+                    `isEncrypted` INTEGER NOT NULL, 
+                    `encryptionIv` TEXT, 
+                    `checksum` TEXT, 
+                    `approvalToken` TEXT, 
+                    `deviceFingerprint` TEXT, 
+                    `cooldownExpiry` INTEGER, 
+                    `publishApprovalTimestamp` INTEGER, 
+                    `revocationTimestamp` INTEGER, 
+                    `emotionalRiskScore` REAL NOT NULL, 
+                    `publishConfidence` REAL NOT NULL, 
+                    `isEmotionalReady` INTEGER NOT NULL, 
+                    `maxReviewPositionMs` INTEGER NOT NULL, 
+                    `reviewProgress` REAL NOT NULL, 
+                    `deviceId` TEXT, 
+                    `transcriptionState` TEXT NOT NULL, 
+                    `remoteArtifactId` TEXT, 
+                    `emotionalTone` TEXT, 
+                    `primaryStyle` TEXT, 
+                    `safetyAnalysis` TEXT, 
+                    `interruptionReason` TEXT, 
+                    `lastCheckpointTimestamp` INTEGER NOT NULL, 
+                    `durableBytes` INTEGER NOT NULL, 
+                    `isCorrupted` INTEGER NOT NULL, 
+                    `version` INTEGER NOT NULL, 
+                    `mimeType` TEXT NOT NULL, 
+                    `amplitudeData` TEXT NOT NULL, 
+                    `reactionVisibility` TEXT, 
+                    `uploadedAudioUrl` TEXT, 
+                    `frozenTranscriptJson` TEXT, 
+                    `frozenAudioPath` TEXT, 
+                    `frozenMetadataJson` TEXT, 
+                    `snapshotHash` TEXT, 
+                    `transcriptSegmentsJson` TEXT, 
+                    `sensitiveEntitiesJson` TEXT, 
+                    `reviewCompleted` INTEGER NOT NULL, 
+                    `titleCompleted` INTEGER NOT NULL, 
+                    `emotionCompleted` INTEGER NOT NULL, 
+                    `approvalCompleted` INTEGER NOT NULL, 
+                    `isDismissed` INTEGER NOT NULL, 
+                    PRIMARY KEY(`id`)
+                )
+            """.trimIndent())
+
+            // 2. Copy data from old table to new table
+            db.execSQL("""
+                INSERT INTO artifact_drafts_new (
+                    id, localAudioPath, rawPcmPath, localTranscriptPath, waveformPath, title, description, emotion, 
+                    isPublic, isListened, tags, durationMs, createdAt, updatedAt, status, lifecycle, 
+                    uploadedBytes, totalBytes, uploadSessionUri, uploadAttemptCount, isEncrypted, 
+                    encryptionIv, checksum, approvalToken, deviceFingerprint, cooldownExpiry, 
+                    publishApprovalTimestamp, revocationTimestamp, emotionalRiskScore, publishConfidence, 
+                    isEmotionalReady, maxReviewPositionMs, reviewProgress, deviceId, transcriptionState, 
+                    remoteArtifactId, emotionalTone, primaryStyle, safetyAnalysis, interruptionReason, 
+                    lastCheckpointTimestamp, durableBytes, isCorrupted, version, mimeType, 
+                    amplitudeData, reactionVisibility, uploadedAudioUrl, frozenTranscriptJson, 
+                    frozenAudioPath, frozenMetadataJson, snapshotHash, transcriptSegmentsJson, 
+                    sensitiveEntitiesJson, reviewCompleted, titleCompleted, emotionCompleted, 
+                    approvalCompleted, isDismissed
+                )
+                SELECT 
+                    id, localAudioPath, rawPcmPath, localTranscriptPath, waveformPath, title, description, emotion, 
+                    isPublic, isListened, tags, durationMs, createdAt, updatedAt, status, lifecycle, 
+                    uploadedBytes, totalBytes, uploadSessionUri, uploadAttemptCount, isEncrypted, 
+                    encryptionIv, checksum, approvalToken, deviceFingerprint, cooldownExpiry, 
+                    publishApprovalTimestamp, revocationTimestamp, emotionalRiskScore, publishConfidence, 
+                    isEmotionalReady, maxReviewPositionMs, reviewProgress, deviceId, transcriptionState, 
+                    remoteArtifactId, emotionalTone, primaryStyle, safetyAnalysis, interruptionReason, 
+                    lastCheckpointTimestamp, durableBytes, isCorrupted, version, mimeType, 
+                    amplitudeData, reactionVisibility, uploadedAudioUrl, frozenTranscriptJson, 
+                    frozenAudioPath, frozenMetadataJson, snapshotHash, transcriptSegmentsJson, 
+                    sensitiveEntitiesJson, reviewCompleted, titleCompleted, emotionCompleted, 
+                    approvalCompleted, isDismissed
+                FROM artifact_drafts
+            """.trimIndent())
+
+            // 3. Swap tables
+            db.execSQL("DROP TABLE artifact_drafts")
+            db.execSQL("ALTER TABLE artifact_drafts_new RENAME TO artifact_drafts")
+        }
+    }
+
     val ALL_MIGRATIONS = arrayOf(
         MIGRATION_1_2,
         MIGRATION_2_3,
@@ -743,6 +858,8 @@ object DatabaseMigrations {
         MIGRATION_42_43,
         MIGRATION_45_46,
         MIGRATION_46_47,
-        MIGRATION_48_49
+        MIGRATION_48_49,
+        MIGRATION_49_50,
+        MIGRATION_50_51
     )
 }

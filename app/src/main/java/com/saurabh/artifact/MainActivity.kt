@@ -24,7 +24,6 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.rememberNavController
-import com.saurabh.artifact.audio.PublishStateManager
 import com.saurabh.artifact.audio.RecordingSessionManager
 import com.saurabh.artifact.navigation.Comments
 import com.saurabh.artifact.navigation.NavGraph
@@ -55,9 +54,6 @@ class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var onboardingManager: Lazy<OnboardingManager>
-
-    @Inject
-    lateinit var publishStateManager: Lazy<PublishStateManager>
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
@@ -95,7 +91,6 @@ class MainActivity : ComponentActivity() {
                     mainViewModel = mainViewModel, 
                     recordingSessionManager = recordingSessionManager.get(),
                     onboardingManager = onboardingManager.get(),
-                    publishStateManager = publishStateManager.get(),
                 )
             }
         }
@@ -124,7 +119,6 @@ fun AppRoot(
     mainViewModel: MainViewModel,
     recordingSessionManager: RecordingSessionManager,
     onboardingManager: OnboardingManager,
-    publishStateManager: PublishStateManager
 ) {
     // Only collect the essential stage at the root
     val stage by mainViewModel.startupStage.collectAsStateWithLifecycle()
@@ -143,7 +137,6 @@ fun AppRoot(
             stage = stage,
             mainViewModel = mainViewModel,
             recordingSessionManager = recordingSessionManager,
-            publishStateManager = publishStateManager,
             onboardingManager = onboardingManager
         )
     }
@@ -154,7 +147,6 @@ fun AuthenticatedIsland(
     stage: StartupStage,
     mainViewModel: MainViewModel,
     recordingSessionManager: RecordingSessionManager,
-    publishStateManager: PublishStateManager,
     onboardingManager: OnboardingManager
 ) {
     val startupState by mainViewModel.startupState.collectAsStateWithLifecycle()
@@ -213,7 +205,6 @@ fun AuthenticatedIsland(
                         GlobalOverlayHost(
                             navController = navController,
                             recordingSessionManager = recordingSessionManager,
-                            publishStateManager = publishStateManager,
                             onNavigateToDraftEdit = { draftId ->
                                 navController.navigate(PublishingStudio(draftId))
                             },

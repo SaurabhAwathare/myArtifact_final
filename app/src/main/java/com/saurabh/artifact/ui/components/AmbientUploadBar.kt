@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CheckCircle
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material3.*
@@ -24,13 +23,14 @@ import com.saurabh.artifact.ui.theme.Obsidian900
 
 /**
  * A persistent ambient component that shows the progress of background uploads.
- * Positioned above the bottom navigation, matching the MiniPlayer aesthetic.
+ * Redesigned to remove the dismiss button and show granular status.
  */
 @Composable
 fun AmbientUploadBar(
     state: PublishState?,
-    onDismiss: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onRetry: (String) -> Unit = {},
+    onCancel: (String) -> Unit = {},
 ) {
     AnimatedVisibility(
         visible = state != null,
@@ -101,20 +101,27 @@ fun AmbientUploadBar(
                         )
                     }
 
-                    IconButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.size(24.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Close,
-                            contentDescription = "Dismiss",
-                            tint = if (isError) {
-                                MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.5f)
-                            } else {
-                                Color.White.copy(alpha = 0.3f)
-                            },
-                            modifier = Modifier.size(16.dp)
-                        )
+                    if (isError) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(
+                                onClick = { onCancel(state.draftId) },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Text("Cancel", style = MaterialTheme.typography.labelSmall)
+                            }
+                            Spacer(Modifier.width(4.dp))
+                            Button(
+                                onClick = { onRetry(state.draftId) },
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                modifier = Modifier.height(32.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.error
+                                )
+                            ) {
+                                Text("Retry", style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
                     }
                 }
 
@@ -170,11 +177,10 @@ private fun UploadStatusIcon(state: PublishState) {
 }
 
 private fun PublishState.getDisplayText(): String = when (this) {
-    is PublishState.Preparing -> "Creating a calm space..."
+    is PublishState.Preparing -> displayStatus
     is PublishState.Uploading -> if (isWaitingForNetwork) "Waiting for network..." else "Releasing your reflection..."
     is PublishState.Finalizing -> "Securing your essence..."
     is PublishState.Published -> "Shared gently."
     is PublishState.Error -> message
     is PublishState.Idle -> ""
 }
-

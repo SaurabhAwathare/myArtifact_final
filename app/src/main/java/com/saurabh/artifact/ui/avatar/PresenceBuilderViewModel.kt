@@ -33,14 +33,6 @@ class PresenceBuilderViewModel @Inject constructor(
         }
     }
 
-    fun updateFaceShape(shape: FaceShape) {
-        _uiState.update { it.copy(config = it.config.copy(faceShape = shape)) }
-    }
-
-    fun updateHairType(type: HairType) {
-        _uiState.update { it.copy(config = it.config.copy(hairType = type)) }
-    }
-
     fun updateEyeType(type: EyeType) {
         _uiState.update { it.copy(config = it.config.copy(eyeType = type)) }
     }
@@ -53,10 +45,6 @@ class PresenceBuilderViewModel @Inject constructor(
         _uiState.update { it.copy(config = it.config.copy(skinColor = color)) }
     }
 
-    fun updateHairColor(color: String) {
-        _uiState.update { it.copy(config = it.config.copy(hairColor = color)) }
-    }
-
     fun updateTheme(theme: String) {
         _uiState.update { it.copy(config = it.config.copy(theme = theme)) }
     }
@@ -66,12 +54,11 @@ class PresenceBuilderViewModel @Inject constructor(
         val randomConfig = AvatarConfig(
             seed = UUID.randomUUID().toString(),
             theme = currentTheme,
-            faceShape = FaceShape.entries.random(),
-            hairType = HairType.entries.random(),
+            faceShape = FaceShape.ROUND,
+            hairType = HairType.NONE,
             eyeType = EyeType.entries.random(),
             mouthType = MouthType.entries.random(),
-            skinColor = listOf("#FFDBAC", "#F1C27D", "#E0AC69", "#8D5524").random(),
-            hairColor = listOf("#4A2C2C", "#000000", "#C68642", "#D6B672").random()
+            skinColor = listOf("#FFDBAC", "#F1C27D", "#E0AC69", "#8D5524").random()
         )
         _uiState.update { it.copy(config = randomConfig, isSaved = false) }
     }

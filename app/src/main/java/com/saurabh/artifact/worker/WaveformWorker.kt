@@ -40,11 +40,8 @@ class WaveformWorker @AssistedInject constructor(
             val waveformData = WaveformProcessor.extractFromPcm(rawFile, targetSize = 100)
             
             if (waveformData.isNotEmpty()) {
-                draftDao.update(draft.copy(
-                    amplitudeData = waveformData,
-                    status = draft.status.copy(processing = ProcessingStatus.Idle), // Mark this stage idle
-                    updatedAt = System.currentTimeMillis()
-                ))
+                // Targeted update: Save waveform and clear processing state
+                draftDao.updateWaveformResult(draftId, waveformData)
             }
             
             Result.success()
@@ -55,17 +52,12 @@ class WaveformWorker @AssistedInject constructor(
     }
 
     private suspend fun updateSubState(id: String, stage: ProcessingStage?, error: String? = null) {
-        draftDao.getDraftById(id)?.let { draft ->
-            val newProcessing = when {
-                error != null -> ProcessingStatus.Failed
-                stage != null -> ProcessingStatus.Active(stage)
-                else -> ProcessingStatus.Idle
-            }
-            draftDao.update(draft.copy(
-                status = draft.status.copy(processing = newProcessing),
-                updatedAt = System.currentTimeMillis()
-            ))
+        val newProcessing = when {
+            error != null -> ProcessingStatus.Failed
+            stage != null -> ProcessingStatus.Active(stage)
+            else -> ProcessingStatus.Idle
         }
+        draftDao.updateProcessingStatus(id, newProcessing)
     }
 
     companion object {

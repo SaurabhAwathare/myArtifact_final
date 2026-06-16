@@ -22,6 +22,7 @@ sealed class PublishState {
     data class Preparing(
         override val draftId: String,
         override val title: String,
+        val displayStatus: String = "Creating a calm space...",
         val step: PreparationStep = PreparationStep.INITIALIZING
     ) : PublishState()
 

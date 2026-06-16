@@ -43,7 +43,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -112,7 +111,6 @@ fun IdentitySelectionScreen(
                 Box(
                     modifier = Modifier
                         .size(160.dp)
-                        .clip(CircleShape)
                         .clickable { onEditAvatar() },
                     contentAlignment = Alignment.Center
                 ) {

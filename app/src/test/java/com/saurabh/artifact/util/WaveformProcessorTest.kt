@@ -64,4 +64,38 @@ class WaveformProcessorTest {
             tempFile.delete()
         }
     }
+
+    @Test
+    fun `extractFromPcm handles large files incrementally`() {
+        val tempFile = File.createTempFile("large_test", ".pcm")
+        try {
+            // Write 100,000 samples (200 KB) - large enough to trigger chunking logic
+            val sampleCount = 100_000
+            val targetSize = 100
+            val samplesPerPeak = sampleCount / targetSize // 1000
+
+            val buffer = ByteBuffer.allocate(sampleCount * 2).order(ByteOrder.LITTLE_ENDIAN)
+            for (i in 0 until sampleCount) {
+                // Set a peak at the middle of each chunk
+                if (i % 1000 == 500) {
+                    buffer.putShort(32767) // Max amplitude
+                } else {
+                    buffer.putShort(0)
+                }
+            }
+            tempFile.writeBytes(buffer.array())
+
+            val waveform = WaveformProcessor.extractFromPcm(tempFile, targetSize = targetSize)
+            
+            assertEquals("Should return exactly targetSize peaks", targetSize, waveform.size)
+            
+            // Each peak should have captured the 32767 sample
+            waveform.forEachIndexed { index, amp ->
+                assertTrue("Peak $index should be near 1.0, got $amp", amp > 0.9f)
+            }
+
+        } finally {
+            tempFile.delete()
+        }
+    }
 }

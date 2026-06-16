@@ -9,6 +9,7 @@ import androidx.paging.cachedIn
 import androidx.paging.map
 import com.saurabh.artifact.audio.ArtifactCleanupManager
 import com.saurabh.artifact.audio.PlaybackCoordinator
+import com.saurabh.artifact.audio.PublishStateManager
 import com.saurabh.artifact.audio.ReviewSessionManager
 import com.saurabh.artifact.domain.feed.GetFeedFlowUseCase
 import com.saurabh.artifact.domain.feed.GetPersonalizedFeedFlowUseCase
@@ -81,6 +82,7 @@ class FeedViewModel @Inject constructor(
     val audioPlayer: PlaybackCoordinator,
     private val cleanupManager: ArtifactCleanupManager,
     private val reviewSessionManager: ReviewSessionManager,
+    private val publishStateManager: PublishStateManager,
     private val commentUnlockRepository: CommentUnlockRepository,
     private val uploadGuard: UploadGuard,
     private val feedComposer: FeedComposer,
@@ -109,6 +111,8 @@ class FeedViewModel @Inject constructor(
     val duration: Flow<Duration> = audioPlayer.duration
     val startupStage = startupCoordinator.stage
     val currentUserId: String? get() = authRepository.currentUser.value?.uid
+
+    val currentPublishState: StateFlow<PublishState?> = publishStateManager.currentPublishState
 
     private val _refreshTrigger = MutableStateFlow(0)
 
@@ -472,6 +476,19 @@ class FeedViewModel @Inject constructor(
                 hydrationLevels = current.hydrationLevels + (artifact.id to (current.hydrationLevels[artifact.id] ?: HydrationLevel.SHELL))
             )
         }
+    }
+
+    fun dismissPublishSession() {
+        publishStateManager.dismissSession()
+    }
+
+    fun retryPublish(draftId: String) {
+        publishStateManager.retryPublish(draftId)
+    }
+
+    fun cancelPublish(draftId: String) {
+        // Redesign: For now, Cancel just dismisses the bar, or we could trigger deletion
+        publishStateManager.dismissSession()
     }
 
     fun onArtifactFocused(artifactId: String) {

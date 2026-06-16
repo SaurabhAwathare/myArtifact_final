@@ -11,7 +11,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -47,11 +46,6 @@ fun AvatarEditorScreen(
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
                     }
                 },
-                actions = {
-                    IconButton(onClick = { viewModel.randomize("CARTOON") }) {
-                        Icon(Icons.Rounded.AutoAwesome, contentDescription = "Randomize")
-                    }
-                },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
             )
         },
@@ -75,55 +69,32 @@ fun AvatarEditorScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
-                .verticalScroll(rememberScrollState()),
+                .padding(innerPadding),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Avatar Preview
+            // Sticky Avatar Preview
             Box(
                 modifier = Modifier
-                    .size(200.dp)
-                    .clip(CircleShape)
+                    .fillMaxWidth()
+                    .height(260.dp)
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
                 contentAlignment = Alignment.Center
             ) {
                 ArtifactAvatar(
                     config = uiState.config,
-                    size = 180.dp
+                    size = 200.dp
                 )
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
-
-            // Editor Options
+            // Scrollable Editor Options
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
                     .padding(horizontal = 24.dp)
             ) {
-                EditorSection("Face Shape") {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(FaceShape.entries) { shape ->
-                            OptionChip(
-                                label = shape.name,
-                                selected = uiState.config.faceShape == shape,
-                            ) { viewModel.updateFaceShape(shape) }
-                        }
-                    }
-                }
-
-                EditorSection("Hair Style") {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(HairType.entries) { hair ->
-                            OptionChip(
-                                label = hair.name,
-                                selected = uiState.config.hairType == hair,
-                            ) { viewModel.updateHairType(hair) }
-                        }
-                    }
-                }
+                Spacer(modifier = Modifier.height(16.dp))
 
                 EditorSection("Eyes") {
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -160,21 +131,8 @@ fun AvatarEditorScreen(
                     }
                 }
 
-                EditorSection("Hair Color") {
-                    val colors = listOf("#4A2C2C", "#000000", "#C68642", "#D6B672", "#FFFFFF")
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(colors) { colorHex ->
-                            ColorOption(
-                                colorHex = colorHex,
-                                selected = uiState.config.hairColor == colorHex,
-                                onClick = { viewModel.updateHairColor(colorHex) }
-                            )
-                        }
-                    }
-                }
+                Spacer(modifier = Modifier.height(32.dp))
             }
-            
-            Spacer(modifier = Modifier.height(32.dp))
         }
     }
 }

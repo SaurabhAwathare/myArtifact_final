@@ -288,9 +288,9 @@ fun RecordingScreen(
     }
 
     // Navigation when finished (Navigates to Decision Screen)
-    LaunchedEffect(uiState.lastDraftId) {
-        if (uiState.lastDraftId != null) {
-            currentOnFinished(uiState.lastDraftId!!)
+    LaunchedEffect(viewModel.navigationEvents) {
+        viewModel.navigationEvents.collect { draftId ->
+            currentOnFinished(draftId)
         }
     }
 

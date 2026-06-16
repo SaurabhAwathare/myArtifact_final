@@ -83,10 +83,12 @@ data class ArtifactDraftEntity(
     val transcriptSegmentsJson: SecureString? = null,
     val sensitiveEntitiesJson: SecureString? = null,
 
-    // Publishing Studio Session State
-    val studioStep: String = "REVIEW",
+    // Publishing Studio Completion Flags
     val reviewCompleted: Boolean = false,
     val titleCompleted: Boolean = false,
     val emotionCompleted: Boolean = false,
     val approvalCompleted: Boolean = false,
+
+    // Redesign: Persistent Dismissal & Activity Tracking
+    val isDismissed: Boolean = false,
 ) : UploadProgress

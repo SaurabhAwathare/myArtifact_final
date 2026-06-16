@@ -96,7 +96,8 @@ class DraftListViewModel @Inject constructor(
                 status = draft.status.copy(
                     lifecycle = com.saurabh.artifact.model.ArtifactLifecycle.REVIEW_REQUIRED,
                     publication = com.saurabh.artifact.model.SyncStatus.LocalOnly
-                )
+                ),
+                lifecycle = com.saurabh.artifact.model.ArtifactLifecycle.REVIEW_REQUIRED
             ))
         }
     }

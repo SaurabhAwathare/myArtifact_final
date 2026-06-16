@@ -70,13 +70,13 @@ class TranscodingWorker @AssistedInject constructor(
             // 3. Securely delete intermediate files
             rawFile.delete()
 
-            // 4. Finalize paths in DB
-            draftDao.update(draft.copy(
+            // 4. Finalize paths in DB with targeted update
+            draftDao.updateTranscodingResult(
+                id = draftId,
                 localAudioPath = finalAudioFile.absolutePath,
                 checksum = checksum,
-                isEncrypted = true,
-                updatedAt = System.currentTimeMillis()
-            ))
+                isEncrypted = true
+            )
 
             Log.d("TranscodingWorker", "Transcoding complete: ${finalAudioFile.name}")
             Result.success()
@@ -100,10 +100,6 @@ class TranscodingWorker @AssistedInject constructor(
             stage != null -> ProcessingStatus.Active(stage)
             else -> ProcessingStatus.Idle
         }
-        
-        draftDao.getDraftById(id)?.let { draft ->
-            val newStatus = draft.status.copy(processing = newProcessing)
-            draftDao.updateStatus(id, newStatus)
-        }
+        draftDao.updateProcessingStatus(id, newProcessing)
     }
 }

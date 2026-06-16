@@ -151,6 +151,7 @@ class ReviewAuthorityService @Inject constructor(
     }
 
     private fun handleCompletion(progress: ReviewProgress) {
+        android.util.Log.d("STUDIO_TRACE", "ReviewAuthorityService: handleCompletion for ${progress.artifactId} (LIFECYCLE_TRACE)")
         scope.launch(Dispatchers.IO) {
             engagementRepository.saveEngagement(progress.evidence)
             commentUnlockRepository.unlockArtifact(progress.artifactId)

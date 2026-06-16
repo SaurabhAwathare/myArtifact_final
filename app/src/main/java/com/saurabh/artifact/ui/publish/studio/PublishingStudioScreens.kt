@@ -1,5 +1,6 @@
 package com.saurabh.artifact.ui.publish.studio
 
+import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
@@ -44,16 +45,19 @@ fun PublishingStudioScreen(
     val sessionState by viewModel.sessionState.collectAsState()
 
     LaunchedEffect(draftId) {
+        Log.d("LIFECYCLE_TRACE", "PublishingStudioScreen: LaunchedEffect(draftId=$draftId)")
         viewModel.loadDraft(draftId)
     }
 
     LaunchedEffect(sessionState.isSuccess) {
         if (sessionState.isSuccess && !sessionState.isQueuedOffline) {
+            Log.d("NAV_TRACE", "PublishingStudioScreen: sessionState.isSuccess -> onFinish()")
             onFinish()
         }
     }
 
     BackHandler {
+        Log.d("NAV_TRACE", "PublishingStudioScreen: BackHandler triggered. currentStep=${sessionState.currentStep}")
         if (sessionState.currentStep == StudioStep.REVIEW) {
             onCancel()
         } else {
@@ -74,14 +78,14 @@ fun PublishingStudioScreen(
             StudioTopBar(
                 currentStep = sessionState.currentStep,
                 onBack = {
-                    if (sessionState.currentStep == StudioStep.REVIEW) onCancel()
+                    if (sessionState.currentStep == StudioStep.REVIEW || sessionState.currentStep == StudioStep.PROCESSING) onCancel()
                     else viewModel.previousStep()
                 },
                 onClose = onCancel
             )
         },
         bottomBar = {
-            if (sessionState.currentStep != StudioStep.PUBLISHING) {
+            if (sessionState.currentStep != StudioStep.PUBLISHING && sessionState.currentStep != StudioStep.PROCESSING) {
                 StudioBottomBar(
                     state = sessionState,
                     onNext = { viewModel.nextStep() },
@@ -114,6 +118,7 @@ fun PublishingStudioScreen(
                     label = "StudioStepTransition"
                 ) { step ->
                     when (step) {
+                        StudioStep.PROCESSING -> StudioLoadingStep()
                         StudioStep.REVIEW -> StudioReviewStep(sessionState, viewModel)
                         StudioStep.DETAILS -> StudioDetailsStep(sessionState, viewModel)
                         StudioStep.APPROVAL -> StudioApprovalStep(sessionState, viewModel)
@@ -136,6 +141,7 @@ fun StudioTopBar(
         title = {
             Text(
                 text = when (currentStep) {
+                    StudioStep.PROCESSING -> "Processing..."
                     StudioStep.REVIEW -> "Review Recording"
                     StudioStep.DETAILS -> "Add Details"
                     StudioStep.APPROVAL -> "Ready to Publish?"
@@ -173,7 +179,7 @@ fun StudioProgressIndicator(currentStep: StudioStep) {
             .padding(horizontal = Spacing.Large, vertical = Spacing.Medium),
         horizontalArrangement = Arrangement.spacedBy(Spacing.Small)
     ) {
-        StudioStep.entries.filter { it != StudioStep.PUBLISHING }.forEach { step ->
+        StudioStep.entries.filter { it != StudioStep.PUBLISHING && it != StudioStep.PROCESSING }.forEach { step ->
             val isActive = step.index <= currentStep.index
             Box(
                 modifier = Modifier
@@ -228,6 +234,11 @@ fun StudioBottomBar(
                         .weight(1f)
                         .height(56.dp),
                     shape = RoundedCornerShape(16.dp),
+                    enabled = when (state.currentStep) {
+                        StudioStep.REVIEW -> state.reviewCompleted
+                        StudioStep.DETAILS -> state.titleCompleted && state.emotionCompleted
+                        else -> true
+                    },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = ArtifactTheme.colors.waveformActive
                     )
@@ -237,6 +248,31 @@ fun StudioBottomBar(
                 }
             }
         }
+    }
+}
+
+@Composable
+fun StudioLoadingStep() {
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        CircularProgressIndicator(
+            modifier = Modifier.size(64.dp),
+            color = ArtifactTheme.colors.waveformActive
+        )
+        Spacer(Modifier.height(24.dp))
+        Text(
+            "Securing your reflection...",
+            style = ArtifactTheme.typography.titleMedium,
+            color = ArtifactTheme.colors.onSurfaceMain
+        )
+        Text(
+            "This will only take a moment.",
+            style = ArtifactTheme.typography.bodySmall,
+            color = ArtifactTheme.colors.onSurfaceMuted
+        )
     }
 }
 

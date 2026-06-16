@@ -19,8 +19,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
@@ -44,9 +46,11 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.theme.Obsidian950
 import com.saurabh.artifact.ui.theme.WarningBackgroundBottom
 import com.saurabh.artifact.ui.theme.WarningBackgroundTop
@@ -74,6 +78,19 @@ fun PreRecordingWarningScreen(
         }
     }
 
+    PreRecordingWarningContent(
+        uiState = uiState,
+        onContinue = { onContinue(initialPrompt) },
+        onCancel = onCancel
+    )
+}
+
+@Composable
+fun PreRecordingWarningContent(
+    uiState: PreRecordingWarningUiState,
+    onContinue: () -> Unit,
+    onCancel: () -> Unit
+) {
     // Ambient cinematic glow
     val infiniteTransition = rememberInfiniteTransition(label = "Atmosphere")
     val alpha by infiniteTransition.animateFloat(
@@ -89,6 +106,7 @@ fun PreRecordingWarningScreen(
     Scaffold(
         containerColor = WarningBackgroundBottom
     ) { innerPadding ->
+        val scrollState = rememberScrollState()
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -105,6 +123,7 @@ fun PreRecordingWarningScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .verticalScroll(scrollState)
                     .padding(horizontal = 40.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
@@ -124,7 +143,7 @@ fun PreRecordingWarningScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(24.dp))
 
                 // 2. WARNING ICON
                 Icon(
@@ -134,14 +153,14 @@ fun PreRecordingWarningScreen(
                     modifier = Modifier.size(48.dp)
                 )
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(20.dp))
 
                 // 3. HEADLINE
                 Text(
                     text = "Before you record...",
                     style = MaterialTheme.typography.displayMedium.copy(
                         fontWeight = FontWeight.Light,
-                        fontSize = 42.sp,
+                        fontSize = 38.sp,
                         letterSpacing = (-1).sp
                     ),
                     color = WarningTextPrimary,
@@ -159,7 +178,7 @@ fun PreRecordingWarningScreen(
                     lineHeight = 24.sp
                 )
 
-                Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(28.dp))
 
                 // 5. WARNING CARD
                 Surface(
@@ -169,18 +188,18 @@ fun PreRecordingWarningScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
-                        modifier = Modifier.padding(24.dp),
+                        modifier = Modifier.padding(20.dp),
                         horizontalAlignment = Alignment.Start
                     ) {
                         Text(
                             text = "Do not mention:",
                             style = MaterialTheme.typography.titleLarge.copy(
                                 fontWeight = FontWeight.SemiBold,
-                                fontSize = 24.sp
+                                fontSize = 22.sp
                             ),
                             color = WarningRed
                         )
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
                         
                         val sensitiveItems = listOf(
                             "your full name",
@@ -204,7 +223,7 @@ fun PreRecordingWarningScreen(
                                 Text(
                                     text = item,
                                     style = MaterialTheme.typography.bodyLarge.copy(
-                                        fontSize = 20.sp,
+                                        fontSize = 18.sp,
                                         fontWeight = FontWeight.Light
                                     ),
                                     color = WarningTextSecondary
@@ -214,7 +233,7 @@ fun PreRecordingWarningScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(28.dp))
 
                 // 6. EMOTIONAL SECTION
                 Icon(
@@ -233,7 +252,7 @@ fun PreRecordingWarningScreen(
                     fontWeight = FontWeight.Light
                 )
 
-                Spacer(modifier = Modifier.weight(1f))
+                Spacer(modifier = Modifier.height(48.dp))
 
                 // 7. COUNTDOWN CIRCLE
                 Box(contentAlignment = Alignment.Center) {
@@ -252,7 +271,7 @@ fun PreRecordingWarningScreen(
                     // Soft radial glow behind timer
                     Box(
                         modifier = Modifier
-                            .size(140.dp)
+                            .size(120.dp)
                             .scale(pulseScale)
                             .background(
                                 brush = Brush.radialGradient(
@@ -268,7 +287,7 @@ fun PreRecordingWarningScreen(
                     Text(
                         text = if (isReady) "Ready" else uiState.remainingSeconds.toString(),
                         style = MaterialTheme.typography.displayLarge.copy(
-                            fontSize = if (isReady) 32.sp else 96.sp,
+                            fontSize = if (isReady) 32.sp else 80.sp,
                             fontWeight = FontWeight.ExtraLight,
                             letterSpacing = (-2).sp
                         ),
@@ -288,15 +307,15 @@ fun PreRecordingWarningScreen(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(48.dp))
+                Spacer(modifier = Modifier.height(40.dp))
 
                 // 8. I UNDERSTAND BUTTON
                 val isReady = uiState.remainingSeconds == 0
                 Button(
-                    onClick = { onContinue(initialPrompt) },
+                    onClick = { onContinue() },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(64.dp),
+                        .height(60.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (isReady) Color.White else Color.White.copy(alpha = 0.05f),
                         contentColor = if (isReady) Obsidian950 else Color.White.copy(alpha = 0.1f)
@@ -312,8 +331,20 @@ fun PreRecordingWarningScreen(
                     )
                 }
                 
-                Spacer(modifier = Modifier.height(48.dp))
+                Spacer(modifier = Modifier.height(40.dp))
             }
         }
+    }
+}
+
+@Preview
+@Composable
+fun PreRecordingWarningScreenPreview() {
+    ArtifactTheme {
+        PreRecordingWarningContent(
+            uiState = PreRecordingWarningUiState(remainingSeconds = 0),
+            onContinue = {},
+            onCancel = {}
+        )
     }
 }

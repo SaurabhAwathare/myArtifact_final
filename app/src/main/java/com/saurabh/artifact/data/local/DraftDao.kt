@@ -2,6 +2,7 @@ package com.saurabh.artifact.data.local
 
 import androidx.room.*
 import com.saurabh.artifact.model.*
+import com.saurabh.artifact.util.SecureString
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -10,7 +11,17 @@ interface DraftDao {
     suspend fun insert(draft: ArtifactDraftEntity)
 
     @Update
-    suspend fun update(draft: ArtifactDraftEntity)
+    suspend fun _updateInternal(draft: ArtifactDraftEntity)
+
+    @Transaction
+    suspend fun update(draft: ArtifactDraftEntity, isRecovery: Boolean = false) {
+        val existing = getDraftById(draft.id)
+        if (existing == null || existing.lifecycle.canTransitionTo(draft.lifecycle, isRecovery)) {
+            _updateInternal(draft)
+        } else {
+            android.util.Log.w("DraftDao", "Blocked backward lifecycle transition for ${draft.id}: ${existing.lifecycle} -> ${draft.lifecycle}")
+        }
+    }
 
     @Delete
     suspend fun delete(draft: ArtifactDraftEntity)
@@ -36,12 +47,73 @@ interface DraftDao {
     @Query("SELECT * FROM artifact_drafts WHERE lifecycle = 'RECORDING'")
     suspend fun getActiveRecordings(): List<ArtifactDraftEntity>
 
+    @Query("UPDATE artifact_drafts SET lifecycle = :lifecycle, updatedAt = :timestamp WHERE id = :id")
+    suspend fun _updateLifecycleInternal(id: String, lifecycle: ArtifactLifecycle, timestamp: Long)
+
+    @Transaction
+    suspend fun updateLifecycle(id: String, lifecycle: ArtifactLifecycle, timestamp: Long = System.currentTimeMillis(), isRecovery: Boolean = false) {
+        val existing = getDraftById(id)
+        if (existing == null || existing.lifecycle.canTransitionTo(lifecycle, isRecovery)) {
+            _updateLifecycleInternal(id, lifecycle, timestamp)
+        } else {
+            android.util.Log.w("DraftDao", "Blocked backward lifecycle transition for $id: ${existing.lifecycle} -> $lifecycle")
+        }
+    }
+
     @Query("UPDATE artifact_drafts SET status = :status, lifecycle = :lifecycle, updatedAt = :timestamp WHERE id = :id")
-    suspend fun updateStatusAndLifecycle(id: String, status: DraftStatus, lifecycle: ArtifactLifecycle, timestamp: Long = System.currentTimeMillis())
+    suspend fun _updateStatusAndLifecycleInternal(id: String, status: DraftStatus, lifecycle: ArtifactLifecycle, timestamp: Long)
+
+    @Transaction
+    suspend fun updateStatusAndLifecycle(id: String, status: DraftStatus, lifecycle: ArtifactLifecycle, timestamp: Long = System.currentTimeMillis(), isRecovery: Boolean = false) {
+        val existing = getDraftById(id)
+        if (existing == null || existing.lifecycle.canTransitionTo(lifecycle, isRecovery)) {
+            _updateStatusAndLifecycleInternal(id, status, lifecycle, timestamp)
+        } else {
+            android.util.Log.w("DraftDao", "Blocked backward lifecycle transition for $id: ${existing.lifecycle} -> $lifecycle")
+        }
+    }
 
     @Transaction
     suspend fun updateStatus(id: String, status: DraftStatus, timestamp: Long = System.currentTimeMillis()) {
         updateStatusAndLifecycle(id, status, status.lifecycle, timestamp)
+    }
+
+    @Transaction
+    suspend fun updateProcessingStatus(id: String, processing: ProcessingStatus, timestamp: Long = System.currentTimeMillis()) {
+        val existing = getDraftById(id) ?: return
+        val newStatus = existing.status.copy(processing = processing)
+        _updateStatusAndLifecycleInternal(id, newStatus, existing.lifecycle, timestamp)
+    }
+
+    @Query("UPDATE artifact_drafts SET localAudioPath = :localAudioPath, checksum = :checksum, isEncrypted = :isEncrypted, updatedAt = :timestamp WHERE id = :id")
+    suspend fun updateTranscodingResult(id: String, localAudioPath: String, checksum: String?, isEncrypted: Boolean, timestamp: Long = System.currentTimeMillis())
+
+    @Query("UPDATE artifact_drafts SET localTranscriptPath = :localTranscriptPath, emotionalTone = :emotionalTone, primaryStyle = :primaryStyle, updatedAt = :timestamp WHERE id = :id")
+    suspend fun updateTranscriptionResult(id: String, localTranscriptPath: String, emotionalTone: EmotionalTone?, primaryStyle: ConversationStyle?, timestamp: Long = System.currentTimeMillis())
+
+    @Query("UPDATE artifact_drafts SET amplitudeData = :amplitudeData, updatedAt = :timestamp WHERE id = :id")
+    suspend fun _updateAmplitudeDataInternal(id: String, amplitudeData: List<Float>, timestamp: Long)
+
+    @Transaction
+    suspend fun updateWaveformResult(id: String, amplitudeData: List<Float>, timestamp: Long = System.currentTimeMillis()) {
+        _updateAmplitudeDataInternal(id, amplitudeData, timestamp)
+        updateProcessingStatus(id, ProcessingStatus.Idle, timestamp)
+    }
+
+    @Query("UPDATE artifact_drafts SET sensitiveEntitiesJson = :sensitiveEntitiesJson, updatedAt = :timestamp WHERE id = :id")
+    suspend fun updatePrivacyResult(id: String, sensitiveEntitiesJson: SecureString?, timestamp: Long = System.currentTimeMillis())
+
+    @Query("UPDATE artifact_drafts SET safetyAnalysis = :safetyAnalysis, emotionalRiskScore = :emotionalRiskScore, updatedAt = :timestamp WHERE id = :id")
+    suspend fun updateSafetyResult(id: String, safetyAnalysis: String?, emotionalRiskScore: Float, timestamp: Long = System.currentTimeMillis())
+
+    @Transaction
+    suspend fun finalizeProcessing(id: String, timestamp: Long = System.currentTimeMillis()) {
+        val existing = getDraftById(id) ?: return
+        val newStatus = existing.status.copy(
+            lifecycle = ArtifactLifecycle.REVIEW_REQUIRED,
+            processing = ProcessingStatus.Completed
+        )
+        updateStatusAndLifecycle(id, newStatus, ArtifactLifecycle.REVIEW_REQUIRED, timestamp)
     }
 
 
@@ -95,7 +167,17 @@ interface DraftDao {
     suspend fun updateCooldown(id: String, expiry: Long?, timestamp: Long = System.currentTimeMillis())
 
     @Query("UPDATE artifact_drafts SET status = :status, lifecycle = :lifecycle, publishApprovalTimestamp = :timestamp, updatedAt = :timestamp WHERE id = :id")
-    suspend fun markAsApproved(id: String, status: DraftStatus, lifecycle: ArtifactLifecycle, timestamp: Long = System.currentTimeMillis())
+    suspend fun _markAsApprovedInternal(id: String, status: DraftStatus, lifecycle: ArtifactLifecycle, timestamp: Long)
+
+    @Transaction
+    suspend fun markAsApproved(id: String, status: DraftStatus, lifecycle: ArtifactLifecycle, timestamp: Long = System.currentTimeMillis()) {
+        val existing = getDraftById(id)
+        if (existing == null || existing.lifecycle.canTransitionTo(lifecycle)) {
+            _markAsApprovedInternal(id, status, lifecycle, timestamp)
+        } else {
+            android.util.Log.w("DraftDao", "Blocked backward lifecycle transition for $id: ${existing.lifecycle} -> $lifecycle")
+        }
+    }
 
     @Transaction
     suspend fun markAsApproved(id: String, status: DraftStatus, timestamp: Long = System.currentTimeMillis()) {
@@ -135,16 +217,41 @@ interface DraftDao {
     suspend fun getDraftsByLifecycle(lifecycle: ArtifactLifecycle): List<ArtifactDraftEntity>
 
 
-    @Query("UPDATE artifact_drafts SET studioStep = :step, reviewCompleted = :review, titleCompleted = :title, emotionCompleted = :emotion, approvalCompleted = :approval, updatedAt = :timestamp WHERE id = :id")
+    @Query("UPDATE artifact_drafts SET reviewCompleted = :review, titleCompleted = :title, emotionCompleted = :emotion, approvalCompleted = :approval, updatedAt = :timestamp WHERE id = :id")
     suspend fun updateStudioState(
         id: String, 
-        step: String, 
         review: Boolean, 
         title: Boolean, 
         emotion: Boolean, 
         approval: Boolean, 
         timestamp: Long = System.currentTimeMillis()
     )
+
+    @Query("UPDATE artifact_drafts SET reviewCompleted = 1, isListened = 1, lifecycle = :lifecycle, status = :status, updatedAt = :timestamp WHERE id = :id")
+    suspend fun __markReviewCompleteInternal(id: String, status: DraftStatus, lifecycle: ArtifactLifecycle, timestamp: Long)
+
+    @Transaction
+    suspend fun _markReviewCompleteInternal(id: String, status: DraftStatus, lifecycle: ArtifactLifecycle, timestamp: Long = System.currentTimeMillis()) {
+        val existing = getDraftById(id)
+        if (existing == null || existing.lifecycle.canTransitionTo(lifecycle)) {
+            __markReviewCompleteInternal(id, status, lifecycle, timestamp)
+        } else {
+            android.util.Log.w("DraftDao", "Blocked backward lifecycle transition for $id: ${existing.lifecycle} -> $lifecycle")
+        }
+    }
+
+    @Transaction
+    suspend fun markReviewCompletePartial(id: String) {
+        val draft = getDraftById(id) ?: return
+        // Avoid redundant updates if already in correct state
+        if (draft.reviewCompleted && draft.isListened && draft.lifecycle == ArtifactLifecycle.METADATA_REQUIRED) return
+        
+        val newStatus = draft.status.copy(lifecycle = ArtifactLifecycle.METADATA_REQUIRED)
+        _markReviewCompleteInternal(id, newStatus, ArtifactLifecycle.METADATA_REQUIRED)
+    }
+
+    @Query("UPDATE artifact_drafts SET isDismissed = 1, updatedAt = :timestamp WHERE id = :id")
+    suspend fun dismissDraft(id: String, timestamp: Long = System.currentTimeMillis())
 
     @Query("DELETE FROM artifact_drafts WHERE id = :id")
     suspend fun deleteById(id: String)

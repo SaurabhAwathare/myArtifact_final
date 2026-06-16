@@ -13,7 +13,6 @@ import androidx.navigation.NavDestination
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.compose.currentBackStackEntryAsState
 import com.saurabh.artifact.audio.RecordingSessionManager
-import com.saurabh.artifact.audio.PublishStateManager
 import com.saurabh.artifact.navigation.*
 import com.saurabh.artifact.ui.theme.ZIndexTokens
 import com.saurabh.artifact.ui.player.ArtifactPlayerView
@@ -39,7 +38,6 @@ private val ScreensWithoutOverlays = listOf(
 fun GlobalOverlayHost(
     navController: NavController,
     recordingSessionManager: RecordingSessionManager,
-    publishStateManager: PublishStateManager,
     onNavigateToDraftEdit: (String) -> Unit = { id -> navController.navigate(PublishingStudio(id)) },
     onNavigateToPublish: (String) -> Unit = { id -> navController.navigate(PublishingStudio(id)) },
     onNavigateToComments: (String, String) -> Unit,
@@ -51,7 +49,6 @@ fun GlobalOverlayHost(
     
     val uiState by playerViewModel.uiState.collectAsStateWithLifecycle()
     val recordingState by recordingSessionManager.sessionState.collectAsStateWithLifecycle()
-    val publishState by publishStateManager.currentPublishState.collectAsStateWithLifecycle()
 
     // Observe Navigation Events for Review Completion
     LaunchedEffect(Unit) {
@@ -91,12 +88,6 @@ fun GlobalOverlayHost(
                     }
                 )
 
-                // Upload Bar
-                AmbientUploadBar(
-                    state = publishState,
-                    onDismiss = { publishStateManager.dismissSession() }
-                )
-                
                 // Mini Player
                 androidx.compose.animation.AnimatedVisibility(
                     visible = uiState.playerMode == PlayerMode.MINI,

@@ -14,7 +14,7 @@ data class AvatarConfig(
     val version: Int = 2,
     val theme: String = "AURIC", // AURIC, CARTOON
     val faceShape: FaceShape = FaceShape.ROUND,
-    val hairType: HairType = HairType.SHORT,
+    val hairType: HairType = HairType.NONE,
     val eyeType: EyeType = EyeType.NEUTRAL,
     val mouthType: MouthType = MouthType.SMILE,
     val accessoryType: AccessoryType = AccessoryType.NONE,

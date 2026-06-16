@@ -48,21 +48,25 @@ class ReviewSessionManager @Inject constructor(
                 state.artifactId?.let { id ->
                     updatePersistedProgress(id, state.coveragePercent)
                 }
-                if (state.isThresholdMet && state.artifactId != null) {
-                    trackReviewCompleted(state.artifactId)
-                    markReviewComplete(state.artifactId)
-                }
             }
+        }
+
+        scope.launch {
+            reviewProgress
+                .map { it.artifactId to it.isThresholdMet }
+                .distinctUntilChanged()
+                .collect { (artifactId, isThresholdMet) ->
+                    if (isThresholdMet && artifactId != null) {
+                        android.util.Log.d("STUDIO_TRACE", "Threshold met for $artifactId. Triggering completion. (DB_TRACE)")
+                        trackReviewCompleted(artifactId)
+                        markReviewComplete(artifactId)
+                    }
+                }
         }
     }
 
     private fun trackReviewCompleted(artifactId: String) {
-        /*
-        val bundle = android.os.Bundle().apply {
-            putString("artifact_id", artifactId)
-        }
-        analytics.logEvent("review_completed", bundle)
-        */
+        android.util.Log.d("STUDIO_TRACE", "trackReviewCompleted: $artifactId (DB_TRACE)")
     }
 
     private fun updatePersistedProgress(artifactId: String, progress: Float) {
@@ -72,6 +76,7 @@ class ReviewSessionManager @Inject constructor(
     }
 
     fun startReview(draftId: String) {
+        android.util.Log.d("STUDIO_TRACE", "startReview: $draftId (LIFECYCLE_TRACE)")
         scope.launch {
             val draft = draftDao.getDraftById(draftId) ?: return@launch
             
@@ -93,13 +98,9 @@ class ReviewSessionManager @Inject constructor(
 
     private suspend fun markReviewComplete(artifactId: String) {
         withContext(Dispatchers.IO) {
-            val draft = draftDao.getDraftById(artifactId)
-            if (draft != null && (!draft.isListened || draft.status.lifecycle != ArtifactLifecycle.READY_TO_PUBLISH)) {
-                draftDao.update(draft.copy(
-                    status = draft.status.copy(lifecycle = ArtifactLifecycle.READY_TO_PUBLISH),
-                    isListened = true
-                ))
-            }
+            android.util.Log.d("STATE_TRACE", "markReviewComplete: $artifactId (DB_TRACE)")
+            android.util.Log.d("StudioLoop", "markReviewCompletePartial for $artifactId")
+            draftDao.markReviewCompletePartial(artifactId)
         }
     }
 }

@@ -1,5 +1,6 @@
 package com.saurabh.artifact.navigation.features
 
+import android.util.Log
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.composable
@@ -7,7 +8,6 @@ import androidx.navigation.toRoute
 import com.saurabh.artifact.navigation.*
 import com.saurabh.artifact.ui.drafts.list.DraftListScreen
 import com.saurabh.artifact.ui.publish.studio.PublishingStudioScreen
-import com.saurabh.artifact.ui.recording.PostRecordingDecisionScreen
 import com.saurabh.artifact.ui.recording.RecordingScreen
 import com.saurabh.artifact.ui.recording.warning.PreRecordingWarningScreen
 
@@ -23,7 +23,10 @@ fun NavGraphBuilder.recordingNavigation(
         DraftListScreen(
             onBack = onBack,
             onNavigateToStudio = { draftId ->
-                navController.navigate(PublishingStudio(draftId))
+                Log.d("NAV_TRACE", "[NAV_TRACE] DraftList -> PublishingStudio(draftId=$draftId)")
+                navController.navigate(PublishingStudio(draftId)) {
+                    launchSingleTop = true
+                }
             }
         )
     }
@@ -33,11 +36,13 @@ fun NavGraphBuilder.recordingNavigation(
         PublishingStudioScreen(
             draftId = route.draftId,
             onFinish = {
+                Log.d("NAV_TRACE", "[NAV_TRACE] PublishingStudio(onFinish) -> Home")
                 navController.navigate(Home) {
                     popUpTo(Home) { inclusive = true }
                 }
             },
             onCancel = {
+                Log.d("NAV_TRACE", "[NAV_TRACE] PublishingStudio(onCancel) -> popBackStack")
                 navController.popBackStack()
             }
         )
@@ -60,28 +65,14 @@ fun NavGraphBuilder.recordingNavigation(
     composable<InstantRecord> {
         RecordingScreen(
             onFinished = { draftId ->
-                navController.navigate(PostRecordingDecision(draftId)) {
+                // Navigate directly to the unified Publishing Studio
+                Log.d("NAV_TRACE", "[NAV_TRACE] InstantRecord -> PublishingStudio(draftId=$draftId)")
+                navController.navigate(PublishingStudio(draftId)) {
                     popUpTo(InstantRecord()) { inclusive = true }
+                    launchSingleTop = true
                 }
             },
             onBack = onBack
-        )
-    }
-
-    composable<PostRecordingDecision> { backStackEntry ->
-        val route = backStackEntry.toRoute<PostRecordingDecision>()
-        PostRecordingDecisionScreen(
-            onReview = { draftId ->
-                // Enter the unified Publishing Studio
-                navController.navigate(PublishingStudio(draftId)) {
-                    popUpTo(PostRecordingDecision(route.draftId)) { inclusive = true }
-                }
-            },
-            onSaveToDrafts = {
-                navController.navigate(Home) {
-                    popUpTo(PostRecordingDecision(route.draftId)) { inclusive = true }
-                }
-            }
         )
     }
 
@@ -90,43 +81,31 @@ fun NavGraphBuilder.recordingNavigation(
         PublishingStudioScreen(
             draftId = route.draftId,
             onFinish = {
+                Log.d("NAV_TRACE", "[NAV_TRACE] PublishingStudio(onFinish) -> Home")
                 navController.navigate(Home) {
                     popUpTo(Home) { inclusive = true }
                 }
             },
             onCancel = {
+                Log.d("NAV_TRACE", "[NAV_TRACE] PublishingStudio(onCancel) -> popBackStack")
                 navController.popBackStack()
             }
         )
     }
 
+    // Consolidated: PublishPreparation and PublishApproval now use PublishingStudio route
+    // These remain as aliases if needed for deep linking, but redirect to the same Screen
     composable<PublishPreparation> { backStackEntry ->
         val route = backStackEntry.toRoute<PublishPreparation>()
-        PublishingStudioScreen(
-            draftId = route.draftId,
-            onFinish = {
-                navController.navigate(Home) {
-                    popUpTo(Home) { inclusive = true }
-                }
-            },
-            onCancel = {
-                navController.popBackStack()
-            }
-        )
+        navController.navigate(PublishingStudio(route.draftId)) {
+            popUpTo(PublishPreparation(route.draftId)) { inclusive = true }
+        }
     }
 
     composable<PublishApproval> { backStackEntry ->
         val route = backStackEntry.toRoute<PublishApproval>()
-        PublishingStudioScreen(
-            draftId = route.draftId,
-            onFinish = {
-                navController.navigate(Home) {
-                    popUpTo(Home) { inclusive = true }
-                }
-            },
-            onCancel = {
-                navController.popBackStack()
-            }
-        )
+        navController.navigate(PublishingStudio(route.draftId)) {
+            popUpTo(PublishApproval(route.draftId)) { inclusive = true }
+        }
     }
 }

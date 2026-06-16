@@ -15,8 +15,11 @@ enum class ArtifactLifecycle {
     
     /** Local processing complete, waiting for user review. */
     REVIEW_REQUIRED,
+
+    /** User has reviewed, now requires metadata (title, emotion). */
+    METADATA_REQUIRED,
     
-    /** User has reviewed/approved, ready for manual or automatic publishing. */
+    /** User has reviewed and added metadata, ready for final approval. */
     READY_TO_PUBLISH,
     
     /** Live on the network and visible to others. */
@@ -26,5 +29,15 @@ enum class ArtifactLifecycle {
     DELETED,
 
     /** Actively being purged from storage and database. */
-    DELETING
+    DELETING;
+
+    /**
+     * Enforces forward-only progression of the lifecycle.
+     * Transitions are allowed if the [next] state has a higher or equal ordinal,
+     * or if [isRecovery] is true.
+     */
+    fun canTransitionTo(next: ArtifactLifecycle, isRecovery: Boolean = false): Boolean {
+        if (isRecovery) return true
+        return next.ordinal >= this.ordinal
+    }
 }

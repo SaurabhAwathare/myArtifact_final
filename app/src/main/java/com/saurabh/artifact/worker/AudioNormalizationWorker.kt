@@ -38,16 +38,12 @@ class AudioNormalizationWorker @AssistedInject constructor(
     }
 
     private suspend fun updateSubState(id: String, stage: ProcessingStage?, error: String? = null) {
-        draftDao.getDraftById(id)?.let { draft ->
-            val newProcessing = when {
-                error != null -> ProcessingStatus.Failed
-                stage != null -> ProcessingStatus.Active(stage)
-                else -> ProcessingStatus.Idle
-            }
-            draftDao.update(draft.copy(
-                status = draft.status.copy(processing = newProcessing)
-            ))
+        val newProcessing = when {
+            error != null -> ProcessingStatus.Failed
+            stage != null -> ProcessingStatus.Active(stage)
+            else -> ProcessingStatus.Idle
         }
+        draftDao.updateProcessingStatus(id, newProcessing)
     }
 
     companion object {

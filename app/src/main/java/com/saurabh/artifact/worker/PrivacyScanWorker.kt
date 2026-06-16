@@ -6,7 +6,7 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.saurabh.artifact.data.local.DraftDao
-import com.saurabh.artifact.model.TranscriptSegment
+import com.saurabh.artifact.model.*
 import com.saurabh.artifact.service.SensitiveInfoScanner
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -29,7 +29,7 @@ class PrivacyScanWorker @AssistedInject constructor(
         val draftId = inputData.getString(KEY_DRAFT_ID) ?: return@withContext Result.failure()
         
         try {
-            updateState(draftId, com.saurabh.artifact.model.ProcessingStage.PRIVACY_SCANNING)
+            updateState(draftId, ProcessingStage.PRIVACY_SCANNING)
             
             val draft = draftDao.getDraftById(draftId) ?: return@withContext Result.failure()
             
@@ -57,11 +57,8 @@ class PrivacyScanWorker @AssistedInject constructor(
             
             val sensitiveJson = com.saurabh.artifact.util.SecureString.fromString(Json.encodeToString(flaggedSegments))
             
-            // Finalizing scan
-            draftDao.update(draft.copy(
-                sensitiveEntitiesJson = sensitiveJson,
-                updatedAt = System.currentTimeMillis()
-            ))
+            // Finalizing scan with targeted update
+            draftDao.updatePrivacyResult(draftId, sensitiveJson)
             
             Result.success()
         } catch (e: Exception) {
@@ -71,18 +68,13 @@ class PrivacyScanWorker @AssistedInject constructor(
         }
     }
 
-    private suspend fun updateState(id: String, stage: com.saurabh.artifact.model.ProcessingStage?, error: String? = null) {
-        draftDao.getDraftById(id)?.let { draft ->
-            val newProcessing = when {
-                error != null -> com.saurabh.artifact.model.ProcessingStatus.Failed
-                stage != null -> com.saurabh.artifact.model.ProcessingStatus.Active(stage)
-                else -> com.saurabh.artifact.model.ProcessingStatus.Idle
-            }
-            draftDao.update(draft.copy(
-                status = draft.status.copy(processing = newProcessing),
-                updatedAt = System.currentTimeMillis()
-            ))
+    private suspend fun updateState(id: String, stage: ProcessingStage?, error: String? = null) {
+        val newProcessing = when {
+            error != null -> ProcessingStatus.Failed
+            stage != null -> ProcessingStatus.Active(stage)
+            else -> ProcessingStatus.Idle
         }
+        draftDao.updateProcessingStatus(id, newProcessing)
     }
 
     companion object {

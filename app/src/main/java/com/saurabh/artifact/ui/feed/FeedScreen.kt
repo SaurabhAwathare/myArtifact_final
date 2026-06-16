@@ -33,6 +33,7 @@ import kotlinx.coroutines.delay
 import androidx.compose.ui.zIndex
 import com.saurabh.artifact.ui.components.ArtifactCard
 import com.saurabh.artifact.ui.components.ArtifactFeedCard
+import com.saurabh.artifact.ui.components.AmbientUploadBar
 import com.saurabh.artifact.ui.components.EmberLogo
 import com.saurabh.artifact.ui.components.CrisisSupportCard
 import com.saurabh.artifact.ui.components.EmotionList
@@ -84,6 +85,7 @@ fun FeedScreen(
     val stage by viewModel.startupStage.collectAsStateWithLifecycle()
     
     val selectedEmotion by viewModel.selectedEmotion.collectAsStateWithLifecycle()
+    val publishState by viewModel.currentPublishState.collectAsStateWithLifecycle()
 
     val reflectionPrompt by viewModel.reflectionPrompt.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
@@ -153,6 +155,12 @@ fun FeedScreen(
                 showRankedFeed = showRankedFeed,
                 onToggleFeed = { showRankedFeed = it },
                 onEmotionSelect = { viewModel.setEmotionFilter(it) }
+            )
+
+            AmbientUploadBar(
+                state = publishState,
+                onRetry = { viewModel.retryPublish(it) },
+                onCancel = { viewModel.cancelPublish(it) }
             )
 
             Box(modifier = Modifier.weight(1f)) {

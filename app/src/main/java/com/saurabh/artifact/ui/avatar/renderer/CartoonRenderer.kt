@@ -8,7 +8,6 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.core.graphics.toColorInt
@@ -25,7 +24,6 @@ class CartoonRenderer : AvatarRenderer {
     ) {
         // Cache parsed colors to avoid per-frame parsing
         val skinColor = remember(config.skinColor) { Color(config.skinColor.toColorInt()) }
-        val hairColor = remember(config.hairColor) { Color(config.hairColor.toColorInt()) }
         
         Canvas(
             modifier = modifier.drawWithCache {
@@ -33,37 +31,18 @@ class CartoonRenderer : AvatarRenderer {
                 
                 // Pre-calculate common geometry if needed, or just draw
                 onDrawBehind {
-                    drawFace(config, skinColor, scale)
+                    drawFace(skinColor, scale)
                     drawEyes(config, scale)
                     drawMouth(config, scale)
-                    drawHair(config, hairColor, scale)
                     drawAccessories(config, scale)
                 }
             }
         ) {}
     }
 
-    private fun DrawScope.drawFace(config: AvatarConfig, color: Color, scale: Float) {
-        when (config.faceShape) {
-            FaceShape.ROUND -> {
-                drawCircle(color = color, center = center, radius = 40f * scale)
-            }
-            FaceShape.OVAL -> {
-                drawOval(
-                    color = color,
-                    topLeft = Offset(15f * scale, 10f * scale),
-                    size = Size(70f * scale, 85f * scale)
-                )
-            }
-            FaceShape.SQUARE -> {
-                drawRoundRect(
-                    color = color,
-                    topLeft = Offset(15f * scale, 15f * scale),
-                    size = Size(70f * scale, 75f * scale),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(10f * scale)
-                )
-            }
-        }
+    private fun DrawScope.drawFace(color: Color, scale: Float) {
+        // All avatars now use Round face shape by default
+        drawCircle(color = color, center = center, radius = 40f * scale)
     }
 
     private fun DrawScope.drawEyes(config: AvatarConfig, scale: Float) {
@@ -174,79 +153,6 @@ class CartoonRenderer : AvatarRenderer {
                     center = Offset(50f * scale, mouthY)
                 )
             }
-        }
-    }
-
-    private fun DrawScope.drawHair(config: AvatarConfig, hairColor: Color, scale: Float) {
-        if (config.hairType == HairType.NONE) return
-        
-        when (config.hairType) {
-            HairType.SHORT -> {
-                drawArc(
-                    color = hairColor,
-                    startAngle = 180f,
-                    sweepAngle = 180f,
-                    useCenter = true,
-                    topLeft = Offset(15f * scale, 10f * scale),
-                    size = Size(70f * scale, 40f * scale)
-                )
-            }
-            HairType.LONG -> {
-                // Draw sides
-                drawRect(
-                    color = hairColor,
-                    topLeft = Offset(15f * scale, 20f * scale),
-                    size = Size(15f * scale, 60f * scale)
-                )
-                drawRect(
-                    color = hairColor,
-                    topLeft = Offset(70f * scale, 20f * scale),
-                    size = Size(15f * scale, 60f * scale)
-                )
-                // Top
-                drawArc(
-                    color = hairColor,
-                    startAngle = 180f,
-                    sweepAngle = 180f,
-                    useCenter = true,
-                    topLeft = Offset(15f * scale, 10f * scale),
-                    size = Size(70f * scale, 40f * scale)
-                )
-            }
-            HairType.BOB -> {
-                drawArc(
-                    color = hairColor,
-                    startAngle = 180f,
-                    sweepAngle = 180f,
-                    useCenter = true,
-                    topLeft = Offset(10f * scale, 10f * scale),
-                    size = Size(80f * scale, 60f * scale)
-                )
-            }
-            HairType.SPIKY -> {
-                val path = Path().apply {
-                    moveTo(20f * scale, 40f * scale)
-                    lineTo(25f * scale, 10f * scale)
-                    lineTo(35f * scale, 30f * scale)
-                    lineTo(50f * scale, 5f * scale)
-                    lineTo(65f * scale, 30f * scale)
-                    lineTo(75f * scale, 10f * scale)
-                    lineTo(80f * scale, 40f * scale)
-                    close()
-                }
-                drawPath(path = path, color = hairColor)
-            }
-            HairType.WAVE -> {
-                drawArc(
-                    color = hairColor,
-                    startAngle = 180f,
-                    sweepAngle = 180f,
-                    useCenter = true,
-                    topLeft = Offset(10f * scale, 10f * scale),
-                    size = Size(80f * scale, 50f * scale)
-                )
-            }
-            else -> {}
         }
     }
 

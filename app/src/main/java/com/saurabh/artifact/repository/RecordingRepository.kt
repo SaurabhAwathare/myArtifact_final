@@ -11,6 +11,7 @@ import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.withContext
 import java.io.File
 import javax.inject.Inject
@@ -78,7 +79,13 @@ class RecordingRepository @Inject constructor(
 
     fun observeDrafts(): Flow<List<ArtifactDraftEntity>> = draftDao.observeDrafts()
 
-    fun observeDraft(id: String): Flow<ArtifactDraftEntity?> = draftDao.observeDraftById(id)
+    fun observeDraft(id: String): Flow<ArtifactDraftEntity?> = draftDao.observeDraftById(id).onEach { draft ->
+        if (draft != null) {
+            android.util.Log.d("DB_TRACE", "[DB_TRACE] observeDraft emission: draftId=${draft.id}, lifecycle=${draft.lifecycle}, reviewProgress=${draft.reviewProgress}")
+        } else {
+            android.util.Log.d("DB_TRACE", "[DB_TRACE] observeDraft emission: NULL for $id")
+        }
+    }
 
     suspend fun getDraft(id: String): Result<ArtifactDraftEntity> = withContext(Dispatchers.IO) {
         try {
@@ -137,16 +144,81 @@ class RecordingRepository @Inject constructor(
         }
     }
 
+    suspend fun updateLifecycle(id: String, lifecycle: ArtifactLifecycle, isRecovery: Boolean = false): Result<Unit> = withContext(Dispatchers.IO) {
+        android.util.Log.d("STATE_TRACE", "updateLifecycle: ID=$id, NEW=$lifecycle, isRecovery=$isRecovery (DB_TRACE)")
+        try {
+            draftDao.updateLifecycle(id, lifecycle, isRecovery = isRecovery)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(AppError.from(e))
+        }
+    }
+
+    suspend fun recoverDraft(id: String, lifecycle: ArtifactLifecycle): Result<Unit> = withContext(Dispatchers.IO) {
+        android.util.Log.d("STATE_TRACE", "recoverDraft: ID=$id, NEW=$lifecycle (RECOVERY)")
+        try {
+            draftDao.updateLifecycle(id, lifecycle, isRecovery = true)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(AppError.from(e))
+        }
+    }
+
+    suspend fun updateTranscriptionResult(id: String, localTranscriptPath: String, emotionalTone: EmotionalTone?, primaryStyle: ConversationStyle?): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            draftDao.updateTranscriptionResult(id, localTranscriptPath, emotionalTone, primaryStyle)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(AppError.from(e))
+        }
+    }
+
+    suspend fun updateProcessingStatus(id: String, status: ProcessingStatus): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            draftDao.updateProcessingStatus(id, status)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(AppError.from(e))
+        }
+    }
+
+    suspend fun updateWaveform(id: String, amplitudeData: List<Float>): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            draftDao.updateWaveformResult(id, amplitudeData)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(AppError.from(e))
+        }
+    }
+
+    suspend fun updateSafetyResult(id: String, safetyAnalysis: String?, emotionalRiskScore: Float): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            draftDao.updateSafetyResult(id, safetyAnalysis, emotionalRiskScore)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(AppError.from(e))
+        }
+    }
+
+    suspend fun finalizeProcessing(id: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            draftDao.finalizeProcessing(id)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(AppError.from(e))
+        }
+    }
+
     suspend fun updateStudioState(
         id: String,
-        step: String,
         review: Boolean,
         title: Boolean,
         emotion: Boolean,
         approval: Boolean
     ): Result<Unit> = withContext(Dispatchers.IO) {
+        android.util.Log.d("STATE_TRACE", "updateStudioState: ID=$id, R=$review, T=$title, E=$emotion, A=$approval (DB_TRACE)")
         try {
-            draftDao.updateStudioState(id, step, review, title, emotion, approval)
+            draftDao.updateStudioState(id, review, title, emotion, approval)
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(AppError.from(e))
@@ -157,6 +229,9 @@ class RecordingRepository @Inject constructor(
         try {
             Log.d("RecordingRepository", "Starting recovery check...")
             
+            // 0. Purge Zombies: Delete 0-byte drafts older than 30 mins
+            purgeZombieDrafts()
+
             // 1. Recover interrupted recordings
             val recordings = draftDao.getActiveRecordings()
             val interrupted = mutableListOf<ArtifactDraftEntity>()
@@ -199,11 +274,12 @@ class RecordingRepository @Inject constructor(
 
                     val updated = draft.copy(
                         status = draft.status.copy(lifecycle = newLifecycle, processing = newProcessing),
+                        lifecycle = newLifecycle,
                         durationMs = if (newLifecycle == ArtifactLifecycle.PROCESSING) recoveredDurationMs else draft.durationMs,
                         durableBytes = if (newLifecycle == ArtifactLifecycle.PROCESSING) recoveredAudioBytes.coerceAtLeast(0) else draft.durableBytes,
                         updatedAt = System.currentTimeMillis()
                     )
-                    draftDao.update(updated)
+                    draftDao.update(updated, isRecovery = true)
                     interrupted.add(updated)
                     
                     Log.d("RecordingRepository", "Recovery for ${draft.id}: $recoveryResult -> New Lifecycle: $newLifecycle")
@@ -231,6 +307,28 @@ class RecordingRepository @Inject constructor(
             Result.success(interrupted)
         } catch (e: Exception) {
             Result.failure(AppError.from(e))
+        }
+    }
+
+    /**
+     * Identifies and purges "zombie" drafts: abandoned recordings with no duration/data.
+     */
+    private suspend fun purgeZombieDrafts() {
+        val now = System.currentTimeMillis()
+        val zombieThreshold = 30 * 60 * 1000 // 30 minutes
+        
+        val activeDrafts = draftDao.getAllDrafts().filter { 
+            it.lifecycle == ArtifactLifecycle.RECORDING || it.lifecycle == ArtifactLifecycle.PROCESSING 
+        }
+        
+        activeDrafts.forEach { draft ->
+            val isZombieCandidate = draft.durationMs == 0L || draft.durableBytes == 0L
+            val isOldEnough = (now - draft.updatedAt) > zombieThreshold
+            
+            if (isZombieCandidate && isOldEnough) {
+                Log.i("RecordingRepository", "Purging zombie draft: ${draft.id} (Lifecycle: ${draft.lifecycle})")
+                deletionManager.deleteDraft(draft.id)
+            }
         }
     }
 }
