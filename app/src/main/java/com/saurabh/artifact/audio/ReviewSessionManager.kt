@@ -7,6 +7,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Manages the intentional review journey for drafts.
@@ -44,11 +45,14 @@ class ReviewSessionManager @Inject constructor(
 
     private fun observeCompletion() {
         scope.launch {
-            reviewProgress.collect { state ->
-                state.artifactId?.let { id ->
-                    updatePersistedProgress(id, state.coveragePercent)
+            @OptIn(FlowPreview::class)
+            reviewProgress
+                .sample(1000.milliseconds)
+                .collect { state ->
+                    state.artifactId?.let { id ->
+                        updatePersistedProgress(id, state.coveragePercent)
+                    }
                 }
-            }
         }
 
         scope.launch {
@@ -76,6 +80,8 @@ class ReviewSessionManager @Inject constructor(
     }
 
     fun startReview(draftId: String) {
+        if (reviewProgress.value.artifactId == draftId && playbackSessionManager.isPlaying.value) return
+
         android.util.Log.d("STUDIO_TRACE", "startReview: $draftId (LIFECYCLE_TRACE)")
         scope.launch {
             val draft = draftDao.getDraftById(draftId) ?: return@launch
@@ -98,7 +104,15 @@ class ReviewSessionManager @Inject constructor(
 
     private suspend fun markReviewComplete(artifactId: String) {
         withContext(Dispatchers.IO) {
-            android.util.Log.d("STATE_TRACE", "markReviewComplete: $artifactId (DB_TRACE)")
+            val draft = draftDao.getDraftById(artifactId) ?: return@withContext
+            
+            // Idempotency guard: If already marked complete or beyond metadata required, skip
+            if (draft.reviewCompleted && draft.lifecycle >= ArtifactLifecycle.METADATA_REQUIRED) {
+                android.util.Log.d("STUDIO_TRACE", "markReviewComplete: Already complete for $artifactId. Skipping redundant write. (DB_TRACE)")
+                return@withContext
+            }
+
+            android.util.Log.d("LIFECYCLE_TRACE", "markReviewComplete: $artifactId. Transitioning ${draft.lifecycle} -> METADATA_REQUIRED (DB_TRACE)")
             android.util.Log.d("StudioLoop", "markReviewCompletePartial for $artifactId")
             draftDao.markReviewCompletePartial(artifactId)
         }

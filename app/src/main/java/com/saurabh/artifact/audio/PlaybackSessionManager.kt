@@ -436,12 +436,15 @@ class PlaybackSessionManager @Inject constructor(
     }
 
     fun stop() {
+        Log.d("LOOP_FIX", "PlaybackSessionManager.stop(): clearing playback state")
+        // Synchronously clear state to prevent race conditions in UI/Navigation
+        _currentArtifact.value = null
+        _activePlayback.value = null
+        _isPlaying.value = false
+        _queue.value = emptyList()
+        
         scope.launch {
             getController()?.stop()
-            _currentArtifact.value = null
-            _activePlayback.value = null
-            _isPlaying.value = false
-            _queue.value = emptyList()
         }
     }
 

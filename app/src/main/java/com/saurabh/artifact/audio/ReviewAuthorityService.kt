@@ -33,6 +33,7 @@ class ReviewAuthorityService @Inject constructor(
     
     private var activeTracker: ReviewTracker? = null
     private var lastTickTime: Long = 0L
+    private var completionTriggered = false
 
     private val _currentProgress = MutableStateFlow<ReviewProgress?>(null)
     val currentProgress: StateFlow<ReviewProgress?> = _currentProgress.asStateFlow()
@@ -72,7 +73,7 @@ class ReviewAuthorityService @Inject constructor(
                         val progress = tracker.progress
                         _currentProgress.value = progress
                         
-                        if (progress.isValidationMet) {
+                        if (progress.isValidationMet && !completionTriggered) {
                             handleCompletion(progress)
                         }
                     }
@@ -106,7 +107,7 @@ class ReviewAuthorityService @Inject constructor(
                     _currentProgress.value = progress
                     progress?.let { 
                         engagementRepository.saveEngagement(it.evidence)
-                        if (it.isValidationMet) handleCompletion(it) 
+                        if (it.isValidationMet && !completionTriggered) handleCompletion(it) 
                     }
                 }
             }
@@ -121,6 +122,8 @@ class ReviewAuthorityService @Inject constructor(
     }
 
     private suspend fun initializeSession(artifact: Artifact) {
+        if (activeTracker?.progress?.artifactId == artifact.id) return
+
         val evidence = engagementRepository.getEngagement(artifact.id).getOrElse {
             EngagementEvidence(
                 artifactId = artifact.id,
@@ -137,6 +140,7 @@ class ReviewAuthorityService @Inject constructor(
         )
         _currentProgress.value = activeTracker?.progress
         lastTickTime = SystemClock.elapsedRealtime()
+        completionTriggered = false
     }
 
     private suspend fun finalizeSession() {
@@ -151,6 +155,9 @@ class ReviewAuthorityService @Inject constructor(
     }
 
     private fun handleCompletion(progress: ReviewProgress) {
+        if (completionTriggered) return
+        completionTriggered = true
+
         android.util.Log.d("STUDIO_TRACE", "ReviewAuthorityService: handleCompletion for ${progress.artifactId} (LIFECYCLE_TRACE)")
         scope.launch(Dispatchers.IO) {
             engagementRepository.saveEngagement(progress.evidence)

@@ -206,10 +206,10 @@ fun AuthenticatedIsland(
                             navController = navController,
                             recordingSessionManager = recordingSessionManager,
                             onNavigateToDraftEdit = { draftId ->
-                                navController.navigate(PublishingStudio(draftId))
+                                navController.navigate(PublishingStudio(draftId)) { launchSingleTop = true }
                             },
                             onNavigateToPublish = { draftId ->
-                                navController.navigate(PublishingStudio(draftId))
+                                navController.navigate(PublishingStudio(draftId)) { launchSingleTop = true }
                             },
                             onNavigateToComments = { artifactId, userId ->
                                 navController.navigate(Comments(artifactId, userId))

@@ -34,6 +34,9 @@ fun NavGraph(
     Log.d("NAV_DEBUG", "NavGraph rendering. Start destination = $startDestination")
 
     androidx.compose.runtime.LaunchedEffect(navController) {
+        navController.addOnDestinationChangedListener { _, destination, _ ->
+            Log.d("NAV_TRACE", "Current destination = ${destination.route}")
+        }
         navController.currentBackStackEntryFlow.collect { entry ->
             val route = entry.destination.route
             Log.d("NAV_DEBUG", "Current route = $route")

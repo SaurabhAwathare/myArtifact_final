@@ -9,11 +9,19 @@ import com.saurabh.artifact.security.UploadGuard
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.security.MessageDigest
 import javax.inject.Inject
 import javax.inject.Singleton
+
+@Serializable
+private data class PublishedMetadata(
+    val title: String,
+    val emotion: String,
+    val tags: List<String>
+)
 
 @Singleton
 class PublishApprovalRepository @Inject constructor(
@@ -29,6 +37,47 @@ class PublishApprovalRepository @Inject constructor(
 
     suspend fun updateDraft(draft: ArtifactDraftEntity) = withContext(Dispatchers.IO) {
         draftDao.update(draft)
+    }
+
+    suspend fun approveAndFreezeAuto(draftId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val draft = draftDao.getDraftById(draftId) ?: return@withContext Result.failure(Exception("Draft not found"))
+
+            Log.d("PublishApprovalRepo", "Starting auto-approval for draft: $draftId")
+
+            // 1. Load Transcript with Fallback
+            val transcript = if (draft.frozenTranscriptJson != null) {
+                val json = draft.frozenTranscriptJson.toUnsecureString()
+                Json.decodeFromString<List<TranscriptSegment>>(json)
+            } else if (draft.localTranscriptPath != null) {
+                val file = File(draft.localTranscriptPath)
+                Log.d("PublishApprovalRepo", "Transcript file path: ${file.absolutePath}")
+                
+                if (file.exists()) {
+                    val content = file.readText()
+                    Log.d("PublishApprovalRepo", "Transcript file contents (200 chars): ${content.take(200)}")
+                    
+                    try {
+                        val segments = Json.decodeFromString<List<TranscriptSegment>>(content)
+                        Log.d("PublishApprovalRepo", "Transcript type detected: JSON")
+                        segments
+                    } catch (e: Exception) {
+                        Log.w("PublishApprovalRepo", "Transcript type detected: PLAIN_TEXT (Wrapping content) - Error: ${e.message}")
+                        listOf(TranscriptSegment(id = "recovered_plain", text = content, confidence = 0.5f))
+                    }
+                } else {
+                    Log.w("PublishApprovalRepo", "Transcript file missing. Using empty transcript.")
+                    emptyList()
+                }
+            } else {
+                emptyList()
+            }
+
+            approveAndFreeze(draftId, transcript)
+        } catch (e: Exception) {
+            Log.e("PublishApprovalRepo", "Auto-approval failed for $draftId", e)
+            Result.failure(e)
+        }
     }
 
     suspend fun validateDraft(draft: ArtifactDraftEntity, transcript: List<TranscriptSegment>): ValidationResult = withContext(Dispatchers.Default) {
@@ -54,10 +103,10 @@ class PublishApprovalRepository @Inject constructor(
             
             File(draft.localAudioPath).copyTo(frozenAudioFile, overwrite = true)
             
-            val metadata = mapOf(
-                "title" to (draft.title ?: "Untitled"),
-                "emotion" to (draft.emotion ?: ""),
-                "tags" to draft.tags
+            val metadata = PublishedMetadata(
+                title = draft.title ?: "Untitled",
+                emotion = draft.emotion?.label ?: "",
+                tags = draft.tags
             )
             val metadataJson = Json.encodeToString(metadata)
             
@@ -80,6 +129,8 @@ class PublishApprovalRepository @Inject constructor(
                 checksum = currentChecksum,
                 timestamp = timestamp
             )
+
+            Log.d("PublishApprovalRepo", "Approval token generation success for $draftId")
 
             // 3. Persist Snapshot
             draftDao.freezeSnapshot(

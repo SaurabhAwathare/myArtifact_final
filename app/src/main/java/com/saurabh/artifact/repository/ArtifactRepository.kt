@@ -834,6 +834,7 @@ class ArtifactRepository @Inject constructor(
                 .build()
 
             while (true) {
+                Log.d("PUBLISH_TRACE", "Firebase upload started for ${draft.id}")
                 val loopResult: Result<String> = try {
                     withTimeout(5.minutes) {
                         val uploadTask = if (draft.uploadSessionUri != null) {

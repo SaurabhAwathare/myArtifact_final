@@ -31,6 +31,7 @@ class PublishingWorker @AssistedInject constructor(
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val draftId = inputData.getString(KEY_DRAFT_ID) ?: return@withContext Result.failure()
+        Log.d("PUBLISH_TRACE", "Publishing worker started for $draftId")
         
         startTime = System.currentTimeMillis()
 
@@ -48,8 +49,8 @@ class PublishingWorker @AssistedInject constructor(
         }
 
         if (!acquired) {
-            Log.i("PublishingWorker", "Could not acquire ownership for $draftId (likely owned by SERVICE)")
-            return@withContext Result.success() // Service is handling it
+            Log.i("PublishingWorker", "Could not acquire ownership for $draftId (likely owned by SERVICE or active WORKER)")
+            return@withContext Result.retry() // Let WorkManager back off and try again if the other component fails
         }
 
         try {

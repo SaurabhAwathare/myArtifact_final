@@ -23,6 +23,7 @@ fun NavGraphBuilder.recordingNavigation(
         DraftListScreen(
             onBack = onBack,
             onNavigateToStudio = { draftId ->
+                Log.d("NAV_TRACE", "Navigate -> PublishingStudio")
                 Log.d("NAV_TRACE", "[NAV_TRACE] DraftList -> PublishingStudio(draftId=$draftId)")
                 navController.navigate(PublishingStudio(draftId)) {
                     launchSingleTop = true
@@ -66,6 +67,7 @@ fun NavGraphBuilder.recordingNavigation(
         RecordingScreen(
             onFinished = { draftId ->
                 // Navigate directly to the unified Publishing Studio
+                Log.d("NAV_TRACE", "Navigate -> PublishingStudio")
                 Log.d("NAV_TRACE", "[NAV_TRACE] InstantRecord -> PublishingStudio(draftId=$draftId)")
                 navController.navigate(PublishingStudio(draftId)) {
                     popUpTo(InstantRecord()) { inclusive = true }

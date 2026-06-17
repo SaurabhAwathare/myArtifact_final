@@ -47,14 +47,13 @@ interface DraftDao {
     @Query("SELECT * FROM artifact_drafts WHERE lifecycle = 'RECORDING'")
     suspend fun getActiveRecordings(): List<ArtifactDraftEntity>
 
-    @Query("UPDATE artifact_drafts SET lifecycle = :lifecycle, updatedAt = :timestamp WHERE id = :id")
-    suspend fun _updateLifecycleInternal(id: String, lifecycle: ArtifactLifecycle, timestamp: Long)
 
     @Transaction
     suspend fun updateLifecycle(id: String, lifecycle: ArtifactLifecycle, timestamp: Long = System.currentTimeMillis(), isRecovery: Boolean = false) {
         val existing = getDraftById(id)
         if (existing == null || existing.lifecycle.canTransitionTo(lifecycle, isRecovery)) {
-            _updateLifecycleInternal(id, lifecycle, timestamp)
+            val newStatus = existing?.status?.copy(lifecycle = lifecycle) ?: DraftStatus(lifecycle = lifecycle)
+            _updateStatusAndLifecycleInternal(id, newStatus, lifecycle, timestamp)
         } else {
             android.util.Log.w("DraftDao", "Blocked backward lifecycle transition for $id: ${existing.lifecycle} -> $lifecycle")
         }
@@ -109,10 +108,13 @@ interface DraftDao {
     @Transaction
     suspend fun finalizeProcessing(id: String, timestamp: Long = System.currentTimeMillis()) {
         val existing = getDraftById(id) ?: return
+        android.util.Log.d("FINALIZER_TRACE", "finalizeProcessing: id=$id, existingLifecycle=${existing.lifecycle}")
+        
         val newStatus = existing.status.copy(
             lifecycle = ArtifactLifecycle.REVIEW_REQUIRED,
             processing = ProcessingStatus.Completed
         )
+        // This will block regression if already at METADATA_REQUIRED or beyond
         updateStatusAndLifecycle(id, newStatus, ArtifactLifecycle.REVIEW_REQUIRED, timestamp)
     }
 
@@ -200,7 +202,7 @@ interface DraftDao {
         }
     }
 
-    @Query("UPDATE artifact_drafts SET frozenTranscriptJson = :transcriptJson, frozenAudioPath = :audioPath, frozenMetadataJson = :metadataJson, snapshotHash = :hash, approvalToken = :token, deviceFingerprint = :fingerprint, updatedAt = :timestamp WHERE id = :id")
+    @Query("UPDATE artifact_drafts SET frozenTranscriptJson = :transcriptJson, frozenAudioPath = :audioPath, frozenMetadataJson = :metadataJson, snapshotHash = :hash, approvalToken = :token, deviceFingerprint = :fingerprint, publishApprovalTimestamp = :timestamp, updatedAt = :timestamp WHERE id = :id")
     suspend fun freezeSnapshot(id: String, transcriptJson: String, audioPath: String, metadataJson: String, hash: String, token: String, fingerprint: String, timestamp: Long = System.currentTimeMillis())
 
     @Query("UPDATE artifact_drafts SET status = :status, updatedAt = :timestamp WHERE id = :id")

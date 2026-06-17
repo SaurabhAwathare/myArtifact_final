@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -108,21 +109,27 @@ class DraftRepository @Inject constructor(
             draftsDatabase.withTransaction {
                 val draft = draftDao.getDraftById(draftId) ?: throw Exception("Draft not found")
                 
-                // 1. Update Draft lifecycle to locking state
+                // 1. Calculate actual size for early progress accuracy
+                val actualSize = File(draft.frozenAudioPath ?: draft.localAudioPath).length()
+
+                // 2. Update Draft lifecycle to locking state
                 updateStatus(draftId) { 
                     it.copy(
                         lifecycle = ArtifactLifecycle.READY_TO_PUBLISH,
                         publication = initialStatus
                     )
                 }.getOrThrow()
+
+                // Sync the actual size to the main draft table too
+                draftDao.updateSyncProgress(draftId, 0, actualSize, draft.uploadSessionUri)
                 
-                // 2. Initialize the separated upload task
+                // 3. Initialize the separated upload task
                 uploadTaskDao.insert(UploadTaskEntity(
                     draftId = draftId,
                     workerId = null,
                     status = initialStatus,
                     uploadedBytes = 0,
-                    totalBytes = draft.totalBytes,
+                    totalBytes = actualSize,
                     sessionUri = draft.uploadSessionUri,
                     audioUrl = draft.uploadedAudioUrl
                 ))

@@ -5,6 +5,8 @@ import android.util.Log
 import androidx.work.*
 import com.saurabh.artifact.audio.UploadService
 import com.saurabh.artifact.model.*
+import com.saurabh.artifact.security.UploadGuard
+import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.worker.PublishingWorker
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -19,6 +21,8 @@ class PublishingOrchestrator @Inject constructor(
     private val draftRepository: com.saurabh.artifact.repository.DraftRepository,
     private val approvalRepository: com.saurabh.artifact.repository.PublishApprovalRepository,
     private val connectivityObserver: com.saurabh.artifact.util.ConnectivityObserver,
+    private val uploadGuard: UploadGuard,
+    private val authRepository: AuthRepository,
     private val workManager: WorkManager
 ) {
 
@@ -124,24 +128,28 @@ class PublishingOrchestrator @Inject constructor(
     }
 
     suspend fun approvePublishing(draftId: String): PublishingResult = withContext(Dispatchers.IO) {
-        // Legacy entry point - redirected to internal logic if needed, but preferred is approveAndPublish
         val draft = draftRepository.getDraft(draftId).getOrNull() ?: return@withContext PublishingResult.FAILED
+
+        // 0. Security Validation: Ensure tokens are present and valid
+        val userId = authRepository.currentUserId
+        if (!uploadGuard.validateApproval(draft, userId)) {
+            Log.i("PublishingOrchestrator", "Security validation failed or missing for $draftId. Re-approving.")
+            val reApproveResult = approvalRepository.approveAndFreezeAuto(draftId)
+            if (reApproveResult.isFailure) {
+                Log.e("PublishingOrchestrator", "Failed to auto-approve draft $draftId", reApproveResult.exceptionOrNull())
+                return@withContext PublishingResult.FAILED
+            }
+        }
         
-        // 0. Strict Validation: Review Required
+        // 0.1 Strict Validation: Review Required
         if (draft.status.lifecycle != ArtifactLifecycle.READY_TO_PUBLISH) {
             Log.e("PublishingOrchestrator", "Attempted to publish unreviewed draft via legacy route: $draftId")
             return@withContext PublishingResult.FAILED
         }
 
-        // 0.2 Check if already publishing to avoid double enqueuing
+        // 1. Check if already publishing to avoid double enqueuing
         if (draft.status.lifecycle == ArtifactLifecycle.PUBLISHED) {
             return@withContext PublishingResult.ALREADY_IN_PROGRESS
-        }
-
-        // 1. Check Cooldown if applicable
-        val now = System.currentTimeMillis()
-        if (draft.updatedAt != 0L && (now - draft.updatedAt) < 1000) { // Using updatedAt as proxy since cooldownExpiry is missing
-            return@withContext PublishingResult.FAILED
         }
 
         // 2. Transition to READY_TO_PUBLISH + SyncStatus.Queued or SyncStatus.WaitingForNetwork
@@ -186,10 +194,19 @@ class PublishingOrchestrator @Inject constructor(
             ExistingWorkPolicy.KEEP,
             publishingWork
         )
+        Log.d("PUBLISH_TRACE", "Publishing worker enqueued for $draftId")
     }
 
     suspend fun retryPublishing(draftId: String) = withContext(Dispatchers.IO) {
         val draft = draftRepository.getDraft(draftId).getOrNull() ?: return@withContext
+
+        // 0. Security Validation: Regenerate tokens if validation fails
+        val userId = authRepository.currentUserId
+        if (!uploadGuard.validateApproval(draft, userId)) {
+            Log.i("PublishingOrchestrator", "Retrying draft $draftId with invalid security state. Re-approving.")
+            approvalRepository.approveAndFreezeAuto(draftId)
+        }
+
         if (draft.status.publication is SyncStatus.Failed) {
             draftRepository.updateUploadStatus(draftId, SyncStatus.Queued)
             enqueuePublishingWork(draftId)

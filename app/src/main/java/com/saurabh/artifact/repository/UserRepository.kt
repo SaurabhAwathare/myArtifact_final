@@ -26,9 +26,11 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import javax.inject.Inject
 import javax.inject.Singleton
 import com.google.firebase.firestore.FirebaseFirestoreException
+import kotlin.time.Duration.Companion.seconds
 
 @Singleton
 class UserRepository @Inject constructor(
@@ -227,11 +229,16 @@ class UserRepository @Inject constructor(
         
         try {
             try {
-                initialUser.reload().await()
+                withTimeout(10.seconds) {
+                    initialUser.reload().await()
+                }
             } catch (e: Exception) {
-                Log.w("UserRepository", "Failed to reload user, might be deleted or session expired.", e)
-                auth.signOut()
-                return@withContext Result.failure(AppError.from(e))
+                Log.w("UserRepository", "Failed to reload user or timeout reached, might be deleted or session expired.", e)
+                // If it's just a timeout, we proceed carefully; if it's a hard error, we sign out.
+                if (e !is kotlinx.coroutines.TimeoutCancellationException) {
+                    auth.signOut()
+                    return@withContext Result.failure(AppError.from(e))
+                }
             }
 
             val currentUser = auth.currentUser ?: return@withContext Result.failure(AppError.Unauthenticated())

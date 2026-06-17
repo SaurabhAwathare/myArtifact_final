@@ -229,7 +229,10 @@ class RecordingRepository @Inject constructor(
         try {
             Log.d("RecordingRepository", "Starting recovery check...")
             
-            // 0. Purge Zombies: Delete 0-byte drafts older than 30 mins
+            // 0. Repair Lifecycle Desynchronization
+            reconcileLifecycleConsistency()
+
+            // 0.1 Purge Zombies: Delete 0-byte drafts older than 30 mins
             purgeZombieDrafts()
 
             // 1. Recover interrupted recordings
@@ -329,6 +332,30 @@ class RecordingRepository @Inject constructor(
                 Log.i("RecordingRepository", "Purging zombie draft: ${draft.id} (Lifecycle: ${draft.lifecycle})")
                 deletionManager.deleteDraft(draft.id)
             }
+        }
+    }
+
+    /**
+     * Authoritative repair for any desynchronized lifecycle fields.
+     * Ensures that the top-level column and embedded JSON status remain consistent.
+     */
+    private suspend fun reconcileLifecycleConsistency() {
+        try {
+            val drafts = draftDao.getAllDrafts()
+            drafts.forEach { draft ->
+                if (draft.lifecycle != draft.status.lifecycle) {
+                    Log.w("RecordingRepository", "REPAIR: Synchronizing lifecycle for ${draft.id}: Column=${draft.lifecycle}, JSON=${draft.status.lifecycle}")
+                    val fixedStatus = draft.status.copy(lifecycle = draft.lifecycle)
+                    draftDao.updateStatusAndLifecycle(
+                        id = draft.id,
+                        status = fixedStatus,
+                        lifecycle = draft.lifecycle,
+                        isRecovery = true // Allow backward sync if it was already desynchronized
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("RecordingRepository", "Failed to reconcile lifecycle consistency", e)
         }
     }
 }

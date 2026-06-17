@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -219,11 +220,19 @@ class PlayerViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            reviewSessionManager.reviewProgress.collect { state ->
-                if (state.isThresholdMet && state.artifactId != null) {
-                    _navigateToPublish.emit(state.artifactId)
+            reviewSessionManager.reviewProgress
+                .map { it.artifactId to it.isThresholdMet }
+                .distinctUntilChanged()
+                .collect { (artifactId, isThresholdMet) ->
+                    if (isThresholdMet && artifactId != null) {
+                        val active = playbackCoordinator.activePlayback.value
+                        android.util.Log.d("LOOP_FIX", "navigateToPublish check: active=${active?.playbackType}, artifact=$artifactId")
+                        
+                        if (active?.artifactId == artifactId && active.playbackType == com.saurabh.artifact.audio.PlaybackType.DRAFT_PREVIEW) {
+                            _navigateToPublish.emit(artifactId)
+                        }
+                    }
                 }
-            }
         }
     }
 
@@ -264,6 +273,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun playArtifact(artifact: Artifact, collection: List<Artifact> = emptyList()) {
+        android.util.Log.d("NAV_TRACE", "Navigate -> Player")
         setExpanded(true)
         _loadState.value = PlayerLoadState.LOADED
         _currentPlayableArtifact.value = null // Clear playable as we have a real artifact
@@ -275,6 +285,7 @@ class PlayerViewModel @Inject constructor(
 
     fun playArtifactById(artifactId: String, source: PlaybackSource = PlaybackSource.FEED_PLAYBACK) {
         viewModelScope.launch {
+            android.util.Log.d("NAV_TRACE", "Navigate -> Player")
             setExpanded(true)
             _loadState.value = PlayerLoadState.LOADING
             

@@ -16,6 +16,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.Json
 import java.io.File
 
 /**
@@ -100,7 +101,14 @@ class TranscriptionWorker @AssistedInject constructor(
     private suspend fun performTranscription(file: File): String {
         Log.d("TranscriptionWorker", "Processing file: ${file.name}")
         delay(3.seconds) // Simulate work
-        return "This is a placeholder transcript for the emotionally rich voice recording."
+        val segments = listOf(
+            TranscriptSegment(
+                id = "placeholder",
+                text = "This is a placeholder transcript for the emotionally rich voice recording.",
+                confidence = 1.0f
+            )
+        )
+        return Json.encodeToString(segments)
     }
 
     private fun analyzeEmotionalTone(): EmotionalTone {

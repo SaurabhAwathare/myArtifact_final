@@ -5,6 +5,7 @@ import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.repository.DraftRepository
+import com.saurabh.artifact.domain.PublishingOrchestrator
 import com.saurabh.artifact.model.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -22,6 +23,7 @@ import javax.inject.Singleton
 class PublishStateManager @Inject constructor(
     private val draftRepository: DraftRepository,
     private val draftDao: DraftDao,
+    private val publishingOrchestrator: PublishingOrchestrator,
     private val workManager: WorkManager
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -167,8 +169,7 @@ class PublishStateManager @Inject constructor(
 
     fun retryPublish(draftId: String) {
         scope.launch {
-            draftRepository.updateUploadStatus(draftId, SyncStatus.Queued)
-            // Orchestrator will handle the re-enqueue via DB observation or explicit call
+            publishingOrchestrator.retryPublishing(draftId)
         }
     }
 }

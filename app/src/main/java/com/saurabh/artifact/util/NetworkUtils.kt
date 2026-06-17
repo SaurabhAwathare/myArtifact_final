@@ -66,9 +66,9 @@ object NetworkUtils {
             is StorageException -> {
                 when (e.errorCode) {
                     StorageException.ERROR_RETRY_LIMIT_EXCEEDED,
+                    StorageException.ERROR_QUOTA_EXCEEDED -> true
                     StorageException.ERROR_NOT_AUTHENTICATED,
-                    StorageException.ERROR_QUOTA_EXCEEDED,
-                    StorageException.ERROR_NOT_AUTHORIZED -> true
+                    StorageException.ERROR_NOT_AUTHORIZED -> false // Terminal: Needs user action
                     else -> {
                         val httpCode = e.httpResultCode
                         httpCode == 408 || httpCode == 429 || httpCode >= 500

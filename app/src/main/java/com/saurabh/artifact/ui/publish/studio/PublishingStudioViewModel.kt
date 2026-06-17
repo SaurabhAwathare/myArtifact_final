@@ -96,6 +96,13 @@ class PublishingStudioViewModel @Inject constructor(
         }
         .combine(_uiState) { (draft, review), ui ->
             val step = StudioStep.fromLifecycle(draft.lifecycle)
+            
+            when (step) {
+                StudioStep.REVIEW -> Log.d("NAV_TRACE", "Navigate -> Review")
+                StudioStep.DETAILS -> Log.d("NAV_TRACE", "Navigate -> Metadata")
+                else -> {}
+            }
+
             Log.d("STATE_TRACE", "[STATE_TRACE] sessionState EMIT: draftId=${draft.id}, lifecycle=${draft.lifecycle}, step=$step, reviewCompleted=${draft.reviewCompleted} | Instance=${this.hashCode()}")
             StudioSessionState(
                 draftId = draft.id,
@@ -231,6 +238,7 @@ class PublishingStudioViewModel @Inject constructor(
     }
 
     fun onPublishClick() {
+        Log.d("STUDIO_TRACE", "Publish button pressed")
         val state = sessionState.value
         val title = state.title
         
@@ -279,6 +287,17 @@ class PublishingStudioViewModel @Inject constructor(
             recordingRepository.getDraft(draftId).onSuccess { draft ->
                 publishArtifactUseCase(draft.localAudioPath)
                     .onSuccess { result ->
+                        if (result == PublishingResult.FAILED) {
+                            _uiState.update { 
+                                Log.e("STATE_TRACE", "[STATE_TRACE] performPublish: FAILED result from use case")
+                                it.copy(isPublishing = false, error = "Publishing failed to initiate. Please try again.") 
+                            }
+                            return@onSuccess
+                        }
+
+                        Log.d("LOOP_FIX", "Publishing success -> stop() called")
+                        playbackCoordinator.stop()
+
                         _uiState.update { 
                             Log.d("STATE_TRACE", "[STATE_TRACE] performPublish: _uiState.update isSuccess=true")
                             it.copy(
@@ -287,7 +306,6 @@ class PublishingStudioViewModel @Inject constructor(
                                 isQueuedOffline = result == PublishingResult.QUEUED_OFFLINE
                             ) 
                         }
-                        // The server or orchestrator should update lifecycle to PUBLISHED
                     }
                     .onFailure { e ->
                         _uiState.update { 

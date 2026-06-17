@@ -38,8 +38,12 @@ private val ScreensWithoutOverlays = listOf(
 fun GlobalOverlayHost(
     navController: NavController,
     recordingSessionManager: RecordingSessionManager,
-    onNavigateToDraftEdit: (String) -> Unit = { id -> navController.navigate(PublishingStudio(id)) },
-    onNavigateToPublish: (String) -> Unit = { id -> navController.navigate(PublishingStudio(id)) },
+    onNavigateToDraftEdit: (String) -> Unit = { id -> 
+        navController.navigate(PublishingStudio(id)) { launchSingleTop = true } 
+    },
+    onNavigateToPublish: (String) -> Unit = { id -> 
+        navController.navigate(PublishingStudio(id)) { launchSingleTop = true } 
+    },
     onNavigateToComments: (String, String) -> Unit,
     onReportArtifact: (String) -> Unit,
     playerViewModel: PlayerViewModel = hiltViewModel(),
@@ -53,7 +57,10 @@ fun GlobalOverlayHost(
     // Observe Navigation Events for Review Completion
     LaunchedEffect(Unit) {
         playerViewModel.navigateToPublish.collect { draftId ->
-            onNavigateToPublish(draftId)
+            val isAlreadyInStudio = navController.currentBackStackEntry?.destination?.hasRoute(PublishingStudio::class) == true
+            if (!isAlreadyInStudio) {
+                onNavigateToPublish(draftId)
+            }
         }
     }
 

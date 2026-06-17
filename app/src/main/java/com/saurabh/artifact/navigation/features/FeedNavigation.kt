@@ -22,6 +22,7 @@ fun NavGraphBuilder.feedNavigation(
     }
 
     composable<Home> {
+        android.util.Log.d("NAV_TRACE", "Navigate -> Feed")
         val onNavigateToProfile = remember(navController) {
             {
                 navController.navigate(Profile())
@@ -61,6 +62,7 @@ fun NavGraphBuilder.feedNavigation(
     }
 
     composable<Feed> {
+        android.util.Log.d("NAV_TRACE", "Navigate -> Feed")
         val onNavigateToProfile = remember(navController) {
             {
                 navController.navigate(Profile())
