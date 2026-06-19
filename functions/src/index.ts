@@ -131,7 +131,6 @@ export const onArtifactDeleted = functions.firestore
       const collections = [
         "comments",
         "artifact_reactions",
-        "listening_sessions",
         "notifications",
       ];
       for (const col of collections) {
@@ -144,7 +143,14 @@ export const onArtifactDeleted = functions.firestore
         } while (size > 0);
       }
 
-      // 2. Cleanup sub-collections (reactions and replies)
+      // 3. Cleanup private engagement data for all users who interacted with this artifact
+      // This uses a collectionGroup query to find engagement docs across all users
+      const engagementQuery = db.collectionGroup("engagement").where("artifactId", "==", artifactId);
+      const engagementSize = await deleteQueryBatch(engagementQuery);
+      if (engagementSize > 0) console.log(`Deleted ${engagementSize} engagement records via collectionGroup`);
+
+      // 4. Cleanup sub-collections (reactions and replies)
+
       const subCollections = ["reactions", "replies"];
       for (const sub of subCollections) {
         let size;

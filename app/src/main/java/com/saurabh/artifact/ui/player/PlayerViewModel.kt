@@ -84,11 +84,37 @@ class PlayerViewModel @Inject constructor(
                 _interactionError.emit(errorMessage)
             }
         }
+
+        // Phase 1 & 7: State Synchronization and Debug Logging
+        viewModelScope.launch {
+            playbackCoordinator.currentArtifact.collect { artifact ->
+                val currentPlayable = _currentPlayableArtifact.value
+                
+                android.util.Log.d("PLAYER_SYNC", """
+                    Sync Update:
+                    - currentArtifact: ${artifact?.id} (isDraft=${artifact?.isDraft})
+                    - currentPlayable: ${currentPlayable?.id}
+                    - LoadState: ${_loadState.value}
+                """.trimIndent())
+
+                if (artifact != null && currentPlayable != null && artifact.id != currentPlayable.id) {
+                    android.util.Log.d("PLAYER_SYNC", "ID Mismatch detected. Purging stale playable: ${currentPlayable.id}")
+                    _currentPlayableArtifact.value = null
+                    _loadState.value = PlayerLoadState.IDLE
+                } else if (artifact == null) {
+                    _currentPlayableArtifact.value = null
+                    _loadState.value = PlayerLoadState.IDLE
+                }
+            }
+        }
     }
 
     private fun resetState() {
+        android.util.Log.d("PLAYER_SYNC", "resetState() called - clearing all player metadata")
         setExpanded(false)
         _showAdvancedControls.value = false
+        _currentPlayableArtifact.value = null
+        _loadState.value = PlayerLoadState.IDLE
         playbackCoordinator.stop()
     }
 
@@ -183,8 +209,15 @@ class PlayerViewModel @Inject constructor(
         _loadState,
         _currentPlayableArtifact
     ) { static, dynamic, review, loadState, playable ->
+        val artifact = static.artifact
+        val isReviewMatching = artifact != null && review.artifactId == artifact.id
+        
+        if (artifact != null) {
+            android.util.Log.v("PLAYER_SYNC", "UI State Recompute: artifact=${artifact.id}, isDraft=${artifact.isDraft}, isReviewMatching=$isReviewMatching")
+        }
+
         PlayerUiState(
-            currentArtifact = static.artifact,
+            currentArtifact = artifact,
             currentPlayableArtifact = playable,
             loadState = loadState,
             isPlaying = dynamic.isPlaying,
@@ -208,9 +241,9 @@ class PlayerViewModel @Inject constructor(
             sleepTimerMillisRemaining = dynamic.sleepTimerMillisRemaining,
             currentTranscriptSegment = dynamic.currentTranscriptSegment,
             showAdvancedControls = static.showAdvancedControls,
-            coveragePercent = review.coveragePercent,
-            isThresholdMet = review.isThresholdMet,
-            isPlaybackEnded = review.isPlaybackEnded
+            coveragePercent = if (isReviewMatching) review.coveragePercent else 0f,
+            isThresholdMet = if (isReviewMatching) review.isThresholdMet else false,
+            isPlaybackEnded = if (isReviewMatching) review.isPlaybackEnded else false
         )
     }.stateIn(
         scope = viewModelScope,
@@ -360,6 +393,12 @@ class PlayerViewModel @Inject constructor(
 
     fun deleteCurrentArtifact() {
         val artifact = uiState.value.currentArtifact ?: return
+        
+        // Phase 6: Action Safety
+        if (!artifact.isDraft) {
+            android.util.Log.w("PLAYER_SYNC", "Safety: Blocked attempt to delete published artifact ${artifact.id} via draft flow")
+            return
+        }
 
         viewModelScope.launch {
             deleteArtifactUseCase.execute(artifact)
@@ -369,6 +408,27 @@ class PlayerViewModel @Inject constructor(
                 }.onFailure { e ->
                     _interactionError.emit("Unable to delete: ${e.message}")
                 }
+        }
+    }
+
+    fun onEditClick(onNavigate: (String) -> Unit) {
+        val artifact = uiState.value.currentArtifact
+        if (artifact?.isDraft == true) {
+            setExpanded(false)
+            onNavigate(artifact.id)
+        } else {
+            android.util.Log.w("PLAYER_SYNC", "Safety: Blocked Edit navigation for non-draft ${artifact?.id}")
+        }
+    }
+
+    fun onPublishClick(onNavigate: (String) -> Unit) {
+        val artifact = uiState.value.currentArtifact
+        val isThresholdMet = uiState.value.isThresholdMet
+        if (artifact?.isDraft == true && isThresholdMet) {
+            setExpanded(false)
+            onNavigate(artifact.id)
+        } else {
+            android.util.Log.w("PLAYER_SYNC", "Safety: Blocked Publish navigation. isDraft=${artifact?.isDraft}, isThresholdMet=$isThresholdMet")
         }
     }
 

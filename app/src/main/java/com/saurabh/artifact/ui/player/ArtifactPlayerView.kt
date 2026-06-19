@@ -139,14 +139,8 @@ fun ArtifactPlayerView(
                     onResonateClick = { viewModel.toggleResonate(it) },
                     onResonateConnectionClick = { viewModel.toggleResonanceConnection() },
                     onSaveClick = { viewModel.toggleSave() },
-                    onEditClick = { 
-                        viewModel.setExpanded(false)
-                        (artifact?.id ?: playable?.id)?.let { onNavigateToDraftEdit(it) }
-                    },
-                    onPublishClick = {
-                        viewModel.setExpanded(false)
-                        (artifact?.id ?: playable?.id)?.let { onNavigateToPublish(it) }
-                    },
+                    onEditClick = { viewModel.onEditClick(onNavigateToDraftEdit) },
+                    onPublishClick = { viewModel.onPublishClick(onNavigateToPublish) },
                     onDeleteClick = {
                         viewModel.deleteCurrentArtifact()
                     }

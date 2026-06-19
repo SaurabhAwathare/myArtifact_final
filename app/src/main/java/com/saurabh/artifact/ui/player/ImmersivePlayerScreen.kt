@@ -71,6 +71,11 @@ fun ImmersivePlayerScreen(
     // Gesture State for swipe-down to collapse
     var offsetY by remember { mutableFloatStateOf(0f) }
 
+    // Phase 4: Harden Draft Detection (Unified Logic)
+    val isVerifiedDraft = artifact?.isDraft == true && 
+                          playableArtifact != null && 
+                          playableArtifact.id == artifact.id
+
     if (showDeleteConfirm) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
@@ -212,11 +217,10 @@ fun ImmersivePlayerScreen(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center
                         ) {
-                            val isDraft = playableArtifact?.originalDraft != null || artifact?.isDraft == true
                             val title = playableArtifact?.title ?: artifact?.title ?: "Untitled"
                             val emotion = playableArtifact?.emotion ?: artifact?.emotion ?: ""
                             
-                            if (isDraft) {
+                            if (isVerifiedDraft) {
                                 EmotionalAudioSurface(
                                     emotion = emotion,
                                     isPlaying = uiState.isPlaying,
@@ -257,7 +261,7 @@ fun ImmersivePlayerScreen(
                             
                             Spacer(modifier = Modifier.height(12.dp))
                             
-                            if (isDraft) {
+                            if (isVerifiedDraft) {
                                 Text(
                                     text = "Private Draft",
                                     style = MaterialTheme.typography.bodyLarge,
@@ -333,9 +337,8 @@ fun ImmersivePlayerScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // 6. Interaction Layer
-            val isDraft = playableArtifact?.originalDraft != null || artifact?.isDraft == true
-            if (isDraft) {
+            // 6. Interaction Layer (Phase 5: Protect Draft Actions)
+            if (isVerifiedDraft) {
                 ReviewInteractionLayer(
                     uiState = uiState,
                     onEditClick = onEditClick,
@@ -369,7 +372,7 @@ fun ImmersivePlayerScreen(
             Spacer(modifier = Modifier.height(32.dp))
 
             // 7. Context Actions (Standardized for published artifacts)
-            if (!isDraft) {
+            if (!isVerifiedDraft) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier

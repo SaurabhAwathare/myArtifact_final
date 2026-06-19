@@ -15,7 +15,7 @@ class CommentUnlockRepository @Inject constructor(
 ) {
     /**
      * Returns a flow of the set of artifact IDs that have been unlocked for commenting.
-     * Observed from the 'listening_sessions' collection in Firestore.
+     * Observed from the user's private 'engagement' sub-collection in Firestore.
      */
     val unlockedArtifactIds: Flow<Set<String>> = callbackFlow {
         val userId = authRepository.currentUserId
@@ -24,9 +24,10 @@ class CommentUnlockRepository @Inject constructor(
             return@callbackFlow
         }
 
-        val listener = firestore.collection("listening_sessions")
-            .whereEqualTo("userId", userId)
-            .whereEqualTo("isCompleted", true)
+        // Migration: Now querying the nested engagement path
+        val listener = firestore.collection("users").document(userId)
+            .collection("engagement")
+            .whereEqualTo("isCommentUnlocked", true)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     return@addSnapshotListener
@@ -44,15 +45,17 @@ class CommentUnlockRepository @Inject constructor(
     fun isUnlocked(artifactId: String): Flow<Boolean> = unlockedArtifactIds.map { it.contains(artifactId) }
 
     /**
-     * Marks an artifact as unlocked by updating the listening session in Firestore.
+     * Marks an artifact as unlocked by updating the engagement record in Firestore.
+     * Note: This is usually handled automatically by EngagementRepository during playback,
+     * but this method provides an explicit force-unlock if needed.
      */
     fun unlockArtifact(artifactId: String) {
         val userId = authRepository.currentUserId
         if (userId.isEmpty()) return
 
-        val sessionId = "${userId}_$artifactId"
-        firestore.collection("listening_sessions")
-            .document(sessionId)
-            .update("isCompleted", true)
+        // Migration: Using engagement subcollection
+        firestore.collection("users").document(userId)
+            .collection("engagement").document(artifactId)
+            .update("isCommentUnlocked", true)
     }
 }

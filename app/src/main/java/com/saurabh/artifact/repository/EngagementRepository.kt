@@ -69,9 +69,13 @@ class EngagementRepository @Inject constructor(
             userId = userId,
             artifactId = engagement.artifactId,
             isCommentUnlocked = validationResult.isValid,
+            lastPositionMs = engagement.lastPositionMs,
             lastFurthestPosition = engagement.furthestPositionMs,
+            totalDurationMs = engagement.durationMs,
+            hasReachedEnd = engagement.hasReachedEnd,
             updatedAt = engagement.lastUpdated
         )
+
 
         try {
             val userIdPath = "/users/$userId/engagement/${engagement.artifactId}"
