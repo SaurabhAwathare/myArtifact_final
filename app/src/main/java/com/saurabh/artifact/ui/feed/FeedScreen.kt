@@ -499,8 +499,16 @@ fun ArtifactItem(
             reason = reason ?: com.saurabh.artifact.model.FeedRecommendationReason.DISCOVERY
         )
 
+        // Show labels ONLY for high-value reasons (Resonance, Unfinished)
+        // Suppress DISCOVERY labels to reduce UI clutter
+        val shouldShowLabel = when {
+            feedArtifact != null -> true // Unfinished sessions always show labels
+            reason != null && reason != com.saurabh.artifact.model.FeedRecommendationReason.DISCOVERY -> true
+            else -> false
+        }
+
         // Use ArtifactFeedCard if we have a specific reason (not default discovery) or it's an unfinished item
-        if (reason != null || feedArtifact != null) {
+        if (shouldShowLabel) {
             ArtifactFeedCard(
                 feedArtifact = displayFeedArtifact,
                 isPlaying = isPlaying,

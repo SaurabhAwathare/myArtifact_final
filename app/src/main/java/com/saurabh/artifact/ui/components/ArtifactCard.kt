@@ -354,7 +354,11 @@ fun ArtifactCard(
 
                         Spacer(modifier = Modifier.height(Spacing.Small))
 
-                        if (hydrationLevel >= com.saurabh.artifact.ui.feed.HydrationLevel.METADATA && stage >= com.saurabh.artifact.startup.StartupStage.IMMERSION) {
+                        if (hydrationLevel >= com.saurabh.artifact.ui.feed.HydrationLevel.METADATA && 
+                            stage >= com.saurabh.artifact.startup.StartupStage.IMMERSION &&
+                            artifact.reactionCount > 0
+                        ) {
+                            Spacer(modifier = Modifier.height(Spacing.Small))
                             ResonanceDisplay(
                                 counts = com.saurabh.artifact.model.ArtifactReactionCounts(
                                     artifactId = artifact.id,

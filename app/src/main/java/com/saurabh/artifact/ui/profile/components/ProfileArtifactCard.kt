@@ -171,14 +171,16 @@ fun ProfileArtifactCard(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(Spacing.Large)
                     ) {
-                        com.saurabh.artifact.ui.components.ResonanceDisplay(
-                            counts = com.saurabh.artifact.model.ArtifactReactionCounts(
-                                artifactId = artifact.id,
-                                totalCount = artifact.reactionCount.toInt(),
-                                visibility = artifact.reactionVisibility
-                            ),
-                            isOwner = isOwner
-                        )
+                        if (artifact.reactionCount > 0) {
+                            com.saurabh.artifact.ui.components.ResonanceDisplay(
+                                counts = com.saurabh.artifact.model.ArtifactReactionCounts(
+                                    artifactId = artifact.id,
+                                    totalCount = artifact.reactionCount.toInt(),
+                                    visibility = artifact.reactionVisibility
+                                ),
+                                isOwner = isOwner
+                            )
+                        }
 
                         StatItem(
                             icon = Icons.Rounded.ChatBubbleOutline,

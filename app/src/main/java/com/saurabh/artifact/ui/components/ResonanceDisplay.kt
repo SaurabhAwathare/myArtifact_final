@@ -24,26 +24,6 @@ fun ResonanceDisplay(
     isOwner: Boolean = false
 ) {
     val finalSummary = summary ?: counts?.getFuzzySummary(isOwner) ?: ""
-    val isZero = finalSummary.isEmpty() && (counts == null || counts.totalCount == 0)
-
-    if (isZero) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = modifier.padding(vertical = 8.dp)
-        ) {
-            Text(
-                text = "✨",
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(end = 8.dp)
-            )
-            Text(
-                text = "Be the first to resonate",
-                style = MaterialTheme.typography.labelMedium,
-                color = MistGray.copy(alpha = 0.5f)
-            )
-        }
-        return
-    }
 
     if (finalSummary.isNotEmpty()) {
         Row(
