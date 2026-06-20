@@ -28,28 +28,27 @@ class CartoonRenderer : AvatarRenderer {
         Canvas(
             modifier = modifier.drawWithCache {
                 val scale = size.minDimension / 100f // Normalize to 100x100 space
+                val faceCenter = Offset(size.width / 2f, size.height / 2f)
                 
-                // Pre-calculate common geometry if needed, or just draw
                 onDrawBehind {
-                    drawFace(skinColor, scale)
-                    drawEyes(config, scale)
-                    drawMouth(config, scale)
-                    drawAccessories(config, scale)
+                    drawFace(skinColor, faceCenter, scale)
+                    drawEyes(config, faceCenter, scale)
+                    drawMouth(config, faceCenter, scale)
+                    drawAccessories(config, faceCenter, scale)
                 }
             }
         ) {}
     }
 
-    private fun DrawScope.drawFace(color: Color, scale: Float) {
-        // All avatars now use Round face shape by default
-        drawCircle(color = color, center = center, radius = 40f * scale)
+    private fun DrawScope.drawFace(color: Color, faceCenter: Offset, scale: Float) {
+        drawCircle(color = color, center = faceCenter, radius = 40f * scale)
     }
 
-    private fun DrawScope.drawEyes(config: AvatarConfig, scale: Float) {
+    private fun DrawScope.drawEyes(config: AvatarConfig, faceCenter: Offset, scale: Float) {
         val eyeColor = Color.Black
-        val eyeY = 45f * scale
-        val leftEyeX = 35f * scale
-        val rightEyeX = 65f * scale
+        val eyeY = faceCenter.y - 5f * scale
+        val leftEyeX = faceCenter.x - 15f * scale
+        val rightEyeX = faceCenter.x + 15f * scale
         val eyeSize = 6f * scale
 
         when (config.eyeType) {
@@ -100,8 +99,8 @@ class CartoonRenderer : AvatarRenderer {
         }
     }
 
-    private fun DrawScope.drawMouth(config: AvatarConfig, scale: Float) {
-        val mouthY = 70f * scale
+    private fun DrawScope.drawMouth(config: AvatarConfig, faceCenter: Offset, scale: Float) {
+        val mouthY = faceCenter.y + 20f * scale
         val mouthWidth = 20f * scale
         val mouthColor = Color.Black
 
@@ -109,8 +108,8 @@ class CartoonRenderer : AvatarRenderer {
             MouthType.NEUTRAL -> {
                 drawLine(
                     color = mouthColor,
-                    start = Offset(50f * scale - mouthWidth / 2, mouthY),
-                    end = Offset(50f * scale + mouthWidth / 2, mouthY),
+                    start = Offset(faceCenter.x - mouthWidth / 2, mouthY),
+                    end = Offset(faceCenter.x + mouthWidth / 2, mouthY),
                     strokeWidth = 2f * scale
                 )
             }
@@ -120,7 +119,7 @@ class CartoonRenderer : AvatarRenderer {
                     startAngle = 0f,
                     sweepAngle = 180f,
                     useCenter = false,
-                    topLeft = Offset(50f * scale - mouthWidth / 2, mouthY - 5f * scale),
+                    topLeft = Offset(faceCenter.x - mouthWidth / 2, mouthY - 5f * scale),
                     size = Size(mouthWidth, 10f * scale),
                     style = Stroke(width = 2f * scale)
                 )
@@ -131,7 +130,7 @@ class CartoonRenderer : AvatarRenderer {
                     startAngle = 0f,
                     sweepAngle = 180f,
                     useCenter = true,
-                    topLeft = Offset(50f * scale - mouthWidth / 2, mouthY - 5f * scale),
+                    topLeft = Offset(faceCenter.x - mouthWidth / 2, mouthY - 5f * scale),
                     size = Size(mouthWidth, 15f * scale)
                 )
             }
@@ -141,7 +140,7 @@ class CartoonRenderer : AvatarRenderer {
                     startAngle = 180f,
                     sweepAngle = 180f,
                     useCenter = false,
-                    topLeft = Offset(50f * scale - mouthWidth / 2, mouthY),
+                    topLeft = Offset(faceCenter.x - mouthWidth / 2, mouthY),
                     size = Size(mouthWidth, 10f * scale),
                     style = Stroke(width = 2f * scale)
                 )
@@ -150,26 +149,28 @@ class CartoonRenderer : AvatarRenderer {
                 drawCircle(
                     color = mouthColor,
                     radius = 5f * scale,
-                    center = Offset(50f * scale, mouthY)
+                    center = Offset(faceCenter.x, mouthY)
                 )
             }
         }
     }
 
-    private fun DrawScope.drawAccessories(config: AvatarConfig, scale: Float) {
+    private fun DrawScope.drawAccessories(config: AvatarConfig, faceCenter: Offset, scale: Float) {
         val accColor = Color.DarkGray
-        val eyeY = 45f * scale
+        val eyeY = faceCenter.y - 5f * scale
+        val leftEyeX = faceCenter.x - 15f * scale
+        val rightEyeX = faceCenter.x + 15f * scale
         
         when (config.accessoryType) {
             AccessoryType.GLASSES -> {
-                drawCircle(color = accColor, radius = 10f * scale, center = Offset(35f * scale, eyeY), style = Stroke(width = 2f * scale))
-                drawCircle(color = accColor, radius = 10f * scale, center = Offset(65f * scale, eyeY), style = Stroke(width = 2f * scale))
-                drawLine(color = accColor, start = Offset(45f * scale, eyeY), end = Offset(55f * scale, eyeY), strokeWidth = 2f * scale)
+                drawCircle(color = accColor, radius = 10f * scale, center = Offset(leftEyeX, eyeY), style = Stroke(width = 2f * scale))
+                drawCircle(color = accColor, radius = 10f * scale, center = Offset(rightEyeX, eyeY), style = Stroke(width = 2f * scale))
+                drawLine(color = accColor, start = Offset(faceCenter.x - 5f * scale, eyeY), end = Offset(faceCenter.x + 5f * scale, eyeY), strokeWidth = 2f * scale)
             }
             AccessoryType.SUNGLASSES -> {
-                drawCircle(color = Color.Black, radius = 10f * scale, center = Offset(35f * scale, eyeY))
-                drawCircle(color = Color.Black, radius = 10f * scale, center = Offset(65f * scale, eyeY))
-                drawLine(color = Color.Black, start = Offset(45f * scale, eyeY), end = Offset(55f * scale, eyeY), strokeWidth = 4f * scale)
+                drawCircle(color = Color.Black, radius = 10f * scale, center = Offset(leftEyeX, eyeY))
+                drawCircle(color = Color.Black, radius = 10f * scale, center = Offset(rightEyeX, eyeY))
+                drawLine(color = Color.Black, start = Offset(faceCenter.x - 5f * scale, eyeY), end = Offset(faceCenter.x + 5f * scale, eyeY), strokeWidth = 4f * scale)
             }
             AccessoryType.HEADPHONES -> {
                 drawArc(
@@ -177,12 +178,12 @@ class CartoonRenderer : AvatarRenderer {
                     startAngle = 180f,
                     sweepAngle = 180f,
                     useCenter = false,
-                    topLeft = Offset(10f * scale, 10f * scale),
+                    topLeft = Offset(faceCenter.x - 40f * scale, faceCenter.y - 40f * scale),
                     size = Size(80f * scale, 80f * scale),
                     style = Stroke(width = 6f * scale)
                 )
-                drawCircle(color = accColor, radius = 12f * scale, center = Offset(15f * scale, 50f * scale))
-                drawCircle(color = accColor, radius = 12f * scale, center = Offset(85f * scale, 50f * scale))
+                drawCircle(color = accColor, radius = 12f * scale, center = Offset(faceCenter.x - 35f * scale, faceCenter.y))
+                drawCircle(color = accColor, radius = 12f * scale, center = Offset(faceCenter.x + 35f * scale, faceCenter.y))
             }
             else -> {}
         }

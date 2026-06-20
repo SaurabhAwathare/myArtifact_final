@@ -1,7 +1,6 @@
 package com.saurabh.artifact.audio.validation
 
 import com.saurabh.artifact.domain.review.EngagementEvidence
-import com.saurabh.artifact.domain.review.ReviewPolicy
 import java.util.BitSet
 
 interface ReviewTracker {
@@ -18,24 +17,26 @@ interface ReviewTracker {
     val progress: ReviewProgress
 }
 
+/**
+ * Robust implementation of the ReviewTracker.
+ * Decoupled from specific Policy classes via functional hooks.
+ */
 class DefaultReviewTracker(
     initialEvidence: EngagementEvidence,
-    policy: ReviewPolicy,
-    private val validator: ReviewValidator,
+    private val segmentSizer: (Long) -> Long,
+    private val validator: (EngagementEvidence) -> ReviewResult,
 ) : ReviewTracker {
 
     private var currentEvidence = initialEvidence
     private var lastPlaybackPositionMs: Long = -1L
-    private val policyRef = policy // Capture for use in progress calculation
 
     override fun onPlaybackTick(currentPosMs: Long, realElapsedMs: Long, playbackSpeed: Float) {
         if (currentEvidence.durationMs <= 0) return
 
         // 1. Coverage Tracking with Adaptive Speed-Aware Tolerance
-        // We use a baseline tolerance + a factor based on playback speed to account for Media3 update lag.
         val expectedDelta = (realElapsedMs * playbackSpeed).toLong()
         val baseTolerance = getScrubTolerance(currentEvidence.durationMs)
-        val speedLagBuffer = (800 * playbackSpeed).toLong() // Increased to 800ms to handle variability
+        val speedLagBuffer = (800 * playbackSpeed).toLong() 
         
         val totalTolerance = baseTolerance + speedLagBuffer
         
@@ -44,7 +45,7 @@ class DefaultReviewTracker(
 
         // Mark coverage only if advancing normally to prevent "painting" via seeks.
         if (isAdvancingNormally) {
-            val segmentSize = policyRef.getSegmentSizeMs(currentEvidence.durationMs)
+            val segmentSize = segmentSizer(currentEvidence.durationMs)
             val segmentIndex = (currentPosMs / segmentSize).toInt()
             val totalSegments = (currentEvidence.durationMs / segmentSize).toInt().coerceAtLeast(1)
             
@@ -79,7 +80,7 @@ class DefaultReviewTracker(
 
     override val progress: ReviewProgress
         get() {
-            val result = validator.validate(currentEvidence, policyRef)
+            val result = validator(currentEvidence)
 
             return ReviewProgress(
                 artifactId = currentEvidence.artifactId,

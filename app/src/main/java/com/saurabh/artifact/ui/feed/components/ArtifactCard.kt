@@ -238,21 +238,6 @@ fun ArtifactCard(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.padding(start = 12.dp, bottom = 4.dp) // Align with bottom row of chips
                 ) {
-                    // Show "Coming Soon" feedback instead of silent disabled state
-                    IconButton(
-                        onClick = {
-                            FeedbackUtils.explainDisabledAction(context, haptic, "Comments coming soon")
-                        },
-                        enabled = true
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.ChatBubbleOutline,
-                            contentDescription = "Comments coming soon",
-                            tint = Color.White.copy(alpha = 0.2f),
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
                     IconButton(onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onSaveClick()

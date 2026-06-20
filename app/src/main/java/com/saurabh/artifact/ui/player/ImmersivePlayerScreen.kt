@@ -307,8 +307,8 @@ fun ImmersivePlayerScreen(
                 }
             }
 
-            // 4. Waveform Scrubber
-            Box(
+            // 4. Waveform Scrubber & Timeline
+            Column(
                 modifier = Modifier
                     .padding(vertical = 24.dp)
                     .zIndex(5f)
@@ -325,6 +325,30 @@ fun ImmersivePlayerScreen(
                     onScrubbing = onScrubbing,
                     modifier = Modifier.fillMaxWidth()
                 )
+
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val config = androidx.compose.ui.platform.LocalConfiguration.current
+                    
+                    Text(
+                        text = com.saurabh.artifact.util.TimeUtils.formatDurationMillis(uiState.currentPosition, config),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.5f),
+                        letterSpacing = 0.5.sp
+                    )
+                    
+                    Text(
+                        text = com.saurabh.artifact.util.TimeUtils.formatDurationMillis(uiState.durationMs, config),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.5f),
+                        letterSpacing = 0.5.sp
+                    )
+                }
             }
 
             // 5. Playback Controls
@@ -373,55 +397,122 @@ fun ImmersivePlayerScreen(
 
             // 7. Context Actions (Standardized for published artifacts)
             if (!isVerifiedDraft) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = 24.dp)
                         .clip(RoundedCornerShape(20.dp))
                         .background(Color.White.copy(alpha = 0.04f))
-                        .clickable(enabled = uiState.isCommentUnlocked, onClick = onCommentClick)
+                        .clickable(enabled = true, onClick = onCommentClick)
                         .padding(horizontal = 20.dp, vertical = 16.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Rounded.EditNote,
-                        contentDescription = null,
-                        tint = if (uiState.isCommentUnlocked) GoldAura400 else Color.White.copy(alpha = 0.2f),
-                        modifier = Modifier.size(24.dp).padding(end = 12.dp)
-                    )
-
-                    val message = if (uiState.isCommentUnlocked) {
-                        "Reflect and respond"
-                    } else {
-                        "Listen to unlock thoughts..."
-                    }
-                    
-                    Text(
-                        text = message,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = if (uiState.isCommentUnlocked) Color.White else Color.White.copy(alpha = 0.3f),
-                        fontWeight = if (uiState.isCommentUnlocked) FontWeight.Medium else FontWeight.Normal,
-                        letterSpacing = 0.3.sp
-                    )
-                    
-                    Spacer(modifier = Modifier.weight(1f))
-                    
-                    IconButton(
-                        onClick = onShowAdvanced,
-                        modifier = Modifier.size(32.dp)
-                    ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            Icons.Rounded.MoreVert, 
-                            contentDescription = "More Options", 
-                            tint = Color.White.copy(alpha = 0.3f),
-                            modifier = Modifier.size(20.dp)
+                            imageVector = Icons.Rounded.EditNote,
+                            contentDescription = null,
+                            tint = if (uiState.isCommentUnlocked) GoldAura400 else Color.White.copy(alpha = 0.2f),
+                            modifier = Modifier.size(24.dp).padding(end = 12.dp)
                         )
+
+                        val message = if (uiState.isCommentUnlocked) {
+                            "Reflect and respond"
+                        } else {
+                            "Thoughts Unlock Requirements"
+                        }
+                        
+                        Text(
+                            text = message,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (uiState.isCommentUnlocked) Color.White else Color.White.copy(alpha = 0.5f),
+                            fontWeight = FontWeight.Medium,
+                            letterSpacing = 0.3.sp
+                        )
+                        
+                        Spacer(modifier = Modifier.weight(1f))
+                        
+                        if (uiState.isCommentUnlocked) {
+                             IconButton(
+                                onClick = onShowAdvanced,
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    Icons.Rounded.MoreVert, 
+                                    contentDescription = "More Options", 
+                                    tint = Color.White.copy(alpha = 0.3f),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    if (!uiState.isCommentUnlocked) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        
+                        val requiredPercent = (uiState.requiredCoverage * 100).toInt()
+                        val currentPercent = (uiState.coveragePercent * 100).toInt()
+                        val hasMetCoverage = uiState.coveragePercent >= uiState.requiredCoverage
+                        
+                        RequirementItem(
+                            label = "Listen to $requiredPercent%",
+                            isMet = hasMetCoverage,
+                            progress = "$currentPercent%"
+                        )
+                        
+                        if (uiState.isReachedEndRequired) {
+                            RequirementItem(
+                                label = "Reach end of artifact",
+                                isMet = uiState.isPlaybackEnded
+                            )
+                        }
+
+                        if (hasMetCoverage && uiState.isReachedEndRequired && !uiState.isPlaybackEnded) {
+                            Text(
+                                text = "Almost there. Finish listening to unlock.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = GoldAura400,
+                                modifier = Modifier.padding(top = 8.dp)
+                            )
+                        }
                     }
                 }
             } else {
                 // Ensure padding even if no context action bar
                 Spacer(modifier = Modifier.height(24.dp))
             }
+        }
+    }
+}
+
+@Composable
+private fun RequirementItem(
+    label: String,
+    isMet: Boolean,
+    progress: String? = null
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = if (isMet) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
+            contentDescription = null,
+            tint = if (isMet) GoldAura400 else Color.White.copy(alpha = 0.2f),
+            modifier = Modifier.size(16.dp)
+        )
+        
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (isMet) Color.White.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.4f),
+            modifier = Modifier.padding(start = 8.dp).weight(1f)
+        )
+        
+        if (progress != null) {
+            Text(
+                text = progress,
+                style = MaterialTheme.typography.labelSmall,
+                color = if (isMet) GoldAura400 else Color.White.copy(alpha = 0.4f)
+            )
         }
     }
 }

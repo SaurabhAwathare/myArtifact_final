@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.saurabh.artifact.audio.PlaybackCoordinator
 import com.saurabh.artifact.audio.ReviewSessionManager
+import com.saurabh.artifact.audio.ReviewState
 import com.saurabh.artifact.domain.feed.ReactionUseCase
 import com.saurabh.artifact.domain.player.DeleteArtifactUseCase
 import com.saurabh.artifact.domain.player.GetPlayerContextUseCase
@@ -50,7 +51,9 @@ class PlayerViewModel @Inject constructor(
     private val artifactRepository: ArtifactRepository,
     private val playableArtifactRepository: PlayableArtifactRepository,
     private val reviewSessionManager: ReviewSessionManager,
-    private val deleteArtifactUseCase: DeleteArtifactUseCase
+    private val deleteArtifactUseCase: DeleteArtifactUseCase,
+    private val publishingPolicy: com.saurabh.artifact.domain.review.publishing.PublishingReviewPolicy,
+    private val commentPolicy: com.saurabh.artifact.domain.review.comments.CommentUnlockPolicy
 ) : ViewModel() {
 
     private val _isExpanded = savedStateHandle.getStateFlow("is_expanded", false)
@@ -206,11 +209,20 @@ class PlayerViewModel @Inject constructor(
         staticState,
         dynamicState,
         reviewSessionManager.reviewProgress,
+        playbackCoordinator.currentProgress,
         _loadState,
         _currentPlayableArtifact
-    ) { static, dynamic, review, loadState, playable ->
+    ) { params ->
+        val static = params[0] as PlayerStaticState
+        val dynamic = params[1] as PlayerDynamicState
+        val review = params[2] as ReviewState
+        val listenerReview = params[3] as com.saurabh.artifact.audio.validation.ReviewProgress?
+        val loadState = params[4] as PlayerLoadState
+        val playable = params[5] as PlayableArtifact?
+
         val artifact = static.artifact
         val isReviewMatching = artifact != null && review.artifactId == artifact.id
+        val isListenerReviewMatching = artifact != null && listenerReview?.artifactId == artifact.id
         
         if (artifact != null) {
             android.util.Log.v("PLAYER_SYNC", "UI State Recompute: artifact=${artifact.id}, isDraft=${artifact.isDraft}, isReviewMatching=$isReviewMatching")
@@ -241,9 +253,25 @@ class PlayerViewModel @Inject constructor(
             sleepTimerMillisRemaining = dynamic.sleepTimerMillisRemaining,
             currentTranscriptSegment = dynamic.currentTranscriptSegment,
             showAdvancedControls = static.showAdvancedControls,
-            coveragePercent = if (isReviewMatching) review.coveragePercent else 0f,
-            isThresholdMet = if (isReviewMatching) review.isThresholdMet else false,
-            isPlaybackEnded = if (isReviewMatching) review.isPlaybackEnded else false
+            
+            // DECISION: Map progress based on whether it's a draft review or a listener unlock
+            coveragePercent = if (artifact?.isDraft == true) {
+                if (isReviewMatching) review.coveragePercent else 0f
+            } else {
+                if (isListenerReviewMatching) listenerReview?.coveragePercent ?: 0f else 0f
+            },
+            isThresholdMet = if (artifact?.isDraft == true) {
+                if (isReviewMatching) review.isThresholdMet else false
+            } else {
+                if (isListenerReviewMatching) listenerReview?.isValidationMet ?: false else false
+            },
+            isPlaybackEnded = if (artifact?.isDraft == true) {
+                if (isReviewMatching) review.isPlaybackEnded else false
+            } else {
+                if (isListenerReviewMatching) listenerReview?.hasReachedEnd ?: false else false
+            },
+            requiredCoverage = if (artifact?.isDraft == true) publishingPolicy.minCoverage else commentPolicy.minCoverage,
+            isReachedEndRequired = if (artifact?.isDraft == true) publishingPolicy.requireReachedEnd else commentPolicy.requireReachedEnd
         )
     }.stateIn(
         scope = viewModelScope,

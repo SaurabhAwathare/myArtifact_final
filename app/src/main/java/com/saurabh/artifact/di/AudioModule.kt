@@ -7,7 +7,9 @@ import com.saurabh.artifact.audio.PlaybackAnalyticsManager
 import com.saurabh.artifact.audio.PlaybackCoordinator
 import com.saurabh.artifact.audio.PlaybackSessionManager
 import com.saurabh.artifact.audio.PlaybackSettingsDataStore
+import com.saurabh.artifact.audio.ReviewAuthorityService
 import com.saurabh.artifact.audio.ReviewSessionManager
+import com.saurabh.artifact.audio.TransientPlayerManager
 import com.saurabh.artifact.nlp.EmotionAnalyzer
 import dagger.Lazy
 import dagger.Module
@@ -38,10 +40,17 @@ object AudioModule {
     fun providePlaybackCoordinator(
         playbackSessionManager: PlaybackSessionManager,
         reviewSessionManager: ReviewSessionManager,
-        transientPlayerManager: com.saurabh.artifact.audio.TransientPlayerManager,
+        reviewAuthorityService: ReviewAuthorityService,
+        transientPlayerManager: TransientPlayerManager,
         analytics: PlaybackAnalyticsManager
     ): PlaybackCoordinator = 
-        PlaybackCoordinator(playbackSessionManager, reviewSessionManager, transientPlayerManager, analytics)
+        PlaybackCoordinator(
+            playbackSessionManager,
+            reviewSessionManager,
+            reviewAuthorityService,
+            transientPlayerManager,
+            analytics
+        )
 
     @Provides
     @Singleton
@@ -59,6 +68,21 @@ object AudioModule {
 
     @Provides
     @Singleton
-    fun provideReviewValidator(): com.saurabh.artifact.audio.validation.ReviewValidator = 
-        com.saurabh.artifact.audio.validation.DefaultReviewValidator()
+    fun providePublishingReviewPolicy(): com.saurabh.artifact.domain.review.publishing.PublishingReviewPolicy = 
+        com.saurabh.artifact.domain.review.publishing.PublishingReviewPolicy()
+
+    @Provides
+    @Singleton
+    fun providePublishingReviewValidator(): com.saurabh.artifact.domain.review.publishing.PublishingReviewValidator = 
+        com.saurabh.artifact.domain.review.publishing.PublishingReviewValidator()
+
+    @Provides
+    @Singleton
+    fun provideCommentUnlockPolicy(): com.saurabh.artifact.domain.review.comments.CommentUnlockPolicy = 
+        com.saurabh.artifact.domain.review.comments.CommentUnlockPolicy()
+
+    @Provides
+    @Singleton
+    fun provideCommentUnlockValidator(): com.saurabh.artifact.domain.review.comments.CommentUnlockValidator = 
+        com.saurabh.artifact.domain.review.comments.CommentUnlockValidator()
 }

@@ -242,13 +242,11 @@ class FeedViewModel @Inject constructor(
 
     private fun observePlaybackProgress() {
         viewModelScope.launch {
-            reviewSessionManager.reviewProgress.collect { session ->
-                if (session.isThresholdMet) {
-                    val artifactId = session.artifactId
-                    if (artifactId != null) {
-                        commentUnlockRepository.unlockArtifact(artifactId)
-                        Log.d("FeedViewModel", "Artifact $artifactId unlocked via robust tracker")
-                    }
+            audioPlayer.currentProgress.collect { progress ->
+                if (progress != null && progress.isValidationMet) {
+                    val artifactId = progress.artifactId
+                    commentUnlockRepository.unlockArtifact(artifactId)
+                    Log.d("FeedViewModel", "Artifact $artifactId unlocked via listener authority")
                 }
             }
         }

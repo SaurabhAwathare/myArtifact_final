@@ -105,8 +105,9 @@ fun ReviewInteractionLayer(
                 }
                 
                 if (!uiState.isThresholdMet) {
+                    val requiredPercent = (uiState.requiredCoverage * 100).toInt()
                     Text(
-                        text = "95% review required",
+                        text = "$requiredPercent% review required",
                         style = MaterialTheme.typography.labelSmall,
                         color = Color.White.copy(alpha = 0.3f),
                         modifier = Modifier.padding(top = 4.dp)

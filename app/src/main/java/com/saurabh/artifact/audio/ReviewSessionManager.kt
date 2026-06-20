@@ -2,6 +2,8 @@ package com.saurabh.artifact.audio
 
 import com.saurabh.artifact.audio.validation.ReviewResult
 import com.saurabh.artifact.data.local.DraftDao
+import com.saurabh.artifact.domain.review.publishing.PublishingReviewPolicy
+import com.saurabh.artifact.domain.review.publishing.PublishingReviewValidator
 import com.saurabh.artifact.model.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -11,13 +13,16 @@ import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Manages the intentional review journey for drafts.
- * Delegates validation to the authoritative ReviewAuthorityService.
+ * Delegates validation to the authoritative ReviewAuthorityService but uses
+ * PublishingReviewPolicy for its own state calculations.
  */
 @Singleton
 class ReviewSessionManager @Inject constructor(
     private val playbackSessionManager: PlaybackSessionManager,
     reviewAuthorityService: ReviewAuthorityService,
-    private val draftDao: DraftDao
+    private val draftDao: DraftDao,
+    private val publishingValidator: PublishingReviewValidator,
+    private val publishingPolicy: PublishingReviewPolicy
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     // @Inject lateinit var analytics: com.google.firebase.analytics.FirebaseAnalytics
@@ -27,14 +32,18 @@ class ReviewSessionManager @Inject constructor(
             if (progress == null) ReviewState()
             else {
                 val evidence = progress.evidence
+                
+                // DECISION: Use the dedicated publishing validator for draft progress
+                val validationResult = publishingValidator.validate(evidence, publishingPolicy)
+                
                 ReviewState(
                     artifactId = progress.artifactId,
                     durationMs = progress.durationMs,
                     furthestPositionMs = evidence.furthestPositionMs,
                     coveragePercent = progress.coveragePercent,
-                    isThresholdMet = progress.isValidationMet,
+                    isThresholdMet = validationResult.isValid, // Use policy-driven result
                     isPlaybackEnded = progress.hasReachedEnd,
-                    reviewResult = progress.reviewResult
+                    reviewResult = validationResult
                 )
             }
         }.stateIn(scope, SharingStarted.WhileSubscribed(5000), ReviewState())

@@ -140,7 +140,10 @@ fun CommentsScreen(
                 }
             ) { isLocked ->
                 if (isLocked) {
-                    LockedCommentView(progress = uiState.listeningProgress)
+                    LockedCommentView(
+                        progress = uiState.listeningProgress,
+                        requiredCoverage = uiState.requiredCoverage
+                    )
                 } else {
                     Box(modifier = Modifier.fillMaxSize()) {
                         LazyColumn(

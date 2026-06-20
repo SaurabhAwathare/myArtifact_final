@@ -2,12 +2,14 @@ package com.saurabh.artifact.domain
 
 import com.saurabh.artifact.model.PublishingResult
 import com.saurabh.artifact.repository.RecordingRepository
+import com.saurabh.artifact.domain.review.publishing.PublishingReviewPolicy
 import android.util.Log
 import javax.inject.Inject
 
 class PublishArtifactUseCase @Inject constructor(
     private val recordingRepository: RecordingRepository,
-    private val publishingOrchestrator: PublishingOrchestrator
+    private val publishingOrchestrator: PublishingOrchestrator,
+    private val publishingPolicy: PublishingReviewPolicy
 ) {
     suspend operator fun invoke(draftFilePath: String): Result<PublishingResult> {
         val draftResult = recordingRepository.getDraftByPath(draftFilePath)
@@ -15,7 +17,8 @@ class PublishArtifactUseCase @Inject constructor(
 
         if (draft.status.lifecycle != com.saurabh.artifact.model.ArtifactLifecycle.READY_TO_PUBLISH) {
             Log.w("PublishValidation", "Draft ${draft.id} status: ${draft.status.lifecycle}, Progress: ${draft.reviewProgress}")
-            return Result.failure(Exception("95% Review required before publishing"))
+            val requiredPercent = (publishingPolicy.minCoverage * 100).toInt()
+            return Result.failure(Exception("$requiredPercent% Review required before publishing"))
         }
 
         if (draft.title.isNullOrBlank()) {

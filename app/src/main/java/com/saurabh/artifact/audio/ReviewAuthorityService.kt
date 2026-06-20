@@ -5,9 +5,9 @@ import androidx.media3.common.Player
 import com.saurabh.artifact.audio.validation.DefaultReviewTracker
 import com.saurabh.artifact.audio.validation.ReviewProgress
 import com.saurabh.artifact.audio.validation.ReviewTracker
-import com.saurabh.artifact.audio.validation.ReviewValidator
 import com.saurabh.artifact.domain.review.EngagementEvidence
-import com.saurabh.artifact.domain.review.ReviewPolicy
+import com.saurabh.artifact.domain.review.comments.CommentUnlockPolicy
+import com.saurabh.artifact.domain.review.comments.CommentUnlockValidator
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.repository.CommentUnlockRepository
 import com.saurabh.artifact.repository.EngagementRepository
@@ -19,15 +19,16 @@ import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Authoritative service for review validation and engagement tracking.
- * Unifies logic for Draft Publication, Comment Unlocking, and Resume-Play.
- * Upgraded with event-driven updates and unified persistence via EngagementRepository.
+ * Unifies logic for Comment Unlocking and Resume-Play.
+ * Uses CommentUnlockPolicy for its authoritative validation.
  */
 @Singleton
 class ReviewAuthorityService @Inject constructor(
     private val playbackSessionManager: PlaybackSessionManager,
     private val engagementRepository: EngagementRepository,
     private val commentUnlockRepository: CommentUnlockRepository,
-    private val validator: ReviewValidator,
+    private val commentValidator: CommentUnlockValidator,
+    private val commentPolicy: CommentUnlockPolicy
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     
@@ -92,7 +93,7 @@ class ReviewAuthorityService @Inject constructor(
             @OptIn(FlowPreview::class)
             _currentProgress
                 .filterNotNull()
-                .sample(5000.milliseconds) // Persist at most every 5 seconds
+                .sample(5000.milliseconds) 
                 .collect { progress ->
                     engagementRepository.saveEngagement(progress.evidence)
                 }
@@ -115,7 +116,7 @@ class ReviewAuthorityService @Inject constructor(
 
         // Observe Seeks
         scope.launch {
-            playbackSessionManager.seekEvent.collect { position ->
+            playbackSessionManager.seekEvent.collect { _ ->
                 activeTracker?.onSeekPerformed()
             }
         }
@@ -135,8 +136,8 @@ class ReviewAuthorityService @Inject constructor(
 
         activeTracker = DefaultReviewTracker(
             initialEvidence = evidence,
-            policy = ReviewPolicy(),
-            validator = validator
+            segmentSizer = { commentPolicy.getSegmentSizeMs(it) },
+            validator = { commentValidator.validate(it, commentPolicy) }
         )
         _currentProgress.value = activeTracker?.progress
         lastTickTime = SystemClock.elapsedRealtime()

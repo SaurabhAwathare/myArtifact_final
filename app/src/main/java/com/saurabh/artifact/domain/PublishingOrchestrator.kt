@@ -7,6 +7,7 @@ import com.saurabh.artifact.audio.UploadService
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.security.UploadGuard
 import com.saurabh.artifact.repository.AuthRepository
+import com.saurabh.artifact.domain.review.publishing.PublishingReviewPolicy
 import com.saurabh.artifact.worker.PublishingWorker
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -23,7 +24,8 @@ class PublishingOrchestrator @Inject constructor(
     private val connectivityObserver: com.saurabh.artifact.util.ConnectivityObserver,
     private val uploadGuard: UploadGuard,
     private val authRepository: AuthRepository,
-    private val workManager: WorkManager
+    private val workManager: WorkManager,
+    private val publishingPolicy: PublishingReviewPolicy
 ) {
 
     suspend fun startProcessing(draftId: String) = withContext(Dispatchers.IO) {
@@ -95,7 +97,8 @@ class PublishingOrchestrator @Inject constructor(
             // 0. Strict Validation: Review Required
             if (draft.status.lifecycle != ArtifactLifecycle.READY_TO_PUBLISH) {
                 Log.e("PublishingOrchestrator", "Attempted to publish unreviewed draft: $draftId")
-                return@withContext Result.failure(Exception("95% Review required before publishing."))
+                val requiredPercent = (publishingPolicy.minCoverage * 100).toInt()
+                return@withContext Result.failure(Exception("$requiredPercent% Review required before publishing."))
             }
 
             // 1. Check if already publishing to avoid double enqueuing

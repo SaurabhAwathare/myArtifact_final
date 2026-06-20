@@ -14,7 +14,11 @@ class ReviewTrackerTest {
         val duration = 10000L // 10s
         val evidence = EngagementEvidence("art1", "v1", duration)
         val policy = ReviewPolicy()
-        val tracker = DefaultReviewTracker(evidence, policy, ruleEngine)
+        val tracker = DefaultReviewTracker(
+            initialEvidence = evidence,
+            segmentSizer = { policy.getSegmentSizeMs(it) },
+            validator = { ruleEngine.validate(it, policy) }
+        )
         
         // Simulating ticks every 100ms
         for (i in 0..100) {
@@ -32,7 +36,11 @@ class ReviewTrackerTest {
         val duration = 10000L // 10s
         val evidence = EngagementEvidence("art1", "v1", duration)
         val policy = ReviewPolicy()
-        val tracker = DefaultReviewTracker(evidence, policy, ruleEngine)
+        val tracker = DefaultReviewTracker(
+            initialEvidence = evidence,
+            segmentSizer = { policy.getSegmentSizeMs(it) },
+            validator = { ruleEngine.validate(it, policy) }
+        )
         
         // Listen at 2x speed for the whole duration
         // Actual time spent = 5s
@@ -51,7 +59,11 @@ class ReviewTrackerTest {
         val duration = 60000L // 60s
         val evidence = EngagementEvidence("art1", "v1", duration)
         val policy = ReviewPolicy()
-        val tracker = DefaultReviewTracker(evidence, policy, ruleEngine)
+        val tracker = DefaultReviewTracker(
+            initialEvidence = evidence,
+            segmentSizer = { policy.getSegmentSizeMs(it) },
+            validator = { ruleEngine.validate(it, policy) }
+        )
         
         // 1. Play 1 second
         tracker.onPlaybackTick(1000L, 1000L, 1.0f)

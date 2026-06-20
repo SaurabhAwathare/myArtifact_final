@@ -18,6 +18,7 @@ import kotlin.time.Duration.Companion.seconds
 class PlaybackCoordinator @Inject constructor(
     private val playbackSessionManager: PlaybackSessionManager,
     private val reviewSessionManager: ReviewSessionManager,
+    private val reviewAuthorityService: ReviewAuthorityService,
     private val transientPlayerManager: TransientPlayerManager,
     private val analytics: PlaybackAnalyticsManager
 ) {
@@ -39,6 +40,7 @@ class PlaybackCoordinator @Inject constructor(
     val error = playbackSessionManager.error
 
     val reviewProgress = reviewSessionManager.reviewProgress
+    val currentProgress = reviewAuthorityService.currentProgress
 
     private val _sleepTimerRemaining = MutableStateFlow<Duration?>(null)
     val sleepTimerRemaining: StateFlow<Duration?> = _sleepTimerRemaining.asStateFlow()

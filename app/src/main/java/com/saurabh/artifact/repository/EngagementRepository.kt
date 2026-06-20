@@ -4,6 +4,8 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.saurabh.artifact.data.local.ArtifactEngagement
 import com.saurabh.artifact.data.local.EngagementDao
 import com.saurabh.artifact.domain.review.EngagementEvidence
+import com.saurabh.artifact.domain.review.comments.CommentUnlockPolicy
+import com.saurabh.artifact.domain.review.comments.CommentUnlockValidator
 import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.UserArtifactEngagement
 import kotlinx.coroutines.Dispatchers
@@ -16,7 +18,9 @@ import javax.inject.Singleton
 class EngagementRepository @Inject constructor(
     private val engagementDao: EngagementDao,
     private val firestore: FirebaseFirestore,
-    private val authRepository: AuthRepository
+    private val authRepository: AuthRepository,
+    private val commentValidator: CommentUnlockValidator,
+    private val commentPolicy: CommentUnlockPolicy
 ) {
 
     suspend fun getEngagement(artifactId: String): Result<EngagementEvidence> = withContext(Dispatchers.IO) {
@@ -60,9 +64,7 @@ class EngagementRepository @Inject constructor(
 
         // Calculate authoritative validation state before syncing
         val evidence = engagement.toDomain()
-        val policy = com.saurabh.artifact.domain.review.ReviewPolicy()
-        val validator = com.saurabh.artifact.audio.validation.DefaultReviewValidator()
-        val validationResult = validator.validate(evidence, policy)
+        val validationResult = commentValidator.validate(evidence, commentPolicy)
 
         // For now, we only sync a subset of data to Firestore to avoid heavy writes
         val remoteData = UserArtifactEngagement(

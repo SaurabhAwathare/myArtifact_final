@@ -42,7 +42,11 @@ data class PlayerUiState(
     // Review Mode State (Phase 1)
     val coveragePercent: Float = 0f,
     val isThresholdMet: Boolean = false,
-    val isPlaybackEnded: Boolean = false
+    val isPlaybackEnded: Boolean = false,
+    
+    // Unlock Requirements (Policy-driven)
+    val requiredCoverage: Float = 0.95f,
+    val isReachedEndRequired: Boolean = true
 )
 
 enum class PlayerLoadState {
