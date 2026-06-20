@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.Comment
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -75,7 +74,6 @@ fun ArtifactCard(
     isPlaying: Boolean,
     onPlayClick: () -> Unit,
     modifier: Modifier = Modifier,
-    isCompact: Boolean = false,
     isBuffering: Boolean = false,
     hydrationLevel: com.saurabh.artifact.ui.feed.HydrationLevel = com.saurabh.artifact.ui.feed.HydrationLevel.FULL,
     currentPosition: Long = 0,
@@ -84,10 +82,9 @@ fun ArtifactCard(
     onDeleteClick: () -> Unit = {},
     onFeedbackClick: () -> Unit = {},
     onSettingsClick: () -> Unit = {},
-    onCommentClick: () -> Unit = {},
     currentUserId: String? = null,
 ) {
-    if (hydrationLevel == com.saurabh.artifact.ui.feed.HydrationLevel.SHELL && !isCompact) {
+    if (hydrationLevel == com.saurabh.artifact.ui.feed.HydrationLevel.SHELL) {
         LightweightArtifactCard(artifact, onPlayClick, modifier)
         return
     }
@@ -122,57 +119,45 @@ fun ArtifactCard(
     // Atmospheric Waveform Height Animation - GUARDED BY isPlaying and hydrationLevel
     val waveformHeight = if (isPlaying && hydrationLevel >= com.saurabh.artifact.ui.feed.HydrationLevel.FULL) {
         animateDpAsState(
-            targetValue = if (isCompact) 32.dp else 64.dp,
+            targetValue = 64.dp,
             animationSpec = tween(500),
             label = "WaveformBloom"
         ).value
     } else {
-        if (isCompact) 32.dp else 40.dp
+        40.dp
     }
 
     // Moderation Shield
     val isHidden = artifact.moderation.status == com.saurabh.artifact.model.ModerationStatus.HIDDEN
 
-    if (isCompact) {
-        CompactArtifactItem(
-            artifact = artifact,
-            displayTitle = if (isHidden) "Content Hidden" else displayTitle,
-            isPlaying = isPlaying,
-            isBuffering = isBuffering,
-            progress = progress,
-            onPlayClick = onPlayClick,
-            enabled = !isHidden,
-            modifier = modifier
-        )
-    } else {
-        // Optimized Modifier Chain
-        val cardModifier = modifier
-            .fillMaxWidth()
-            .padding(vertical = Spacing.Medium)
-            .clip(MaterialTheme.shapes.large)
-            .background(ArtifactTheme.colors.surfaceHearth)
-            .let { 
-                if (isHydrated) {
-                    it.border(
-                        width = 0.5.dp,
-                        color = ArtifactTheme.colors.waveformInactive.copy(alpha = 0.1f),
-                        shape = MaterialTheme.shapes.large
-                    )
-                } else it
-            }
+    // Optimized Modifier Chain
+    val cardModifier = modifier
+        .fillMaxWidth()
+        .padding(vertical = Spacing.Medium)
+        .clip(MaterialTheme.shapes.large)
+        .background(ArtifactTheme.colors.surfaceHearth)
+        .let { 
+            if (isHydrated) {
+                it.border(
+                    width = 0.5.dp,
+                    color = ArtifactTheme.colors.waveformInactive.copy(alpha = 0.1f),
+                    shape = MaterialTheme.shapes.large
+                )
+            } else it
+        }
 
-        PressableScale(
-            onClick = {
-                if (isPending) {
-                    FeedbackUtils.explainDisabledAction(context, haptic, "This reflection is still settling in the archive...")
-                } else {
-                    onPlayClick()
-                }
-            },
-            enabled = !isHidden, // Allow interaction when pending for feedback
-            scaleDownTo = 0.98f,
-            modifier = cardModifier.alpha(if (isPending) 0.6f else 1f)
-        ) {
+    PressableScale(
+        onClick = {
+            if (isPending) {
+                FeedbackUtils.explainDisabledAction(context, haptic, "This reflection is still settling in the archive...")
+            } else {
+                onPlayClick()
+            }
+        },
+        enabled = !isHidden, // Allow interaction when pending for feedback
+        scaleDownTo = 0.98f,
+        modifier = cardModifier.alpha(if (isPending) 0.6f else 1f)
+    ) {
             Box(modifier = Modifier.fillMaxWidth()) {
                 // Expensive Background Effect: ONLY if playing and FULL hydration
                 if (isPlaying && !isHidden && hydrationLevel >= com.saurabh.artifact.ui.feed.HydrationLevel.FULL) {
@@ -370,39 +355,20 @@ fun ArtifactCard(
                         Spacer(modifier = Modifier.height(Spacing.Small))
 
                         if (hydrationLevel >= com.saurabh.artifact.ui.feed.HydrationLevel.METADATA && stage >= com.saurabh.artifact.startup.StartupStage.IMMERSION) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                ResonanceDisplay(
-                                    counts = com.saurabh.artifact.model.ArtifactReactionCounts(
-                                        artifactId = artifact.id,
-                                        totalCount = artifact.reactionCount.toInt(),
-                                        visibility = artifact.reactionVisibility
-                                    ),
-                                    isOwner = isOwner
-                                )
-
-                                IconButton(
-                                    onClick = onCommentClick,
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Rounded.Comment,
-                                        contentDescription = "Comments",
-                                        tint = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.6f),
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
+                            ResonanceDisplay(
+                                counts = com.saurabh.artifact.model.ArtifactReactionCounts(
+                                    artifactId = artifact.id,
+                                    totalCount = artifact.reactionCount.toInt(),
+                                    visibility = artifact.reactionVisibility
+                                ),
+                                isOwner = isOwner,
+                                modifier = Modifier.fillMaxWidth()
+                            )
                         }
                     }
                 }
             }
         }
-    }
-
     if (showOptionsSheet) {
         ArtifactOptionsSheet(
             isOwner = isOwner,
@@ -504,86 +470,6 @@ private fun LightweightArtifactCard(
                     modifier = Modifier.weight(1f),
                     context = WaveformContext.Feed
                 )
-            }
-        }
-    }
-}
-
-@Composable
-private fun CompactArtifactItem(
-    artifact: Artifact,
-    displayTitle: String,
-    isPlaying: Boolean,
-    isBuffering: Boolean,
-    progress: Float,
-    onPlayClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true
-) {
-    Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        shape = RoundedCornerShape(16.dp),
-        color = ArtifactTheme.colors.surfaceHearth.copy(alpha = 0.5f),
-        border = androidx.compose.foundation.BorderStroke(0.5.dp, Color.White.copy(alpha = 0.05f))
-    ) {
-        Row(
-            modifier = Modifier.padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(
-                onClick = onPlayClick,
-                enabled = enabled,
-                modifier = Modifier
-                    .size(36.dp)
-                    .background(
-                        if (enabled) ArtifactTheme.colors.waveformActive.copy(alpha = 0.1f)
-                        else ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.05f),
-                        CircleShape
-                    )
-            ) {
-                if (isBuffering) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = ArtifactTheme.colors.waveformActive)
-                } else {
-                    Icon(
-                        imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                        contentDescription = null,
-                        tint = ArtifactTheme.colors.waveformActive,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = displayTitle,
-                    style = ArtifactTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = ArtifactTheme.colors.onSurfaceMain,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                
-                Spacer(modifier = Modifier.height(4.dp))
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    AmbientWaveform(
-                        amplitudes = artifact.amplitudeData.takeIf { it.isNotEmpty() } ?: listOf(0.4f, 0.6f, 0.3f, 0.8f, 0.5f, 0.7f, 0.4f, 0.6f),
-                        progress = progress,
-                        modifier = Modifier.weight(1f).height(12.dp),
-                        isPaused = !isPlaying,
-                        context = WaveformContext.Mini
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = TimeUtils.formatDurationMillis(artifact.durationMs, LocalConfiguration.current),
-                        style = ArtifactTheme.typography.labelSmall,
-                        color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.6f)
-                    )
-                }
             }
         }
     }

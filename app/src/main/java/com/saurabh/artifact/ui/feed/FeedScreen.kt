@@ -70,7 +70,6 @@ fun FeedScreen(
     onNavigateToRecord: (String?) -> Unit,
     onNavigateToProfile: () -> Unit,
     onNavigateToNotifications: () -> Unit,
-    onNavigateToComments: (String, String) -> Unit,
     onNavigateToDebugMenu: () -> Unit,
     onReportArtifact: (String) -> Unit,
     viewModel: FeedViewModel = hiltViewModel(),
@@ -188,8 +187,7 @@ fun FeedScreen(
                         reflectionPrompt = reflectionPrompt,
                         stage = stage,
                         onNavigateToRecord = onNavigateToRecord,
-                        onReportClick = onReportArtifact,
-                        onNavigateToComments = onNavigateToComments
+                        onReportClick = onReportArtifact
                     )
                 }
 
@@ -326,7 +324,6 @@ private fun FeedContent(
     stage: StartupStage,
     onNavigateToRecord: (String?) -> Unit,
     onReportClick: (String) -> Unit,
-    onNavigateToComments: (String, String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val currentArtifacts = if (showRankedFeed) forYouArtifacts else recentArtifacts
@@ -369,7 +366,6 @@ private fun FeedContent(
                                 artifactId = item.artifact.id,
                                 viewModel = viewModel,
                                 onReportClick = onReportClick,
-                                onNavigateToComments = onNavigateToComments,
                                 feedArtifact = item
                             )
                         }
@@ -391,8 +387,7 @@ private fun FeedContent(
                         ArtifactItem(
                             artifactId = artifact.id,
                             viewModel = viewModel,
-                            onReportClick = onReportClick,
-                            onNavigateToComments = onNavigateToComments
+                            onReportClick = onReportClick
                         )
                         
                         if (((index + 1) % 5) == 0) {
@@ -472,7 +467,6 @@ fun ArtifactItem(
     artifactId: String,
     viewModel: FeedViewModel,
     onReportClick: (String) -> Unit,
-    onNavigateToComments: (String, String) -> Unit,
     modifier: Modifier = Modifier,
     feedArtifact: FeedArtifact? = null
 ) {
@@ -519,7 +513,6 @@ fun ArtifactItem(
                 onDeleteClick = { viewModel.deleteArtifact(artifactId) },
                 onFeedbackClick = { viewModel.submitFeedback(artifactId, FeedbackType.NOT_FOR_ME) },
                 onSettingsClick = { viewModel.showSettingsComingSoon() },
-                onCommentClick = { onNavigateToComments(artifactId, art.userId) },
                 currentUserId = viewModel.currentUserId,
                 modifier = modifier
             )
@@ -536,7 +529,6 @@ fun ArtifactItem(
                 onDeleteClick = { viewModel.deleteArtifact(artifactId) },
                 onFeedbackClick = { viewModel.submitFeedback(artifactId, FeedbackType.NOT_FOR_ME) },
                 onSettingsClick = { viewModel.showSettingsComingSoon() },
-                onCommentClick = { onNavigateToComments(artifactId, art.userId) },
                 currentUserId = viewModel.currentUserId,
                 modifier = modifier
             )

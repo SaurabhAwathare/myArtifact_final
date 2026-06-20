@@ -55,7 +55,6 @@ fun NavGraphBuilder.feedNavigation(
             },
             onNavigateToProfile = onNavigateToProfile,
             onNavigateToNotifications = onNavigateToNotifications,
-            onNavigateToComments = onNavigateToComments,
             onNavigateToDebugMenu = onNavigateToDebugMenu,
             onReportArtifact = onReportArtifact
         )
@@ -75,12 +74,6 @@ fun NavGraphBuilder.feedNavigation(
             }
         }
 
-        val onNavigateToComments = remember(navController) {
-            { artifactId: String, ownerId: String ->
-                navController.navigate(Comments(artifactId, ownerId))
-            }
-        }
-
         FeedScreen(
             onNavigateToRecord = { prompt ->
                 if (recordingSessionManager.isRecordingActive()) {
@@ -95,7 +88,6 @@ fun NavGraphBuilder.feedNavigation(
             },
             onNavigateToProfile = onNavigateToProfile,
             onNavigateToNotifications = onNavigateToNotifications,
-            onNavigateToComments = onNavigateToComments,
             onNavigateToDebugMenu = onNavigateToDebugMenu,
             onReportArtifact = onReportArtifact
         )
