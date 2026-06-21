@@ -638,4 +638,26 @@ class UserRepository @Inject constructor(
             }
         }
     }
+
+    /**
+     * Increments the artifact count for a user.
+     */
+    suspend fun incrementArtifactsCount(userId: String) = withContext(Dispatchers.IO) {
+        try {
+            usersCollection.document(userId).update("artifactsCount", FieldValue.increment(1)).await()
+        } catch (e: Exception) {
+            Log.e("UserRepository", "Failed to increment artifactsCount for $userId", e)
+        }
+    }
+
+    /**
+     * Decrements the artifact count for a user.
+     */
+    suspend fun decrementArtifactsCount(userId: String) = withContext(Dispatchers.IO) {
+        try {
+            usersCollection.document(userId).update("artifactsCount", FieldValue.increment(-1)).await()
+        } catch (e: Exception) {
+            Log.e("UserRepository", "Failed to decrement artifactsCount for $userId", e)
+        }
+    }
 }

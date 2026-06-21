@@ -32,6 +32,7 @@ class SettingsViewModel @Inject constructor(
     private val authRepository: com.saurabh.artifact.repository.AuthRepository,
     private val dataExportManager: DataExportManager,
     private val clipboardGuard: ClipboardGuard,
+    private val logoutCoordinator: com.saurabh.artifact.domain.auth.LogoutCoordinator,
     val credentialHelper: CredentialHelper
 ) : ViewModel() {
 
@@ -126,7 +127,7 @@ class SettingsViewModel @Inject constructor(
 
     fun logout() {
         viewModelScope.launch {
-            repository.signOut()
+            logoutCoordinator.executeLogout()
                 .onSuccess {
                     _events.emit(SettingsUiEvent.LoggedOut)
                 }

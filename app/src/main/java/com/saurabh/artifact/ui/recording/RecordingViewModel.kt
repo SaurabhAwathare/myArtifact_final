@@ -20,6 +20,7 @@ import javax.inject.Inject
 
 @HiltViewModel
 class RecordingViewModel @Inject constructor(
+    private val authRepository: com.saurabh.artifact.repository.AuthRepository,
     private val promptRepository: PromptRepository,
     private val userSessionManager: UserSessionManager,
     private val recordingSessionManager: RecordingSessionManager,
@@ -39,14 +40,18 @@ class RecordingViewModel @Inject constructor(
     private var currentPromptIndex = 0
 
     init {
-        loadPrompts()
-        observeRecordingSession()
-        
-        // Immediate start for InstantRecord flow (Warning ritual handled in PreRecordingWarningScreen)
-        _uiState.update { it.copy(flowState = RecordingFlowState.RECORDING) }
-        
-        viewModelScope.launch {
-            _events.send(RecordingEvent.RequestStart)
+        if (authRepository.currentUser.value == null) {
+            Log.w("AuthGuard", "RecordingViewModel init blocked: User is null.")
+        } else {
+            loadPrompts()
+            observeRecordingSession()
+            
+            // Immediate start for InstantRecord flow (Warning ritual handled in PreRecordingWarningScreen)
+            _uiState.update { it.copy(flowState = RecordingFlowState.RECORDING) }
+            
+            viewModelScope.launch {
+                _events.send(RecordingEvent.RequestStart)
+            }
         }
     }
 

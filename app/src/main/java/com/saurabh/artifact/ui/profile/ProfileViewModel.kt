@@ -55,11 +55,11 @@ data class ProfileUiState(
 class ProfileViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     userProfileManager: UserProfileManager,
-    private val settingsRepository: SettingsRepository,
     private val savedArtifactManager: SavedArtifactManager,
     private val playbackCoordinator: PlaybackCoordinator,
     getProfileDataUseCase: com.saurabh.artifact.domain.profile.GetProfileDataUseCase,
     private val profileInteractionUseCase: com.saurabh.artifact.domain.profile.ProfileInteractionUseCase,
+    private val logoutCoordinator: com.saurabh.artifact.domain.auth.LogoutCoordinator,
 ) : ViewModel() {
 
     val currentUserId: String? get() = authRepository.currentUser.value?.uid
@@ -269,7 +269,7 @@ class ProfileViewModel @Inject constructor(
     fun logout() {
         viewModelScope.launch {
             _logoutState.value = LogoutState.Loading
-            settingsRepository.signOut()
+            logoutCoordinator.executeLogout()
                 .onSuccess {
                     _logoutState.value = LogoutState.Success
                 }

@@ -132,7 +132,7 @@ fun ProfileScreen(
                             },
                             onResonatingClick = {
                                 uiState.userProfile?.id?.let { id ->
-                                    onNavigateToResonanceList(id, "resonance_out", "Resonating")
+                                    onNavigateToResonanceList(id, "resonance_out", "Following")
                                 }
                             }
                         )

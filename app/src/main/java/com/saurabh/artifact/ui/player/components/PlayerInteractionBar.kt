@@ -80,7 +80,7 @@ fun PlayerInteractionBar(
         if (showResonance) {
             InteractionItem(
                 icon = if (isResonating) Icons.Rounded.Person else Icons.Rounded.PersonAdd,
-                label = if (isResonating) "Resonating" else "Resonate",
+                label = if (isResonating) "Following" else "Follow",
                 isActive = isResonating,
                 activeColor = GoldAura400,
                 onClick = onResonateConnectionClick

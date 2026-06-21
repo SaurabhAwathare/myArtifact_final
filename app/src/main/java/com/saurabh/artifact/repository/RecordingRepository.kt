@@ -20,6 +20,7 @@ import javax.inject.Singleton
 @Singleton
 class RecordingRepository @Inject constructor(
     private val draftDao: DraftDao,
+    private val userRepository: UserRepository,
     private val localDraftManager: LocalDraftManager,
     private val wavRecoveryManager: WavRecoveryManager,
     private val deletionManager: DraftDeletionManager,
@@ -51,6 +52,13 @@ class RecordingRepository @Inject constructor(
                 updatedAt = System.currentTimeMillis()
             )
             draftDao.insert(draft)
+            
+            // Increment artifactsCount on the user's Firestore document
+            val currentUserId = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+            if (currentUserId != null) {
+                userRepository.incrementArtifactsCount(currentUserId)
+            }
+
             Result.success(id)
         } catch (e: Exception) {
             Result.failure(AppError.from(e))

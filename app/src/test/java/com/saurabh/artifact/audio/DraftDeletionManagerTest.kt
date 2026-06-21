@@ -18,6 +18,7 @@ import java.io.File
 
 class DraftDeletionManagerTest {
     private val draftDao = mockk<DraftDao>(relaxed = true)
+    private val userRepository = mockk<com.saurabh.artifact.repository.UserRepository>(relaxed = true)
     private val uploadTaskDao = mockk<UploadTaskDao>(relaxed = true)
     private val database = mockk<AppDatabase>(relaxed = true)
     private val storageManager = mockk<StorageManager>(relaxed = true)
@@ -39,6 +40,7 @@ class DraftDeletionManagerTest {
         
         deletionManager = DraftDeletionManager(
             draftDao = draftDao,
+            userRepository = userRepository,
             uploadTaskDao = uploadTaskDao,
             draftsDatabase = database,
             storageManager = storageManager,

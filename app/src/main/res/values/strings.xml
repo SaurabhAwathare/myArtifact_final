@@ -11,8 +11,8 @@
     <string name="reflection_deleted">A reflection has been released.</string>
     <string name="draft_renamed">The draft now carries a new name.</string>
     <string name="draft_deleted">A draft has been released.</string>
-    <string name="now_following">You are now resonating with this presence.</string>
-    <string name="unfollowed">The resonance has been stilled.</string>
+    <string name="now_following">You are now following this presence.</string>
+    <string name="unfollowed">You have stopped following this presence.</string>
     <string name="saved_to_journey">This reflection will stay with you.</string>
     <string name="removed_from_journey">The reflection has been set free from your journey.</string>
     <string name="export_ready">Your reflections are ready for their journey.</string>
@@ -20,7 +20,7 @@
     <string name="no_voice_yet">This reflection hasn\'t found its voice yet.</string>
     <string name="presence_needs_reaffirmation">Your presence needs to be reaffirmed.</string>
     <string name="presence_ritual_failed">The ritual could not be completed at this time.</string>
-    <string name="name_already_resonating">This name is already resonating with another.</string>
+    <string name="name_already_resonating">This name is already in use by another presence.</string>
     <string name="connection_faded">The connection has faded. Let it rest and try again.</string>
     <string name="permission_clouded">Your access to this reflection is clouded.</string>
     <string name="unauthenticated_presence">Your presence is unknown. Please reveal yourself.</string>
@@ -37,7 +37,7 @@
     <string name="notification_reply_received">Someone replied to your artifact 💬</string>
     <string name="notification_new_artifact">You published a new artifact: %s ✨</string>
     <string name="notification_identity_refreshed">You have shed your old presence and emerged as %1$s · %2$s 🎭</string>
-    <string name="notification_presence_resonated">Someone\'s presence resonated with your artifacts ✨</string>
+    <string name="notification_presence_resonated">Someone has started following your journey ✨</string>
     <string name="notification_avatar_updated">You updated your avatar 🎨</string>
     <string name="notification_username_updated">You updated your username to %s ✨</string>
     <string name="notification_reflection_arrival">A quiet reflection has arrived in your hearth for \"%s\" 🕯️</string>

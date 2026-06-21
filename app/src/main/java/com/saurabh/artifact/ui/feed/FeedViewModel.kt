@@ -194,6 +194,11 @@ class FeedViewModel @Inject constructor(
     private var started = false
 
     fun start() {
+        if (currentUserId == null) {
+            Log.w("AuthGuard", "FeedViewModel.start() blocked: User is null.")
+            _uiState.update { it.copy(artifactCache = emptyMap(), hydrationLevels = emptyMap()) }
+            return
+        }
         if (started) return
         started = true
 
@@ -326,7 +331,10 @@ class FeedViewModel @Inject constructor(
 
     fun loadRankedFeed(): kotlinx.coroutines.Job {
         return viewModelScope.launch {
-            val userId = authRepository.currentUser.value?.uid ?: return@launch
+            val userId = currentUserId ?: run {
+                Log.w("AuthGuard", "loadRankedFeed blocked: User is null.")
+                return@launch
+            }
             _uiState.update { it.copy(isRankedLoading = true) }
             
             runCatching {

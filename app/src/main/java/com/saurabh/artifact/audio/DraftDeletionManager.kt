@@ -24,6 +24,7 @@ import javax.inject.Singleton
 @Singleton
 class DraftDeletionManager @Inject constructor(
     private val draftDao: DraftDao,
+    private val userRepository: com.saurabh.artifact.repository.UserRepository,
     private val uploadTaskDao: UploadTaskDao,
     private val draftsDatabase: AppDatabase,
     private val storageManager: StorageManager,
@@ -40,6 +41,15 @@ class DraftDeletionManager @Inject constructor(
         // 1. Soft Delete: Mark as DELETING in Room. Hides from UI immediately.
         draftDao.markAsDeleting(draftId)
         val draft = draftDao.getDraftById(draftId) ?: return@withContext
+
+        // Decrement artifactsCount if the draft was not yet published
+        // Published artifacts are handled by ArtifactRepository.deletePublishedArtifact
+        if (draft.lifecycle != com.saurabh.artifact.model.ArtifactLifecycle.PUBLISHED) {
+            val currentUserId = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+            if (currentUserId != null) {
+                userRepository.decrementArtifactsCount(currentUserId)
+            }
+        }
 
         try {
             // 2. Physical File Purge

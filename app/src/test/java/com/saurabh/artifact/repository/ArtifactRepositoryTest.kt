@@ -28,6 +28,7 @@ class ArtifactRepositoryTest {
     private val firestore = mockk<FirebaseFirestore>(relaxed = true)
     private val storage = mockk<FirebaseStorage>(relaxed = true)
     private val draftDao = mockk<DraftDao>(relaxed = true)
+    private val userRepository = mockk<UserRepository>(relaxed = true)
     private val aiService = mockk<ReflectionAIService>(relaxed = true)
     private val personalizationEngine = mockk<PersonalizationEngine>(relaxed = true)
     private val settingsRepository = mockk<SettingsRepository>(relaxed = true)
@@ -52,6 +53,7 @@ class ArtifactRepositoryTest {
             firestore = firestore,
             storage = storage,
             draftDao = draftDao,
+            userRepository = { userRepository },
             aiService = { aiService },
             personalizationEngine = { personalizationEngine },
             settingsRepository = { settingsRepository },

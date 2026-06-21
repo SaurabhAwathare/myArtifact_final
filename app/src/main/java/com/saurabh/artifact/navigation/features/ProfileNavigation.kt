@@ -42,7 +42,8 @@ fun NavGraphBuilder.profileNavigation(
 
     val onLogout = {
         navController.navigate(Login) {
-            popUpTo(Login) { inclusive = true }
+            // Pop the entire graph to clear authenticated history
+            popUpTo(navController.graph.id) { inclusive = true }
             launchSingleTop = true
         }
     }

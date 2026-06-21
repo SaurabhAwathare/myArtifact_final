@@ -32,6 +32,7 @@ data class User(
 
     // Engagement
     val lastActivityTimestamp: Timestamp? = null,
+    val artifactsCount: Long = 0,
     val softStreakCount: Long = 0,
     val totalContributions: Long = 0,
     val lastPromptId: String = "",

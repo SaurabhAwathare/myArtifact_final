@@ -76,4 +76,8 @@ class PlaybackSettingsDataStore @Inject constructor(
             preferences[PreferencesKeys.CURRENT_QUEUE_INDEX] = index
         }
     }
+
+    suspend fun clear() {
+        context.dataStore.edit { it.clear() }
+    }
 }

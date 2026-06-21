@@ -29,7 +29,8 @@ class SettingsRepository @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val firestore: FirebaseFirestore,
     private val authRepository: AuthRepository,
-    private val sessionManager: com.saurabh.artifact.data.local.UserSessionManager
+    private val sessionManager: com.saurabh.artifact.data.local.UserSessionManager,
+    private val logoutCoordinator: dagger.Lazy<com.saurabh.artifact.domain.auth.LogoutCoordinator>
 ) {
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val anonymousModeKey = booleanPreferencesKey("anonymous_mode")
@@ -119,14 +120,12 @@ class SettingsRepository @Inject constructor(
 
     suspend fun signOut(): Result<Unit> {
         return try {
-            // 1. Clear local preferences (Settings)
+            // Clear local preferences (Settings)
             context.dataStore.edit { it.clear() }
             
-            // 2. Clear User Session (SSOT)
-            sessionManager.clear()
+            // Note: Broader session cleanup and Auth signOut is now handled by LogoutCoordinator.
+            // We only clear our own DataStore here for separation of concerns.
             
-            // 3. Perform Firebase SignOut
-            authRepository.signOut()
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
@@ -138,17 +137,13 @@ class SettingsRepository @Inject constructor(
         val userId = user.uid
         
         return try {
-            // HARDENING: Instead of client-side orchestration which is prone to failure,
-            // we rely on the server-side Cloud Function triggered by auth.user().onDelete().
-            // This ensures atomicity even if the app crashes or network is lost.
-            
             // 1. Mark account for deletion in Firestore (Optional: Provides UI feedback state)
             firestore.collection("users").document(userId)
                 .update("accountStatus", "DELETION_PENDING")
                 .await()
 
-            // 2. Clear Local preferences immediately to protect privacy
-            context.dataStore.edit { it.clear() }
+            // 2. Perform Full Local Cleanup (Hardening)
+            logoutCoordinator.get().performFullCleanup()
             
             // 3. Delete Auth account (This triggers the Cloud Function 'onUserDeleted')
             authRepository.deleteCurrentUser().getOrThrow()

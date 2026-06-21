@@ -80,23 +80,26 @@ fun ProfileHeader(
                 user.resonanceInCount > 0 -> user.resonanceInCount
                 else -> user.followersCount
             }
-            val resonatingCount = when {
+            val followingCount = when {
                 user == null -> 0L
                 user.resonanceOutCount > 0 -> user.resonanceOutCount
                 else -> user.followingCount
             }
 
             StatItem(
+                label = "artifacts",
+                count = user?.artifactsCount ?: 0L
+            )
+            StatItem(
+                label = "following", 
+                count = followingCount,
+                onClick = onResonatingClick
+            )
+            StatItem(
                 label = "resonators", 
                 count = resonatorsCount,
                 onClick = onResonatorsClick
             )
-            StatItem(
-                label = "resonating", 
-                count = resonatingCount,
-                onClick = onResonatingClick
-            )
-            StatItem(label = "streak", count = user?.softStreakCount ?: 0L)
         }
 
         if (!isSelf) {
@@ -110,7 +113,7 @@ fun ProfileHeader(
                 shape = MaterialTheme.shapes.medium,
                 modifier = Modifier.fillMaxWidth(0.6f)
             ) {
-                Text(if (isResonating) "Resonating" else "Resonate")
+                Text(if (isResonating) "Following" else "Follow")
             }
         }
     }

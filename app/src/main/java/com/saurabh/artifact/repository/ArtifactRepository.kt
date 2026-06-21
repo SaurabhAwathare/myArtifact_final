@@ -81,6 +81,7 @@ class ArtifactRepository @Inject constructor(
     private val firestore: FirebaseFirestore,
     private val storage: FirebaseStorage,
     private val draftDao: DraftDao,
+    private val userRepository: dagger.Lazy<UserRepository>,
     private val aiService: dagger.Lazy<ReflectionAIService>,
     private val personalizationEngine: dagger.Lazy<PersonalizationEngine>,
     private val settingsRepository: dagger.Lazy<SettingsRepository>,
@@ -1183,7 +1184,10 @@ class ArtifactRepository @Inject constructor(
             
             Log.d("ArtifactRepository", "Artifact $artifactId soft-deleted.")
 
-            // 2. Synchronize local Room database (Remove from local view)
+            // 2. Decrement artifactsCount
+            userRepository.get().decrementArtifactsCount(currentUserId)
+
+            // 3. Synchronize local Room database (Remove from local view)
             try {
                 artifactDao.deleteById(artifactId)
                 database.engagementDao().deleteEngagement(artifactId)

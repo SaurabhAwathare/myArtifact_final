@@ -22,6 +22,7 @@ sealed class AppStartupState {
 
 @HiltViewModel
 class MainViewModel @Inject constructor(
+    private val authRepository: com.saurabh.artifact.repository.AuthRepository,
     private val getInitialDestinationUseCase: GetInitialDestinationUseCase,
     observeCurrentUserProfileUseCase: ObserveCurrentUserProfileUseCase,
     observeStealthModeUseCase: ObserveStealthModeUseCase,
@@ -53,6 +54,20 @@ class MainViewModel @Inject constructor(
     val navigationEvent = _navigationEvent.asSharedFlow()
 
     private var isStarted = false
+
+    init {
+        // Root Auth State Observation
+        // If the user signs out anywhere, we force a reset of the startup state
+        // to ensure all protected screens are instantly unmounted.
+        authRepository.currentUser
+            .onEach { user ->
+                if (user == null && isStarted && _startupState.value !is AppStartupState.Initializing) {
+                    android.util.Log.i("LogoutHardening", "Root observer detected unauthenticated state. Resetting to Login.")
+                    _startupState.value = AppStartupState.Ready(Login)
+                }
+            }
+            .launchIn(viewModelScope)
+    }
 
     /**
      * Executes the session-aware startup sequence.
@@ -94,6 +109,11 @@ class MainViewModel @Inject constructor(
 
     fun onNewIntent(intent: android.content.Intent?) {
         if (intent?.getBooleanExtra("navigate_to_recording", false) == true) {
+            // AUTH GUARD: Prevent intent bypass of Login screen
+            if (authRepository.currentUser.value == null) {
+                android.util.Log.w("AuthGuard", "Intent blocked: User is null.")
+                return
+            }
             viewModelScope.launch {
                 _navigationEvent.emit(InstantRecord())
             }

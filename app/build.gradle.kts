@@ -188,10 +188,12 @@ dependencies {
     // Testing
     implementation(libs.androidx.profileinstaller)
     testImplementation(libs.junit)
+    testImplementation(libs.androidx.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.mockk)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
+    testImplementation(libs.androidx.navigation.testing)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
