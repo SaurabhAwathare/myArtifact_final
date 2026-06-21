@@ -27,7 +27,14 @@ data class ArtifactColorScheme(
     val onSurfaceMain: Color,
     val onSurfaceMuted: Color,
     val onSurfaceAura: Color,
+    /**
+     * Active state for waveform rendering (e.g., during playback).
+     */
     val waveformActive: Color,
+    /**
+     * Static/Inactive state for waveform rendering.
+     * Must maintain visible contrast (> 2.5:1) against surface backgrounds.
+     */
     val waveformInactive: Color,
     val softError: Color
 )

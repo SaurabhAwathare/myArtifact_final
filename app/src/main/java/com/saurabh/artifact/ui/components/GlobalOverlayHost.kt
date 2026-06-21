@@ -27,7 +27,6 @@ private val ScreensWithoutOverlays = listOf(
     PublishPreparation::class,
     PublishApproval::class,
     IdentitySelection::class,
-    PresenceBuilder::class,
     PostRecordingDecision::class,
     PublishingStudio::class,
     DraftEdit::class,

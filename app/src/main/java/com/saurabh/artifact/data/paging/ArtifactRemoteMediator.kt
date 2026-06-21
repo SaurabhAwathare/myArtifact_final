@@ -43,7 +43,7 @@ class ArtifactRemoteMediator(
                 .orderBy("createdAt", Query.Direction.DESCENDING)
 
             if (!emotion.isNullOrEmpty() && emotion != "All") {
-                val relatedEmotions = getRelatedEmotions(emotion)
+                val relatedEmotions = com.saurabh.artifact.util.EmotionCategoryMapper.getRelatedEmotions(emotion)
                 query = query.whereIn("emotion", relatedEmotions)
             }
 
@@ -133,14 +133,4 @@ class ArtifactRemoteMediator(
         )
     }
 
-    private fun getRelatedEmotions(emotion: String): List<String> {
-        return when (emotion) {
-            "Sad" -> listOf("Sad", "Lonely")
-            "Lonely" -> listOf("Lonely", "Sad")
-            "Anxious" -> listOf("Anxious", "Angry")
-            "Happy" -> listOf("Happy", "Motivated")
-            "Motivated" -> listOf("Motivated", "Happy")
-            else -> listOf(emotion)
-        }
-    }
 }

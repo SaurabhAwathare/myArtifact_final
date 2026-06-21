@@ -1248,4 +1248,24 @@ class ArtifactRepository @Inject constructor(
             return NetworkUtils.isTransientError(e)
         }
     }
+
+    /**
+     * Optimistically updates the local Room database with new author identity information.
+     * This ensures the Home Feed reflects changes immediately without waiting for a full reload.
+     */
+    suspend fun updateLocalAuthorSnapshot(userId: String, snapshot: AuthorSnapshot) = withContext(Dispatchers.IO) {
+        try {
+            artifactDao.updateAuthorInfo(
+                userId = userId,
+                name = snapshot.name,
+                sigil = snapshot.sigil,
+                seed = snapshot.avatarSeed,
+                color = snapshot.avatarColor,
+                configJson = kotlinx.serialization.json.Json.encodeToString(snapshot.avatarConfig)
+            )
+            Log.d("ArtifactRepository", "Local author snapshot updated for $userId")
+        } catch (e: Exception) {
+            Log.e("ArtifactRepository", "Failed to update local author snapshot", e)
+        }
+    }
 }

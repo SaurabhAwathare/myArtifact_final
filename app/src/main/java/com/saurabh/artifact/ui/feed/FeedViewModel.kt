@@ -17,6 +17,7 @@ import com.saurabh.artifact.domain.prompt.GetReflectionPromptUseCase
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.AuthRepository
+import com.saurabh.artifact.repository.NotificationRepository
 import com.saurabh.artifact.repository.CommentUnlockRepository
 import com.saurabh.artifact.repository.SavedArtifactManager
 import com.saurabh.artifact.service.AdManager
@@ -73,6 +74,7 @@ data class FeedUiState(
 class FeedViewModel @Inject constructor(
     private val artifactRepository: ArtifactRepository,
     private val authRepository: AuthRepository,
+    private val notificationRepository: NotificationRepository,
     private val personalizationEngine: PersonalizationEngine,
     private val adManager: AdManager,
     private val memoryManager: MemoryManager,
@@ -112,6 +114,19 @@ class FeedViewModel @Inject constructor(
     val startupStage = startupCoordinator.stage
     val currentUserId: String? get() = authRepository.currentUser.value?.uid
 
+    // Awareness state derived from the notification stream
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val unreadCount: StateFlow<Int> = authRepository.currentUser
+        .flatMapLatest { user ->
+            if (user != null) {
+                notificationRepository.listenNotifications(user.uid)
+                    .map { items -> items.count { !it.isRead } }
+            } else {
+                flowOf(0)
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
     val currentPublishState: StateFlow<PublishState?> = publishStateManager.currentPublishState
 
     private val _refreshTrigger = MutableStateFlow(0)
@@ -130,8 +145,11 @@ class FeedViewModel @Inject constructor(
     }.cachedIn(viewModelScope)
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val personalizedArtifacts: Flow<PagingData<Artifact>> = _refreshTrigger.flatMapLatest { _ ->
-        getPersonalizedFeedFlowUseCase()
+    val personalizedArtifacts: Flow<PagingData<Artifact>> = combine(
+        _uiState.map { it.selectedEmotion }.distinctUntilChanged(),
+        _refreshTrigger
+    ) { emotion, _ -> emotion }.flatMapLatest { emotion ->
+        getPersonalizedFeedFlowUseCase(emotion)
     }.map { pagingData ->
         pagingData.map { artifact ->
             hydrateFromPaging(artifact)

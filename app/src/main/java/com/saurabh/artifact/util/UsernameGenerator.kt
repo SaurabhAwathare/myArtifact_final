@@ -127,10 +127,10 @@ object UsernameGenerator {
      * Generates a unique list of username suggestions based on a base name.
      */
     fun generateSuggestionsForBase(base: String, count: Int = 3): List<String> {
-        if (base.length < 3) return emptyList()
+        if (base.length < 3) return generateSuggestions(count)
         
         val cleanedBase = base.lowercase(Locale.ROOT).filter { it.isLetterOrDigit() || it == '_' }
-        if (cleanedBase.isEmpty()) return emptyList()
+        if (cleanedBase.isEmpty()) return generateSuggestions(count)
 
         val suffixes = listOf("_", "01", "dev", "user", "x", "pro", "io")
         val suggestions = mutableSetOf<String>()

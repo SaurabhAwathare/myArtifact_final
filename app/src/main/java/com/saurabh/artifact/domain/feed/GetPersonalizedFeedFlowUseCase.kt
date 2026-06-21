@@ -19,7 +19,7 @@ class GetPersonalizedFeedFlowUseCase @Inject constructor(
     private val feedRepository: FeedRepository,
     private val feedRanker: FeedRanker
 ) {
-    operator fun invoke(): Flow<PagingData<Artifact>> {
+    operator fun invoke(emotion: String?): Flow<PagingData<Artifact>> {
         val userId = authRepository.currentUser.value?.uid ?: return flowOf(PagingData.empty())
         
         return Pager(
@@ -33,7 +33,8 @@ class GetPersonalizedFeedFlowUseCase @Inject constructor(
                 PersonalizedPagingSource(
                     userId = userId,
                     feedRepository = feedRepository,
-                    feedRanker = feedRanker
+                    feedRanker = feedRanker,
+                    emotion = emotion
                 ) 
             }
         ).flow.map { pagingData ->

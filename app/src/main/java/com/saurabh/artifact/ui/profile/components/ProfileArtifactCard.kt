@@ -113,7 +113,8 @@ fun ProfileArtifactCard(
                     progress = progress,
                     modifier = Modifier.fillMaxWidth().height(32.dp),
                     isPaused = !isPlaying,
-                    context = WaveformContext.Mini
+                    context = WaveformContext.Mini,
+                    id = artifact.id
                 )
 
                 // Overlay Play/Pause indicator subtly if playing

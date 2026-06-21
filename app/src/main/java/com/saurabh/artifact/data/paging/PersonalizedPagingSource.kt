@@ -13,7 +13,8 @@ import kotlinx.coroutines.withContext
 class PersonalizedPagingSource(
     private val userId: String,
     private val feedRepository: FeedRepository,
-    private val feedRanker: FeedRanker
+    private val feedRanker: FeedRanker,
+    private val emotion: String? = null
 ) : PagingSource<PersonalizedPagingSource.PageKey, Artifact>() {
 
     data class PageKey(
@@ -48,8 +49,7 @@ class PersonalizedPagingSource(
                     .distinctBy { it.id }
 
                 val ranked = if (combined.isNotEmpty()) {
-                    // Note: In a real app, we'd pass the actual user object and mood
-                    feedRanker.rank(combined, user = null, currentMood = null)
+                    feedRanker.rank(combined, user = null, currentMood = emotion)
                 } else {
                     emptyList()
                 }

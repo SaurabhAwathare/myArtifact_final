@@ -14,8 +14,8 @@ import androidx.compose.ui.graphics.Color
 // The Void (Obsidian Layers - OLED Optimized)
 val Obsidian950 = Color(0xFF0F0F0F) // Pure dark charcoal
 val Obsidian900 = Color(0xFF121212) // Soft Atmosphere
-val Obsidian800 = Color(0xFF181818) // Warm Surface
-val Obsidian700 = Color(0xFF222222) // Lighter Surface
+val Obsidian800 = Color(0xFF181818) // Warm Surface (Base for Artifact Cards)
+val Obsidian700 = Color(0xFF222222) // Lighter Surface (Used for inactive waveforms)
 
 // The Aura (Primary Accent - Golden Light)
 val GoldAura500 = Color(0xFFFFB84D) // Core Presence

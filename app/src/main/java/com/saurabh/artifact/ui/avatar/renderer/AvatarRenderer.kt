@@ -30,13 +30,10 @@ data class AvatarAnimationState(
  * Factory to provide the appropriate renderer based on the config theme.
  */
 object AvatarRendererFactory {
-    private val auricRenderer = AuricRenderer()
     private val cartoonRenderer = CartoonRenderer()
 
     fun getRenderer(theme: String): AvatarRenderer {
-        return when (theme.uppercase()) {
-            "CARTOON" -> cartoonRenderer
-            else -> auricRenderer
-        }
+        // All avatars now use the CartoonRenderer regardless of legacy theme strings
+        return cartoonRenderer
     }
 }

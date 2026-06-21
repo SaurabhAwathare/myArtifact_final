@@ -10,6 +10,7 @@ import com.google.firebase.firestore.FieldPath
 import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.User
 import com.saurabh.artifact.model.AvatarConfig
+import com.saurabh.artifact.model.avatar.*
 import com.saurabh.artifact.model.UserPrivateSettings
 import com.saurabh.artifact.util.SecureString
 import com.saurabh.artifact.util.UsernameGenerator
@@ -38,96 +39,10 @@ class UserRepository @Inject constructor(
     private val firestore: FirebaseFirestore,
     private val notificationRepository: NotificationRepository,
     private val userDao: UserDao,
+    private val identityProtectionPolicy: com.saurabh.artifact.domain.IdentityProtectionPolicy
 ) {
     private val usersCollection = firestore.collection("users")
     private val usernamesCollection = firestore.collection("usernames")
-
-    /**
-     * Refreshes the user's anonymous identity with a new system-generated one.
-     * Custom usernames are disabled to prevent doxxing and maintain emotional safety.
-     * Enforces a 30-day cooldown to prevent identity churn and maintain community stability.
-     */
-    suspend fun refreshAnonymousIdentity(userId: String): Result<User> {
-        if (userId.isBlank()) {
-            return Result.failure(AppError.InvalidInput("User ID cannot be blank"))
-        }
-        return try {
-            val userRef = try {
-                usersCollection.document(userId.trim())
-            } catch (e: Exception) {
-                return Result.failure(AppError.from(e))
-            }
-
-            val userSnapshot = userRef.get().await()
-            val lastUpdate = userSnapshot.getTimestamp("usernameUpdatedAt")
-            
-            if (lastUpdate != null) {
-                val cooldownMillis = 30L * 24 * 60 * 60 * 1000 // 30 days
-                val nextUpdateAllowed = lastUpdate.toDate().time + cooldownMillis
-                if (System.currentTimeMillis() < nextUpdateAllowed) {
-                    val daysLeft = ((nextUpdateAllowed - System.currentTimeMillis()) / (24 * 60 * 60 * 1000)).toInt()
-                    return Result.failure(Exception("Your presence needs more time to settle. You can refresh again in $daysLeft days."))
-                }
-            }
-
-            val anonymousSnapshot = userSnapshot.toObject(User::class.java)
-            val anonymousId = anonymousSnapshot?.anonymousId ?: ""
-            val newName = UsernameGenerator.generate()
-            val newSigil = UsernameGenerator.deriveSigil(anonymousId)
-            val newSeed = java.util.UUID.randomUUID().toString()
-            
-            val safePalette = listOf("#FADADD", "#E6E6FA", "#D1EAF0", "#E2F0D9", "#FFF4E0")
-            val newColor = safePalette.random()
-            
-            firestore.runTransaction { transaction ->
-                // 1. Audit Log: Store the transition history
-                val historyRef = userRef.collection("private").document("identity_history")
-                    .collection("log").document()
-                
-                transaction[historyRef] = mapOf(
-                    "oldName" to (anonymousSnapshot?.anonymousName ?: "Unknown"),
-                    "newName" to newName,
-                    "oldSigil" to (anonymousSnapshot?.anonymousSigil ?: ""),
-                    "newSigil" to newSigil,
-                    "timestamp" to FieldValue.serverTimestamp(),
-                    "reason" to "USER_REFRESH",
-                )
-
-                // 2. Update Profile
-                transaction.update(
-                    userRef, mapOf(
-                        "anonymousName" to newName,
-                        "anonymousSigil" to newSigil,
-                        "avatarColor" to newColor,
-                        "avatarSeed" to newSeed,
-                        "avatarConfig" to (anonymousSnapshot?.avatarConfig ?: AvatarConfig()).copy(
-                            seed = newSeed,
-                            theme = "AURIC", // Refreshing identity always reverts to brand-standard Aura
-                        ),
-                        "usernameUpdatedAt" to FieldValue.serverTimestamp()
-                    )
-                )
-            }.await()
-            
-            notificationRepository.createNotification(
-                userId = userId,
-                message = "IDENTITY_REFRESHED|$newName|$newSigil" // UI layer will map this
-            )
-
-            val finalProfileResult = getOrCreateProfile()
-            finalProfileResult.onSuccess { profile ->
-                try {
-                    userDao.insertProfile(mapUserToLocal(profile))
-                } catch (e: Exception) {
-                    Log.e("UserRepository", "Failed to update cached identity after refresh", e)
-                }
-            }
-            finalProfileResult
-        } catch (e: Exception) {
-            Log.e("UserRepository", "refreshAnonymousIdentity failed for $userId", e)
-            Result.failure(AppError.from(e))
-        }
-    }
 
     /**
      * Creates or updates a unique username for the user.
@@ -144,16 +59,10 @@ class UserRepository @Inject constructor(
             }
 
             val userSnapshot = userRef.get().await()
-            val lastUpdate = userSnapshot.getTimestamp("usernameUpdatedAt")
+            val user = userSnapshot.toObject(User::class.java) ?: User()
             
-            if (lastUpdate != null) {
-                val cooldownMillis = 30L * 24 * 60 * 60 * 1000 // 30 days
-                val nextUpdateAllowed = lastUpdate.toDate().time + cooldownMillis
-                if (System.currentTimeMillis() < nextUpdateAllowed) {
-                    val daysLeft = ((nextUpdateAllowed - System.currentTimeMillis()) / (24 * 60 * 60 * 1000)).toInt()
-                    return@withContext Result.failure(Exception("Your presence needs more time to settle. You can refresh again in $daysLeft days."))
-                }
-            }
+            val isWithinWindow = identityProtectionPolicy.isWithinWindow(user.identityMetadata.lastIdentityChangeAt)
+            val newCount = if (isWithinWindow) user.identityMetadata.identityChangeCount30Days + 1 else 1
 
             firestore.runTransaction { transaction ->
                 val usernameRef = usernamesCollection.document(normalizedUsername)
@@ -180,9 +89,11 @@ class UserRepository @Inject constructor(
                 // 4. Update the user profile
                 transaction.update(
                     userRef, mapOf(
-                        "anonymousName" to username, // This is the chosen "pseudonym"
-                    "isAnonymous" to false, // They've chosen a name, though still "artifact" anonymous
-                    "usernameUpdatedAt" to FieldValue.serverTimestamp()
+                        "anonymousName" to username,
+                        "isAnonymous" to false,
+                        "usernameUpdatedAt" to FieldValue.serverTimestamp(),
+                        "identityMetadata.lastIdentityChangeAt" to FieldValue.serverTimestamp(),
+                        "identityMetadata.identityChangeCount30Days" to newCount
                 ))
 
                 // 5. Clean up old username reservation
@@ -223,7 +134,7 @@ class UserRepository @Inject constructor(
         }
     }
 
-    suspend fun getOrCreateProfile(): Result<User> = withContext(Dispatchers.IO) {
+    suspend fun getOrCreateProfile(): Result<ProfileResult> = withContext(Dispatchers.IO) {
         // 1. Ensure Auth
         val initialUser = auth.currentUser ?: return@withContext Result.failure(AppError.Unauthenticated())
         
@@ -246,13 +157,14 @@ class UserRepository @Inject constructor(
             val privateRef = userRef.collection("private").document("settings")
 
             // 2. Atomic Check & Create via Transaction
-            val profile = firestore.runTransaction { transaction ->
+            val profileResult = firestore.runTransaction { transaction ->
                 val snapshot = transaction[userRef]
                 
                 if (snapshot.exists()) {
                     // Safe deserialization
-                    snapshot.toObject(User::class.java)?.copy(id = currentUser.uid)
+                    val user = snapshot.toObject(User::class.java)?.copy(id = currentUser.uid)
                         ?: throw IllegalStateException("User document exists but is malformed.")
+                    ProfileResult(user = user, isNewUser = false)
                 } else {
                     // Initialize new fully anonymous profile
                     val anonymousId = "usr_${java.util.UUID.randomUUID().toString().take(5).uppercase()}"
@@ -266,7 +178,15 @@ class UserRepository @Inject constructor(
                         anonymousName = anonymousName,
                         anonymousSigil = anonymousSigil,
                         avatarSeed = seed,
-                        avatarConfig = AvatarConfig(seed = seed, theme = "AURIC"),
+                        avatarConfig = AvatarConfig(
+                            seed = seed, 
+                            theme = "CARTOON",
+                            faceShape = FaceShape.entries.random(),
+                            eyeType = EyeType.entries.random(),
+                            mouthType = MouthType.entries.random(),
+                            hairType = HairType.entries.random(),
+                            accessoryType = AccessoryType.entries.random()
+                        ),
                         isAnonymous = true,
                         emotionalProfile = "New Soul"
                     )
@@ -280,18 +200,18 @@ class UserRepository @Inject constructor(
 
                     transaction[userRef] = newProfile
                     transaction[privateRef] = privateSettings
-                    newProfile
+                    ProfileResult(user = newProfile, isNewUser = true)
                 }
             }.await()
             
             // Cache the profile locally
             try {
-                userDao.insertProfile(mapUserToLocal(profile))
+                userDao.insertProfile(mapUserToLocal(profileResult.user))
             } catch (e: Exception) {
                 Log.e("UserRepository", "Failed to cache user profile locally", e)
             }
 
-            Result.success(profile)
+            Result.success(profileResult)
         } catch (e: Exception) {
             Log.e("UserRepository", "getOrCreateProfile failed", e)
             Result.failure(AppError.from(e))
@@ -548,7 +468,22 @@ class UserRepository @Inject constructor(
 
     suspend fun updateAvatarConfig(userId: String, config: AvatarConfig): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            usersCollection.document(userId).update("avatarConfig", config).await()
+            val userRef = usersCollection.document(userId)
+            val userSnapshot = userRef.get().await()
+            val user = userSnapshot.toObject(User::class.java) ?: User()
+            
+            val isWithinWindow = identityProtectionPolicy.isWithinWindow(user.identityMetadata.lastIdentityChangeAt)
+            val newCount = if (isWithinWindow) user.identityMetadata.identityChangeCount30Days + 1 else 1
+
+            userRef.update(
+                mapOf(
+                    "avatarConfig" to config,
+                    "usernameUpdatedAt" to FieldValue.serverTimestamp(),
+                    "identityMetadata.lastIdentityChangeAt" to FieldValue.serverTimestamp(),
+                    "identityMetadata.identityChangeCount30Days" to newCount
+                )
+            ).await()
+
             notificationRepository.createNotification(
                 userId = userId,
                 message = "AVATAR_UPDATED"
@@ -556,6 +491,100 @@ class UserRepository @Inject constructor(
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e("UserRepository", "updateAvatarConfig failed", e)
+            Result.failure(AppError.from(e))
+        }
+    }
+
+    /**
+     * Immediately randomizes the user's identity for emergency privacy protection.
+     */
+    suspend fun emergencyIdentityReset(userId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val userRef = usersCollection.document(userId)
+            val userSnapshot = userRef.get().await()
+            val user = userSnapshot.toObject(User::class.java) ?: User()
+
+            val newName = UsernameGenerator.generate()
+            val newSigil = UsernameGenerator.deriveSigil(user.anonymousId)
+            val newSeed = java.util.UUID.randomUUID().toString()
+
+            val updateMap = mapOf(
+                "anonymousName" to newName,
+                "anonymousSigil" to newSigil,
+                "avatarSeed" to newSeed,
+                "avatarConfig" to user.avatarConfig.copy(seed = newSeed),
+                "usernameUpdatedAt" to FieldValue.serverTimestamp(),
+                "identityMetadata.lastIdentityChangeAt" to FieldValue.serverTimestamp(),
+                "identityMetadata.emergencyResetCount" to FieldValue.increment(1)
+            )
+
+            userRef.update(updateMap).await()
+
+            notificationRepository.createNotification(
+                userId = userId,
+                message = "IDENTITY_PROTECTED|$newName"
+            )
+
+            // Log moderation event
+            val reportRef = firestore.collection("reports").document()
+            reportRef.set(mapOf(
+                "type" to "EMERGENCY_RESET",
+                "userId" to userId,
+                "timestamp" to FieldValue.serverTimestamp(),
+                "reason" to "USER_TRIGGERED_PRIVACY_PROTECTION"
+            )).await()
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("UserRepository", "emergencyIdentityReset failed", e)
+            Result.failure(AppError.from(e))
+        }
+    }
+
+    /**
+     * Reports an identity exposure (doxxing) incident.
+     */
+    suspend fun reportIdentityExposure(
+        reporterId: String,
+        reportedUserId: String,
+        artifactId: String?,
+        commentId: String?
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val reportRef = firestore.collection("reports").document()
+            reportRef.set(mapOf(
+                "type" to "IDENTITY_EXPOSURE",
+                "priority" to "CRITICAL",
+                "reporterId" to reporterId,
+                "reportedUserId" to reportedUserId,
+                "artifactId" to artifactId,
+                "commentId" to commentId,
+                "timestamp" to FieldValue.serverTimestamp(),
+                "status" to "PENDING"
+            )).await()
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("UserRepository", "reportIdentityExposure failed", e)
+            Result.failure(AppError.from(e))
+        }
+    }
+
+    /**
+     * Blocks a user from future interactions.
+     */
+    suspend fun blockUser(userId: String, targetUserId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val blockRef = usersCollection.document(userId).collection("private").document("blocks")
+                .collection("users").document(targetUserId)
+            
+            blockRef.set(mapOf(
+                "timestamp" to FieldValue.serverTimestamp()
+            )).await()
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("UserRepository", "blockUser failed", e)
             Result.failure(AppError.from(e))
         }
     }

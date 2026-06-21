@@ -65,9 +65,9 @@ class UserSessionManager @Inject constructor(
                 try {
                     Json.decodeFromString<com.saurabh.artifact.model.AvatarConfig>(it).copy(seed = seed)
                 } catch (_: Exception) {
-                    com.saurabh.artifact.model.AvatarConfig(seed = seed, theme = "AURIC")
+                    com.saurabh.artifact.model.AvatarConfig(seed = seed, theme = "CARTOON")
                 }
-            } ?: com.saurabh.artifact.model.AvatarConfig(seed = seed, theme = "AURIC")
+            } ?: com.saurabh.artifact.model.AvatarConfig(seed = seed, theme = "CARTOON")
             
             UserProfile(
                 anonymousId = id, 

@@ -8,9 +8,11 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.composable
 import com.saurabh.artifact.navigation.Login
 import com.saurabh.artifact.navigation.Onboarding
+import com.saurabh.artifact.navigation.IdentityReveal
 import com.saurabh.artifact.navigation.Home
 import com.saurabh.artifact.ui.login.LoginScreen
 import com.saurabh.artifact.ui.onboarding.OnboardingScreen
+import com.saurabh.artifact.ui.identity.IdentityRevealScreen
 import com.saurabh.artifact.util.OnboardingManager
 import kotlinx.coroutines.launch
 
@@ -36,13 +38,29 @@ fun NavGraphBuilder.authNavigation(
 
     composable<Login> {
         val onLoginSuccess = remember(navController) {
-            {
-                Log.d("APP_FLOW", "Action: Login Success -> Navigating Home")
-                navController.navigate(Home) {
-                    popUpTo(Login) { inclusive = true }
+            { isNewUser: Boolean ->
+                Log.d("APP_FLOW", "Action: Login Success (isNewUser=$isNewUser)")
+                if (isNewUser) {
+                    navController.navigate(IdentityReveal) {
+                        popUpTo(Login) { inclusive = true }
+                    }
+                } else {
+                    navController.navigate(Home) {
+                        popUpTo(Login) { inclusive = true }
+                    }
                 }
             }
         }
         LoginScreen(onLoginSuccess = onLoginSuccess)
+    }
+
+    composable<IdentityReveal> {
+        IdentityRevealScreen(
+            onContinue = {
+                navController.navigate(Home) {
+                    popUpTo(IdentityReveal) { inclusive = true }
+                }
+            }
+        )
     }
 }

@@ -1,11 +1,16 @@
 package com.saurabh.artifact.repository
 
 import com.saurabh.artifact.data.local.UserSessionManager
+import com.saurabh.artifact.model.AuthorSnapshot
+import com.saurabh.artifact.worker.IdentitySyncWorker
+import android.content.Context
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -17,9 +22,11 @@ import javax.inject.Singleton
  */
 @Singleton
 class UserProfileManager @Inject constructor(
+    @param:ApplicationContext private val context: Context,
     private val sessionManager: UserSessionManager,
     private val authRepository: AuthRepository,
     private val userRepository: UserRepository,
+    private val artifactRepository: ArtifactRepository
 ) {
     private val managerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -61,10 +68,33 @@ class UserProfileManager @Inject constructor(
         // 1. Update SSOT immediately
         sessionManager.updateAvatarConfig(config)
         
-        // 2. Sync to Firestore if authenticated (Eventual Consistency)
-        val userId = authRepository.currentUser.value?.uid
-        if (userId != null) {
-            return userRepository.updateAvatarConfig(userId, config)
+        val userId = authRepository.currentUserId
+
+        // 2. Optimistic Local Sync
+        if (userId.isNotEmpty()) {
+            managerScope.launch {
+                val currentProfile = sessionManager.userProfile.first()
+                artifactRepository.updateLocalAuthorSnapshot(
+                    userId = userId,
+                    snapshot = AuthorSnapshot(
+                        anonymousId = currentProfile.anonymousId,
+                        name = currentProfile.username,
+                        sigil = currentProfile.sigil,
+                        avatarSeed = config.seed,
+                        avatarColor = currentProfile.avatarColor,
+                        avatarConfig = config
+                    )
+                )
+            }
+        }
+
+        // 3. Sync to Firestore if authenticated (Eventual Consistency)
+        if (userId.isNotEmpty()) {
+            val result = userRepository.updateAvatarConfig(userId, config)
+            if (result.isSuccess) {
+                IdentitySyncWorker.enqueue(context, userId)
+            }
+            return result
         }
         return Result.success(Unit)
     }
@@ -76,32 +106,38 @@ class UserProfileManager @Inject constructor(
         // 1. Update SSOT immediately
         sessionManager.updateUsername(username)
         
-        // 2. Sync to Firestore if authenticated (Eventual Consistency)
-        val userId = authRepository.currentUser.value?.uid
-        if (userId != null) {
-            return userRepository.createUsername(userId, username)
+        val userId = authRepository.currentUserId
+
+        // 2. Optimistic Local Sync
+        if (userId.isNotEmpty()) {
+            managerScope.launch {
+                val currentProfile = sessionManager.userProfile.first()
+                artifactRepository.updateLocalAuthorSnapshot(
+                    userId = userId,
+                    snapshot = AuthorSnapshot(
+                        anonymousId = currentProfile.anonymousId,
+                        name = username,
+                        sigil = currentProfile.sigil,
+                        avatarSeed = currentProfile.avatarSeed,
+                        avatarColor = currentProfile.avatarColor,
+                        avatarConfig = currentProfile.avatarConfig
+                    )
+                )
+            }
+        }
+
+        // 3. Sync to Firestore if authenticated (Eventual Consistency)
+        if (userId.isNotEmpty()) {
+            val result = userRepository.createUsername(userId, username)
+            if (result.isSuccess) {
+                IdentitySyncWorker.enqueue(context, userId)
+            }
+            return result
         }
         return Result.success(Unit)
     }
 
     suspend fun isUsernameAvailable(username: String): Result<Boolean> {
         return userRepository.isUsernameAvailable(username)
-    }
-
-    /**
-     * Checks if the user is eligible to change their username based on the 30-day cooldown.
-     * Returns the number of days remaining if blocked, or 0 if allowed.
-     */
-    fun getUsernameCooldownDays(user: com.saurabh.artifact.model.User?): Int {
-        val lastUpdate = user?.usernameUpdatedAt ?: return 0
-        val cooldownMillis = 30 * 24 * 60 * 60 * 1000L
-        val diff = com.google.firebase.Timestamp.now().toDate().time - lastUpdate.toDate().time
-        
-        return if (diff < cooldownMillis) {
-            val remaining = cooldownMillis - diff
-            (remaining / (24 * 60 * 60 * 1000L)).toInt().coerceAtLeast(1)
-        } else {
-            0
-        }
     }
 }

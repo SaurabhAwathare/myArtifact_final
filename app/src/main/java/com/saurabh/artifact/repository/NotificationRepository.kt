@@ -18,7 +18,7 @@ import javax.inject.Singleton
 
 @Singleton
 class NotificationRepository @Inject constructor(
-    firestore: FirebaseFirestore
+    private val firestore: FirebaseFirestore
 ) {
     private val notificationsCollection = firestore.collection("notifications")
 
@@ -62,6 +62,32 @@ class NotificationRepository @Inject constructor(
                 .await()
             Result.success(Unit)
         } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Efficiently marks all unread notifications for a user as read.
+     * Used to clear the awareness state when the user enters the notification center.
+     */
+    suspend fun markAllAsRead(userId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        return@withContext try {
+            val unread = notificationsCollection
+                .whereEqualTo("userId", userId)
+                .whereEqualTo("isRead", false)
+                .get()
+                .await()
+            
+            if (unread.isEmpty) return@withContext Result.success(Unit)
+            
+            firestore.runBatch { batch ->
+                unread.documents.forEach { doc ->
+                    batch.update(doc.reference, "isRead", true)
+                }
+            }.await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("NotificationRepository", "Failed to mark all as read", e)
             Result.failure(e)
         }
     }

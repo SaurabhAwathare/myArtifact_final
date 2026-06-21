@@ -19,6 +19,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.theme.GoldAura500
+import com.saurabh.artifact.ui.components.waveform.FeedWaveformRenderer
+import com.saurabh.artifact.ui.components.waveform.rememberFeedWaveform
 import com.saurabh.artifact.util.WaveformProcessor
 import kotlin.math.PI
 import kotlin.math.cos
@@ -37,10 +39,16 @@ fun AmbientWaveform(
     isStatic: Boolean = false,
     liveAmplitude: Float? = null,
     samplingMode: WaveformProcessor.SamplingMode = WaveformProcessor.SamplingMode.COMPRESS,
-    context: WaveformContext = WaveformContext.Player
+    context: WaveformContext = WaveformContext.Player,
+    id: String = ""
 ) {
     if (isStatic && context == WaveformContext.Feed) {
-        StaticWaveformPlaceholder(modifier, context)
+        StaticWaveform(
+            id = id,
+            amplitudes = amplitudes,
+            context = context,
+            modifier = modifier
+        )
         return
     }
 
@@ -200,15 +208,68 @@ fun AmbientWaveform(
 }
 
 /**
+ * A static, full-width representation of audio data for feed cards.
+ * Uses real data if available, otherwise falls back to a stable placeholder.
+ */
+@Composable
+private fun StaticWaveform(
+    id: String,
+    amplitudes: List<Float>,
+    context: WaveformContext,
+    modifier: Modifier = Modifier
+) {
+    val waveform = rememberFeedWaveform(
+        id = id,
+        amplitudeData = amplitudes,
+        barCount = context.barCount
+    )
+    
+    val color = ArtifactTheme.colors.waveformActive.copy(alpha = 0.50f)
+
+    Spacer(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(context.height)
+            .drawBehind {
+                val barWidthPx = context.barWidth.toPx()
+                val gapPx = context.gap.toPx()
+                val centerY = size.height / 2f
+                val cycleWidth = barWidthPx + gapPx
+                val cornerRadius = CornerRadius(barWidthPx / 2f)
+
+                waveform.forEachIndexed { index, amp ->
+                    val x = index * cycleWidth
+                    val height = (amp * size.height * 0.7f).coerceAtLeast(4.dp.toPx())
+                    drawRoundRect(
+                        color = color,
+                        topLeft = Offset(x, centerY - height / 2f),
+                        size = Size(barWidthPx, height),
+                        cornerRadius = cornerRadius
+                    )
+                }
+            }
+    )
+}
+
+/**
  * An extremely lightweight waveform skeleton for initial rendering.
  * Uses a single draw call with fixed values to avoid CPU processing.
+ * 
+ * Refactor: Now fills the full barCount to maintain visual balance.
  */
 @Composable
 fun StaticWaveformPlaceholder(
     modifier: Modifier = Modifier,
-    context: WaveformContext
+    context: WaveformContext,
+    id: String = "placeholder"
 ) {
-    val color = ArtifactTheme.colors.waveformInactive.copy(alpha = 0.1f)
+    val color = ArtifactTheme.colors.waveformActive.copy(alpha = 0.35f)
+    val pattern = remember(id, context.barCount) {
+        FeedWaveformRenderer.generatePlaceholderPattern(
+            id, 
+            context.barCount
+        )
+    }
     
     Spacer(
         modifier = modifier
@@ -221,11 +282,9 @@ fun StaticWaveformPlaceholder(
                 val cycleWidth = barWidthPx + gapPx
                 val cornerRadius = CornerRadius(barWidthPx / 2f)
 
-                // Draw a fixed pattern of 12 bars to represent a signature
-                val pattern = listOf(0.4f, 0.6f, 0.5f, 0.8f, 0.3f, 0.7f, 0.5f, 0.4f, 0.6f, 0.9f, 0.5f, 0.4f)
                 pattern.forEachIndexed { index, amp ->
                     val x = index * cycleWidth
-                    val height = amp * size.height * 0.6f
+                    val height = (amp * size.height * 0.6f).coerceAtLeast(2.dp.toPx())
                     drawRoundRect(
                         color = color,
                         topLeft = Offset(x, centerY - height / 2f),
@@ -243,7 +302,7 @@ enum class WaveformContext(
     val gap: androidx.compose.ui.unit.Dp,
     val height: androidx.compose.ui.unit.Dp
 ) {
-    Feed(barCount = 40, barWidth = 2.dp, gap = 2.dp, height = 40.dp),
+    Feed(barCount = 50, barWidth = 2.dp, gap = 2.dp, height = 40.dp),
     Player(barCount = 100, barWidth = 3.dp, gap = 2.dp, height = 120.dp),
     Recording(barCount = 60, barWidth = 4.dp, gap = 3.dp, height = 80.dp),
     Mini(barCount = 30, barWidth = 1.5.dp, gap = 1.5.dp, height = 20.dp)

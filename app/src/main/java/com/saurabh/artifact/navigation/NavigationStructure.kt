@@ -17,6 +17,9 @@ object Onboarding : Route
 @Serializable
 object Login : Route
 
+@Serializable
+object IdentityReveal : Route
+
 // --- Main / Feed Routes ---
 
 @Serializable
@@ -53,9 +56,6 @@ object IdentitySelection : Route
 
 @Serializable
 object AvatarEditor : Route
-
-@Serializable
-object PresenceBuilder : Route
 
 // --- Recording Routes ---
 

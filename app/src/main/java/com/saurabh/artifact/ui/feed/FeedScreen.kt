@@ -30,6 +30,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.map
 import androidx.compose.ui.zIndex
 import com.saurabh.artifact.ui.components.ArtifactCard
 import com.saurabh.artifact.ui.components.ArtifactFeedCard
@@ -129,6 +130,7 @@ fun FeedScreen(
         contentWindowInsets = WindowInsets.systemBars,
         topBar = {
             FeedTopBar(
+                viewModel = viewModel,
                 onNavigateToNotifications = onNavigateToNotifications,
                 onNavigateToProfile = onNavigateToProfile,
                 onNavigateToDebugMenu = onNavigateToDebugMenu
@@ -208,6 +210,7 @@ fun FeedScreen(
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun FeedTopBar(
+    viewModel: FeedViewModel,
     onNavigateToNotifications: () -> Unit,
     onNavigateToProfile: () -> Unit,
     onNavigateToDebugMenu: () -> Unit,
@@ -234,8 +237,26 @@ private fun FeedTopBar(
             )
         },
         actions = {
+            val unreadCount by viewModel.unreadCount.collectAsStateWithLifecycle()
+
             IconButton(onClick = onNavigateToNotifications) {
-                Icon(Icons.Rounded.Notifications, contentDescription = "Echoes")
+                BadgedBox(
+                    badge = {
+                        if (unreadCount > 0) {
+                            Badge(
+                                containerColor = Color(0xFFFFB84D), // Warm Amber
+                                modifier = Modifier.size(6.dp)
+                            )
+                        }
+                    }
+                ) {
+                    Icon(
+                        Icons.Rounded.Notifications,
+                        contentDescription = if (unreadCount > 0)
+                            "Echoes, new activity available"
+                        else "Echoes"
+                    )
+                }
             }
             IconButton(onClick = onNavigateToProfile) {
                 if (currentUser != null) {
@@ -300,8 +321,19 @@ private fun FeedVibeHeader(
                 )
             }
             items(EmotionList) { emotion ->
+                val displayLabel = if (selectedEmotion == emotion.label) {
+                    when (emotion.label) {
+                        "Sad" -> "Sad & Lonely"
+                        "Happy" -> "Happy & Hopeful"
+                        "Anxious" -> "Anxious & Angry"
+                        "Neutral" -> "Neutral & Calm"
+                        else -> emotion.label
+                    }
+                } else {
+                    emotion.label
+                }
                 PetalChip(
-                    label = emotion.label,
+                    label = displayLabel,
                     emoji = emotion.emoji,
                     selected = selectedEmotion == emotion.label,
                     onClick = { onEmotionSelect(emotion.label) }
@@ -482,6 +514,9 @@ fun ArtifactItem(
     val playingArtifact by viewModel.currentlyPlayingArtifact.collectAsStateWithLifecycle()
     val isPlayingGlobal by viewModel.isPlaying.collectAsStateWithLifecycle()
     val isBuffering by viewModel.audioPlayer.isBuffering.collectAsStateWithLifecycle()
+    val hydrationLevel by remember(viewModel, artifactId) {
+        viewModel.uiState.map { it.hydrationLevels[artifactId] ?: HydrationLevel.SHELL }
+    }.collectAsStateWithLifecycle(initialValue = HydrationLevel.SHELL)
     
     val isCurrent = playingArtifact?.id == artifactId
     val isPlaying = isPlayingGlobal && isCurrent
@@ -513,6 +548,7 @@ fun ArtifactItem(
                 feedArtifact = displayFeedArtifact,
                 isPlaying = isPlaying,
                 isBuffering = isCurrentBuffering,
+                hydrationLevel = hydrationLevel,
                 onPlayClick = { 
                     viewModel.playAudio(art) 
                     viewModel.onArtifactFocused(artifactId)
@@ -529,6 +565,7 @@ fun ArtifactItem(
                 artifact = art,
                 isPlaying = isPlaying,
                 isBuffering = isCurrentBuffering,
+                hydrationLevel = hydrationLevel,
                 onPlayClick = { 
                     viewModel.playAudio(art) 
                     viewModel.onArtifactFocused(artifactId)

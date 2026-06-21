@@ -29,4 +29,22 @@ interface ArtifactDao {
 
     @Query("DELETE FROM artifacts WHERE createdAt < :timestamp")
     suspend fun deleteOldArtifacts(timestamp: Long)
+
+    @Query("""
+        UPDATE artifacts 
+        SET authorName = :name, 
+            authorSigil = :sigil, 
+            authorAvatarSeed = :seed, 
+            authorAvatarColor = :color, 
+            authorAvatarConfigJson = :configJson 
+        WHERE userId = :userId
+    """)
+    suspend fun updateAuthorInfo(
+        userId: String, 
+        name: String, 
+        sigil: String, 
+        seed: String, 
+        color: String, 
+        configJson: String
+    )
 }

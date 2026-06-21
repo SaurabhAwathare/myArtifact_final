@@ -12,7 +12,7 @@ import kotlinx.serialization.Serializable
 data class AvatarConfig(
     val seed: String = "",
     val version: Int = 2,
-    val theme: String = "AURIC", // AURIC, CARTOON
+    val theme: String = "CARTOON", // AURIC (deprecated), CARTOON
     val faceShape: FaceShape = FaceShape.ROUND,
     val hairType: HairType = HairType.NONE,
     val eyeType: EyeType = EyeType.NEUTRAL,

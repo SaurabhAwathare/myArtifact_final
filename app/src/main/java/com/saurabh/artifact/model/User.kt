@@ -35,6 +35,7 @@ data class User(
     val softStreakCount: Long = 0,
     val totalContributions: Long = 0,
     val lastPromptId: String = "",
+    val identityMetadata: IdentityMetadata = IdentityMetadata()
 ) {
     /**
      * Derives the user's current dominant emotion based on interaction history.
@@ -43,6 +44,15 @@ data class User(
         return emotionPreferences.maxByOrNull { it.value }?.key
     }
 }
+
+/**
+ * Metadata tracking identity changes for abuse prevention and privacy protection.
+ */
+data class IdentityMetadata(
+    val lastIdentityChangeAt: Timestamp? = null,
+    val identityChangeCount30Days: Int = 0,
+    val emergencyResetCount: Int = 0
+)
 
 /**
  * Sensitive data stored in users/{uid}/private/settings

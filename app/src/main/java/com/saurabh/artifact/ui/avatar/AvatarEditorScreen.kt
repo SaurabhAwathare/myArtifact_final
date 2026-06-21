@@ -29,9 +29,10 @@ import com.saurabh.artifact.ui.components.ArtifactAvatar
 fun AvatarEditorScreen(
     onBack: () -> Unit,
     onComplete: () -> Unit,
-    viewModel: PresenceBuilderViewModel = hiltViewModel(),
+    viewModel: AvatarViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val changeSeverity by viewModel.changeSeverity.collectAsState()
 
     LaunchedEffect(Unit) {
         viewModel.updateTheme("CARTOON")
@@ -72,6 +73,24 @@ fun AvatarEditorScreen(
                 .padding(innerPadding),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            if (changeSeverity != com.saurabh.artifact.domain.IdentityProtectionPolicy.ChangeSeverity.NORMAL) {
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (changeSeverity == com.saurabh.artifact.domain.IdentityProtectionPolicy.ChangeSeverity.WARNING)
+                            MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.errorContainer
+                    )
+                ) {
+                    Text(
+                        text = if (changeSeverity == com.saurabh.artifact.domain.IdentityProtectionPolicy.ChangeSeverity.WARNING)
+                            "Frequent changes may affect your recognition in the community."
+                        else "You have changed your identity many times recently. Please consider staying with one to build trust.",
+                        modifier = Modifier.padding(12.dp),
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+            }
+
             // Sticky Avatar Preview
             Box(
                 modifier = Modifier

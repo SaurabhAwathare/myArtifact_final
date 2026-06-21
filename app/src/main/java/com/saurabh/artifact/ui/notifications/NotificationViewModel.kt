@@ -19,7 +19,7 @@ data class NotificationUiState(
 @HiltViewModel
 class NotificationViewModel @Inject constructor(
     private val notificationRepository: NotificationRepository,
-    authRepository: AuthRepository
+    private val authRepository: AuthRepository
 ) : ViewModel() {
 
     // Real-time stream of notifications for the current user
@@ -42,6 +42,16 @@ class NotificationViewModel @Inject constructor(
     fun markAsRead(notificationId: String) {
         viewModelScope.launch {
             notificationRepository.markNotificationAsRead(notificationId)
+        }
+    }
+
+    /**
+     * Clears the awareness state by marking all notifications as read.
+     */
+    fun clearAwareness() {
+        val userId = authRepository.currentUser.value?.uid ?: return
+        viewModelScope.launch {
+            notificationRepository.markAllAsRead(userId)
         }
     }
 }

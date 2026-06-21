@@ -86,8 +86,9 @@ class CommentViewModel @Inject constructor(
             _uiState.update { it.copy(isSubmitting = true, errorMessage = null) }
             
             userRepository.getOrCreateProfile()
-                .onSuccess { user ->
-                    val result = repository.submitReflection(
+                .onSuccess { result ->
+                    val user = result.user
+                    val resultSubmission = repository.submitReflection(
                         artifactId = artifactId,
                         userId = auth.currentUserId,
                         content = content,
@@ -98,10 +99,10 @@ class CommentViewModel @Inject constructor(
                         authorAvatarSeed = if (authorType == AuthorType.PSEUDONYM) user.avatarSeed else "ANONYMOUS_AURA"
                     )
 
-                    if (result.isSuccess) {
+                    if (resultSubmission.isSuccess) {
                         _uiState.update { it.copy(isSubmitting = false, submissionSuccess = true) }
                     } else {
-                        _uiState.update { it.copy(isSubmitting = false, errorMessage = result.exceptionOrNull()?.message) }
+                        _uiState.update { it.copy(isSubmitting = false, errorMessage = resultSubmission.exceptionOrNull()?.message) }
                     }
                 }
                 .onFailure { e ->

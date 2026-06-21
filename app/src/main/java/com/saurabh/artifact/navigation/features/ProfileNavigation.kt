@@ -6,7 +6,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.toRoute
 import com.saurabh.artifact.navigation.*
 import com.saurabh.artifact.ui.avatar.AvatarEditorScreen
-import com.saurabh.artifact.ui.avatar.PresenceBuilderScreen
 import com.saurabh.artifact.ui.identity.IdentitySelectionScreen
 import com.saurabh.artifact.ui.moderation.ModerationScreen
 import com.saurabh.artifact.ui.profile.ProfileScreen
@@ -111,13 +110,6 @@ fun NavGraphBuilder.profileNavigation(
 
     composable<AvatarEditor> {
         AvatarEditorScreen(
-            onBack = onBack,
-            onComplete = onBack
-        )
-    }
-
-    composable<PresenceBuilder> {
-        PresenceBuilderScreen(
             onBack = onBack,
             onComplete = onBack
         )

@@ -38,7 +38,7 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoginScreen(
-    onLoginSuccess: () -> Unit,
+    onLoginSuccess: (Boolean) -> Unit,
     viewModel: LoginViewModel = hiltViewModel()
 ) {
     val loginState by viewModel.loginState.collectAsStateWithLifecycle()
@@ -47,8 +47,9 @@ fun LoginScreen(
     val serverClientId = stringResource(R.string.default_web_client_id)
 
     LaunchedEffect(loginState) {
-        if (loginState is LoginState.Success) {
-            onLoginSuccess()
+        val state = loginState
+        if (state is LoginState.Success) {
+            onLoginSuccess(state.isNewUser)
         }
     }
 

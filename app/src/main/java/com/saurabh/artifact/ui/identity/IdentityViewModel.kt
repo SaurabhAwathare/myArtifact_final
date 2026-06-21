@@ -30,6 +30,7 @@ class IdentityViewModel @Inject constructor(
     private val authRepository: com.saurabh.artifact.repository.AuthRepository,
     private val userRepository: com.saurabh.artifact.repository.UserRepository,
     private val validator: com.saurabh.artifact.domain.UsernameValidator,
+    private val identityProtectionPolicy: com.saurabh.artifact.domain.IdentityProtectionPolicy,
     private val auth: com.google.firebase.auth.FirebaseAuth
 ) : ViewModel() {
 
@@ -41,6 +42,8 @@ class IdentityViewModel @Inject constructor(
     private val _usernameError = MutableStateFlow<String?>(null)
 
     private val _availability = MutableStateFlow(UsernameAvailability.NONE)
+    
+    private val _hasUserEdited = MutableStateFlow(false)
 
     private val _suggestions = MutableStateFlow<List<String>>(emptyList())
     val suggestions: StateFlow<List<String>> = _suggestions.asStateFlow()
@@ -54,14 +57,17 @@ class IdentityViewModel @Inject constructor(
         else flowOf(null)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    val cooldownDays: StateFlow<Int> = userProfile.map { profile ->
-        userProfileManager.getUsernameCooldownDays(profile)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+    val identityMetadata = userProfile.map { it?.identityMetadata ?: com.saurabh.artifact.model.IdentityMetadata() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.saurabh.artifact.model.IdentityMetadata())
+
+    val changeSeverity = identityMetadata.map { 
+        identityProtectionPolicy.getChangeSeverity(it.identityChangeCount30Days)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.saurabh.artifact.domain.IdentityProtectionPolicy.ChangeSeverity.NORMAL)
 
     private var availabilityCheckJob: Job? = null
 
-    val isUsernameValid = combine(_username, _usernameError, _availability, cooldownDays) { name, error, availability, cooldown ->
-        (name.isNotEmpty() && error == null && availability == UsernameAvailability.AVAILABLE && cooldown == 0)
+    val isUsernameValid = combine(_username, _usernameError, _availability) { name, error, availability ->
+        (name.isNotEmpty() && error == null && availability == UsernameAvailability.AVAILABLE)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -159,10 +165,12 @@ class IdentityViewModel @Inject constructor(
     }
 
     fun onUsernameChange(name: String) {
+        _hasUserEdited.value = true
         _username.value = name
     }
 
     fun selectSuggestion(suggestion: String) {
+        _hasUserEdited.value = true
         _username.value = suggestion
     }
 
@@ -171,20 +179,32 @@ class IdentityViewModel @Inject constructor(
         _availability,
         _validationResult,
         _suggestions,
-        _uiState
-    ) { name, avail, validation, suggs, uiState ->
+        _uiState,
+        _hasUserEdited
+    ) { params ->
+        val name = params[0] as String
+        val avail = params[1] as UsernameAvailability
+        val validation = params[2] as? com.saurabh.artifact.model.UsernameValidationResult
+        val suggs = params[3] as List<String>
+        val uiState = params[4] as IdentityUiState
+        val hasEdited = params[5] as Boolean
+
         UsernameUiState(
             username = name,
             isValidating = avail == UsernameAvailability.CHECKING,
-            isAvailable = when (avail) {
-                UsernameAvailability.AVAILABLE -> true
-                UsernameAvailability.TAKEN -> false
-                else -> null
-            },
-            validationResult = validation?.copy(
-                isValid = validation.isValid && (avail == UsernameAvailability.AVAILABLE || avail == UsernameAvailability.NONE),
-                reason = if (avail == UsernameAvailability.TAKEN) ValidationReason.ALREADY_TAKEN else validation.reason
-            ),
+            isAvailable = if (hasEdited) {
+                when (avail) {
+                    UsernameAvailability.AVAILABLE -> true
+                    UsernameAvailability.TAKEN -> false
+                    else -> null
+                }
+            } else null,
+            validationResult = if (hasEdited) {
+                validation?.copy(
+                    isValid = validation.isValid && (avail == UsernameAvailability.AVAILABLE || avail == UsernameAvailability.NONE),
+                    reason = if (avail == UsernameAvailability.TAKEN) ValidationReason.ALREADY_TAKEN else validation.reason
+                )
+            } else null,
             suggestions = suggs,
             isProcessing = uiState is IdentityUiState.Loading
         )
@@ -197,7 +217,6 @@ class IdentityViewModel @Inject constructor(
     fun saveIdentity(onSuccess: () -> Unit) {
         val name = _username.value
         if (!UsernameGenerator.isValid(name)) return
-        if (cooldownDays.value > 0) return
 
         viewModelScope.launch {
             _uiState.value = IdentityUiState.Loading
@@ -223,22 +242,35 @@ class IdentityViewModel @Inject constructor(
     }
 
     /**
-     * Sheds the current presence and emerges with a new randomized one.
-     * This is the "Identity Refresh Ritual".
+     * Triggers an emergency identity reset for privacy protection.
      */
-    fun refreshPresence(onSuccess: () -> Unit) {
+    fun emergencyReset(onSuccess: () -> Unit) {
         val userId = authRepository.currentUser.value?.uid ?: return
         
         viewModelScope.launch {
             _uiState.value = IdentityUiState.Loading
-            userRepository.refreshAnonymousIdentity(userId)
+            userRepository.emergencyIdentityReset(userId)
                 .onSuccess {
                     _uiState.value = IdentityUiState.Idle
                     onSuccess()
                 }
                 .onFailure { e ->
-                    Log.e("IdentityViewModel", "Failed to refresh presence", e)
-                    _uiState.value = IdentityUiState.Error(UiText.StringResource(R.string.presence_ritual_failed))
+                    Log.e("IdentityViewModel", "Emergency reset failed", e)
+                    _uiState.value = IdentityUiState.Error(ErrorMessageMapper.map(e))
+                }
+        }
+    }
+
+    /**
+     * Reports an identity exposure incident.
+     */
+    fun reportExposure(reportedUserId: String, artifactId: String?, commentId: String?) {
+        val reporterId = authRepository.currentUser.value?.uid ?: return
+        
+        viewModelScope.launch {
+            userRepository.reportIdentityExposure(reporterId, reportedUserId, artifactId, commentId)
+                .onFailure { e ->
+                    Log.e("IdentityViewModel", "Failed to report exposure", e)
                 }
         }
     }

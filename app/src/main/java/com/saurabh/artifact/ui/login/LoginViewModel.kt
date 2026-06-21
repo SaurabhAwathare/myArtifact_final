@@ -31,8 +31,8 @@ class LoginViewModel @Inject constructor(
                     if (firebaseUser != null) {
                         viewModelScope.launch {
                             userRepository.getOrCreateProfile()
-                                .onSuccess {
-                                    _loginState.value = LoginState.Success
+                                .onSuccess { result ->
+                                    _loginState.value = LoginState.Success(isNewUser = result.isNewUser)
                                 }
                                 .onFailure { e ->
                                     Log.e("AUTH", "Profile creation failed", e)
@@ -58,6 +58,6 @@ class LoginViewModel @Inject constructor(
 sealed class LoginState {
     object Idle : LoginState()
     object Loading : LoginState()
-    object Success : LoginState()
+    data class Success(val isNewUser: Boolean) : LoginState()
     data class Error(val message: UiText) : LoginState()
 }

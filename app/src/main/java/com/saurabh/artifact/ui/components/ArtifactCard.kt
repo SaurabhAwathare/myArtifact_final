@@ -107,7 +107,17 @@ fun ArtifactCard(
     }
 
     val displayTitle = remember(artifact.title) { artifact.title.ifEmpty { "A quiet moment shared..." } }
-    val displayEmotion = remember(artifact.emotion) { artifact.emotion.ifEmpty { "reflective" }.lowercase() }
+    
+    val displayEmotionWithEmoji = remember(artifact.emotion) {
+        val emotionEnum = com.saurabh.artifact.model.Emotion.entries.find { 
+            it.label.equals(artifact.emotion, ignoreCase = true) || 
+            it.name.equals(artifact.emotion, ignoreCase = true) 
+        }
+        if (emotionEnum != null) {
+            "${emotionEnum.emoji} ${emotionEnum.label.lowercase()}"
+        } else ""
+    }
+
     val displayUsername = remember(artifact.author.name) { artifact.author.name.lowercase() }
 
     val isPending = artifact.audioUrl.isEmpty() && artifact.status == com.saurabh.artifact.model.ArtifactStatus.PENDING_UPLOAD
@@ -133,7 +143,6 @@ fun ArtifactCard(
     // Optimized Modifier Chain
     val cardModifier = modifier
         .fillMaxWidth()
-        .padding(vertical = Spacing.Medium)
         .clip(MaterialTheme.shapes.large)
         .background(ArtifactTheme.colors.surfaceHearth)
         .let { 
@@ -189,11 +198,10 @@ fun ArtifactCard(
                             }
                         } else {
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                                AuricAvatar(
-                                    seed = artifact.author.avatarConfig.seed
-                                        .ifEmpty { artifact.author.avatarSeed }
-                                        .ifEmpty { artifact.userId },
-                                    size = 32.dp
+                                ArtifactAvatar(
+                                    config = artifact.authorAvatarConfig,
+                                    size = 32.dp,
+                                    isStatic = true
                                 )
                                 
                                 Spacer(modifier = Modifier.width(Spacing.Medium))
@@ -232,17 +240,19 @@ fun ArtifactCard(
                                 
                                 Spacer(modifier = Modifier.width(Spacing.Large))
                                 
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(ArtifactTheme.colors.waveformActive.copy(alpha = 0.05f))
-                                        .padding(horizontal = 8.dp, vertical = 2.dp)
-                                ) {
-                                    Text(
-                                        text = displayEmotion,
-                                        style = ArtifactTheme.typography.labelSmall,
-                                        color = ArtifactTheme.colors.waveformActive.copy(alpha = 0.8f)
-                                    )
+                                if (displayEmotionWithEmoji.isNotEmpty()) {
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(ArtifactTheme.colors.waveformActive.copy(alpha = 0.05f))
+                                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = displayEmotionWithEmoji,
+                                            style = ArtifactTheme.typography.labelSmall,
+                                            color = ArtifactTheme.colors.waveformActive.copy(alpha = 0.8f)
+                                        )
+                                    }
                                 }
                                 
                                 if (isPending) {
@@ -346,7 +356,8 @@ fun ArtifactCard(
                                         modifier = Modifier.weight(1f).height(waveformHeight),
                                         isPaused = !isPlaying,
                                         isStatic = !isPlaying || hydrationLevel < com.saurabh.artifact.ui.feed.HydrationLevel.FULL,
-                                        context = if (isPlaying) WaveformContext.Player else WaveformContext.Feed
+                                        context = if (isPlaying) WaveformContext.Player else WaveformContext.Feed,
+                                        id = artifact.id
                                     )
                                 }
                             }
@@ -421,23 +432,34 @@ private fun LightweightArtifactCard(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = Spacing.Medium)
             .clip(MaterialTheme.shapes.large)
             .background(ArtifactTheme.colors.surfaceHearth)
             .padding(Spacing.Large)
     ) {
         Column {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(ArtifactTheme.colors.waveformActive.copy(alpha = 0.2f)))
-                Spacer(Modifier.width(Spacing.Small))
-                Text(
-                    text = artifact.emotion.ifEmpty { "reflective" }.lowercase(),
-                    style = ArtifactTheme.typography.labelLarge,
-                    color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.4f)
-                )
+            val emotionLabel = remember(artifact.emotion) {
+                val emotionEnum = com.saurabh.artifact.model.Emotion.entries.find { 
+                    it.label.equals(artifact.emotion, ignoreCase = true) || 
+                    it.name.equals(artifact.emotion, ignoreCase = true) 
+                }
+                if (emotionEnum != null) {
+                    "${emotionEnum.emoji} ${emotionEnum.label.lowercase()}"
+                } else ""
             }
 
-            Spacer(modifier = Modifier.height(Spacing.Medium))
+            if (emotionLabel.isNotEmpty()) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(ArtifactTheme.colors.waveformActive.copy(alpha = 0.2f)))
+                    Spacer(Modifier.width(Spacing.Small))
+                    Text(
+                        text = emotionLabel,
+                        style = ArtifactTheme.typography.labelLarge,
+                        color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.4f)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(Spacing.Medium))
+            }
 
             Text(
                 text = artifact.title.ifEmpty { "A quiet moment shared..." },
@@ -472,7 +494,8 @@ private fun LightweightArtifactCard(
                 // Placeholder Waveform (Static)
                 StaticWaveformPlaceholder(
                     modifier = Modifier.weight(1f),
-                    context = WaveformContext.Feed
+                    context = WaveformContext.Feed,
+                    id = artifact.id
                 )
             }
         }
@@ -497,7 +520,7 @@ fun PreviewArtifactCardAtmospheric() {
             title = "A reflection on the evening rain and the sound of silence.",
             audioUrl = "",
             durationMs = 120000,
-            emotion = "Peaceful"
+            emotion = "Hopeful"
         )
         ArtifactCard(
             artifact = mockArtifact,
@@ -505,7 +528,8 @@ fun PreviewArtifactCardAtmospheric() {
             onPlayClick = {},
             currentPosition = 30000,
             durationMs = 120000,
-            currentUserId = "user_1"
+            currentUserId = "user_1",
+            modifier = Modifier.padding(vertical = Spacing.Medium)
         )
     }
 }

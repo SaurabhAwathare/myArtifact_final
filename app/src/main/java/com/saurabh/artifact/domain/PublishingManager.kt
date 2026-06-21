@@ -83,7 +83,7 @@ class PublishingManager @Inject constructor(
 
             // 4. Fetch User Profile (Offline-First)
             Log.d("PublishingManager", "Step 4: Fetching user profile for $draftId")
-            val userProfile = userRepository.getOrCreateProfile().getOrElse {
+            val userProfile = userRepository.getOrCreateProfile().map { it.user }.getOrElse {
                 Log.w("PublishingManager", "Network profile fetch failed, attempting to use cached profile")
                 userRepository.getCachedProfile() ?: throw Exception("User profile not available (even offline)")
             }

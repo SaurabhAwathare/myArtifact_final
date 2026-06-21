@@ -27,7 +27,8 @@ import com.saurabh.artifact.ui.theme.MossSafe
 fun UsernameInput(
     state: UsernameUiState,
     onUsernameChange: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
 ) {
     val isAvailable = state.isAvailable == true
     val isTaken = state.isAvailable == false && state.validationResult?.reason == ValidationReason.ALREADY_TAKEN
@@ -44,6 +45,7 @@ fun UsernameInput(
             value = state.username,
             onValueChange = onUsernameChange,
             modifier = Modifier.fillMaxWidth(),
+            enabled = enabled,
             placeholder = { Text("Enter a name...") },
             label = { Text("Anonymous Name") },
             shape = RoundedCornerShape(16.dp),
@@ -86,8 +88,13 @@ fun UsernameInput(
 
         // Specific feedback for availability
         if (isTaken) {
+            val errorText = if (state.suggestions.isNotEmpty()) {
+                "This name is taken. Try one of the suggestions below."
+            } else {
+                "This name is already taken."
+            }
             Text(
-                text = "This name is already taken. Try one of the suggestions below.",
+                text = errorText,
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.labelSmall,
                 modifier = Modifier.padding(start = 16.dp, top = 4.dp)
