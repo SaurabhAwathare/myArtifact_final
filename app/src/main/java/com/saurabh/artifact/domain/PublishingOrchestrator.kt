@@ -7,6 +7,7 @@ import com.saurabh.artifact.audio.UploadService
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.security.UploadGuard
 import com.saurabh.artifact.repository.AuthRepository
+import com.saurabh.artifact.domain.auth.SessionConstants
 import com.saurabh.artifact.domain.review.publishing.PublishingReviewPolicy
 import com.saurabh.artifact.worker.PublishingWorker
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -42,30 +43,37 @@ class PublishingOrchestrator @Inject constructor(
         val transcodingWork = OneTimeWorkRequestBuilder<com.saurabh.artifact.worker.TranscodingWorker>()
             .setInputData(inputData)
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+            .addTag(SessionConstants.TAG_USER_SESSION_WORK)
             .build()
 
         val normalizationWork = OneTimeWorkRequestBuilder<com.saurabh.artifact.worker.AudioNormalizationWorker>()
             .setInputData(inputData)
+            .addTag(SessionConstants.TAG_USER_SESSION_WORK)
             .build()
 
         val waveformWork = OneTimeWorkRequestBuilder<com.saurabh.artifact.worker.WaveformWorker>()
             .setInputData(inputData)
+            .addTag(SessionConstants.TAG_USER_SESSION_WORK)
             .build()
 
         val transcriptionWork = OneTimeWorkRequestBuilder<com.saurabh.artifact.worker.TranscriptionWorker>()
             .setInputData(inputData)
+            .addTag(SessionConstants.TAG_USER_SESSION_WORK)
             .build()
 
         val privacyWork = OneTimeWorkRequestBuilder<com.saurabh.artifact.worker.PrivacyScanWorker>()
             .setInputData(inputData)
+            .addTag(SessionConstants.TAG_USER_SESSION_WORK)
             .build()
 
         val safetyWork = OneTimeWorkRequestBuilder<com.saurabh.artifact.worker.SafetyAnalysisWorker>()
             .setInputData(inputData)
+            .addTag(SessionConstants.TAG_USER_SESSION_WORK)
             .build()
 
         val finalStateWork = OneTimeWorkRequestBuilder<com.saurabh.artifact.worker.ProcessingFinalizerWorker>()
             .setInputData(inputData)
+            .addTag(SessionConstants.TAG_USER_SESSION_WORK)
             .build()
 
         workManager.beginUniqueWork(
@@ -190,6 +198,7 @@ class PublishingOrchestrator @Inject constructor(
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.SECONDS)
             .addTag("publish_$draftId")
+            .addTag(SessionConstants.TAG_USER_SESSION_WORK)
             .build()
 
         workManager.enqueueUniqueWork(

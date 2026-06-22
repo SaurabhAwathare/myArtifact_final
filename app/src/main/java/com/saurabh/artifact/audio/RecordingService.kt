@@ -552,6 +552,12 @@ class RecordingService : Service() {
         serviceScope.launch {
             draftDao.getDraftById(draftId)?.let { draftDao.delete(it) }
             userSessionManager.setActiveDraftId(null)
+            
+            // Ensure service stops after cleanup
+            withContext(Dispatchers.Main) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+            }
         }
     }
 

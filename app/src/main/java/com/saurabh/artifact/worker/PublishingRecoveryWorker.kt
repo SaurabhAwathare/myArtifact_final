@@ -12,6 +12,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.saurabh.artifact.domain.auth.SessionConstants
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import java.util.concurrent.TimeUnit
@@ -54,6 +55,7 @@ class PublishingRecoveryWorker @AssistedInject constructor(
                 .setConstraints(constraints)
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.SECONDS)
                 .addTag("publish_${task.draftId}")
+                .addTag(SessionConstants.TAG_USER_SESSION_WORK)
                 .build()
 
             workManager.enqueueUniqueWork(

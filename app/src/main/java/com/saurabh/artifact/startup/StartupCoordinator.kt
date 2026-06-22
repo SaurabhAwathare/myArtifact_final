@@ -11,6 +11,7 @@ import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderF
 import com.saurabh.artifact.BuildConfig
 import com.saurabh.artifact.util.CoroutineExceptionHandlerUtils
 import com.saurabh.artifact.util.StartupTracer
+import com.saurabh.artifact.domain.auth.SessionConstants
 import com.saurabh.artifact.worker.ReminderWorker
 import com.saurabh.artifact.worker.RecoveryWorker
 import com.saurabh.artifact.worker.CleanupOrphanFilesWorker
@@ -251,6 +252,7 @@ class StartupCoordinator @Inject constructor(
         val recoveryRequest = PeriodicWorkRequestBuilder<PublishingRecoveryWorker>(1, TimeUnit.HOURS)
             .setInitialDelay(1, TimeUnit.MINUTES)
             .addTag("publishing_recovery")
+            .addTag(SessionConstants.TAG_USER_SESSION_WORK)
             .build()
 
         workManager.enqueueUniquePeriodicWork(
@@ -268,6 +270,7 @@ class StartupCoordinator @Inject constructor(
         val recoveryRequest = OneTimeWorkRequestBuilder<RecoveryWorker>()
             .setInitialDelay(5, TimeUnit.SECONDS)
             .addTag("startup_recovery")
+            .addTag(SessionConstants.TAG_USER_SESSION_WORK)
             .build()
             
         workManager.enqueueUniqueWork(

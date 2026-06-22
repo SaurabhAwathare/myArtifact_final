@@ -13,6 +13,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import kotlin.Result as KResult
 import com.google.firebase.auth.FirebaseAuth
+import com.saurabh.artifact.domain.auth.SessionConstants
 import com.saurabh.artifact.data.local.*
 import com.saurabh.artifact.model.ReactionType
 import com.saurabh.artifact.repository.ArtifactRepository
@@ -110,6 +111,7 @@ class InteractionSyncWorker @AssistedInject constructor(
                 .setConstraints(constraints)
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
                 .addTag(TAG)
+                .addTag(SessionConstants.TAG_USER_SESSION_WORK)
                 .build()
 
             WorkManager.getInstance(context).enqueueUniqueWork(
