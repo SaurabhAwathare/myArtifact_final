@@ -7,8 +7,8 @@ import javax.inject.Inject
 
 enum class InitialDestination {
     ONBOARDING,
-    HOME,
-    LOGIN
+    AUTHENTICATED,
+    UNAUTHENTICATED
 }
 
 class GetInitialDestinationUseCase @Inject constructor(
@@ -21,8 +21,8 @@ class GetInitialDestinationUseCase @Inject constructor(
 
         return when {
             !onboardingCompleted -> InitialDestination.ONBOARDING
-            firebaseUser != null -> InitialDestination.HOME
-            else -> InitialDestination.LOGIN
+            firebaseUser != null -> InitialDestination.AUTHENTICATED
+            else -> InitialDestination.UNAUTHENTICATED
         }
     }
 }

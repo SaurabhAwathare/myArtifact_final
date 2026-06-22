@@ -16,7 +16,6 @@ import javax.inject.Inject
 @HiltViewModel
 class LoginViewModel @Inject constructor(
     private val authRepository: AuthRepository,
-    private val userRepository: com.saurabh.artifact.repository.UserRepository,
     val credentialHelper: CredentialHelper
 ) : ViewModel() {
 
@@ -29,16 +28,7 @@ class LoginViewModel @Inject constructor(
             authRepository.signInWithGoogle(idToken)
                 .onSuccess { firebaseUser ->
                     if (firebaseUser != null) {
-                        viewModelScope.launch {
-                            userRepository.getOrCreateProfile()
-                                .onSuccess { result ->
-                                    _loginState.value = LoginState.Success(isNewUser = result.isNewUser)
-                                }
-                                .onFailure { e ->
-                                    Log.e("AUTH", "Profile creation failed", e)
-                                    _loginState.value = LoginState.Error(ErrorMessageMapper.map(e))
-                                }
-                        }
+                        _loginState.value = LoginState.Success(isNewUser = false) // isNewUser will be determined by RegistrationCoordinator in MainViewModel
                     } else {
                         _loginState.value = LoginState.Error(UiText.DynamicString("Google Sign-In failed: User is null"))
                     }

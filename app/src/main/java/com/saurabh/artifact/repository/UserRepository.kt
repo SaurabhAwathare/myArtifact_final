@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import dagger.Lazy
 import javax.inject.Inject
 import javax.inject.Singleton
 import com.google.firebase.firestore.FirebaseFirestoreException
@@ -39,7 +40,8 @@ class UserRepository @Inject constructor(
     private val firestore: FirebaseFirestore,
     private val notificationRepository: NotificationRepository,
     private val userDao: UserDao,
-    private val identityProtectionPolicy: com.saurabh.artifact.domain.IdentityProtectionPolicy
+    private val identityProtectionPolicy: com.saurabh.artifact.domain.IdentityProtectionPolicy,
+    private val registrationCoordinator: Lazy<com.saurabh.artifact.domain.auth.RegistrationCoordinator>
 ) {
     private val usersCollection = firestore.collection("users")
     private val usernamesCollection = firestore.collection("usernames")
@@ -50,6 +52,10 @@ class UserRepository @Inject constructor(
      */
     suspend fun createUsername(userId: String, username: String): Result<Unit> = withContext(Dispatchers.IO) {
         if (userId.isBlank()) return@withContext Result.failure(AppError.InvalidInput("User ID cannot be blank"))
+        
+        // SELF-HEALING: Ensure profile exists before update
+        registrationCoordinator.get().ensureProfileExists()
+
         val normalizedUsername = username.lowercase().trim()
         try {
             val userRef = try {
@@ -139,13 +145,13 @@ class UserRepository @Inject constructor(
         val initialUser = auth.currentUser ?: return@withContext Result.failure(AppError.Unauthenticated())
         
         try {
+            Log.d("APP_FLOW", "REGISTRATION_BEGIN: users/${initialUser.uid}")
             try {
-                withTimeout(10.seconds) {
+                withTimeout(5.seconds) {
                     initialUser.reload().await()
                 }
             } catch (e: Exception) {
-                Log.w("UserRepository", "Failed to reload user or timeout reached, might be deleted or session expired.", e)
-                // If it's just a timeout, we proceed carefully; if it's a hard error, we sign out.
+                Log.w("UserRepository", "Failed to reload user or timeout reached", e)
                 if (e !is kotlinx.coroutines.TimeoutCancellationException) {
                     auth.signOut()
                     return@withContext Result.failure(AppError.from(e))
@@ -157,52 +163,57 @@ class UserRepository @Inject constructor(
             val privateRef = userRef.collection("private").document("settings")
 
             // 2. Atomic Check & Create via Transaction
-            val profileResult = firestore.runTransaction { transaction ->
-                val snapshot = transaction[userRef]
-                
-                if (snapshot.exists()) {
-                    // Safe deserialization
-                    val user = snapshot.toObject(User::class.java)?.copy(id = currentUser.uid)
-                        ?: throw IllegalStateException("User document exists but is malformed.")
-                    ProfileResult(user = user, isNewUser = false)
-                } else {
-                    // Initialize new fully anonymous profile
-                    val anonymousId = "usr_${java.util.UUID.randomUUID().toString().take(5).uppercase()}"
-                    val anonymousName = UsernameGenerator.generate()
-                    val anonymousSigil = UsernameGenerator.deriveSigil(anonymousId)
-                    val seed = java.util.UUID.randomUUID().toString()
+            val profileResult = withTimeout(15.seconds) {
+                firestore.runTransaction { transaction ->
+                    val snapshot = transaction[userRef]
                     
-                    val newProfile = User(
-                        id = currentUser.uid,
-                        anonymousId = anonymousId,
-                        anonymousName = anonymousName,
-                        anonymousSigil = anonymousSigil,
-                        avatarSeed = seed,
-                        avatarConfig = AvatarConfig(
-                            seed = seed, 
-                            theme = "CARTOON",
-                            faceShape = FaceShape.entries.random(),
-                            eyeType = EyeType.entries.random(),
-                            mouthType = MouthType.entries.random(),
-                            hairType = HairType.entries.random(),
-                            accessoryType = AccessoryType.entries.random()
-                        ),
-                        isAnonymous = true,
-                        emotionalProfile = "New Soul"
-                    )
+                    if (snapshot.exists()) {
+                        Log.d("UserRepository", "User exists")
+                        val user = snapshot.toObject(User::class.java)?.copy(id = currentUser.uid)
+                            ?: throw IllegalStateException("User document malformed.")
+                        ProfileResult(user = user, isNewUser = false)
+                    } else {
+                        Log.d("UserRepository", "New User initialization")
+                        val anonymousId = "usr_${java.util.UUID.randomUUID().toString().take(5).uppercase()}"
+                        val anonymousName = UsernameGenerator.generate()
+                        val anonymousSigil = UsernameGenerator.deriveSigil(anonymousId)
+                        val seed = java.util.UUID.randomUUID().toString()
+                        
+                        val newProfile = User(
+                            id = currentUser.uid,
+                            anonymousId = anonymousId,
+                            anonymousName = anonymousName,
+                            anonymousSigil = anonymousSigil,
+                            avatarSeed = seed,
+                            avatarConfig = AvatarConfig(
+                                seed = seed, 
+                                theme = "CARTOON",
+                                faceShape = FaceShape.entries.random(),
+                                eyeType = EyeType.entries.random(),
+                                mouthType = MouthType.entries.random(),
+                                hairType = HairType.entries.random(),
+                                accessoryType = AccessoryType.entries.random()
+                            ),
+                            isAnonymous = true,
+                            emotionalProfile = "New Soul"
+                        )
 
-                    val privateSettings = UserPrivateSettings(
-                        secureEmail = SecureString.fromString(currentUser.email ?: ""),
-                        secureRealName = SecureString.fromString(currentUser.displayName ?: ""),
-                        isAdmin = false,
-                        accountStatus = "ACTIVE"
-                    )
+                        val privateSettings = UserPrivateSettings(
+                            secureEmail = SecureString.fromString(currentUser.email ?: ""),
+                            secureRealName = SecureString.fromString(currentUser.displayName ?: ""),
+                            isAdmin = false,
+                            accountStatus = "ACTIVE"
+                        )
 
-                    transaction[userRef] = newProfile
-                    transaction[privateRef] = privateSettings
-                    ProfileResult(user = newProfile, isNewUser = true)
-                }
-            }.await()
+                        transaction[userRef] = newProfile
+                        transaction[privateRef] = privateSettings
+                        
+                        ProfileResult(user = newProfile, isNewUser = true)
+                    }
+                }.await()
+            }
+            
+            Log.d("APP_FLOW", "REGISTRATION_SUCCESS: isNewUser=${profileResult.isNewUser}")
             
             // Cache the profile locally
             try {
@@ -212,8 +223,11 @@ class UserRepository @Inject constructor(
             }
 
             Result.success(profileResult)
+        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            Log.e("APP_FLOW", "REGISTRATION_FAILED: TIMEOUT", e)
+            Result.failure(AppError.from(e))
         } catch (e: Exception) {
-            Log.e("UserRepository", "getOrCreateProfile failed", e)
+            Log.e("APP_FLOW", "REGISTRATION_FAILED", e)
             Result.failure(AppError.from(e))
         }
     }
@@ -468,6 +482,9 @@ class UserRepository @Inject constructor(
 
     suspend fun updateAvatarConfig(userId: String, config: AvatarConfig): Result<Unit> = withContext(Dispatchers.IO) {
         try {
+            // SELF-HEALING: Ensure profile exists before update
+            registrationCoordinator.get().ensureProfileExists()
+
             val userRef = usersCollection.document(userId)
             val userSnapshot = userRef.get().await()
             val user = userSnapshot.toObject(User::class.java) ?: User()

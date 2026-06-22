@@ -67,9 +67,31 @@ class SettingsRepository @Inject constructor(
             authRepository.currentUser.collectLatest { user ->
                 remoteListener?.remove()
                 if (user != null) {
+                    // HARDENING: Wait for profile to be fully ready before subscribing
+                    // This prevents PERMISSION_DENIED spam during registration/recovery
+                    var retryCount = 0
+                    while (retryCount < 5) {
+                        try {
+                            val snapshot = firestore.collection("users").document(user.uid).get().await()
+                            if (snapshot.exists()) break
+                        } catch (e: Exception) {
+                            Log.d("SettingsRepository", "Profile not ready yet, retrying... (${e.message})")
+                        }
+                        kotlinx.coroutines.delay(1000)
+                        retryCount++
+                    }
+
                     remoteListener = firestore.collection("settings").document(user.uid)
                         .addSnapshotListener { snapshot, error ->
-                            if (error != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
+                            if (error != null) {
+                                if (error.code == com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+                                    Log.d("SettingsRepository", "Settings access denied. Profile might still be initializing.")
+                                } else {
+                                    Log.e("SettingsRepository", "Error observing settings: ${error.message}")
+                                }
+                                return@addSnapshotListener
+                            }
+                            if (snapshot == null || !snapshot.exists()) return@addSnapshotListener
                             val remoteSettings = snapshot.toObject(UserSettings::class.java) ?: return@addSnapshotListener
                             repositoryScope.launch {
                                 updateLocalSettings(remoteSettings)

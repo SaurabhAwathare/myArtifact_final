@@ -78,8 +78,15 @@ class StartupCoordinator @Inject constructor(
     }
 
     private suspend fun awaitReadiness(component: StartupComponent) {
-        _readyComponents.first { it.contains(component) }
-        Log.d("Startup", "Readiness Confirmed: $component")
+        try {
+            withTimeout(15.seconds) {
+                _readyComponents.first { it.contains(component) }
+            }
+            Log.d("Startup", "Readiness Confirmed: $component")
+        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            Log.e("Startup", "Readiness Timeout: $component. Proceeding with caution.")
+            // We proceed anyway to avoid permanent splash screen
+        }
     }
 
     /**

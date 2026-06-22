@@ -9,6 +9,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -17,6 +18,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
@@ -30,6 +32,8 @@ import com.saurabh.artifact.navigation.NavGraph
 import com.saurabh.artifact.navigation.PublishingStudio
 import com.saurabh.artifact.startup.StartupStage
 import com.saurabh.artifact.ui.components.GlobalOverlayHost
+import com.saurabh.artifact.ui.components.base.AppButton
+import com.saurabh.artifact.ui.components.base.AppEmptyState
 import com.saurabh.artifact.ui.components.moderation.ReportSheet
 import com.saurabh.artifact.ui.feed.FeedViewModel
 import com.saurabh.artifact.ui.player.PlayerViewModel
@@ -39,6 +43,7 @@ import com.saurabh.artifact.ui.splash.SplashUI
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.theme.LocalStartupStage
 import com.saurabh.artifact.ui.theme.LocalUserProfile
+import com.saurabh.artifact.ui.theme.Obsidian950
 import com.saurabh.artifact.util.OnboardingManager
 import dagger.Lazy
 import dagger.hilt.android.AndroidEntryPoint
@@ -234,8 +239,40 @@ fun AuthenticatedIsland(
                 }
             }
         }
+        is AppStartupState.Error -> {
+            val errorState = startupState as AppStartupState.Error
+            StartupErrorUI(
+                message = errorState.message,
+                onRetry = { mainViewModel.retryStartup() }
+            )
+        }
         else -> {
             SplashUI()
         }
+    }
+}
+
+@Composable
+fun StartupErrorUI(
+    message: String,
+    onRetry: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Obsidian950),
+        contentAlignment = Alignment.Center
+    ) {
+        AppEmptyState(
+            title = "The path is blocked",
+            description = message,
+            emoji = "🌑",
+            action = {
+                AppButton(
+                    text = "Try again",
+                    onClick = onRetry
+                )
+            }
+        )
     }
 }

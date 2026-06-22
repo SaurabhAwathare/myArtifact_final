@@ -16,14 +16,19 @@ import javax.inject.Inject
 
 sealed class AppStartupState {
     object Initializing : AppStartupState()
+    object Unauthenticated : AppStartupState()
+    object Registering : AppStartupState()
+    object Recovering : AppStartupState()
     object Rescue : AppStartupState()
     data class Ready(val startDestination: Any) : AppStartupState()
+    data class Error(val message: String) : AppStartupState()
 }
 
 @HiltViewModel
 class MainViewModel @Inject constructor(
     private val authRepository: com.saurabh.artifact.repository.AuthRepository,
     private val getInitialDestinationUseCase: GetInitialDestinationUseCase,
+    private val registrationCoordinator: com.saurabh.artifact.domain.auth.RegistrationCoordinator,
     observeCurrentUserProfileUseCase: ObserveCurrentUserProfileUseCase,
     observeStealthModeUseCase: ObserveStealthModeUseCase,
     private val startupCoordinator: StartupCoordinator
@@ -76,35 +81,74 @@ class MainViewModel @Inject constructor(
     fun start() {
         if (isStarted) return
         isStarted = true
+        android.util.Log.d("APP_FLOW", "STARTUP_BEGIN")
 
         if (startupCoordinator.isRescueModeActive) {
             _startupState.value = AppStartupState.Rescue
             return
         }
 
+        executeStartup()
+    }
+
+    fun retryStartup() {
+        android.util.Log.d("APP_FLOW", "STARTUP_RETRY")
+        _startupState.value = AppStartupState.Initializing
+        executeStartup()
+    }
+
+    private fun executeStartup() {
         viewModelScope.launch {
             try {
                 determineInitialRoute()
             } catch (e: Exception) {
-                android.util.Log.e("MainViewModel", "Startup error", e)
-                _startupState.value = AppStartupState.Ready(Login)
+                android.util.Log.e("MainViewModel", "STARTUP_ERROR", e)
+                _startupState.value = AppStartupState.Error("An unexpected error occurred during startup.")
             }
         }
     }
 
     private suspend fun determineInitialRoute() {
-        val destination: Any = when (getInitialDestinationUseCase()) {
+        android.util.Log.d("APP_FLOW", "AUTH_CHECK_BEGIN")
+        val initialDestination = getInitialDestinationUseCase()
+        android.util.Log.d("APP_FLOW", "AUTH_CHECK_SUCCESS: $initialDestination")
+
+        val destination: Any = when (initialDestination) {
             InitialDestination.ONBOARDING -> Onboarding
-            InitialDestination.HOME -> Home
-            InitialDestination.LOGIN -> Login
+            InitialDestination.UNAUTHENTICATED -> Login
+            InitialDestination.AUTHENTICATED -> {
+                // REGISTRATION GATE
+                android.util.Log.d("APP_FLOW", "PROFILE_CHECK_BEGIN")
+                _startupState.value = AppStartupState.Registering
+                val isProfileReady = try {
+                    registrationCoordinator.ensureProfileExists()
+                } catch (e: Exception) {
+                    android.util.Log.e("AppStartup", "PROFILE_CHECK_FAILED", e)
+                    false
+                }
+                
+                if (isProfileReady) {
+                    android.util.Log.d("APP_FLOW", "PROFILE_CHECK_SUCCESS")
+                    Home
+                } else {
+                    android.util.Log.e("AppStartup", "PROFILE_CHECK_FAILED: Registration/Recovery failed.")
+                    _startupState.value = AppStartupState.Error("Failed to initialize profile. Please check your connection and try again.")
+                    // Even on error, we must signal AUTH readiness to unblock the StartupCoordinator
+                    // if it's waiting, OR the StartupCoordinator should be aware of errors.
+                    // For now, signaling readiness to allow the UI to show the Error screen.
+                    startupCoordinator.emitReadiness(com.saurabh.artifact.startup.StartupComponent.AUTH)
+                    return
+                }
+            }
         }
 
-        // SIGNAL: Auth is ready, we know where to go
+        // SIGNAL: Auth and Profile are ready
         startupCoordinator.emitReadiness(com.saurabh.artifact.startup.StartupComponent.AUTH)
+        startupCoordinator.emitReadiness(com.saurabh.artifact.startup.StartupComponent.DATABASE)
 
         _startupState.value = AppStartupState.Ready(destination)
+        android.util.Log.d("APP_FLOW", "STARTUP_READY: Destination=$destination")
         StartupMetrics.onAuthReady()
-        android.util.Log.d("AppStartup", "Startup sequence complete. Destination: $destination")
     }
 
     fun onNewIntent(intent: android.content.Intent?) {

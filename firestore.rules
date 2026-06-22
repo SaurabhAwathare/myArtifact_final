@@ -11,10 +11,10 @@ service cloud.firestore {
       return isAuth() && request.auth.uid == userId;
     }
 
-    function isAdmin() {
+    function isGlobalAdmin() {
       return isAuth() &&
              exists(/databases/$(database)/documents/users/$(request.auth.uid)/private/settings) &&
-             get(/databases/$(database)/documents/users/$(request.auth.uid)/private/settings).data.isAdmin == true;
+             ( (get(/databases/$(database)/documents/users/$(request.auth.uid)/private/settings).data.isAdmin == true) || (get(/databases/$(database)/documents/users/$(request.auth.uid)/private/settings).data.admin == true) );
     }
 
     // --- USERS & PROFILES ---
@@ -33,17 +33,17 @@ service cloud.firestore {
                     !("accountStatus" in request.resource.data);
 
       match /private/settings {
-        allow read: if isOwner(uid) || isAdmin();
+        allow read: if isOwner(uid) || isGlobalAdmin();
 
         allow create: if isOwner(uid) &&
-                      request.resource.data.isAdmin == false &&
+                      (request.resource.data.isAdmin == false || request.resource.data.admin == false) &&
                       request.resource.data.accountStatus == 'ACTIVE';
 
         allow update: if isOwner(uid) &&
                      !(request.resource.data.diff(resource.data).affectedKeys()
                        .hasAny(['isAdmin', 'accountStatus']));
 
-        allow write: if isAdmin();
+        allow write: if isGlobalAdmin();
       }
 
       // Resonance & Engagement
@@ -71,14 +71,14 @@ service cloud.firestore {
       allow read: if resource == null ||
                    (resource.data.get('isPublic', false) == true) ||
                    isOwner(resource.data.userId) ||
-                   isAdmin();
+                   isGlobalAdmin();
 
       // Fix Identity Spoofing: Ensure userId matches current user
       allow create: if isAuth() &&
                     request.resource.data.userId == request.auth.uid &&
                     request.resource.data.author.keys().hasAll(['anonymousId', 'name']);
 
-      allow update, delete: if isAdmin() || isOwner(resource.data.userId);
+      allow update, delete: if isGlobalAdmin() || isOwner(resource.data.userId);
 
       match /stats/resonance {
         allow read: if true;
@@ -99,17 +99,18 @@ service cloud.firestore {
                     request.resource.data.authorId == request.auth.uid &&
                     (
                       request.resource.data.artifactOwnerId == request.auth.uid ||
-                      get(/databases/$(database)/documents/users/$(request.auth.uid)/engagement/$(request.resource.data.artifactId)).data.isCommentUnlocked == true
+                      get(/databases/$(database)/documents/users/$(request.auth.uid)/engagement/$(request.resource.data.artifactId)).data.isCommentUnlocked == true ||
+                      get(/databases/$(database)/documents/users/$(request.auth.uid)/engagement/$(request.resource.data.artifactId)).data.commentUnlocked == true
                     );
 
       allow update: if (isOwner(resource.data.authorId) &&
                     !(request.resource.data.diff(resource.data).affectedKeys()
                       .hasAny(['authorId', 'artifactId', 'artifactOwnerId']))) ||
-                    isAdmin();
+                    isGlobalAdmin();
 
       allow delete: if isOwner(resource.data.authorId) ||
                     isOwner(resource.data.artifactOwnerId) ||
-                    isAdmin();
+                    isGlobalAdmin();
     }
 
     match /artifact_reaction_counts/{artifactId} {
@@ -152,7 +153,7 @@ service cloud.firestore {
 
     match /reports/{id} {
       allow create: if isAuth() && request.resource.data.reporterId == request.auth.uid;
-      allow read, write: if isAdmin();
+      allow read, write: if isGlobalAdmin();
     }
 
 

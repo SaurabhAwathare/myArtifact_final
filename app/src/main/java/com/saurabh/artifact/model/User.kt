@@ -66,6 +66,7 @@ data class UserPrivateSettings(
     var secureRealName: SecureString = SecureString.empty(),
     
     val fcmToken: String? = null,
+    @get:PropertyName("isAdmin")
     val isAdmin: Boolean = false,
     val accountStatus: String = "ACTIVE", // ACTIVE, SHADOW_BANNED, BANNED
     val metadata: Map<String, Any> = emptyMap()
