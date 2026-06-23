@@ -15,19 +15,20 @@ class PersonalizedPagingSource(
     private val feedRepository: FeedRepository,
     private val feedRanker: FeedRanker,
     private val emotion: String? = null
-) : PagingSource<PersonalizedPagingSource.PageKey, Artifact>() {
+) : PagingSource<PersonalizedPagingSource.PageKey, Pair<Artifact, Int>>() {
 
     data class PageKey(
         val resonatedLast: DocumentSnapshot? = null,
         val discoveryLast: DocumentSnapshot? = null,
-        val isFirstPage: Boolean = false
+        val isFirstPage: Boolean = false,
+        val offset: Int = 0
     )
 
-    override fun getRefreshKey(state: PagingState<PageKey, Artifact>): PageKey? {
+    override fun getRefreshKey(state: PagingState<PageKey, Pair<Artifact, Int>>): PageKey? {
         return null // Always refresh from start
     }
 
-    override suspend fun load(params: LoadParams<PageKey>): LoadResult<PageKey, Artifact> {
+    override suspend fun load(params: LoadParams<PageKey>): LoadResult<PageKey, Pair<Artifact, Int>> {
         return withContext(Dispatchers.IO) {
             try {
                 val key = params.key ?: PageKey(isFirstPage = true)
@@ -60,12 +61,13 @@ class PersonalizedPagingSource(
                     PageKey(
                         resonatedLast = resonatedResult.lastVisible ?: key.resonatedLast,
                         discoveryLast = discoveryResult.lastVisible ?: key.discoveryLast,
-                        isFirstPage = false
+                        isFirstPage = false,
+                        offset = key.offset + ranked.size
                     )
                 }
 
                 LoadResult.Page(
-                    data = ranked,
+                    data = ranked.mapIndexed { i, artifact -> artifact to (key.offset + i) },
                     prevKey = null,
                     nextKey = nextKey
                 )

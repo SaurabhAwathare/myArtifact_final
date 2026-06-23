@@ -20,6 +20,7 @@ class AuthRepository @Inject constructor(
     private val firebaseAuth: FirebaseAuth,
     private val firestore: FirebaseFirestore,
     private val credentialManager: CredentialManager,
+    private val profileRepairService: com.saurabh.artifact.domain.auth.ProfileRepairService
 ) {
     private val _currentUser = MutableStateFlow(firebaseAuth.currentUser)
     val currentUser: StateFlow<FirebaseUser?> = _currentUser
@@ -67,9 +68,8 @@ class AuthRepository @Inject constructor(
                 }
 
                 if (snapshot != null && snapshot.exists()) {
-                    snapshot.toObject(User::class.java)?.let {
-                        _userData.value = it.copy(id = snapshot.id)
-                    }
+                    val (user, _) = profileRepairService.loadAndRepair(snapshot)
+                    _userData.value = user
                 } else {
                     _userData.value = null
                 }

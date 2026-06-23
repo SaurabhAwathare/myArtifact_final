@@ -13,14 +13,17 @@ import kotlin.time.Duration.Companion.seconds
 
 sealed class HealthStatus {
     object Healthy : HealthStatus()
+    data class Corrupted(val reasons: List<String>) : HealthStatus()
     object RepairRequired : HealthStatus()
+    object Unrecoverable : HealthStatus()
     object Missing : HealthStatus()
 }
 
 @Singleton
 class ProfileHealthChecker @Inject constructor(
     private val auth: FirebaseAuth,
-    private val firestore: FirebaseFirestore
+    private val firestore: FirebaseFirestore,
+    private val profileRepairService: ProfileRepairService
 ) {
     suspend fun checkHealth(): HealthStatus {
         val currentUser = auth.currentUser ?: return HealthStatus.Missing
@@ -39,10 +42,15 @@ class ProfileHealthChecker @Inject constructor(
                 return HealthStatus.Missing
             }
 
-            // Verify basic fields
-            val user = userSnapshot.toObject(User::class.java)
-            if (user == null || user.anonymousId.isBlank() || user.anonymousName.isBlank()) {
-                Log.w("ProfileHealth", "User document malformed for $userId")
+            // Verify basic fields using the repair service's validation logic
+            val (user, needsRepair) = profileRepairService.loadAndRepair(userSnapshot)
+            if (needsRepair) {
+                Log.w("ProfileHealth", "User document requires repair for $userId")
+                return HealthStatus.RepairRequired
+            }
+
+            if (user.anonymousId.isBlank() || user.anonymousName.isBlank()) {
+                Log.w("ProfileHealth", "User document missing core identity for $userId")
                 return HealthStatus.RepairRequired
             }
 

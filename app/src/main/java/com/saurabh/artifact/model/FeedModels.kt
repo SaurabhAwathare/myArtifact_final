@@ -47,6 +47,22 @@ data class EmotionalCompatibilityProfile(
 )
 
 /**
+ * Sealed class representing items that can be displayed in the main feed.
+ */
+sealed class FeedDisplayItem {
+    abstract val id: String
+    
+    data class ArtifactItem(
+        val artifact: Artifact,
+        val absoluteIndex: Int = 0
+    ) : FeedDisplayItem() {
+        override val id: String = artifact.id
+    }
+    
+    data class BreakItem(override val id: String) : FeedDisplayItem()
+}
+
+/**
  * State of the feed composition.
  */
 sealed class FeedCompositionState {

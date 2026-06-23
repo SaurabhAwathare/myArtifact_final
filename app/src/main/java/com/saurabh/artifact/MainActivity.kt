@@ -241,7 +241,7 @@ fun AuthenticatedIsland(
         }
         is AppStartupState.Error -> {
             val errorState = startupState as AppStartupState.Error
-            StartupErrorUI(
+            com.saurabh.artifact.ui.splash.StartupErrorScreen(
                 message = errorState.message,
                 onRetry = { mainViewModel.retryStartup() }
             )
@@ -249,30 +249,5 @@ fun AuthenticatedIsland(
         else -> {
             SplashUI()
         }
-    }
-}
-
-@Composable
-fun StartupErrorUI(
-    message: String,
-    onRetry: () -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Obsidian950),
-        contentAlignment = Alignment.Center
-    ) {
-        AppEmptyState(
-            title = "The path is blocked",
-            description = message,
-            emoji = "🌑",
-            action = {
-                AppButton(
-                    text = "Try again",
-                    onClick = onRetry
-                )
-            }
-        )
     }
 }

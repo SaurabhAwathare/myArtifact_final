@@ -3,6 +3,7 @@ package com.saurabh.artifact.domain.feed
 import androidx.paging.PagingData
 import androidx.paging.map
 import com.saurabh.artifact.model.Artifact
+import com.saurabh.artifact.model.FeedDisplayItem
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.AuthRepository
 import kotlinx.coroutines.flow.Flow
@@ -13,10 +14,13 @@ class GetFeedFlowUseCase @Inject constructor(
     private val artifactRepository: ArtifactRepository,
     private val authRepository: AuthRepository
 ) {
-    operator fun invoke(emotion: String?): Flow<PagingData<Artifact>> {
+    operator fun invoke(emotion: String?): Flow<PagingData<FeedDisplayItem.ArtifactItem>> {
         return artifactRepository.getArtifactsPager(emotion).map { pagingData ->
-            pagingData.map { artifact ->
-                resolveIdentity(artifact)
+            pagingData.map { (artifact, index) ->
+                FeedDisplayItem.ArtifactItem(
+                    artifact = resolveIdentity(artifact),
+                    absoluteIndex = index
+                )
             }
         }
     }

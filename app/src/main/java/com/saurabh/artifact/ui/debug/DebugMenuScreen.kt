@@ -84,6 +84,27 @@ fun DebugMenuScreen(
                 )
             }
 
+            DebugSection(title = "Profile Audit Tools") {
+                SettingsClickable(
+                    title = "Setup Healthy Profile",
+                    subtitle = "Set schemaVersion to latest",
+                    icon = Icons.Default.CheckCircle,
+                    onClick = { viewModel.prepareHealthyAudit() }
+                )
+                SettingsClickable(
+                    title = "Setup Legacy Profile",
+                    subtitle = "Set schemaVersion to 1",
+                    icon = Icons.Default.History,
+                    onClick = { viewModel.prepareLegacyAudit() }
+                )
+                SettingsClickable(
+                    title = "Setup Corrupted Profile",
+                    subtitle = "Inject type mismatch in count field",
+                    icon = Icons.Default.BugReport,
+                    onClick = { viewModel.prepareCorruptedAudit() }
+                )
+            }
+
             Spacer(modifier = Modifier.height(32.dp))
             Text(
                 text = "Artifact Developer Tools - Internal Use Only",

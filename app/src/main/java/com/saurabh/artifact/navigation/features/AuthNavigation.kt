@@ -6,6 +6,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.composable
+import com.saurabh.artifact.domain.auth.RegistrationResult
 import com.saurabh.artifact.navigation.Login
 import com.saurabh.artifact.navigation.Onboarding
 import com.saurabh.artifact.navigation.IdentityReveal
@@ -38,15 +39,21 @@ fun NavGraphBuilder.authNavigation(
 
     composable<Login> {
         val onLoginSuccess = remember(navController) {
-            { isNewUser: Boolean ->
-                Log.d("APP_FLOW", "Action: Login Success (isNewUser=$isNewUser)")
-                if (isNewUser) {
-                    navController.navigate(IdentityReveal) {
-                        popUpTo(Login) { inclusive = true }
+            { result: RegistrationResult ->
+                Log.d("APP_FLOW", "Action: Login Success ($result)")
+                when (result) {
+                    is RegistrationResult.SuccessNewUser -> {
+                        navController.navigate(IdentityReveal) {
+                            popUpTo(Login) { inclusive = true }
+                        }
                     }
-                } else {
-                    navController.navigate(Home) {
-                        popUpTo(Login) { inclusive = true }
+                    is RegistrationResult.SuccessExistingUser -> {
+                        navController.navigate(Home) {
+                            popUpTo(Login) { inclusive = true }
+                        }
+                    }
+                    is RegistrationResult.Failure -> {
+                        // Should be handled in LoginScreen/LoginViewModel already
                     }
                 }
             }

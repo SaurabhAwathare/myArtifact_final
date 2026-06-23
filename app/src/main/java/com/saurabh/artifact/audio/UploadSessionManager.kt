@@ -92,7 +92,7 @@ class PublishStateManager @Inject constructor(
 
                 // 2. Map to Granular State
                 val newState = when {
-                    draft.status.lifecycle == ArtifactLifecycle.PUBLISHED -> 
+                    draft.lifecycle == ArtifactLifecycle.PUBLISHED -> 
                         PublishState.Published(draftId = id, title = title, artifactId = draft.remoteArtifactId ?: "")
                     
                     syncStatus is SyncStatus.WaitingForNetwork -> 
@@ -106,7 +106,7 @@ class PublishStateManager @Inject constructor(
                         }
                     }
                     
-                    draft.status.lifecycle == ArtifactLifecycle.PROCESSING -> {
+                    draft.lifecycle == ArtifactLifecycle.PROCESSING -> {
                         val processing = draft.status.processing
                         val displayTitle = if (processing is ProcessingStatus.Active) {
                             when (processing.stage) {
@@ -124,7 +124,7 @@ class PublishStateManager @Inject constructor(
                         PublishState.Preparing(draftId = id, title = title, displayStatus = displayTitle)
                     }
 
-                    draft.status.lifecycle == ArtifactLifecycle.READY_TO_PUBLISH -> 
+                    draft.lifecycle == ArtifactLifecycle.READY_TO_PUBLISH ->
                         PublishState.Preparing(draftId = id, title = title, displayStatus = "Enqueuing publication...")
                     
                     else -> null

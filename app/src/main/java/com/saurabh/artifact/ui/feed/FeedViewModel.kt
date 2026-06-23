@@ -24,6 +24,7 @@ import com.saurabh.artifact.service.AdManager
 import com.saurabh.artifact.service.FeedComposer
 import com.saurabh.artifact.service.PersonalizationEngine
 import com.saurabh.artifact.service.SafetyLevel
+import com.saurabh.artifact.service.FeedSeparatorMapper
 import com.saurabh.artifact.security.UploadGuard
 import com.saurabh.artifact.startup.StartupCoordinator
 import com.saurabh.artifact.startup.StartupMetrics
@@ -88,6 +89,7 @@ class FeedViewModel @Inject constructor(
     private val commentUnlockRepository: CommentUnlockRepository,
     private val uploadGuard: UploadGuard,
     private val feedComposer: FeedComposer,
+    private val feedSeparatorMapper: FeedSeparatorMapper,
     getFeedFlowUseCase: GetFeedFlowUseCase,
     getPersonalizedFeedFlowUseCase: GetPersonalizedFeedFlowUseCase,
     private val getReflectionPromptUseCase: GetReflectionPromptUseCase
@@ -132,29 +134,33 @@ class FeedViewModel @Inject constructor(
     private val _refreshTrigger = MutableStateFlow(0)
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val artifacts: Flow<PagingData<Artifact>> = combine(
+    val artifacts: Flow<PagingData<FeedDisplayItem>> = combine(
         _uiState.map { it.selectedEmotion }.distinctUntilChanged(),
         _refreshTrigger
     ) { emotion, _ -> emotion }.flatMapLatest { emotion ->
         getFeedFlowUseCase(emotion)
     }.map { pagingData ->
-        pagingData.map { artifact ->
-            hydrateFromPaging(artifact)
-            artifact
+        pagingData.map { item ->
+            hydrateFromPaging(item.artifact)
+            item
         }
+    }.map { pagingData ->
+        feedSeparatorMapper.mapToDisplayItems(pagingData)
     }.cachedIn(viewModelScope)
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val personalizedArtifacts: Flow<PagingData<Artifact>> = combine(
+    val personalizedArtifacts: Flow<PagingData<FeedDisplayItem>> = combine(
         _uiState.map { it.selectedEmotion }.distinctUntilChanged(),
         _refreshTrigger
     ) { emotion, _ -> emotion }.flatMapLatest { emotion ->
         getPersonalizedFeedFlowUseCase(emotion)
     }.map { pagingData ->
-        pagingData.map { artifact ->
-            hydrateFromPaging(artifact)
-            artifact
+        pagingData.map { item ->
+            hydrateFromPaging(item.artifact)
+            item
         }
+    }.map { pagingData ->
+        feedSeparatorMapper.mapToDisplayItems(pagingData)
     }.cachedIn(viewModelScope)
 
     // Legacy compatibility accessors

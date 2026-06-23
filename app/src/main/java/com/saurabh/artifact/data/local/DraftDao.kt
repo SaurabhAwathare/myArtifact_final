@@ -52,8 +52,7 @@ interface DraftDao {
     suspend fun updateLifecycle(id: String, lifecycle: ArtifactLifecycle, timestamp: Long = System.currentTimeMillis(), isRecovery: Boolean = false) {
         val existing = getDraftById(id)
         if (existing == null || existing.lifecycle.canTransitionTo(lifecycle, isRecovery)) {
-            val newStatus = existing?.status?.copy(lifecycle = lifecycle) ?: DraftStatus(lifecycle = lifecycle)
-            _updateStatusAndLifecycleInternal(id, newStatus, lifecycle, timestamp)
+            _updateStatusAndLifecycleInternal(id, existing?.status ?: DraftStatus(), lifecycle, timestamp)
         } else {
             android.util.Log.w("DraftDao", "Blocked backward lifecycle transition for $id: ${existing.lifecycle} -> $lifecycle")
         }
@@ -74,7 +73,8 @@ interface DraftDao {
 
     @Transaction
     suspend fun updateStatus(id: String, status: DraftStatus, timestamp: Long = System.currentTimeMillis()) {
-        updateStatusAndLifecycle(id, status, status.lifecycle, timestamp)
+        val existing = getDraftById(id) ?: return
+        _updateStatusAndLifecycleInternal(id, status, existing.lifecycle, timestamp)
     }
 
     @Transaction
@@ -110,12 +110,8 @@ interface DraftDao {
         val existing = getDraftById(id) ?: return
         android.util.Log.d("FINALIZER_TRACE", "finalizeProcessing: id=$id, existingLifecycle=${existing.lifecycle}")
         
-        val newStatus = existing.status.copy(
-            lifecycle = ArtifactLifecycle.REVIEW_REQUIRED,
-            processing = ProcessingStatus.Completed
-        )
         // This will block regression if already at METADATA_REQUIRED or beyond
-        updateStatusAndLifecycle(id, newStatus, ArtifactLifecycle.REVIEW_REQUIRED, timestamp)
+        updateStatusAndLifecycle(id, existing.status, ArtifactLifecycle.REVIEW_REQUIRED, timestamp)
     }
 
 
@@ -146,7 +142,6 @@ interface DraftDao {
         update(
             draft.copy(
                 status = draft.status.copy(
-                    lifecycle = ArtifactLifecycle.PUBLISHED,
                     publication = SyncStatus.Synced,
                 ),
                 lifecycle = ArtifactLifecycle.PUBLISHED,
@@ -183,22 +178,21 @@ interface DraftDao {
 
     @Transaction
     suspend fun markAsApproved(id: String, status: DraftStatus, timestamp: Long = System.currentTimeMillis()) {
-        markAsApproved(id, status, status.lifecycle, timestamp)
+        val existing = getDraftById(id) ?: return
+        markAsApproved(id, status, existing.lifecycle, timestamp)
     }
 
     @Transaction
     suspend fun markAsApproved(id: String) {
         val draft = getDraftById(id) ?: return
-        val newStatus = draft.status.copy(lifecycle = ArtifactLifecycle.READY_TO_PUBLISH)
-        markAsApproved(id, newStatus)
+        markAsApproved(id, draft.status, ArtifactLifecycle.READY_TO_PUBLISH)
     }
 
     @Transaction
     suspend fun markAsDeleting(id: String) {
         val draft = getDraftById(id) ?: return
         if (draft.lifecycle != ArtifactLifecycle.DELETING) {
-            val newStatus = draft.status.copy(lifecycle = ArtifactLifecycle.DELETING)
-            updateStatusAndLifecycle(id, newStatus, ArtifactLifecycle.DELETING)
+            updateStatusAndLifecycle(id, draft.status, ArtifactLifecycle.DELETING)
         }
     }
 
@@ -248,8 +242,7 @@ interface DraftDao {
         // Avoid redundant updates if already in correct state
         if (draft.reviewCompleted && draft.isListened && draft.lifecycle == ArtifactLifecycle.METADATA_REQUIRED) return
         
-        val newStatus = draft.status.copy(lifecycle = ArtifactLifecycle.METADATA_REQUIRED)
-        _markReviewCompleteInternal(id, newStatus, ArtifactLifecycle.METADATA_REQUIRED)
+        _markReviewCompleteInternal(id, draft.status, ArtifactLifecycle.METADATA_REQUIRED)
     }
 
     @Query("UPDATE artifact_drafts SET isDismissed = 1, updatedAt = :timestamp WHERE id = :id")

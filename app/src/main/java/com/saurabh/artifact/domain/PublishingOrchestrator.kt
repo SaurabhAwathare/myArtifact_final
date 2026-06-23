@@ -31,10 +31,12 @@ class PublishingOrchestrator @Inject constructor(
 
     suspend fun startProcessing(draftId: String) = withContext(Dispatchers.IO) {
         // Optimistic state update
-        draftRepository.updateStatus(draftId) {
+        draftRepository.updateDraft(draftId) {
             it.copy(
                 lifecycle = ArtifactLifecycle.PROCESSING,
-                processing = ProcessingStatus.Active(ProcessingStage.TRANSCODING)
+                status = it.status.copy(
+                    processing = ProcessingStatus.Active(ProcessingStage.TRANSCODING)
+                )
             )
         }
 
@@ -103,14 +105,14 @@ class PublishingOrchestrator @Inject constructor(
             val draft = draftRepository.getDraft(draftId).getOrThrow()
 
             // 0. Strict Validation: Review Required
-            if (draft.status.lifecycle != ArtifactLifecycle.READY_TO_PUBLISH) {
+            if (draft.lifecycle != ArtifactLifecycle.READY_TO_PUBLISH) {
                 Log.e("PublishingOrchestrator", "Attempted to publish unreviewed draft: $draftId")
                 val requiredPercent = (publishingPolicy.minCoverage * 100).toInt()
                 return@withContext Result.failure(Exception("$requiredPercent% Review required before publishing."))
             }
 
             // 1. Check if already publishing to avoid double enqueuing
-            if (draft.status.lifecycle == ArtifactLifecycle.PUBLISHED) {
+            if (draft.lifecycle == ArtifactLifecycle.PUBLISHED) {
                 return@withContext Result.success(Unit)
             }
 
@@ -153,13 +155,13 @@ class PublishingOrchestrator @Inject constructor(
         }
         
         // 0.1 Strict Validation: Review Required
-        if (draft.status.lifecycle != ArtifactLifecycle.READY_TO_PUBLISH) {
+        if (draft.lifecycle != ArtifactLifecycle.READY_TO_PUBLISH) {
             Log.e("PublishingOrchestrator", "Attempted to publish unreviewed draft via legacy route: $draftId")
             return@withContext PublishingResult.FAILED
         }
 
         // 1. Check if already publishing to avoid double enqueuing
-        if (draft.status.lifecycle == ArtifactLifecycle.PUBLISHED) {
+        if (draft.lifecycle == ArtifactLifecycle.PUBLISHED) {
             return@withContext PublishingResult.ALREADY_IN_PROGRESS
         }
 

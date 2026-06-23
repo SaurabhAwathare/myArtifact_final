@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.saurabh.artifact.auth.CredentialHelper
 import com.saurabh.artifact.repository.AuthRepository
+import com.saurabh.artifact.domain.auth.RegistrationCoordinator
+import com.saurabh.artifact.domain.auth.RegistrationResult
 import com.saurabh.artifact.ui.util.UiText
 import com.saurabh.artifact.ui.util.ErrorMessageMapper
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -16,6 +18,7 @@ import javax.inject.Inject
 @HiltViewModel
 class LoginViewModel @Inject constructor(
     private val authRepository: AuthRepository,
+    private val registrationCoordinator: RegistrationCoordinator,
     val credentialHelper: CredentialHelper
 ) : ViewModel() {
 
@@ -28,7 +31,20 @@ class LoginViewModel @Inject constructor(
             authRepository.signInWithGoogle(idToken)
                 .onSuccess { firebaseUser ->
                     if (firebaseUser != null) {
-                        _loginState.value = LoginState.Success(isNewUser = false) // isNewUser will be determined by RegistrationCoordinator in MainViewModel
+                        Log.i("APP_FLOW", "AUTH_SUCCESS")
+                        val result = registrationCoordinator.ensureProfileExists()
+                        when (result) {
+                            is RegistrationResult.SuccessNewUser -> {
+                                _loginState.value = LoginState.Success(RegistrationResult.SuccessNewUser)
+                            }
+                            is RegistrationResult.SuccessExistingUser -> {
+                                _loginState.value = LoginState.Success(RegistrationResult.SuccessExistingUser)
+                            }
+                            is RegistrationResult.Failure -> {
+                                Log.e("AUTH", "Profile creation failed after login", result.exception)
+                                _loginState.value = LoginState.Error(ErrorMessageMapper.map(result.exception))
+                            }
+                        }
                     } else {
                         _loginState.value = LoginState.Error(UiText.DynamicString("Google Sign-In failed: User is null"))
                     }
@@ -48,6 +64,6 @@ class LoginViewModel @Inject constructor(
 sealed class LoginState {
     object Idle : LoginState()
     object Loading : LoginState()
-    data class Success(val isNewUser: Boolean) : LoginState()
+    data class Success(val result: RegistrationResult) : LoginState()
     data class Error(val message: UiText) : LoginState()
 }

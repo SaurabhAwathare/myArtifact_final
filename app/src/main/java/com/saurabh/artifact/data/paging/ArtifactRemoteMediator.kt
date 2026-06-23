@@ -9,6 +9,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.saurabh.artifact.data.local.AppDatabase
 import com.saurabh.artifact.data.local.ArtifactEntity
+import com.saurabh.artifact.data.local.ArtifactEntityWithIndex
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.Emotion
 import com.saurabh.artifact.util.NetworkUtils
@@ -20,20 +21,20 @@ class ArtifactRemoteMediator(
     private val database: AppDatabase,
     private val currentUserId: String,
     private val emotion: String? = null
-) : RemoteMediator<Int, ArtifactEntity>() {
+) : RemoteMediator<Int, ArtifactEntityWithIndex>() {
 
     private val artifactDao = database.artifactDao()
 
     override suspend fun load(
         loadType: LoadType,
-        state: PagingState<Int, ArtifactEntity>
+        state: PagingState<Int, ArtifactEntityWithIndex>
     ): MediatorResult {
         return try {
             val lastItem = when (loadType) {
                 LoadType.REFRESH -> null
                 LoadType.PREPEND -> return MediatorResult.Success(endOfPaginationReached = true)
                 LoadType.APPEND -> {
-                    state.lastItemOrNull() ?: return MediatorResult.Success(endOfPaginationReached = false)
+                    state.lastItemOrNull()?.entity ?: return MediatorResult.Success(endOfPaginationReached = false)
                 }
             }
 

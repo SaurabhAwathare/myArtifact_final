@@ -6,6 +6,7 @@ import androidx.paging.PagingData
 import androidx.paging.map
 import com.saurabh.artifact.data.paging.PersonalizedPagingSource
 import com.saurabh.artifact.model.Artifact
+import com.saurabh.artifact.model.FeedDisplayItem
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.FeedRepository
 import com.saurabh.artifact.service.FeedRanker
@@ -19,7 +20,7 @@ class GetPersonalizedFeedFlowUseCase @Inject constructor(
     private val feedRepository: FeedRepository,
     private val feedRanker: FeedRanker
 ) {
-    operator fun invoke(emotion: String?): Flow<PagingData<Artifact>> {
+    operator fun invoke(emotion: String?): Flow<PagingData<FeedDisplayItem.ArtifactItem>> {
         val userId = authRepository.currentUser.value?.uid ?: return flowOf(PagingData.empty())
         
         return Pager(
@@ -38,8 +39,11 @@ class GetPersonalizedFeedFlowUseCase @Inject constructor(
                 ) 
             }
         ).flow.map { pagingData ->
-            pagingData.map { artifact ->
-                resolveIdentity(artifact, userId)
+            pagingData.map { (artifact, index) ->
+                FeedDisplayItem.ArtifactItem(
+                    artifact = resolveIdentity(artifact, userId),
+                    absoluteIndex = index
+                )
             }
         }
     }

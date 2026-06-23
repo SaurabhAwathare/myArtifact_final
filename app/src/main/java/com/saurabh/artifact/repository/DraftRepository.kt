@@ -113,12 +113,7 @@ class DraftRepository @Inject constructor(
                 val actualSize = File(draft.frozenAudioPath ?: draft.localAudioPath).length()
 
                 // 2. Update Draft lifecycle to locking state
-                updateStatus(draftId) { 
-                    it.copy(
-                        lifecycle = ArtifactLifecycle.READY_TO_PUBLISH,
-                        publication = initialStatus
-                    )
-                }.getOrThrow()
+                draftDao.updateStatusAndLifecycle(draftId, draft.status.copy(publication = initialStatus), ArtifactLifecycle.READY_TO_PUBLISH)
 
                 // Sync the actual size to the main draft table too
                 draftDao.updateSyncProgress(draftId, 0, actualSize, draft.uploadSessionUri)
@@ -133,6 +128,20 @@ class DraftRepository @Inject constructor(
                     sessionUri = draft.uploadSessionUri,
                     audioUrl = draft.uploadedAudioUrl
                 ))
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(AppError.from(e))
+        }
+    }
+
+    suspend fun updateDraft(draftId: String, transform: (ArtifactDraftEntity) -> ArtifactDraftEntity): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            draftsDatabase.withTransaction {
+                draftDao.getDraftById(draftId)?.let { draft ->
+                    val updated = transform(draft)
+                    draftDao.update(updated)
+                }
             }
             Result.success(Unit)
         } catch (e: Exception) {
@@ -171,7 +180,9 @@ class DraftRepository @Inject constructor(
             draftsDatabase.withTransaction {
                 uploadTaskDao.updateStatus(draftId, status)
                 // Synchronize with Draft status for UI observers that look at the draft directly
-                updateStatus(draftId) { it.copy(publication = status) }
+                draftDao.getDraftById(draftId)?.let { draft ->
+                    draftDao.updateStatus(draftId, draft.status.copy(publication = status))
+                }
             }
             Result.success(Unit)
         } catch (e: Exception) {

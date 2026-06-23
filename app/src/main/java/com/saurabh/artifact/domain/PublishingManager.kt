@@ -63,7 +63,7 @@ class PublishingManager @Inject constructor(
                 return@withContext Result.success(Unit)
             }
 
-            if (draft.status.lifecycle == ArtifactLifecycle.PUBLISHED) {
+            if (draft.lifecycle == ArtifactLifecycle.PUBLISHED) {
                 Log.i("PublishingManager", "Draft $draftId already marked as PUBLISHED locally.")
                 return@withContext Result.success(Unit)
             }

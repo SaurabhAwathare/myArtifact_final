@@ -38,7 +38,7 @@ class ReviewLoopRegressionTest {
             id = draftId,
             localAudioPath = "/path/audio.wav",
             lifecycle = ArtifactLifecycle.METADATA_REQUIRED,
-            status = DraftStatus(lifecycle = ArtifactLifecycle.METADATA_REQUIRED),
+            status = DraftStatus(),
             reviewCompleted = true
         )
 
@@ -48,14 +48,10 @@ class ReviewLoopRegressionTest {
         val existing = draftDao.getDraftById(draftId)
         if (existing != null) {
             val targetLifecycle = ArtifactLifecycle.REVIEW_REQUIRED
-            val newStatus = existing.status.copy(
-                lifecycle = targetLifecycle,
-                processing = ProcessingStatus.Completed
-            )
             
             // Check transition (AUTHORITATIVE CHECK)
             if (existing.lifecycle.canTransitionTo(targetLifecycle)) {
-                 draftDao._updateStatusAndLifecycleInternal(draftId, newStatus, targetLifecycle, System.currentTimeMillis())
+                 draftDao._updateStatusAndLifecycleInternal(draftId, existing.status, targetLifecycle, System.currentTimeMillis())
             } else {
                 Log.w("DraftDao", "Blocked backward lifecycle transition for $draftId: ${existing.lifecycle} -> $targetLifecycle")
             }
@@ -81,7 +77,7 @@ class ReviewLoopRegressionTest {
             id = draftId,
             localAudioPath = "/path/audio.wav",
             lifecycle = ArtifactLifecycle.PROCESSING,
-            status = DraftStatus(lifecycle = ArtifactLifecycle.PROCESSING)
+            status = DraftStatus()
         )
 
         coEvery { draftDao.getDraftById(draftId) } returns processingDraft
@@ -90,13 +86,9 @@ class ReviewLoopRegressionTest {
         val existing = draftDao.getDraftById(draftId)
         if (existing != null) {
             val targetLifecycle = ArtifactLifecycle.REVIEW_REQUIRED
-            val newStatus = existing.status.copy(
-                lifecycle = targetLifecycle,
-                processing = ProcessingStatus.Completed
-            )
             
             if (existing.lifecycle.canTransitionTo(targetLifecycle)) {
-                 draftDao._updateStatusAndLifecycleInternal(draftId, newStatus, targetLifecycle, 123L)
+                 draftDao._updateStatusAndLifecycleInternal(draftId, existing.status, targetLifecycle, 123L)
             }
         }
 

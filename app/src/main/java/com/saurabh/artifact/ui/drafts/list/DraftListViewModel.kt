@@ -66,7 +66,7 @@ class DraftListViewModel @Inject constructor(
     fun onPublishClicked(draftId: String) {
         viewModelScope.launch {
             val draft = draftRepository.getDraft(draftId).getOrNull()
-            if (draft?.status?.lifecycle == com.saurabh.artifact.model.ArtifactLifecycle.READY_TO_PUBLISH) {
+            if (draft?.lifecycle == com.saurabh.artifact.model.ArtifactLifecycle.READY_TO_PUBLISH) {
                 _events.emit(DraftListUiEvent.NavigateToPublish(draftId))
             } else {
                 _events.emit(DraftListUiEvent.NavigateToReview(draftId))
@@ -94,7 +94,6 @@ class DraftListViewModel @Inject constructor(
             draftRepository.updateUploadStatus(draft.id, com.saurabh.artifact.model.SyncStatus.LocalOnly)
             recordingRepository.updateDraft(draft.copy(
                 status = draft.status.copy(
-                    lifecycle = com.saurabh.artifact.model.ArtifactLifecycle.REVIEW_REQUIRED,
                     publication = com.saurabh.artifact.model.SyncStatus.LocalOnly
                 ),
                 lifecycle = com.saurabh.artifact.model.ArtifactLifecycle.REVIEW_REQUIRED

@@ -31,6 +31,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.saurabh.artifact.R
 import com.saurabh.artifact.auth.CredentialResult
+import com.saurabh.artifact.domain.auth.RegistrationResult
 import com.saurabh.artifact.ui.theme.GoldAura500
 import com.saurabh.artifact.ui.theme.Obsidian950
 import kotlinx.coroutines.launch
@@ -38,7 +39,7 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoginScreen(
-    onLoginSuccess: (Boolean) -> Unit,
+    onLoginSuccess: (RegistrationResult) -> Unit,
     viewModel: LoginViewModel = hiltViewModel()
 ) {
     val loginState by viewModel.loginState.collectAsStateWithLifecycle()
@@ -49,7 +50,7 @@ fun LoginScreen(
     LaunchedEffect(loginState) {
         val state = loginState
         if (state is LoginState.Success) {
-            onLoginSuccess(state.isNewUser)
+            onLoginSuccess(state.result)
         }
     }
 

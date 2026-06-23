@@ -160,6 +160,7 @@ dependencies {
     // Paging
     implementation(libs.androidx.paging.runtime)
     implementation(libs.androidx.paging.compose)
+    testImplementation(libs.androidx.paging.testing)
 
     // Room
     implementation(libs.androidx.room.runtime)

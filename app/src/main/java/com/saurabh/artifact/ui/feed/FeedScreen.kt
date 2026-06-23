@@ -55,6 +55,7 @@ import com.saurabh.artifact.util.StartupTracer
 import com.saurabh.artifact.ui.components.BrandTitle
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.FeedArtifact
+import com.saurabh.artifact.model.FeedDisplayItem
 import com.saurabh.artifact.model.ReflectionPrompt
 import com.saurabh.artifact.model.FeedbackType
 import com.saurabh.artifact.BuildConfig
@@ -347,8 +348,8 @@ private fun FeedVibeHeader(
 private fun FeedContent(
     showRankedFeed: Boolean,
     isRankedLoading: Boolean,
-    forYouArtifacts: androidx.paging.compose.LazyPagingItems<Artifact>,
-    recentArtifacts: androidx.paging.compose.LazyPagingItems<Artifact>,
+    forYouArtifacts: androidx.paging.compose.LazyPagingItems<FeedDisplayItem>,
+    recentArtifacts: androidx.paging.compose.LazyPagingItems<FeedDisplayItem>,
     unfinished: List<FeedArtifact>,
     listState: androidx.compose.foundation.lazy.LazyListState,
     viewModel: FeedViewModel,
@@ -414,17 +415,19 @@ private fun FeedContent(
                     count = currentArtifacts.itemCount,
                     key = currentArtifacts.itemKey { it.id }
                 ) { index ->
-                    val artifact = currentArtifacts[index]
-                    if (artifact != null) {
-                        ArtifactItem(
-                            artifactId = artifact.id,
-                            viewModel = viewModel,
-                            onReportClick = onReportClick
-                        )
-                        
-                        if (((index + 1) % 5) == 0) {
-                            this@LazyColumn.breathBreakItem(index)
+                    val item = currentArtifacts[index]
+                    when (item) {
+                        is FeedDisplayItem.ArtifactItem -> {
+                            ArtifactItem(
+                                artifactId = item.artifact.id,
+                                viewModel = viewModel,
+                                onReportClick = onReportClick
+                            )
                         }
+                        is FeedDisplayItem.BreakItem -> {
+                            this@LazyColumn.breathBreakItem(item.id)
+                        }
+                        null -> { /* Paging placeholder */ }
                     }
                 }
 
@@ -581,8 +584,8 @@ fun ArtifactItem(
     }
 }
 
-fun LazyListScope.breathBreakItem(index: Int) {
-    item(key = "break_$index") {
+fun LazyListScope.breathBreakItem(key: String) {
+    item(key = key) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()

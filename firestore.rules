@@ -36,8 +36,8 @@ service cloud.firestore {
         allow read: if isOwner(uid) || isGlobalAdmin();
 
         allow create: if isOwner(uid) &&
-                      (request.resource.data.isAdmin == false || request.resource.data.admin == false) &&
-                      request.resource.data.accountStatus == 'ACTIVE';
+                      request.resource.data.get('isAdmin', false) == false &&
+                      request.resource.data.get('accountStatus', 'ACTIVE') == 'ACTIVE';
 
         allow update: if isOwner(uid) &&
                      !(request.resource.data.diff(resource.data).affectedKeys()

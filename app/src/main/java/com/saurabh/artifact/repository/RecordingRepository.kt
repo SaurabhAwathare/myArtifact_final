@@ -43,9 +43,9 @@ class RecordingRepository @Inject constructor(
                 durationMs = durationMs,
                 checksum = checksum,
                 isEncrypted = isEncrypted,
+                lifecycle = if (durationMs > 0) ArtifactLifecycle.PROCESSING else ArtifactLifecycle.RECORDING,
                 mimeType = mimeType,
                 status = DraftStatus(
-                    lifecycle = if (durationMs > 0) ArtifactLifecycle.PROCESSING else ArtifactLifecycle.RECORDING,
                     publication = SyncStatus.LocalOnly
                 ),
                 createdAt = System.currentTimeMillis(),
@@ -284,7 +284,7 @@ class RecordingRepository @Inject constructor(
                     )
 
                     val updated = draft.copy(
-                        status = draft.status.copy(lifecycle = newLifecycle, processing = newProcessing),
+                        status = draft.status.copy(processing = newProcessing),
                         lifecycle = newLifecycle,
                         durationMs = if (newLifecycle == ArtifactLifecycle.PROCESSING) recoveredDurationMs else draft.durationMs,
                         durableBytes = if (newLifecycle == ArtifactLifecycle.PROCESSING) recoveredAudioBytes.coerceAtLeast(0) else draft.durableBytes,
@@ -346,24 +346,9 @@ class RecordingRepository @Inject constructor(
     /**
      * Authoritative repair for any desynchronized lifecycle fields.
      * Ensures that the top-level column and embedded JSON status remain consistent.
+     * (Deprecated: with the removal of status.lifecycle, this is now a no-op or sanity check)
      */
     private suspend fun reconcileLifecycleConsistency() {
-        try {
-            val drafts = draftDao.getAllDrafts()
-            drafts.forEach { draft ->
-                if (draft.lifecycle != draft.status.lifecycle) {
-                    Log.w("RecordingRepository", "REPAIR: Synchronizing lifecycle for ${draft.id}: Column=${draft.lifecycle}, JSON=${draft.status.lifecycle}")
-                    val fixedStatus = draft.status.copy(lifecycle = draft.lifecycle)
-                    draftDao.updateStatusAndLifecycle(
-                        id = draft.id,
-                        status = fixedStatus,
-                        lifecycle = draft.lifecycle,
-                        isRecovery = true // Allow backward sync if it was already desynchronized
-                    )
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("RecordingRepository", "Failed to reconcile lifecycle consistency", e)
-        }
+        // No longer needed as status.lifecycle is removed.
     }
 }

@@ -370,7 +370,7 @@ class RecordingService : Service() {
                 
                 draftDao.getDraftById(finalDraftId)?.let {
                     draftDao.update(it.copy(
-                        status = it.status.copy(lifecycle = ArtifactLifecycle.RECORDING, publication = SyncStatus.LocalOnly),
+                        status = it.status.copy(publication = SyncStatus.LocalOnly),
                         lifecycle = ArtifactLifecycle.RECORDING
                     ))
                 }
@@ -430,7 +430,7 @@ class RecordingService : Service() {
             serviceScope.launch {
                 draftDao.getDraftById(id)?.let {
                     draftDao.update(it.copy(
-                        status = it.status.copy(lifecycle = ArtifactLifecycle.RECORDING),
+                        status = it.status.copy(publication = SyncStatus.LocalOnly),
                         lifecycle = ArtifactLifecycle.RECORDING
                     ))
                 }
@@ -490,7 +490,6 @@ class RecordingService : Service() {
                                 draftDao.getDraftById(draftId)?.let {
                                     draftDao.update(it.copy(
                                         status = it.status.copy(
-                                            lifecycle = ArtifactLifecycle.PROCESSING,
                                             processing = ProcessingStatus.Active(ProcessingStage.SAVING)
                                         ),
                                         lifecycle = ArtifactLifecycle.PROCESSING,

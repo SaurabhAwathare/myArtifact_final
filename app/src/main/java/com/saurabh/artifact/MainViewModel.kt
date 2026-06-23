@@ -6,6 +6,7 @@ import com.saurabh.artifact.navigation.*
 import com.saurabh.artifact.domain.auth.GetInitialDestinationUseCase
 import com.saurabh.artifact.domain.auth.InitialDestination
 import com.saurabh.artifact.domain.auth.ObserveCurrentUserProfileUseCase
+import com.saurabh.artifact.domain.auth.RegistrationResult
 import com.saurabh.artifact.domain.settings.ObserveStealthModeUseCase
 import com.saurabh.artifact.startup.StartupCoordinator
 import com.saurabh.artifact.startup.StartupMetrics
@@ -120,24 +121,28 @@ class MainViewModel @Inject constructor(
                 // REGISTRATION GATE
                 android.util.Log.d("APP_FLOW", "PROFILE_CHECK_BEGIN")
                 _startupState.value = AppStartupState.Registering
-                val isProfileReady = try {
+                val result = try {
                     registrationCoordinator.ensureProfileExists()
                 } catch (e: Exception) {
                     android.util.Log.e("AppStartup", "PROFILE_CHECK_FAILED", e)
-                    false
+                    RegistrationResult.Failure(e)
                 }
                 
-                if (isProfileReady) {
-                    android.util.Log.d("APP_FLOW", "PROFILE_CHECK_SUCCESS")
-                    Home
-                } else {
-                    android.util.Log.e("AppStartup", "PROFILE_CHECK_FAILED: Registration/Recovery failed.")
-                    _startupState.value = AppStartupState.Error("Failed to initialize profile. Please check your connection and try again.")
-                    // Even on error, we must signal AUTH readiness to unblock the StartupCoordinator
-                    // if it's waiting, OR the StartupCoordinator should be aware of errors.
-                    // For now, signaling readiness to allow the UI to show the Error screen.
-                    startupCoordinator.emitReadiness(com.saurabh.artifact.startup.StartupComponent.AUTH)
-                    return
+                when (result) {
+                    is RegistrationResult.SuccessExistingUser -> {
+                        android.util.Log.d("APP_FLOW", "PROFILE_CHECK_SUCCESS: Existing User")
+                        Home
+                    }
+                    is RegistrationResult.SuccessNewUser -> {
+                        android.util.Log.d("APP_FLOW", "PROFILE_CHECK_SUCCESS: New User")
+                        IdentityReveal
+                    }
+                    is RegistrationResult.Failure -> {
+                        android.util.Log.e("AppStartup", "PROFILE_CHECK_FAILED: ${result.exception.message}")
+                        _startupState.value = AppStartupState.Error("Failed to initialize profile. Please check your connection and try again.")
+                        startupCoordinator.emitReadiness(com.saurabh.artifact.startup.StartupComponent.AUTH)
+                        return
+                    }
                 }
             }
         }

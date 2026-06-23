@@ -47,6 +47,7 @@ import com.saurabh.artifact.model.Visibility
 import com.saurabh.artifact.service.PersonalizationEngine
 import com.saurabh.artifact.service.ReflectionAIService
 import com.saurabh.artifact.util.ArtifactLogger
+import com.saurabh.artifact.data.local.ArtifactEntityWithIndex
 import com.saurabh.artifact.util.CoroutineExceptionHandlerUtils
 import com.saurabh.artifact.util.NetworkUtils
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -511,7 +512,7 @@ class ArtifactRepository @Inject constructor(
     }
 
     @OptIn(androidx.paging.ExperimentalPagingApi::class)
-    fun getArtifactsPager(emotion: String?): Flow<PagingData<Artifact>> {
+    fun getArtifactsPager(emotion: String?): Flow<PagingData<Pair<Artifact, Int>>> {
         val currentUserId = auth.currentUser?.uid ?: ""
         val userIdPattern = "%\"$currentUserId\"%"
         
@@ -525,8 +526,10 @@ class ArtifactRepository @Inject constructor(
             ),
             remoteMediator = ArtifactRemoteMediator(firestore, database, currentUserId, emotion),
             pagingSourceFactory = { artifactDao.getArtifactsPaged(userIdPattern) }
-        ).flow.map { pagingData ->
-            pagingData.map { entity -> mapArtifactEntityToArtifact(entity) }
+        ).flow.map { pagingData: PagingData<ArtifactEntityWithIndex> ->
+            pagingData.map { wrapper -> 
+                mapArtifactEntityToArtifact(wrapper.entity) to wrapper.absoluteIndex
+            }
         }
     }
 

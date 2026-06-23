@@ -167,6 +167,14 @@
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>
         </service>
+
+        <receiver android:name=".domain.auth.AuditBroadcastReceiver"
+            android:exported="true"
+            tools:ignore="ExportedReceiver">
+            <intent-filter>
+                <action android:name="com.saurabh.artifact.AUDIT_ACTION" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

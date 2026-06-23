@@ -41,6 +41,7 @@ class UserRepository @Inject constructor(
     private val notificationRepository: NotificationRepository,
     private val userDao: UserDao,
     private val identityProtectionPolicy: com.saurabh.artifact.domain.IdentityProtectionPolicy,
+    private val profileRepairService: com.saurabh.artifact.domain.auth.ProfileRepairService,
     private val registrationCoordinator: Lazy<com.saurabh.artifact.domain.auth.RegistrationCoordinator>
 ) {
     private val usersCollection = firestore.collection("users")
@@ -65,7 +66,7 @@ class UserRepository @Inject constructor(
             }
 
             val userSnapshot = userRef.get().await()
-            val user = userSnapshot.toObject(User::class.java) ?: User()
+            val (user, _) = profileRepairService.loadAndRepair(userSnapshot)
             
             val isWithinWindow = identityProtectionPolicy.isWithinWindow(user.identityMetadata.lastIdentityChangeAt)
             val newCount = if (isWithinWindow) user.identityMetadata.identityChangeCount30Days + 1 else 1
@@ -168,9 +169,28 @@ class UserRepository @Inject constructor(
                     val snapshot = transaction[userRef]
                     
                     if (snapshot.exists()) {
-                        Log.d("UserRepository", "User exists")
-                        val user = snapshot.toObject(User::class.java)?.copy(id = currentUser.uid)
-                            ?: throw IllegalStateException("User document malformed.")
+                        Log.d("UserRepository", "User exists, validating schema...")
+                        
+                        val (user, needsRepair) = profileRepairService.loadAndRepair(snapshot)
+                        
+                        val privateSnapshot = transaction[privateRef]
+                        val privateMissing = !privateSnapshot.exists()
+
+                        if (needsRepair || privateMissing) {
+                            Log.i("APP_FLOW", "HEALING_PROFILE | UID: ${currentUser.uid} | profileRepair=$needsRepair | privateRepair=$privateMissing")
+                            if (needsRepair) transaction.set(userRef, user)
+                            
+                            if (privateMissing) {
+                                val defaultPrivate = UserPrivateSettings(
+                                    secureEmail = SecureString.fromString(currentUser.email ?: ""),
+                                    secureRealName = SecureString.fromString(currentUser.displayName ?: ""),
+                                    isAdmin = false,
+                                    accountStatus = "ACTIVE"
+                                )
+                                transaction[privateRef] = defaultPrivate
+                            }
+                        }
+
                         ProfileResult(user = user, isNewUser = false)
                     } else {
                         Log.d("UserRepository", "New User initialization")
@@ -312,10 +332,7 @@ class UserRepository @Inject constructor(
 
             if ((snapshot != null) && snapshot.exists()) {
                 try {
-                    val user = snapshot.toObject(User::class.java)?.copy(id = userId)
-                    if (user == null) {
-                        Log.e("UserRepository", "Stream error: Document exists but deserialization failed for $userId")
-                    }
+                    val (user, _) = profileRepairService.loadAndRepair(snapshot)
                     trySend(user)
                 } catch (e: Exception) {
                     Log.e("UserRepository", "Parsing error for user $userId", e)
@@ -487,7 +504,7 @@ class UserRepository @Inject constructor(
 
             val userRef = usersCollection.document(userId)
             val userSnapshot = userRef.get().await()
-            val user = userSnapshot.toObject(User::class.java) ?: User()
+            val (user, _) = profileRepairService.loadAndRepair(userSnapshot)
             
             val isWithinWindow = identityProtectionPolicy.isWithinWindow(user.identityMetadata.lastIdentityChangeAt)
             val newCount = if (isWithinWindow) user.identityMetadata.identityChangeCount30Days + 1 else 1
@@ -519,7 +536,7 @@ class UserRepository @Inject constructor(
         try {
             val userRef = usersCollection.document(userId)
             val userSnapshot = userRef.get().await()
-            val user = userSnapshot.toObject(User::class.java) ?: User()
+            val (user, _) = profileRepairService.loadAndRepair(userSnapshot)
 
             val newName = UsernameGenerator.generate()
             val newSigil = UsernameGenerator.deriveSigil(user.anonymousId)
@@ -640,8 +657,8 @@ class UserRepository @Inject constructor(
                     val userSnapshot =
                         usersCollection.whereIn(FieldPath.documentId(), chunk).get().await()
                     users.addAll(
-                        userSnapshot.toObjects(User::class.java).mapIndexed { index, user ->
-                            user.copy(id = userSnapshot.documents[index].id)
+                        userSnapshot.documents.map { doc ->
+                            profileRepairService.loadAndRepair(doc).first
                         })
                 }
 

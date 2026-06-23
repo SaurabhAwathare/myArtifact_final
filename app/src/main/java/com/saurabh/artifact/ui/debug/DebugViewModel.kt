@@ -25,8 +25,9 @@ data class DebugUiState(
 @HiltViewModel
 class DebugViewModel @Inject constructor(
     private val debugRepository: DebugRepository,
+    private val profileAuditTool: com.saurabh.artifact.domain.auth.ProfileAuditTool,
     authRepository: AuthRepository,
-    uploadGuard: UploadGuard
+    uploadGuard: com.saurabh.artifact.security.UploadGuard
 ) : ViewModel() {
 
     val uiState: StateFlow<DebugUiState> = combine(
@@ -53,6 +54,24 @@ class DebugViewModel @Inject constructor(
     fun toggleDebugOverlays(enabled: Boolean) {
         viewModelScope.launch {
             debugRepository.updateShowDebugOverlays(enabled)
+        }
+    }
+
+    fun prepareHealthyAudit() {
+        viewModelScope.launch {
+            profileAuditTool.setupHealthyProfile()
+        }
+    }
+
+    fun prepareLegacyAudit() {
+        viewModelScope.launch {
+            profileAuditTool.setupLegacyProfile()
+        }
+    }
+
+    fun prepareCorruptedAudit() {
+        viewModelScope.launch {
+            profileAuditTool.setupCorruptedProfile()
         }
     }
 }
