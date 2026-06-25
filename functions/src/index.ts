@@ -1,6 +1,8 @@
 import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
 import { FieldValue } from "firebase-admin/firestore";
+import { withIdempotency } from "./util/idempotency";
+import { logger } from "./util/logger";
 
 admin.initializeApp();
 
@@ -353,5 +355,177 @@ export const onReactionDeleted = functions.firestore
       console.error(`Failed to decrement counts for artifact ${artifactId}:`, error);
     }
 
+    return null;
+  });
+
+/**
+ * Authoritatively handles follow/resonance intents.
+ * Updates markers and counters for both users atomically.
+ */
+export const onFollowIntentCreated = functions.firestore
+  .document("users/{uid}/private/intents/follow/{targetId}")
+  .onCreate(async (snapshot, context) => {
+    const uid = context.params.uid;
+    const targetId = context.params.targetId;
+    const data = snapshot.data();
+
+    if (!data || data.action !== 'FOLLOW') return null;
+
+    const idempotencyKey = `follow_${uid}_${targetId}_${data.timestamp?.seconds || 'initial'}`;
+
+    return withIdempotency(idempotencyKey, async () => {
+      const db = admin.firestore();
+      const currentUserRef = db.collection("users").document(uid);
+      const targetUserRef = db.collection("users").document(targetId);
+
+      const resonanceOutRef = currentUserRef.collection("resonance_out").document(targetId);
+      const resonanceInRef = targetUserRef.collection("resonance_in").document(uid);
+
+      await db.runTransaction(async (transaction) => {
+        const outDoc = await transaction.get(resonanceOutRef);
+        if (outDoc.exists) {
+          logger.info(`Follow: ${uid} is already resonating with ${targetId}`);
+          return;
+        }
+
+        const timestamp = FieldValue.serverTimestamp();
+
+        // 1. Create Markers
+        transaction.set(resonanceOutRef, { createdAt: timestamp });
+        transaction.set(resonanceInRef, { createdAt: timestamp });
+
+        // 2. Update Counters
+        transaction.update(currentUserRef, {
+          resonanceOutCount: FieldValue.increment(1),
+          followingCount: FieldValue.increment(1) // Legacy
+        });
+        transaction.update(targetUserRef, {
+          resonanceInCount: FieldValue.increment(1),
+          followersCount: FieldValue.increment(1) // Legacy
+        });
+      });
+
+      // 3. Create Notification
+      await admin.firestore().collection("notifications").add({
+        userId: targetId,
+        message: "PRESENCE_RESONATED",
+        type: "RESONANCE",
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        isRead: false
+      });
+
+      logger.interaction("FOLLOW_SUCCESS", { userId: uid, artifactId: targetId }, "SUCCESS");
+    });
+  });
+
+/**
+ * Handles unfollow intent.
+ */
+export const onFollowIntentDeleted = functions.firestore
+  .document("users/{uid}/private/intents/follow/{targetId}")
+  .onDelete(async (snapshot, context) => {
+    const uid = context.params.uid;
+    const targetId = context.params.targetId;
+
+    const db = admin.firestore();
+    const currentUserRef = db.collection("users").document(uid);
+    const targetUserRef = db.collection("users").document(targetId);
+
+    const resonanceOutRef = currentUserRef.collection("resonance_out").document(targetId);
+    const resonanceInRef = targetUserRef.collection("resonance_in").document(uid);
+
+    await db.runTransaction(async (transaction) => {
+      const outDoc = await transaction.get(resonanceOutRef);
+      if (!outDoc.exists) return;
+
+      // 1. Delete Markers
+      transaction.delete(resonanceOutRef);
+      transaction.delete(resonanceInRef);
+
+      // 2. Decrement Counters
+      transaction.update(currentUserRef, {
+        resonanceOutCount: FieldValue.increment(-1),
+        followingCount: FieldValue.increment(-1)
+      });
+      transaction.update(targetUserRef, {
+        resonanceInCount: FieldValue.increment(-1),
+        followersCount: FieldValue.increment(-1)
+      });
+    });
+
+    logger.interaction("UNFOLLOW_SUCCESS", { userId: uid, artifactId: targetId }, "SUCCESS");
+    return null;
+  });
+
+/**
+ * Triggers on reaction intent to authoritatively create notification and markers.
+ */
+export const onReactionIntentCreated = functions.firestore
+  .document("users/{uid}/private/intents/reactions/{artifactId}")
+  .onCreate(async (snapshot, context) => {
+    const uid = context.params.uid;
+    const artifactId = context.params.artifactId;
+    const data = snapshot.data();
+
+    if (!data || data.action !== 'ADD') return null;
+
+    const idempotencyKey = `react_${uid}_${artifactId}_${data.timestamp?.seconds || 'initial'}`;
+
+    return withIdempotency(idempotencyKey, async () => {
+      const db = admin.firestore();
+
+      // 1. Get Artifact Owner
+      const artifactDoc = await db.collection("artifacts").doc(artifactId).get();
+      if (!artifactDoc.exists) return;
+      const ownerId = artifactDoc.data()?.userId;
+
+      const reactionId = `${artifactId}_${uid}`;
+      const globalRef = db.collection("artifact_reactions").document(reactionId);
+
+      await db.runTransaction(async (transaction) => {
+        const globalDoc = await transaction.get(globalRef);
+        if (globalDoc.exists) return;
+
+        // 2. Create Global Reaction Marker (Zero-Trust)
+        transaction.set(globalRef, {
+            artifactId: artifactId,
+            userId: uid,
+            artifactOwnerId: ownerId,
+            type: data.type,
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+      });
+
+      // 3. Create Notification for Owner
+      if (ownerId && ownerId !== uid) {
+        await db.collection("notifications").add({
+          userId: ownerId,
+          message: `RESONANCE|${data.type}`,
+          artifactId: artifactId,
+          type: "RESONANCE",
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          isRead: false
+        });
+      }
+
+      logger.interaction("REACTION_SUCCESS", { userId: uid, artifactId: artifactId }, "SUCCESS");
+    });
+  });
+
+/**
+ * Triggers on reaction intent deletion.
+ */
+export const onReactionIntentDeleted = functions.firestore
+  .document("users/{uid}/private/intents/reactions/{artifactId}")
+  .onDelete(async (snapshot, context) => {
+    const uid = context.params.uid;
+    const artifactId = context.params.artifactId;
+
+    const db = admin.firestore();
+    const reactionId = `${artifactId}_${uid}`;
+
+    await db.collection("artifact_reactions").doc(reactionId).delete();
+
+    logger.interaction("REACTION_REMOVED", { userId: uid, artifactId: artifactId }, "SUCCESS");
     return null;
   });

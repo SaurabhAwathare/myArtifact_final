@@ -1,7 +1,6 @@
 package com.saurabh.artifact.worker
 
 import android.content.Context
-import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.Constraints
 import androidx.work.NetworkType
@@ -18,6 +17,7 @@ import com.saurabh.artifact.data.local.*
 import com.saurabh.artifact.model.ReactionType
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.ReactionRepository
+import com.saurabh.artifact.util.ArtifactLogger
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
@@ -39,20 +39,32 @@ class InteractionSyncWorker @AssistedInject constructor(
 
         if (pending.isEmpty()) return@withContext Result.success()
 
+        val workerId = id.toString()
         var hasPermanentFailure = false
         var hasTransientFailure = false
 
         for (interaction in pending) {
-            val result = processInteraction(interaction, userId)
+            val processingInteraction = interaction.copy(
+                workerId = workerId,
+                retryCount = interaction.retryCount + 1
+            )
+            
+            ArtifactLogger.logInteraction(processingInteraction, "PROCESSING")
+
+            val result = processInteraction(processingInteraction, userId)
             if (result.isSuccess) {
+                ArtifactLogger.logInteraction(processingInteraction, "SUCCESS")
                 pendingInteractionDao.delete(interaction)
             } else {
                 val error = result.exceptionOrNull() ?: Exception("Unknown error")
-                Log.e("InteractionSyncWorker", "Failed to sync interaction: ${interaction.id} type=${interaction.interactionType}", error)
+                val errorInteraction = processingInteraction.copy(lastError = error.message)
+                
+                ArtifactLogger.logInteraction(errorInteraction, "FAILURE", mapOf("error" to error.message))
                 
                 if (ArtifactRepository.isTransientError(error)) {
                     hasTransientFailure = true
-                    // Stop processing this batch and retry later
+                    // Update retry count in DB for the next run
+                    pendingInteractionDao.insert(errorInteraction)
                     break
                 } else {
                     // Permanent error (e.g. 404, 403), remove from queue to avoid blocking

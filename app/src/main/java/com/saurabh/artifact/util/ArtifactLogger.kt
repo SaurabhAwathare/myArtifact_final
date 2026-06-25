@@ -44,4 +44,35 @@ object ArtifactLogger {
                 ?: crashlytics.recordException(Exception("Non-fatal Error: $message"))
         }
     }
+
+    /**
+     * Logs a structured interaction event for end-to-end observability.
+     */
+    fun logInteraction(
+        interaction: com.saurabh.artifact.data.local.PendingInteractionEntity,
+        status: String,
+        details: Map<String, Any?> = emptyMap()
+    ) {
+        val event = mapOf(
+            "correlationId" to interaction.correlationId,
+            "interactionId" to interaction.id,
+            "type" to interaction.interactionType,
+            "action" to interaction.action,
+            "artifactId" to interaction.artifactId,
+            "status" to status,
+            "retryCount" to interaction.retryCount,
+            "workerId" to (interaction.workerId ?: "unknown")
+        ) + details
+        
+        val logMessage = "INTERACTION_EVENT: $event"
+        i("InteractionObserver", logMessage)
+        
+        if (!BuildConfig.DEBUG) {
+            val crashlytics = FirebaseCrashlytics.getInstance()
+            event.forEach { (key, value) ->
+                crashlytics.setCustomKey("interaction_$key", value.toString())
+            }
+            crashlytics.log(logMessage)
+        }
+    }
 }

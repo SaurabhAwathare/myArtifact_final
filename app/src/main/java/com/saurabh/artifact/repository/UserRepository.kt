@@ -19,6 +19,8 @@ import com.saurabh.artifact.data.local.UserLocalEntity
 import android.util.Log
 import android.content.Context
 import com.saurabh.artifact.worker.IdentitySyncWorker
+import com.saurabh.artifact.util.RefactorFeatureFlags
+import com.saurabh.artifact.util.ArtifactLogger
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
@@ -48,7 +50,8 @@ class UserRepository @Inject constructor(
     private val userDao: UserDao,
     private val identityProtectionPolicy: com.saurabh.artifact.domain.IdentityProtectionPolicy,
     private val profileRepairService: com.saurabh.artifact.domain.auth.ProfileRepairService,
-    private val registrationCoordinator: Lazy<com.saurabh.artifact.domain.auth.RegistrationCoordinator>
+    private val registrationCoordinator: Lazy<com.saurabh.artifact.domain.auth.RegistrationCoordinator>,
+    private val pendingInteractionDao: com.saurabh.artifact.data.local.PendingInteractionDao
 ) {
     private val usersCollection = firestore.collection("users")
     private val usernamesCollection = firestore.collection("usernames")
@@ -363,44 +366,48 @@ class UserRepository @Inject constructor(
     /**
      * Establishes a resonance relationship between two presences atomically.
      */
-    suspend fun resonateWithUser(currentUserId: String, targetUserId: String): Result<Unit> {
+    suspend fun resonateWithUser(currentUserId: String, targetUserId: String): Result<Unit> = withContext(Dispatchers.IO) {
         if (currentUserId.isBlank() || targetUserId.isBlank()) {
-            return Result.failure(AppError.InvalidInput("User IDs cannot be blank"))
+            return@withContext Result.failure(AppError.InvalidInput("User IDs cannot be blank"))
         }
-        if (currentUserId == targetUserId) return Result.failure(Exception("Cannot resonate with yourself"))
+        if (currentUserId == targetUserId) return@withContext Result.failure(Exception("Cannot resonate with yourself"))
 
-        return try {
-            val currentUserRef = usersCollection.document(currentUserId.trim())
-            val targetUserRef = usersCollection.document(targetUserId.trim())
-
-            firestore.runTransaction { transaction ->
-                val resonanceOutRef = currentUserRef.collection("resonance_out").document(targetUserId.trim())
-                val resonanceInRef = targetUserRef.collection("resonance_in").document(currentUserId.trim())
-
-                val resonanceDoc = transaction[resonanceOutRef]
-                if (resonanceDoc.exists()) return@runTransaction // Already resonating
-
-                // 1. Create relationship markers
-                val timestamp = FieldValue.serverTimestamp()
-                transaction[resonanceOutRef] = mapOf("createdAt" to timestamp)
-                transaction[resonanceInRef] = mapOf("createdAt" to timestamp)
-
-                // 2. Increment counters
-                transaction.update(currentUserRef, "resonanceOutCount", FieldValue.increment(1))
-                transaction.update(targetUserRef, "resonanceInCount", FieldValue.increment(1))
+        if (RefactorFeatureFlags.USE_UNIFIED_INTERACTION_QUEUE) {
+            return@withContext try {
+                val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
+                    artifactId = targetUserId, // Using artifactId field for targetUserId
+                    interactionType = com.saurabh.artifact.data.local.InteractionType.FOLLOW,
+                    action = com.saurabh.artifact.data.local.InteractionAction.ADD,
+                    metadata = currentUserId
+                )
+                pendingInteractionDao.insert(pending)
+                com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
                 
-                // Legacy support
-                transaction.update(currentUserRef, "followingCount", FieldValue.increment(1))
-                transaction.update(targetUserRef, "followersCount", FieldValue.increment(1))
-            }.await()
+                ArtifactLogger.i("UserRepository", "Follow interaction queued locally for $targetUserId")
+                Result.success(Unit)
+            } catch (e: Exception) {
+                ArtifactLogger.e("UserRepository", "Failed to queue follow interaction", e)
+                Result.failure(e)
+            }
+        }
+
+        // PRE-QUEUE INTENT WRITE (Phase 9/10 logic)
+        return@withContext try {
+            val intentRef = usersCollection.document(currentUserId)
+                .collection("private").document("intents")
+                .collection("follow").document(targetUserId)
             
-            notificationRepository.createNotification(
-                userId = targetUserId,
-                message = "PRESENCE_RESONATED"
-            )
+            intentRef.set(mapOf(
+                "targetUserId" to targetUserId,
+                "action" to "FOLLOW",
+                "timestamp" to FieldValue.serverTimestamp(),
+                "version" to 1
+            )).await()
             
+            ArtifactLogger.i("UserRepository", "Follow intent created for $targetUserId")
             Result.success(Unit)
         } catch (e: Exception) {
+            ArtifactLogger.e("UserRepository", "Failed to create follow intent", e)
             Result.failure(e)
         }
     }
@@ -408,41 +415,41 @@ class UserRepository @Inject constructor(
     /**
      * Removes a resonance relationship between two presences atomically.
      */
-    suspend fun stopResonatingWithUser(currentUserId: String, targetUserId: String): Result<Unit> {
+    suspend fun stopResonatingWithUser(currentUserId: String, targetUserId: String): Result<Unit> = withContext(Dispatchers.IO) {
         if (currentUserId.isBlank() || targetUserId.isBlank()) {
-            return Result.failure(AppError.InvalidInput("User IDs cannot be blank"))
+            return@withContext Result.failure(AppError.InvalidInput("User IDs cannot be blank"))
         }
-        return try {
-            val currentUserRef = usersCollection.document(currentUserId.trim())
-            val targetUserRef = usersCollection.document(targetUserId.trim())
 
-            firestore.runTransaction { transaction ->
-                val resonanceOutRef = currentUserRef.collection("resonance_out").document(targetUserId.trim())
-                val resonanceInRef = targetUserRef.collection("resonance_in").document(currentUserId.trim())
-
-                val resonanceDoc = transaction[resonanceOutRef]
-                if (!resonanceDoc.exists()) return@runTransaction // Not resonating
-
-                // 1. Remove relationship markers
-                transaction.delete(resonanceOutRef)
-                transaction.delete(resonanceInRef)
-
-                // 2. Decrement counters (safely)
-                val currentUserDoc = transaction[currentUserRef]
-                val targetUserDoc = transaction[targetUserRef]
-
-                val outCount = currentUserDoc.getLong("resonanceOutCount") ?: currentUserDoc.getLong("followingCount") ?: 0L
-                val inCount = targetUserDoc.getLong("resonanceInCount") ?: targetUserDoc.getLong("followersCount") ?: 0L
-
-                transaction.update(currentUserRef, "resonanceOutCount", (outCount - 1).coerceAtLeast(0))
-                transaction.update(targetUserRef, "resonanceInCount", (inCount - 1).coerceAtLeast(0))
+        if (RefactorFeatureFlags.USE_UNIFIED_INTERACTION_QUEUE) {
+            return@withContext try {
+                val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
+                    artifactId = targetUserId,
+                    interactionType = com.saurabh.artifact.data.local.InteractionType.FOLLOW,
+                    action = com.saurabh.artifact.data.local.InteractionAction.REMOVE,
+                    metadata = currentUserId
+                )
+                pendingInteractionDao.insert(pending)
+                com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
                 
-                // Legacy support
-                transaction.update(currentUserRef, "followingCount", (outCount - 1).coerceAtLeast(0))
-                transaction.update(targetUserRef, "followersCount", (inCount - 1).coerceAtLeast(0))
-            }.await()
+                ArtifactLogger.i("UserRepository", "Unfollow interaction queued locally for $targetUserId")
+                Result.success(Unit)
+            } catch (e: Exception) {
+                ArtifactLogger.e("UserRepository", "Failed to queue unfollow interaction", e)
+                Result.failure(e)
+            }
+        }
+
+        return@withContext try {
+            val intentRef = usersCollection.document(currentUserId)
+                .collection("private").document("intents")
+                .collection("follow").document(targetUserId)
+            
+            intentRef.delete().await()
+            
+            ArtifactLogger.i("UserRepository", "Follow intent removed for $targetUserId")
             Result.success(Unit)
         } catch (e: Exception) {
+            ArtifactLogger.e("UserRepository", "Failed to remove follow intent", e)
             Result.failure(e)
         }
     }

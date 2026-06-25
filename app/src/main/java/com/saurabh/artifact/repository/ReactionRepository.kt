@@ -4,6 +4,8 @@ import android.util.Log
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.saurabh.artifact.model.*
+import com.saurabh.artifact.util.ArtifactLogger
+import com.saurabh.artifact.util.RefactorFeatureFlags
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -17,7 +19,6 @@ import javax.inject.Singleton
 class ReactionRepository @Inject constructor(
     @param:dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context,
     private val firestore: FirebaseFirestore,
-    private val notificationRepository: NotificationRepository,
     private val pendingInteractionDao: com.saurabh.artifact.data.local.PendingInteractionDao
 ) {
 
@@ -32,49 +33,45 @@ class ReactionRepository @Inject constructor(
         type: ReactionType
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            val reactionId = "${artifactId}_${userId}"
+            if (RefactorFeatureFlags.USE_UNIFIED_INTERACTION_QUEUE) {
+                val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
+                    artifactId = artifactId,
+                    interactionType = com.saurabh.artifact.data.local.InteractionType.REACTION,
+                    action = com.saurabh.artifact.data.local.InteractionAction.ADD,
+                    metadata = type.id
+                )
+                pendingInteractionDao.deleteByType(artifactId, com.saurabh.artifact.data.local.InteractionType.REACTION)
+                pendingInteractionDao.insert(pending)
+                com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
+                
+                ArtifactLogger.i("ReactionRepository", "Reaction interaction queued locally for $artifactId")
+                return@withContext Result.success(Unit)
+            }
 
-            // 1. References for Second-Order Privacy (Pulse & Echo)
-            // Pulse: Private state at /users/{uid}/private/interactions/reactions/{artifactId}
+            // PRE-QUEUE INTENT WRITE
+            val intentRef = firestore.collection("users").document(userId)
+                .collection("private").document("intents")
+                .collection("reactions").document(artifactId)
+            
+            intentRef.set(mapOf(
+                "artifactId" to artifactId,
+                "type" to type.id,
+                "action" to "ADD",
+                "timestamp" to FieldValue.serverTimestamp()
+            )).await()
+            
+            // Pulse: Private state (Still client-owned for optimistic UI/privacy)
             val pulseRef = firestore.collection("users").document(userId)
                 .collection("private").document("interactions")
                 .collection("reactions").document(artifactId)
             
-            val artifactRef = firestore.collection("artifacts").document(artifactId)
-            val artifactDoc = artifactRef.get().await()
-            val ownerId = artifactDoc.getString("userId")
-
-            firestore.runTransaction { transaction ->
-                // A. Save the individual reaction in Private Pulse (OWNER ONLY)
-                transaction.set(pulseRef, mapOf(
-                    "id" to reactionId,
-                    "artifactId" to artifactId,
-                    "userId" to userId,
-                    "type" to type.id,
-                    "isPrivatePulse" to true,
-                    "createdAt" to FieldValue.serverTimestamp()
-                ))
-
-                // B. Maintain 'artifact_reactions' (Consolidated name) for global visibility
-                val globalRef = firestore.collection("artifact_reactions").document(reactionId)
-                transaction.set(globalRef, mapOf(
-                    "artifactId" to artifactId,
-                    "userId" to userId,
-                    "artifactOwnerId" to ownerId,
-                    "type" to type.id,
-                    "createdAt" to FieldValue.serverTimestamp()
-                ))
-            }.await()
-
-            // Notify owner if it's not their own artifact
-            if (ownerId != null && ownerId != userId) {
-                notificationRepository.createNotification(
-                    userId = ownerId,
-                    message = "RESONANCE|${type.id}", // UI layer will map type
-                    artifactId = artifactId,
-                    type = NotificationType.RESONANCE
-                )
-            }
+            pulseRef.set(mapOf(
+                "artifactId" to artifactId,
+                "userId" to userId,
+                "type" to type.id,
+                "isPrivatePulse" to true,
+                "createdAt" to FieldValue.serverTimestamp()
+            )).await()
 
             Result.success(Unit)
         } catch (e: Exception) {
@@ -92,18 +89,36 @@ class ReactionRepository @Inject constructor(
         userId: String
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
+            if (RefactorFeatureFlags.USE_UNIFIED_INTERACTION_QUEUE) {
+                val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
+                    artifactId = artifactId,
+                    interactionType = com.saurabh.artifact.data.local.InteractionType.REACTION,
+                    action = com.saurabh.artifact.data.local.InteractionAction.REMOVE
+                )
+                pendingInteractionDao.deleteByType(artifactId, com.saurabh.artifact.data.local.InteractionType.REACTION)
+                pendingInteractionDao.insert(pending)
+                com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
+                
+                ArtifactLogger.i("ReactionRepository", "Reaction removal interaction queued locally for $artifactId")
+                return@withContext Result.success(Unit)
+            }
+
+            // PRE-QUEUE INTENT WRITE
+            val intentRef = firestore.collection("users").document(userId)
+                .collection("private").document("intents")
+                .collection("reactions").document(artifactId)
+            
+            intentRef.set(mapOf(
+                "artifactId" to artifactId,
+                "action" to "REMOVE",
+                "timestamp" to FieldValue.serverTimestamp()
+            )).await()
+            
             val pulseRef = firestore.collection("users").document(userId)
                 .collection("private").document("interactions")
                 .collection("reactions").document(artifactId)
             
-            val reactionId = "${artifactId}_${userId}"
-            val globalRef = firestore.collection("artifact_reactions").document(reactionId)
-            
-            firestore.runTransaction { transaction ->
-                transaction.delete(pulseRef)
-                transaction.delete(globalRef)
-            }.await()
-
+            pulseRef.delete().await()
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e("ReactionRepository", "Failed to remove reaction", e)

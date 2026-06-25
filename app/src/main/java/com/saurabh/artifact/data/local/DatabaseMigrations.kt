@@ -827,6 +827,16 @@ object DatabaseMigrations {
         }
     }
 
+    val MIGRATION_51_52 = object : Migration(51, 52) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            // Update pending_interactions to include observability columns
+            db.execSQL("ALTER TABLE `pending_interactions` ADD COLUMN `correlationId` TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE `pending_interactions` ADD COLUMN `workerId` TEXT")
+            db.execSQL("ALTER TABLE `pending_interactions` ADD COLUMN `retryCount` INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE `pending_interactions` ADD COLUMN `lastError` TEXT")
+        }
+    }
+
     val ALL_MIGRATIONS = arrayOf(
         MIGRATION_1_2,
         MIGRATION_2_3,
@@ -860,6 +870,7 @@ object DatabaseMigrations {
         MIGRATION_46_47,
         MIGRATION_48_49,
         MIGRATION_49_50,
-        MIGRATION_50_51
+        MIGRATION_50_51,
+        MIGRATION_51_52
     )
 }

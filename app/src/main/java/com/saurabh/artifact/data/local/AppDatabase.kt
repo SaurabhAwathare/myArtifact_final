@@ -15,7 +15,7 @@ import androidx.room.TypeConverters
         PendingInteractionEntity::class,
         UserLocalEntity::class,
     ],
-    version = 51,
+    version = 52,
     autoMigrations = [
         // Auto-migrations can be added here for simple schema changes
     ],

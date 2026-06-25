@@ -74,10 +74,17 @@ service cloud.firestore {
       }
 
       // Resonance & Engagement
-      match /resonance_in/{targetId} { allow read: if isAuth(); }
-      match /resonance_out/{targetId} { allow read: if isAuth(); }
-      match /followers/{targetId} { allow read: if isAuth(); }
-      match /following/{targetId} { allow read: if isAuth(); }
+      // Zero-Trust: Clients can only READ relationships, never WRITE.
+      // Backend (Cloud Functions) handles all writes to resonance_in/out.
+      match /resonance_in/{targetId} { allow read: if isAuth(); allow write: if false; }
+      match /resonance_out/{targetId} { allow read: if isAuth(); allow write: if false; }
+      match /followers/{targetId} { allow read: if isAuth(); allow write: if false; }
+      match /following/{targetId} { allow read: if isAuth(); allow write: if false; }
+
+      // NEW: Interaction Intents (Zero-Trust)
+      match /private/intents/follow/{targetId} {
+        allow read, write: if isOwner(uid);
+      }
 
       // Business Purpose: Track playback progress and unlock status.
       // Security Purpose: Prevents client from self-unlocking comments.
@@ -94,6 +101,11 @@ service cloud.firestore {
       }
 
       match /private/interactions/reactions/{artifactId} {
+        allow read, write: if isOwner(uid);
+      }
+
+      // Intent for Reactions (to trigger notifications/aggregates)
+      match /private/intents/reactions/{artifactId} {
         allow read, write: if isOwner(uid);
       }
 
@@ -119,12 +131,9 @@ service cloud.firestore {
                     request.resource.data.author.anonymousId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.anonymousId &&
                     request.resource.data.author.keys().hasAll(['anonymousId', 'name']);
 
-      // Secured updates: Allow owner full control, allow others only to increment commentCount
-      allow update: if isGlobalAdmin() ||
-                    isOwner(resource.data.userId) ||
-                    (isAuth() &&
-                     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['commentCount']) &&
-                     request.resource.data.commentCount == resource.data.commentCount + 1);
+      // Secured updates: Allow owner full control.
+      // Zero-Trust: Clients cannot increment commentCount. Aggregates are server-owned.
+      allow update: if isGlobalAdmin() || isOwner(resource.data.userId);
 
       allow delete: if isGlobalAdmin() || isOwner(resource.data.userId);
 
@@ -183,15 +192,8 @@ service cloud.firestore {
         resource.data.userId == request.auth.uid ||
         resource.data.artifactOwnerId == request.auth.uid
       );
-      // Identity check and ownership verification on creation/update
-      allow create, update: if isAuth() &&
-                            request.resource.data.userId == request.auth.uid &&
-                            request.resource.data.artifactOwnerId == get(/databases/$(database)/documents/artifacts/$(request.resource.data.artifactId)).data.userId;
-
-      allow delete: if isAuth() && (
-        resource.data.userId == request.auth.uid ||
-        resource.data.artifactOwnerId == request.auth.uid
-      );
+      // Zero-Trust: Clients can only READ global reactions. Writes handled by Backend.
+      allow write: if false;
     }
 
     // --- NOTIFICATIONS & REPORTS ---
@@ -205,9 +207,9 @@ service cloud.firestore {
       allow update: if isAuth() && request.auth.uid == resource.data.userId &&
                     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead']);
 
-      // Prevent spam: client-side creation only allowed for SELF (e.g. self-reminders)
-      // Most notifications should be created by Cloud Functions
-      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
+      // Zero-Trust: Clients can NO LONGER create notifications directly.
+      // Must be authored by Backend (Cloud Functions).
+      allow create: if false;
     }
 
     match /reports/{id} {
