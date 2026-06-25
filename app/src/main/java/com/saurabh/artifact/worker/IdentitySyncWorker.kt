@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.*
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.saurabh.artifact.repository.UserRepository
 import dagger.assisted.Assisted
@@ -29,6 +30,9 @@ class IdentitySyncWorker @AssistedInject constructor(
             // 1. Fetch the latest profile from Firestore (Source of Truth)
             val userProfileResult = userRepository.getOrCreateProfile()
             val user = userProfileResult.getOrNull()?.user ?: return@withContext Result.retry()
+
+            val workerVersion = inputData.getLong(KEY_VERSION, 0L)
+            Log.i("IdentitySyncWorker", "Syncing identity version $workerVersion for user: $userId")
 
             val name = user.anonymousName
             val sigil = user.anonymousSigil
@@ -86,7 +90,23 @@ class IdentitySyncWorker @AssistedInject constructor(
                 }
             }
 
-            Log.i("IdentitySyncWorker", "Global identity synchronization completed for $userId")
+            Log.i("IdentitySyncWorker", "Global identity synchronization completed for $userId (Version: $workerVersion)")
+
+            // 4. Monotonic Update of lastCompletedIdentityVersion
+            if (workerVersion > 0) {
+                val userRef = firestore.collection("users").document(userId)
+                firestore.runTransaction { transaction ->
+                    val snapshot = transaction[userRef]
+                    val currentCompleted = snapshot.getLong("identityMetadata.lastCompletedIdentityVersion") ?: 0L
+                    if (workerVersion > currentCompleted) {
+                        transaction.update(userRef, mapOf(
+                            "identityMetadata.lastCompletedIdentityVersion" to workerVersion,
+                            "identityMetadata.resetCompletedAt" to FieldValue.serverTimestamp()
+                        ))
+                    }
+                }.await()
+            }
+
             Result.success()
         } catch (e: Exception) {
             Log.e("IdentitySyncWorker", "Identity sync failed", e)
@@ -96,15 +116,19 @@ class IdentitySyncWorker @AssistedInject constructor(
 
     companion object {
         const val KEY_USER_ID = "userId"
+        const val KEY_VERSION = "version"
         private const val BATCH_LIMIT = 500
 
-        fun enqueue(context: Context, userId: String) {
+        fun enqueue(context: Context, userId: String, version: Long = 0) {
             val constraints = Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build()
 
             val request = OneTimeWorkRequestBuilder<IdentitySyncWorker>()
-                .setInputData(workDataOf(KEY_USER_ID to userId))
+                .setInputData(workDataOf(
+                    KEY_USER_ID to userId,
+                    KEY_VERSION to version
+                ))
                 .setConstraints(constraints)
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, java.util.concurrent.TimeUnit.SECONDS)
                 .addTag("identity_sync_$userId")

@@ -92,6 +92,7 @@ class UserProfileManager @Inject constructor(
         if (userId.isNotEmpty()) {
             val result = userRepository.updateAvatarConfig(userId, config)
             if (result.isSuccess) {
+                // For regular updates, we don't strictly track version but still sync
                 IdentitySyncWorker.enqueue(context, userId)
             }
             return result

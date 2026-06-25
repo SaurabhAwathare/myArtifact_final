@@ -131,7 +131,11 @@ class ProfileRepairService @Inject constructor() {
         return IdentityMetadata(
             lastIdentityChangeAt = map["lastIdentityChangeAt"] as? Timestamp,
             identityChangeCount30Days = (map["identityChangeCount30Days"] as? Number)?.toInt() ?: 0,
-            emergencyResetCount = (map["emergencyResetCount"] as? Number)?.toInt() ?: 0
+            emergencyResetCount = (map["emergencyResetCount"] as? Number)?.toInt() ?: 0,
+            identityResetVersion = (map["identityResetVersion"] as? Number)?.toLong() ?: 0L,
+            lastCompletedIdentityVersion = (map["lastCompletedIdentityVersion"] as? Number)?.toLong() ?: 0L,
+            resetStartedAt = map["resetStartedAt"] as? Timestamp,
+            resetCompletedAt = map["resetCompletedAt"] as? Timestamp
         )
     }
 

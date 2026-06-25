@@ -122,7 +122,8 @@ service cloud.firestore {
     match /usernames/{id} {
       allow read: if isAuth();
       allow create: if isAuth() && request.resource.data.uid == request.auth.uid;
-      allow delete: if isAuth() && resource.data.uid == request.auth.uid;
+      allow update: if isAuth() && resource.data.uid == request.auth.uid && request.resource.data.uid == request.auth.uid;
+      allow delete: if isAuth() && (resource == null || resource.data.uid == request.auth.uid);
     }
 
     // --- CONSOLIDATED REACTIONS ---

@@ -53,8 +53,19 @@ data class User(
 data class IdentityMetadata(
     val lastIdentityChangeAt: Timestamp? = null,
     val identityChangeCount30Days: Int = 0,
-    val emergencyResetCount: Int = 0
-)
+    val emergencyResetCount: Int = 0,
+    val identityResetVersion: Long = 0,
+    val lastCompletedIdentityVersion: Long = 0,
+    val resetStartedAt: Timestamp? = null,
+    val resetCompletedAt: Timestamp? = null
+) {
+    /**
+     * Helper to determine if a privacy synchronization is currently pending.
+     */
+    @get:Exclude
+    val isIdentitySyncPending: Boolean
+        get() = identityResetVersion > lastCompletedIdentityVersion
+}
 
 /**
  * Sensitive data stored in users/{uid}/private/settings

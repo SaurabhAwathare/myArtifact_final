@@ -17,6 +17,11 @@ import com.saurabh.artifact.util.UsernameGenerator
 import com.saurabh.artifact.data.local.UserDao
 import com.saurabh.artifact.data.local.UserLocalEntity
 import android.util.Log
+import android.content.Context
+import com.saurabh.artifact.worker.IdentitySyncWorker
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.decodeFromString
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -36,6 +41,7 @@ import kotlin.time.Duration.Companion.seconds
 
 @Singleton
 class UserRepository @Inject constructor(
+    @param:ApplicationContext private val context: Context,
     private val auth: FirebaseAuth,
     private val firestore: FirebaseFirestore,
     private val notificationRepository: NotificationRepository,
@@ -531,28 +537,70 @@ class UserRepository @Inject constructor(
 
     /**
      * Immediately randomizes the user's identity for emergency privacy protection.
+     * Hardened with a version-based state machine and atomic transaction.
      */
     suspend fun emergencyIdentityReset(userId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        if (userId.isBlank()) return@withContext Result.failure(AppError.InvalidInput("User ID cannot be blank"))
+
         try {
             val userRef = usersCollection.document(userId)
-            val userSnapshot = userRef.get().await()
-            val (user, _) = profileRepairService.loadAndRepair(userSnapshot)
+            
+            val (newName, newVersion) = firestore.runTransaction { transaction ->
+                val userSnapshot = transaction[userRef]
+                val (user, _) = profileRepairService.loadAndRepair(userSnapshot)
 
-            val newName = UsernameGenerator.generate()
-            val newSigil = UsernameGenerator.deriveSigil(user.anonymousId)
-            val newSeed = java.util.UUID.randomUUID().toString()
+                val oldName = user.anonymousName.lowercase().trim()
+                val generatedName = UsernameGenerator.generate()
+                val normalizedNewName = generatedName.lowercase().trim()
+                
+                val currentVersion = user.identityMetadata.identityResetVersion
+                val nextVersion = currentVersion + 1
 
-            val updateMap = mapOf(
-                "anonymousName" to newName,
-                "anonymousSigil" to newSigil,
-                "avatarSeed" to newSeed,
-                "avatarConfig" to user.avatarConfig.copy(seed = newSeed),
-                "usernameUpdatedAt" to FieldValue.serverTimestamp(),
-                "identityMetadata.lastIdentityChangeAt" to FieldValue.serverTimestamp(),
-                "identityMetadata.emergencyResetCount" to FieldValue.increment(1)
-            )
+                // 1. Reserve new username
+                val newUsernameRef = usernamesCollection.document(normalizedNewName)
+                transaction[newUsernameRef] = mapOf(
+                    "uid" to userId,
+                    "createdAt" to FieldValue.serverTimestamp()
+                )
 
-            userRef.update(updateMap).await()
+                // 2. Delete old username reservation
+                if (oldName.isNotEmpty()) {
+                    transaction.delete(usernamesCollection.document(oldName))
+                }
+
+                // 3. Update user profile
+                val newSeed = java.util.UUID.randomUUID().toString()
+                val updateMap = mapOf(
+                    "anonymousName" to generatedName,
+                    "anonymousSigil" to UsernameGenerator.deriveSigil(user.anonymousId),
+                    "avatarSeed" to newSeed,
+                    "avatarConfig" to user.avatarConfig.copy(seed = newSeed),
+                    "usernameUpdatedAt" to FieldValue.serverTimestamp(),
+                    "identityMetadata.lastIdentityChangeAt" to FieldValue.serverTimestamp(),
+                    "identityMetadata.emergencyResetCount" to FieldValue.increment(1),
+                    "identityMetadata.identityResetVersion" to nextVersion,
+                    "identityMetadata.resetStartedAt" to FieldValue.serverTimestamp()
+                )
+                transaction.update(userRef, updateMap)
+
+                generatedName to nextVersion
+            }.await()
+
+            // 4. Update local cache (Optimistic)
+            getCachedProfile()?.let { user ->
+                val newSeed = java.util.UUID.randomUUID().toString()
+                val updatedUser = user.copy(
+                    anonymousName = newName,
+                    avatarSeed = newSeed,
+                    avatarConfig = user.avatarConfig.copy(seed = newSeed),
+                    identityMetadata = user.identityMetadata.copy(
+                        emergencyResetCount = user.identityMetadata.emergencyResetCount + 1,
+                        identityResetVersion = newVersion,
+                        resetStartedAt = com.google.firebase.Timestamp.now()
+                    )
+                )
+                userDao.insertProfile(mapUserToLocal(updatedUser))
+            }
 
             notificationRepository.createNotification(
                 userId = userId,
@@ -564,9 +612,14 @@ class UserRepository @Inject constructor(
             reportRef.set(mapOf(
                 "type" to "EMERGENCY_RESET",
                 "userId" to userId,
+                "reporterId" to userId,
                 "timestamp" to FieldValue.serverTimestamp(),
-                "reason" to "USER_TRIGGERED_PRIVACY_PROTECTION"
+                "reason" to "USER_TRIGGERED_PRIVACY_PROTECTION",
+                "version" to newVersion
             )).await()
+
+            // Trigger global identity synchronization
+            IdentitySyncWorker.enqueue(context, userId, newVersion)
 
             Result.success(Unit)
         } catch (e: Exception) {
