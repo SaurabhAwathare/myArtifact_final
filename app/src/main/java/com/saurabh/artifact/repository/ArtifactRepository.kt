@@ -940,19 +940,17 @@ class ArtifactRepository @Inject constructor(
 
     suspend fun createArtifactDocument(
         userId: String,
-        username: String,
+        author: AuthorSnapshot,
         audioUrl: String,
         draft: ArtifactDraftEntity,
-        avatarSeed: String = "",
-        avatarColor: String = "#FFD700",
-        avatarConfig: AvatarConfig = AvatarConfig(),
-        anonymousId: String = "",
-        anonymousSigil: String = "",
         status: ArtifactStatus = ArtifactStatus.ACTIVE,
         isPublic: Boolean = true,
         transcriptUrl: String? = null
     ): Result<String> = withContext(Dispatchers.IO) {
         return@withContext try {
+            // HARDENING: Audit Snapshot before persistence
+            Log.d("ArtifactRepository", "Pre-registering Firestore document for ${draft.id} | Author: ${author.name} (${author.sigil})")
+            
             // 1. Recover Transcript from Frozen Snapshot
             val transcript = draft.frozenTranscriptJson?.toUnsecureString()?.let { json ->
                 try {
@@ -966,14 +964,7 @@ class ArtifactRepository @Inject constructor(
             val artifact = Artifact(
                 id = draft.id, // IDEMPOTENCY: Use draftId as the Firestore Document ID
                 userId = userId,
-                author = AuthorSnapshot(
-                    anonymousId = anonymousId,
-                    name = username,
-                    sigil = anonymousSigil,
-                    avatarSeed = avatarSeed,
-                    avatarColor = avatarColor,
-                    avatarConfig = avatarConfig
-                ),
+                author = author,
                 audioUrl = audioUrl,
                 createdAt = Timestamp.now(),
                 isPublic = isPublic,

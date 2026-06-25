@@ -480,41 +480,39 @@ class RecordingService : Service() {
                     
                     // 1. HARD VALIDATION: Does the file exist and have data?
                     if (finalFile != null && finalFile.exists() && finalFile.length() > 0) {
-                        _recordingState.value = _recordingState.value.copy(status = RecordingStatus.COMPLETED)
-                        
-                        withContext(Dispatchers.IO) {
-                            try {
-                                Log.d("RecordingService", "Finalizing session for draft: $draftId")
-                                
-                                // State Update: Mark as SAVING while we hand off to workers
-                                draftDao.getDraftById(draftId)?.let {
-                                    draftDao.update(it.copy(
-                                        status = it.status.copy(
-                                            processing = ProcessingStatus.Active(ProcessingStage.SAVING)
-                                        ),
-                                        lifecycle = ArtifactLifecycle.PROCESSING,
-                                        durableBytes = finalFile.length(), // Option A: Final durability update
-                                        updatedAt = System.currentTimeMillis()
-                                    ))
-                                }
+                        val audioDataLength = finalFile.length() - WavHeaderUtils.HEADER_SIZE
+                        val durationMs = WavHeaderUtils.calculateDurationMs(
+                            audioDataLength = audioDataLength.coerceAtLeast(0),
+                            sampleRate = 44100,
+                            channels = 1,
+                            bitsPerSample = 16
+                        )
 
-                                Log.d("RecordingService", "Atmospheric Handoff: Securing your reflection...")
-                                
-                                // hand off to the enhancement pipeline (which now starts with Transcoding)
-                                publishingOrchestrator.startProcessing(draftId)
+                        Log.d("RecordingService", "Calculated duration from file: $durationMs ms")
 
-                                // CENTRALIZED CLEANUP: Clear the active session
-                                userSessionManager.setActiveDraftId(null)
-                                Log.d("RecordingService", "Session handed off to processing pipeline.")
-                                
-                                // Emit final session state to UI
-                                _recordingState.value = _recordingState.value.copy(
-                                    status = RecordingStatus.COMPLETED
-                                )
-                            } catch (e: Exception) {
-                                ArtifactLogger.e("RecordingService", "Hand-off failed", e)
-                                // Handle error state if needed
-                            }
+                        val result = recordingRepository.finalizeRecording(
+                            id = draftId,
+                            durationMs = durationMs,
+                            durableBytes = audioDataLength.coerceAtLeast(0)
+                        )
+
+                        if (result.isSuccess) {
+                            Log.d("RecordingService", "Atmospheric Handoff: Securing your reflection...")
+                            
+                            // hand off to the enhancement pipeline (which now starts with Transcoding)
+                            publishingOrchestrator.startProcessing(draftId)
+
+                            // CENTRALIZED CLEANUP: Clear the active session
+                            userSessionManager.setActiveDraftId(null)
+                            Log.d("RecordingService", "Session handed off to processing pipeline.")
+                            
+                            // Emit final session state to UI - ONLY AFTER SUCCESSFUL PERSISTENCE
+                            _recordingState.value = _recordingState.value.copy(
+                                status = RecordingStatus.COMPLETED
+                            )
+                        } else {
+                            ArtifactLogger.e("RecordingService", "Finalization failed: ${result.exceptionOrNull()?.message}")
+                            _recordingState.value = _recordingState.value.copy(status = RecordingStatus.FAILED)
                         }
                     } else {
                         ArtifactLogger.e("RecordingService", "Output file validation failed: file=${finalFile?.exists()}, length=${finalFile?.length()}")

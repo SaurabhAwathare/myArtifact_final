@@ -32,12 +32,30 @@ enum class ArtifactLifecycle {
     DELETING;
 
     /**
-     * Enforces forward-only progression of the lifecycle.
-     * Transitions are allowed if the [next] state has a higher or equal ordinal,
+     * Enforces explicit, non-ordinal transitions according to the
+     * [Publishing Flow Invariants](file:///docs/architecture/PublishingFlowInvariants.md).
+     *
+     * Transitions are allowed only if defined in the transition matrix,
      * or if [isRecovery] is true.
      */
     fun canTransitionTo(next: ArtifactLifecycle, isRecovery: Boolean = false): Boolean {
         if (isRecovery) return true
-        return next.ordinal >= this.ordinal
+        if (this == next) return true
+        
+        val allowed = transitions[this] ?: emptySet()
+        return next in allowed
+    }
+
+    companion object {
+        private val transitions: Map<ArtifactLifecycle, Set<ArtifactLifecycle>> = mapOf(
+            RECORDING to setOf(PROCESSING),
+            PROCESSING to setOf(REVIEW_REQUIRED),
+            REVIEW_REQUIRED to setOf(METADATA_REQUIRED),
+            METADATA_REQUIRED to setOf(READY_TO_PUBLISH),
+            READY_TO_PUBLISH to setOf(PUBLISHED),
+            PUBLISHED to setOf(DELETING),
+            DELETING to setOf(DELETED),
+            DELETED to emptySet()
+        )
     }
 }

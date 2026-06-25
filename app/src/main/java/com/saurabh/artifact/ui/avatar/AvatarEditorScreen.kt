@@ -117,6 +117,8 @@ fun AvatarEditorScreen(
 
                 EditorSection("Eyes") {
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        // Intentionally using default keys because this is a static,
+                        // immutable enum list with fixed ordering.
                         items(EyeType.entries) { eyes ->
                             OptionChip(
                                 label = eyes.name,
@@ -128,6 +130,8 @@ fun AvatarEditorScreen(
 
                 EditorSection("Mouth") {
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        // Intentionally using default keys because this is a static,
+                        // immutable enum list with fixed ordering.
                         items(MouthType.entries) { mouth ->
                             OptionChip(
                                 label = mouth.name,
@@ -140,6 +144,8 @@ fun AvatarEditorScreen(
                 EditorSection("Skin Color") {
                     val colors = listOf("#FFDBAC", "#F1C27D", "#E0AC69", "#8D5524")
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        // Intentionally using default keys because this is a static,
+                        // immutable option list with fixed ordering.
                         items(colors) { colorHex ->
                             ColorOption(
                                 colorHex = colorHex,

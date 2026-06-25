@@ -80,6 +80,10 @@ class PublishingStudioViewModel @Inject constructor(
 
     private val _draftId = MutableStateFlow<String?>(null)
     
+    // Phase 4: Temporary memory buffers for input fields
+    private val _titleInput = MutableStateFlow<String?>(null)
+    private var titleDebounceJob: kotlinx.coroutines.Job? = null
+
     // Local-only UI state
     private val _uiState = MutableStateFlow(StudioUiState())
 
@@ -94,14 +98,14 @@ class PublishingStudioViewModel @Inject constructor(
         .combine(playbackCoordinator.reviewProgress) { draft, reviewState ->
             draft to reviewState
         }
-        .combine(_uiState) { (draft, review), ui ->
+        .combine(_titleInput) { (draft, review), titleBuffer ->
+            Triple(draft, review, titleBuffer)
+        }
+        .combine(_uiState) { (draft, review, titleBuffer), ui ->
             val step = StudioStep.fromLifecycle(draft.lifecycle)
             
-            when (step) {
-                StudioStep.REVIEW -> Log.d("NAV_TRACE", "Navigate -> Review")
-                StudioStep.DETAILS -> Log.d("NAV_TRACE", "Navigate -> Metadata")
-                else -> {}
-            }
+            // Phase 5: Merge state, prioritizing local buffer for UI responsiveness
+            val displayTitle = titleBuffer ?: draft.title ?: ""
 
             Log.d("STATE_TRACE", "[STATE_TRACE] sessionState EMIT: draftId=${draft.id}, lifecycle=${draft.lifecycle}, step=$step, reviewCompleted=${draft.reviewCompleted} | Instance=${this.hashCode()}")
             StudioSessionState(
@@ -112,7 +116,7 @@ class PublishingStudioViewModel @Inject constructor(
                 titleCompleted = draft.titleCompleted,
                 emotionCompleted = draft.emotionCompleted,
                 approvalCompleted = draft.approvalCompleted,
-                title = draft.title ?: "",
+                title = displayTitle,
                 emotion = draft.emotion,
                 
                 // Playback info
@@ -163,23 +167,42 @@ class PublishingStudioViewModel @Inject constructor(
         Log.d("VM_TRACE", "[VM_TRACE] loadDraft: draftId=$draftId | Instance=${this.hashCode()}")
         _draftId.value = draftId
         
+        // Reset buffers when loading new draft
+        _titleInput.value = null
+
         viewModelScope.launch {
             playbackCoordinator.playDraftPreview(draftId)
         }
     }
 
+    /**
+     * Updates the draft title using a temporary UI buffer for responsiveness,
+     * maintaining the [Publishing Flow Invariants](file:///docs/architecture/PublishingFlowInvariants.md).
+     */
     fun updateTitle(title: String) {
         val draftId = _draftId.value ?: return
-        Log.d("STATE_TRACE", "[STATE_TRACE] updateTitle: title='$title', draftId=$draftId | Instance=${this.hashCode()}")
-        viewModelScope.launch {
-            recordingRepository.updateDraftMetadata(draftId, title, sessionState.value.emotion)
-            recordingRepository.updateStudioState(
-                id = draftId,
-                review = sessionState.value.reviewCompleted,
-                title = title.isNotBlank(),
-                emotion = sessionState.value.emotionCompleted,
-                approval = sessionState.value.approvalCompleted
-            )
+        
+        // Update local buffer immediately for zero-latency UI
+        _titleInput.value = title
+
+        // Phase 4: Debounce Room writes
+        titleDebounceJob?.cancel()
+        titleDebounceJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(500)
+            
+            Log.d("STATE_TRACE", "[STATE_TRACE] Debounced updateTitle: title='$title', draftId=$draftId")
+            val result = recordingRepository.updateDraftMetadata(draftId, title, sessionState.value.emotion)
+            if (result.isSuccess) {
+                recordingRepository.updateStudioState(
+                    id = draftId,
+                    review = sessionState.value.reviewCompleted,
+                    title = title.isNotBlank(),
+                    emotion = sessionState.value.emotionCompleted,
+                    approval = sessionState.value.approvalCompleted
+                )
+                // Clear buffer ONLY after successful persistence to let Room take authority back
+                _titleInput.value = null
+            }
         }
     }
 

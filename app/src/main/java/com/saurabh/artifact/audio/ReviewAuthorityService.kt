@@ -122,17 +122,22 @@ class ReviewAuthorityService @Inject constructor(
         }
     }
 
+    /**
+     * Initializes a review session, ensuring the [Publishing Flow Invariants](file:///docs/architecture/PublishingFlowInvariants.md)
+     * are maintained regarding field ownership and recovery.
+     */
     private suspend fun initializeSession(artifact: Artifact) {
         if (activeTracker?.progress?.artifactId == artifact.id) return
 
-        val evidence = engagementRepository.getEngagement(artifact.id).getOrElse {
-            EngagementEvidence(
+        val evidence = engagementRepository.getEngagement(artifact.id)
+            .getOrNull()
+            ?.copy(durationMs = artifact.durationMs) // Phase 6: Always sync with authoritative duration
+            ?: EngagementEvidence(
                 artifactId = artifact.id,
                 versionTag = "v1",
                 durationMs = artifact.durationMs,
                 audioChecksum = artifact.checksum,
             )
-        }
 
         activeTracker = DefaultReviewTracker(
             initialEvidence = evidence,

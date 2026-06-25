@@ -35,6 +35,7 @@ class IdentitySyncWorker @AssistedInject constructor(
             Log.i("IdentitySyncWorker", "Syncing identity version $workerVersion for user: $userId")
 
             val name = user.anonymousName
+            val anonymousId = user.anonymousId
             val sigil = user.anonymousSigil
             val avatarSeed = user.avatarSeed
             val avatarColor = user.avatarColor
@@ -42,6 +43,7 @@ class IdentitySyncWorker @AssistedInject constructor(
 
             val authorUpdate = mapOf(
                 "author.name" to name,
+                "author.anonymousId" to anonymousId,
                 "author.sigil" to sigil,
                 "author.avatarSeed" to avatarSeed,
                 "author.avatarColor" to avatarColor,

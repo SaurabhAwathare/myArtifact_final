@@ -321,6 +321,8 @@ private fun FeedVibeHeader(
                     onClick = { onEmotionSelect(null) }
                 )
             }
+            // Intentionally using default keys because this is a static,
+            // immutable list of emotions with fixed ordering.
             items(EmotionList) { emotion ->
                 val displayLabel = if (selectedEmotion == emotion.label) {
                     when (emotion.label) {
@@ -425,7 +427,7 @@ private fun FeedContent(
                             )
                         }
                         is FeedDisplayItem.BreakItem -> {
-                            this@LazyColumn.breathBreakItem(item.id)
+                            BreathBreakItem()
                         }
                         null -> { /* Paging placeholder */ }
                     }
@@ -584,23 +586,22 @@ fun ArtifactItem(
     }
 }
 
-fun LazyListScope.breathBreakItem(key: String) {
-    item(key = key) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 48.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                EmberLogo(size = 12.dp, isPulsing = true)
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    "take a breath",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-                )
-            }
+@Composable
+fun BreathBreakItem(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 48.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            EmberLogo(size = 12.dp, isPulsing = true)
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "take a breath",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+            )
         }
     }
 }

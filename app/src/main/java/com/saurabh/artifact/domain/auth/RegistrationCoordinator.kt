@@ -43,7 +43,7 @@ class RegistrationCoordinator @Inject constructor(
                                     Log.i("APP_FLOW", "REGISTRATION_NEW_USER")
                                     RegistrationResult.SuccessNewUser
                                 } else {
-                                    if (status != HealthStatus.Missing) {
+                                    if (status is HealthStatus.RepairRequired || status is HealthStatus.Corrupted) {
                                         Log.i("APP_FLOW", "PROFILE_REPAIR_COMPLETED")
                                     }
                                     Log.i("APP_FLOW", "REGISTRATION_EXISTING_USER")

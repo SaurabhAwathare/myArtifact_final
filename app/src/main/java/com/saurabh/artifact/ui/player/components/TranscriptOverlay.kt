@@ -48,7 +48,10 @@ fun TranscriptOverlay(
         verticalArrangement = Arrangement.spacedBy(24.dp),
         userScrollEnabled = false // Calm, autonomous movement
     ) {
-        itemsIndexed(segments) { index, segment ->
+        itemsIndexed(
+            items = segments,
+            key = { _, segment -> segment.id }
+        ) { index, segment ->
             val isActive = index == currentIndex
             val color by animateColorAsState(
                 targetValue = if (isActive) GoldAura400 else Color.White.copy(alpha = 0.2f),

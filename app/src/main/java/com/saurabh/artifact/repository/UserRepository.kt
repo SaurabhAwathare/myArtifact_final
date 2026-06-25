@@ -586,7 +586,7 @@ class UserRepository @Inject constructor(
                 generatedName to nextVersion
             }.await()
 
-            // 4. Update local cache (Optimistic)
+            // 4. Update local profile cache (Optimistic)
             getCachedProfile()?.let { user ->
                 val newSeed = java.util.UUID.randomUUID().toString()
                 val updatedUser = user.copy(

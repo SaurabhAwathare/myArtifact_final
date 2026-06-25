@@ -90,7 +90,10 @@ fun ModerationScreen(
                         contentPadding = PaddingValues(Spacing.Medium),
                         verticalArrangement = Arrangement.spacedBy(Spacing.Medium)
                     ) {
-                        items(state.items) { item ->
+                        items(
+                            items = state.items,
+                            key = { it.report.id }
+                        ) { item ->
                             ReportCard(
                                 item = item,
                                 onAction = { action ->

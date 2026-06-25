@@ -4,6 +4,7 @@ import com.saurabh.artifact.data.local.UserSessionManager
 import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.worker.IdentitySyncWorker
 import android.content.Context
+import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -140,5 +141,45 @@ class UserProfileManager @Inject constructor(
 
     suspend fun isUsernameAvailable(username: String): Result<Boolean> {
         return userRepository.isUsernameAvailable(username)
+    }
+
+    /**
+     * Immediately randomizes the user's identity and synchronizes both local and remote state.
+     * Acts as the coordinator for the emergency reset flow.
+     */
+    suspend fun emergencyIdentityReset(userId: String): Result<Unit> {
+        Log.i("UserProfileManager", "Starting emergency identity reset orchestration for $userId")
+        
+        // 1. Trigger Remote Reset (Authority)
+        val result = userRepository.emergencyIdentityReset(userId)
+        
+        if (result.isSuccess) {
+            // 2. Synchronize Local Artifact Cache (Optimistic)
+            managerScope.launch {
+                try {
+                    val updatedProfile = sessionManager.userProfile.first()
+                    Log.d("UserProfileManager", "Syncing local artifacts for $userId with new identity: ${updatedProfile.username}")
+                    
+                    artifactRepository.updateLocalAuthorSnapshot(
+                        userId = userId,
+                        snapshot = AuthorSnapshot(
+                            anonymousId = updatedProfile.anonymousId,
+                            name = updatedProfile.username,
+                            sigil = updatedProfile.sigil,
+                            avatarSeed = updatedProfile.avatarSeed,
+                            avatarColor = updatedProfile.avatarColor,
+                            avatarConfig = updatedProfile.avatarConfig
+                        )
+                    )
+                    Log.i("UserProfileManager", "Local identity synchronization completed for $userId")
+                } catch (e: Exception) {
+                    Log.e("UserProfileManager", "Local identity synchronization failed for $userId", e)
+                }
+            }
+        } else {
+            Log.e("UserProfileManager", "Emergency reset orchestration aborted due to remote failure")
+        }
+        
+        return result
     }
 }

@@ -41,7 +41,10 @@ fun TranscriptSyncView(
         contentPadding = PaddingValues(vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        items(segments) { segment ->
+        items(
+            items = segments,
+            key = { segment -> segment.id }
+        ) { segment ->
             val isActive = currentPosition in segment.startMs..segment.endMs
             val color by animateColorAsState(
                 targetValue = if (isActive) EmberGlow else Color.White.copy(alpha = 0.4f),

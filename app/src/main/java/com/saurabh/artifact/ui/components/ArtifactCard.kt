@@ -206,15 +206,21 @@ fun ArtifactCard(
                                 
                                 Spacer(modifier = Modifier.width(Spacing.Medium))
                                 
-                                Column {
+                                // The user metadata is the flexible region of the header.
+                                // It intentionally shrinks before the Emotion Chip so the
+                                // emotion remains fully visible on narrow screens.
+                                Column(modifier = Modifier.weight(1f)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(
                                             text = displayUsername,
+                                            modifier = Modifier.weight(1f, fill = false),
                                             style = ArtifactTheme.typography.labelLarge.copy(
                                                 fontWeight = FontWeight.SemiBold,
                                                 fontSize = 15.sp
                                             ),
-                                            color = ArtifactTheme.colors.onSurfaceMain
+                                            color = ArtifactTheme.colors.onSurfaceMain,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
                                         )
                                         if (artifact.author.sigil.isNotEmpty()) {
                                             Text(
@@ -238,11 +244,10 @@ fun ArtifactCard(
                                     )
                                 }
                                 
-                                Spacer(modifier = Modifier.width(Spacing.Large))
-                                
                                 if (displayEmotionWithEmoji.isNotEmpty()) {
                                     Box(
                                         modifier = Modifier
+                                            .padding(start = Spacing.Large) // Ensure gap from flexible content
                                             .clip(RoundedCornerShape(8.dp))
                                             .background(ArtifactTheme.colors.waveformActive.copy(alpha = 0.05f))
                                             .padding(horizontal = 8.dp, vertical = 2.dp)
@@ -508,6 +513,54 @@ private fun LightweightArtifactCard(
 //    val secs = totalSeconds % 60
 //    return "%d:%02d".format(mins, secs)
 // }
+
+@Preview(showBackground = true, backgroundColor = 0xFF050505, widthDp = 320)
+@Composable
+fun PreviewArtifactCardNarrow() {
+    ArtifactTheme {
+        val mockArtifact = Artifact(
+            id = "1",
+            userId = "user_1",
+            author = AuthorSnapshot(
+                name = "TheExplorerOfDeepThoughtsForever",
+                sigil = "◈"
+            ),
+            title = "Testing long username on narrow screen.",
+            audioUrl = "",
+            emotion = "Overwhelmed"
+        )
+        ArtifactCard(
+            artifact = mockArtifact,
+            isPlaying = false,
+            onPlayClick = {},
+            modifier = Modifier.padding(Spacing.Medium)
+        )
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF050505)
+@Composable
+fun PreviewArtifactCardWorstCase() {
+    ArtifactTheme {
+        val mockArtifact = Artifact(
+            id = "1",
+            userId = "user_1",
+            author = AuthorSnapshot(
+                name = "TheExplorerOfDeepThoughtsForever",
+                sigil = "◈"
+            ),
+            title = "Worst case scenario with all elements present and very long content.",
+            audioUrl = "",
+            emotion = "Overwhelmed"
+        )
+        ArtifactCard(
+            artifact = mockArtifact,
+            isPlaying = false,
+            onPlayClick = {},
+            modifier = Modifier.padding(Spacing.Medium)
+        )
+    }
+}
 
 @Preview(showBackground = true, backgroundColor = 0xFF050505)
 @Composable

@@ -1,6 +1,7 @@
 package com.saurabh.artifact.repository
 
 import android.util.Log
+import androidx.room.withTransaction
 import com.saurabh.artifact.audio.ArtifactCleanupManager
 import com.saurabh.artifact.audio.DraftDeletionManager
 import com.saurabh.artifact.audio.LocalDraftManager
@@ -25,6 +26,7 @@ class RecordingRepository @Inject constructor(
     private val wavRecoveryManager: WavRecoveryManager,
     private val deletionManager: DraftDeletionManager,
     private val cleanupManager: ArtifactCleanupManager,
+    private val draftsDatabase: com.saurabh.artifact.data.local.AppDatabase,
 ) {
     
     suspend fun createDraft(
@@ -227,6 +229,52 @@ class RecordingRepository @Inject constructor(
         android.util.Log.d("STATE_TRACE", "updateStudioState: ID=$id, R=$review, T=$title, E=$emotion, A=$approval (DB_TRACE)")
         try {
             draftDao.updateStudioState(id, review, title, emotion, approval)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(AppError.from(e))
+        }
+    }
+
+    /**
+     * Atomically finalizes a recording session according to the
+     * [Publishing Flow Invariants](file:///docs/architecture/PublishingFlowInvariants.md).
+     *
+     * This method is idempotent: if the draft is already beyond the RECORDING stage
+     * with identical duration/bytes, it performs no action.
+     *
+     * It ensures durationMs, durableBytes, lifecycle, and updatedAt are updated in one transaction.
+     */
+    suspend fun finalizeRecording(
+        id: String,
+        durationMs: Long,
+        durableBytes: Long,
+        targetLifecycle: ArtifactLifecycle = ArtifactLifecycle.PROCESSING
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            draftsDatabase.withTransaction {
+                val existing = draftDao.getDraftById(id) ?: throw Exception("Draft not found")
+
+                // Idempotency check: Don't regress or duplicate work if data already matches
+                val isSameState = existing.lifecycle == targetLifecycle && 
+                                 existing.durationMs == durationMs && 
+                                 existing.durableBytes == durableBytes
+                
+                if (isSameState) return@withTransaction
+
+                if (!existing.lifecycle.canTransitionTo(targetLifecycle)) {
+                    // Block the transition if it's a regression
+                    throw Exception("Cannot finalize recording: Invalid transition from ${existing.lifecycle} to $targetLifecycle")
+                }
+
+                // Update all finalization fields together
+                val updated = existing.copy(
+                    durationMs = durationMs,
+                    durableBytes = durableBytes,
+                    lifecycle = targetLifecycle,
+                    updatedAt = System.currentTimeMillis()
+                )
+                draftDao.update(updated)
+            }
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(AppError.from(e))

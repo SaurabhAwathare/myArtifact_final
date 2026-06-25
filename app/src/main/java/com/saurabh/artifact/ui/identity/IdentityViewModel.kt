@@ -249,7 +249,7 @@ class IdentityViewModel @Inject constructor(
         
         viewModelScope.launch {
             _uiState.value = IdentityUiState.Loading
-            userRepository.emergencyIdentityReset(userId)
+            userProfileManager.emergencyIdentityReset(userId)
                 .onSuccess {
                     _uiState.value = IdentityUiState.Idle
                     onSuccess()

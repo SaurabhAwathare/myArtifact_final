@@ -121,6 +121,8 @@ private fun ReactionPicker(
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // Intentionally using default keys because this is a static,
+            // immutable enum list with fixed ordering.
             items(ReactionType.entries.toList()) { type ->
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,

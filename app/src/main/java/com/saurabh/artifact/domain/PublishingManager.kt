@@ -88,17 +88,16 @@ class PublishingManager @Inject constructor(
                 userRepository.getCachedProfile() ?: throw Exception("User profile not available (even offline)")
             }
 
+            // NEW: Construct Complete AuthorSnapshot (Defense in Depth)
+            val authorSnapshot = com.saurabh.artifact.model.AuthorSnapshot.fromUser(userProfile)
+
             // 5. Pre-register Firestore Document
             Log.d("PublishingManager", "Step 5: Pre-registering Firestore document for $draftId")
             artifactRepository.createArtifactDocument(
                 userId = firebaseUser.uid,
-                username = userProfile.anonymousName,
+                author = authorSnapshot,
                 audioUrl = draft.uploadedAudioUrl ?: "",
                 draft = draft,
-                avatarSeed = userProfile.avatarSeed,
-                avatarColor = userProfile.avatarColor,
-                avatarConfig = userProfile.avatarConfig,
-                anonymousId = userProfile.anonymousId,
                 status = if (draft.uploadedAudioUrl != null) ArtifactStatus.ACTIVE else ArtifactStatus.PENDING_UPLOAD,
                 isPublic = if (draft.uploadedAudioUrl != null) draft.isPublic else false,
                 transcriptUrl = transcriptUrl

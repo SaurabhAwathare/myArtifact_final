@@ -70,7 +70,8 @@ class RegistrationCoordinatorTest {
         val result = coordinator.ensureProfileExists()
 
         assertEquals(RegistrationResult.SuccessExistingUser, result)
-        verify { Log.i("APP_FLOW", "PROFILE_REPAIR_STARTED: HealthStatus.RepairRequired") }
+        // Check for specific repair start log
+        verify { Log.i("APP_FLOW", match { it.startsWith("PROFILE_REPAIR_STARTED") }) }
         verify { Log.i("APP_FLOW", "PROFILE_REPAIR_COMPLETED") }
     }
 

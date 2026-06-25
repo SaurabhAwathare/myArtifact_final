@@ -23,43 +23,41 @@ class ProfileRepairService @Inject constructor() {
         var repairPerformed = false
         val repairReasons = mutableListOf<String>()
 
-        // 1. Version Migration Check
-        val version = (rawData["schemaVersion"] as? Number)?.toInt() ?: 1
-        if (version < CURRENT_SCHEMA_VERSION) {
-            repairPerformed = true
-            repairReasons.add("LEGACY_SCHEMA_V$version")
-            Log.i("ProfileRepair", "MIGRATION_REQUIRED | UID: $uid | V$version -> V$CURRENT_SCHEMA_VERSION")
-        }
-
-        // 2. Deserialization Attempt
+        // 1. Initial Deserialization Attempt
         val user = try {
-            val parsedUser = snapshot.toObject(User::class.java)
-            if (parsedUser == null) {
-                repairPerformed = true
-                repairReasons.add("DESERIALIZATION_NULL")
-                Log.w("ProfileRepair", "DESERIALIZATION_RETURNED_NULL | UID: $uid")
-                sanitizeFromMap(uid, rawData, repairReasons)
-            } else {
-                parsedUser.copy(id = uid)
-            }
+            snapshot.toObject(User::class.java)?.copy(id = uid)
         } catch (e: Exception) {
-            repairPerformed = true
-            repairReasons.add("DESERIALIZATION_CRASH: ${e.javaClass.simpleName}")
-            Log.e("ProfileRepair", "DESERIALIZATION_CRASH | UID: $uid", e)
-            sanitizeFromMap(uid, rawData, repairReasons)
+            Log.e("ProfileRepair", "INITIAL_DESERIALIZATION_CRASH | UID: $uid", e)
+            null
         }
 
-        // 3. Final Consistency Check (Ensure IDs match and version is bumped)
-        val finalUser = user.copy(
-            id = uid,
-            schemaVersion = CURRENT_SCHEMA_VERSION
-        )
+        // 2. Deterministic Integrity Check (Audit Mechanism)
+        val validationResult = if (user != null) {
+            UserIdentityValidator.validate(user)
+        } else {
+            IdentityValidationResult(isValid = false, reasons = listOf("DESERIALIZATION_FAILURE"))
+        }
 
-        // 4. Telemetry
+        val finalUser = if (!validationResult.isValid) {
+            repairPerformed = true
+            repairReasons.addAll(validationResult.reasons)
+            Log.i("ProfileRepair", "INTEGRITY_VIOLATION_DETECTED | UID: $uid | Reasons: ${validationResult.reasons.joinToString(", ")}")
+            
+            // Perform repair (Sanitization)
+            val repaired = sanitizeFromMap(uid, rawData, repairReasons)
+            
+            // Verify repaired profile consistency
+            repaired.copy(schemaVersion = CURRENT_SCHEMA_VERSION)
+        } else {
+            user!! // Validator confirmed non-null
+        }
+
+        // 3. Telemetry & Audit Logging
         if (repairPerformed) {
             Log.i("ProfileRepair", "PROFILE_REPAIRED | UID: $uid | Reasons: ${repairReasons.joinToString(", ")}")
             if (com.saurabh.artifact.BuildConfig.DEBUG) {
-                Log.i("ProfileRepair", "WRITE_INTENT | UID: $uid")
+                Log.d("ProfileRepair", "OLD_DATA: $rawData")
+                Log.d("ProfileRepair", "NEW_PROFILE: $finalUser")
             }
         }
 

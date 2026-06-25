@@ -28,7 +28,10 @@ fun UsernameSuggestions(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             contentPadding = PaddingValues(horizontal = 4.dp)
         ) {
-            items(suggestions) { suggestion ->
+            items(
+                items = suggestions,
+                key = { it }
+            ) { suggestion ->
                 SuggestionChip(
                     onClick = { onSuggestionSelected(suggestion) },
                     label = { 
