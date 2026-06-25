@@ -75,7 +75,8 @@ class EngagementRepository @Inject constructor(
             lastFurthestPosition = engagement.furthestPositionMs,
             totalDurationMs = engagement.durationMs,
             hasReachedEnd = engagement.hasReachedEnd,
-            updatedAt = engagement.lastUpdated
+            updatedAt = engagement.lastUpdated,
+            coverage = engagement.coverage
         )
 
 

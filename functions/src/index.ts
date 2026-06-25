@@ -1,5 +1,6 @@
 import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 
 admin.initializeApp();
 
@@ -87,6 +88,93 @@ export const onReplyCreated = functions.firestore
       return null;
     }
   });
+
+/**
+ * Authoritatively calculates comment unlock state based on listening engagement.
+ * Move business logic from client to server for Zero-Trust authorization.
+ */
+export const onEngagementUpdated = functions.firestore
+  .document("users/{userId}/engagement/{artifactId}")
+  .onWrite(async (change, context) => {
+    const data = change.after.data();
+    if (!data) return null;
+
+    const coverage = data.coverage; // Buffer from Firestore ByteArray
+    const durationMs = data.totalDurationMs;
+    const hasReachedEnd = data.hasReachedEnd;
+
+    if (!coverage || durationMs <= 0) {
+      console.log(`Skipping evaluation: missing coverage or duration for ${context.params.artifactId}`);
+      return null;
+    }
+
+    // 1. Calculate segment size (Must match CommentUnlockPolicy.kt)
+    let segmentSizeMs = 5000;
+    if (durationMs < 60000) {
+      segmentSizeMs = 500;
+    } else if (durationMs < 600000) {
+      segmentSizeMs = 5000;
+    } else {
+      segmentSizeMs = 10000;
+    }
+
+    // 2. Calculate total segments
+    const totalSegments = Math.max(1, Math.floor(durationMs / segmentSizeMs));
+
+    // 3. Count set bits in coverage
+    let setBitsCount = 0;
+    if (Buffer.isBuffer(coverage)) {
+      for (const byte of coverage) {
+        setBitsCount += countSetBits(byte);
+      }
+    } else if (coverage instanceof Uint8Array) {
+      for (const byte of coverage) {
+        setBitsCount += countSetBits(byte);
+      }
+    } else if (Array.isArray(coverage)) {
+      // Handle array of numbers (useful for testing)
+      for (const byte of coverage) {
+        setBitsCount += countSetBits(byte);
+      }
+    }
+
+    // 4. Calculate coverage percent and unlock state
+    const coveragePercent = setBitsCount / totalSegments;
+    const isUnlocked = coveragePercent >= 0.95 && hasReachedEnd;
+
+    const oldState = change.before.data()?.engagementState;
+
+    // 5. Update only if state changed or first time
+    if (!oldState || oldState.unlocked !== isUnlocked || Math.abs((oldState.coveragePercent || 0) - coveragePercent) > 0.05) {
+      console.log(`Engagement Update: user=${context.params.userId}, artifact=${context.params.artifactId}, coverage=${coveragePercent.toFixed(2)}, unlocked=${isUnlocked}`);
+
+      return change.after.ref.update({
+        isCommentUnlocked: isUnlocked, // Compatibility
+        engagementState: {
+          unlocked: isUnlocked,
+          unlockReason: isUnlocked ? "LISTENING_THRESHOLD_REACHED" : "INSUFFICIENT_ENGAGEMENT",
+          unlockVersion: (oldState?.unlockVersion || 0) + 1,
+          evaluatedAt: FieldValue.serverTimestamp(),
+          coveragePercent: parseFloat(coveragePercent.toFixed(4))
+        }
+      });
+    }
+
+    return null;
+  });
+
+/**
+ * Counts the number of set bits (1s) in a byte.
+ */
+function countSetBits(n: number): number {
+  let count = 0;
+  let temp = n & 0xff; // Ensure we only treat as a byte
+  while (temp > 0) {
+    temp &= (temp - 1);
+    count++;
+  }
+  return count;
+}
 
 /**
  * Robust cascading cleanup triggered when an artifact is deleted.
@@ -200,9 +288,9 @@ export const onReactionCreated = functions.firestore
     batch.set(
       aggregateRef,
       {
-        totalCount: admin.firestore.FieldValue.increment(1),
-        [`breakdown.${typeId}`]: admin.firestore.FieldValue.increment(1),
-        lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+        totalCount: FieldValue.increment(1),
+        [`breakdown.${typeId}`]: FieldValue.increment(1),
+        lastUpdated: FieldValue.serverTimestamp(),
       },
       { merge: true }
     );
@@ -210,7 +298,7 @@ export const onReactionCreated = functions.firestore
     // 2. Update Main Artifact Metadata (for efficient feed loading)
     const artifactRef = db.collection("artifacts").doc(artifactId);
     batch.update(artifactRef, {
-      reactionCount: admin.firestore.FieldValue.increment(1),
+      reactionCount: FieldValue.increment(1),
     });
 
     try {
@@ -245,9 +333,9 @@ export const onReactionDeleted = functions.firestore
     batch.set(
       aggregateRef,
       {
-        totalCount: admin.firestore.FieldValue.increment(-1),
-        [`breakdown.${typeId}`]: admin.firestore.FieldValue.increment(-1),
-        lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+        totalCount: FieldValue.increment(-1),
+        [`breakdown.${typeId}`]: FieldValue.increment(-1),
+        lastUpdated: FieldValue.serverTimestamp(),
       },
       { merge: true }
     );
@@ -255,7 +343,7 @@ export const onReactionDeleted = functions.firestore
     // 2. Update Main Artifact Metadata
     const artifactRef = db.collection("artifacts").doc(artifactId);
     batch.update(artifactRef, {
-      reactionCount: admin.firestore.FieldValue.increment(-1),
+      reactionCount: FieldValue.increment(-1),
     });
 
     try {

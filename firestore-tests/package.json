@@ -1,0 +1,14 @@
+{
+  "name": "artifact-firestore-tests",
+  "version": "1.0.0",
+  "description": "Security regression tests for Artifact Firestore rules",
+  "main": "index.js",
+  "scripts": {
+    "test": "mocha *.test.js --timeout 10000"
+  },
+  "dependencies": {
+    "@firebase/rules-unit-testing": "^3.0.1",
+    "firebase-admin": "^11.10.1",
+    "mocha": "^10.2.0"
+  }
+}
