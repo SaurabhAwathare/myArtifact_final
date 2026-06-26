@@ -47,6 +47,7 @@ import com.saurabh.artifact.model.Visibility
 import com.saurabh.artifact.service.PersonalizationEngine
 import com.saurabh.artifact.service.ReflectionAIService
 import com.saurabh.artifact.util.ArtifactLogger
+import com.saurabh.artifact.util.RefactorFeatureFlags
 import com.saurabh.artifact.data.local.ArtifactEntityWithIndex
 import com.saurabh.artifact.util.CoroutineExceptionHandlerUtils
 import com.saurabh.artifact.util.NetworkUtils
@@ -86,7 +87,6 @@ class ArtifactRepository @Inject constructor(
     private val aiService: dagger.Lazy<ReflectionAIService>,
     private val personalizationEngine: dagger.Lazy<PersonalizationEngine>,
     private val settingsRepository: dagger.Lazy<SettingsRepository>,
-    private val notificationRepository: NotificationRepository,
     private val artifactDao: ArtifactDao,
     private val database: AppDatabase,
     private val pendingInteractionDao: PendingInteractionDao
@@ -586,8 +586,8 @@ class ArtifactRepository @Inject constructor(
             title = artifact.title,
             description = artifact.description,
             emotion = Emotion.entries.find { 
-                it.name.equals(artifact.emotion, ignoreCase = true) || 
-                it.label.equals(artifact.emotion, ignoreCase = true) 
+                it.label.equals(artifact.emotion, ignoreCase = true) ||
+                it.name.equals(artifact.emotion, ignoreCase = true)
             } ?: Emotion.NEUTRAL,
             primaryStyle = artifact.conversationMetadata.primaryStyle,
             emotionTag = artifact.emotionTag,
@@ -655,7 +655,7 @@ class ArtifactRepository @Inject constructor(
 
     /**
      * Persists a private emotional bookmark for an artifact.
-     * OFFLINE-FIRST: Writes to local pending queue and triggers sync worker.
+     * PUBLIC API: Used by ViewModels. Enqueues interaction if unified queue is enabled.
      */
     suspend fun saveArtifact(
         userId: String,
@@ -664,20 +664,26 @@ class ArtifactRepository @Inject constructor(
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             Log.d("ArtifactRepository", "Saving artifact for user: $userId")
-            // 1. Record pending interaction
-            val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
-                artifactId = artifact.id,
-                interactionType = com.saurabh.artifact.data.local.InteractionType.SAVE,
-                action = com.saurabh.artifact.data.local.InteractionAction.ADD,
-                metadata = shelf
-            )
-            pendingInteractionDao.deleteByType(artifact.id, com.saurabh.artifact.data.local.InteractionType.SAVE)
-            pendingInteractionDao.insert(pending)
+            
+            if (RefactorFeatureFlags.USE_UNIFIED_INTERACTION_QUEUE) {
+                // 1. Record pending interaction
+                val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
+                    userId = userId,
+                    artifactId = artifact.id,
+                    interactionType = com.saurabh.artifact.data.local.InteractionType.SAVE,
+                    action = com.saurabh.artifact.data.local.InteractionAction.ADD,
+                    metadata = shelf
+                )
+                pendingInteractionDao.deleteByType(artifact.id, userId, com.saurabh.artifact.data.local.InteractionType.SAVE)
+                pendingInteractionDao.insert(pending)
 
-            // 2. Trigger Sync Worker
-            com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
+                // 2. Trigger Sync Worker
+                com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
 
-            Result.success(Unit)
+                return@withContext Result.success(Unit)
+            }
+
+            saveArtifactToFirestore(userId, artifact.id, shelf)
         } catch (e: Exception) {
             ArtifactLogger.e("ArtifactRepository", "Failed to queue save for artifact ${artifact.id}", e)
             Result.failure(e)
@@ -686,24 +692,30 @@ class ArtifactRepository @Inject constructor(
 
     /**
      * Removes a private emotional bookmark.
-     * OFFLINE-FIRST: Writes to local pending queue and triggers sync worker.
+     * PUBLIC API: Used by ViewModels. Enqueues interaction if unified queue is enabled.
      */
     suspend fun unsaveArtifact(userId: String, artifactId: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             Log.d("ArtifactRepository", "Unsaving artifact for user: $userId")
-            // 1. Record pending interaction
-            val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
-                artifactId = artifactId,
-                interactionType = com.saurabh.artifact.data.local.InteractionType.SAVE,
-                action = com.saurabh.artifact.data.local.InteractionAction.REMOVE
-            )
-            pendingInteractionDao.deleteByType(artifactId, com.saurabh.artifact.data.local.InteractionType.SAVE)
-            pendingInteractionDao.insert(pending)
+            
+            if (RefactorFeatureFlags.USE_UNIFIED_INTERACTION_QUEUE) {
+                // 1. Record pending interaction
+                val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
+                    userId = userId,
+                    artifactId = artifactId,
+                    interactionType = com.saurabh.artifact.data.local.InteractionType.SAVE,
+                    action = com.saurabh.artifact.data.local.InteractionAction.REMOVE
+                )
+                pendingInteractionDao.deleteByType(artifactId, userId, com.saurabh.artifact.data.local.InteractionType.SAVE)
+                pendingInteractionDao.insert(pending)
 
-            // 2. Trigger Sync Worker
-            com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
+                // 2. Trigger Sync Worker
+                com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
 
-            Result.success(Unit)
+                return@withContext Result.success(Unit)
+            }
+
+            unsaveArtifactFromFirestore(userId, artifactId)
         } catch (e: Exception) {
             ArtifactLogger.e("ArtifactRepository", "Failed to queue unsave for artifact $artifactId", e)
             Result.failure(e)
@@ -711,10 +723,11 @@ class ArtifactRepository @Inject constructor(
     }
 
     /**
-     * Internal method to actually write the save to Firestore.
-     * Should be called by the Sync Worker, not the UI layer.
+     * Internal synchronization method for artifact saving.
+     * INTERNAL SYNC API: Intended exclusively for InteractionSyncWorker.
+     * Performs direct Firestore write without enqueuing.
      */
-    suspend fun saveArtifactToFirestore(userId: String, artifactId: String, shelf: String = "Stayed With Me"): Result<Unit> = withContext(Dispatchers.IO) {
+    internal suspend fun saveArtifactToFirestore(userId: String, artifactId: String, shelf: String = "Stayed With Me"): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val docRef = firestore.collection("users").document(userId)
                 .collection("savedArtifacts").document(artifactId)
@@ -730,9 +743,11 @@ class ArtifactRepository @Inject constructor(
     }
 
     /**
-     * Internal method to actually remove the save from Firestore.
+     * Internal synchronization method for artifact unsaving.
+     * INTERNAL SYNC API: Intended exclusively for InteractionSyncWorker.
+     * Performs direct Firestore write without enqueuing.
      */
-    suspend fun unsaveArtifactFromFirestore(userId: String, artifactId: String): Result<Unit> = withContext(Dispatchers.IO) {
+    internal suspend fun unsaveArtifactFromFirestore(userId: String, artifactId: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             firestore.collection("users").document(userId)
                 .collection("savedArtifacts").document(artifactId)
@@ -1004,14 +1019,7 @@ class ArtifactRepository @Inject constructor(
                 batch.set(ownershipRef, mapOf("createdAt" to Timestamp.now()))
             }.await()
             
-            if (status == ArtifactStatus.ACTIVE) {
-                // Create in-app notification for the user
-                notificationRepository.createNotification(
-                    userId = userId,
-                    message = "NEW_ARTIFACT|${artifact.title}", // UI layer will map this with title
-                    artifactId = draft.id
-                )
-            }
+            // Zero-Trust: Notification handled by backend (onArtifactCreated)
 
             Result.success(draft.id)
         } catch (e: Exception) {

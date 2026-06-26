@@ -11,12 +11,7 @@ import com.saurabh.artifact.domain.player.DeleteArtifactUseCase
 import com.saurabh.artifact.domain.player.GetPlayerContextUseCase
 import com.saurabh.artifact.domain.player.PlayerInteractionUseCase
 import com.saurabh.artifact.domain.player.PlayerMetadata
-import com.saurabh.artifact.model.Artifact
-import com.saurabh.artifact.model.PlayableArtifact
-import com.saurabh.artifact.model.PlaybackSource
-import com.saurabh.artifact.model.ReactionType
-import com.saurabh.artifact.model.TranscriptSegment
-import com.saurabh.artifact.model.findSegmentAt
+import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.PlayableArtifactRepository
@@ -169,11 +164,14 @@ class PlayerViewModel @Inject constructor(
         PlayerStaticState(
             artifact = artifact,
             isOwner = isOwner,
-            isCommentUnlocked = if (isMetadataSynced) md.isCommentUnlocked else false,
+            engagementStatus = if (isMetadataSynced) md.engagementStatus else EngagementStatus.LOCKED,
             isResonated = if (isMetadataSynced) md.isResonated else false,
+            resonanceSyncStatus = if (isMetadataSynced) md.resonanceSyncStatus else InteractionSyncStatus.SYNCED,
             selectedReactionType = md.selectedReactionType,
             isResonating = if (isMetadataSynced) md.isResonating else false,
+            followSyncStatus = if (isMetadataSynced) md.followSyncStatus else InteractionSyncStatus.SYNCED,
             isSaved = if (isMetadataSynced) md.isSaved else false,
+            saveSyncStatus = if (isMetadataSynced) md.saveSyncStatus else InteractionSyncStatus.SYNCED,
             resonanceSummary = if (isMetadataSynced) md.resonanceSummary else "",
             commentCount = if (isMetadataSynced) md.commentCount else 0,
             playerMode = mode,
@@ -239,13 +237,16 @@ class PlayerViewModel @Inject constructor(
             playbackSpeed = dynamic.playbackSpeed,
             playbackProgress = dynamic.playbackProgress,
             listeningProgress = dynamic.listeningProgress,
-            isCommentUnlocked = static.isCommentUnlocked,
+            engagementStatus = static.engagementStatus,
             isExpanded = static.isExpanded,
             playerMode = static.playerMode,
             isResonated = static.isResonated,
+            resonanceSyncStatus = static.resonanceSyncStatus,
             selectedReactionType = static.selectedReactionType,
             isResonating = static.isResonating,
+            followSyncStatus = static.followSyncStatus,
             isSaved = static.isSaved,
+            saveSyncStatus = static.saveSyncStatus,
             isOwner = static.isOwner,
             resonanceSummary = static.resonanceSummary,
             commentCount = static.commentCount,
@@ -311,7 +312,10 @@ class PlayerViewModel @Inject constructor(
 
     fun toggleResonanceConnection() {
         val artifact = uiState.value.currentArtifact ?: return
-        val currentUserId = authRepository.currentUser.value?.uid ?: return
+        val currentUserId = authRepository.currentUser.value?.uid ?: run {
+            android.util.Log.w("PlayerViewModel", "Blocked toggleResonanceConnection: User is null.")
+            return
+        }
         if (artifact.userId == currentUserId) return
 
         val wasResonating = metadata.value.isResonating
@@ -478,11 +482,14 @@ private data class PlaybackSubState(
 private data class PlayerStaticState(
     val artifact: Artifact? = null,
     val isOwner: Boolean = false,
-    val isCommentUnlocked: Boolean = false,
+    val engagementStatus: EngagementStatus = EngagementStatus.LOCKED,
     val isResonated: Boolean = false,
+    val resonanceSyncStatus: InteractionSyncStatus = InteractionSyncStatus.SYNCED,
     val selectedReactionType: ReactionType = ReactionType.I_HEAR_YOU,
     val isResonating: Boolean = false,
+    val followSyncStatus: InteractionSyncStatus = InteractionSyncStatus.SYNCED,
     val isSaved: Boolean = false,
+    val saveSyncStatus: InteractionSyncStatus = InteractionSyncStatus.SYNCED,
     val resonanceSummary: String = "",
     val commentCount: Long = 0,
     val playerMode: PlayerMode = PlayerMode.HIDDEN,

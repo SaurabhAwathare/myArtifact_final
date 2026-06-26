@@ -32,7 +32,6 @@ class ArtifactRepositoryTest {
     private val aiService = mockk<ReflectionAIService>(relaxed = true)
     private val personalizationEngine = mockk<PersonalizationEngine>(relaxed = true)
     private val settingsRepository = mockk<SettingsRepository>(relaxed = true)
-    private val notificationRepository = mockk<NotificationRepository>(relaxed = true)
     private val artifactDao = mockk<ArtifactDao>(relaxed = true)
     private val database = mockk<AppDatabase>(relaxed = true)
     private val pendingInteractionDao = mockk<PendingInteractionDao>(relaxed = true)
@@ -57,7 +56,6 @@ class ArtifactRepositoryTest {
             aiService = { aiService },
             personalizationEngine = { personalizationEngine },
             settingsRepository = { settingsRepository },
-            notificationRepository = notificationRepository,
             artifactDao = artifactDao,
             database = database,
             pendingInteractionDao = pendingInteractionDao

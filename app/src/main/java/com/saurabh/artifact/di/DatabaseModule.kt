@@ -71,6 +71,11 @@ object DatabaseModule {
     }
 
     @Provides
+    fun provideDeadLetterInteractionDao(database: AppDatabase): com.saurabh.artifact.data.local.DeadLetterInteractionDao {
+        return database.deadLetterInteractionDao()
+    }
+
+    @Provides
     fun provideUserDao(database: AppDatabase): com.saurabh.artifact.data.local.UserDao {
         return database.userDao()
     }

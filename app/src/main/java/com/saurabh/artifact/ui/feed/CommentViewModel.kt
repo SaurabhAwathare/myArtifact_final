@@ -6,13 +6,14 @@ import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import com.saurabh.artifact.audio.ReviewAuthorityService
-import com.saurabh.artifact.model.ArtifactComment
-import com.saurabh.artifact.model.AuthorType
-import com.saurabh.artifact.model.VisibilityLayer
+import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.CommentRepository
 import com.saurabh.artifact.repository.UserRepository
+import com.saurabh.artifact.domain.review.GetEngagementStateUseCase
+import com.saurabh.artifact.domain.review.comments.CommentUnlockPolicy
+import com.saurabh.artifact.security.UploadGuard
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -24,8 +25,7 @@ data class CommentUiState(
     val isSubmitting: Boolean = false,
     val submissionSuccess: Boolean = false,
     val errorMessage: String? = null,
-    val isLocked: Boolean = true,
-    val hasCompletedReview: Boolean = false,
+    val engagementStatus: EngagementStatus = EngagementStatus.LOCKED,
     val listeningProgress: Float = 0f,
     val currentUserId: String = "",
     val requiredCoverage: Float = 0.95f,
@@ -39,10 +39,10 @@ class CommentViewModel @Inject constructor(
     private val artifactRepository: ArtifactRepository,
     private val auth: AuthRepository,
     private val userRepository: UserRepository,
-    private val commentUnlockRepository: com.saurabh.artifact.repository.CommentUnlockRepository,
+    private val getEngagementStateUseCase: GetEngagementStateUseCase,
     private val reviewAuthorityService: ReviewAuthorityService,
-    private val uploadGuard: com.saurabh.artifact.security.UploadGuard,
-    private val commentUnlockPolicy: com.saurabh.artifact.domain.review.comments.CommentUnlockPolicy
+    private val uploadGuard: UploadGuard,
+    private val commentUnlockPolicy: CommentUnlockPolicy
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(CommentUiState())
@@ -116,48 +116,26 @@ class CommentViewModel @Inject constructor(
         _artifactIdForPaging.value = artifactId to ownerId
         
         viewModelScope.launch {
-            val unlockFlow = commentUnlockRepository.isUnlocked(artifactId)
-                .onStart { android.util.Log.d("ReviewDebug", "unlockFlow started") }
+            val engagementFlow = getEngagementStateUseCase.execute(artifactId)
             val sessionFlow = reviewAuthorityService.currentProgress
-                .onStart { android.util.Log.d("ReviewDebug", "sessionFlow started") }
 
             combine(
-                unlockFlow,
+                engagementFlow,
                 sessionFlow
-            ) { isUnlocked, progress ->
-                android.util.Log.d("ReviewDebug", "Flow emitted: repoIsUnlocked=$isUnlocked, sessionArtifactId=${progress?.artifactId}")
-                
-                val isThresholdMetForThisArtifact = (progress?.artifactId == artifactId) && progress.isValidationMet
-                
-                // Persistence side-effect
-                if (isThresholdMetForThisArtifact && !isUnlocked) {
-                    android.util.Log.d("ReviewDebug", "Triggering unlock side-effect for $artifactId")
-                    viewModelScope.launch {
-                        commentUnlockRepository.unlockArtifact(artifactId)
-                    }
-                }
-
-                val finalIsUnlocked = isUnlocked || isThresholdMetForThisArtifact
-
-                android.util.Log.d("ReviewDebug", "Final calculated unlock state for UI: $finalIsUnlocked (repo=$isUnlocked, sessionMet=$isThresholdMetForThisArtifact)")
-
+            ) { status, progress ->
                 val currentProgress = if (progress?.artifactId == artifactId) {
                     if (progress.durationMs > 0) progress.evidence.furthestPositionMs.toFloat() / progress.durationMs else 0f
                 } else 0f
 
                 object {
-                    val isUnlocked = finalIsUnlocked
-                    val hasCompletedReview = isThresholdMetForThisArtifact
+                    val status = status
                     val progress = currentProgress
                     val currentUserId = auth.currentUserId
                 }
             }.collect { update ->
-                android.util.Log.d("ReviewDebug", "Collecting update in UI State: isLocked=${!update.isUnlocked}, progress=${update.progress}")
-
                 _uiState.update { 
                     it.copy(
-                        isLocked = !update.isUnlocked,
-                        hasCompletedReview = update.hasCompletedReview,
+                        engagementStatus = update.status,
                         listeningProgress = update.progress,
                         currentUserId = update.currentUserId,
                         requiredCoverage = commentUnlockPolicy.minCoverage
@@ -167,7 +145,7 @@ class CommentViewModel @Inject constructor(
         }
     }
 
-    fun submitReport(artifactId: String, commentId: String?, reason: com.saurabh.artifact.model.ReportReason, details: String) {
+    fun submitReport(artifactId: String, commentId: String?, reason: ReportReason, details: String) {
         viewModelScope.launch {
             val deviceId = uploadGuard.getDeviceFingerprint().hashCode()
             artifactRepository.submitReport(
@@ -186,7 +164,7 @@ class CommentViewModel @Inject constructor(
     /**
      * Updates the creator's reaction to a specific reflection.
      */
-    fun reactToComment(commentId: String, type: com.saurabh.artifact.model.ReactionType) {
+    fun reactToComment(commentId: String, type: ReactionType) {
         viewModelScope.launch {
             repository.reactToComment(commentId, type)
         }

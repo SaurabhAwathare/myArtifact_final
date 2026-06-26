@@ -101,69 +101,119 @@ export const onEngagementUpdated = functions.firestore
     const data = change.after.data();
     if (!data) return null;
 
-    const coverage = data.coverage; // Buffer from Firestore ByteArray
-    const durationMs = data.totalDurationMs;
-    const hasReachedEnd = data.hasReachedEnd;
+    const artifactId = context.params.artifactId;
+    const userId = context.params.userId;
 
-    if (!coverage || durationMs <= 0) {
-      console.log(`Skipping evaluation: missing coverage or duration for ${context.params.artifactId}`);
-      return null;
-    }
+    // Idempotency: Use a key based on the update timestamp to avoid re-processing the same change
+    const updatedAt = data.updatedAt || 0;
+    const idempotencyKey = `eng_${userId}_${artifactId}_${updatedAt}`;
 
-    // 1. Calculate segment size (Must match CommentUnlockPolicy.kt)
-    let segmentSizeMs = 5000;
-    if (durationMs < 60000) {
-      segmentSizeMs = 500;
-    } else if (durationMs < 600000) {
-      segmentSizeMs = 5000;
-    } else {
-      segmentSizeMs = 10000;
-    }
+    return withIdempotency(idempotencyKey, async () => {
+      const db = admin.firestore();
+      const artifactRef = db.collection("artifacts").doc(artifactId);
+      const artifactDoc = await artifactRef.get();
 
-    // 2. Calculate total segments
-    const totalSegments = Math.max(1, Math.floor(durationMs / segmentSizeMs));
-
-    // 3. Count set bits in coverage
-    let setBitsCount = 0;
-    if (Buffer.isBuffer(coverage)) {
-      for (const byte of coverage) {
-        setBitsCount += countSetBits(byte);
+      if (!artifactDoc.exists) {
+        console.log(`Artifact ${artifactId} not found. Skipping.`);
+        return null;
       }
-    } else if (coverage instanceof Uint8Array) {
-      for (const byte of coverage) {
-        setBitsCount += countSetBits(byte);
+
+      const artifactData = artifactDoc.data();
+      const authoritativeDurationMs = artifactData?.durationMs || 0;
+
+      if (authoritativeDurationMs <= 0) {
+        console.log(`Artifact ${artifactId} has no duration. Skipping.`);
+        return null;
       }
-    } else if (Array.isArray(coverage)) {
-      // Handle array of numbers (useful for testing)
-      for (const byte of coverage) {
-        setBitsCount += countSetBits(byte);
+
+      const clientCoverage = data.coverage;
+      const existingData = change.before.data() || {};
+      const existingCoverage = existingData.coverage;
+
+      // Aggregation: Multi-device support via BitSet OR
+      let mergedCoverage: Buffer;
+      if (existingCoverage && clientCoverage) {
+        mergedCoverage = mergeBitSets(Buffer.from(existingCoverage), Buffer.from(clientCoverage));
+      } else {
+        mergedCoverage = Buffer.from(clientCoverage || []);
       }
-    }
 
-    // 4. Calculate coverage percent and unlock state
-    const coveragePercent = setBitsCount / totalSegments;
-    const isUnlocked = coveragePercent >= 0.95 && hasReachedEnd;
+      // Calculate state based on merged coverage and authoritative duration
+      const segmentSizeMs = getSegmentSizeMs(authoritativeDurationMs);
+      const totalSegments = Math.max(1, Math.floor(authoritativeDurationMs / segmentSizeMs));
+      const setBitsCount = countSetBitsInBuffer(mergedCoverage);
+      const coveragePercent = setBitsCount / totalSegments;
 
-    const oldState = change.before.data()?.engagementState;
+      // Verification: Check if threshold met
+      const isUnlocked = coveragePercent >= 0.95 && data.hasReachedEnd;
 
-    // 5. Update only if state changed or first time
-    if (!oldState || oldState.unlocked !== isUnlocked || Math.abs((oldState.coveragePercent || 0) - coveragePercent) > 0.05) {
-      console.log(`Engagement Update: user=${context.params.userId}, artifact=${context.params.artifactId}, coverage=${coveragePercent.toFixed(2)}, unlocked=${isUnlocked}`);
+      const oldState = existingData.engagementState;
 
-      return change.after.ref.update({
-        isCommentUnlocked: isUnlocked, // Compatibility
-        engagementState: {
-          unlocked: isUnlocked,
-          unlockReason: isUnlocked ? "LISTENING_THRESHOLD_REACHED" : "INSUFFICIENT_ENGAGEMENT",
-          unlockVersion: (oldState?.unlockVersion || 0) + 1,
-          evaluatedAt: FieldValue.serverTimestamp(),
-          coveragePercent: parseFloat(coveragePercent.toFixed(4))
-        }
-      });
-    }
+      // Only update if something changed
+      const shouldUpdate = !oldState ||
+                           oldState.unlocked !== isUnlocked ||
+                           Math.abs((oldState.coveragePercent || 0) - coveragePercent) > 0.001 ||
+                           !buffersEqual(existingCoverage, mergedCoverage);
 
-    return null;
+      if (shouldUpdate) {
+        console.log(`Updating Engagement: user=${userId}, art=${artifactId}, coverage=${coveragePercent.toFixed(4)}, unlocked=${isUnlocked}`);
+
+        await change.after.ref.update({
+          coverage: mergedCoverage,
+          isCommentUnlocked: isUnlocked,
+          engagementState: {
+            unlocked: isUnlocked,
+            unlockReason: isUnlocked ? "LISTENING_THRESHOLD_REACHED" : "INSUFFICIENT_ENGAGEMENT",
+            unlockVersion: (oldState?.unlockVersion || 0) + 1,
+            evaluatedAt: FieldValue.serverTimestamp(),
+            coveragePercent: parseFloat(coveragePercent.toFixed(4))
+          }
+        });
+      }
+
+      return { unlocked: isUnlocked, coveragePercent };
+    });
   });
+
+/**
+ * Merges two bitsets represented as Buffers using bitwise OR.
+ */
+function mergeBitSets(b1: Buffer, b2: Buffer): Buffer {
+  const length = Math.max(b1.length, b2.length);
+  const result = Buffer.alloc(length);
+  for (let i = 0; i < length; i++) {
+    result[i] = (b1[i] || 0) | (b2[i] || 0);
+  }
+  return result;
+}
+
+/**
+ * Compares two buffers for equality.
+ */
+function buffersEqual(b1: any, b2: any): boolean {
+  if (!b1 || !b2) return b1 === b2;
+  return Buffer.compare(Buffer.from(b1), Buffer.from(b2)) === 0;
+}
+
+/**
+ * Port of ReviewPolicy.getSegmentSizeMs
+ */
+function getSegmentSizeMs(durationMs: number): number {
+  if (durationMs < 60000) return 500;
+  if (durationMs < 600000) return 5000;
+  return 10000;
+}
+
+/**
+ * Counts set bits in a Buffer.
+ */
+function countSetBitsInBuffer(buffer: Buffer): number {
+  let count = 0;
+  for (const byte of buffer) {
+    count += countSetBits(byte);
+  }
+  return count;
+}
 
 /**
  * Counts the number of set bits (1s) in a byte.
@@ -375,11 +425,11 @@ export const onFollowIntentCreated = functions.firestore
 
     return withIdempotency(idempotencyKey, async () => {
       const db = admin.firestore();
-      const currentUserRef = db.collection("users").document(uid);
-      const targetUserRef = db.collection("users").document(targetId);
+      const currentUserRef = db.collection("users").doc(uid);
+      const targetUserRef = db.collection("users").doc(targetId);
 
-      const resonanceOutRef = currentUserRef.collection("resonance_out").document(targetId);
-      const resonanceInRef = targetUserRef.collection("resonance_in").document(uid);
+      const resonanceOutRef = currentUserRef.collection("resonance_out").doc(targetId);
+      const resonanceInRef = targetUserRef.collection("resonance_in").doc(uid);
 
       await db.runTransaction(async (transaction) => {
         const outDoc = await transaction.get(resonanceOutRef);
@@ -428,11 +478,11 @@ export const onFollowIntentDeleted = functions.firestore
     const targetId = context.params.targetId;
 
     const db = admin.firestore();
-    const currentUserRef = db.collection("users").document(uid);
-    const targetUserRef = db.collection("users").document(targetId);
+    const currentUserRef = db.collection("users").doc(uid);
+    const targetUserRef = db.collection("users").doc(targetId);
 
-    const resonanceOutRef = currentUserRef.collection("resonance_out").document(targetId);
-    const resonanceInRef = targetUserRef.collection("resonance_in").document(uid);
+    const resonanceOutRef = currentUserRef.collection("resonance_out").doc(targetId);
+    const resonanceInRef = targetUserRef.collection("resonance_in").doc(uid);
 
     await db.runTransaction(async (transaction) => {
       const outDoc = await transaction.get(resonanceOutRef);
@@ -480,7 +530,7 @@ export const onReactionIntentCreated = functions.firestore
       const ownerId = artifactDoc.data()?.userId;
 
       const reactionId = `${artifactId}_${uid}`;
-      const globalRef = db.collection("artifact_reactions").document(reactionId);
+      const globalRef = db.collection("artifact_reactions").doc(reactionId);
 
       await db.runTransaction(async (transaction) => {
         const globalDoc = await transaction.get(globalRef);
@@ -529,3 +579,81 @@ export const onReactionIntentDeleted = functions.firestore
     logger.interaction("REACTION_REMOVED", { userId: uid, artifactId: artifactId }, "SUCCESS");
     return null;
   });
+
+/**
+ * Authoritatively handles comment creation.
+ * Increments artifact comment count and sends notification to owner.
+ * Idempotent via commentId.
+ */
+export const onCommentCreated = functions.firestore
+  .document("comments/{commentId}")
+  .onCreate(async (snapshot, context) => {
+    const data = snapshot.data();
+    if (!data) return null;
+
+    const commentId = context.params.commentId;
+    const artifactId = data.artifactId;
+    const authorId = data.authorId;
+    const ownerId = data.artifactOwnerId;
+
+    const idempotencyKey = `comment_${commentId}`;
+
+    return withIdempotency(idempotencyKey, async () => {
+      const db = admin.firestore();
+      const artifactRef = db.collection("artifacts").doc(artifactId);
+
+      // 1. Increment Count
+      await artifactRef.update({
+        commentCount: FieldValue.increment(1),
+      });
+
+      // 2. Notify Owner (Zero-Trust)
+      if (ownerId && ownerId !== authorId) {
+        const artifactDoc = await artifactRef.get();
+        const title = artifactDoc.data()?.title || "";
+
+        await db.collection("notifications").add({
+          userId: ownerId,
+          message: title ? `REFLECTION_ARRIVAL|${title}` : "REFLECTION_ARRIVAL_GENERIC",
+          artifactId: artifactId,
+          type: "REFLECTION",
+          createdAt: FieldValue.serverTimestamp(),
+          isRead: false,
+        });
+      }
+
+      logger.info(`Comment count incremented for ${artifactId}`);
+    });
+  });
+
+/**
+ * Authoritatively handles artifact creation notifications.
+ */
+export const onArtifactCreated = functions.firestore
+  .document("artifacts/{artifactId}")
+  .onCreate(async (snapshot, context) => {
+    const data = snapshot.data();
+    if (!data || data.status !== "ACTIVE") return null;
+
+    const artifactId = context.params.artifactId;
+    const userId = data.userId;
+    const title = data.title || "Unknown Artifact";
+
+    const idempotencyKey = `art_notif_${artifactId}`;
+
+    return withIdempotency(idempotencyKey, async () => {
+      const db = admin.firestore();
+
+      await db.collection("notifications").add({
+        userId: userId,
+        message: `NEW_ARTIFACT|${title}`,
+        artifactId: artifactId,
+        type: "SYSTEM",
+        createdAt: FieldValue.serverTimestamp(),
+        isRead: false,
+      });
+
+      logger.info(`Creation notification sent for artifact ${artifactId}`);
+    });
+  });
+

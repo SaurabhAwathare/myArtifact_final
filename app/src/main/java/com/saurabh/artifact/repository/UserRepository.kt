@@ -46,7 +46,6 @@ class UserRepository @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val auth: FirebaseAuth,
     private val firestore: FirebaseFirestore,
-    private val notificationRepository: NotificationRepository,
     private val userDao: UserDao,
     private val identityProtectionPolicy: com.saurabh.artifact.domain.IdentityProtectionPolicy,
     private val profileRepairService: com.saurabh.artifact.domain.auth.ProfileRepairService,
@@ -118,10 +117,11 @@ class UserRepository @Inject constructor(
                 }
             }.await()
 
-            notificationRepository.createNotification(
-                userId = userId,
-                message = "USERNAME_UPDATED|$username"
-            )
+            // Zero-Trust: Notification handled by backend (optional/future)
+            // notificationRepository.createNotification(
+            //     userId = userId,
+            //     message = "USERNAME_UPDATED|$username"
+            // )
 
             // Update cache
             getCachedProfile()?.let { cached ->
@@ -365,6 +365,7 @@ class UserRepository @Inject constructor(
 
     /**
      * Establishes a resonance relationship between two presences atomically.
+     * PUBLIC API: Used by ViewModels. Enqueues interaction if unified queue is enabled.
      */
     suspend fun resonateWithUser(currentUserId: String, targetUserId: String): Result<Unit> = withContext(Dispatchers.IO) {
         if (currentUserId.isBlank() || targetUserId.isBlank()) {
@@ -375,11 +376,13 @@ class UserRepository @Inject constructor(
         if (RefactorFeatureFlags.USE_UNIFIED_INTERACTION_QUEUE) {
             return@withContext try {
                 val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
+                    userId = currentUserId,
                     artifactId = targetUserId, // Using artifactId field for targetUserId
                     interactionType = com.saurabh.artifact.data.local.InteractionType.FOLLOW,
                     action = com.saurabh.artifact.data.local.InteractionAction.ADD,
                     metadata = currentUserId
                 )
+                pendingInteractionDao.deleteByType(targetUserId, currentUserId, com.saurabh.artifact.data.local.InteractionType.FOLLOW)
                 pendingInteractionDao.insert(pending)
                 com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
                 
@@ -391,8 +394,49 @@ class UserRepository @Inject constructor(
             }
         }
 
-        // PRE-QUEUE INTENT WRITE (Phase 9/10 logic)
-        return@withContext try {
+        syncFollowToFirestore(currentUserId, targetUserId)
+    }
+
+    /**
+     * Removes a resonance relationship between two presences atomically.
+     * PUBLIC API: Used by ViewModels. Enqueues interaction if unified queue is enabled.
+     */
+    suspend fun stopResonatingWithUser(currentUserId: String, targetUserId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        if (currentUserId.isBlank() || targetUserId.isBlank()) {
+            return@withContext Result.failure(AppError.InvalidInput("User IDs cannot be blank"))
+        }
+
+        if (RefactorFeatureFlags.USE_UNIFIED_INTERACTION_QUEUE) {
+            return@withContext try {
+                val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
+                    userId = currentUserId,
+                    artifactId = targetUserId,
+                    interactionType = com.saurabh.artifact.data.local.InteractionType.FOLLOW,
+                    action = com.saurabh.artifact.data.local.InteractionAction.REMOVE,
+                    metadata = currentUserId
+                )
+                pendingInteractionDao.deleteByType(targetUserId, currentUserId, com.saurabh.artifact.data.local.InteractionType.FOLLOW)
+                pendingInteractionDao.insert(pending)
+                com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
+                
+                ArtifactLogger.i("UserRepository", "Unfollow interaction queued locally for $targetUserId")
+                Result.success(Unit)
+            } catch (e: Exception) {
+                ArtifactLogger.e("UserRepository", "Failed to queue unfollow interaction", e)
+                Result.failure(e)
+            }
+        }
+
+        syncUnfollowFromFirestore(currentUserId, targetUserId)
+    }
+
+    /**
+     * Internal synchronization method for follow.
+     * INTERNAL SYNC API: Intended exclusively for InteractionSyncWorker.
+     * Performs direct Firestore write without enqueuing.
+     */
+    internal suspend fun syncFollowToFirestore(currentUserId: String, targetUserId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
             val intentRef = usersCollection.document(currentUserId)
                 .collection("private").document("intents")
                 .collection("follow").document(targetUserId)
@@ -413,33 +457,12 @@ class UserRepository @Inject constructor(
     }
 
     /**
-     * Removes a resonance relationship between two presences atomically.
+     * Internal synchronization method for unfollow.
+     * INTERNAL SYNC API: Intended exclusively for InteractionSyncWorker.
+     * Performs direct Firestore write without enqueuing.
      */
-    suspend fun stopResonatingWithUser(currentUserId: String, targetUserId: String): Result<Unit> = withContext(Dispatchers.IO) {
-        if (currentUserId.isBlank() || targetUserId.isBlank()) {
-            return@withContext Result.failure(AppError.InvalidInput("User IDs cannot be blank"))
-        }
-
-        if (RefactorFeatureFlags.USE_UNIFIED_INTERACTION_QUEUE) {
-            return@withContext try {
-                val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
-                    artifactId = targetUserId,
-                    interactionType = com.saurabh.artifact.data.local.InteractionType.FOLLOW,
-                    action = com.saurabh.artifact.data.local.InteractionAction.REMOVE,
-                    metadata = currentUserId
-                )
-                pendingInteractionDao.insert(pending)
-                com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
-                
-                ArtifactLogger.i("UserRepository", "Unfollow interaction queued locally for $targetUserId")
-                Result.success(Unit)
-            } catch (e: Exception) {
-                ArtifactLogger.e("UserRepository", "Failed to queue unfollow interaction", e)
-                Result.failure(e)
-            }
-        }
-
-        return@withContext try {
+    internal suspend fun syncUnfollowFromFirestore(currentUserId: String, targetUserId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
             val intentRef = usersCollection.document(currentUserId)
                 .collection("private").document("intents")
                 .collection("follow").document(targetUserId)
@@ -531,10 +554,11 @@ class UserRepository @Inject constructor(
                 )
             ).await()
 
-            notificationRepository.createNotification(
-                userId = userId,
-                message = "AVATAR_UPDATED"
-            )
+            // Zero-Trust: Notification handled by backend (optional/future)
+            // notificationRepository.createNotification(
+                // userId = userId,
+                // message = "AVATAR_UPDATED"
+            // )
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e("UserRepository", "updateAvatarConfig failed", e)
@@ -609,10 +633,11 @@ class UserRepository @Inject constructor(
                 userDao.insertProfile(mapUserToLocal(updatedUser))
             }
 
-            notificationRepository.createNotification(
-                userId = userId,
-                message = "IDENTITY_PROTECTED|$newName"
-            )
+            // Zero-Trust: Notification handled by backend (optional/future)
+            // notificationRepository.createNotification(
+            //     userId = userId,
+            //     message = "IDENTITY_PROTECTED|$newName"
+            // )
 
             // Log moderation event
             val reportRef = firestore.collection("reports").document()
@@ -660,7 +685,7 @@ class UserRepository @Inject constructor(
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e("UserRepository", "reportIdentityExposure failed", e)
-            Result.failure(AppError.from(e))
+            Result.failure(e)
         }
     }
 

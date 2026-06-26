@@ -1,9 +1,9 @@
 package com.saurabh.artifact.domain.player
 
-import com.saurabh.artifact.model.Artifact
-import com.saurabh.artifact.model.ArtifactReactionCounts
-import com.saurabh.artifact.model.ReactionType
+import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.*
+import com.saurabh.artifact.data.local.InteractionType
+import com.saurabh.artifact.data.local.InteractionAction
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import javax.inject.Inject
@@ -17,9 +17,9 @@ class GetPlayerContextUseCase @Inject constructor(
     private val reactionRepository: ReactionRepository,
     private val userRepository: UserRepository,
     private val savedArtifactManager: SavedArtifactManager,
-    private val commentUnlockRepository: CommentUnlockRepository,
     private val authRepository: AuthRepository,
-    private val pendingInteractionDao: com.saurabh.artifact.data.local.PendingInteractionDao
+    private val pendingInteractionDao: com.saurabh.artifact.data.local.PendingInteractionDao,
+    private val getEngagementStateUseCase: com.saurabh.artifact.domain.review.GetEngagementStateUseCase
 ) {
     @OptIn(ExperimentalCoroutinesApi::class)
     fun execute(
@@ -40,7 +40,7 @@ class GetPlayerContextUseCase @Inject constructor(
     ): Flow<PlayerMetadata> {
         val userIdFlow = authRepository.currentUser.map { it?.uid }
         
-        val isUnlockedFlow = commentUnlockRepository.isUnlocked(artifact.id)
+        val engagementStatusFlow = getEngagementStateUseCase.execute(artifact.id)
         
         // Live observation of the artifact itself for real-time counts
         val artifactUpdateFlow = artifactRepository.observeArtifact(artifact.id)
@@ -67,16 +67,22 @@ class GetPlayerContextUseCase @Inject constructor(
             }
         }
 
-        val pendingInteractionsFlow = pendingInteractionDao.observePendingForArtifact(artifact.id)
+        val pendingInteractionsFlow = userIdFlow.flatMapLatest { uid ->
+            if (uid != null) {
+                pendingInteractionDao.observePendingForArtifact(artifact.id, uid)
+            } else {
+                flowOf(emptyList())
+            }
+        }
 
         val isResonatedFlow = combine(reactionsFlow, pendingInteractionsFlow) { reactions, pending ->
             val pendingAdd = pending.any { 
-                it.interactionType == com.saurabh.artifact.data.local.InteractionType.REACTION && 
-                it.action == com.saurabh.artifact.data.local.InteractionAction.ADD 
+                it.interactionType == InteractionType.REACTION && 
+                it.action == InteractionAction.ADD 
             }
             val pendingRemove = pending.any { 
-                it.interactionType == com.saurabh.artifact.data.local.InteractionType.REACTION && 
-                it.action == com.saurabh.artifact.data.local.InteractionAction.REMOVE 
+                it.interactionType == InteractionType.REACTION && 
+                it.action == InteractionAction.REMOVE 
             }
             
             when {
@@ -86,10 +92,14 @@ class GetPlayerContextUseCase @Inject constructor(
             }
         }
 
+        val resonanceSyncStatusFlow = pendingInteractionsFlow.map { pending ->
+            if (pending.any { it.interactionType == InteractionType.REACTION }) InteractionSyncStatus.PENDING else InteractionSyncStatus.SYNCED
+        }
+
         val selectedReactionTypeFlow = combine(reactionsFlow, pendingInteractionsFlow) { reactions, pending ->
             val pendingAdd = pending.find { 
-                it.interactionType == com.saurabh.artifact.data.local.InteractionType.REACTION && 
-                it.action == com.saurabh.artifact.data.local.InteractionAction.ADD 
+                it.interactionType == InteractionType.REACTION && 
+                it.action == InteractionAction.ADD 
             }
             pendingAdd?.metadata?.let { ReactionType.fromId(it) } 
                 ?: reactions.firstOrNull()?.let { ReactionType.fromId(it.typeId) } 
@@ -97,7 +107,7 @@ class GetPlayerContextUseCase @Inject constructor(
         }
 
         val isResonatingFlow = combine(userIdFlow) { uid ->
-            val currentUid = uid.firstOrNull() // userIdFlow is a Flow<String?>
+            val currentUid = uid.firstOrNull() 
             if (currentUid != null && artifact.userId != currentUid) {
                 userRepository.observeIsResonating(currentUid, artifact.userId)
             } else {
@@ -105,14 +115,18 @@ class GetPlayerContextUseCase @Inject constructor(
             }
         }.flatMapLatest { it }
 
+        val followSyncStatusFlow = pendingInteractionsFlow.map { pending ->
+            if (pending.any { it.interactionType == InteractionType.FOLLOW }) InteractionSyncStatus.PENDING else InteractionSyncStatus.SYNCED
+        }
+
         val isSavedFlow = combine(savedArtifactManager.savedIds, pendingInteractionsFlow) { savedIds, pending ->
             val pendingAdd = pending.any { 
-                it.interactionType == com.saurabh.artifact.data.local.InteractionType.SAVE && 
-                it.action == com.saurabh.artifact.data.local.InteractionAction.ADD 
+                it.interactionType == InteractionType.SAVE && 
+                it.action == InteractionAction.ADD 
             }
             val pendingRemove = pending.any { 
-                it.interactionType == com.saurabh.artifact.data.local.InteractionType.SAVE && 
-                it.action == com.saurabh.artifact.data.local.InteractionAction.REMOVE 
+                it.interactionType == InteractionType.SAVE && 
+                it.action == InteractionAction.REMOVE 
             }
             
             when {
@@ -122,24 +136,34 @@ class GetPlayerContextUseCase @Inject constructor(
             }
         }
 
+        val saveSyncStatusFlow = pendingInteractionsFlow.map { pending ->
+            if (pending.any { it.interactionType == InteractionType.SAVE }) InteractionSyncStatus.PENDING else InteractionSyncStatus.SYNCED
+        }
+
         return combine(
-            isUnlockedFlow,
+            engagementStatusFlow,
             resonanceSummaryFlow,
             isResonatedFlow,
+            resonanceSyncStatusFlow,
             selectedReactionTypeFlow,
             isResonatingFlow,
+            followSyncStatusFlow,
             isSavedFlow,
+            saveSyncStatusFlow,
             artifactUpdateFlow
         ) { params: Array<Any?> ->
-            val updatedArtifact = params[6] as Artifact
+            val updatedArtifact = params[9] as Artifact
             PlayerMetadata(
                 artifactId = artifact.id,
-                isCommentUnlocked = params[0] as Boolean,
+                engagementStatus = params[0] as EngagementStatus,
                 resonanceSummary = params[1] as String,
                 isResonated = params[2] as Boolean,
-                selectedReactionType = params[3] as ReactionType,
-                isResonating = params[4] as Boolean,
-                isSaved = params[5] as Boolean,
+                resonanceSyncStatus = params[3] as InteractionSyncStatus,
+                selectedReactionType = params[4] as ReactionType,
+                isResonating = params[5] as Boolean,
+                followSyncStatus = params[6] as InteractionSyncStatus,
+                isSaved = params[7] as Boolean,
+                saveSyncStatus = params[8] as InteractionSyncStatus,
                 commentCount = updatedArtifact.commentCount
             )
         }
@@ -148,11 +172,14 @@ class GetPlayerContextUseCase @Inject constructor(
 
 data class PlayerMetadata(
     val artifactId: String = "",
-    val isCommentUnlocked: Boolean = false,
+    val engagementStatus: EngagementStatus = EngagementStatus.LOCKED,
     val resonanceSummary: String = "",
     val isResonated: Boolean = false,
+    val resonanceSyncStatus: InteractionSyncStatus = InteractionSyncStatus.SYNCED,
     val selectedReactionType: ReactionType = ReactionType.I_HEAR_YOU,
     val isResonating: Boolean = false,
+    val followSyncStatus: InteractionSyncStatus = InteractionSyncStatus.SYNCED,
     val isSaved: Boolean = false,
+    val saveSyncStatus: InteractionSyncStatus = InteractionSyncStatus.SYNCED,
     val commentCount: Long = 0
 )

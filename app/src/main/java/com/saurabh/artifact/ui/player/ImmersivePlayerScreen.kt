@@ -29,6 +29,7 @@ import androidx.compose.ui.zIndex
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.PlayableArtifact
 import com.saurabh.artifact.model.AuthorSnapshot
+import com.saurabh.artifact.model.EngagementStatus
 import com.saurabh.artifact.ui.components.ResonanceDisplay
 import com.saurabh.artifact.ui.player.components.*
 import com.saurabh.artifact.ui.theme.GoldAura400
@@ -372,13 +373,16 @@ fun ImmersivePlayerScreen(
             } else {
                 PlayerInteractionBar(
                     isResonated = uiState.isResonated,
+                    resonanceSyncStatus = uiState.resonanceSyncStatus,
                     selectedReactionType = uiState.selectedReactionType,
                     onResonateClick = onResonateClick,
                     isResonating = uiState.isResonating,
+                    followSyncStatus = uiState.followSyncStatus,
                     onResonateConnectionClick = onResonateConnectionClick,
                     isSaved = uiState.isSaved,
+                    saveSyncStatus = uiState.saveSyncStatus,
                     onSaveClick = onSaveClick,
-                    isCommentUnlocked = uiState.isCommentUnlocked,
+                    engagementStatus = uiState.engagementStatus,
                     commentCount = uiState.commentCount,
                     onCommentClick = onCommentClick,
                     showResonance = !uiState.isOwner,
@@ -397,6 +401,9 @@ fun ImmersivePlayerScreen(
 
             // 7. Context Actions (Standardized for published artifacts)
             if (!isVerifiedDraft) {
+                val isUnlocked = uiState.engagementStatus == EngagementStatus.UNLOCKED
+                val isPending = uiState.engagementStatus == EngagementStatus.PENDING_VALIDATION
+
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -410,27 +417,27 @@ fun ImmersivePlayerScreen(
                         Icon(
                             imageVector = Icons.Rounded.EditNote,
                             contentDescription = null,
-                            tint = if (uiState.isCommentUnlocked) GoldAura400 else Color.White.copy(alpha = 0.2f),
+                            tint = if (isUnlocked) GoldAura400 else if (isPending) GoldAura400.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.2f),
                             modifier = Modifier.size(24.dp).padding(end = 12.dp)
                         )
 
-                        val message = if (uiState.isCommentUnlocked) {
-                            "Reflect and respond"
-                        } else {
-                            "Thoughts Unlock Requirements"
+                        val message = when {
+                            isUnlocked -> "Reflect and respond"
+                            isPending -> "Validating..."
+                            else -> "Thoughts Unlock Requirements"
                         }
                         
                         Text(
                             text = message,
                             style = MaterialTheme.typography.bodyMedium,
-                            color = if (uiState.isCommentUnlocked) Color.White else Color.White.copy(alpha = 0.5f),
+                            color = if (isUnlocked || isPending) Color.White else Color.White.copy(alpha = 0.5f),
                             fontWeight = FontWeight.Medium,
                             letterSpacing = 0.3.sp
                         )
                         
                         Spacer(modifier = Modifier.weight(1f))
                         
-                        if (uiState.isCommentUnlocked) {
+                        if (isUnlocked) {
                              IconButton(
                                 onClick = onShowAdvanced,
                                 modifier = Modifier.size(32.dp)
@@ -445,31 +452,38 @@ fun ImmersivePlayerScreen(
                         }
                     }
 
-                    if (!uiState.isCommentUnlocked) {
+                    if (!isUnlocked) {
                         Spacer(modifier = Modifier.height(12.dp))
                         
                         val requiredPercent = (uiState.requiredCoverage * 100).toInt()
                         val currentPercent = (uiState.coveragePercent * 100).toInt()
-                        val hasMetCoverage = uiState.coveragePercent >= uiState.requiredCoverage
+                        val hasMetCoverage = uiState.coveragePercent >= uiState.requiredCoverage || isPending
                         
                         RequirementItem(
                             label = "Listen to $requiredPercent%",
                             isMet = hasMetCoverage,
-                            progress = "$currentPercent%"
+                            progress = if (isPending) "Synced" else "$currentPercent%"
                         )
                         
                         if (uiState.isReachedEndRequired) {
                             RequirementItem(
                                 label = "Reach end of artifact",
-                                isMet = uiState.isPlaybackEnded
+                                isMet = uiState.isPlaybackEnded || isPending
                             )
                         }
 
-                        if (hasMetCoverage && uiState.isReachedEndRequired && !uiState.isPlaybackEnded) {
+                        if (hasMetCoverage && uiState.isReachedEndRequired && !uiState.isPlaybackEnded && !isPending) {
                             Text(
                                 text = "Almost there. Finish listening to unlock.",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = GoldAura400,
+                                modifier = Modifier.padding(top = 8.dp)
+                            )
+                        } else if (isPending) {
+                            Text(
+                                text = "Synchronizing with server...",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = GoldAura400.copy(alpha = 0.7f),
                                 modifier = Modifier.padding(top = 8.dp)
                             )
                         }

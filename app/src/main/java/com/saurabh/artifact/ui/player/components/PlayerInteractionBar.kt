@@ -22,23 +22,28 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.saurabh.artifact.model.EngagementStatus
 import com.saurabh.artifact.model.ReactionType
+import com.saurabh.artifact.model.InteractionSyncStatus
 import com.saurabh.artifact.ui.theme.GoldAura400
 
 /**
  * PlayerInteractionBar - A cinematic, emotionally intentional row of actions.
- * Updated with counts and improved touch targets.
+ * Updated with synchronization awareness and improved touch targets.
  */
 @Composable
 fun PlayerInteractionBar(
     isResonated: Boolean,
+    resonanceSyncStatus: InteractionSyncStatus,
     selectedReactionType: ReactionType,
     onResonateClick: (ReactionType) -> Unit,
     isResonating: Boolean,
+    followSyncStatus: InteractionSyncStatus,
     onResonateConnectionClick: () -> Unit,
     isSaved: Boolean,
+    saveSyncStatus: InteractionSyncStatus,
     onSaveClick: () -> Unit,
-    isCommentUnlocked: Boolean,
+    engagementStatus: EngagementStatus,
     commentCount: Long,
     onCommentClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -62,49 +67,52 @@ fun PlayerInteractionBar(
                 label = if (isResonated) selectedReactionType.label else "Resonate",
                 count = null,
                 isActive = isResonated,
+                syncStatus = resonanceSyncStatus,
                 activeColor = GoldAura400,
                 onClick = { 
                     showReactionPicker = !showReactionPicker
                 }
             )
 
-        InteractionItem(
-            icon = Icons.Rounded.ChatBubbleOutline,
-            label = "Thoughts",
-            count = commentCount,
-            isActive = isCommentUnlocked,
-            enabled = isCommentUnlocked,
-            onClick = onCommentClick
-        )
-
-        if (showResonance) {
             InteractionItem(
-                icon = if (isResonating) Icons.Rounded.Person else Icons.Rounded.PersonAdd,
-                label = if (isResonating) "Following" else "Follow",
-                isActive = isResonating,
-                activeColor = GoldAura400,
-                onClick = onResonateConnectionClick
+                icon = Icons.Rounded.ChatBubbleOutline,
+                label = if (engagementStatus == EngagementStatus.PENDING_VALIDATION) "Validating" else "Thoughts",
+                count = commentCount,
+                isActive = engagementStatus == EngagementStatus.UNLOCKED,
+                enabled = engagementStatus == EngagementStatus.UNLOCKED || engagementStatus == EngagementStatus.PENDING_VALIDATION,
+                onClick = onCommentClick
             )
+
+            if (showResonance) {
+                InteractionItem(
+                    icon = if (isResonating) Icons.Rounded.Person else Icons.Rounded.PersonAdd,
+                    label = if (isResonating) "Following" else "Follow",
+                    isActive = isResonating,
+                    syncStatus = followSyncStatus,
+                    activeColor = GoldAura400,
+                    onClick = onResonateConnectionClick
+                )
+            }
+
+            if (showSave) {
+                InteractionItem(
+                    icon = if (isSaved) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
+                    label = if (isSaved) "Held" else "Hold",
+                    isActive = isSaved,
+                    syncStatus = saveSyncStatus,
+                    activeColor = GoldAura400,
+                    onClick = onSaveClick
+                )
+            }
         }
 
-        if (showSave) {
-            InteractionItem(
-                icon = if (isSaved) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
-                label = if (isSaved) "Held" else "Hold",
-                isActive = isSaved,
-                activeColor = GoldAura400,
-                onClick = onSaveClick
-            )
+        if (showReactionPicker) {
+            ReactionPicker {
+                onResonateClick(it)
+                showReactionPicker = false
+            }
         }
     }
-
-    if (showReactionPicker) {
-        ReactionPicker {
-            onResonateClick(it)
-            showReactionPicker = false
-        }
-    }
-}
 }
 
 @Composable
@@ -121,8 +129,6 @@ private fun ReactionPicker(
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Intentionally using default keys because this is a static,
-            // immutable enum list with fixed ordering.
             items(ReactionType.entries.toList()) { type ->
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -149,6 +155,7 @@ private fun InteractionItem(
     count: Long? = null,
     isActive: Boolean,
     onClick: () -> Unit,
+    syncStatus: InteractionSyncStatus = InteractionSyncStatus.SYNCED,
     enabled: Boolean = true,
     activeColor: Color = Color.White
 ) {
@@ -157,13 +164,13 @@ private fun InteractionItem(
     val contentColor = if (!enabled) {
         Color.White.copy(alpha = 0.12f)
     } else if (isActive) {
-        activeColor
+        if (syncStatus == InteractionSyncStatus.PENDING) activeColor.copy(alpha = 0.5f) else activeColor
     } else {
-        Color.White.copy(alpha = 0.45f)
+        if (syncStatus == InteractionSyncStatus.PENDING) Color.White.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.45f)
     }
 
     val scale by animateFloatAsState(
-        targetValue = if (isActive) 1.15f else 1.0f,
+        targetValue = if (isActive && syncStatus == InteractionSyncStatus.SYNCED) 1.15f else 1.0f,
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
         label = "ScaleAnimation"
     )

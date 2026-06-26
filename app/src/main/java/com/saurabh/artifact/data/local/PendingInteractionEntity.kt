@@ -6,6 +6,7 @@ import androidx.room.PrimaryKey
 @Entity(tableName = "pending_interactions")
 data class PendingInteractionEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val userId: String,
     val artifactId: String,
     val interactionType: String, // "REACTION", "SAVE", "FOLLOW"
     val action: String, // "ADD", "REMOVE"
@@ -21,6 +22,7 @@ object InteractionType {
     const val REACTION = "REACTION"
     const val SAVE = "SAVE"
     const val FOLLOW = "FOLLOW"
+    const val ENGAGEMENT = "ENGAGEMENT"
 }
 
 object InteractionAction {

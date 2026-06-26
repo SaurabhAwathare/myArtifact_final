@@ -20,12 +20,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.saurabh.artifact.model.EngagementStatus
 
 @Composable
 fun LockedCommentView(
     progress: Float,
     modifier: Modifier = Modifier,
-    requiredCoverage: Float = 0.95f
+    requiredCoverage: Float = 0.95f,
+    status: EngagementStatus = EngagementStatus.LOCKED
 ) {
     val animatedProgress by animateFloatAsState(
         targetValue = progress,
@@ -73,8 +75,14 @@ fun LockedCommentView(
             
             Spacer(modifier = Modifier.height(12.dp))
             
+            val descriptionText = when (status) {
+                EngagementStatus.PENDING_VALIDATION -> "Validating..."
+                EngagementStatus.FAILED -> "Sync failed. Try listening again."
+                else -> "Immersion is required to unlock this conversation."
+            }
+
             Text(
-                text = "Immersion is required to unlock this conversation.",
+                text = descriptionText,
                 style = MaterialTheme.typography.bodyMedium,
                 color = Color.White.copy(alpha = 0.6f),
                 textAlign = TextAlign.Center
@@ -94,13 +102,13 @@ fun LockedCommentView(
                 
                 RequirementCheckItem(
                     label = "Listen to $requiredPercent%",
-                    isMet = animatedProgress >= requiredCoverage,
-                    progress = "$currentPercent%"
+                    isMet = status == EngagementStatus.UNLOCKED || status == EngagementStatus.PENDING_VALIDATION || animatedProgress >= requiredCoverage,
+                    progress = if (status == EngagementStatus.PENDING_VALIDATION) "Synced" else "$currentPercent%"
                 )
                 
                 RequirementCheckItem(
                     label = "Reach end of artifact",
-                    isMet = false // We don't have the exact reachedEnd flag here yet
+                    isMet = status == EngagementStatus.UNLOCKED || status == EngagementStatus.PENDING_VALIDATION
                 )
             }
 

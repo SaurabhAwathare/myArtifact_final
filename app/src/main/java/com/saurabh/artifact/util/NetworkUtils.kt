@@ -57,6 +57,14 @@ object NetworkUtils {
      * Determines if an error is transient (retriable) or terminal.
      */
     fun isTransientError(e: Throwable): Boolean {
+        if (e is com.saurabh.artifact.model.AppError) {
+            return when (e) {
+                is com.saurabh.artifact.model.AppError.NetworkFailure -> true
+                is com.saurabh.artifact.model.AppError.Unknown -> e.recoveryPath == com.saurabh.artifact.model.AppError.RecoveryPath.Retry
+                else -> false // Permanent: PermissionDenied, Unauthenticated, NotFound, InvalidInput
+            }
+        }
+
         return when (e) {
             is SocketTimeoutException,
             is UnknownHostException,

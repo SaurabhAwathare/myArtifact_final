@@ -14,8 +14,9 @@ import androidx.room.TypeConverters
         UploadTaskEntity::class,
         PendingInteractionEntity::class,
         UserLocalEntity::class,
+        DeadLetterInteractionEntity::class,
     ],
-    version = 52,
+    version = 54,
     autoMigrations = [
         // Auto-migrations can be added here for simple schema changes
     ],
@@ -30,6 +31,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun draftDao(): DraftDao
     abstract fun uploadTaskDao(): UploadTaskDao
     abstract fun pendingInteractionDao(): PendingInteractionDao
+    abstract fun deadLetterInteractionDao(): DeadLetterInteractionDao
     abstract fun userDao(): UserDao
 
     companion object {

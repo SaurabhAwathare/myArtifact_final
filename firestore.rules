@@ -93,11 +93,10 @@ service cloud.firestore {
         allow read: if isOwner(uid);
         allow create: if isOwner(uid) &&
                       !("isCommentUnlocked" in request.resource.data) &&
-                      !("commentUnlocked" in request.resource.data) &&
                       !("engagementState" in request.resource.data);
         allow update: if isOwner(uid) &&
                      !(request.resource.data.diff(resource.data).affectedKeys()
-                       .hasAny(['isCommentUnlocked', 'commentUnlocked', 'engagementState']));
+                       .hasAny(['isCommentUnlocked', 'engagementState']));
       }
 
       match /private/interactions/reactions/{artifactId} {
@@ -157,8 +156,7 @@ service cloud.firestore {
                     request.resource.data.artifactOwnerId == get(/databases/$(database)/documents/artifacts/$(request.resource.data.artifactId)).data.userId &&
                     (
                       request.resource.data.artifactOwnerId == request.auth.uid ||
-                      get(/databases/$(database)/documents/users/$(request.auth.uid)/engagement/$(request.resource.data.artifactId)).data.isCommentUnlocked == true ||
-                      get(/databases/$(database)/documents/users/$(request.auth.uid)/engagement/$(request.resource.data.artifactId)).data.commentUnlocked == true
+                      get(/databases/$(database)/documents/users/$(request.auth.uid)/engagement/$(request.resource.data.artifactId)).data.isCommentUnlocked == true
                     );
 
       allow update: if (isOwner(resource.data.authorId) &&

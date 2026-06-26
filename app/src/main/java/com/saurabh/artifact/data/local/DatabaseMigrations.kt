@@ -837,6 +837,36 @@ object DatabaseMigrations {
         }
     }
 
+    val MIGRATION_52_53 = object : Migration(52, 53) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `dead_letter_interactions` (
+                    `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
+                    `originalId` INTEGER NOT NULL, 
+                    `artifactId` TEXT NOT NULL, 
+                    `interactionType` TEXT NOT NULL, 
+                    `action` TEXT NOT NULL, 
+                    `metadata` TEXT, 
+                    `createdAt` INTEGER NOT NULL, 
+                    `correlationId` TEXT NOT NULL, 
+                    `failedAt` INTEGER NOT NULL, 
+                    `failureReason` TEXT, 
+                    `failureType` TEXT NOT NULL, 
+                    `retryCount` INTEGER NOT NULL
+                )
+            """.trimIndent()
+            )
+        }
+    }
+
+    val MIGRATION_53_54 = object : Migration(53, 54) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `pending_interactions` ADD COLUMN `userId` TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE `dead_letter_interactions` ADD COLUMN `userId` TEXT NOT NULL DEFAULT ''")
+        }
+    }
+
     val ALL_MIGRATIONS = arrayOf(
         MIGRATION_1_2,
         MIGRATION_2_3,
@@ -871,6 +901,8 @@ object DatabaseMigrations {
         MIGRATION_48_49,
         MIGRATION_49_50,
         MIGRATION_50_51,
-        MIGRATION_51_52
+        MIGRATION_51_52,
+        MIGRATION_52_53,
+        MIGRATION_53_54
     )
 }

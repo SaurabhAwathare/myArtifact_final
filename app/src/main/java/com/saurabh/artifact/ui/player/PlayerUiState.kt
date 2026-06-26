@@ -1,9 +1,6 @@
 package com.saurabh.artifact.ui.player
 
-import com.saurabh.artifact.model.Artifact
-import com.saurabh.artifact.model.PlayableArtifact
-import com.saurabh.artifact.model.TranscriptSegment
-import com.saurabh.artifact.model.ReactionType
+import com.saurabh.artifact.model.*
 
 /**
  * Represents the comprehensive UI state for the immersive audio player.
@@ -19,16 +16,19 @@ data class PlayerUiState(
     val playbackSpeed: Float = 1.0f,
     val playbackProgress: Float = 0f, // Actual current position (0.0 to 1.0)
     val listeningProgress: Float = 0f, // Furthest point reached (0.0 to 1.0)
-    val isCommentUnlocked: Boolean = false,
+    val engagementStatus: EngagementStatus = EngagementStatus.LOCKED,
     val error: String? = null,
     val isExpanded: Boolean = false,
     val playerMode: PlayerMode = PlayerMode.HIDDEN,
 
     // Interaction State
     val isResonated: Boolean = false,
+    val resonanceSyncStatus: InteractionSyncStatus = InteractionSyncStatus.SYNCED,
     val selectedReactionType: ReactionType = ReactionType.I_HEAR_YOU,
     val isResonating: Boolean = false,
+    val followSyncStatus: InteractionSyncStatus = InteractionSyncStatus.SYNCED,
     val isSaved: Boolean = false,
+    val saveSyncStatus: InteractionSyncStatus = InteractionSyncStatus.SYNCED,
     val isOwner: Boolean = false,
     val resonanceSummary: String = "",
     val commentCount: Long = 0,

@@ -2,7 +2,6 @@ package com.saurabh.artifact.repository
 
 import android.util.Log
 import com.google.firebase.Timestamp
-import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.saurabh.artifact.model.*
 import androidx.paging.Pager
@@ -21,7 +20,6 @@ import javax.inject.Singleton
 @Singleton
 class CommentRepository @Inject constructor(
     private val firestore: FirebaseFirestore,
-    private val notificationRepository: NotificationRepository,
     private val moderationService: ModerationService,
 ) {
 
@@ -74,24 +72,10 @@ class CommentRepository @Inject constructor(
                 moderationState = initialState
             )
 
-            // 3. Atomically add reflection and update artifact count
+            // 3. Atomically add reflection (Zero-Trust: count updated by backend)
             val commentRef = firestore.collection("comments").document(commentId)
             
-            firestore.runTransaction { transaction ->
-                transaction.set(commentRef, reflection)
-                transaction.update(artifactRef, "commentCount", FieldValue.increment(1))
-            }.await()
-
-            // Notify owner if it's not their own artifact
-            if (ownerId != null && ownerId != userId) {
-                val title = artifactDoc.getString("title") ?: ""
-                notificationRepository.createNotification(
-                    userId = ownerId,
-                    message = if (title.isNotEmpty()) "REFLECTION_ARRIVAL|$title" else "REFLECTION_ARRIVAL_GENERIC",
-                    artifactId = artifactId,
-                    type = NotificationType.REFLECTION
-                )
-            }
+            commentRef.set(reflection).await()
 
             Result.success(Unit)
         } catch (e: Exception) {

@@ -1,6 +1,7 @@
 package com.saurabh.artifact.di
 
 import android.content.Context
+import com.google.gson.Gson
 import com.saurabh.artifact.util.ConnectivityObserver
 import com.saurabh.artifact.util.NetworkConnectivityObserver
 import com.squareup.moshi.Moshi
@@ -21,6 +22,10 @@ object NetworkModule {
     fun provideMoshi(): Moshi = Moshi.Builder()
         .add(KotlinJsonAdapterFactory())
         .build()
+
+    @Provides
+    @Singleton
+    fun provideGson(): Gson = Gson()
 
     @Provides
     @Singleton

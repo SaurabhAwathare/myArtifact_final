@@ -54,7 +54,7 @@ fun CommentComposer(
         }
 
         // Emotional Expectation Setting
-        if (uiState.hasCompletedReview) {
+        if (uiState.engagementStatus == com.saurabh.artifact.model.EngagementStatus.UNLOCKED) {
             Text(
                 text = "Thank you for listening deeply. This space is now open for your reflection.",
                 style = MaterialTheme.typography.labelMedium,

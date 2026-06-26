@@ -9,7 +9,6 @@ import com.saurabh.artifact.domain.review.EngagementEvidence
 import com.saurabh.artifact.domain.review.comments.CommentUnlockPolicy
 import com.saurabh.artifact.domain.review.comments.CommentUnlockValidator
 import com.saurabh.artifact.model.Artifact
-import com.saurabh.artifact.repository.CommentUnlockRepository
 import com.saurabh.artifact.repository.EngagementRepository
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -26,7 +25,6 @@ import kotlin.time.Duration.Companion.milliseconds
 class ReviewAuthorityService @Inject constructor(
     private val playbackSessionManager: PlaybackSessionManager,
     private val engagementRepository: EngagementRepository,
-    private val commentUnlockRepository: CommentUnlockRepository,
     private val commentValidator: CommentUnlockValidator,
     private val commentPolicy: CommentUnlockPolicy
 ) {
@@ -167,7 +165,6 @@ class ReviewAuthorityService @Inject constructor(
         android.util.Log.d("STUDIO_TRACE", "ReviewAuthorityService: handleCompletion for ${progress.artifactId} (LIFECYCLE_TRACE)")
         scope.launch(Dispatchers.IO) {
             engagementRepository.saveEngagement(progress.evidence)
-            commentUnlockRepository.unlockArtifact(progress.artifactId)
         }
     }
 }

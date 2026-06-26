@@ -14,7 +14,7 @@ object RefactorFeatureFlags {
     /**
      * When true, engagement data will be synced as raw evidence only.
      */
-    const val USE_SERVER_ENGAGEMENT_VALIDATION = false
+    const val USE_SERVER_ENGAGEMENT_VALIDATION = true
 
     /**
      * When true, the new unified interaction queue and worker will be used.

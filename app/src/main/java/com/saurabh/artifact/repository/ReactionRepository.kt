@@ -24,8 +24,7 @@ class ReactionRepository @Inject constructor(
 
     /**
      * Submits an emotional reaction to an artifact.
-     * Uses a transaction to ensure count consistency if possible, 
-     * but relies on Cloud Functions for global aggregation scaling.
+     * PUBLIC API: Used by ViewModels. Enqueues interaction if unified queue is enabled.
      */
     suspend fun reactToArtifact(
         artifactId: String,
@@ -35,12 +34,13 @@ class ReactionRepository @Inject constructor(
         try {
             if (RefactorFeatureFlags.USE_UNIFIED_INTERACTION_QUEUE) {
                 val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
+                    userId = userId,
                     artifactId = artifactId,
                     interactionType = com.saurabh.artifact.data.local.InteractionType.REACTION,
                     action = com.saurabh.artifact.data.local.InteractionAction.ADD,
                     metadata = type.id
                 )
-                pendingInteractionDao.deleteByType(artifactId, com.saurabh.artifact.data.local.InteractionType.REACTION)
+                pendingInteractionDao.deleteByType(artifactId, userId, com.saurabh.artifact.data.local.InteractionType.REACTION)
                 pendingInteractionDao.insert(pending)
                 com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
                 
@@ -48,6 +48,55 @@ class ReactionRepository @Inject constructor(
                 return@withContext Result.success(Unit)
             }
 
+            syncReactionToFirestore(artifactId, userId, type)
+        } catch (e: Exception) {
+            Log.e("ReactionRepository", "Failed to react to artifact", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Removes an emotional reaction from an artifact.
+     * PUBLIC API: Used by ViewModels. Enqueues interaction if unified queue is enabled.
+     */
+    suspend fun removeReaction(
+        artifactId: String,
+        userId: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            if (RefactorFeatureFlags.USE_UNIFIED_INTERACTION_QUEUE) {
+                val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
+                    userId = userId,
+                    artifactId = artifactId,
+                    interactionType = com.saurabh.artifact.data.local.InteractionType.REACTION,
+                    action = com.saurabh.artifact.data.local.InteractionAction.REMOVE
+                )
+                pendingInteractionDao.deleteByType(artifactId, userId, com.saurabh.artifact.data.local.InteractionType.REACTION)
+                pendingInteractionDao.insert(pending)
+                com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
+                
+                ArtifactLogger.i("ReactionRepository", "Reaction removal interaction queued locally for $artifactId")
+                return@withContext Result.success(Unit)
+            }
+
+            syncReactionRemovalFromFirestore(artifactId, userId)
+        } catch (e: Exception) {
+            Log.e("ReactionRepository", "Failed to remove reaction", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Internal synchronization method for reactions.
+     * INTERNAL SYNC API: Intended exclusively for InteractionSyncWorker.
+     * Performs direct Firestore write without enqueuing.
+     */
+    internal suspend fun syncReactionToFirestore(
+        artifactId: String,
+        userId: String,
+        type: ReactionType
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
             // PRE-QUEUE INTENT WRITE
             val intentRef = firestore.collection("users").document(userId)
                 .collection("private").document("intents")
@@ -75,44 +124,26 @@ class ReactionRepository @Inject constructor(
 
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("ReactionRepository", "Failed to react to artifact", e)
             Result.failure(e)
         }
     }
 
     /**
-     * Removes an emotional reaction from an artifact.
-     * Uses a transaction to ensure count consistency across private/global collections.
+     * Internal synchronization method for reaction removal.
+     * INTERNAL SYNC API: Intended exclusively for InteractionSyncWorker.
+     * Performs direct Firestore write without enqueuing.
      */
-    suspend fun removeReaction(
+    internal suspend fun syncReactionRemovalFromFirestore(
         artifactId: String,
         userId: String
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            if (RefactorFeatureFlags.USE_UNIFIED_INTERACTION_QUEUE) {
-                val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
-                    artifactId = artifactId,
-                    interactionType = com.saurabh.artifact.data.local.InteractionType.REACTION,
-                    action = com.saurabh.artifact.data.local.InteractionAction.REMOVE
-                )
-                pendingInteractionDao.deleteByType(artifactId, com.saurabh.artifact.data.local.InteractionType.REACTION)
-                pendingInteractionDao.insert(pending)
-                com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
-                
-                ArtifactLogger.i("ReactionRepository", "Reaction removal interaction queued locally for $artifactId")
-                return@withContext Result.success(Unit)
-            }
-
-            // PRE-QUEUE INTENT WRITE
+            // PRE-QUEUE INTENT WRITE: DELETE to trigger onReactionIntentDeleted
             val intentRef = firestore.collection("users").document(userId)
                 .collection("private").document("intents")
                 .collection("reactions").document(artifactId)
             
-            intentRef.set(mapOf(
-                "artifactId" to artifactId,
-                "action" to "REMOVE",
-                "timestamp" to FieldValue.serverTimestamp()
-            )).await()
+            intentRef.delete().await()
             
             val pulseRef = firestore.collection("users").document(userId)
                 .collection("private").document("interactions")
@@ -121,7 +152,6 @@ class ReactionRepository @Inject constructor(
             pulseRef.delete().await()
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("ReactionRepository", "Failed to remove reaction", e)
             Result.failure(e)
         }
     }
@@ -184,6 +214,7 @@ class ReactionRepository @Inject constructor(
 
             // 1. Record pending interaction for sync
             val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
+                userId = userId,
                 artifactId = artifactId,
                 interactionType = com.saurabh.artifact.data.local.InteractionType.REACTION,
                 action = if (willAdd) com.saurabh.artifact.data.local.InteractionAction.ADD else com.saurabh.artifact.data.local.InteractionAction.REMOVE,
@@ -191,7 +222,7 @@ class ReactionRepository @Inject constructor(
             )
             
             // Clean up any existing pending reactions for this artifact to avoid redundant toggles
-            pendingInteractionDao.deleteByType(artifactId, com.saurabh.artifact.data.local.InteractionType.REACTION)
+            pendingInteractionDao.deleteByType(artifactId, userId, com.saurabh.artifact.data.local.InteractionType.REACTION)
             pendingInteractionDao.insert(pending)
 
             // 2. Trigger Sync Worker
@@ -203,6 +234,7 @@ class ReactionRepository @Inject constructor(
             // Fallback for offline: if network fails, we still record the pending intent
             if (ArtifactRepository.isTransientError(e)) {
                 val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
+                    userId = userId,
                     artifactId = artifactId,
                     interactionType = com.saurabh.artifact.data.local.InteractionType.REACTION,
                     action = com.saurabh.artifact.data.local.InteractionAction.ADD, // Assumption: most toggles are additions when offline

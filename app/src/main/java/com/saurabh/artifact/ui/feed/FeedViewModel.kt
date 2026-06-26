@@ -18,7 +18,6 @@ import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.NotificationRepository
-import com.saurabh.artifact.repository.CommentUnlockRepository
 import com.saurabh.artifact.repository.SavedArtifactManager
 import com.saurabh.artifact.service.AdManager
 import com.saurabh.artifact.service.FeedComposer
@@ -86,7 +85,6 @@ class FeedViewModel @Inject constructor(
     private val cleanupManager: ArtifactCleanupManager,
     private val reviewSessionManager: ReviewSessionManager,
     private val publishStateManager: PublishStateManager,
-    private val commentUnlockRepository: CommentUnlockRepository,
     private val uploadGuard: UploadGuard,
     private val feedComposer: FeedComposer,
     private val feedSeparatorMapper: FeedSeparatorMapper,
@@ -274,8 +272,7 @@ class FeedViewModel @Inject constructor(
             audioPlayer.currentProgress.collect { progress ->
                 if (progress != null && progress.isValidationMet) {
                     val artifactId = progress.artifactId
-                    commentUnlockRepository.unlockArtifact(artifactId)
-                    Log.d("FeedViewModel", "Artifact $artifactId unlocked via listener authority")
+                    Log.d("FeedViewModel", "Artifact $artifactId threshold met locally")
                 }
             }
         }

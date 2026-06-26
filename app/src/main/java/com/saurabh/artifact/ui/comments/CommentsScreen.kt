@@ -84,8 +84,8 @@ fun CommentsScreen(
     var showComposer by remember { mutableStateOf(false) }
     var reportingCommentId by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(uiState.isLocked) {
-        android.util.Log.d("ReviewDebug", "UI Compose observed isLocked change: ${uiState.isLocked}")
+    LaunchedEffect(uiState.engagementStatus) {
+        android.util.Log.d("ReviewDebug", "UI Compose observed engagementStatus change: ${uiState.engagementStatus}")
     }
 
     LaunchedEffect(artifactId, ownerId) {
@@ -116,7 +116,7 @@ fun CommentsScreen(
             }
         },
         floatingActionButton = {
-            if (!uiState.isLocked) {
+            if (uiState.engagementStatus == com.saurabh.artifact.model.EngagementStatus.UNLOCKED) {
                 FloatingActionButton(
                     onClick = { showComposer = true },
                     containerColor = GoldAura500,
@@ -133,16 +133,17 @@ fun CommentsScreen(
                 .padding(innerPadding)
         ) {
             AnimatedContent(
-                targetState = uiState.isLocked,
+                targetState = uiState.engagementStatus,
                 label = "CommentUnlockTransition",
                 transitionSpec = {
                     fadeIn(animationSpec = tween(1000)) togetherWith fadeOut(animationSpec = tween(500))
                 }
-            ) { isLocked ->
-                if (isLocked) {
+            ) { status ->
+                if (status != com.saurabh.artifact.model.EngagementStatus.UNLOCKED) {
                     LockedCommentView(
                         progress = uiState.listeningProgress,
-                        requiredCoverage = uiState.requiredCoverage
+                        requiredCoverage = uiState.requiredCoverage,
+                        status = status
                     )
                 } else {
                     Box(modifier = Modifier.fillMaxSize()) {
