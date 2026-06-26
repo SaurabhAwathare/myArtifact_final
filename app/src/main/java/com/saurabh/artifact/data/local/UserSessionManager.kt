@@ -71,7 +71,6 @@ class UserSessionManager @Inject constructor(
             
             UserProfile(
                 anonymousId = id, 
-                identityEmoji = "✨", // Deprecated
                 username = username, 
                 sigil = sigil,
                 avatarSeed = seed,

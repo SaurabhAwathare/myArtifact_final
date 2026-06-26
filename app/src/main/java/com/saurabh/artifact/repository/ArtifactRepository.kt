@@ -47,7 +47,6 @@ import com.saurabh.artifact.model.Visibility
 import com.saurabh.artifact.service.PersonalizationEngine
 import com.saurabh.artifact.service.ReflectionAIService
 import com.saurabh.artifact.util.ArtifactLogger
-import com.saurabh.artifact.util.RefactorFeatureFlags
 import com.saurabh.artifact.data.local.ArtifactEntityWithIndex
 import com.saurabh.artifact.util.CoroutineExceptionHandlerUtils
 import com.saurabh.artifact.util.NetworkUtils
@@ -665,25 +664,21 @@ class ArtifactRepository @Inject constructor(
         try {
             Log.d("ArtifactRepository", "Saving artifact for user: $userId")
             
-            if (RefactorFeatureFlags.USE_UNIFIED_INTERACTION_QUEUE) {
-                // 1. Record pending interaction
-                val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
-                    userId = userId,
-                    artifactId = artifact.id,
-                    interactionType = com.saurabh.artifact.data.local.InteractionType.SAVE,
-                    action = com.saurabh.artifact.data.local.InteractionAction.ADD,
-                    metadata = shelf
-                )
-                pendingInteractionDao.deleteByType(artifact.id, userId, com.saurabh.artifact.data.local.InteractionType.SAVE)
-                pendingInteractionDao.insert(pending)
+            // 1. Record pending interaction
+            val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
+                userId = userId,
+                artifactId = artifact.id,
+                interactionType = com.saurabh.artifact.data.local.InteractionType.SAVE,
+                action = com.saurabh.artifact.data.local.InteractionAction.ADD,
+                metadata = shelf
+            )
+            pendingInteractionDao.deleteByType(artifact.id, userId, com.saurabh.artifact.data.local.InteractionType.SAVE)
+            pendingInteractionDao.insert(pending)
 
-                // 2. Trigger Sync Worker
-                com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
+            // 2. Trigger Sync Worker
+            com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
 
-                return@withContext Result.success(Unit)
-            }
-
-            saveArtifactToFirestore(userId, artifact.id, shelf)
+            Result.success(Unit)
         } catch (e: Exception) {
             ArtifactLogger.e("ArtifactRepository", "Failed to queue save for artifact ${artifact.id}", e)
             Result.failure(e)
@@ -698,24 +693,20 @@ class ArtifactRepository @Inject constructor(
         try {
             Log.d("ArtifactRepository", "Unsaving artifact for user: $userId")
             
-            if (RefactorFeatureFlags.USE_UNIFIED_INTERACTION_QUEUE) {
-                // 1. Record pending interaction
-                val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
-                    userId = userId,
-                    artifactId = artifactId,
-                    interactionType = com.saurabh.artifact.data.local.InteractionType.SAVE,
-                    action = com.saurabh.artifact.data.local.InteractionAction.REMOVE
-                )
-                pendingInteractionDao.deleteByType(artifactId, userId, com.saurabh.artifact.data.local.InteractionType.SAVE)
-                pendingInteractionDao.insert(pending)
+            // 1. Record pending interaction
+            val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
+                userId = userId,
+                artifactId = artifactId,
+                interactionType = com.saurabh.artifact.data.local.InteractionType.SAVE,
+                action = com.saurabh.artifact.data.local.InteractionAction.REMOVE
+            )
+            pendingInteractionDao.deleteByType(artifactId, userId, com.saurabh.artifact.data.local.InteractionType.SAVE)
+            pendingInteractionDao.insert(pending)
 
-                // 2. Trigger Sync Worker
-                com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
+            // 2. Trigger Sync Worker
+            com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
 
-                return@withContext Result.success(Unit)
-            }
-
-            unsaveArtifactFromFirestore(userId, artifactId)
+            Result.success(Unit)
         } catch (e: Exception) {
             ArtifactLogger.e("ArtifactRepository", "Failed to queue unsave for artifact $artifactId", e)
             Result.failure(e)
@@ -942,15 +933,6 @@ class ArtifactRepository @Inject constructor(
             }
         }
         return null
-    }
-
-    /**
-     * Calculates the SHA-256 checksum of a file.
-     * @deprecated Use FileIntegrity.calculateChecksum() instead.
-     */
-    @Deprecated("Use FileIntegrity.calculateChecksum()", ReplaceWith("FileIntegrity.calculateChecksum(filePath)"))
-    fun calculateChecksum(filePath: String): String {
-        return com.saurabh.artifact.util.FileIntegrity.calculateChecksum(filePath)
     }
 
     suspend fun createArtifactDocument(

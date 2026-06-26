@@ -6,8 +6,6 @@ package com.saurabh.artifact.model
  */
 data class UserProfile(
     val anonymousId: String,
-    @Deprecated("Use avatarConfig")
-    val identityEmoji: String = "✨",
     val username: String = "Quiet Presence",
     val sigil: String = "",
     val avatarSeed: String = "",

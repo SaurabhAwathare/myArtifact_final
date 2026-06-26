@@ -22,7 +22,6 @@ import com.saurabh.artifact.repository.ReactionRepository
 import com.saurabh.artifact.repository.UserRepository
 import com.saurabh.artifact.repository.EngagementRepository
 import com.saurabh.artifact.util.ArtifactLogger
-import com.saurabh.artifact.util.RefactorFeatureFlags
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
@@ -43,11 +42,6 @@ class InteractionSyncWorker @AssistedInject constructor(
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
-        if (!RefactorFeatureFlags.USE_UNIFIED_INTERACTION_QUEUE) {
-            ArtifactLogger.d(TAG, "Unified interaction queue disabled via feature flag. Exiting.")
-            return@withContext Result.success()
-        }
-
         val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return@withContext Result.failure()
         
         // 1. Collapse duplicate/redundant events before processing

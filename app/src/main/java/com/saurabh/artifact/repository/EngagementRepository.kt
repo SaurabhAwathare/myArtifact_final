@@ -10,7 +10,6 @@ import com.saurabh.artifact.data.local.PendingInteractionEntity
 import com.saurabh.artifact.domain.review.EngagementEvidence
 import com.saurabh.artifact.domain.review.EngagementSyncPayload
 import com.saurabh.artifact.model.AppError
-import com.saurabh.artifact.util.RefactorFeatureFlags
 import android.util.Base64
 import androidx.work.*
 import com.google.firebase.firestore.FirebaseFirestore
@@ -73,34 +72,29 @@ class EngagementRepository @Inject constructor(
         val userId = authRepository.currentUserId
         if (userId.isEmpty()) return
 
-        if (RefactorFeatureFlags.USE_UNIFIED_INTERACTION_QUEUE) {
-            val payload = EngagementSyncPayload(
-                artifactId = engagement.artifactId,
-                lastPositionMs = engagement.lastPositionMs,
-                furthestPositionMs = engagement.furthestPositionMs,
-                durationMs = engagement.durationMs,
-                hasReachedEnd = engagement.hasReachedEnd,
-                coverage = Base64.encodeToString(engagement.coverage, Base64.NO_WRAP),
-                lastUpdated = engagement.lastUpdated
-            )
+        val payload = EngagementSyncPayload(
+            artifactId = engagement.artifactId,
+            lastPositionMs = engagement.lastPositionMs,
+            furthestPositionMs = engagement.furthestPositionMs,
+            durationMs = engagement.durationMs,
+            hasReachedEnd = engagement.hasReachedEnd,
+            coverage = Base64.encodeToString(engagement.coverage, Base64.NO_WRAP),
+            lastUpdated = engagement.lastUpdated
+        )
 
-            val pending = PendingInteractionEntity(
-                userId = userId,
-                artifactId = engagement.artifactId,
-                interactionType = InteractionType.ENGAGEMENT,
-                action = InteractionAction.ADD, // Action is arbitrary for engagement
-                metadata = gson.toJson(payload)
-            )
+        val pending = PendingInteractionEntity(
+            userId = userId,
+            artifactId = engagement.artifactId,
+            interactionType = InteractionType.ENGAGEMENT,
+            action = InteractionAction.ADD, // Action is arbitrary for engagement
+            metadata = gson.toJson(payload)
+        )
 
-            // Replace existing pending engagement for this artifact to avoid queue bloat
-            pendingInteractionDao.deleteByType(engagement.artifactId, userId, InteractionType.ENGAGEMENT)
-            pendingInteractionDao.insert(pending)
+        // Replace existing pending engagement for this artifact to avoid queue bloat
+        pendingInteractionDao.deleteByType(engagement.artifactId, userId, InteractionType.ENGAGEMENT)
+        pendingInteractionDao.insert(pending)
 
-            enqueueSyncWorker()
-        } else {
-            // Legacy direct write removed as per Phase 15 requirements.
-            android.util.Log.w("EngagementRepository", "Cloud sync skipped: USE_UNIFIED_INTERACTION_QUEUE is false")
-        }
+        enqueueSyncWorker()
     }
 
     /**

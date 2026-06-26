@@ -80,7 +80,7 @@ fun DebugMenuScreen(
                     title = "Clear Local Cache",
                     subtitle = "Force refresh of all local data stores",
                     icon = Icons.Default.DeleteSweep,
-                    onClick = { /* TODO: Implement clear cache logic if needed */ }
+                    onClick = { /* BACKLOG: Implement clear cache logic for Production Debugging (Phase 24+) */ }
                 )
             }
 

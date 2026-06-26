@@ -5,7 +5,6 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.util.ArtifactLogger
-import com.saurabh.artifact.util.RefactorFeatureFlags
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -32,23 +31,19 @@ class ReactionRepository @Inject constructor(
         type: ReactionType
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            if (RefactorFeatureFlags.USE_UNIFIED_INTERACTION_QUEUE) {
-                val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
-                    userId = userId,
-                    artifactId = artifactId,
-                    interactionType = com.saurabh.artifact.data.local.InteractionType.REACTION,
-                    action = com.saurabh.artifact.data.local.InteractionAction.ADD,
-                    metadata = type.id
-                )
-                pendingInteractionDao.deleteByType(artifactId, userId, com.saurabh.artifact.data.local.InteractionType.REACTION)
-                pendingInteractionDao.insert(pending)
-                com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
-                
-                ArtifactLogger.i("ReactionRepository", "Reaction interaction queued locally for $artifactId")
-                return@withContext Result.success(Unit)
-            }
-
-            syncReactionToFirestore(artifactId, userId, type)
+            val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
+                userId = userId,
+                artifactId = artifactId,
+                interactionType = com.saurabh.artifact.data.local.InteractionType.REACTION,
+                action = com.saurabh.artifact.data.local.InteractionAction.ADD,
+                metadata = type.id
+            )
+            pendingInteractionDao.deleteByType(artifactId, userId, com.saurabh.artifact.data.local.InteractionType.REACTION)
+            pendingInteractionDao.insert(pending)
+            com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
+            
+            ArtifactLogger.i("ReactionRepository", "Reaction interaction queued locally for $artifactId")
+            Result.success(Unit)
         } catch (e: Exception) {
             Log.e("ReactionRepository", "Failed to react to artifact", e)
             Result.failure(e)
@@ -64,22 +59,18 @@ class ReactionRepository @Inject constructor(
         userId: String
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            if (RefactorFeatureFlags.USE_UNIFIED_INTERACTION_QUEUE) {
-                val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
-                    userId = userId,
-                    artifactId = artifactId,
-                    interactionType = com.saurabh.artifact.data.local.InteractionType.REACTION,
-                    action = com.saurabh.artifact.data.local.InteractionAction.REMOVE
-                )
-                pendingInteractionDao.deleteByType(artifactId, userId, com.saurabh.artifact.data.local.InteractionType.REACTION)
-                pendingInteractionDao.insert(pending)
-                com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
-                
-                ArtifactLogger.i("ReactionRepository", "Reaction removal interaction queued locally for $artifactId")
-                return@withContext Result.success(Unit)
-            }
-
-            syncReactionRemovalFromFirestore(artifactId, userId)
+            val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
+                userId = userId,
+                artifactId = artifactId,
+                interactionType = com.saurabh.artifact.data.local.InteractionType.REACTION,
+                action = com.saurabh.artifact.data.local.InteractionAction.REMOVE
+            )
+            pendingInteractionDao.deleteByType(artifactId, userId, com.saurabh.artifact.data.local.InteractionType.REACTION)
+            pendingInteractionDao.insert(pending)
+            com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
+            
+            ArtifactLogger.i("ReactionRepository", "Reaction removal interaction queued locally for $artifactId")
+            Result.success(Unit)
         } catch (e: Exception) {
             Log.e("ReactionRepository", "Failed to remove reaction", e)
             Result.failure(e)

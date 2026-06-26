@@ -19,7 +19,6 @@ import com.saurabh.artifact.data.local.UserLocalEntity
 import android.util.Log
 import android.content.Context
 import com.saurabh.artifact.worker.IdentitySyncWorker
-import com.saurabh.artifact.util.RefactorFeatureFlags
 import com.saurabh.artifact.util.ArtifactLogger
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.serialization.encodeToString
@@ -373,28 +372,24 @@ class UserRepository @Inject constructor(
         }
         if (currentUserId == targetUserId) return@withContext Result.failure(Exception("Cannot resonate with yourself"))
 
-        if (RefactorFeatureFlags.USE_UNIFIED_INTERACTION_QUEUE) {
-            return@withContext try {
-                val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
-                    userId = currentUserId,
-                    artifactId = targetUserId, // Using artifactId field for targetUserId
-                    interactionType = com.saurabh.artifact.data.local.InteractionType.FOLLOW,
-                    action = com.saurabh.artifact.data.local.InteractionAction.ADD,
-                    metadata = currentUserId
-                )
-                pendingInteractionDao.deleteByType(targetUserId, currentUserId, com.saurabh.artifact.data.local.InteractionType.FOLLOW)
-                pendingInteractionDao.insert(pending)
-                com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
-                
-                ArtifactLogger.i("UserRepository", "Follow interaction queued locally for $targetUserId")
-                Result.success(Unit)
-            } catch (e: Exception) {
-                ArtifactLogger.e("UserRepository", "Failed to queue follow interaction", e)
-                Result.failure(e)
-            }
+        try {
+            val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
+                userId = currentUserId,
+                artifactId = targetUserId, // Using artifactId field for targetUserId
+                interactionType = com.saurabh.artifact.data.local.InteractionType.FOLLOW,
+                action = com.saurabh.artifact.data.local.InteractionAction.ADD,
+                metadata = currentUserId
+            )
+            pendingInteractionDao.deleteByType(targetUserId, currentUserId, com.saurabh.artifact.data.local.InteractionType.FOLLOW)
+            pendingInteractionDao.insert(pending)
+            com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
+            
+            ArtifactLogger.i("UserRepository", "Follow interaction queued locally for $targetUserId")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            ArtifactLogger.e("UserRepository", "Failed to queue follow interaction", e)
+            Result.failure(e)
         }
-
-        syncFollowToFirestore(currentUserId, targetUserId)
     }
 
     /**
@@ -406,28 +401,24 @@ class UserRepository @Inject constructor(
             return@withContext Result.failure(AppError.InvalidInput("User IDs cannot be blank"))
         }
 
-        if (RefactorFeatureFlags.USE_UNIFIED_INTERACTION_QUEUE) {
-            return@withContext try {
-                val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
-                    userId = currentUserId,
-                    artifactId = targetUserId,
-                    interactionType = com.saurabh.artifact.data.local.InteractionType.FOLLOW,
-                    action = com.saurabh.artifact.data.local.InteractionAction.REMOVE,
-                    metadata = currentUserId
-                )
-                pendingInteractionDao.deleteByType(targetUserId, currentUserId, com.saurabh.artifact.data.local.InteractionType.FOLLOW)
-                pendingInteractionDao.insert(pending)
-                com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
-                
-                ArtifactLogger.i("UserRepository", "Unfollow interaction queued locally for $targetUserId")
-                Result.success(Unit)
-            } catch (e: Exception) {
-                ArtifactLogger.e("UserRepository", "Failed to queue unfollow interaction", e)
-                Result.failure(e)
-            }
+        try {
+            val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
+                userId = currentUserId,
+                artifactId = targetUserId,
+                interactionType = com.saurabh.artifact.data.local.InteractionType.FOLLOW,
+                action = com.saurabh.artifact.data.local.InteractionAction.REMOVE,
+                metadata = currentUserId
+            )
+            pendingInteractionDao.deleteByType(targetUserId, currentUserId, com.saurabh.artifact.data.local.InteractionType.FOLLOW)
+            pendingInteractionDao.insert(pending)
+            com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
+            
+            ArtifactLogger.i("UserRepository", "Unfollow interaction queued locally for $targetUserId")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            ArtifactLogger.e("UserRepository", "Failed to queue unfollow interaction", e)
+            Result.failure(e)
         }
-
-        syncUnfollowFromFirestore(currentUserId, targetUserId)
     }
 
     /**
