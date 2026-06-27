@@ -1,14 +1,11 @@
 package com.saurabh.artifact.worker
 
-import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseUser
 import com.google.gson.Gson
 import com.saurabh.artifact.data.local.*
-import com.saurabh.artifact.domain.review.EngagementSyncPayload
-import com.saurabh.artifact.repository.ArtifactRepository
-import com.saurabh.artifact.repository.ReactionRepository
-import com.saurabh.artifact.repository.UserRepository
-import com.saurabh.artifact.repository.EngagementRepository
-import com.saurabh.artifact.repository.CommentRepository
+import com.saurabh.artifact.model.*
+import com.saurabh.artifact.repository.*
 import com.saurabh.artifact.util.ArtifactLogger
 import android.util.Log
 import io.mockk.*
@@ -21,7 +18,7 @@ import androidx.work.WorkerParameters
 import kotlin.time.Duration.Companion.seconds
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class InteractionSyncWorkerEngagementTest {
+class InteractionSyncWorkerCommentTest {
     private val pendingInteractionDao = mockk<PendingInteractionDao>(relaxed = true)
     private val deadLetterInteractionDao = mockk<DeadLetterInteractionDao>(relaxed = true)
     private val reactionRepository = mockk<ReactionRepository>(relaxed = true)
@@ -29,7 +26,6 @@ class InteractionSyncWorkerEngagementTest {
     private val userRepository = mockk<UserRepository>(relaxed = true)
     private val engagementRepository = mockk<EngagementRepository>(relaxed = true)
     private val commentRepository = mockk<CommentRepository>(relaxed = true)
-    private val firestore = mockk<FirebaseFirestore>(relaxed = true)
     private val gson = Gson()
     private val workerParams = mockk<WorkerParameters>(relaxed = true)
 
@@ -44,9 +40,6 @@ class InteractionSyncWorkerEngagementTest {
         every { Log.e(any<String>(), any<String>(), any<Throwable>()) } returns 0
         
         mockkObject(ArtifactLogger)
-        every { ArtifactLogger.d(any<String>(), any<String>()) } just Runs
-        every { ArtifactLogger.i(any<String>(), any<String>()) } just Runs
-        every { ArtifactLogger.w(any<String>(), any<String>()) } just Runs
         every { ArtifactLogger.logInteraction(any(), any(), any()) } just Runs
 
         worker = InteractionSyncWorker(
@@ -61,6 +54,13 @@ class InteractionSyncWorkerEngagementTest {
             commentRepository = commentRepository,
             gson = gson
         )
+
+        mockkStatic(FirebaseAuth::class)
+        val auth = mockk<FirebaseAuth>()
+        val firebaseUser = mockk<FirebaseUser>()
+        every { FirebaseAuth.getInstance() } returns auth
+        every { auth.currentUser } returns firebaseUser
+        every { firebaseUser.uid } returns "user123"
     }
 
     @After
@@ -69,46 +69,53 @@ class InteractionSyncWorkerEngagementTest {
     }
 
     @Test
-    fun `worker should call engagementRepository syncEngagementToFirestore`() = runTest(timeout = 10.seconds) {
-        val userId = "user123"
-        val artifactId = "art123"
-        val payload = EngagementSyncPayload(
-            artifactId = artifactId,
-            lastPositionMs = 5000L,
-            furthestPositionMs = 6000L,
-            durationMs = 10000L,
-            hasReachedEnd = false,
-            coverage = "AQID", // Base64 for [1, 2, 3]
-            lastUpdated = 123456789L
+    fun `worker should call commentRepository syncCommentToFirestore`() = runTest(timeout = 10.seconds) {
+        val payload = CommentSyncPayload(
+            commentId = "c123",
+            artifactId = "a123",
+            content = "test",
+            visibility = VisibilityLayer.BRIDGE,
+            authorType = AuthorType.PSEUDONYM,
+            revealAtMillis = null,
+            authorName = "User",
+            authorAvatarSeed = "seed",
+            artifactOwnerId = "owner123",
+            moderationState = CommentModerationState.APPROVED,
+            createdAtMillis = 123456789L
         )
         val interaction = PendingInteractionEntity(
-            id = 1,
-            userId = userId,
-            artifactId = artifactId,
-            interactionType = InteractionType.ENGAGEMENT,
+            userId = "user123",
+            artifactId = "a123",
+            interactionType = InteractionType.COMMENT,
             action = InteractionAction.ADD,
             metadata = gson.toJson(payload)
         )
 
-        coEvery { pendingInteractionDao.getPendingForUser(userId) } returns listOf(interaction)
-        coEvery { engagementRepository.syncEngagementToFirestore(any(), any()) } returns Result.success(Unit)
-        
-        // Mock Auth to return userId
-        mockkStatic(com.google.firebase.auth.FirebaseAuth::class)
-        val auth = mockk<com.google.firebase.auth.FirebaseAuth>()
-        val firebaseUser = mockk<com.google.firebase.auth.FirebaseUser>()
-        every { com.google.firebase.auth.FirebaseAuth.getInstance() } returns auth
-        every { auth.currentUser } returns firebaseUser
-        every { firebaseUser.uid } returns userId
+        coEvery { pendingInteractionDao.getPendingForUser("user123") } returns listOf(interaction)
+        coEvery { commentRepository.syncCommentToFirestore(any(), any()) } returns Result.success(Unit)
 
         worker.doWork()
 
-        coVerify { 
-            engagementRepository.syncEngagementToFirestore(userId, match { 
-                it.artifactId == payload.artifactId && it.lastPositionMs == payload.lastPositionMs
-            })
-        }
-        
-        coVerify { pendingInteractionDao.delete(any()) }
+        coVerify { commentRepository.syncCommentToFirestore("user123", any()) }
+        coVerify { pendingInteractionDao.delete(interaction) }
+    }
+
+    @Test
+    fun `worker should call commentRepository syncCommentReactionToFirestore`() = runTest(timeout = 10.seconds) {
+        val interaction = PendingInteractionEntity(
+            userId = "user123",
+            artifactId = "comment123",
+            interactionType = InteractionType.COMMENT_REACTION,
+            action = InteractionAction.ADD,
+            metadata = ReactionType.I_HEAR_YOU.id
+        )
+
+        coEvery { pendingInteractionDao.getPendingForUser("user123") } returns listOf(interaction)
+        coEvery { commentRepository.syncCommentReactionToFirestore(any(), any()) } returns Result.success(Unit)
+
+        worker.doWork()
+
+        coVerify { commentRepository.syncCommentReactionToFirestore("comment123", any()) }
+        coVerify { pendingInteractionDao.delete(interaction) }
     }
 }

@@ -10,6 +10,7 @@ import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.ReactionRepository
 import com.saurabh.artifact.repository.UserRepository
 import com.saurabh.artifact.repository.EngagementRepository
+import com.saurabh.artifact.repository.CommentRepository
 import com.saurabh.artifact.util.ArtifactLogger
 import io.mockk.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -28,6 +29,7 @@ class InteractionSyncLoopTest {
     private val artifactRepository = mockk<ArtifactRepository>(relaxed = true)
     private val userRepository = mockk<UserRepository>(relaxed = true)
     private val engagementRepository = mockk<EngagementRepository>(relaxed = true)
+    private val commentRepository = mockk<CommentRepository>(relaxed = true)
     private val auth = mockk<FirebaseAuth>()
     private val firebaseUser = mockk<FirebaseUser>()
     private val workerParams = mockk<WorkerParameters>(relaxed = true)
@@ -62,6 +64,7 @@ class InteractionSyncLoopTest {
             artifactRepository = artifactRepository,
             userRepository = userRepository,
             engagementRepository = engagementRepository,
+            commentRepository = commentRepository,
             gson = gson
         )
     }

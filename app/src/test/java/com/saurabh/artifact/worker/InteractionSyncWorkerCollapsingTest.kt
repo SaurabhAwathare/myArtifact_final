@@ -5,6 +5,7 @@ import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.ReactionRepository
 import com.saurabh.artifact.repository.UserRepository
 import com.saurabh.artifact.repository.EngagementRepository
+import com.saurabh.artifact.repository.CommentRepository
 import com.saurabh.artifact.util.ArtifactLogger
 import android.util.Log
 import io.mockk.*
@@ -22,6 +23,7 @@ class InteractionSyncWorkerCollapsingTest {
     private val artifactRepository = mockk<ArtifactRepository>(relaxed = true)
     private val userRepository = mockk<UserRepository>(relaxed = true)
     private val engagementRepository = mockk<EngagementRepository>(relaxed = true)
+    private val commentRepository = mockk<CommentRepository>(relaxed = true)
     private val workerParams = mockk<WorkerParameters>(relaxed = true)
 
     private lateinit var worker: InteractionSyncWorker
@@ -48,6 +50,7 @@ class InteractionSyncWorkerCollapsingTest {
             artifactRepository = artifactRepository,
             userRepository = userRepository,
             engagementRepository = engagementRepository,
+            commentRepository = commentRepository,
             gson = mockk(relaxed = true)
         ))
     }

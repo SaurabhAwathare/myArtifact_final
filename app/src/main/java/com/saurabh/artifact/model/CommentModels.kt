@@ -35,6 +35,24 @@ enum class CommentModerationState {
     HIDDEN
 }
 
+/**
+ * Data Transfer Object for serializing comment data for synchronization.
+ */
+@Serializable
+data class CommentSyncPayload(
+    val commentId: String,
+    val artifactId: String,
+    val content: String,
+    val visibility: VisibilityLayer,
+    val authorType: AuthorType,
+    val revealAtMillis: Long?,
+    val authorName: String?,
+    val authorAvatarSeed: String,
+    val artifactOwnerId: String,
+    val moderationState: CommentModerationState,
+    val createdAtMillis: Long
+)
+
 @Serializable
 data class ArtifactComment(
     val id: String = "",

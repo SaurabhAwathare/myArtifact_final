@@ -17,10 +17,12 @@ import com.saurabh.artifact.domain.review.EngagementSyncPayload
 import com.google.firebase.firestore.FirebaseFirestore
 import com.saurabh.artifact.data.local.*
 import com.saurabh.artifact.model.ReactionType
+import com.saurabh.artifact.model.CommentSyncPayload
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.ReactionRepository
 import com.saurabh.artifact.repository.UserRepository
 import com.saurabh.artifact.repository.EngagementRepository
+import com.saurabh.artifact.repository.CommentRepository
 import com.saurabh.artifact.util.ArtifactLogger
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -38,6 +40,7 @@ class InteractionSyncWorker @AssistedInject constructor(
     private val artifactRepository: ArtifactRepository,
     private val userRepository: UserRepository,
     private val engagementRepository: EngagementRepository,
+    private val commentRepository: CommentRepository,
     private val gson: Gson
 ) : CoroutineWorker(appContext, workerParams) {
 
@@ -168,7 +171,8 @@ class InteractionSyncWorker @AssistedInject constructor(
         return type == InteractionType.SAVE || 
                type == InteractionType.REACTION || 
                type == InteractionType.FOLLOW ||
-               type == InteractionType.ENGAGEMENT
+               type == InteractionType.ENGAGEMENT ||
+               type == InteractionType.COMMENT_REACTION
     }
 
     /**
@@ -209,6 +213,15 @@ class InteractionSyncWorker @AssistedInject constructor(
                     val payloadJson = interaction.metadata ?: throw Exception("Engagement metadata missing")
                     val payload = gson.fromJson(payloadJson, EngagementSyncPayload::class.java)
                     engagementRepository.syncEngagementToFirestore(userId, payload)
+                }
+                InteractionType.COMMENT -> {
+                    val payloadJson = interaction.metadata ?: throw Exception("Comment metadata missing")
+                    val payload = gson.fromJson(payloadJson, CommentSyncPayload::class.java)
+                    commentRepository.syncCommentToFirestore(userId, payload)
+                }
+                InteractionType.COMMENT_REACTION -> {
+                    val type = interaction.metadata?.let { ReactionType.fromId(it) } ?: ReactionType.I_HEAR_YOU
+                    commentRepository.syncCommentReactionToFirestore(interaction.artifactId, type)
                 }
                 else -> throw Exception("Unknown interaction type: ${interaction.interactionType}")
             }
