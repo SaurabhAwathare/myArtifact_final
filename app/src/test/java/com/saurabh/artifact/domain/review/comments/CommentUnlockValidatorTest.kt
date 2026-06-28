@@ -53,4 +53,45 @@ class CommentUnlockValidatorTest {
         val result = validator.validate(evidence, flexiblePolicy)
         assertTrue("Should be valid under flexible policy", result.isValid)
     }
+
+    @Test
+    fun `test getEligibility returns correct status`() {
+        // 1. Server confirmed
+        assertEquals(
+            LocalEligibility.ELIGIBLE_SERVER_CONFIRMED,
+            validator.getEligibility(null, policy, isServerUnlocked = true)
+        )
+
+        // 2. Local evidence qualifies
+        val qualifyingEvidence = EngagementEvidence(
+            artifactId = "a",
+            versionTag = "v1",
+            durationMs = 10000L,
+            coverage = BitSet(20).apply { set(0, 20) },
+            hasReachedEnd = true
+        )
+        assertEquals(
+            LocalEligibility.ELIGIBLE_LOCAL,
+            validator.getEligibility(qualifyingEvidence, policy, isServerUnlocked = false)
+        )
+
+        // 3. Not eligible
+        val poorEvidence = EngagementEvidence(
+            artifactId = "a",
+            versionTag = "v1",
+            durationMs = 10000L,
+            coverage = BitSet(20).apply { set(0, 5) },
+            hasReachedEnd = false
+        )
+        assertEquals(
+            LocalEligibility.NOT_ELIGIBLE,
+            validator.getEligibility(poorEvidence, policy, isServerUnlocked = false)
+        )
+
+        // 4. Null evidence
+        assertEquals(
+            LocalEligibility.NOT_ELIGIBLE,
+            validator.getEligibility(null, policy, isServerUnlocked = false)
+        )
+    }
 }

@@ -10,7 +10,7 @@ let testEnv;
 describe("Admin Privilege Escalation", () => {
   before(async () => {
     testEnv = await initializeTestEnvironment({
-      projectId: "demo-artifact",
+      projectId: "myartifact-555e3",
       firestore: {
         rules: fs.readFileSync("../firestore.rules", "utf8"),
       },

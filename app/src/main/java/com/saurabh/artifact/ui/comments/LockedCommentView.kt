@@ -76,8 +76,7 @@ fun LockedCommentView(
             Spacer(modifier = Modifier.height(12.dp))
             
             val descriptionText = when (status) {
-                EngagementStatus.PENDING_VALIDATION -> "Validating..."
-                EngagementStatus.FAILED -> "Sync failed. Try listening again."
+                EngagementStatus.ERROR -> "Sync failed. Try listening again."
                 else -> "Immersion is required to unlock this conversation."
             }
 
@@ -102,13 +101,13 @@ fun LockedCommentView(
                 
                 RequirementCheckItem(
                     label = "Listen to $requiredPercent%",
-                    isMet = status == EngagementStatus.UNLOCKED || status == EngagementStatus.PENDING_VALIDATION || animatedProgress >= requiredCoverage,
-                    progress = if (status == EngagementStatus.PENDING_VALIDATION) "Synced" else "$currentPercent%"
+                    isMet = status == EngagementStatus.UNLOCKED || status == EngagementStatus.VERIFYING || animatedProgress >= requiredCoverage,
+                    progress = if (status == EngagementStatus.VERIFYING) "Synced" else "$currentPercent%"
                 )
                 
                 RequirementCheckItem(
                     label = "Reach end of artifact",
-                    isMet = status == EngagementStatus.UNLOCKED || status == EngagementStatus.PENDING_VALIDATION
+                    isMet = status == EngagementStatus.UNLOCKED || status == EngagementStatus.VERIFYING
                 )
             }
 

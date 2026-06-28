@@ -81,4 +81,26 @@ class EngagementRepositoryQueueTest {
         
         verify { workManager.enqueueUniqueWork(any<String>(), any<ExistingWorkPolicy>(), any<OneTimeWorkRequest>()) }
     }
+
+    @Test
+    fun `saveEngagement should collapse existing engagement interaction for same artifact`() = runTest {
+        val evidence = EngagementEvidence(
+            artifactId = "art123",
+            versionTag = "v1",
+            durationMs = 10000L,
+            coverage = BitSet().apply { set(0, 100) },
+            lastPositionMs = 5000L,
+            furthestPositionMs = 5000L,
+            hasReachedEnd = false
+        )
+
+        repository.saveEngagement(evidence)
+        
+        coVerify { 
+            pendingInteractionDao.deleteByType("art123", "user123", InteractionType.ENGAGEMENT)
+        }
+        coVerify {
+            pendingInteractionDao.insert(match { it.interactionType == InteractionType.ENGAGEMENT })
+        }
+    }
 }

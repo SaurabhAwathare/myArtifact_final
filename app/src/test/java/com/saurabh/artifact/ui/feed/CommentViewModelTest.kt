@@ -75,9 +75,9 @@ class CommentViewModelTest {
         advanceUntilIdle()
         assertEquals(EngagementStatus.LOCKED, viewModel.uiState.value.engagementStatus)
 
-        statusFlow.value = EngagementStatus.PENDING_VALIDATION
+        statusFlow.value = EngagementStatus.VERIFYING
         advanceUntilIdle()
-        assertEquals(EngagementStatus.PENDING_VALIDATION, viewModel.uiState.value.engagementStatus)
+        assertEquals(EngagementStatus.VERIFYING, viewModel.uiState.value.engagementStatus)
 
         statusFlow.value = EngagementStatus.UNLOCKED
         advanceUntilIdle()
@@ -85,8 +85,8 @@ class CommentViewModelTest {
     }
 
     @Test
-    fun `long server delay preserves PENDING_VALIDATION state`() = runTest {
-        val statusFlow = MutableStateFlow(EngagementStatus.PENDING_VALIDATION)
+    fun `long server delay preserves VERIFYING state`() = runTest {
+        val statusFlow = MutableStateFlow(EngagementStatus.VERIFYING)
         every { getEngagementStateUseCase.execute(artifactId) } returns statusFlow
 
         viewModel.loadComments(artifactId, ownerId)
@@ -95,7 +95,7 @@ class CommentViewModelTest {
         advanceTimeBy(30000) 
         runCurrent()
         
-        assertEquals(EngagementStatus.PENDING_VALIDATION, viewModel.uiState.value.engagementStatus)
+        assertEquals(EngagementStatus.VERIFYING, viewModel.uiState.value.engagementStatus)
         
         // Finally unlock
         statusFlow.value = EngagementStatus.UNLOCKED
@@ -106,7 +106,7 @@ class CommentViewModelTest {
     @Test
     fun `process recreation (re-init) restores state from use case`() = runTest {
         // Mock state in repositories/usecase
-        every { getEngagementStateUseCase.execute(artifactId) } returns flowOf(EngagementStatus.PENDING_VALIDATION)
+        every { getEngagementStateUseCase.execute(artifactId) } returns flowOf(EngagementStatus.VERIFYING)
         
         // Create new ViewModel instance (simulating process recreation)
         val newViewModel = CommentViewModel(
@@ -117,6 +117,6 @@ class CommentViewModelTest {
         newViewModel.loadComments(artifactId, ownerId)
         advanceUntilIdle()
         
-        assertEquals(EngagementStatus.PENDING_VALIDATION, newViewModel.uiState.value.engagementStatus)
+        assertEquals(EngagementStatus.VERIFYING, newViewModel.uiState.value.engagementStatus)
     }
 }

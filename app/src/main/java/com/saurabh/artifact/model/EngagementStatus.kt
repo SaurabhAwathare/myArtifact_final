@@ -9,14 +9,14 @@ enum class EngagementStatus {
     LOCKED,
 
     /** The user has met the threshold locally; synchronization with the server is in progress. */
-    PENDING_VALIDATION,
+    VERIFYING,
 
     /** The server has authoritatively confirmed that the artifact is unlocked for this user. */
     UNLOCKED,
 
     /** 
      * A permanent failure occurred during synchronization. 
-     * Note: Transient failures (retries) should generally remain in PENDING_VALIDATION.
+     * Note: Transient failures (retries) should generally remain in VERIFYING.
      */
-    FAILED
+    ERROR
 }

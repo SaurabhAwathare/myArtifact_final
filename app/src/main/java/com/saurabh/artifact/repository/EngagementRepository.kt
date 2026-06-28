@@ -19,6 +19,8 @@ import kotlinx.coroutines.tasks.await
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import java.util.BitSet
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -44,6 +46,10 @@ class EngagementRepository @Inject constructor(
         } catch (e: Exception) {
             Result.failure(AppError.from(e))
         }
+    }
+
+    fun observeEngagementEvidence(artifactId: String): Flow<EngagementEvidence?> {
+        return engagementDao.observeEngagement(artifactId).map { it?.toDomain() }
     }
 
     suspend fun saveEngagement(evidence: EngagementEvidence): Result<Unit> = withContext(Dispatchers.IO) {
@@ -113,7 +119,7 @@ class EngagementRepository @Inject constructor(
                 "lastFurthestPosition" to payload.furthestPositionMs,
                 "totalDurationMs" to payload.durationMs,
                 "hasReachedEnd" to payload.hasReachedEnd,
-                "coverage" to coverageBytes,
+                "coverage" to com.google.firebase.firestore.Blob.fromBytes(coverageBytes),
                 "updatedAt" to payload.lastUpdated
             )
 

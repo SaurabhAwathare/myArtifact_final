@@ -4,15 +4,24 @@ import androidx.paging.PagingData
 import androidx.paging.testing.asSnapshot
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.FeedDisplayItem
+import io.mockk.every
+import io.mockk.mockkStatic
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 
 class FeedSeparatorMapperTest {
 
     private val mapper = FeedSeparatorMapper()
+
+    @Before
+    fun setup() {
+        mockkStatic(android.util.Log::class)
+        every { android.util.Log.d(any(), any()) } returns 0
+    }
 
     @Test
     fun `should insert break after every 5 artifacts`() = runTest {

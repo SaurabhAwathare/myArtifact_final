@@ -10,7 +10,7 @@ let testEnv;
 describe("Phase 18: System Integrity Verification", () => {
   before(async () => {
     testEnv = await initializeTestEnvironment({
-      projectId: "integrity-project",
+      projectId: "myartifact-555e3",
       firestore: {
         rules: fs.readFileSync("../firestore.rules", "utf8"),
       },

@@ -10,7 +10,7 @@ let testEnv;
 describe("Phase 18: System Integrity Audit", () => {
   before(async () => {
     testEnv = await initializeTestEnvironment({
-      projectId: "audit-project",
+      projectId: "myartifact-555e3",
       firestore: {
         rules: fs.readFileSync("../firestore.rules", "utf8"),
       },
@@ -64,14 +64,14 @@ describe("Phase 18: System Integrity Audit", () => {
     );
   });
 
-  it("AUDIT: Should confirm owner CAN increment commentCount (Legacy/Current behavior)", async () => {
+  it("AUDIT: Should confirm owner CANNOT increment commentCount (Zero-Trust Enforcement)", async () => {
     await setupArtifact("art1", "alice"); // Alice owns the artifact
 
     const alice = testEnv.authenticatedContext("alice");
     const artifactRef = alice.firestore().collection("artifacts").doc("art1");
 
-    // Alice (owner) increments commentCount - Rules currently allow owner full control
-    await assertSucceeds(
+    // Alice (owner) increments commentCount - Should now be DENIED
+    await assertFails(
       artifactRef.update({
         commentCount: 1
       })

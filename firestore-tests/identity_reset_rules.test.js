@@ -10,7 +10,7 @@ let testEnv;
 describe("Identity Reset Rules", () => {
   before(async () => {
     testEnv = await initializeTestEnvironment({
-      projectId: "demo-artifact",
+      projectId: "myartifact-555e3",
       firestore: {
         rules: fs.readFileSync("../firestore.rules", "utf8"),
       },

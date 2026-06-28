@@ -4,7 +4,9 @@ import { FieldValue } from "firebase-admin/firestore";
 import { withIdempotency } from "./util/idempotency";
 import { logger } from "./util/logger";
 
-admin.initializeApp();
+if (!admin.apps.length) {
+  admin.initializeApp();
+}
 
 /**
  * Triggers when a new reply is added to an artifact.

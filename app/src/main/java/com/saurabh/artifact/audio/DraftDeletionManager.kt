@@ -45,7 +45,7 @@ class DraftDeletionManager @Inject constructor(
         // Decrement artifactsCount if the draft was not yet published
         // Published artifacts are handled by ArtifactRepository.deletePublishedArtifact
         if (draft.lifecycle != com.saurabh.artifact.model.ArtifactLifecycle.PUBLISHED) {
-            val currentUserId = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+            val currentUserId = userRepository.getCurrentUserId()
             if (currentUserId != null) {
                 userRepository.decrementArtifactsCount(currentUserId)
             }

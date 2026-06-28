@@ -10,7 +10,7 @@ let testEnv;
 describe("Trust Boundary Hardening", () => {
   before(async () => {
     testEnv = await initializeTestEnvironment({
-      projectId: "demo-artifact",
+      projectId: "myartifact-555e3",
       firestore: {
         rules: fs.readFileSync("../firestore.rules", "utf8"),
       },
@@ -90,7 +90,7 @@ describe("Trust Boundary Hardening", () => {
     );
   });
 
-  it("should allow comment creation with correct artifactOwnerId", async () => {
+  it("should prevent comment creation with correct artifactOwnerId", async () => {
     await setupArtifact("art1", { userId: "bob" });
     await setupEngagement("alice", "art1", { isCommentUnlocked: true });
 
@@ -101,6 +101,71 @@ describe("Trust Boundary Hardening", () => {
         artifactId: "art1",
         artifactOwnerId: "bob",
         text: "Hello",
+      })
+    );
+  });
+
+  it("should prevent direct modification of artifact aggregates by owner", async () => {
+    await setupArtifact("art1", { userId: "alice", reactionCount: 0 });
+    const alice = testEnv.authenticatedContext("alice");
+    await assertFails(
+      alice.firestore().collection("artifacts").doc("art1").update({
+        reactionCount: 1
+      })
+    );
+  });
+
+  it("should prevent direct notification creation", async () => {
+    const alice = testEnv.authenticatedContext("alice");
+    await assertFails(
+      alice.firestore().collection("notifications").add({
+        userId: "alice",
+        message: "Spam",
+        type: "SYSTEM"
+      })
+    );
+  });
+
+  it("should prevent client from self-unlocking comments in engagement", async () => {
+    const alice = testEnv.authenticatedContext("alice");
+    const engagementRef = alice.firestore().collection("users").doc("alice").collection("engagement").doc("art1");
+
+    await setupEngagement("alice", "art1", { isCommentUnlocked: false });
+
+    await assertFails(
+      engagementRef.update({
+        isCommentUnlocked: true
+      })
+    );
+  });
+
+  it("should allow writing to deep interaction intents", async () => {
+    const alice = testEnv.authenticatedContext("alice");
+    const intentRef = alice.firestore().collection("users").doc("alice")
+      .collection("private").doc("intents")
+      .collection("reactions").doc("art1");
+
+    await assertSucceeds(
+      intentRef.set({
+        artifactId: "art1",
+        type: "HEAR",
+        action: "ADD",
+        timestamp: new Date()
+      })
+    );
+  });
+
+  it("should allow writing to follow intents", async () => {
+    const alice = testEnv.authenticatedContext("alice");
+    const followRef = alice.firestore().collection("users").doc("alice")
+      .collection("private").doc("intents")
+      .collection("follow").doc("bob");
+
+    await assertSucceeds(
+      followRef.set({
+        targetUserId: "bob",
+        action: "FOLLOW",
+        timestamp: new Date()
       })
     );
   });

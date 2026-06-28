@@ -55,6 +55,11 @@ class UserRepository @Inject constructor(
     private val usernamesCollection = firestore.collection("usernames")
 
     /**
+     * Returns the current authenticated user's ID.
+     */
+    fun getCurrentUserId(): String? = auth.currentUser?.uid
+
+    /**
      * Creates or updates a unique username for the user.
      * Uses a transaction to ensure uniqueness across the platform.
      */

@@ -30,4 +30,24 @@ class CommentUnlockValidator @Inject constructor() {
             isValid = isValid
         )
     }
+
+    /**
+     * Determines the [LocalEligibility] based on Room evidence and server unlock state.
+     */
+    fun getEligibility(
+        evidence: EngagementEvidence?,
+        policy: CommentUnlockPolicy,
+        isServerUnlocked: Boolean
+    ): LocalEligibility {
+        if (isServerUnlocked) return LocalEligibility.ELIGIBLE_SERVER_CONFIRMED
+        
+        if (evidence == null) return LocalEligibility.NOT_ELIGIBLE
+
+        val result = validate(evidence, policy)
+        return if (result.isValid) {
+            LocalEligibility.ELIGIBLE_LOCAL
+        } else {
+            LocalEligibility.NOT_ELIGIBLE
+        }
+    }
 }

@@ -402,7 +402,7 @@ fun ImmersivePlayerScreen(
             // 7. Context Actions (Standardized for published artifacts)
             if (!isVerifiedDraft) {
                 val isUnlocked = uiState.engagementStatus == EngagementStatus.UNLOCKED
-                val isPending = uiState.engagementStatus == EngagementStatus.PENDING_VALIDATION
+                val isVerifying = uiState.engagementStatus == EngagementStatus.VERIFYING
 
                 Column(
                     modifier = Modifier
@@ -417,20 +417,19 @@ fun ImmersivePlayerScreen(
                         Icon(
                             imageVector = Icons.Rounded.EditNote,
                             contentDescription = null,
-                            tint = if (isUnlocked) GoldAura400 else if (isPending) GoldAura400.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.2f),
+                            tint = if (isUnlocked) GoldAura400 else if (isVerifying) GoldAura400.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.2f),
                             modifier = Modifier.size(24.dp).padding(end = 12.dp)
                         )
 
                         val message = when {
-                            isUnlocked -> "Reflect and respond"
-                            isPending -> "Validating..."
+                            isUnlocked || isVerifying -> "Reflect and respond"
                             else -> "Thoughts Unlock Requirements"
                         }
                         
                         Text(
                             text = message,
                             style = MaterialTheme.typography.bodyMedium,
-                            color = if (isUnlocked || isPending) Color.White else Color.White.copy(alpha = 0.5f),
+                            color = if (isUnlocked || isVerifying) Color.White else Color.White.copy(alpha = 0.5f),
                             fontWeight = FontWeight.Medium,
                             letterSpacing = 0.3.sp
                         )
@@ -457,29 +456,29 @@ fun ImmersivePlayerScreen(
                         
                         val requiredPercent = (uiState.requiredCoverage * 100).toInt()
                         val currentPercent = (uiState.coveragePercent * 100).toInt()
-                        val hasMetCoverage = uiState.coveragePercent >= uiState.requiredCoverage || isPending
+                        val hasMetCoverage = uiState.coveragePercent >= uiState.requiredCoverage || isVerifying
                         
                         RequirementItem(
                             label = "Listen to $requiredPercent%",
                             isMet = hasMetCoverage,
-                            progress = if (isPending) "Synced" else "$currentPercent%"
+                            progress = if (isVerifying) "Synced" else "$currentPercent%"
                         )
                         
                         if (uiState.isReachedEndRequired) {
                             RequirementItem(
                                 label = "Reach end of artifact",
-                                isMet = uiState.isPlaybackEnded || isPending
+                                isMet = uiState.isPlaybackEnded || isVerifying
                             )
                         }
 
-                        if (hasMetCoverage && uiState.isReachedEndRequired && !uiState.isPlaybackEnded && !isPending) {
+                        if (hasMetCoverage && uiState.isReachedEndRequired && !uiState.isPlaybackEnded && !isVerifying) {
                             Text(
                                 text = "Almost there. Finish listening to unlock.",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = GoldAura400,
                                 modifier = Modifier.padding(top = 8.dp)
                             )
-                        } else if (isPending) {
+                        } else if (isVerifying) {
                             Text(
                                 text = "Synchronizing with server...",
                                 style = MaterialTheme.typography.labelSmall,

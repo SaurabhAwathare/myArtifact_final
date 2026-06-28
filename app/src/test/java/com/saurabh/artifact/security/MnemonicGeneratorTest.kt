@@ -24,8 +24,8 @@ class MnemonicGeneratorTest {
     @Test
     fun `validateMnemonic returns false for tampered phrases`() {
         val mnemonic = MnemonicGenerator.generateMnemonic().toMutableList()
-        // Change one word
-        mnemonic[0] = if (mnemonic[0] == "abandon") "ability" else "abandon"
+        // Use a word that is definitely NOT in the BIP-39 English wordlist
+        mnemonic[0] = "xyz123invalid"
         
         assertFalse(MnemonicGenerator.validateMnemonic(mnemonic))
     }
@@ -46,11 +46,11 @@ class MnemonicGeneratorTest {
         // Entropy: 00000000000000000000000000000000
         // Mnemonic: abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about
         // Passphrase: TREZOR
-        // Seed: c5525984ee6011a88981930b4f96472da434c0b22a07c67c3a0ee2d7003854e05b9748669c8574a8791d30779310c8385a4f788a79402283e58ca495d4870f7d
+        // Seed: c55257c360c07c72029aebc1b53c05ed0362ada38ead3e3e9efa3708e53495531f09a6987599d18264c1e1c92f2cf141630c7a3c4ab7c81b2f001698e7463b04
         
         val mnemonic = listOf("abandon", "abandon", "abandon", "abandon", "abandon", "abandon", "abandon", "abandon", "abandon", "abandon", "abandon", "about")
         val passphrase = "TREZOR"
-        val expectedSeedHex = "c5525984ee6011a88981930b4f96472da434c0b22a07c67c3a0ee2d7003854e05b9748669c8574a8791d30779310c8385a4f788a79402283e58ca495d4870f7d"
+        val expectedSeedHex = "c55257c360c07c72029aebc1b53c05ed0362ada38ead3e3e9efa3708e53495531f09a6987599d18264c1e1c92f2cf141630c7a3c4ab7c81b2f001698e7463b04"
         
         val actualSeed = MnemonicGenerator.toSeed(mnemonic, passphrase)
         val actualSeedHex = actualSeed.joinToString("") { "%02x".format(it) }

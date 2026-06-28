@@ -2,19 +2,17 @@ package com.saurabh.artifact.repository
 
 import android.content.Context
 import android.util.Log
+import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.storage.FirebaseStorage
-import com.saurabh.artifact.data.local.AppDatabase
-import com.saurabh.artifact.data.local.ArtifactDao
-import com.saurabh.artifact.data.local.ArtifactEntity
-import com.saurabh.artifact.data.local.DraftDao
-import com.saurabh.artifact.data.local.PendingInteractionDao
-import com.saurabh.artifact.model.Artifact
-import com.saurabh.artifact.model.Emotion
+import com.saurabh.artifact.data.local.*
+import com.saurabh.artifact.model.*
 import com.saurabh.artifact.service.PersonalizationEngine
 import com.saurabh.artifact.service.ReflectionAIService
 import com.saurabh.artifact.util.ArtifactLogger
+import com.saurabh.artifact.worker.InteractionSyncWorker
 import io.mockk.*
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.tasks.await
@@ -123,5 +121,100 @@ class ArtifactRepositoryTest {
         assertEquals("Title 2", list[1].title)
         
         coVerify { artifactDao.insertAll(any()) }
+    }
+
+    @Test
+    fun `saveArtifact should enqueue interaction and trigger worker`() = runBlocking {
+        val artifact = Artifact(id = "art123", title = "Test Artifact")
+        val userId = "user123"
+        val shelf = "Favorites"
+
+        mockkObject(InteractionSyncWorker.Companion)
+        every { InteractionSyncWorker.enqueue(any()) } just Runs
+
+        val result = repository.saveArtifact(userId, artifact, shelf)
+
+        assert(result.isSuccess)
+        coVerify { pendingInteractionDao.deleteByType("art123", userId, InteractionType.SAVE) }
+        coVerify { pendingInteractionDao.insert(match { 
+            it.userId == userId && 
+            it.artifactId == "art123" && 
+            it.interactionType == InteractionType.SAVE &&
+            it.action == InteractionAction.ADD &&
+            it.metadata == shelf
+        }) }
+        verify { InteractionSyncWorker.enqueue(context) }
+    }
+
+    @Test
+    fun `unsaveArtifact should enqueue interaction and trigger worker`() = runBlocking {
+        val artifactId = "art123"
+        val userId = "user123"
+
+        mockkObject(InteractionSyncWorker.Companion)
+        every { InteractionSyncWorker.enqueue(any()) } just Runs
+
+        val result = repository.unsaveArtifact(userId, artifactId)
+
+        assert(result.isSuccess)
+        coVerify { pendingInteractionDao.deleteByType(artifactId, userId, InteractionType.SAVE) }
+        coVerify { pendingInteractionDao.insert(match { 
+            it.userId == userId && 
+            it.artifactId == artifactId && 
+            it.interactionType == InteractionType.SAVE &&
+            it.action == InteractionAction.REMOVE
+        }) }
+        verify { InteractionSyncWorker.enqueue(context) }
+    }
+
+    @Test
+    fun `saveArtifactToFirestore should succeed on Firestore success`() = runBlocking {
+        val userId = "user123"
+        val artifactId = "art123"
+        val shelf = "Favorites"
+
+        val docRef = mockk<DocumentReference>(relaxed = true)
+        every { firestore.collection("users").document(userId).collection("savedArtifacts").document(artifactId) } returns docRef
+        
+        val task = mockk<com.google.android.gms.tasks.Task<Void>>(relaxed = true)
+        every { docRef.set(any()) } returns task
+        
+        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        // In some environments Task<Void>.await() returns null. 
+        // We use every { ... } returns mockk() to avoid type issues if needed, 
+        // but Task<Void> is often tricky in Kotlin tests.
+        coEvery { task.await() } returns mockk(relaxed = true)
+
+        val result = repository.saveArtifactToFirestore(userId, artifactId, shelf)
+
+        assert(result.isSuccess)
+    }
+
+    @Test
+    fun `saveArtifactToFirestore should fail on Firestore failure`() = runBlocking {
+        val userId = "user123"
+        val artifactId = "art123"
+        
+        val docRef = mockk<DocumentReference>(relaxed = true)
+        every { firestore.collection("users").document(userId).collection("savedArtifacts").document(artifactId) } returns docRef
+        
+        val task = mockk<com.google.android.gms.tasks.Task<Void>>(relaxed = true)
+        every { docRef.set(any()) } returns task
+        
+        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        coEvery { task.await() } throws Exception("Firestore Error")
+
+        val result = repository.saveArtifactToFirestore(userId, artifactId)
+
+        assert(result.isFailure)
+        assertEquals("Firestore Error", result.exceptionOrNull()?.message)
+    }
+
+    @Test
+    fun `isTransientError should return true for network errors`() {
+        assert(ArtifactRepository.isTransientError(AppError.NetworkFailure()))
+        
+        val otherError = Exception("Permanent error")
+        assert(!ArtifactRepository.isTransientError(otherError))
     }
 }

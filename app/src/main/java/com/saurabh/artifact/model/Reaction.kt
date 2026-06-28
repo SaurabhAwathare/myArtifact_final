@@ -49,7 +49,7 @@ data class ArtifactReaction(
     @get:PropertyName("type")
     @set:PropertyName("type")
     var typeId: String = "i_hear_you",
-    var createdAt: Timestamp = Timestamp.now(),
+    var createdAt: Timestamp? = null,
     var isPrivatePulse: Boolean = true // Flag to distinguish from legacy/public reactions
 ) {
     @get:Exclude @set:Exclude
@@ -69,7 +69,7 @@ data class ArtifactReactionCounts(
     var breakdown: Map<String, Int> = mutableMapOf(),
     var visibility: ReactionVisibilityMode = ReactionVisibilityMode.APPROXIMATE,
     var aiSummary: String? = null,
-    var lastUpdated: Timestamp = Timestamp.now(),
+    var lastUpdated: Timestamp? = null,
     var echoVersion: Int = 1 // Track version of the aggregation logic
 ) {
     fun getFuzzySummary(isOwner: Boolean = false): String {

@@ -45,12 +45,12 @@ class InteractionSyncWorker @AssistedInject constructor(
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
-        val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return@withContext Result.failure()
+        val currentUserId = FirebaseAuth.getInstance().currentUser?.uid ?: return@withContext Result.failure()
         
         // 1. Collapse duplicate/redundant events before processing
-        collapseEvents(userId)
+        collapseEvents(currentUserId)
 
-        val pending = pendingInteractionDao.getPendingForUser(userId)
+        val pending = pendingInteractionDao.getPendingForUser(currentUserId)
         if (pending.isEmpty()) return@withContext Result.success()
 
         val workerId = id.toString()
@@ -64,7 +64,7 @@ class InteractionSyncWorker @AssistedInject constructor(
             
             ArtifactLogger.logInteraction(processingInteraction, "PROCESSING")
 
-            val result = processInteraction(processingInteraction, userId)
+            val result = processInteraction(processingInteraction, currentUserId)
             if (result.isSuccess) {
                 ArtifactLogger.logInteraction(processingInteraction, "SUCCESS")
                 pendingInteractionDao.delete(interaction)

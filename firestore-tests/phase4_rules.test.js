@@ -10,7 +10,7 @@ let testEnv;
 describe("Phase 4: Firestore Rule Improvements", () => {
   before(async () => {
     testEnv = await initializeTestEnvironment({
-      projectId: "demo-artifact",
+      projectId: "myartifact-555e3",
       firestore: {
         rules: fs.readFileSync("../firestore.rules", "utf8"),
       },
@@ -37,11 +37,11 @@ describe("Phase 4: Firestore Rule Improvements", () => {
     });
   }
 
-  it("should allow a user to increment commentCount on an artifact", async () => {
+  it("should NOT allow a user to increment commentCount on an artifact (Zero-Trust)", async () => {
     await setupArtifact("art1", { userId: "bob", commentCount: 0 });
 
     const alice = testEnv.authenticatedContext("alice");
-    await assertSucceeds(
+    await assertFails(
       alice.firestore().collection("artifacts").doc("art1").update({
         commentCount: 1,
       })

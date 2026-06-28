@@ -72,11 +72,14 @@ class ProfileRepairService @Inject constructor() {
     private fun sanitizeFromMap(uid: String, map: Map<String, Any>, reasons: MutableList<String>): User {
         Log.i("ProfileRepair", "STARTING_MANUAL_SANITIZATION | UID: $uid")
         
+        val anonymousId = safeString(map["anonymousId"], "usr_${uid.takeLast(5)}", "anonymousId", reasons)
+        val anonymousName = safeString(map["anonymousName"], "Quiet Soul", "anonymousName", reasons)
+        
         return User(
             id = uid,
-            anonymousId = safeString(map["anonymousId"], "usr_${uid.takeLast(5)}", "anonymousId", reasons),
-            anonymousName = safeString(map["anonymousName"], "Quiet Soul", "anonymousName", reasons),
-            anonymousSigil = safeString(map["anonymousSigil"], "", "anonymousSigil", reasons),
+            anonymousId = anonymousId,
+            anonymousName = anonymousName,
+            anonymousSigil = safeString(map["anonymousSigil"], com.saurabh.artifact.util.UsernameGenerator.deriveSigil(anonymousId), "anonymousSigil", reasons),
             avatarSeed = safeString(map["avatarSeed"], uid, "avatarSeed", reasons),
             avatarColor = safeString(map["avatarColor"], "#FFD700", "avatarColor", reasons),
             avatarConfig = sanitizeAvatarConfig(map["avatarConfig"] as? Map<*, *>, reasons),
@@ -140,8 +143,10 @@ class ProfileRepairService @Inject constructor() {
     // --- HELPER UTILITIES ---
 
     private fun safeString(value: Any?, default: String, fieldName: String, reasons: MutableList<String>): String {
-        return if (value is String) value else {
-            if (value != null) reasons.add("TYPE_MISMATCH_$fieldName")
+        val strValue = value as? String
+        return if (strValue != null && strValue.isNotBlank()) strValue else {
+            if (value != null && (value as? String)?.isBlank() != true) reasons.add("TYPE_MISMATCH_$fieldName")
+            if (strValue != null && strValue.isBlank()) reasons.add("EMPTY_$fieldName")
             default
         }
     }

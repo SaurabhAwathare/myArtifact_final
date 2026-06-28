@@ -1,6 +1,7 @@
 package com.saurabh.artifact.repository
 
 import com.google.firebase.firestore.FirebaseFirestore
+import com.saurabh.artifact.util.ArtifactLogger
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -30,9 +31,11 @@ class CommentUnlockRepository @Inject constructor(
             .whereEqualTo("isCommentUnlocked", true)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
+                    ArtifactLogger.e("CommentUnlockRepository", "Error observing unlocked artifacts", error)
                     return@addSnapshotListener
                 }
                 val ids = snapshot?.documents?.mapNotNull { it.getString("artifactId") }?.toSet() ?: emptySet()
+                ArtifactLogger.d("CommentUnlockRepository", "Unlocked artifacts updated: ${ids.size} items")
                 trySend(ids)
             }
 

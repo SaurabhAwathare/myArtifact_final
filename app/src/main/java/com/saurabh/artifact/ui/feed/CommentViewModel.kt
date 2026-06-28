@@ -133,6 +133,10 @@ class CommentViewModel @Inject constructor(
                     val currentUserId = auth.currentUserId
                 }
             }.collect { update ->
+                if (update.status == EngagementStatus.VERIFYING && _uiState.value.engagementStatus == EngagementStatus.LOCKED) {
+                    com.saurabh.artifact.util.ArtifactLogger.i("CommentViewModel", "Listening threshold reached for ${artifactId}, starting verification.")
+                }
+
                 _uiState.update { 
                     it.copy(
                         engagementStatus = update.status,

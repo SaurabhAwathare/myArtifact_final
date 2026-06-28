@@ -10,7 +10,7 @@ let testEnv;
 describe("Engagement Rules", () => {
   before(async () => {
     testEnv = await initializeTestEnvironment({
-      projectId: "demo-artifact",
+      projectId: "myartifact-555e3",
       firestore: {
         rules: fs.readFileSync("../firestore.rules", "utf8"),
       },
@@ -24,6 +24,12 @@ describe("Engagement Rules", () => {
   beforeEach(async () => {
     await testEnv.clearFirestore();
   });
+
+  async function setupArtifact(artifactId, data) {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await context.firestore().collection("artifacts").doc(artifactId).set(data);
+    });
+  }
 
   it("should allow owner to update progress but NOT unlock status", async () => {
     const alice = testEnv.authenticatedContext("alice");
@@ -62,11 +68,8 @@ describe("Engagement Rules", () => {
   it("should unlock comments using authoritative duration from artifact", async function() {
     this.timeout(30000);
 
-    const admin = testEnv.unauthenticatedContext().firestore();
-    const artifactRef = admin.collection("artifacts").doc("art1");
-
     // Set authoritative duration to 10s
-    await artifactRef.set({
+    await setupArtifact("art1", {
       userId: "bob",
       durationMs: 10000,
       isPublic: true,
@@ -112,13 +115,10 @@ describe("Engagement Rules", () => {
   it("should NOT unlock if client lies about duration", async function() {
     this.timeout(30000);
 
-    const admin = testEnv.unauthenticatedContext().firestore();
-    const artifactRef = admin.collection("artifacts").doc("art_long");
-
-    // Set authoritative duration to 100s
-    await artifactRef.set({
+    // Set authoritative duration to 120s
+    await setupArtifact("art_long", {
       userId: "bob",
-      durationMs: 100000,
+      durationMs: 120000,
       isPublic: true,
       status: "ACTIVE",
       createdAt: new Date()
@@ -154,9 +154,7 @@ describe("Engagement Rules", () => {
   it("should aggregate coverage across devices (multi-device)", async function() {
     this.timeout(30000);
 
-    const admin = testEnv.unauthenticatedContext().firestore();
-    const artifactRef = admin.collection("artifacts").doc("art_multi");
-    await artifactRef.set({ userId: "bob", durationMs: 10000, isPublic: true, status: "ACTIVE", createdAt: new Date() });
+    await setupArtifact("art_multi", { userId: "bob", durationMs: 10000, isPublic: true, status: "ACTIVE", createdAt: new Date() });
 
     const alice = testEnv.authenticatedContext("alice");
     const engagementRef = alice.firestore().collection("users").doc("alice").collection("engagement").doc("art_multi");

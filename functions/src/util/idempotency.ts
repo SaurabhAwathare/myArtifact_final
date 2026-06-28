@@ -1,4 +1,5 @@
 import * as admin from "firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 import { logger } from "./logger";
 
 /**
@@ -27,10 +28,9 @@ export async function withIdempotency(
         }
       }
 
-      // Mark as processing
       transaction.set(keyRef, {
         status: 'PROCESSING',
-        startedAt: admin.firestore.FieldValue.serverTimestamp()
+        startedAt: FieldValue.serverTimestamp()
       });
 
       // Execute task
@@ -40,7 +40,7 @@ export async function withIdempotency(
         transaction.update(keyRef, {
           status: 'SUCCESS',
           result: result || null,
-          completedAt: admin.firestore.FieldValue.serverTimestamp()
+          completedAt: FieldValue.serverTimestamp()
         });
 
         return result;

@@ -168,4 +168,20 @@ class InteractionSyncWorkerRecoveryTest {
         coVerify(exactly = 1) { pendingInteractionDao.insert(match { it.retryCount == 1 }) }
         coVerify(exactly = 0) { deadLetterInteractionDao.insert(any()) }
     }
+
+    @Test
+    fun `worker should break on transient failure to preserve ordering`() = runTest {
+        val userId = "user123"
+        val interaction1 = PendingInteractionEntity(id = 1, userId = userId, artifactId = "art1", interactionType = InteractionType.REACTION, action = InteractionAction.ADD)
+        val interaction2 = PendingInteractionEntity(id = 2, userId = userId, artifactId = "art2", interactionType = InteractionType.REACTION, action = InteractionAction.ADD)
+
+        coEvery { pendingInteractionDao.getPendingForUser(userId) } returns listOf(interaction1, interaction2)
+        coEvery { reactionRepository.syncReactionToFirestore("art1", any(), any()) } returns KResult.failure(AppError.NetworkFailure())
+
+        val result = worker.doWork()
+
+        assert(result is ListenableWorker.Result.Retry)
+        coVerify(exactly = 1) { reactionRepository.syncReactionToFirestore("art1", any(), any()) }
+        coVerify(exactly = 0) { reactionRepository.syncReactionToFirestore("art2", any(), any()) }
+    }
 }

@@ -60,6 +60,7 @@ import androidx.paging.compose.itemKey
 import com.saurabh.artifact.model.ArtifactComment
 import com.saurabh.artifact.model.AvatarConfig
 import com.saurabh.artifact.model.ReactionType
+import com.saurabh.artifact.model.isCommentAvailable
 import com.saurabh.artifact.ui.components.ArtifactAvatar
 import com.saurabh.artifact.ui.components.EmptyHearthState
 import com.saurabh.artifact.ui.components.TextCommentItem
@@ -116,13 +117,22 @@ fun CommentsScreen(
             }
         },
         floatingActionButton = {
-            if (uiState.engagementStatus == com.saurabh.artifact.model.EngagementStatus.UNLOCKED) {
+            if (uiState.engagementStatus.isCommentAvailable()) {
+                val isVerifying = uiState.engagementStatus == com.saurabh.artifact.model.EngagementStatus.VERIFYING
                 FloatingActionButton(
-                    onClick = { showComposer = true },
-                    containerColor = GoldAura500,
+                    onClick = { if (!isVerifying) showComposer = true },
+                    containerColor = if (isVerifying) GoldAura500.copy(alpha = 0.5f) else GoldAura500,
                     contentColor = Obsidian950
                 ) {
-                    Icon(Icons.Rounded.Add, contentDescription = "Add Reflection")
+                    if (isVerifying) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp),
+                            color = Obsidian950,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Icon(Icons.Rounded.Add, contentDescription = "Add Reflection")
+                    }
                 }
             }
         }
@@ -139,7 +149,7 @@ fun CommentsScreen(
                     fadeIn(animationSpec = tween(1000)) togetherWith fadeOut(animationSpec = tween(500))
                 }
             ) { status ->
-                if (status != com.saurabh.artifact.model.EngagementStatus.UNLOCKED) {
+                if (!status.isCommentAvailable()) {
                     LockedCommentView(
                         progress = uiState.listeningProgress,
                         requiredCoverage = uiState.requiredCoverage,
@@ -187,14 +197,24 @@ fun CommentsScreen(
                                     }
                                 }
                                 comments.loadState.refresh is LoadState.Error -> {
+                                    val error = (comments.loadState.refresh as LoadState.Error).error
+                                    val errorMessage = when {
+                                        error is com.google.firebase.firestore.FirebaseFirestoreException && 
+                                        error.code == com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED -> 
+                                            "We couldn't verify your comment access yet."
+                                        error is java.io.IOException -> "Connection lost. Trying again..."
+                                        else -> "Failed to load reflections. Please try again."
+                                    }
                                     item {
                                         Box(
                                             modifier = Modifier.fillParentMaxSize(),
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Text(
-                                                "Failed to load reflections. Please try again.",
-                                                color = MaterialTheme.colorScheme.error
+                                                errorMessage,
+                                                color = MaterialTheme.colorScheme.error,
+                                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                                modifier = Modifier.padding(32.dp)
                                             )
                                         }
                                     }

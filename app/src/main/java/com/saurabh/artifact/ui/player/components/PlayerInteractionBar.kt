@@ -13,6 +13,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
@@ -76,10 +77,11 @@ fun PlayerInteractionBar(
 
             InteractionItem(
                 icon = Icons.Rounded.ChatBubbleOutline,
-                label = if (engagementStatus == EngagementStatus.PENDING_VALIDATION) "Validating" else "Thoughts",
+                label = "Thoughts",
                 count = commentCount,
                 isActive = engagementStatus == EngagementStatus.UNLOCKED,
-                enabled = engagementStatus == EngagementStatus.UNLOCKED || engagementStatus == EngagementStatus.PENDING_VALIDATION,
+                enabled = engagementStatus == EngagementStatus.UNLOCKED || engagementStatus == EngagementStatus.VERIFYING,
+                loading = engagementStatus == EngagementStatus.VERIFYING,
                 onClick = onCommentClick
             )
 
@@ -157,11 +159,12 @@ private fun InteractionItem(
     onClick: () -> Unit,
     syncStatus: InteractionSyncStatus = InteractionSyncStatus.SYNCED,
     enabled: Boolean = true,
+    loading: Boolean = false,
     activeColor: Color = Color.White
 ) {
     val haptic = LocalHapticFeedback.current
     
-    val contentColor = if (!enabled) {
+    val contentColor = if (!enabled && !loading) {
         Color.White.copy(alpha = 0.12f)
     } else if (isActive) {
         if (syncStatus == InteractionSyncStatus.PENDING) activeColor.copy(alpha = 0.5f) else activeColor
@@ -180,20 +183,31 @@ private fun InteractionItem(
         verticalArrangement = Arrangement.Center,
         modifier = Modifier
             .clip(RoundedCornerShape(16.dp))
-            .clickable(enabled = enabled) {
+            .clickable(enabled = enabled && !loading) {
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 onClick()
             }
             .padding(horizontal = 12.dp, vertical = 8.dp)
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = label,
-            tint = contentColor,
-            modifier = Modifier
-                .size(26.dp)
-                .scale(scale)
-        )
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = contentColor,
+                modifier = Modifier
+                    .size(26.dp)
+                    .scale(scale)
+                    .alpha(if (loading) 0.3f else 1.0f)
+            )
+            
+            if (loading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    color = contentColor,
+                    strokeWidth = 2.dp
+                )
+            }
+        }
         
         Spacer(modifier = Modifier.height(6.dp))
         

@@ -3,8 +3,10 @@ package com.saurabh.artifact.service
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.UserSettings
 import com.saurabh.artifact.repository.SettingsRepository
+import android.util.Log
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkStatic
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -21,6 +23,12 @@ class FeedRankerTest {
 
     @Before
     fun setup() {
+        mockkStatic(Log::class)
+        every { Log.d(any<String>(), any<String>()) } returns 0
+        every { Log.i(any<String>(), any<String>()) } returns 0
+        every { Log.w(any<String>(), any<String>()) } returns 0
+        every { Log.e(any<String>(), any<String>()) } returns 0
+
         every { settingsRepository.userSettings } returns userSettingsFlow
         every { personalizationEngine.userProfile } returns MutableStateFlow(UserPreferenceProfile())
         every { personalizationEngine.scoreContent(any(), any()) } returns 0.5

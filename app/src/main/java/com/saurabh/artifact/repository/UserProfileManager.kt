@@ -9,6 +9,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
@@ -27,9 +28,16 @@ class UserProfileManager @Inject constructor(
     private val sessionManager: UserSessionManager,
     private val authRepository: AuthRepository,
     private val userRepository: UserRepository,
-    private val artifactRepository: ArtifactRepository
+    private val artifactRepository: ArtifactRepository,
+    @com.saurabh.artifact.di.ApplicationScope internal val managerScope: CoroutineScope
 ) {
-    private val managerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /**
+     * Cancel all background tasks. Should only be called during testing or app shutdown.
+     */
+    internal fun cancelScope() {
+        managerScope.cancel()
+    }
 
     init {
         // Initialize anonymous ID if missing
@@ -74,7 +82,9 @@ class UserProfileManager @Inject constructor(
         // 2. Optimistic Local Sync
         if (userId.isNotEmpty()) {
             managerScope.launch {
+                Log.d("UserProfileManager", "Launching local sync for $userId")
                 val currentProfile = sessionManager.userProfile.first()
+                Log.d("UserProfileManager", "Got profile for sync: ${currentProfile.username}")
                 artifactRepository.updateLocalAuthorSnapshot(
                     userId = userId,
                     snapshot = AuthorSnapshot(
@@ -109,11 +119,14 @@ class UserProfileManager @Inject constructor(
         sessionManager.updateUsername(username)
         
         val userId = authRepository.currentUserId
+        Log.d("UserProfileManager", "updateUsername: userId='$userId'")
 
         // 2. Optimistic Local Sync
         if (userId.isNotEmpty()) {
             managerScope.launch {
+                Log.d("UserProfileManager", "Launching local sync for $userId")
                 val currentProfile = sessionManager.userProfile.first()
+                Log.d("UserProfileManager", "Got profile for sync: ${currentProfile.username}")
                 artifactRepository.updateLocalAuthorSnapshot(
                     userId = userId,
                     snapshot = AuthorSnapshot(

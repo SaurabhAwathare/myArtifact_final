@@ -24,71 +24,69 @@ service cloud.firestore {
       return data.get('identityMetadata', {});
     }
 
+    function getIdentityVersion(meta) {
+      return meta.get('identityResetVersion', 0);
+    }
+
+    function getCompletedVersion(meta) {
+      return meta.get('lastCompletedIdentityVersion', 0);
+    }
+
+    function getResetCount(meta) {
+      return meta.get('emergencyResetCount', 0);
+    }
+
     // Invariant: Identity versions must be monotonic and consistent.
     function isValidIdentityUpdate(oldData, newData) {
       let oldMeta = getIdentityMetadata(oldData);
       let newMeta = getIdentityMetadata(newData);
-      return newMeta.get('identityResetVersion', 0) >= oldMeta.get('identityResetVersion', 0) &&
-             newMeta.get('lastCompletedIdentityVersion', 0) >= oldMeta.get('lastCompletedIdentityVersion', 0) &&
-             newMeta.get('lastCompletedIdentityVersion', 0) <= newMeta.get('identityResetVersion', 0) &&
-             newMeta.get('emergencyResetCount', 0) >= oldMeta.get('emergencyResetCount', 0);
+
+      let oldV = getIdentityVersion(oldMeta);
+      let newV = getIdentityVersion(newMeta);
+      let oldC = getCompletedVersion(oldMeta);
+      let newC = getCompletedVersion(newMeta);
+      let oldR = getResetCount(oldMeta);
+      let newR = getResetCount(newMeta);
+
+      return newV >= oldV &&
+             newC >= oldC &&
+             newC <= newV &&
+             newR >= oldR;
     }
 
     // --- USERS & PROFILES ---
     match /users/{uid} {
-      // Business Purpose: Allow public profile access but hide sensitive PII.
-      // Security Purpose: Prevents exposure of email and real name.
       allow read: if isOwner(uid) ||
                    (isAuth() && !resource.data.keys().hasAny(['email', 'displayName', 'realName', 'fcmToken']));
 
-      // Business Purpose: Securely update user profiles including identity reset state.
-      // Security Purpose: Prevents self-promotion and ensures identity metadata integrity.
-      // Protected by: admin_rules.test.js, identity_reset_rules.test.js
       allow update: if isOwner(uid) &&
                    !(request.resource.data.diff(resource.data).affectedKeys()
                      .hasAny(['isAdmin', 'admin', 'accountStatus', 'email', 'realName'])) &&
                    isValidIdentityUpdate(resource.data, request.resource.data);
 
-      // Business Purpose: Create initial user profile.
-      // Security Purpose: Prevents setting privileged fields during account creation.
-      // Protected by: admin_rules.test.js
       allow create: if isOwner(uid) &&
                     !("isAdmin" in request.resource.data) &&
                     !("admin" in request.resource.data) &&
                     !("accountStatus" in request.resource.data);
 
-      match /private/settings {
-        // Protected by: admin_rules.test.js
-        allow read: if isOwner(uid) || isGlobalAdmin();
-
-        allow create: if isOwner(uid) &&
-                      request.resource.data.get('isAdmin', false) == false &&
-                      request.resource.data.get('admin', false) == false &&
-                      request.resource.data.get('accountStatus', 'ACTIVE') == 'ACTIVE';
-
-        allow update: if isOwner(uid) &&
-                     !(request.resource.data.diff(resource.data).affectedKeys()
-                       .hasAny(['isAdmin', 'admin', 'accountStatus']));
-
-        allow write: if isGlobalAdmin();
+      // Consolidated Private Data (Zero-Trust Enforcement)
+      match /private/{allPaths=**} {
+        allow read: if isOwner(uid);
+        allow write: if isOwner(uid) && (
+          (request.path.size() < 7 || request.path[6] != 'settings') || (
+            !("isAdmin" in request.resource.data) &&
+            !("accountStatus" in request.resource.data) &&
+            !("admin" in request.resource.data)
+          )
+        );
       }
 
       // Resonance & Engagement
-      // Zero-Trust: Clients can only READ relationships, never WRITE.
-      // Backend (Cloud Functions) handles all writes to resonance_in/out.
       match /resonance_in/{targetId} { allow read: if isAuth(); allow write: if false; }
       match /resonance_out/{targetId} { allow read: if isAuth(); allow write: if false; }
       match /followers/{targetId} { allow read: if isAuth(); allow write: if false; }
       match /following/{targetId} { allow read: if isAuth(); allow write: if false; }
 
-      // NEW: Interaction Intents (Zero-Trust)
-      match /private/intents/follow/{targetId} {
-        allow read, write: if isOwner(uid);
-      }
-
-      // Business Purpose: Track playback progress and unlock status.
-      // Security Purpose: Prevents client from self-unlocking comments.
-      // Protected by: engagement_rules.test.js
       match /engagement/{id} {
         allow read: if isOwner(uid);
         allow create: if isOwner(uid) &&
@@ -99,20 +97,7 @@ service cloud.firestore {
                        .hasAny(['isCommentUnlocked', 'engagementState']));
       }
 
-      match /private/interactions/reactions/{artifactId} {
-        allow read, write: if isOwner(uid);
-      }
-
-      // Intent for Reactions (to trigger notifications/aggregates)
-      match /private/intents/reactions/{artifactId} {
-        allow read, write: if isOwner(uid);
-      }
-
       match /savedArtifacts/{artifactId} {
-        allow read, write: if isOwner(uid);
-      }
-
-      match /private/published_artifacts/artifacts/{artifactId} {
         allow read, write: if isOwner(uid);
       }
     }
@@ -124,15 +109,15 @@ service cloud.firestore {
                    isOwner(resource.data.userId) ||
                    isGlobalAdmin();
 
-      // Fix Identity Spoofing: Ensure userId matches current user and anonymousId is verified
       allow create: if isAuth() &&
                     request.resource.data.userId == request.auth.uid &&
                     request.resource.data.author.anonymousId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.anonymousId &&
                     request.resource.data.author.keys().hasAll(['anonymousId', 'name']);
 
-      // Secured updates: Allow owner full control.
-      // Zero-Trust: Clients cannot increment commentCount. Aggregates are server-owned.
-      allow update: if isGlobalAdmin() || isOwner(resource.data.userId);
+      allow update: if isGlobalAdmin() ||
+                    (isOwner(resource.data.userId) &&
+                     !(request.resource.data.diff(resource.data).affectedKeys()
+                       .hasAny(['commentCount', 'reactionCount'])));
 
       allow delete: if isGlobalAdmin() || isOwner(resource.data.userId);
 
@@ -150,7 +135,6 @@ service cloud.firestore {
         (resource.data.visibilityLayer == 'RESONANCE' && resource.data.moderationState == 'APPROVED' && (resource.data.revealAt == null || resource.data.revealAt <= request.time))
       );
 
-      // MIGRATION: Comments now validated against the private engagement subcollection and trusted artifact ownership
       allow create: if isAuth() &&
                     request.resource.data.authorId == request.auth.uid &&
                     request.resource.data.artifactOwnerId == get(/databases/$(database)/documents/artifacts/$(request.resource.data.artifactId)).data.userId &&
@@ -190,23 +174,15 @@ service cloud.firestore {
         resource.data.userId == request.auth.uid ||
         resource.data.artifactOwnerId == request.auth.uid
       );
-      // Zero-Trust: Clients can only READ global reactions. Writes handled by Backend.
       allow write: if false;
     }
 
     // --- NOTIFICATIONS & REPORTS ---
     match /notifications/{id} {
-      // Only readable by the target user
       allow read: if isAuth() && request.auth.uid == resource.data.userId;
-      // Users can only delete their own notifications
       allow delete: if isAuth() && request.auth.uid == resource.data.userId;
-
-      // Allow recipient to update only isRead
       allow update: if isAuth() && request.auth.uid == resource.data.userId &&
                     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead']);
-
-      // Zero-Trust: Clients can NO LONGER create notifications directly.
-      // Must be authored by Backend (Cloud Functions).
       allow create: if false;
     }
 
@@ -215,9 +191,6 @@ service cloud.firestore {
       allow read, write: if isGlobalAdmin();
     }
 
-
-    // DEPRECATED: Points to legacy listening_sessions.
-    // To be removed once Engagement subcollection migration is verified.
     match /listening_sessions/{sessionId} {
       allow read, write: if isAuth() && (resource == null || resource.data.userId == request.auth.uid);
       allow create: if isAuth() && request.resource.data.userId == request.auth.uid;

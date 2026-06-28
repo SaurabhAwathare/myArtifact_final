@@ -20,7 +20,8 @@ class PacingEngineTest {
             createFeedArtifact("4", "CALM"),
             createFeedArtifact("5", "ANGRY"),
             createFeedArtifact("6", "ANXIOUS"),
-            createFeedArtifact("7", "SAD")
+            createFeedArtifact("7", "CALM"), // Added CALM to allow pacing 7 and 8
+            createFeedArtifact("8", "SAD")
         )
 
         val paced = pacingEngine.paceFeed(items)

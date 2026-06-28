@@ -81,7 +81,8 @@ class SettingsRepository @Inject constructor(
                         retryCount++
                     }
 
-                    remoteListener = firestore.collection("settings").document(user.uid)
+                    remoteListener = firestore.collection("users").document(user.uid)
+                        .collection("private").document("settings")
                         .addSnapshotListener { snapshot, error ->
                             if (error != null) {
                                 if (error.code == com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED) {
@@ -132,8 +133,9 @@ class SettingsRepository @Inject constructor(
     private suspend fun syncToRemote(settings: UserSettings) {
         val userId = authRepository.currentUser.value?.uid ?: return
         try {
-            firestore.collection("settings").document(userId)
-                .set(settings.copy(lastSyncTimestamp = System.currentTimeMillis()))
+            firestore.collection("users").document(userId)
+                .collection("private").document("settings")
+                .set(settings.copy(lastSyncTimestamp = System.currentTimeMillis()), com.google.firebase.firestore.SetOptions.merge())
                 .await()
         } catch (_: Exception) {
             // Handle failure (e.g., log or retry later)
