@@ -42,4 +42,9 @@
     <string name="notification_username_updated">You updated your username to %s ✨</string>
     <string name="notification_reflection_arrival">A quiet reflection has arrived in your hearth for \"%s\" 🕯️</string>
     <string name="notification_reflection_arrival_generic">Someone has shared a quiet reflection in your hearth 🕯️</string>
+
+    <!-- Comments & Unlock -->
+    <string name="comments_label">Comments</string>
+    <string name="comments_unlock_requirements">Comments Unlock Requirements</string>
+    <string name="reflect_and_respond">Reflect and respond</string>
 </resources>

@@ -42,7 +42,7 @@ import kotlinx.serialization.Serializable
         ),
         @Suppress("unused")
         LATE_NIGHT(
-            "Late Night Thoughts",
+            "Late Night Comments",
             "Calm, quiet monologue, often recorded in solitude.",
             "🌙",
             EnergyLevel.LOW

@@ -37,6 +37,7 @@ class CommentPagingSource(
 
             val baseQuery = firestore.collection("comments")
                 .whereEqualTo("artifactId", artifactId)
+                .whereEqualTo("artifactOwnerId", artifactOwnerId)
 
             // Phase 1 Fix: targeted queries to match security rules
             val secureFilter = if (isOwner) {
@@ -101,7 +102,8 @@ class CommentPagingSource(
                 nextKey = if (snapshot.size() < params.loadSize) null else snapshot.documents.lastOrNull()
             )
         } catch (e: Exception) {
-            ArtifactLogger.e("CommentPagingSource", "Error loading comments", e)
+            val errorCode = (e as? com.google.firebase.firestore.FirebaseFirestoreException)?.code?.name ?: "UNKNOWN"
+            ArtifactLogger.e("CommentPagingSource", "Error loading comments (Code: $errorCode) for artifact=$artifactId, user=$currentUserId. Message: ${e.message}", e)
             LoadResult.Error(e)
         }
     }

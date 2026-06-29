@@ -120,7 +120,7 @@ fun CommentsScreen(
             if (uiState.engagementStatus.isCommentAvailable()) {
                 val isVerifying = uiState.engagementStatus == com.saurabh.artifact.model.EngagementStatus.VERIFYING
                 FloatingActionButton(
-                    onClick = { if (!isVerifying) showComposer = true },
+                    onClick = { showComposer = true },
                     containerColor = if (isVerifying) GoldAura500.copy(alpha = 0.5f) else GoldAura500,
                     contentColor = Obsidian950
                 ) {
@@ -202,6 +202,14 @@ fun CommentsScreen(
                                         error is com.google.firebase.firestore.FirebaseFirestoreException && 
                                         error.code == com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED -> 
                                             "We couldn't verify your comment access yet."
+                                        error is com.google.firebase.firestore.FirebaseFirestoreException && 
+                                        error.code == com.google.firebase.firestore.FirebaseFirestoreException.Code.FAILED_PRECONDITION -> {
+                                            if (com.saurabh.artifact.BuildConfig.DEBUG) {
+                                                "Development Error: Missing Firestore Index. Check logs for link."
+                                            } else {
+                                                "Reflections are temporarily unavailable. Please try again soon."
+                                            }
+                                        }
                                         error is java.io.IOException -> "Connection lost. Trying again..."
                                         else -> "Failed to load reflections. Please try again."
                                     }

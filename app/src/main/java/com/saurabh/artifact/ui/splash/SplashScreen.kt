@@ -80,7 +80,7 @@ fun SplashUI() {
             Spacer(modifier = Modifier.height(8.dp))
             
             Text(
-                text = "leave thoughts behind",
+                text = "leave comments behind",
                 style = MaterialTheme.typography.labelMedium,
                 color = Color.White.copy(alpha = 0.5f)
             )

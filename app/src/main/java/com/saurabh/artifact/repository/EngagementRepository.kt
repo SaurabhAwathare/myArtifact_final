@@ -85,7 +85,7 @@ class EngagementRepository @Inject constructor(
             durationMs = engagement.durationMs,
             hasReachedEnd = engagement.hasReachedEnd,
             coverage = Base64.encodeToString(engagement.coverage, Base64.NO_WRAP),
-            lastUpdated = engagement.lastUpdated
+            lastUpdated = System.currentTimeMillis() // Ensure this triggers the Cloud Function
         )
 
         val pending = PendingInteractionEntity(

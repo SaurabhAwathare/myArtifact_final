@@ -63,10 +63,15 @@ fun ImmersivePlayerScreen(
 ) {
     var showTranscript by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showUnlockGuidance by remember { mutableStateOf(false) }
     
     // 0. System Back Handling
     BackHandler {
-        onCollapse()
+        if (showUnlockGuidance) {
+            showUnlockGuidance = false
+        } else {
+            onCollapse()
+        }
     }
     
     // Gesture State for swipe-down to collapse
@@ -384,7 +389,13 @@ fun ImmersivePlayerScreen(
                     onSaveClick = onSaveClick,
                     engagementStatus = uiState.engagementStatus,
                     commentCount = uiState.commentCount,
-                    onCommentClick = onCommentClick,
+                    onCommentClick = {
+                        if (uiState.engagementStatus == EngagementStatus.LOCKED) {
+                            showUnlockGuidance = true
+                        } else {
+                            onCommentClick()
+                        }
+                    },
                     showResonance = !uiState.isOwner,
                     showSave = !uiState.isOwner
                 )
@@ -400,9 +411,11 @@ fun ImmersivePlayerScreen(
             Spacer(modifier = Modifier.height(32.dp))
 
             // 7. Context Actions (Standardized for published artifacts)
-            if (!isVerifiedDraft) {
+            if (!isVerifiedDraft && (uiState.engagementStatus == EngagementStatus.LOCKED && showUnlockGuidance)) {
                 val isUnlocked = uiState.engagementStatus == EngagementStatus.UNLOCKED
                 val isVerifying = uiState.engagementStatus == EngagementStatus.VERIFYING
+                val stringRes = androidx.compose.ui.res.stringResource(id = com.saurabh.artifact.R.string.reflect_and_respond)
+                val unlockRes = androidx.compose.ui.res.stringResource(id = com.saurabh.artifact.R.string.comments_unlock_requirements)
 
                 Column(
                     modifier = Modifier
@@ -422,8 +435,8 @@ fun ImmersivePlayerScreen(
                         )
 
                         val message = when {
-                            isUnlocked || isVerifying -> "Reflect and respond"
-                            else -> "Thoughts Unlock Requirements"
+                            isUnlocked || isVerifying -> stringRes
+                            else -> unlockRes
                         }
                         
                         Text(

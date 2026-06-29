@@ -77,7 +77,7 @@ fun PlayerInteractionBar(
 
             InteractionItem(
                 icon = Icons.Rounded.ChatBubbleOutline,
-                label = "Thoughts",
+                label = "Comments",
                 count = commentCount,
                 isActive = engagementStatus == EngagementStatus.UNLOCKED,
                 enabled = engagementStatus == EngagementStatus.UNLOCKED || engagementStatus == EngagementStatus.VERIFYING,
@@ -183,7 +183,7 @@ private fun InteractionItem(
         verticalArrangement = Arrangement.Center,
         modifier = Modifier
             .clip(RoundedCornerShape(16.dp))
-            .clickable(enabled = enabled && !loading) {
+            .clickable(enabled = enabled) {
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 onClick()
             }

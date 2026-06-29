@@ -522,7 +522,7 @@ fun PreviewArtifactCardNarrow() {
             id = "1",
             userId = "user_1",
             author = AuthorSnapshot(
-                name = "TheExplorerOfDeepThoughtsForever",
+                name = "TheExplorerOfDeepCommentsForever",
                 sigil = "◈"
             ),
             title = "Testing long username on narrow screen.",
@@ -546,7 +546,7 @@ fun PreviewArtifactCardWorstCase() {
             id = "1",
             userId = "user_1",
             author = AuthorSnapshot(
-                name = "TheExplorerOfDeepThoughtsForever",
+                name = "TheExplorerOfDeepCommentsForever",
                 sigil = "◈"
             ),
             title = "Worst case scenario with all elements present and very long content.",

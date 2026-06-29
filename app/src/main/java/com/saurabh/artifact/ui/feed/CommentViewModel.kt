@@ -137,6 +137,13 @@ class CommentViewModel @Inject constructor(
                     com.saurabh.artifact.util.ArtifactLogger.i("CommentViewModel", "Listening threshold reached for ${artifactId}, starting verification.")
                 }
 
+                if (update.status == EngagementStatus.UNLOCKED && 
+                    (_uiState.value.engagementStatus == EngagementStatus.LOCKED || 
+                     _uiState.value.engagementStatus == EngagementStatus.VERIFYING)) {
+                    com.saurabh.artifact.util.ArtifactLogger.i("CommentViewModel", "Artifact unlocked for ${artifactId}, refreshing comments.")
+                    _refreshTrigger.tryEmit(Unit)
+                }
+
                 _uiState.update { 
                     it.copy(
                         engagementStatus = update.status,

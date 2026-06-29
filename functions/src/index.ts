@@ -132,19 +132,37 @@ export const onEngagementUpdated = functions.firestore
       const existingData = change.before.data() || {};
       const existingCoverage = existingData.coverage;
 
-      // Aggregation: Multi-device support via BitSet OR
-      let mergedCoverage: Buffer;
-      if (existingCoverage && clientCoverage) {
-        mergedCoverage = mergeBitSets(Buffer.from(existingCoverage), Buffer.from(clientCoverage));
-      } else {
-        mergedCoverage = Buffer.from(clientCoverage || []);
+      // 1. Correct Blob Extraction & Validation
+      if (!clientCoverage || typeof clientCoverage.toBuffer !== "function") {
+        console.warn(`Engagement update for user=${userId}, art=${artifactId} missing valid coverage blob. Skipping.`);
+        return null;
       }
 
-      // Calculate state based on merged coverage and authoritative duration
+      const clientBuffer = clientCoverage.toBuffer();
+      if (clientBuffer.length === 0) {
+        console.warn(`Engagement update for user=${userId}, art=${artifactId} has empty coverage. Skipping.`);
+        return null;
+      }
+
+      // Aggregation: Multi-device support via BitSet OR
+      let mergedCoverage: Buffer;
+      if (existingCoverage && typeof existingCoverage.toBuffer === "function") {
+        mergedCoverage = mergeBitSets(existingCoverage.toBuffer(), clientBuffer);
+      } else {
+        mergedCoverage = clientBuffer;
+      }
+
+      // 2. State Calculation
       const segmentSizeMs = getSegmentSizeMs(authoritativeDurationMs);
       const totalSegments = Math.max(1, Math.floor(authoritativeDurationMs / segmentSizeMs));
       const setBitsCount = countSetBitsInBuffer(mergedCoverage);
       const coveragePercent = setBitsCount / totalSegments;
+
+      // 3. Range Validation
+      if (coveragePercent < 0 || coveragePercent > 1.1) { // 1.1 buffer for edge cases/math jitter
+        console.error(`Invalid coverage calculated for user=${userId}, art=${artifactId}: ${coveragePercent.toFixed(4)}. Aborting update to prevent data corruption.`);
+        return null;
+      }
 
       // Verification: Check if threshold met
       const isUnlocked = coveragePercent >= 0.95 && data.hasReachedEnd;

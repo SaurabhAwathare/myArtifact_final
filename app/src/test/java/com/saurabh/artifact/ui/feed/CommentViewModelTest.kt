@@ -119,4 +119,27 @@ class CommentViewModelTest {
         
         assertEquals(EngagementStatus.VERIFYING, newViewModel.uiState.value.engagementStatus)
     }
+
+    @Test
+    fun `loadComments triggers refresh when transitioning to UNLOCKED`() = runTest {
+        val statusFlow = MutableStateFlow(EngagementStatus.LOCKED)
+        every { getEngagementStateUseCase.execute(artifactId) } returns statusFlow
+        
+        // Use a real Pager flow to track emissions if possible, or verify repository call
+        // But here we want to verify the internal _refreshTrigger.
+        // Since _refreshTrigger is private, we verify the side effect: repository.getCommentsPager being called again.
+        
+        viewModel.loadComments(artifactId, ownerId)
+        advanceUntilIdle()
+        
+        // Initial load (1 call)
+        verify(exactly = 1) { repository.getCommentsPager(artifactId, any(), ownerId) }
+        
+        // Transition to UNLOCKED
+        statusFlow.value = EngagementStatus.UNLOCKED
+        advanceUntilIdle()
+        
+        // Should trigger refresh (2nd call)
+        verify(exactly = 2) { repository.getCommentsPager(artifactId, any(), ownerId) }
+    }
 }

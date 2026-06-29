@@ -118,7 +118,7 @@ fun OnboardingPage1() {
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(
-            text = "Record feelings, memories, and late-night thoughts in a sanctuary designed for privacy.",
+            text = "Record feelings, memories, and late-night comments in a sanctuary designed for privacy.",
             style = MaterialTheme.typography.bodyLarge,
             color = Color.White.copy(alpha = 0.7f),
             textAlign = TextAlign.Center
