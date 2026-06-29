@@ -21,7 +21,6 @@ import android.content.Context
 import com.saurabh.artifact.worker.IdentitySyncWorker
 import com.saurabh.artifact.util.ArtifactLogger
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
@@ -159,7 +158,6 @@ class UserRepository @Inject constructor(
         val initialUser = auth.currentUser ?: return@withContext Result.failure(AppError.Unauthenticated())
         
         try {
-            Log.d("APP_FLOW", "REGISTRATION_BEGIN: users/${initialUser.uid}")
             try {
                 withTimeout(5.seconds) {
                     initialUser.reload().await()
@@ -190,7 +188,6 @@ class UserRepository @Inject constructor(
                         val privateMissing = !privateSnapshot.exists()
 
                         if (needsRepair || privateMissing) {
-                            Log.i("APP_FLOW", "HEALING_PROFILE | UID: ${currentUser.uid} | profileRepair=$needsRepair | privateRepair=$privateMissing")
                             if (needsRepair) transaction.set(userRef, user)
                             
                             if (privateMissing) {
@@ -206,7 +203,6 @@ class UserRepository @Inject constructor(
 
                         ProfileResult(user = user, isNewUser = false)
                     } else {
-                        Log.d("UserRepository", "New User initialization")
                         val anonymousId = "usr_${java.util.UUID.randomUUID().toString().take(5).uppercase()}"
                         val anonymousName = UsernameGenerator.generate()
                         val anonymousSigil = UsernameGenerator.deriveSigil(anonymousId)
@@ -245,8 +241,6 @@ class UserRepository @Inject constructor(
                     }
                 }.await()
             }
-            
-            Log.d("APP_FLOW", "REGISTRATION_SUCCESS: isNewUser=${profileResult.isNewUser}")
             
             // Cache the profile locally
             try {

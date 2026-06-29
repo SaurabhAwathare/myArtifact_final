@@ -14,7 +14,6 @@ import kotlin.Result as KResult
 import com.google.firebase.auth.FirebaseAuth
 import com.google.gson.Gson
 import com.saurabh.artifact.domain.review.EngagementSyncPayload
-import com.google.firebase.firestore.FirebaseFirestore
 import com.saurabh.artifact.data.local.*
 import com.saurabh.artifact.model.ReactionType
 import com.saurabh.artifact.model.CommentSyncPayload
@@ -151,9 +150,8 @@ class InteractionSyncWorker @AssistedInject constructor(
             val latest = events.last()
             val toDelete = events.dropLast(1)
             
-            val isRedundantCycle = events.size >= 2 && 
-                events.first().action != latest.action && 
-                events.all { it.interactionType == type }
+            val isRedundantCycle = (events.size >= 2) && 
+                (events.first().action != latest.action)
 
             if (isRedundantCycle && events.size == 2) {
                 // Perfect cycle [ADD, REMOVE] or [REMOVE, ADD]

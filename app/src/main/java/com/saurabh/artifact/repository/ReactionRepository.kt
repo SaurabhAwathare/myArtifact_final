@@ -93,12 +93,14 @@ class ReactionRepository @Inject constructor(
                 .collection("private").document("intents")
                 .collection("reactions").document(artifactId)
             
-            intentRef.set(mapOf(
-                "artifactId" to artifactId,
-                "type" to type.id,
-                "action" to "ADD",
-                "timestamp" to FieldValue.serverTimestamp()
-            )).await()
+            intentRef.set(
+                mapOf(
+                    "artifactId" to artifactId,
+                    "type" to type.id,
+                    "action" to "ADD",
+                    "timestamp" to FieldValue.serverTimestamp()
+                )
+            ).await()
             
             // Pulse: Private state (Still client-owned for optimistic UI/privacy)
             val pulseRef = firestore.collection("users").document(userId)
@@ -180,7 +182,7 @@ class ReactionRepository @Inject constructor(
                 trySend(emptyList())
                 return@addSnapshotListener
             }
-            val reactions = if (snapshot != null && snapshot.exists()) {
+            val reactions = if ((snapshot != null) && snapshot.exists()) {
                 listOf(snapshot.toObject(ArtifactReaction::class.java)!!.copy(id = snapshot.id))
             } else {
                 emptyList()

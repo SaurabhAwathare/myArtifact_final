@@ -24,15 +24,12 @@ class IdentitySyncWorker @AssistedInject constructor(
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val userId = inputData.getString(KEY_USER_ID) ?: return@withContext Result.failure()
         
-        Log.i("IdentitySyncWorker", "Starting global identity synchronization for user: $userId")
-
         try {
             // 1. Fetch the latest profile from Firestore (Source of Truth)
             val userProfileResult = userRepository.getOrCreateProfile()
             val user = userProfileResult.getOrNull()?.user ?: return@withContext Result.retry()
 
             val workerVersion = inputData.getLong(KEY_VERSION, 0L)
-            Log.i("IdentitySyncWorker", "Syncing identity version $workerVersion for user: $userId")
 
             val name = user.anonymousName
             val anonymousId = user.anonymousId
@@ -63,7 +60,6 @@ class IdentitySyncWorker @AssistedInject constructor(
                 .await()
 
             if (!artifactsQuery.isEmpty) {
-                Log.d("IdentitySyncWorker", "Syncing ${artifactsQuery.size()} artifacts...")
                 val batches = artifactsQuery.documents.chunked(BATCH_LIMIT)
                 for (chunk in batches) {
                     val batch = firestore.batch()
@@ -81,7 +77,6 @@ class IdentitySyncWorker @AssistedInject constructor(
                 .await()
 
             if (!commentsQuery.isEmpty) {
-                Log.d("IdentitySyncWorker", "Syncing ${commentsQuery.size()} comments...")
                 val batches = commentsQuery.documents.chunked(BATCH_LIMIT)
                 for (chunk in batches) {
                     val batch = firestore.batch()
@@ -91,8 +86,6 @@ class IdentitySyncWorker @AssistedInject constructor(
                     batch.commit().await()
                 }
             }
-
-            Log.i("IdentitySyncWorker", "Global identity synchronization completed for $userId (Version: $workerVersion)")
 
             // 4. Monotonic Update of lastCompletedIdentityVersion
             if (workerVersion > 0) {
