@@ -44,11 +44,11 @@ class UserRepository @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val auth: FirebaseAuth,
     private val firestore: FirebaseFirestore,
-    private val userDao: UserDao,
+    private val userDao: Lazy<UserDao>,
     private val identityProtectionPolicy: com.saurabh.artifact.domain.IdentityProtectionPolicy,
     private val profileRepairService: com.saurabh.artifact.domain.auth.ProfileRepairService,
     private val registrationCoordinator: Lazy<com.saurabh.artifact.domain.auth.RegistrationCoordinator>,
-    private val pendingInteractionDao: com.saurabh.artifact.data.local.PendingInteractionDao
+    private val pendingInteractionDao: Lazy<com.saurabh.artifact.data.local.PendingInteractionDao>
 ) {
     private val usersCollection = firestore.collection("users")
     private val usernamesCollection = firestore.collection("usernames")
@@ -128,7 +128,7 @@ class UserRepository @Inject constructor(
 
             // Update cache
             getCachedProfile()?.let { cached ->
-                userDao.insertProfile(mapUserToLocal(cached.copy(anonymousName = username, isAnonymous = false)))
+                userDao.get().insertProfile(mapUserToLocal(cached.copy(anonymousName = username, isAnonymous = false)))
             }
 
             Result.success(Unit)
@@ -244,7 +244,7 @@ class UserRepository @Inject constructor(
             
             // Cache the profile locally
             try {
-                userDao.insertProfile(mapUserToLocal(profileResult.user))
+                userDao.get().insertProfile(mapUserToLocal(profileResult.user))
             } catch (e: Exception) {
                 Log.e("UserRepository", "Failed to cache user profile locally", e)
             }
@@ -266,7 +266,7 @@ class UserRepository @Inject constructor(
     suspend fun getCachedProfile(): User? = withContext(Dispatchers.IO) {
         val currentUserId = auth.currentUser?.uid ?: return@withContext null
         return@withContext try {
-            userDao.getProfile(currentUserId)?.let { mapLocalToUser(it) }
+            userDao.get().getProfile(currentUserId)?.let { mapLocalToUser(it) }
         } catch (e: Exception) {
             Log.e("UserRepository", "Error fetching cached profile", e)
             null
@@ -379,8 +379,8 @@ class UserRepository @Inject constructor(
                 action = com.saurabh.artifact.data.local.InteractionAction.ADD,
                 metadata = currentUserId
             )
-            pendingInteractionDao.deleteByType(targetUserId, currentUserId, com.saurabh.artifact.data.local.InteractionType.FOLLOW)
-            pendingInteractionDao.insert(pending)
+            pendingInteractionDao.get().deleteByType(targetUserId, currentUserId, com.saurabh.artifact.data.local.InteractionType.FOLLOW)
+            pendingInteractionDao.get().insert(pending)
             com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
             
             ArtifactLogger.i("UserRepository", "Follow interaction queued locally for $targetUserId")
@@ -408,8 +408,8 @@ class UserRepository @Inject constructor(
                 action = com.saurabh.artifact.data.local.InteractionAction.REMOVE,
                 metadata = currentUserId
             )
-            pendingInteractionDao.deleteByType(targetUserId, currentUserId, com.saurabh.artifact.data.local.InteractionType.FOLLOW)
-            pendingInteractionDao.insert(pending)
+            pendingInteractionDao.get().deleteByType(targetUserId, currentUserId, com.saurabh.artifact.data.local.InteractionType.FOLLOW)
+            pendingInteractionDao.get().insert(pending)
             com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
             
             ArtifactLogger.i("UserRepository", "Unfollow interaction queued locally for $targetUserId")
@@ -620,7 +620,7 @@ class UserRepository @Inject constructor(
                         resetStartedAt = com.google.firebase.Timestamp.now()
                     )
                 )
-                userDao.insertProfile(mapUserToLocal(updatedUser))
+                userDao.get().insertProfile(mapUserToLocal(updatedUser))
             }
 
             // Zero-Trust: Notification handled by backend (optional/future)

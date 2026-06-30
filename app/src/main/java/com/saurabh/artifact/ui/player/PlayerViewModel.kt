@@ -12,7 +12,6 @@ import com.saurabh.artifact.domain.player.GetPlayerContextUseCase
 import com.saurabh.artifact.domain.player.PlayerInteractionUseCase
 import com.saurabh.artifact.domain.player.PlayerMetadata
 import com.saurabh.artifact.model.*
-import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.PlayableArtifactRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -40,13 +39,12 @@ class PlayerViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle,
     private val playbackCoordinator: PlaybackCoordinator,
     private val authRepository: AuthRepository,
-    private val reactionUseCase: ReactionUseCase,
-    private val playerInteractionUseCase: PlayerInteractionUseCase,
+    private val reactionUseCase: dagger.Lazy<ReactionUseCase>,
+    private val playerInteractionUseCase: dagger.Lazy<PlayerInteractionUseCase>,
     getPlayerContextUseCase: GetPlayerContextUseCase,
-    private val artifactRepository: ArtifactRepository,
-    private val playableArtifactRepository: PlayableArtifactRepository,
+    private val playableArtifactRepository: dagger.Lazy<PlayableArtifactRepository>,
     private val reviewSessionManager: ReviewSessionManager,
-    private val deleteArtifactUseCase: DeleteArtifactUseCase,
+    private val deleteArtifactUseCase: dagger.Lazy<DeleteArtifactUseCase>,
     private val publishingPolicy: com.saurabh.artifact.domain.review.publishing.PublishingReviewPolicy,
     private val commentPolicy: com.saurabh.artifact.domain.review.comments.CommentUnlockPolicy
 ) : ViewModel() {
@@ -308,7 +306,7 @@ class PlayerViewModel @Inject constructor(
 
         // REFACTOR: Optimistic state is now handled by ReactionRepository -> PendingInteractionDao -> UseCase
         viewModelScope.launch {
-            reactionUseCase.toggleReaction(artifact.id, userId, type).onFailure { error ->
+            reactionUseCase.get().toggleReaction(artifact.id, userId, type).onFailure { error ->
                 _interactionError.emit("Could not resonate: ${error.message}")
             }
         }
@@ -326,7 +324,7 @@ class PlayerViewModel @Inject constructor(
         
         // REFACTOR: Optimistic state handled by interaction DAO layer
         viewModelScope.launch {
-            playerInteractionUseCase.toggleResonanceConnection(currentUserId, artifact.userId, wasResonating)
+            playerInteractionUseCase.get().toggleResonanceConnection(currentUserId, artifact.userId, wasResonating)
                 .onFailure { error ->
                     _interactionError.emit("Resonance failed: ${error.message}")
                 }
@@ -337,7 +335,7 @@ class PlayerViewModel @Inject constructor(
         val artifact = uiState.value.currentArtifact ?: return
 
         viewModelScope.launch {
-            playerInteractionUseCase.toggleSave(artifact)
+            playerInteractionUseCase.get().toggleSave(artifact)
         }
     }
 
@@ -358,7 +356,7 @@ class PlayerViewModel @Inject constructor(
             setExpanded(true)
             _loadState.value = PlayerLoadState.LOADING
             
-            playableArtifactRepository.resolveArtifact(artifactId, source).fold(
+            playableArtifactRepository.get().resolveArtifact(artifactId, source).fold(
                 onSuccess = { playable ->
                     _currentPlayableArtifact.value = playable
                     _loadState.value = PlayerLoadState.LOADED
@@ -441,7 +439,7 @@ class PlayerViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            deleteArtifactUseCase.execute(artifact)
+            deleteArtifactUseCase.get().execute(artifact)
                 .onSuccess {
                     playbackCoordinator.stop()
                     setExpanded(false)

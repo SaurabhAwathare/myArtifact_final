@@ -20,13 +20,13 @@ import javax.inject.Singleton
 
 @Singleton
 class RecordingRepository @Inject constructor(
-    private val draftDao: DraftDao,
+    private val draftDao: dagger.Lazy<DraftDao>,
     private val userRepository: UserRepository,
     private val localDraftManager: LocalDraftManager,
     private val wavRecoveryManager: WavRecoveryManager,
     private val deletionManager: DraftDeletionManager,
     private val cleanupManager: ArtifactCleanupManager,
-    private val draftsDatabase: com.saurabh.artifact.data.local.AppDatabase,
+    private val draftsDatabase: dagger.Lazy<com.saurabh.artifact.data.local.AppDatabase>,
 ) {
     
     suspend fun createDraft(
@@ -53,7 +53,7 @@ class RecordingRepository @Inject constructor(
                 createdAt = System.currentTimeMillis(),
                 updatedAt = System.currentTimeMillis()
             )
-            draftDao.insert(draft)
+            draftDao.get().insert(draft)
             
             // Increment artifactsCount on the user's Firestore document
             val currentUserId = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
@@ -74,7 +74,7 @@ class RecordingRepository @Inject constructor(
         durableBytes: Long = 0
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            draftDao.updateRecordingCheckpoint(
+            draftDao.get().updateRecordingCheckpoint(
                 id = id,
                 durationMs = durationMs,
                 amplitudes = amplitudes,
@@ -87,9 +87,9 @@ class RecordingRepository @Inject constructor(
         }
     }
 
-    fun observeDrafts(): Flow<List<ArtifactDraftEntity>> = draftDao.observeDrafts()
+    fun observeDrafts(): Flow<List<ArtifactDraftEntity>> = draftDao.get().observeDrafts()
 
-    fun observeDraft(id: String): Flow<ArtifactDraftEntity?> = draftDao.observeDraftById(id).onEach { draft ->
+    fun observeDraft(id: String): Flow<ArtifactDraftEntity?> = draftDao.get().observeDraftById(id).onEach { draft ->
         if (draft != null) {
             android.util.Log.d("DB_TRACE", "[DB_TRACE] observeDraft emission: draftId=${draft.id}, lifecycle=${draft.lifecycle}, reviewProgress=${draft.reviewProgress}")
         } else {
@@ -99,7 +99,7 @@ class RecordingRepository @Inject constructor(
 
     suspend fun getDraft(id: String): Result<ArtifactDraftEntity> = withContext(Dispatchers.IO) {
         try {
-            val draft = draftDao.getDraftById(id)
+            val draft = draftDao.get().getDraftById(id)
             if (draft != null) {
                 Result.success(draft)
             } else {
@@ -112,7 +112,7 @@ class RecordingRepository @Inject constructor(
 
     suspend fun getDraftByPath(path: String): Result<ArtifactDraftEntity> = withContext(Dispatchers.IO) {
         try {
-            val draft = draftDao.getDraftByPath(path)
+            val draft = draftDao.get().getDraftByPath(path)
             if (draft != null) {
                 Result.success(draft)
             } else {
@@ -125,7 +125,7 @@ class RecordingRepository @Inject constructor(
 
     suspend fun updateDraft(draft: ArtifactDraftEntity): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            draftDao.update(draft.copy(updatedAt = System.currentTimeMillis()))
+            draftDao.get().update(draft.copy(updatedAt = System.currentTimeMillis()))
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(AppError.from(e))
@@ -138,7 +138,7 @@ class RecordingRepository @Inject constructor(
             if ((trimmedTitle != null) && (trimmedTitle.isEmpty() || trimmedTitle.length > 70)) {
                 return@withContext Result.failure(AppError.InvalidInput("Title length must be 1-70 characters"))
             }
-            draftDao.updateTitle(id, trimmedTitle)
+            draftDao.get().updateTitle(id, trimmedTitle)
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(AppError.from(e))
@@ -147,7 +147,7 @@ class RecordingRepository @Inject constructor(
 
     suspend fun updateDraftMetadata(id: String, title: String?, emotion: Emotion?): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            draftDao.updateMetadata(id, title, emotion)
+            draftDao.get().updateMetadata(id, title, emotion)
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(AppError.from(e))
@@ -157,7 +157,7 @@ class RecordingRepository @Inject constructor(
     suspend fun updateLifecycle(id: String, lifecycle: ArtifactLifecycle, isRecovery: Boolean = false): Result<Unit> = withContext(Dispatchers.IO) {
         android.util.Log.d("STATE_TRACE", "updateLifecycle: ID=$id, NEW=$lifecycle, isRecovery=$isRecovery (DB_TRACE)")
         try {
-            draftDao.updateLifecycle(id, lifecycle, isRecovery = isRecovery)
+            draftDao.get().updateLifecycle(id, lifecycle, isRecovery = isRecovery)
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(AppError.from(e))
@@ -167,7 +167,7 @@ class RecordingRepository @Inject constructor(
     suspend fun recoverDraft(id: String, lifecycle: ArtifactLifecycle): Result<Unit> = withContext(Dispatchers.IO) {
         android.util.Log.d("STATE_TRACE", "recoverDraft: ID=$id, NEW=$lifecycle (RECOVERY)")
         try {
-            draftDao.updateLifecycle(id, lifecycle, isRecovery = true)
+            draftDao.get().updateLifecycle(id, lifecycle, isRecovery = true)
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(AppError.from(e))
@@ -176,7 +176,7 @@ class RecordingRepository @Inject constructor(
 
     suspend fun updateTranscriptionResult(id: String, localTranscriptPath: String, emotionalTone: EmotionalTone?, primaryStyle: ConversationStyle?): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            draftDao.updateTranscriptionResult(id, localTranscriptPath, emotionalTone, primaryStyle)
+            draftDao.get().updateTranscriptionResult(id, localTranscriptPath, emotionalTone, primaryStyle)
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(AppError.from(e))
@@ -185,7 +185,7 @@ class RecordingRepository @Inject constructor(
 
     suspend fun updateProcessingStatus(id: String, status: ProcessingStatus): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            draftDao.updateProcessingStatus(id, status)
+            draftDao.get().updateProcessingStatus(id, status)
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(AppError.from(e))
@@ -194,7 +194,7 @@ class RecordingRepository @Inject constructor(
 
     suspend fun updateWaveform(id: String, amplitudeData: List<Float>): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            draftDao.updateWaveformResult(id, amplitudeData)
+            draftDao.get().updateWaveformResult(id, amplitudeData)
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(AppError.from(e))
@@ -203,7 +203,7 @@ class RecordingRepository @Inject constructor(
 
     suspend fun updateSafetyResult(id: String, safetyAnalysis: String?, emotionalRiskScore: Float): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            draftDao.updateSafetyResult(id, safetyAnalysis, emotionalRiskScore)
+            draftDao.get().updateSafetyResult(id, safetyAnalysis, emotionalRiskScore)
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(AppError.from(e))
@@ -212,7 +212,7 @@ class RecordingRepository @Inject constructor(
 
     suspend fun finalizeProcessing(id: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            draftDao.finalizeProcessing(id)
+            draftDao.get().finalizeProcessing(id)
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(AppError.from(e))
@@ -228,7 +228,7 @@ class RecordingRepository @Inject constructor(
     ): Result<Unit> = withContext(Dispatchers.IO) {
         android.util.Log.d("STATE_TRACE", "updateStudioState: ID=$id, R=$review, T=$title, E=$emotion, A=$approval (DB_TRACE)")
         try {
-            draftDao.updateStudioState(id, review, title, emotion, approval)
+            draftDao.get().updateStudioState(id, review, title, emotion, approval)
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(AppError.from(e))
@@ -251,8 +251,8 @@ class RecordingRepository @Inject constructor(
         targetLifecycle: ArtifactLifecycle = ArtifactLifecycle.PROCESSING
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            draftsDatabase.withTransaction {
-                val existing = draftDao.getDraftById(id) ?: throw Exception("Draft not found")
+            draftsDatabase.get().withTransaction {
+                val existing = draftDao.get().getDraftById(id) ?: throw Exception("Draft not found")
 
                 // Idempotency check: Don't regress or duplicate work if data already matches
                 val isSameState = existing.lifecycle == targetLifecycle && 
@@ -273,7 +273,7 @@ class RecordingRepository @Inject constructor(
                     lifecycle = targetLifecycle,
                     updatedAt = System.currentTimeMillis()
                 )
-                draftDao.update(updated)
+                draftDao.get().update(updated)
             }
             Result.success(Unit)
         } catch (e: Exception) {
@@ -292,7 +292,7 @@ class RecordingRepository @Inject constructor(
             purgeZombieDrafts()
 
             // 1. Recover interrupted recordings
-            val recordings = draftDao.getActiveRecordings()
+            val recordings = draftDao.get().getActiveRecordings()
             val interrupted = mutableListOf<ArtifactDraftEntity>()
             
             recordings.forEach { draft ->
@@ -338,7 +338,7 @@ class RecordingRepository @Inject constructor(
                         durableBytes = if (newLifecycle == ArtifactLifecycle.PROCESSING) recoveredAudioBytes.coerceAtLeast(0) else draft.durableBytes,
                         updatedAt = System.currentTimeMillis()
                     )
-                    draftDao.update(updated, isRecovery = true)
+                    draftDao.get().update(updated, isRecovery = true)
                     interrupted.add(updated)
                     
                     Log.d("RecordingRepository", "Recovery for ${draft.id}: $recoveryResult -> New Lifecycle: $newLifecycle")
@@ -347,14 +347,14 @@ class RecordingRepository @Inject constructor(
 
             // 2. Storage Reconciliation
             try {
-                val allDrafts = draftDao.getAllDrafts()
+                val allDrafts = draftDao.get().getAllDrafts()
                 localDraftManager.reconcileStorage(allDrafts)
                 
                 // Trigger emergency cleanup if storage is critically low
                 cleanupManager.triggerEmergencyCleanup()
 
                 // 3. Authoritative cleanup for DELETING drafts
-                val deletingDrafts = draftDao.getDraftsByLifecycle(ArtifactLifecycle.DELETING)
+                val deletingDrafts = draftDao.get().getDraftsByLifecycle(ArtifactLifecycle.DELETING)
                 deletingDrafts.forEach { draft ->
                     Log.d("RecordingRepository", "Resuming deletion for draft: ${draft.id}")
                     deletionManager.deleteDraft(draft.id)
@@ -376,7 +376,7 @@ class RecordingRepository @Inject constructor(
         val now = System.currentTimeMillis()
         val zombieThreshold = 30 * 60 * 1000 // 30 minutes
         
-        val activeDrafts = draftDao.getAllDrafts().filter { 
+        val activeDrafts = draftDao.get().getAllDrafts().filter {
             it.lifecycle == ArtifactLifecycle.RECORDING || it.lifecycle == ArtifactLifecycle.PROCESSING 
         }
         

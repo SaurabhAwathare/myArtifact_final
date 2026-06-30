@@ -81,14 +81,14 @@ class ArtifactRepository @Inject constructor(
     private val auth: FirebaseAuth,
     private val firestore: FirebaseFirestore,
     private val storage: FirebaseStorage,
-    private val draftDao: DraftDao,
+    private val draftDao: dagger.Lazy<DraftDao>,
     private val userRepository: dagger.Lazy<UserRepository>,
     private val aiService: dagger.Lazy<ReflectionAIService>,
     private val personalizationEngine: dagger.Lazy<PersonalizationEngine>,
     private val settingsRepository: dagger.Lazy<SettingsRepository>,
-    private val artifactDao: ArtifactDao,
-    private val database: AppDatabase,
-    private val pendingInteractionDao: PendingInteractionDao
+    private val artifactDao: dagger.Lazy<ArtifactDao>,
+    private val database: dagger.Lazy<AppDatabase>,
+    private val pendingInteractionDao: dagger.Lazy<PendingInteractionDao>
 ) {
     private val repositoryScope = CoroutineScope(
         SupervisorJob() + 
@@ -114,7 +114,7 @@ class ArtifactRepository @Inject constructor(
         try {
             // Keep artifacts from the last 14 days
             val twoWeeksAgo = System.currentTimeMillis() - (14 * 24 * 60 * 60 * 1000L)
-            artifactDao.deleteOldArtifacts(twoWeeksAgo)
+            artifactDao.get().deleteOldArtifacts(twoWeeksAgo)
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(AppError.from(e))
@@ -190,7 +190,7 @@ class ArtifactRepository @Inject constructor(
         try {
             // 1. Try local cache first if not forcing refresh
             if (!forceRefresh) {
-                val local = artifactDao.getArtifactById(artifactId)
+                val local = artifactDao.get().getArtifactById(artifactId)
                 if (local != null) {
                     // HARDENING: Implement 2-hour TTL for metadata freshness
                     val twoHoursMillis = 2 * 60 * 60 * 1000L
@@ -208,7 +208,7 @@ class ArtifactRepository @Inject constructor(
                 val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
                 if (artifact != null) {
                     // Update local cache
-                    artifactDao.insertAll(listOf(mapArtifactToEntity(artifact)))
+                    artifactDao.get().insertAll(listOf(mapArtifactToEntity(artifact)))
                     Result.success(artifact)
                 } else {
                     Result.failure(AppError.NotFound("Artifact", artifactId))
@@ -230,7 +230,7 @@ class ArtifactRepository @Inject constructor(
         
         try {
             // 1. Fetch all from local Room
-            val localEntities = artifactDao.getArtifactsByIds(ids)
+            val localEntities = artifactDao.get().getArtifactsByIds(ids)
             val twoHoursMillis = 2 * 60 * 60 * 1000L
             val currentTime = System.currentTimeMillis()
             
@@ -261,7 +261,7 @@ class ArtifactRepository @Inject constructor(
 
             // 3. Update local cache with new results
             if (fetchedRemote.isNotEmpty()) {
-                artifactDao.insertAll(fetchedRemote.values.map { mapArtifactToEntity(it) })
+                artifactDao.get().insertAll(fetchedRemote.values.map { mapArtifactToEntity(it) })
             }
 
             // 4. Combine and maintain original ID order
@@ -490,13 +490,13 @@ class ArtifactRepository @Inject constructor(
             // 4. Update local Room DB for immediate hiding
             try {
                 if (commentId == null) {
-                    val localArtifact = artifactDao.getArtifactById(artifactId)
+                    val localArtifact = artifactDao.get().getArtifactById(artifactId)
                     if (localArtifact != null) {
                         val updatedArtifact = localArtifact.copy(
                             reportCount = localArtifact.reportCount + 1,
                             reporterIds = localArtifact.reporterIds + userId
                         )
-                        artifactDao.insertAll(listOf(updatedArtifact))
+                        artifactDao.get().insertAll(listOf(updatedArtifact))
                     }
                 }
             } catch (e: Exception) {
@@ -523,8 +523,8 @@ class ArtifactRepository @Inject constructor(
                 enablePlaceholders = false,
                 maxSize = 30
             ),
-            remoteMediator = ArtifactRemoteMediator(firestore, database, currentUserId, emotion),
-            pagingSourceFactory = { artifactDao.getArtifactsPaged(userIdPattern) }
+            remoteMediator = ArtifactRemoteMediator(firestore, database.get(), currentUserId, emotion),
+            pagingSourceFactory = { artifactDao.get().getArtifactsPaged(userIdPattern) }
         ).flow.map { pagingData: PagingData<ArtifactEntityWithIndex> ->
             pagingData.map { wrapper -> 
                 mapArtifactEntityToArtifact(wrapper.entity) to wrapper.absoluteIndex
@@ -672,8 +672,8 @@ class ArtifactRepository @Inject constructor(
                 action = com.saurabh.artifact.data.local.InteractionAction.ADD,
                 metadata = shelf
             )
-            pendingInteractionDao.deleteByType(artifact.id, userId, com.saurabh.artifact.data.local.InteractionType.SAVE)
-            pendingInteractionDao.insert(pending)
+            pendingInteractionDao.get().deleteByType(artifact.id, userId, com.saurabh.artifact.data.local.InteractionType.SAVE)
+            pendingInteractionDao.get().insert(pending)
 
             // 2. Trigger Sync Worker
             com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
@@ -700,8 +700,8 @@ class ArtifactRepository @Inject constructor(
                 interactionType = com.saurabh.artifact.data.local.InteractionType.SAVE,
                 action = com.saurabh.artifact.data.local.InteractionAction.REMOVE
             )
-            pendingInteractionDao.deleteByType(artifactId, userId, com.saurabh.artifact.data.local.InteractionType.SAVE)
-            pendingInteractionDao.insert(pending)
+            pendingInteractionDao.get().deleteByType(artifactId, userId, com.saurabh.artifact.data.local.InteractionType.SAVE)
+            pendingInteractionDao.get().insert(pending)
 
             // 2. Trigger Sync Worker
             com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
@@ -865,7 +865,7 @@ class ArtifactRepository @Inject constructor(
                             if (draft.uploadSessionUri != null && (httpCode == 404 || httpCode == 410)) {
                                 Log.w("ArtifactRepository", "Resumable session expired (HTTP $httpCode). Clearing URI and restarting.")
                                 // Clear the invalid session URI in the DB via DAO
-                                draftDao.updateSyncProgress(draft.id, 0, draft.totalBytes, null)
+                                draftDao.get().updateSyncProgress(draft.id, 0, draft.totalBytes, null)
                                 
                                 // Restart without the session URI
                                 fileRef.putFile(Uri.fromFile(originalFile), metadata).addOnProgressListener { snapshot ->
@@ -1101,13 +1101,13 @@ class ArtifactRepository @Inject constructor(
             }.await()
 
             // Sync with local draft if it exists
-            draftDao.getDraftByArtifactId(artifactId)?.let { draft ->
-                draftDao.updateTitle(draft.id, trimmedTitle)
+            draftDao.get().getDraftByArtifactId(artifactId)?.let { draft ->
+                draftDao.get().updateTitle(draft.id, trimmedTitle)
             }
 
             // Sync with local ArtifactEntity cache
-            artifactDao.getArtifactById(artifactId)?.let { entity ->
-                artifactDao.insertAll(listOf(entity.copy(title = trimmedTitle, lastUpdated = System.currentTimeMillis())))
+            artifactDao.get().getArtifactById(artifactId)?.let { entity ->
+                artifactDao.get().insertAll(listOf(entity.copy(title = trimmedTitle, lastUpdated = System.currentTimeMillis())))
             }
 
             Result.success(Unit)
@@ -1173,10 +1173,10 @@ class ArtifactRepository @Inject constructor(
 
             // 3. Synchronize local Room database (Remove from local view)
             try {
-                artifactDao.deleteById(artifactId)
-                database.engagementDao().deleteEngagement(artifactId)
+                artifactDao.get().deleteById(artifactId)
+                database.get().engagementDao().deleteEngagement(artifactId)
                 // Also clear from Drafts if orphaned
-                draftDao.getDraftByArtifactId(artifactId)?.let { draftDao.deleteById(it.id) }
+                draftDao.get().getDraftByArtifactId(artifactId)?.let { draftDao.get().deleteById(it.id) }
             } catch (e: Exception) {
                 ArtifactLogger.e("ArtifactRepository", "Local sync failed after soft-delete", e)
             }
@@ -1243,7 +1243,7 @@ class ArtifactRepository @Inject constructor(
      */
     suspend fun updateLocalAuthorSnapshot(userId: String, snapshot: AuthorSnapshot) = withContext(Dispatchers.IO) {
         try {
-            artifactDao.updateAuthorInfo(
+            artifactDao.get().updateAuthorInfo(
                 userId = userId,
                 name = snapshot.name,
                 sigil = snapshot.sigil,
