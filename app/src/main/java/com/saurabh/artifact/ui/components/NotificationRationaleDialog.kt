@@ -33,7 +33,7 @@ fun NotificationRationaleDialog(
         text = {
             Column {
                 Text(
-                    "To help you stay in touch with your reflections and the community, we use notifications for:",
+                    "To help you stay in touch with your artifacts and the community, we use notifications for:",
                     color = Color.White.copy(alpha = 0.7f)
                 )
                 Spacer(modifier = Modifier.height(12.dp))

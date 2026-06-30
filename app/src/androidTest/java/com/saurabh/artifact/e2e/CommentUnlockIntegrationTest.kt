@@ -160,18 +160,11 @@ class CommentUnlockIntegrationTest {
         
         // 5. Verify Comments Loading
         setupTestComment(artifactId, artifactOwnerId)
-        val pagingSource = com.saurabh.artifact.data.paging.CommentPagingSource(firestore, artifactId, userId, artifactOwnerId)
-        val loadResult = pagingSource.load(
-            androidx.paging.PagingSource.LoadParams.Refresh(
-                key = null,
-                loadSize = 10,
-                placeholdersEnabled = false
-            )
-        )
+        val ownComments = commentRepository.observeOwnComments(artifactId, userId).first()
+        val sharedComments = commentRepository.observeSharedComments(artifactId).first()
         
-        assertTrue("Comments should load successfully", loadResult is androidx.paging.PagingSource.LoadResult.Page)
-        val data = (loadResult as androidx.paging.PagingSource.LoadResult.Page).data
-        assertTrue("Should load the owner's comment", data.any { it.artifactId == artifactId })
+        assertTrue("Own comments should be observable", ownComments != null)
+        assertTrue("Should load the owner's comment as shared", sharedComments.any { it.artifactId == artifactId })
     }
 
     private suspend fun setupTestComment(artifactId: String, ownerId: String) {

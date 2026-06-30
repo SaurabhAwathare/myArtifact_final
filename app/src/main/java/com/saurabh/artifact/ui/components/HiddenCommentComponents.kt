@@ -56,7 +56,7 @@ fun HiddenCommentNotice(modifier: Modifier = Modifier) {
                 )
                 Spacer(Modifier.width(12.dp))
                 Text(
-                    text = "Private Reflection Mode",
+                    text = "Private Comment Mode",
                     style = MaterialTheme.typography.titleSmall,
                     color = GoldAura400
                 )
@@ -152,7 +152,7 @@ fun EmptyHearthState() {
                 color = ReflectionWhite
             )
             Text(
-                text = "Reflections will appear here when listeners respond.",
+                text = "Comments will appear here when listeners respond.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MistGray
             )

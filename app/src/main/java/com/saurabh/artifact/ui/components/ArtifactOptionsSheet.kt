@@ -95,7 +95,7 @@ fun ArtifactOptionsSheet(
                     )
 
                     OptionItem(
-                        label = "Delete Reflection",
+                        label = "Delete Artifact",
                         description = "Permanently remove this from your journey",
                         icon = Icons.Rounded.DeleteOutline,
                         isError = true,

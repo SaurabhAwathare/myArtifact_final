@@ -497,7 +497,7 @@ class RecordingService : Service() {
                         )
 
                         if (result.isSuccess) {
-                            Log.d("RecordingService", "Atmospheric Handoff: Securing your reflection...")
+                            Log.d("RecordingService", "Atmospheric Handoff: Securing your artifact...")
                             
                             // hand off to the enhancement pipeline (which now starts with Transcoding)
                             publishingOrchestrator.startProcessing(draftId)
@@ -650,12 +650,12 @@ class RecordingService : Service() {
         val timeText = String.format(Locale.getDefault(), "%02d:%02d", seconds / 60, seconds % 60)
         val statusText = when (status) {
             RecordingStatus.PREPARING -> "Creating a calm space..."
-            RecordingStatus.PAUSED -> "Holding your reflection..."
+            RecordingStatus.PAUSED -> "Holding your artifact..."
             RecordingStatus.RECORDING -> {
                 if (_recordingState.value.isStorageLow) "Listening... (Storage Low)"
                 else "Listening to your essence..."
             }
-            RecordingStatus.COMPLETED -> "Reflection secured."
+            RecordingStatus.COMPLETED -> "Artifact secured."
             else -> "myArtifact"
         }
 

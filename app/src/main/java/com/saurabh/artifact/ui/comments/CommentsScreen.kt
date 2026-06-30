@@ -21,6 +21,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -31,11 +33,10 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -54,9 +55,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
-import androidx.paging.LoadState
-import androidx.paging.compose.collectAsLazyPagingItems
-import androidx.paging.compose.itemKey
 import com.saurabh.artifact.model.ArtifactComment
 import com.saurabh.artifact.model.AvatarConfig
 import com.saurabh.artifact.model.ReactionType
@@ -81,8 +79,6 @@ fun CommentsScreen(
 ) {
     android.util.Log.d("ReviewDebug", "CommentsScreen entering Composition for artifactId=$artifactId")
     val uiState by viewModel.uiState.collectAsState()
-    val comments = viewModel.commentsPager.collectAsLazyPagingItems()
-    var showComposer by remember { mutableStateOf(false) }
     var reportingCommentId by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(uiState.engagementStatus) {
@@ -94,164 +90,85 @@ fun CommentsScreen(
         viewModel.loadComments(artifactId, ownerId)
     }
 
-    Scaffold(
-        containerColor = ArtifactTheme.colors.surfaceHearth,
-        topBar = {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(ArtifactTheme.colors.surfaceHearth)
+            .navigationBarsPadding()
+            .imePadding()
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Header
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .statusBarsPadding()
-                    .padding(16.dp),
+                    .padding(horizontal = 24.dp, vertical = 16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back", tint = ArtifactTheme.colors.onSurfaceMain)
-                }
-                Spacer(modifier = Modifier.width(16.dp))
                 Text(
-                    text = if (uiState.currentUserId == ownerId) "The Hearth" else "Reflections",
+                    text = if (uiState.currentUserId == ownerId) "The Hearth" else "Comments",
                     style = ArtifactTheme.typography.titleMedium, 
                     color = ArtifactTheme.colors.onSurfaceMain,
                     fontWeight = FontWeight.Bold
                 )
             }
-        },
-        floatingActionButton = {
-            if (uiState.engagementStatus.isCommentAvailable()) {
-                val isVerifying = uiState.engagementStatus == com.saurabh.artifact.model.EngagementStatus.VERIFYING
-                FloatingActionButton(
-                    onClick = { showComposer = true },
-                    containerColor = if (isVerifying) GoldAura500.copy(alpha = 0.5f) else GoldAura500,
-                    contentColor = Obsidian950
-                ) {
-                    if (isVerifying) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(24.dp),
-                            color = Obsidian950,
-                            strokeWidth = 2.dp
+
+            // Content
+            Box(modifier = Modifier.weight(1f)) {
+                AnimatedContent(
+                    targetState = uiState.engagementStatus,
+                    label = "CommentUnlockTransition",
+                    transitionSpec = {
+                        fadeIn(animationSpec = tween(1000)) togetherWith fadeOut(animationSpec = tween(500))
+                    }
+                ) { status ->
+                    if (!status.isCommentAvailable()) {
+                        LockedCommentView(
+                            progress = uiState.listeningProgress,
+                            requiredCoverage = uiState.requiredCoverage,
+                            status = status
                         )
                     } else {
-                        Icon(Icons.Rounded.Add, contentDescription = "Add Reflection")
-                    }
-                }
-            }
-        }
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-        ) {
-            AnimatedContent(
-                targetState = uiState.engagementStatus,
-                label = "CommentUnlockTransition",
-                transitionSpec = {
-                    fadeIn(animationSpec = tween(1000)) togetherWith fadeOut(animationSpec = tween(500))
-                }
-            ) { status ->
-                if (!status.isCommentAvailable()) {
-                    LockedCommentView(
-                        progress = uiState.listeningProgress,
-                        requiredCoverage = uiState.requiredCoverage,
-                        status = status
-                    )
-                } else {
-                    Box(modifier = Modifier.fillMaxSize()) {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(24.dp),
                             verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
                             items(
-                                count = comments.itemCount,
-                                key = comments.itemKey { it.id }
+                                count = uiState.comments.size,
+                                key = { index -> uiState.comments[index].id }
                             ) { index ->
-                                val comment = comments[index]
-                                if (comment != null) {
-                                    if (comment.visibilityLayer == com.saurabh.artifact.model.VisibilityLayer.SANCTUARY) {
-                                        TextCommentItem(
-                                            comment = comment,
-                                            modifier = Modifier.padding(horizontal = 8.dp)
-                                        )
-                                    } else {
-                                        CommentCard(
-                                            comment = comment,
-                                            currentUserId = uiState.currentUserId,
-                                            ownerId = ownerId,
-                                            onReport = { reportingCommentId = comment.id },
-                                            onReact = { type -> viewModel.reactToComment(comment.id, type) }
-                                        )
-                                    }
+                                val comment = uiState.comments[index]
+                                if (comment.visibilityLayer == com.saurabh.artifact.model.VisibilityLayer.SANCTUARY) {
+                                    TextCommentItem(
+                                        comment = comment,
+                                        modifier = Modifier.padding(horizontal = 8.dp)
+                                    )
+                                } else {
+                                    CommentCard(
+                                        comment = comment,
+                                        currentUserId = uiState.currentUserId,
+                                        ownerId = ownerId,
+                                        onReport = { reportingCommentId = comment.id },
+                                        onReact = { type -> viewModel.reactToComment(comment.id, type) }
+                                    )
                                 }
                             }
                             
-                            when {
-                                comments.loadState.refresh is LoadState.Loading -> {
-                                    item {
-                                        Box(
-                                            modifier = Modifier.fillParentMaxSize(),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            CircularProgressIndicator(color = GoldAura500)
-                                        }
-                                    }
-                                }
-                                comments.loadState.refresh is LoadState.Error -> {
-                                    val error = (comments.loadState.refresh as LoadState.Error).error
-                                    val errorMessage = when {
-                                        error is com.google.firebase.firestore.FirebaseFirestoreException && 
-                                        error.code == com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED -> 
-                                            "We couldn't verify your comment access yet."
-                                        error is com.google.firebase.firestore.FirebaseFirestoreException && 
-                                        error.code == com.google.firebase.firestore.FirebaseFirestoreException.Code.FAILED_PRECONDITION -> {
-                                            if (com.saurabh.artifact.BuildConfig.DEBUG) {
-                                                "Development Error: Missing Firestore Index. Check logs for link."
-                                            } else {
-                                                "Reflections are temporarily unavailable. Please try again soon."
-                                            }
-                                        }
-                                        error is java.io.IOException -> "Connection lost. Trying again..."
-                                        else -> "Failed to load reflections. Please try again."
-                                    }
-                                    item {
-                                        Box(
-                                            modifier = Modifier.fillParentMaxSize(),
-                                            contentAlignment = Alignment.Center
-                                        ) {
+                            if (uiState.comments.isEmpty()) {
+                                item {
+                                    Box(
+                                        modifier = Modifier.fillParentMaxSize(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (uiState.currentUserId == ownerId) {
+                                            EmptyHearthState()
+                                        } else {
                                             Text(
-                                                errorMessage,
-                                                color = MaterialTheme.colorScheme.error,
-                                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                                modifier = Modifier.padding(32.dp)
+                                                "No comments yet. Be the first to share your thoughts.",
+                                                style = ArtifactTheme.typography.bodyMedium,
+                                                color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.5f)
                                             )
-                                        }
-                                    }
-                                }
-                                comments.itemCount == 0 && comments.loadState.refresh is LoadState.NotLoading -> {
-                                    item {
-                                        Box(
-                                            modifier = Modifier.fillParentMaxSize(),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            if (uiState.currentUserId == ownerId) {
-                                                EmptyHearthState()
-                                            } else {
-                                                Text(
-                                                    "No echoes yet. Be the first to respond.",
-                                                    style = ArtifactTheme.typography.bodyMedium,
-                                                    color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.5f)
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                                comments.loadState.append is LoadState.Loading -> {
-                                    item {
-                                        Box(
-                                            modifier = Modifier.fillMaxWidth().padding(16.dp),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            CircularProgressIndicator(modifier = Modifier.size(24.dp), color = GoldAura500)
                                         }
                                     }
                                 }
@@ -260,30 +177,15 @@ fun CommentsScreen(
                     }
                 }
             }
-        }
 
-        if (showComposer) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.6f))
-                    .clickable { showComposer = false }
-                    .zIndex(ZIndexTokens.MODAL_OVERLAYS)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp))
-                        .background(ArtifactTheme.colors.surfaceHearth)
-                        .clickable(enabled = true, onClick = { /* Consumed */ })
-                ) {
-                    CommentComposer(
-                        artifactId = artifactId,
-                        viewModel = viewModel,
-                        onClose = { showComposer = false }
-                    )
-                }
+            // Inline Composer
+            if (uiState.engagementStatus.isCommentAvailable()) {
+                HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                CommentComposer(
+                    artifactId = artifactId,
+                    viewModel = viewModel,
+                    onClose = {} // Not used in inline mode
+                )
             }
         }
 

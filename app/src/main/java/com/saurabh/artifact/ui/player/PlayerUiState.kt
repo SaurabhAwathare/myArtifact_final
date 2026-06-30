@@ -38,6 +38,7 @@ data class PlayerUiState(
     val sleepTimerMillisRemaining: Long? = null,
     val currentTranscriptSegment: TranscriptSegment? = null,
     val showAdvancedControls: Boolean = false,
+    val showComments: Boolean = false,
 
     // Review Mode State (Phase 1)
     val coveragePercent: Float = 0f,

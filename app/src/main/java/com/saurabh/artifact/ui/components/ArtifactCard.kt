@@ -403,8 +403,8 @@ fun ArtifactCard(
     if (showDeleteConfirm) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
-            title = { Text("Delete Reflection?") },
-            text = { Text("This will permanently remove this reflection and all associated resonances. This action cannot be undone.") },
+            title = { Text("Delete Artifact?") },
+            text = { Text("This will permanently remove this artifact and all associated resonances. This action cannot be undone.") },
             confirmButton = {
                 TextButton(
                     onClick = {

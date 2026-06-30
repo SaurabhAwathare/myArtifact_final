@@ -254,8 +254,8 @@ private fun FeedTopBar(
                     Icon(
                         Icons.Rounded.Notifications,
                         contentDescription = if (unreadCount > 0)
-                            "Echoes, new activity available"
-                        else "Echoes"
+                            "Comments, new activity available"
+                        else "Comments"
                     )
                 }
             }
@@ -674,7 +674,7 @@ private fun NewContentIndicator(
                 modifier = Modifier.size(18.dp)
             )
             Text(
-                "New Reflections",
+                "New Artifacts",
                 style = MaterialTheme.typography.labelLarge,
                 modifier = Modifier.padding(bottom = 1.dp)
             )

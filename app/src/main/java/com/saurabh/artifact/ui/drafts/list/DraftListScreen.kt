@@ -283,14 +283,14 @@ fun DraftItem(
             ) {
                 Column(Modifier.weight(1f)) {
                     Text(
-                        text = draft.title?.ifBlank { "Untitled Reflection" } ?: "Untitled Reflection",
+                        text = draft.title?.ifBlank { "Untitled Artifact" } ?: "Untitled Artifact",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
                         text = if (draft.status.publication is SyncStatus.Recovering) {
-                            "Recovering reflection • $date"
+                            "Recovering artifact • $date"
                         } else date,
                         style = MaterialTheme.typography.bodySmall,
                         color = if (draft.status.publication is SyncStatus.Recovering) {

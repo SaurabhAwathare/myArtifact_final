@@ -7,18 +7,20 @@ import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.snapshots
 import com.google.gson.Gson
 import com.saurabh.artifact.data.local.InteractionAction
 import com.saurabh.artifact.data.local.InteractionType
 import com.saurabh.artifact.data.local.PendingInteractionDao
 import com.saurabh.artifact.data.local.PendingInteractionEntity
-import com.saurabh.artifact.data.paging.CommentPagingSource
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.service.ModerationService
 import com.saurabh.artifact.worker.InteractionSyncWorker
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import java.util.UUID
@@ -43,9 +45,8 @@ class CommentRepository @Inject constructor(
         artifactId: String,
         userId: String,
         content: String,
-        visibility: VisibilityLayer = VisibilityLayer.BRIDGE,
+        visibility: VisibilityLayer = VisibilityLayer.SANCTUARY,
         authorType: AuthorType = AuthorType.PSEUDONYM,
-        revealAt: Timestamp? = null,
         authorName: String = "Quiet Presence",
         authorAvatarSeed: String = ""
     ): Result<Unit> = withContext(Dispatchers.IO) {
@@ -77,7 +78,6 @@ class CommentRepository @Inject constructor(
                 content = content,
                 visibility = visibility,
                 authorType = authorType,
-                revealAtMillis = revealAt?.toDate()?.time,
                 authorName = if (isQuiet) null else authorName,
                 authorAvatarSeed = if (isQuiet) "ANONYMOUS_AURA" else authorAvatarSeed,
                 artifactOwnerId = ownerId,
@@ -123,7 +123,6 @@ class CommentRepository @Inject constructor(
                 visibilityLayer = payload.visibility,
                 authorType = payload.authorType,
                 createdAt = Timestamp(java.util.Date(payload.createdAtMillis)),
-                revealAt = payload.revealAtMillis?.let { Timestamp(java.util.Date(it)) },
                 moderationState = payload.moderationState
             )
 
@@ -137,23 +136,36 @@ class CommentRepository @Inject constructor(
     }
 
     /**
-     * Returns a Pager for comments of a specific artifact.
+     * Observes the user's own reflections for a specific artifact.
+     * Rule compatibility: allow read if authorId == request.auth.uid.
      */
-    fun getCommentsPager(
-        artifactId: String,
-        currentUserId: String,
-        artifactOwnerId: String
-    ): Flow<PagingData<ArtifactComment>> {
-        return Pager(
-            config = PagingConfig(
-                pageSize = 20,
-                enablePlaceholders = false,
-                prefetchDistance = 5
-            ),
-            pagingSourceFactory = {
-                CommentPagingSource(firestore, artifactId, currentUserId, artifactOwnerId)
+    fun observeOwnComments(artifactId: String, userId: String): Flow<List<ArtifactComment>> {
+        return firestore.collection("comments")
+            .whereEqualTo("artifactId", artifactId)
+            .whereEqualTo("authorId", userId)
+            .snapshots()
+            .map { snapshot ->
+                snapshot.documents.mapNotNull { doc ->
+                    doc.toObject(ArtifactComment::class.java)?.copy(id = doc.id)
+                }
             }
-        ).flow
+    }
+
+    /**
+     * Observes approved shared reflections (RESONANCE) for a specific artifact.
+     * Rule compatibility: allow read if visibilityLayer == 'RESONANCE' && moderationState == 'APPROVED'.
+     */
+    fun observeSharedComments(artifactId: String): Flow<List<ArtifactComment>> {
+        return firestore.collection("comments")
+            .whereEqualTo("artifactId", artifactId)
+            .whereEqualTo("visibilityLayer", VisibilityLayer.RESONANCE.name)
+            .whereEqualTo("moderationState", CommentModerationState.APPROVED.name)
+            .snapshots()
+            .map { snapshot ->
+                snapshot.documents.mapNotNull { doc ->
+                    doc.toObject(ArtifactComment::class.java)?.copy(id = doc.id)
+                }
+            }
     }
 
     suspend fun getCommentById(commentId: String): Result<ArtifactComment> = withContext(Dispatchers.IO) {

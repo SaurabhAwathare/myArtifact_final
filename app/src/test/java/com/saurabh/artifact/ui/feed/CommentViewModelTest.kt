@@ -6,6 +6,7 @@ import com.saurabh.artifact.data.local.InteractionType
 import com.saurabh.artifact.data.local.PendingInteractionDao
 import com.saurabh.artifact.data.local.PendingInteractionEntity
 import com.saurabh.artifact.domain.review.GetEngagementStateUseCase
+import com.saurabh.artifact.domain.review.comments.CommentMerger
 import com.saurabh.artifact.domain.review.comments.CommentUnlockPolicy
 import com.saurabh.artifact.model.EngagementStatus
 import com.saurabh.artifact.repository.ArtifactRepository
@@ -36,6 +37,7 @@ class CommentViewModelTest {
     private val reviewAuthorityService = mockk<ReviewAuthorityService>(relaxed = true)
     private val uploadGuard = mockk<UploadGuard>(relaxed = true)
     private val commentUnlockPolicy = mockk<CommentUnlockPolicy>(relaxed = true)
+    private val commentMerger = mockk<CommentMerger>(relaxed = true)
 
     private lateinit var viewModel: CommentViewModel
     private val testDispatcher = StandardTestDispatcher()
@@ -54,10 +56,13 @@ class CommentViewModelTest {
         every { auth.currentUserId } returns "user789"
         every { commentUnlockPolicy.minCoverage } returns 0.95f
         every { reviewAuthorityService.currentProgress } returns MutableStateFlow(null)
+        every { repository.observeOwnComments(any(), any()) } returns flowOf(emptyList())
+        every { repository.observeSharedComments(any()) } returns flowOf(emptyList())
+        every { getEngagementStateUseCase.execute(any()) } returns flowOf(EngagementStatus.LOCKED)
 
         viewModel = CommentViewModel(
             context, repository, artifactRepository, auth, userRepository,
-            getEngagementStateUseCase, reviewAuthorityService, uploadGuard, commentUnlockPolicy
+            getEngagementStateUseCase, reviewAuthorityService, uploadGuard, commentUnlockPolicy, commentMerger
         )
     }
 
@@ -111,7 +116,7 @@ class CommentViewModelTest {
         // Create new ViewModel instance (simulating process recreation)
         val newViewModel = CommentViewModel(
             context, repository, artifactRepository, auth, userRepository,
-            getEngagementStateUseCase, reviewAuthorityService, uploadGuard, commentUnlockPolicy
+            getEngagementStateUseCase, reviewAuthorityService, uploadGuard, commentUnlockPolicy, commentMerger
         )
         
         newViewModel.loadComments(artifactId, ownerId)
@@ -121,25 +126,24 @@ class CommentViewModelTest {
     }
 
     @Test
-    fun `loadComments triggers refresh when transitioning to UNLOCKED`() = runTest {
+    fun `loadComments triggers observation from repository`() = runTest {
         val statusFlow = MutableStateFlow(EngagementStatus.LOCKED)
         every { getEngagementStateUseCase.execute(artifactId) } returns statusFlow
-        
-        // Use a real Pager flow to track emissions if possible, or verify repository call
-        // But here we want to verify the internal _refreshTrigger.
-        // Since _refreshTrigger is private, we verify the side effect: repository.getCommentsPager being called again.
         
         viewModel.loadComments(artifactId, ownerId)
         advanceUntilIdle()
         
-        // Initial load (1 call)
-        verify(exactly = 1) { repository.getCommentsPager(artifactId, any(), ownerId) }
+        // Initial load triggers observation of own comments
+        verify { repository.observeOwnComments(artifactId, "user789") }
         
+        // Shared comments NOT observed yet because it's LOCKED
+        verify(exactly = 0) { repository.observeSharedComments(artifactId) }
+
         // Transition to UNLOCKED
         statusFlow.value = EngagementStatus.UNLOCKED
         advanceUntilIdle()
-        
-        // Should trigger refresh (2nd call)
-        verify(exactly = 2) { repository.getCommentsPager(artifactId, any(), ownerId) }
+
+        // Now shared comments should be observed
+        verify { repository.observeSharedComments(artifactId) }
     }
 }

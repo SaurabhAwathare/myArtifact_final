@@ -16,8 +16,7 @@ import kotlinx.serialization.UseSerializers
 
 @Serializable
 enum class VisibilityLayer {
-    SANCTUARY, // Private to author only
-    BRIDGE,    // Private between author and creator
+    SANCTUARY, // Private between author and creator
     RESONANCE  // Shared with other listeners who have unlocked the artifact
 }
 
@@ -45,7 +44,6 @@ data class CommentSyncPayload(
     val content: String,
     val visibility: VisibilityLayer,
     val authorType: AuthorType,
-    val revealAtMillis: Long?,
     val authorName: String?,
     val authorAvatarSeed: String,
     val artifactOwnerId: String,
@@ -62,7 +60,7 @@ data class ArtifactComment(
     val authorAnonymousName: String? = null,
     val authorAvatarSeed: String = "",
     val content: String = "",
-    val visibilityLayer: VisibilityLayer = VisibilityLayer.BRIDGE,
+    val visibilityLayer: VisibilityLayer = VisibilityLayer.SANCTUARY,
     val authorType: AuthorType = AuthorType.PSEUDONYM,
     val emotionalMarkers: List<String> = emptyList(),
     val moderationState: CommentModerationState = CommentModerationState.PENDING,
@@ -71,7 +69,6 @@ data class ArtifactComment(
     @get:Exclude @set:Exclude
     var creatorReaction: ReactionType? = null,
     val createdAt: Timestamp = Timestamp.now(),
-    val revealAt: Timestamp? = null,
 ) {
     @get:PropertyName("creatorReaction")
     @set:PropertyName("creatorReaction")

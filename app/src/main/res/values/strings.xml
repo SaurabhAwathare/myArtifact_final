@@ -45,6 +45,11 @@
 
     <!-- Comments & Unlock -->
     <string name="comments_label">Comments</string>
+    <string name="add_comment">Add Comment</string>
+    <string name="no_comments_yet">No comments yet.</string>
+    <string name="be_the_first_to_comment">Be the first to share your thoughts.</string>
+    <string name="write_comment_placeholder">What does this artifact evoke in you?</string>
+    <string name="comment_submitted">Your comment has been safely delivered.</string>
     <string name="comments_unlock_requirements">Comments Unlock Requirements</string>
     <string name="reflect_and_respond">Reflect and respond</string>
 </resources>

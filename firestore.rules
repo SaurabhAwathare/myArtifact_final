@@ -132,8 +132,8 @@ service cloud.firestore {
     match /comments/{commentId} {
       allow read: if isAuth() && (
         resource.data.authorId == request.auth.uid ||
-        (resource.data.artifactOwnerId == request.auth.uid && resource.data.visibilityLayer != 'SANCTUARY') ||
-        (resource.data.visibilityLayer == 'RESONANCE' && resource.data.moderationState == 'APPROVED' && (resource.data.revealAt == null || resource.data.revealAt <= request.time))
+        resource.data.artifactOwnerId == request.auth.uid ||
+        (resource.data.visibilityLayer == 'RESONANCE' && resource.data.moderationState == 'APPROVED')
       );
 
       allow create: if isAuth() &&

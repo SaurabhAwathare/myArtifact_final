@@ -289,7 +289,7 @@ class PlaybackService : MediaLibraryService() {
         val metadata = MediaMetadata.Builder()
             .setTitle(artifact.title)
             .setArtist(artifact.author.name)
-            .setAlbumTitle("Reflections")
+            .setAlbumTitle("Artifacts")
             .setGenre(artifact.emotion)
             .setIsBrowsable(false)
             .setIsPlayable(true)

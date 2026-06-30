@@ -110,7 +110,7 @@ class PublishStateManager @Inject constructor(
                         val processing = draft.status.processing
                         val displayTitle = if (processing is ProcessingStatus.Active) {
                             when (processing.stage) {
-                                ProcessingStage.SAVING -> "Securing reflection..."
+                                ProcessingStage.SAVING -> "Securing artifact..."
                                 ProcessingStage.TRANSCODING -> "Preparing audio..."
                                 ProcessingStage.NORMALIZING -> "Optimizing clarity..."
                                 ProcessingStage.WAVEFORM_GENERATION -> "Generating waveform..."

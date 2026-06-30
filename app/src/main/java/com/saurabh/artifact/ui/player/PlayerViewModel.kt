@@ -53,6 +53,7 @@ class PlayerViewModel @Inject constructor(
 
     private val _isExpanded = savedStateHandle.getStateFlow("is_expanded", false)
     private val _showAdvancedControls = MutableStateFlow(false)
+    private val _showComments = MutableStateFlow(false)
 
     private val _interactionError = MutableSharedFlow<String>(replay = 0)
     val interactionError: SharedFlow<String> = _interactionError.asSharedFlow()
@@ -151,8 +152,9 @@ class PlayerViewModel @Inject constructor(
         playbackCoordinator.currentArtifact,
         metadata,
         _isExpanded,
-        _showAdvancedControls
-    ) { artifact, md, expanded, advanced ->
+        _showAdvancedControls,
+        _showComments
+    ) { artifact, md, expanded, advanced, comments ->
         val isOwner = artifact?.userId == authRepository.currentUserId
         val isMetadataSynced = artifact != null && md.artifactId == artifact.id
         val mode = when {
@@ -176,7 +178,8 @@ class PlayerViewModel @Inject constructor(
             commentCount = if (isMetadataSynced) md.commentCount else 0,
             playerMode = mode,
             isExpanded = expanded,
-            showAdvancedControls = advanced
+            showAdvancedControls = advanced,
+            showComments = comments
         )
     }.distinctUntilChanged()
 
@@ -254,6 +257,7 @@ class PlayerViewModel @Inject constructor(
             sleepTimerMillisRemaining = dynamic.sleepTimerMillisRemaining,
             currentTranscriptSegment = dynamic.currentTranscriptSegment,
             showAdvancedControls = static.showAdvancedControls,
+            showComments = static.showComments,
             
             // DECISION: Map progress based on whether it's a draft review or a listener unlock
             coveragePercent = if (artifact?.isDraft == true) {
@@ -406,6 +410,10 @@ class PlayerViewModel @Inject constructor(
         _showAdvancedControls.value = show
     }
 
+    fun setShowComments(show: Boolean) {
+        _showComments.value = show
+    }
+
     fun rewind() {
         viewModelScope.launch {
             val currentPos = playbackCoordinator.smoothPosition.first()
@@ -494,7 +502,8 @@ private data class PlayerStaticState(
     val commentCount: Long = 0,
     val playerMode: PlayerMode = PlayerMode.HIDDEN,
     val isExpanded: Boolean = false,
-    val showAdvancedControls: Boolean = false
+    val showAdvancedControls: Boolean = false,
+    val showComments: Boolean = false
 )
 
 private data class PlayerDynamicState(
