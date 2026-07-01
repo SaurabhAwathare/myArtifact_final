@@ -59,8 +59,12 @@ class PlayerViewModel @Inject constructor(
     private val _navigateToPublish = MutableSharedFlow<String>(replay = 0)
     val navigateToPublish: SharedFlow<String> = _navigateToPublish.asSharedFlow()
 
+    private val _shareEvent = MutableSharedFlow<SharePayload>(replay = 0)
+    val shareEvent: SharedFlow<SharePayload> = _shareEvent.asSharedFlow()
+
     private val _currentPlayableArtifact = MutableStateFlow<PlayableArtifact?>(null)
     private val _loadState = MutableStateFlow(PlayerLoadState.IDLE)
+    private val _loadError = MutableStateFlow<String?>(null)
 
     // Consolidated metadata from UseCase - Live and Atomic
     private val metadata: StateFlow<PlayerMetadata> = getPlayerContextUseCase.execute(
@@ -162,8 +166,10 @@ class PlayerViewModel @Inject constructor(
         }
 
         PlayerStaticState(
-            artifact = artifact,
+            artifact = artifact?.toPlayerArtifact(),
+            internalOwnerId = artifact?.userId ?: "",
             isOwner = isOwner,
+            isDraft = artifact?.isDraft == true,
             engagementStatus = if (isMetadataSynced) md.engagementStatus else EngagementStatus.LOCKED,
             isResonated = if (isMetadataSynced) md.isResonated else false,
             resonanceSyncStatus = if (isMetadataSynced) md.resonanceSyncStatus else InteractionSyncStatus.SYNCED,
@@ -210,6 +216,7 @@ class PlayerViewModel @Inject constructor(
         reviewSessionManager.reviewProgress,
         playbackCoordinator.currentProgress,
         _loadState,
+        _loadError,
         _currentPlayableArtifact
     ) { params ->
         val static = params[0] as PlayerStaticState
@@ -217,7 +224,8 @@ class PlayerViewModel @Inject constructor(
         val review = params[2] as ReviewState
         val listenerReview = params[3] as com.saurabh.artifact.audio.validation.ReviewProgress?
         val loadState = params[4] as PlayerLoadState
-        val playable = params[5] as PlayableArtifact?
+        val loadError = params[5] as String?
+        val playable = params[6] as PlayableArtifact?
 
         val artifact = static.artifact
         val isReviewMatching = artifact != null && review.artifactId == artifact.id
@@ -229,8 +237,10 @@ class PlayerViewModel @Inject constructor(
 
         PlayerUiState(
             currentArtifact = artifact,
+            internalOwnerId = static.internalOwnerId,
             currentPlayableArtifact = playable,
             loadState = loadState,
+            error = loadError,
             isPlaying = dynamic.isPlaying,
             isBuffering = dynamic.isBuffering,
             currentPosition = dynamic.currentPosition,
@@ -258,23 +268,23 @@ class PlayerViewModel @Inject constructor(
             showComments = static.showComments,
             
             // DECISION: Map progress based on whether it's a draft review or a listener unlock
-            coveragePercent = if (artifact?.isDraft == true) {
+            coveragePercent = if (static.isDraft) {
                 if (isReviewMatching) review.coveragePercent else 0f
             } else {
                 if (isListenerReviewMatching) listenerReview?.coveragePercent ?: 0f else 0f
             },
-            isThresholdMet = if (artifact?.isDraft == true) {
+            isThresholdMet = if (static.isDraft) {
                 if (isReviewMatching) review.isThresholdMet else false
             } else {
                 if (isListenerReviewMatching) listenerReview?.isValidationMet ?: false else false
             },
-            isPlaybackEnded = if (artifact?.isDraft == true) {
+            isPlaybackEnded = if (static.isDraft) {
                 if (isReviewMatching) review.isPlaybackEnded else false
             } else {
                 if (isListenerReviewMatching) listenerReview?.hasReachedEnd ?: false else false
             },
-            requiredCoverage = if (artifact?.isDraft == true) publishingPolicy.minCoverage else commentPolicy.minCoverage,
-            isReachedEndRequired = if (artifact?.isDraft == true) publishingPolicy.requireReachedEnd else commentPolicy.requireReachedEnd
+            requiredCoverage = if (static.isDraft) publishingPolicy.minCoverage else commentPolicy.minCoverage,
+            isReachedEndRequired = if (static.isDraft) publishingPolicy.requireReachedEnd else commentPolicy.requireReachedEnd
         )
     }.stateIn(
         scope = viewModelScope,
@@ -301,12 +311,12 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun toggleResonate(type: ReactionType = metadata.value.selectedReactionType) {
-        val artifact = uiState.value.currentArtifact ?: return
+        val artifactId = uiState.value.currentArtifact?.id ?: return
         val userId = authRepository.currentUser.value?.uid ?: return
 
         // REFACTOR: Optimistic state is now handled by ReactionRepository -> PendingInteractionDao -> UseCase
         viewModelScope.launch {
-            reactionUseCase.get().toggleReaction(artifact.id, userId, type).onFailure { error ->
+            reactionUseCase.get().toggleReaction(artifactId, userId, type).onFailure { error ->
                 _interactionError.emit("Could not resonate: ${error.message}")
             }
         }
@@ -318,13 +328,14 @@ class PlayerViewModel @Inject constructor(
             android.util.Log.w("PlayerViewModel", "Blocked toggleResonanceConnection: User is null.")
             return
         }
-        if (artifact.userId == currentUserId) return
+        val ownerId = uiState.value.internalOwnerId
+        if (ownerId == currentUserId) return
 
         val wasResonating = metadata.value.isResonating
         
         // REFACTOR: Optimistic state handled by interaction DAO layer
         viewModelScope.launch {
-            playerInteractionUseCase.get().toggleResonanceConnection(currentUserId, artifact.userId, wasResonating)
+            playerInteractionUseCase.get().toggleResonanceConnection(currentUserId, ownerId, wasResonating)
                 .onFailure { error ->
                     _interactionError.emit("Resonance failed: ${error.message}")
                 }
@@ -332,7 +343,12 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun toggleSave() {
-        val artifact = uiState.value.currentArtifact ?: return
+        // REFACTOR: We need the original Artifact for toggleSave as it's passed to SavedArtifactManager
+        // But the UseCase can be refactored to take ID. For now, we fetch from coordinator if needed
+        // or rely on the fact that toggleSave in UseCase takes Artifact.
+        // Actually, PlayerInteractionUseCase.toggleSave(Artifact) is called.
+        // We'll use a safer approach: get the artifact from the coordinator.
+        val artifact = playbackCoordinator.currentArtifact.value ?: return
 
         viewModelScope.launch {
             playerInteractionUseCase.get().toggleSave(artifact)
@@ -355,6 +371,7 @@ class PlayerViewModel @Inject constructor(
             android.util.Log.d("NAV_TRACE", "Navigate -> Player")
             setExpanded(true)
             _loadState.value = PlayerLoadState.LOADING
+            _loadError.value = null
             
             playableArtifactRepository.get().resolveArtifact(artifactId, source).fold(
                 onSuccess = { playable ->
@@ -373,7 +390,14 @@ class PlayerViewModel @Inject constructor(
                 },
                 onFailure = { error ->
                     _loadState.value = PlayerLoadState.ERROR
-                    _interactionError.emit("Failed to load artifact: ${error.message}")
+                    val userMessage = when (error) {
+                        is com.saurabh.artifact.model.AppError.NotFound -> "This artifact is no longer available."
+                        is com.saurabh.artifact.model.AppError.PermissionDenied -> "This artifact isn't available to you."
+                        is com.saurabh.artifact.model.AppError.NetworkFailure -> "Connection lost. Please check your network."
+                        else -> "Failed to load artifact."
+                    }
+                    _loadError.value = userMessage
+                    _interactionError.emit(userMessage)
                 }
             )
         }
@@ -430,7 +454,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun deleteCurrentArtifact() {
-        val artifact = uiState.value.currentArtifact ?: return
+        val artifact = playbackCoordinator.currentArtifact.value ?: return
         
         // Phase 6: Action Safety
         if (!artifact.isDraft) {
@@ -451,22 +475,45 @@ class PlayerViewModel @Inject constructor(
 
     fun onEditClick(onNavigate: (String) -> Unit) {
         val artifact = uiState.value.currentArtifact
-        if (artifact?.isDraft == true) {
+        val isDraft = uiState.value.isOwner // For drafts, ownership implies draft state in this context
+        // Actually, we should use the internal state for safety
+        val originalArtifact = playbackCoordinator.currentArtifact.value
+        if (originalArtifact?.isDraft == true) {
             setExpanded(false)
-            onNavigate(artifact.id)
+            onNavigate(originalArtifact.id)
         } else {
             android.util.Log.w("PLAYER_SYNC", "Safety: Blocked Edit navigation for non-draft ${artifact?.id}")
         }
     }
 
     fun onPublishClick(onNavigate: (String) -> Unit) {
-        val artifact = uiState.value.currentArtifact
+        val originalArtifact = playbackCoordinator.currentArtifact.value
         val isThresholdMet = uiState.value.isThresholdMet
-        if (artifact?.isDraft == true && isThresholdMet) {
+        if (originalArtifact?.isDraft == true && isThresholdMet) {
             setExpanded(false)
-            onNavigate(artifact.id)
+            onNavigate(originalArtifact.id)
         } else {
-            android.util.Log.w("PLAYER_SYNC", "Safety: Blocked Publish navigation. isDraft=${artifact?.isDraft}, isThresholdMet=$isThresholdMet")
+            android.util.Log.w("PLAYER_SYNC", "Safety: Blocked Publish navigation. isDraft=${originalArtifact?.isDraft}, isThresholdMet=$isThresholdMet")
+        }
+    }
+
+    fun onShareClicked() {
+        val artifact = uiState.value.currentArtifact ?: return
+        
+        // Phase 6: Safety check using centralized eligibility
+        if (!com.saurabh.artifact.util.ShareEligibility.canShare(isPublic = true, isDraft = artifact.isDraft)) {
+            return
+        }
+
+        viewModelScope.launch {
+            _shareEvent.emit(
+                SharePayload(
+                    artifactId = artifact.id,
+                    title = artifact.title,
+                    authorName = artifact.author.name,
+                    authorSigil = artifact.author.sigil
+                )
+            )
         }
     }
 
@@ -486,8 +533,10 @@ private data class PlaybackSubState(
 )
 
 private data class PlayerStaticState(
-    val artifact: Artifact? = null,
+    val artifact: PlayerArtifact? = null,
+    val internalOwnerId: String = "",
     val isOwner: Boolean = false,
+    val isDraft: Boolean = false,
     val engagementStatus: EngagementStatus = EngagementStatus.LOCKED,
     val isResonated: Boolean = false,
     val resonanceSyncStatus: InteractionSyncStatus = InteractionSyncStatus.SYNCED,

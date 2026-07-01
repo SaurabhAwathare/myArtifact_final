@@ -29,7 +29,10 @@ fun ArtifactOptionsSheet(
     onDismiss: () -> Unit,
     onDeleteClick: () -> Unit = {},
     onFeedbackClick: () -> Unit = {},
-    onSettingsClick: () -> Unit = {}
+    onSettingsClick: () -> Unit = {},
+    onShareClick: () -> Unit = {},
+    isPublic: Boolean = true,
+    isDraft: Boolean = false
 ) {
     Popup(
         onDismissRequest = onDismiss,
@@ -82,6 +85,19 @@ fun ArtifactOptionsSheet(
                 )
                 
                 Spacer(modifier = Modifier.height(Spacing.Medium))
+
+                // Phase 6: Centralized Share Eligibility
+                if (com.saurabh.artifact.util.ShareEligibility.canShare(isPublic, isDraft)) {
+                    OptionItem(
+                        label = "Share Artifact",
+                        description = "Invite others into this moment",
+                        icon = Icons.Rounded.Share,
+                        onClick = {
+                            onShareClick()
+                            onDismiss()
+                        }
+                    )
+                }
 
                 if (isOwner) {
                     OptionItem(

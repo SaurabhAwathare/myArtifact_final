@@ -26,7 +26,6 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
-import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.PlayableArtifact
 import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.model.EngagementStatus
@@ -42,7 +41,7 @@ import kotlin.math.roundToInt
  */
 @Composable
 fun ImmersivePlayerScreen(
-    artifact: Artifact?,
+    artifact: PlayerArtifact?,
     playableArtifact: PlayableArtifact?,
     uiState: PlayerUiState,
     onCollapse: () -> Unit,
@@ -59,7 +58,8 @@ fun ImmersivePlayerScreen(
     onSaveClick: () -> Unit = {},
     onEditClick: () -> Unit = {},
     onPublishClick: () -> Unit = {},
-    onDeleteClick: () -> Unit = {}
+    onDeleteClick: () -> Unit = {},
+    onMoreClick: () -> Unit = {}
 ) {
     var showTranscript by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
@@ -78,9 +78,8 @@ fun ImmersivePlayerScreen(
     var offsetY by remember { mutableFloatStateOf(0f) }
 
     // Phase 4: Harden Draft Detection (Unified Logic)
-    val isVerifiedDraft = artifact?.isDraft == true && 
-                          playableArtifact != null && 
-                          playableArtifact.id == artifact.id
+    // NOTE: For PlayerArtifact, we rely on the ViewModel to have determined ownership/draft state
+    val isVerifiedDraft = uiState.isOwner && artifact != null && playableArtifact?.id == artifact.id
 
     if (showDeleteConfirm) {
         AlertDialog(
@@ -183,16 +182,31 @@ fun ImmersivePlayerScreen(
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 1.sp
                 )
-                
-                IconButton(
-                    onClick = { showTranscript = !showTranscript },
-                    modifier = Modifier.size(48.dp)
-                ) {
-                    Icon(
-                        if (showTranscript) Icons.Rounded.Audiotrack else Icons.Rounded.Description,
-                        contentDescription = "Toggle Transcript",
-                        tint = if (showTranscript) GoldAura400 else Color.White.copy(alpha = 0.8f)
-                    )
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = { showTranscript = !showTranscript },
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Icon(
+                            if (showTranscript) Icons.Rounded.Audiotrack else Icons.Rounded.Description,
+                            contentDescription = "Toggle Transcript",
+                            tint = if (showTranscript) GoldAura400 else Color.White.copy(alpha = 0.8f)
+                        )
+                    }
+
+                    if (!isVerifiedDraft) {
+                        IconButton(
+                            onClick = onMoreClick,
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Icon(
+                                Icons.Rounded.MoreVert,
+                                contentDescription = "More Options",
+                                tint = Color.White.copy(alpha = 0.8f)
+                            )
+                        }
+                    }
                 }
             }
 
@@ -245,11 +259,18 @@ fun ImmersivePlayerScreen(
                                         modifier = Modifier.fillMaxSize().alpha(0.3f)
                                     )
                                     
-                                    val avatarConfig = artifact?.authorAvatarConfig 
+                                    val avatarConfig = artifact?.author?.avatarConfig 
                                         ?: com.saurabh.artifact.model.AvatarConfig(seed = playableArtifact?.avatarSeed ?: "")
                                         
+                                    // Use Player-safe avatar seed if author.avatarSeed is empty
+                                    val safeAvatarConfig = avatarConfig.copy(
+                                        seed = avatarConfig.seed.ifEmpty { 
+                                            playableArtifact?.avatarSeed?.ifEmpty { artifact?.id } ?: artifact?.id ?: "" 
+                                        }
+                                    )
+
                                     com.saurabh.artifact.ui.components.ArtifactAvatar(
-                                        config = avatarConfig,
+                                        config = safeAvatarConfig,
                                         size = 180.dp
                                     )
                                 }
@@ -548,19 +569,25 @@ private fun RequirementItem(
 fun ImmersiveDraftPlayerPreview() {
     MaterialTheme {
         ImmersivePlayerScreen(
-            artifact = Artifact(
+            artifact = PlayerArtifact(
+                id = "test_id",
                 title = "Midnight Reflections",
                 author = AuthorSnapshot(name = "Silent Wanderer", sigil = "A1"),
                 emotion = "Peaceful",
+                audioUrl = "",
+                durationMs = 60000,
                 amplitudeData = List(100) { (it % 10) / 10f },
-                status = com.saurabh.artifact.model.ArtifactStatus.DRAFT
+                createdAt = com.google.firebase.Timestamp.now(),
+                transcript = emptyList(),
+                isDraft = true
             ),
             uiState = PlayerUiState(
                 isPlaying = false,
                 listeningProgress = 0.4f,
                 isResonated = false,
                 isResonating = false,
-                isSaved = true
+                isSaved = true,
+                isOwner = true
             ),
             onCollapse = {},
             onTogglePlayback = {},

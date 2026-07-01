@@ -21,7 +21,9 @@ import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -50,6 +52,8 @@ fun ArtifactPlayerView(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var showOptionsSheet by remember { mutableStateOf(false) }
 
     // Observe interaction errors from the ViewModel
     LaunchedEffect(Unit) {
@@ -58,6 +62,21 @@ fun ArtifactPlayerView(
                 message = errorMessage,
                 duration = SnackbarDuration.Short
             )
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        viewModel.shareEvent.collect { payload ->
+            val shareText = com.saurabh.artifact.util.ShareFormatter.formatShareText(payload)
+
+            val sendIntent = android.content.Intent().apply {
+                action = android.content.Intent.ACTION_SEND
+                putExtra(android.content.Intent.EXTRA_TEXT, shareText)
+                type = "text/plain"
+            }
+
+            val shareIntent = android.content.Intent.createChooser(sendIntent, null)
+            context.startActivity(shareIntent)
         }
     }
     
@@ -148,12 +167,37 @@ fun ArtifactPlayerView(
                     onPublishClick = { viewModel.onPublishClick(onNavigateToPublish) },
                     onDeleteClick = {
                         viewModel.deleteCurrentArtifact()
+                    },
+                    onMoreClick = { showOptionsSheet = true }
+                )
+            }
+        }
+
+        // 2. ARTIFACT OPTIONS (SHARE, REPORT, ETC)
+        if (showOptionsSheet) {
+            val artifact = uiState.currentArtifact
+            if (artifact != null) {
+                com.saurabh.artifact.ui.components.ArtifactOptionsSheet(
+                    isOwner = uiState.isOwner,
+                    isPublic = true, // Player artifacts are always public for now
+                    isDraft = uiState.isOwner && artifact.isDraft, // Only owner's drafts are drafts in this context
+                    onReportClick = {
+                        onReportArtifact(artifact.id)
+                        showOptionsSheet = false
+                    },
+                    onDismiss = { showOptionsSheet = false },
+                    onDeleteClick = {
+                        viewModel.deleteCurrentArtifact()
+                        showOptionsSheet = false
+                    },
+                    onShareClick = {
+                        viewModel.onShareClicked()
                     }
                 )
             }
         }
 
-        // 2. ADVANCED CONTROLS
+        // 3. ADVANCED CONTROLS
         if (uiState.showAdvancedControls) {
             Box(modifier = Modifier.zIndex(ZIndexTokens.MODAL_OVERLAYS)) {
                 AdvancedControlsSheet(
@@ -174,7 +218,7 @@ fun ArtifactPlayerView(
 
         // 3. COMMENTS SHEET
         if (uiState.showComments) {
-            val artifact = uiState.currentArtifact ?: uiState.currentPlayableArtifact?.originalArtifact
+            val artifact = uiState.currentArtifact
             if (artifact != null) {
                 ModalBottomSheet(
                     onDismissRequest = { viewModel.setShowComments(false) },
@@ -184,7 +228,7 @@ fun ArtifactPlayerView(
                 ) {
                     CommentsScreen(
                         artifactId = artifact.id,
-                        ownerId = artifact.userId,
+                        ownerId = uiState.internalOwnerId,
                         onBack = { viewModel.setShowComments(false) }
                     )
                 }

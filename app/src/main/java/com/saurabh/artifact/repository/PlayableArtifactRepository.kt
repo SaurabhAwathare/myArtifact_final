@@ -43,6 +43,10 @@ class PlayableArtifactRepository @Inject constructor(
             // 2. Check Published Artifacts
             artifactRepository.getArtifactById(id).fold(
                 onSuccess = { artifact ->
+                    if (artifact.status == com.saurabh.artifact.model.ArtifactStatus.DELETED) {
+                        return@withContext Result.failure(AppError.NotFound("Artifact", id))
+                    }
+
                     Result.success(
                         PlayableArtifact(
                             id = artifact.id,

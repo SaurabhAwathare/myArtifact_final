@@ -49,14 +49,14 @@ class ArtifactRepositoryTest {
             auth = auth,
             firestore = firestore,
             storage = storage,
-            draftDao = draftDao,
+            draftDao = { draftDao },
             userRepository = { userRepository },
             aiService = { aiService },
             personalizationEngine = { personalizationEngine },
             settingsRepository = { settingsRepository },
-            artifactDao = artifactDao,
-            database = database,
-            pendingInteractionDao = pendingInteractionDao
+            artifactDao = { artifactDao },
+            database = { database },
+            pendingInteractionDao = { pendingInteractionDao }
         )
     }
 

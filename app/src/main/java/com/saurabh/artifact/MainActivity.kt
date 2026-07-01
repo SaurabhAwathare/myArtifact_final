@@ -18,6 +18,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import com.saurabh.artifact.navigation.IncomingArtifact
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
@@ -79,7 +80,7 @@ class MainActivity : ComponentActivity() {
         Log.i("ReviewDebug", "Checking if log level INFO works")
         Log.d("APP_FLOW", "1. MainActivity.onCreate")
         
-        mainViewModel.onNewIntent(intent)
+        mainViewModel.onLaunchIntent(intent)
         
         // Begin deterministic initialization
         mainViewModel.start()
@@ -103,7 +104,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        mainViewModel.onNewIntent(intent)
+        mainViewModel.onLaunchIntent(intent)
     }
 
     private fun observeSecurityFlags() {
@@ -184,9 +185,20 @@ fun AuthenticatedIsland(
 
                 // Observe navigation events
                 LaunchedEffect(navController) {
-                    mainViewModel.navigationEvent.collect { route ->
-                        navController.navigate(route) {
-                            launchSingleTop = true
+                    mainViewModel.navigationEvent.collect { event ->
+                        when (event) {
+                            is IncomingArtifact -> {
+                                // Application-level routing: When an artifact arrives, play it.
+                                playerViewModel.playArtifactById(
+                                    event.artifactId, 
+                                    com.saurabh.artifact.model.PlaybackSource.FEED_PLAYBACK
+                                )
+                            }
+                            else -> {
+                                navController.navigate(event) {
+                                    launchSingleTop = true
+                                }
+                            }
                         }
                     }
                 }

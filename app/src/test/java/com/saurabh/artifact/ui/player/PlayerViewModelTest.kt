@@ -80,13 +80,13 @@ class PlayerViewModelTest {
         every { authRepository.currentUserId } returns "user123"
         every { playbackCoordinator.currentProgress } returns MutableStateFlow(null)
 
-        viewModel = PlayerViewModel(
-            savedStateHandle, playbackCoordinator, authRepository, reactionUseCase, 
-            playerInteractionUseCase, getPlayerContextUseCase, artifactRepository, 
-            playableArtifactRepository, reviewSessionManager, deleteArtifactUseCase, 
-            publishingPolicy, commentPolicy
-        )
-    }
+    viewModel = PlayerViewModel(
+        savedStateHandle, playbackCoordinator, authRepository, { reactionUseCase }, 
+        { playerInteractionUseCase }, getPlayerContextUseCase, { playableArtifactRepository }, 
+        reviewSessionManager, { deleteArtifactUseCase }, 
+        publishingPolicy, commentPolicy
+    )
+}
 
     @After
     fun tearDown() {
@@ -104,9 +104,9 @@ class PlayerViewModelTest {
         
         // Re-create ViewModel to pick up the mocked flows properly during init
         val newViewModel = PlayerViewModel(
-            savedStateHandle, playbackCoordinator, authRepository, reactionUseCase, 
-            playerInteractionUseCase, getPlayerContextUseCase, artifactRepository, 
-            playableArtifactRepository, reviewSessionManager, deleteArtifactUseCase, 
+            savedStateHandle, playbackCoordinator, authRepository, { reactionUseCase }, 
+            { playerInteractionUseCase }, getPlayerContextUseCase, { playableArtifactRepository }, 
+            reviewSessionManager, { deleteArtifactUseCase },
             publishingPolicy, commentPolicy
         )
         
@@ -125,5 +125,47 @@ class PlayerViewModelTest {
         advanceUntilIdle()
         
         verify { playerInteractionUseCase.toggleSave(match { it.id == "art1" }) }
+    }
+
+    @Test
+    fun `playArtifactById should emit user friendly error on NotFound`() = runTest {
+        val artifactId = "missing_id"
+        val error = com.saurabh.artifact.model.AppError.NotFound("Artifact", artifactId)
+        
+        coEvery { 
+            playableArtifactRepository.resolveArtifact(artifactId, any()) 
+        } returns Result.failure(error)
+
+        val errors = mutableListOf<String>()
+        val collectJob = launch {
+            viewModel.interactionError.collect { errors.add(it) }
+        }
+
+        viewModel.playArtifactById(artifactId)
+        advanceUntilIdle()
+
+        assert(errors.contains("This artifact is no longer available."))
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `playArtifactById should emit user friendly error on PermissionDenied`() = runTest {
+        val artifactId = "private_id"
+        val error = com.saurabh.artifact.model.AppError.PermissionDenied()
+        
+        coEvery { 
+            playableArtifactRepository.resolveArtifact(artifactId, any()) 
+        } returns Result.failure(error)
+
+        val errors = mutableListOf<String>()
+        val collectJob = launch {
+            viewModel.interactionError.collect { errors.add(it) }
+        }
+
+        viewModel.playArtifactById(artifactId)
+        advanceUntilIdle()
+
+        assert(errors.contains("This artifact isn't available to you."))
+        collectJob.cancel()
     }
 }

@@ -156,16 +156,53 @@ class MainViewModel @Inject constructor(
         StartupMetrics.onAuthReady()
     }
 
-    fun onNewIntent(intent: android.content.Intent?) {
-        if (intent?.getBooleanExtra("navigate_to_recording", false) == true) {
-            // AUTH GUARD: Prevent intent bypass of Login screen
-            if (authRepository.currentUser.value == null) {
-                android.util.Log.w("AuthGuard", "Intent blocked: User is null.")
-                return
+    fun onLaunchIntent(intent: android.content.Intent?) {
+        val event = parseIntent(intent) ?: return
+
+        // 1. Auth Guard: Prevent intent bypass of Login screen
+        if (authRepository.currentUser.value == null) {
+            android.util.Log.w("AuthGuard", "Intent blocked: User is unauthenticated.")
+            return
+        }
+
+        emitNavigationEvent(event)
+    }
+
+    private fun parseIntent(intent: android.content.Intent?): Any? {
+        if (intent == null) return null
+
+        // 1. Handle Recording Shortcut
+        if (intent.getBooleanExtra("navigate_to_recording", false)) {
+            return InstantRecord()
+        }
+
+        // 2. Resolve Artifact ID from Notification Extras (Higher precedence)
+        val directId = intent.getStringExtra("artifactId")
+        if (directId != null && directId.isNotBlank()) {
+            return IncomingArtifact(directId)
+        }
+
+        // 3. Handle Action View (App Links / URIs)
+        if (intent.action == android.content.Intent.ACTION_VIEW) {
+            val data: android.net.Uri? = intent.data
+            if (data != null && (data.scheme == "http" || data.scheme == "https")) {
+                // Canonical Pattern: /a/{artifactId}
+                val pathSegments = data.pathSegments
+                if (pathSegments.size >= 2 && pathSegments[0] == "a") {
+                    val artifactId = pathSegments[1]
+                    if (artifactId.isNotBlank()) {
+                        return IncomingArtifact(artifactId)
+                    }
+                }
             }
-            viewModelScope.launch {
-                _navigationEvent.emit(InstantRecord())
-            }
+        }
+
+        return null
+    }
+
+    private fun emitNavigationEvent(event: Any) {
+        viewModelScope.launch {
+            _navigationEvent.emit(event)
         }
     }
 

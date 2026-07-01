@@ -33,11 +33,11 @@ class DatabaseMaintenanceManagerTest {
         every { openHelper.writableDatabase } returns writableDb
         
         manager = DatabaseMaintenanceManager(
-            database,
-            engagementDao,
-            interactionDao,
-            draftDao,
-            uploadDao
+            { database },
+            { engagementDao },
+            { interactionDao },
+            { draftDao },
+            { uploadDao }
         )
     }
 

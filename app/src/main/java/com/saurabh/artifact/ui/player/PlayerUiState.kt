@@ -6,7 +6,8 @@ import com.saurabh.artifact.model.*
  * Represents the comprehensive UI state for the immersive audio player.
  */
 data class PlayerUiState(
-    val currentArtifact: Artifact? = null,
+    val currentArtifact: PlayerArtifact? = null,
+    val internalOwnerId: String = "", // Compatibility field for creator actions and CommentsScreen
     val currentPlayableArtifact: PlayableArtifact? = null,
     val loadState: PlayerLoadState = PlayerLoadState.IDLE,
     val isPlaying: Boolean = false,

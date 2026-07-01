@@ -392,11 +392,30 @@ fun ArtifactCard(
     if (showOptionsSheet) {
         ArtifactOptionsSheet(
             isOwner = isOwner,
+            isPublic = artifact.isPublic,
+            isDraft = artifact.isDraft,
             onReportClick = onReportClick,
             onDismiss = { showOptionsSheet = false },
             onDeleteClick = { showDeleteConfirm = true },
             onFeedbackClick = onFeedbackClick,
-            onSettingsClick = onSettingsClick
+            onSettingsClick = onSettingsClick,
+            onShareClick = {
+                val payload = com.saurabh.artifact.model.SharePayload(
+                    artifactId = artifact.id,
+                    title = artifact.title,
+                    authorName = artifact.author.name,
+                    authorSigil = artifact.author.sigil
+                )
+                val shareText = com.saurabh.artifact.util.ShareFormatter.formatShareText(payload)
+                
+                val sendIntent = android.content.Intent().apply {
+                    action = android.content.Intent.ACTION_SEND
+                    putExtra(android.content.Intent.EXTRA_TEXT, shareText)
+                    type = "text/plain"
+                }
+                val shareIntent = android.content.Intent.createChooser(sendIntent, null)
+                context.startActivity(shareIntent)
+            }
         )
     }
 

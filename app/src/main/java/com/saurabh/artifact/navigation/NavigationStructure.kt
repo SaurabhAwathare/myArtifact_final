@@ -72,6 +72,9 @@ data class PreRecordingWarning(val prompt: String? = null) : Route
 data class InstantRecord(val prompt: String? = null) : Route
 
 @Serializable
+data class IncomingArtifact(val artifactId: String)
+
+@Serializable
 data class PostRecordingDecision(val draftId: String) : Route
 
 @Serializable

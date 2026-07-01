@@ -15,13 +15,13 @@ class RecordingFinalizationIdempotencyTest {
     private val draftDao = mockk<DraftDao>(relaxed = true)
     private val appDatabase = mockk<AppDatabase>(relaxed = true)
     private val recordingRepository = RecordingRepository(
-        draftDao = draftDao,
+        draftDao = { draftDao },
         userRepository = mockk(),
         localDraftManager = mockk(),
         wavRecoveryManager = mockk(),
         deletionManager = mockk(),
         cleanupManager = mockk(),
-        draftsDatabase = appDatabase
+        draftsDatabase = { appDatabase }
     )
 
     @Before

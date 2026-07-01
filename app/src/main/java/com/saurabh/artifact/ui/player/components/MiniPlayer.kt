@@ -45,8 +45,12 @@ fun MiniPlayer(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            val avatarConfig = artifact.author.avatarConfig.copy(
+                seed = artifact.author.avatarConfig.seed.ifEmpty { artifact.id }
+            )
+
             ArtifactAvatar(
-                config = artifact.authorAvatarConfig,
+                config = avatarConfig,
                 modifier = Modifier
                     .size(48.dp)
                     .clip(RoundedCornerShape(14.dp))
