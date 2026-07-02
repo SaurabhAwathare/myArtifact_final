@@ -361,7 +361,7 @@ class PlaybackSessionManager @Inject constructor(
     @androidx.annotation.OptIn(UnstableApi::class)
     fun preCache(artifact: Artifact) {
         MediaPreCacher.preCache(context, artifact.audioUrl)
-        Log.d("PlaybackSessionManager", "Enqueued background pre-cache: ${artifact.id}")
+        Log.d("PlaybackSessionManager", "Enqueued background pre-cache.")
     }
 
     private fun createMediaItem(artifact: Artifact): MediaItem {
@@ -480,7 +480,7 @@ class PlaybackSessionManager @Inject constructor(
             cleanupManager.get().deletingArtifactIds.collect { deletingIds ->
                 val currentId = _currentArtifact.value?.id ?: return@collect
                 if (currentId in deletingIds) {
-                    Log.d("PlaybackSessionManager", "Stopping playback for $currentId as it is being deleted.")
+                    Log.d("PlaybackSessionManager", "Stopping playback as it is being deleted.")
                     stop()
                 }
             }

@@ -70,7 +70,6 @@ class MainActivity : ComponentActivity() {
             mainViewModel.startupState.value is AppStartupState.Initializing
         }
 
-        println("ReviewDebug: MainActivity onCreate - println test")
         Log.d("ReviewDebug", "MainActivity onCreate - APP STARTED")
         
         // SIMULATE CRASH LOOP for verification
@@ -80,7 +79,9 @@ class MainActivity : ComponentActivity() {
         Log.i("ReviewDebug", "Checking if log level INFO works")
         Log.d("APP_FLOW", "1. MainActivity.onCreate")
         
-        mainViewModel.onLaunchIntent(intent)
+        if (savedInstanceState == null) {
+            mainViewModel.onLaunchIntent(intent)
+        }
         
         // Begin deterministic initialization
         mainViewModel.start()

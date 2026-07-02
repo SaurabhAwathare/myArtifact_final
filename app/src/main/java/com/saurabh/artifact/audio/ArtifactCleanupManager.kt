@@ -38,11 +38,10 @@ class ArtifactCleanupManager @Inject constructor(
             val result = artifactRepository.deletePublishedArtifact(artifactId)
             
             if (result.isSuccess) {
-                Log.d("CleanupManager", "Remote deletion successful for $artifactId. Scheduling local cleanup.")
+                Log.d("CleanupManager", "Remote deletion successful. Scheduling local cleanup.")
                 scheduleLocalCleanup(artifactId)
             } else {
-                val errorMsg = result.exceptionOrNull()?.message ?: "Unknown error"
-                Log.e("CleanupManager", "Remote deletion failed for $artifactId: $errorMsg")
+                Log.e("CleanupManager", "Remote deletion failed.")
             }
             result
         } finally {
@@ -58,11 +57,10 @@ class ArtifactCleanupManager @Inject constructor(
         _deletingArtifactIds.value += draftId
         return try {
             draftDeletionManager.deleteDraft(draftId)
-            Log.d("CleanupManager", "Local draft deletion successful for $draftId")
+            Log.d("CleanupManager", "Local draft deletion successful.")
             Result.success(Unit)
         } catch (e: Exception) {
-            val errorMsg = e.message ?: "Unknown error"
-            Log.e("CleanupManager", "Local draft deletion failed for $draftId: $errorMsg")
+            Log.e("CleanupManager", "Local draft deletion failed.")
             Result.failure(e)
         } finally {
             _deletingArtifactIds.value -= draftId

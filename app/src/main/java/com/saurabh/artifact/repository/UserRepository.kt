@@ -318,7 +318,7 @@ class UserRepository @Inject constructor(
         val docRef = try {
             usersCollection.document(userId.trim())
         } catch (e: Exception) {
-            Log.e("UserRepository", "streamUserProfile: Invalid path for userId: $userId", e)
+            Log.e("UserRepository", "streamUserProfile: Invalid path for userId.")
             trySend(null)
             close(e)
             return@callbackFlow
@@ -327,7 +327,7 @@ class UserRepository @Inject constructor(
         // 3. Listener Implementation
         val registration = docRef.addSnapshotListener { snapshot, error ->
             if (error != null) {
-                Log.e("UserRepository", "Error streaming profile for $userId: ${error.code}", error)
+                Log.e("UserRepository", "Error streaming profile.")
                 // HARDENING: If it's a permanent error (Permission Denied), we emit null and close.
                 // However, we MUST trySend(null) first to unblock any 'combine' operators.
                 trySend(null)

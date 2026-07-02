@@ -16,7 +16,7 @@ class PublishArtifactUseCase @Inject constructor(
         val draft = draftResult.getOrNull() ?: return Result.failure(Exception("Draft not found"))
 
         if (draft.lifecycle != com.saurabh.artifact.model.ArtifactLifecycle.READY_TO_PUBLISH) {
-            Log.w("PublishValidation", "Draft ${draft.id} status: ${draft.lifecycle}, Progress: ${draft.reviewProgress}")
+            Log.w("PublishValidation", "Draft status: ${draft.lifecycle}, Progress: ${draft.reviewProgress}")
             val requiredPercent = (publishingPolicy.minCoverage * 100).toInt()
             return Result.failure(Exception("$requiredPercent% Review required before publishing"))
         }

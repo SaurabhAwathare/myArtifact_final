@@ -56,7 +56,7 @@ class SafetyEvaluator @Inject constructor() {
                 val confidence = evaluateConfidence(normalized, pattern.pattern)
                 val finalLevel = if (confidence < 0.6f) SafetyLevel.MEDIUM else SafetyLevel.HIGH
                 
-                logWarning("HIGH RISK PATTERN MATCHED: ${pattern.pattern} (Confidence: $confidence -> Level: $finalLevel)")
+                logWarning("HIGH RISK PATTERN MATCHED (Confidence: $confidence -> Level: $finalLevel)")
                 
                 return SafetyResult(
                     level = finalLevel,
@@ -79,7 +79,7 @@ class SafetyEvaluator @Inject constructor() {
         mediumRiskPatterns.forEach { pattern ->
             if (pattern.containsMatchIn(normalized)) {
                 val confidence = evaluateConfidence(normalized, pattern.pattern)
-                logDebug("MEDIUM RISK PATTERN MATCHED: ${pattern.pattern} (Confidence: $confidence)")
+                logDebug("MEDIUM RISK PATTERN MATCHED (Confidence: $confidence)")
 
                 return SafetyResult(
                     level = SafetyLevel.MEDIUM,
@@ -105,19 +105,11 @@ class SafetyEvaluator @Inject constructor() {
     }
 
     private fun logWarning(message: String) {
-        try {
-            Log.w(tag, message)
-        } catch (_: Exception) {
-            println("[$tag] WARNING: $message")
-        }
+        Log.w(tag, message)
     }
 
     private fun logDebug(message: String) {
-        try {
-            Log.d(tag, message)
-        } catch (_: Exception) {
-            println("[$tag] DEBUG: $message")
-        }
+        Log.d(tag, message)
     }
 
     private fun evaluateConfidence(text: String, matchedPattern: String): Float {

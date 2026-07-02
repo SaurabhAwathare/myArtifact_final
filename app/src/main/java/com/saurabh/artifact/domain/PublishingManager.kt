@@ -31,32 +31,32 @@ class PublishingManager @Inject constructor(
         draftId: String,
         onProgress: suspend (Long, Long, String?) -> Unit = { _, _, _ -> }
     ): Result<Unit> = withContext(Dispatchers.IO) {
-        Log.i("PublishingManager", "Starting publishing flow for draft $draftId")
+        Log.i("PublishingManager", "Starting publishing flow for draft.")
         try {
             val draft = draftRepository.getDraft(draftId).getOrNull() 
                 ?: return@withContext Result.failure<Unit>(Exception("Draft not found")).also {
-                    Log.e("PublishingManager", "Draft $draftId not found in repository")
+                    Log.e("PublishingManager", "Draft not found in repository.")
                 }
             
             val firebaseUser = FirebaseAuth.getInstance().currentUser 
                 ?: return@withContext Result.failure<Unit>(Exception("User not authenticated")).also {
-                    Log.e("PublishingManager", "No authenticated user found for draft $draftId")
+                    Log.e("PublishingManager", "No authenticated user found for draft.")
                 }
 
             // 1. Security & Integrity Validation
-            Log.d("PublishingManager", "Step 1: Validating approval and integrity for $draftId")
+            Log.d("PublishingManager", "Step 1: Validating approval and integrity.")
             if (!uploadGuard.validateApproval(draft, firebaseUser.uid)) {
-                val errorMsg = "Security or Integrity validation failed for draft $draftId. Token or Timestamp mismatch."
+                val errorMsg = "Security or Integrity validation failed. Token or Timestamp mismatch."
                 Log.e("PublishingManager", errorMsg)
                 draftRepository.updateUploadStatus(draftId, SyncStatus.Failed(errorMsg))
                 return@withContext Result.failure(Exception(errorMsg))
             }
 
             // 2. Check remote status to avoid redundant uploads
-            Log.d("PublishingManager", "Step 2: Checking remote status for $draftId")
+            Log.d("PublishingManager", "Step 2: Checking remote status.")
             val remoteArtifact = artifactRepository.getArtifact(draftId).getOrNull()
             if (remoteArtifact != null && remoteArtifact.status == ArtifactStatus.ACTIVE) {
-                Log.i("PublishingManager", "Artifact $draftId is already ACTIVE on Firestore. Syncing local state.")
+                Log.i("PublishingManager", "Artifact is already ACTIVE on Firestore. Syncing local state.")
                 withContext(NonCancellable) {
                     draftRepository.markAsPublished(draftId, draftId)
                 }
@@ -64,7 +64,7 @@ class PublishingManager @Inject constructor(
             }
 
             if (draft.lifecycle == ArtifactLifecycle.PUBLISHED) {
-                Log.i("PublishingManager", "Draft $draftId already marked as PUBLISHED locally.")
+                Log.i("PublishingManager", "Draft already marked as PUBLISHED locally.")
                 return@withContext Result.success(Unit)
             }
 
@@ -72,7 +72,7 @@ class PublishingManager @Inject constructor(
             draftRepository.updateUploadStatus(draftId, SyncStatus.Uploading)
 
             // 3. Upload Transcript
-            Log.d("PublishingManager", "Step 3: Uploading transcript for $draftId")
+            Log.d("PublishingManager", "Step 3: Uploading transcript.")
             val transcriptUrl = if (draft.frozenTranscriptJson != null) {
                 artifactRepository.uploadTranscript(
                     userId = firebaseUser.uid,
@@ -82,7 +82,7 @@ class PublishingManager @Inject constructor(
             } else null
 
             // 4. Fetch User Profile (Offline-First)
-            Log.d("PublishingManager", "Step 4: Fetching user profile for $draftId")
+            Log.d("PublishingManager", "Step 4: Fetching user profile.")
             val userProfile = userRepository.getOrCreateProfile().map { it.user }.getOrElse {
                 Log.w("PublishingManager", "Network profile fetch failed, attempting to use cached profile")
                 userRepository.getCachedProfile() ?: throw Exception("User profile not available (even offline)")
@@ -92,7 +92,7 @@ class PublishingManager @Inject constructor(
             val authorSnapshot = com.saurabh.artifact.model.AuthorSnapshot.fromUser(userProfile)
 
             // 5. Pre-register Firestore Document
-            Log.d("PublishingManager", "Step 5: Pre-registering Firestore document for $draftId")
+            Log.d("PublishingManager", "Step 5: Pre-registering Firestore document.")
             artifactRepository.createArtifactDocument(
                 userId = firebaseUser.uid,
                 author = authorSnapshot,
@@ -104,9 +104,9 @@ class PublishingManager @Inject constructor(
             ).getOrThrow()
 
             // 6. Upload Audio (Resumable)
-            Log.d("PublishingManager", "Step 6: Starting audio upload for $draftId")
+            Log.d("PublishingManager", "Step 6: Starting audio upload.")
             val downloadUrl = if (draft.uploadedAudioUrl != null) {
-                Log.i("PublishingManager", "Using checkpointed audio URL for $draftId")
+                Log.i("PublishingManager", "Using checkpointed audio URL.")
                 draft.uploadedAudioUrl
             } else {
                 val uploadResult = artifactRepository.uploadArtifactResumable(
@@ -126,7 +126,7 @@ class PublishingManager @Inject constructor(
             draftRepository.updateUploadStatus(draftId, SyncStatus.Finalizing)
 
             // 7. Finalize Firestore Document
-            Log.d("PublishingManager", "Step 7: Finalizing Firestore document for $draftId")
+            Log.d("PublishingManager", "Step 7: Finalizing Firestore document.")
             artifactRepository.finalizeArtifactDocument(
                 artifactId = draftId,
                 audioUrl = downloadUrl,
@@ -136,17 +136,17 @@ class PublishingManager @Inject constructor(
             ).getOrThrow()
 
             // 8. Success Cleanup
-            Log.d("PublishingManager", "Step 8: Cleanup and marking as published for $draftId")
+            Log.d("PublishingManager", "Step 8: Cleanup and marking as published.")
             withContext(NonCancellable) {
                 draftRepository.markAsPublished(draftId, draftId)
             }
 
             cleanupManager.scheduleRetentionCleanup(draftId)
             
-            Log.i("PublishingManager", "Draft $draftId published successfully")
+            Log.i("PublishingManager", "Draft published successfully")
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("PublishingManager", "Publishing flow failed for $draftId at stage ${getFailureStage(e)}", e)
+            Log.e("PublishingManager", "Publishing flow failed at stage ${getFailureStage(e)}", e)
             Result.failure(e)
         }
     }

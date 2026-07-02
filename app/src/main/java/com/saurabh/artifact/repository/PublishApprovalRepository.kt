@@ -43,7 +43,7 @@ class PublishApprovalRepository @Inject constructor(
         try {
             val draft = draftDao.getDraftById(draftId) ?: return@withContext Result.failure(Exception("Draft not found"))
 
-            Log.d("PublishApprovalRepo", "Starting auto-approval for draft: $draftId")
+            Log.d("PublishApprovalRepo", "Starting auto-approval for draft.")
 
             // 1. Load Transcript with Fallback
             val transcript = if (draft.frozenTranscriptJson != null) {
@@ -51,18 +51,18 @@ class PublishApprovalRepository @Inject constructor(
                 Json.decodeFromString<List<TranscriptSegment>>(json)
             } else if (draft.localTranscriptPath != null) {
                 val file = File(draft.localTranscriptPath)
-                Log.d("PublishApprovalRepo", "Transcript file path: ${file.absolutePath}")
+                Log.d("PublishApprovalRepo", "Transcript file located.")
                 
                 if (file.exists()) {
                     val content = file.readText()
-                    Log.d("PublishApprovalRepo", "Transcript file contents (200 chars): ${content.take(200)}")
+                    Log.d("PublishApprovalRepo", "Transcript file read successfully.")
                     
                     try {
                         val segments = Json.decodeFromString<List<TranscriptSegment>>(content)
                         Log.d("PublishApprovalRepo", "Transcript type detected: JSON")
                         segments
                     } catch (e: Exception) {
-                        Log.w("PublishApprovalRepo", "Transcript type detected: PLAIN_TEXT (Wrapping content) - Error: ${e.message}")
+                        Log.w("PublishApprovalRepo", "Transcript type detected: PLAIN_TEXT (Wrapping content)")
                         listOf(TranscriptSegment(id = "recovered_plain", text = content, confidence = 0.5f))
                     }
                 } else {
@@ -75,15 +75,13 @@ class PublishApprovalRepository @Inject constructor(
 
             approveAndFreeze(draftId, transcript)
         } catch (e: Exception) {
-            Log.e("PublishApprovalRepo", "Auto-approval failed for $draftId", e)
+            Log.e("PublishApprovalRepo", "Auto-approval failed.", e)
             Result.failure(e)
         }
     }
 
     suspend fun validateDraft(draft: ArtifactDraftEntity, transcript: List<TranscriptSegment>): ValidationResult = withContext(Dispatchers.Default) {
         // Automatic safety checks disabled per user request
-        println(draft.id) // Avoid unused parameter warning
-        println(transcript.size) // Avoid unused parameter warning
         ValidationResult(
             hasSensitiveInfo = false,
             isHighRisk = false,
@@ -130,7 +128,7 @@ class PublishApprovalRepository @Inject constructor(
                 timestamp = timestamp
             )
 
-            Log.d("PublishApprovalRepo", "Approval token generation success for $draftId")
+            Log.d("PublishApprovalRepo", "Approval token generation success.")
 
             // 3. Persist Snapshot
             draftDao.freezeSnapshot(

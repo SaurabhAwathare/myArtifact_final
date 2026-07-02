@@ -70,7 +70,7 @@ class ReviewSessionManager @Inject constructor(
                 .distinctUntilChanged()
                 .collect { (artifactId, isThresholdMet) ->
                     if (isThresholdMet && artifactId != null) {
-                        android.util.Log.d("STUDIO_TRACE", "Threshold met for $artifactId. Triggering completion. (DB_TRACE)")
+                        android.util.Log.d("STUDIO_TRACE", "Threshold met. Triggering completion. (DB_TRACE)")
                         trackReviewCompleted(artifactId)
                         markReviewComplete(artifactId)
                     }
@@ -79,7 +79,7 @@ class ReviewSessionManager @Inject constructor(
     }
 
     private fun trackReviewCompleted(artifactId: String) {
-        android.util.Log.d("STUDIO_TRACE", "trackReviewCompleted: $artifactId (DB_TRACE)")
+        android.util.Log.d("STUDIO_TRACE", "trackReviewCompleted (DB_TRACE)")
     }
 
     private fun updatePersistedProgress(artifactId: String, progress: Float) {
@@ -91,7 +91,7 @@ class ReviewSessionManager @Inject constructor(
     fun startReview(draftId: String) {
         if (reviewProgress.value.artifactId == draftId && playbackSessionManager.isPlaying.value) return
 
-        android.util.Log.d("STUDIO_TRACE", "startReview: $draftId (LIFECYCLE_TRACE)")
+        android.util.Log.d("STUDIO_TRACE", "startReview (LIFECYCLE_TRACE)")
         scope.launch {
             val draft = draftDao.getDraftById(draftId) ?: return@launch
             
@@ -117,12 +117,12 @@ class ReviewSessionManager @Inject constructor(
             
             // Idempotency guard: If already marked complete or beyond metadata required, skip
             if (draft.reviewCompleted && draft.lifecycle >= ArtifactLifecycle.METADATA_REQUIRED) {
-                android.util.Log.d("STUDIO_TRACE", "markReviewComplete: Already complete for $artifactId. Skipping redundant write. (DB_TRACE)")
+                android.util.Log.d("STUDIO_TRACE", "markReviewComplete: Already complete. Skipping redundant write. (DB_TRACE)")
                 return@withContext
             }
 
-            android.util.Log.d("LIFECYCLE_TRACE", "markReviewComplete: $artifactId. Transitioning ${draft.lifecycle} -> METADATA_REQUIRED (DB_TRACE)")
-            android.util.Log.d("StudioLoop", "markReviewCompletePartial for $artifactId")
+            android.util.Log.d("LIFECYCLE_TRACE", "markReviewComplete. Transitioning ${draft.lifecycle} -> METADATA_REQUIRED (DB_TRACE)")
+            android.util.Log.d("StudioLoop", "markReviewCompletePartial")
             draftDao.markReviewCompletePartial(artifactId)
         }
     }

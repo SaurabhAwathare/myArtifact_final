@@ -161,7 +161,6 @@ object NotificationHelper {
      */
     fun updateUploadProgress(context: Context, title: String, progress: Int, draftId: String? = null) {
         if (!hasNotificationPermission(context)) {
-            Log.d("NotificationHelper", "Trace: Skipping progress update (no permission)")
             return
         }
 
@@ -171,12 +170,11 @@ object NotificationHelper {
         }
         lastUploadUpdateTime = currentTime
         
-        Log.d("NotificationHelper", "Trace: Updating upload progress for $title to $progress%")
         val notification = buildUploadProgressNotification(context, title, progress, draftId)
         try {
             NotificationManagerCompat.from(context).notify(UPLOAD_NOTIFICATION_ID, notification)
         } catch (e: SecurityException) {
-            Log.e("NotificationHelper", "SecurityException while updating upload progress", e)
+            Log.e("NotificationHelper", "SecurityException while updating upload progress")
         }
     }
 
@@ -325,6 +323,18 @@ object NotificationHelper {
             NotificationManagerCompat.from(context).notify(UPLOAD_NOTIFICATION_ID, builder.build())
         } catch (e: SecurityException) {
             Log.e("NotificationHelper", "SecurityException while showing upload error notification", e)
+        }
+    }
+
+    /**
+     * Cancels all active notifications posted by the app.
+     */
+    fun cancelAllNotifications(context: Context) {
+        try {
+            NotificationManagerCompat.from(context).cancelAll()
+            Log.i("NotificationHelper", "All notifications cancelled.")
+        } catch (e: Exception) {
+            Log.e("NotificationHelper", "Failed to cancel all notifications", e)
         }
     }
 }

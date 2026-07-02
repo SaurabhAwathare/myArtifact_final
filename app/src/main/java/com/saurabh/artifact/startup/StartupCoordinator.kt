@@ -5,6 +5,7 @@ import android.util.Log
 import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailability
 import com.google.android.gms.security.ProviderInstaller
+import android.content.Intent
 import com.google.firebase.appcheck.FirebaseAppCheck
 import com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory
 import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
@@ -28,6 +29,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.first
+import kotlin.coroutines.resume
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import java.util.concurrent.TimeUnit
@@ -64,7 +66,12 @@ class StartupCoordinator @Inject constructor(
     val stage = _stage.asStateFlow()
 
     private val _readyComponents = MutableStateFlow<Set<StartupComponent>>(emptySet())
+    
+    private val _terminalError = MutableStateFlow<Throwable?>(null)
+    val terminalError = _terminalError.asStateFlow()
+
     private var isStarted = false
+    private var startupJob: Job? = null
     
     private var _isRescueModeActive = false
     val isRescueModeActive: Boolean get() = _isRescueModeActive
@@ -77,10 +84,39 @@ class StartupCoordinator @Inject constructor(
         _readyComponents.update { it + component }
     }
 
+    /**
+     * Force completes all readiness signals to unblock the sequence.
+     * Use this when a terminal failure occurs.
+     */
+    fun completeAll() {
+        Log.w("Startup", "Force completing all readiness signals")
+        _readyComponents.update { it + StartupComponent.entries.toSet() }
+    }
+
+    /**
+     * Resets the coordinator state to allow for a retry.
+     */
+    fun reset() {
+        Log.i("Startup", "Resetting coordinator state")
+        startupJob?.cancel()
+        startupJob = null
+        isStarted = false
+        _readyComponents.value = emptySet()
+        _terminalError.value = null
+        _stage.value = StartupStage.ARRIVAL
+    }
+
+    /**
+     * Suspends until the specified technical component is ready.
+     */
+    suspend fun awaitComponent(component: StartupComponent) {
+        _readyComponents.first { it.contains(component) }
+    }
+
     private suspend fun awaitReadiness(component: StartupComponent) {
         try {
             withTimeout(15.seconds) {
-                _readyComponents.first { it.contains(component) }
+                awaitComponent(component)
             }
             Log.d("Startup", "Readiness Confirmed: $component")
         } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
@@ -100,7 +136,7 @@ class StartupCoordinator @Inject constructor(
         val rescueTracker = RescueTracker.getInstance(context)
         _isRescueModeActive = rescueTracker.isRescueModeRequired()
 
-        scope.launch {
+        startupJob = scope.launch {
             Log.d("Startup", "Starting Optimized Sequence: ARRIVAL (RescueMode=$_isRescueModeActive)")
             StartupTracer.mark("Startup Sequence Started")
             
@@ -109,113 +145,110 @@ class StartupCoordinator @Inject constructor(
                 return@launch
             }
 
-            // PHASE 1: Immediate Core (Critical for UI availability)
-            initializeCore()
-            emitReadiness(StartupComponent.CORE)
-            
-            // STAGGER 1: Move to Presence after initial frame
-            delay(200.milliseconds) // Reduced from 500ms
-            _stage.value = StartupStage.PRESENCE
-            StartupTracer.mark("Transition: PRESENCE")
-            
-            // PHASE 2: Deferred & Background Initialization
-            launch(Dispatchers.Default) {
-                // SECURITY: Wait for core and then install
-                awaitReadiness(StartupComponent.CORE)
-                delay(200.milliseconds) // Reduced from 400ms
-                initializeSecurityProvider()
+            try {
+                // PHASE 1: Mandatory Core Security (Critical for UI and Backend)
+                initializeSecurityProviderSync()
+                initializeCore() 
+                emitReadiness(StartupComponent.CORE)
                 
-                // BACKGROUND: Schedule tasks away from Main
-                initializeBackground()
+                // STAGGER 1: Move to Presence after initial frame
+                delay(200.milliseconds) 
+                _stage.value = StartupStage.PRESENCE
+                StartupTracer.mark("Transition: PRESENCE")
                 
-                StartupTracer.mark("Non-critical Services Initialized (Background)")
+                // PHASE 2: Deferred & Background Initialization
+                launch(Dispatchers.Default) {
+                    // BACKGROUND: Schedule tasks away from Main
+                    initializeBackground()
+                    StartupTracer.mark("Non-critical Services Initialized (Background)")
+                }
+
+                // WAIT FOR AUTH before moving to Discovery
+                awaitReadiness(StartupComponent.AUTH)
+
+                // STAGGER 2: Discovery (Partial Feed)
+                delay(200.milliseconds)
+                _stage.value = StartupStage.DISCOVERY
+                StartupTracer.mark("Transition: DISCOVERY")
+
+                // WAIT FOR DATABASE before Immersion (where comments/reactions live)
+                awaitReadiness(StartupComponent.DATABASE)
+
+                // STAGGER 3: Immersion (Social/Reactions)
+                delay(300.milliseconds)
+                _stage.value = StartupStage.IMMERSION
+                StartupTracer.mark("Transition: IMMERSION")
+
+                // STAGGER 4: Ritual (Media/Player)
+                delay(500.milliseconds)
+                _stage.value = StartupStage.RITUAL
+                StartupTracer.mark("Transition: RITUAL")
+
+                // STAGGER 5: Stable (Full Fidelity)
+                delay(500.milliseconds)
+                _stage.value = StartupStage.STABLE
+                StartupTracer.mark("Transition: STABLE")
+
+                // PHASE 4: Late Post-UI
+                initializePostUI()
+            } catch (e: Exception) {
+                Log.e("Startup", "Terminal failure in startup sequence", e)
+                _terminalError.value = e
+                // Force unblock any awaiters to allow error state to propagate
+                completeAll()
             }
-
-            // WAIT FOR AUTH before moving to Discovery
-            // This ensures we don't show the feed until we know who the user is
-            awaitReadiness(StartupComponent.AUTH)
-
-            // STAGGER 2: Discovery (Partial Feed)
-            delay(200.milliseconds) // Reduced from 500ms
-            _stage.value = StartupStage.DISCOVERY
-            StartupTracer.mark("Transition: DISCOVERY")
-
-            // WAIT FOR DATABASE before Immersion (where comments/reactions live)
-            awaitReadiness(StartupComponent.DATABASE)
-
-            // STAGGER 3: Immersion (Social/Reactions)
-            delay(300.milliseconds) // Reduced from 500ms
-            _stage.value = StartupStage.IMMERSION
-            StartupTracer.mark("Transition: IMMERSION")
-
-            // STAGGER 4: Ritual (Media/Player)
-            delay(500.milliseconds) // Reduced from 1000ms
-            _stage.value = StartupStage.RITUAL
-            StartupTracer.mark("Transition: RITUAL")
-
-            // STAGGER 5: Stable (Full Fidelity)
-            delay(500.milliseconds) // Reduced from 1s
-            _stage.value = StartupStage.STABLE
-            StartupTracer.mark("Transition: STABLE")
-
-            // PHASE 4: Late Post-UI
-            initializePostUI()
         }
     }
 
     private fun initializeCore() {
-        Log.d("Startup", "Initializing Core Services (Sequenced)")
+        Log.d("Startup", "Initializing Core Services (App Check)")
 
-        // DIAGNOSTIC: Disabling App Check to isolate SecurityException
-        Log.d("Startup", "DIAGNOSTIC: Firebase App Check initialization SKIPPED")
-        /*
-        try {
-            val appCheck = FirebaseAppCheck.getInstance()
-            if (BuildConfig.DEBUG) {
-                Log.d("Startup", "Installing Debug App Check provider")
-                appCheck.installAppCheckProviderFactory(
-                    DebugAppCheckProviderFactory.getInstance()
-                )
-                // Enhanced logging for debug token discovery
-                Log.i("Startup", "App Check: DEBUG MODE. If you see 'Too many attempts', ensure your Debug Token (printed in logcat earlier) is registered in the Firebase Console.")
-            } else {
-                Log.d("Startup", "Installing Play Integrity App Check provider")
-                appCheck.installAppCheckProviderFactory(
-                    PlayIntegrityAppCheckProviderFactory.getInstance()
-                )
-            }
-        } catch (e: Exception) {
-            Log.e("Startup", "Critical: App Check initialization failed", e)
+        val appCheck = FirebaseAppCheck.getInstance()
+        if (BuildConfig.DEBUG) {
+            Log.d("Startup", "Installing Debug App Check provider")
+            appCheck.installAppCheckProviderFactory(
+                DebugAppCheckProviderFactory.getInstance()
+            )
+            Log.i("Startup", "App Check: DEBUG MODE active.")
+        } else {
+            Log.d("Startup", "Installing Play Integrity App Check provider")
+            appCheck.installAppCheckProviderFactory(
+                PlayIntegrityAppCheckProviderFactory.getInstance()
+            )
         }
-        */
+    }
+
+    private suspend fun initializeSecurityProviderSync() {
+        Log.d("Startup", "Initializing Security Provider (Suspended)")
+        val availability = GoogleApiAvailability.getInstance()
+        val resultCode = availability.isGooglePlayServicesAvailable(context)
+
+        if (resultCode == ConnectionResult.SUCCESS) {
+            return suspendCancellableCoroutine { continuation ->
+                ProviderInstaller.installIfNeededAsync(context, object : ProviderInstaller.ProviderInstallListener {
+                    override fun onProviderInstalled() {
+                        Log.d("Startup", "Security provider initialized")
+                        emitReadiness(StartupComponent.SECURITY)
+                        continuation.resume(Unit)
+                    }
+
+                    override fun onProviderInstallFailed(errorCode: Int, recoveryIntent: Intent?) {
+                        Log.w("Startup", "Security provider failed: $errorCode. Proceeding with caution.")
+                        emitReadiness(StartupComponent.SECURITY)
+                        continuation.resume(Unit)
+                    }
+                })
+            }
+        } else {
+            Log.w("Startup", "Google Play Services not available: $resultCode")
+            emitReadiness(StartupComponent.SECURITY)
+        }
     }
 
     private fun initializeSecurityProvider() {
-        try {
-            val availability = GoogleApiAvailability.getInstance()
-            val resultCode = availability.isGooglePlayServicesAvailable(context)
-
-            if (resultCode == ConnectionResult.SUCCESS) {
-                // Security provider must be installed on UI thread if using certain GMS features, 
-                // but ProviderInstaller.installIfNeededAsync is designed to be called from anywhere.
-                // However, the error log "Must be called on the UI thread" suggests an internal requirement here.
-                scope.launch(Dispatchers.Main) {
-                    ProviderInstaller.installIfNeededAsync(context, object : ProviderInstaller.ProviderInstallListener {
-                        override fun onProviderInstalled() {
-                            Log.d("Startup", "Security provider initialized")
-                            emitReadiness(StartupComponent.SECURITY)
-                        }
-
-                        override fun onProviderInstallFailed(errorCode: Int, recoveryIntent: android.content.Intent?) {
-                            Log.w("Startup", "Security provider failed: $errorCode")
-                            // We still emit readiness to unblock the sequence, but with a warning
-                            emitReadiness(StartupComponent.SECURITY)
-                        }
-                    })
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("Startup", "GMS ProviderInstaller error: ${e.message}")
+        // Legacy method, no longer used in mandatory path but kept for safety if referenced elsewhere
+        scope.launch(Dispatchers.Default) {
+            initializeSecurityProviderSync()
         }
     }
 

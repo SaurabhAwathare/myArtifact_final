@@ -23,7 +23,7 @@ class BlockStoreManager @Inject constructor(
                 .setKey(ANONYMOUS_ID_KEY)
                 .build()
             client.storeBytes(data).await()
-            Log.d(TAG, "Anonymous ID saved to Block Store: $id")
+            Log.d(TAG, "Anonymous ID saved to Block Store successfully.")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save Anonymous ID to Block Store", e)
         }
@@ -37,11 +37,27 @@ class BlockStoreManager @Inject constructor(
             val result = client.retrieveBytes(request).await()
             val idBytes = result.blockstoreDataMap[ANONYMOUS_ID_KEY]?.bytes
             val id = idBytes?.let { String(it) }
-            Log.d(TAG, "Retrieved Anonymous ID from Block Store: $id")
+            Log.d(TAG, "Retrieved Anonymous ID from Block Store.")
             id
         } catch (e: Exception) {
             Log.e(TAG, "Failed to retrieve Anonymous ID from Block Store", e)
             null
+        }
+    }
+
+    /**
+     * Purges the persistent anonymous ID from Block Store.
+     * This is an identity-destructive operation used during full account deletion.
+     */
+    suspend fun clear() {
+        try {
+            val request = com.google.android.gms.auth.blockstore.DeleteBytesRequest.Builder()
+                .setKeys(listOf(ANONYMOUS_ID_KEY))
+                .build()
+            client.deleteBytes(request).await()
+            Log.i(TAG, "Block Store identity markers cleared successfully.")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to clear Block Store identity", e)
         }
     }
 

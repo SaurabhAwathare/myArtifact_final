@@ -150,7 +150,7 @@ class PublishStateManager @Inject constructor(
         }
         
         drafts.forEach { draft ->
-            Log.w("PublishStateManager", "Watchdog: Marking stale draft ${draft.id} as FAILED")
+            Log.w("PublishStateManager", "Watchdog: Marking stale draft as FAILED")
             draftRepository.updateStatus(draft.id) { 
                 it.copy(processing = ProcessingStatus.Failed) 
             }

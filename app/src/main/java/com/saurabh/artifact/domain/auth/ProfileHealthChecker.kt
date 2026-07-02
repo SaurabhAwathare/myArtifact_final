@@ -38,19 +38,19 @@ class ProfileHealthChecker @Inject constructor(
                 userRef.get().await()
             }
             if (!userSnapshot.exists()) {
-                Log.w("ProfileHealth", "User document missing for $userId")
+                Log.w("ProfileHealth", "User document missing.")
                 return HealthStatus.Missing
             }
 
             // Verify basic fields using the repair service's validation logic
             val (user, needsRepair) = profileRepairService.loadAndRepair(userSnapshot)
             if (needsRepair) {
-                Log.w("ProfileHealth", "User document requires repair for $userId")
+                Log.w("ProfileHealth", "User document requires repair.")
                 return HealthStatus.RepairRequired
             }
 
             if (user.anonymousId.isBlank() || user.anonymousName.isBlank()) {
-                Log.w("ProfileHealth", "User document missing core identity for $userId")
+                Log.w("ProfileHealth", "User document missing core identity.")
                 return HealthStatus.RepairRequired
             }
 
@@ -59,17 +59,17 @@ class ProfileHealthChecker @Inject constructor(
                 privateRef.get().await()
             }
             if (!privateSnapshot.exists()) {
-                Log.w("ProfileHealth", "Private settings missing for $userId")
+                Log.w("ProfileHealth", "Private settings missing.")
                 return HealthStatus.RepairRequired
             }
 
             Log.d("APP_FLOW", "PROFILE_CHECK_SUCCESS")
             HealthStatus.Healthy
         } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
-            Log.e("APP_FLOW", "PROFILE_CHECK_TIMEOUT", e)
+            Log.e("APP_FLOW", "PROFILE_CHECK_TIMEOUT")
             HealthStatus.Missing
         } catch (e: Exception) {
-            Log.e("APP_FLOW", "PROFILE_CHECK_FAILED", e)
+            Log.e("APP_FLOW", "PROFILE_CHECK_FAILED")
             HealthStatus.Missing // Treat as missing to trigger recovery
         }
     }

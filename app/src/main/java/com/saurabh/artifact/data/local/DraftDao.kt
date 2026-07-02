@@ -19,7 +19,7 @@ interface DraftDao {
         if (existing == null || existing.lifecycle.canTransitionTo(draft.lifecycle, isRecovery)) {
             _updateInternal(draft)
         } else {
-            android.util.Log.w("DraftDao", "Blocked backward lifecycle transition for ${draft.id}: ${existing.lifecycle} -> ${draft.lifecycle}")
+            android.util.Log.w("DraftDao", "Blocked backward lifecycle transition: ${existing.lifecycle} -> ${draft.lifecycle}")
         }
     }
 
@@ -54,7 +54,7 @@ interface DraftDao {
         if (existing == null || existing.lifecycle.canTransitionTo(lifecycle, isRecovery)) {
             _updateStatusAndLifecycleInternal(id, existing?.status ?: DraftStatus(), lifecycle, timestamp)
         } else {
-            android.util.Log.w("DraftDao", "Blocked backward lifecycle transition for $id: ${existing.lifecycle} -> $lifecycle")
+            android.util.Log.w("DraftDao", "Blocked backward lifecycle transition: ${existing.lifecycle} -> $lifecycle")
         }
     }
 
@@ -67,7 +67,7 @@ interface DraftDao {
         if (existing == null || existing.lifecycle.canTransitionTo(lifecycle, isRecovery)) {
             _updateStatusAndLifecycleInternal(id, status, lifecycle, timestamp)
         } else {
-            android.util.Log.w("DraftDao", "Blocked backward lifecycle transition for $id: ${existing.lifecycle} -> $lifecycle")
+            android.util.Log.w("DraftDao", "Blocked backward lifecycle transition: ${existing.lifecycle} -> $lifecycle")
         }
     }
 
@@ -108,7 +108,7 @@ interface DraftDao {
     @Transaction
     suspend fun finalizeProcessing(id: String, timestamp: Long = System.currentTimeMillis()) {
         val existing = getDraftById(id) ?: return
-        android.util.Log.d("FINALIZER_TRACE", "finalizeProcessing: id=$id, existingLifecycle=${existing.lifecycle}")
+        android.util.Log.d("FINALIZER_TRACE", "finalizeProcessing: existingLifecycle=${existing.lifecycle}")
         
         // This will block regression if already at METADATA_REQUIRED or beyond
         updateStatusAndLifecycle(id, existing.status, ArtifactLifecycle.REVIEW_REQUIRED, timestamp)
@@ -172,7 +172,7 @@ interface DraftDao {
         if (existing == null || existing.lifecycle.canTransitionTo(lifecycle)) {
             _markAsApprovedInternal(id, status, lifecycle, timestamp)
         } else {
-            android.util.Log.w("DraftDao", "Blocked backward lifecycle transition for $id: ${existing.lifecycle} -> $lifecycle")
+            android.util.Log.w("DraftDao", "Blocked backward lifecycle transition: ${existing.lifecycle} -> $lifecycle")
         }
     }
 
@@ -232,7 +232,7 @@ interface DraftDao {
         if (existing == null || existing.lifecycle.canTransitionTo(lifecycle)) {
             __markReviewCompleteInternal(id, status, lifecycle, timestamp)
         } else {
-            android.util.Log.w("DraftDao", "Blocked backward lifecycle transition for $id: ${existing.lifecycle} -> $lifecycle")
+            android.util.Log.w("DraftDao", "Blocked backward lifecycle transition: ${existing.lifecycle} -> $lifecycle")
         }
     }
 

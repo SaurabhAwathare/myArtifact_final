@@ -36,7 +36,7 @@ class CleanupWorker @AssistedInject constructor(
 
         val artifactId = inputData.getString(KEY_ARTIFACT_ID) ?: return Result.failure()
         
-        Log.d("CleanupWorker", "Starting local cleanup for artifact: $artifactId")
+        Log.d("CleanupWorker", "Starting local cleanup for artifact.")
         
         return try {
             // 1. Find the draft in local database
@@ -45,9 +45,9 @@ class CleanupWorker @AssistedInject constructor(
             if (draft != null) {
                 // 2. Authoritative delete
                 deletionManager.deleteDraft(draft.id)
-                Log.d("CleanupWorker", "Successfully cleaned up local data for $artifactId")
+                Log.d("CleanupWorker", "Successfully cleaned up local data.")
             } else {
-                Log.w("CleanupWorker", "No local draft found for artifact $artifactId")
+                Log.w("CleanupWorker", "No local draft found for artifact.")
             }
             
             Result.success()

@@ -26,4 +26,13 @@ object MediaCache {
         }
         return instance!!
     }
+
+    /**
+     * Releases the cache instance and allows the directory to be cleared.
+     */
+    @Synchronized
+    fun release() {
+        instance?.release()
+        instance = null
+    }
 }

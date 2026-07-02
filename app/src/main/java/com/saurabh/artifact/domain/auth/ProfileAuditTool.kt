@@ -25,7 +25,7 @@ class ProfileAuditTool @Inject constructor(
         firestore.collection("users").document(uid).update(
             mapOf("schemaVersion" to CURRENT_SCHEMA_VERSION)
         ).await()
-        Log.i("ProfileAudit", "SETUP_HEALTHY_PROFILE | UID: $uid")
+        Log.i("ProfileAudit", "SETUP_HEALTHY_PROFILE")
     }
 
     suspend fun setupLegacyProfile() {
@@ -33,7 +33,7 @@ class ProfileAuditTool @Inject constructor(
         firestore.collection("users").document(uid).update(
             mapOf("schemaVersion" to 1)
         ).await()
-        Log.i("ProfileAudit", "SETUP_LEGACY_PROFILE | UID: $uid")
+        Log.i("ProfileAudit", "SETUP_LEGACY_PROFILE")
     }
 
     suspend fun setupCorruptedProfile() {
@@ -42,6 +42,6 @@ class ProfileAuditTool @Inject constructor(
         firestore.collection("users").document(uid).update(
             mapOf("resonanceInCount" to "CORRUPTED_STRING")
         ).await()
-        Log.i("ProfileAudit", "SETUP_CORRUPTED_PROFILE | UID: $uid")
+        Log.i("ProfileAudit", "SETUP_CORRUPTED_PROFILE")
     }
 }

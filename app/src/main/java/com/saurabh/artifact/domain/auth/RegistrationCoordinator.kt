@@ -33,7 +33,7 @@ class RegistrationCoordinator @Inject constructor(
                     if (status == HealthStatus.Missing) {
                         Log.i("APP_FLOW", "PROFILE_CREATE_STARTED") // Explicitly for new profile case
                     } else {
-                        Log.i("APP_FLOW", "PROFILE_REPAIR_STARTED: $status")
+                        Log.i("APP_FLOW", "PROFILE_REPAIR_STARTED")
                     }
 
                     userRepository.getOrCreateProfile()

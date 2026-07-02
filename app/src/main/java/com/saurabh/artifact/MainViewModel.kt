@@ -2,6 +2,7 @@ package com.saurabh.artifact
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.media3.common.util.UnstableApi
 import com.saurabh.artifact.navigation.*
 import com.saurabh.artifact.domain.auth.GetInitialDestinationUseCase
 import com.saurabh.artifact.domain.auth.InitialDestination
@@ -11,9 +12,11 @@ import com.saurabh.artifact.domain.settings.ObserveStealthModeUseCase
 import com.saurabh.artifact.startup.StartupCoordinator
 import com.saurabh.artifact.startup.StartupMetrics
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import kotlin.OptIn
 
 sealed class AppStartupState {
     object Initializing : AppStartupState()
@@ -25,11 +28,13 @@ sealed class AppStartupState {
     data class Error(val message: String) : AppStartupState()
 }
 
+@UnstableApi
 @HiltViewModel
 class MainViewModel @Inject constructor(
     private val authRepository: com.saurabh.artifact.repository.AuthRepository,
     private val getInitialDestinationUseCase: GetInitialDestinationUseCase,
     private val registrationCoordinator: com.saurabh.artifact.domain.auth.RegistrationCoordinator,
+    @get:UnstableApi private val logoutCoordinator: com.saurabh.artifact.domain.auth.LogoutCoordinator,
     observeCurrentUserProfileUseCase: ObserveCurrentUserProfileUseCase,
     observeStealthModeUseCase: ObserveStealthModeUseCase,
     private val startupCoordinator: StartupCoordinator
@@ -56,21 +61,49 @@ class MainViewModel @Inject constructor(
     ) { stealth, sensitive -> stealth || sensitive }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
-    private val _navigationEvent = MutableSharedFlow<Any>(replay = 0)
-    val navigationEvent = _navigationEvent.asSharedFlow()
+    private val _navigationEvent = Channel<Any>(capacity = Channel.BUFFERED)
+    val navigationEvent = _navigationEvent.receiveAsFlow()
+
+    private var pendingStartupEvent: Any? = null
 
     private var isStarted = false
 
     init {
         // Root Auth State Observation
-        // If the user signs out anywhere, we force a reset of the startup state
-        // to ensure all protected screens are instantly unmounted.
-        authRepository.currentUser
-            .onEach { user ->
-                if (user == null && isStarted && _startupState.value !is AppStartupState.Initializing) {
-                    android.util.Log.i("LogoutHardening", "Root observer detected unauthenticated state. Resetting to Login.")
-                    _startupState.value = AppStartupState.Ready(Login)
+        // If the user signs out anywhere, we detect the transition and force a full cleanup
+        // before resetting to the Login screen. This handles remote logout, token revocation, etc.
+        viewModelScope.launch {
+            authRepository.currentUser
+                .scan(null to null) { acc: Pair<com.google.firebase.auth.FirebaseUser?, com.google.firebase.auth.FirebaseUser?>, value ->
+                    acc.second to value
                 }
+                .collect { (previous, current) ->
+                    val isTransitionToUnauthenticated = previous != null && current == null
+                    
+                    if (isTransitionToUnauthenticated && isStarted && _startupState.value !is AppStartupState.Initializing) {
+                        android.util.Log.i("LogoutHardening", "Root observer detected unauthenticated transition. Initiating cleanup.")
+                        
+                        try {
+                            // BLOCKING: Ensure cleanup completes before UI transition to prevent stale data visibility
+                            val result = logoutCoordinator.performFullCleanup()
+                            android.util.Log.i("LogoutHardening", "Session cleanup completed.")
+                        } catch (e: Exception) {
+                            // Security: Never log sensitive data (UID, email, tokens) on failure
+                            android.util.Log.e("LogoutHardening", "Session cleanup failed with an unexpected error.")
+                        } finally {
+                            // Hard Reset: Ensure navigation to Login screen regardless of cleanup success
+                            _startupState.value = AppStartupState.Ready(Login)
+                        }
+                    }
+                }
+        }
+
+        // Single observation of terminal startup errors
+        startupCoordinator.terminalError
+            .filterNotNull()
+            .onEach { error ->
+                android.util.Log.e("AppStartup", "Terminal failure detected.")
+                _startupState.value = AppStartupState.Error("Security initialization failed.")
             }
             .launchIn(viewModelScope)
     }
@@ -93,18 +126,28 @@ class MainViewModel @Inject constructor(
     }
 
     fun retryStartup() {
-        android.util.Log.d("APP_FLOW", "STARTUP_RETRY")
+        android.util.Log.i("AppStartup", "Retrying startup...")
         _startupState.value = AppStartupState.Initializing
+        startupCoordinator.reset()
         executeStartup()
     }
 
     private fun executeStartup() {
         viewModelScope.launch {
             try {
-                determineInitialRoute()
+                startupCoordinator.start()
+                
+                // BLOCKING: Wait for Core/Security readiness (including App Check)
+                startupCoordinator.awaitComponent(com.saurabh.artifact.startup.StartupComponent.CORE)
+                
+                // Only proceed if no terminal error occurred
+                if (_startupState.value !is AppStartupState.Error) {
+                    determineInitialRoute()
+                }
             } catch (e: Exception) {
-                android.util.Log.e("MainViewModel", "STARTUP_ERROR", e)
+                android.util.Log.e("AppStartup", "Critical failure during startup sequence.")
                 _startupState.value = AppStartupState.Error("An unexpected error occurred during startup.")
+                startupCoordinator.completeAll()
             }
         }
     }
@@ -124,7 +167,7 @@ class MainViewModel @Inject constructor(
                 val result = try {
                     registrationCoordinator.ensureProfileExists()
                 } catch (e: Exception) {
-                    android.util.Log.e("AppStartup", "PROFILE_CHECK_FAILED", e)
+                    android.util.Log.e("AppStartup", "PROFILE_CHECK_FAILED")
                     RegistrationResult.Failure(e)
                 }
                 
@@ -138,9 +181,9 @@ class MainViewModel @Inject constructor(
                         IdentityReveal
                     }
                     is RegistrationResult.Failure -> {
-                        android.util.Log.e("AppStartup", "PROFILE_CHECK_FAILED: ${result.exception.message}")
+                        android.util.Log.e("AppStartup", "PROFILE_CHECK_FAILED")
                         _startupState.value = AppStartupState.Error("Failed to initialize profile. Please check your connection and try again.")
-                        startupCoordinator.emitReadiness(com.saurabh.artifact.startup.StartupComponent.AUTH)
+                        startupCoordinator.completeAll()
                         return
                     }
                 }
@@ -152,20 +195,42 @@ class MainViewModel @Inject constructor(
         startupCoordinator.emitReadiness(com.saurabh.artifact.startup.StartupComponent.DATABASE)
 
         _startupState.value = AppStartupState.Ready(destination)
-        android.util.Log.d("APP_FLOW", "STARTUP_READY: Destination=$destination")
+        android.util.Log.d("APP_FLOW", "STARTUP_READY")
+
+        // Delivery phase: Only deliver startup events to authenticated users
+        if (destination !is Login && destination !is Onboarding) {
+            pendingStartupEvent?.let {
+                android.util.Log.i("Navigation", "Delivering pending startup event.")
+                emitNavigationEvent(it)
+                pendingStartupEvent = null
+            }
+        } else {
+            // Clear pending event if we are stuck at Auth screens
+            if (pendingStartupEvent != null) {
+                android.util.Log.w("AuthGuard", "Pending startup event dropped.")
+                pendingStartupEvent = null
+            }
+        }
+
         StartupMetrics.onAuthReady()
     }
 
     fun onLaunchIntent(intent: android.content.Intent?) {
         val event = parseIntent(intent) ?: return
 
-        // 1. Auth Guard: Prevent intent bypass of Login screen
-        if (authRepository.currentUser.value == null) {
-            android.util.Log.w("AuthGuard", "Intent blocked: User is unauthenticated.")
-            return
+        if (_startupState.value is AppStartupState.Ready) {
+            // Immediate delivery if already ready, respecting Auth Guard
+            if (authRepository.currentUser.value != null) {
+                android.util.Log.d("Navigation", "App is Ready. Emitting intent event immediately.")
+                emitNavigationEvent(event)
+            } else {
+                android.util.Log.w("AuthGuard", "Intent blocked: User is unauthenticated while app is ready.")
+            }
+        } else {
+            // Buffer for delivery after initialization completes
+            android.util.Log.i("Navigation", "App initializing. Buffering startup event: $event")
+            pendingStartupEvent = event
         }
-
-        emitNavigationEvent(event)
     }
 
     private fun parseIntent(intent: android.content.Intent?): Any? {
@@ -202,7 +267,7 @@ class MainViewModel @Inject constructor(
 
     private fun emitNavigationEvent(event: Any) {
         viewModelScope.launch {
-            _navigationEvent.emit(event)
+            _navigationEvent.send(event)
         }
     }
 

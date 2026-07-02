@@ -476,7 +476,7 @@ class RecordingService : Service() {
                     val finalFile = _recordingState.value.outputFile
                     val draftId = _recordingState.value.draftId
                     
-                    Log.d("RecordingService", "Validating output file: ${finalFile?.absolutePath}")
+                    Log.d("RecordingService", "Validating output file.")
                     
                     // 1. HARD VALIDATION: Does the file exist and have data?
                     if (finalFile != null && finalFile.exists() && finalFile.length() > 0) {

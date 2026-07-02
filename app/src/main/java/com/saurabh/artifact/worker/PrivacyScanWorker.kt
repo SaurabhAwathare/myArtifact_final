@@ -37,7 +37,7 @@ class PrivacyScanWorker @AssistedInject constructor(
             delay(1.seconds)
             
             val transcriptPath = draft.localTranscriptPath
-            Log.d("PrivacyScanWorker", "Scanning transcript at: $transcriptPath")
+            Log.d("PrivacyScanWorker", "Scanning transcript.")
             
             val flaggedSegments = if (transcriptPath != null) {
                 val file = File(transcriptPath)
@@ -47,11 +47,11 @@ class PrivacyScanWorker @AssistedInject constructor(
                     val segments = listOf(TranscriptSegment(text = text, startMs = 0, endMs = draft.durationMs, confidence = 1.0f))
                     scanner.scan(segments)
                 } else {
-                    Log.w("PrivacyScanWorker", "Transcript file missing: $transcriptPath")
+                    Log.w("PrivacyScanWorker", "Transcript file missing.")
                     emptyList()
                 }
             } else {
-                Log.w("PrivacyScanWorker", "No transcript path for draft: $draftId")
+                Log.w("PrivacyScanWorker", "No transcript path for draft.")
                 emptyList()
             }
             

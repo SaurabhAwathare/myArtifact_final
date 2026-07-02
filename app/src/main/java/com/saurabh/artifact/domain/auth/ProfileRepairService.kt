@@ -27,7 +27,7 @@ class ProfileRepairService @Inject constructor() {
         val user = try {
             snapshot.toObject(User::class.java)?.copy(id = uid)
         } catch (e: Exception) {
-            Log.e("ProfileRepair", "INITIAL_DESERIALIZATION_CRASH | UID: $uid", e)
+            Log.e("ProfileRepair", "INITIAL_DESERIALIZATION_CRASH", e)
             null
         }
 
@@ -41,7 +41,7 @@ class ProfileRepairService @Inject constructor() {
         val finalUser = if (!validationResult.isValid) {
             repairPerformed = true
             repairReasons.addAll(validationResult.reasons)
-            Log.i("ProfileRepair", "INTEGRITY_VIOLATION_DETECTED | UID: $uid | Reasons: ${validationResult.reasons.joinToString(", ")}")
+            Log.i("ProfileRepair", "INTEGRITY_VIOLATION_DETECTED | Reasons: ${validationResult.reasons.joinToString(", ")}")
             
             // Perform repair (Sanitization)
             val repaired = sanitizeFromMap(uid, rawData, repairReasons)
@@ -54,11 +54,7 @@ class ProfileRepairService @Inject constructor() {
 
         // 3. Telemetry & Audit Logging
         if (repairPerformed) {
-            Log.i("ProfileRepair", "PROFILE_REPAIRED | UID: $uid | Reasons: ${repairReasons.joinToString(", ")}")
-            if (com.saurabh.artifact.BuildConfig.DEBUG) {
-                Log.d("ProfileRepair", "OLD_DATA: $rawData")
-                Log.d("ProfileRepair", "NEW_PROFILE: $finalUser")
-            }
+            Log.i("ProfileRepair", "PROFILE_REPAIRED | Reasons: ${repairReasons.joinToString(", ")}")
         }
 
         if (com.saurabh.artifact.BuildConfig.DEBUG) {
@@ -70,7 +66,7 @@ class ProfileRepairService @Inject constructor() {
     }
 
     private fun sanitizeFromMap(uid: String, map: Map<String, Any>, reasons: MutableList<String>): User {
-        Log.i("ProfileRepair", "STARTING_MANUAL_SANITIZATION | UID: $uid")
+        Log.i("ProfileRepair", "STARTING_MANUAL_SANITIZATION")
         
         val anonymousId = safeString(map["anonymousId"], "usr_${uid.takeLast(5)}", "anonymousId", reasons)
         val anonymousName = safeString(map["anonymousName"], "Quiet Soul", "anonymousName", reasons)

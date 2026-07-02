@@ -36,7 +36,7 @@ class DraftDeletionManager @Inject constructor(
      * Orchestrates a state-based deletion: DB state update -> File purge -> DB record removal.
      */
     suspend fun deleteDraft(draftId: String) = withContext(Dispatchers.IO) {
-        Log.d("DraftDeletionManager", "Initiating deletion for draft: $draftId")
+        Log.d("DraftDeletionManager", "Initiating deletion for draft.")
 
         // 1. Soft Delete: Mark as DELETING in Room. Hides from UI immediately.
         draftDao.markAsDeleting(draftId)
@@ -77,12 +77,12 @@ class DraftDeletionManager @Inject constructor(
                     uploadTaskDao.deleteByDraftId(draftId)
                     draftDao.deleteById(draftId)
                 }
-                Log.d("DraftDeletionManager", "Successfully deleted draft $draftId and all files.")
+                Log.d("DraftDeletionManager", "Successfully deleted draft and all files.")
             } else {
-                throw Exception("Failed to delete directory for $draftId")
+                throw Exception("Failed to delete directory.")
             }
         } catch (e: Exception) {
-            Log.e("DraftDeletionManager", "File deletion failed for $draftId. Scheduling retry.", e)
+            Log.e("DraftDeletionManager", "File deletion failed. Scheduling retry.")
             // 4. Recovery: Schedule background retry if file delete fails
             enqueueDeletionRetry(draftId)
         }

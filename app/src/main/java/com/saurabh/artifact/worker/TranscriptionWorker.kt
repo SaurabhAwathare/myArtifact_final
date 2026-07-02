@@ -38,7 +38,7 @@ class TranscriptionWorker @AssistedInject constructor(
         val file = File(draft.localAudioPath)
 
         if (!file.exists()) {
-            Log.e("TranscriptionWorker", "File not found: ${draft.localAudioPath}")
+            Log.e("TranscriptionWorker", "File not found.")
             updateSubState(draftId, null, "File not found")
             return@withContext Result.failure()
         }
@@ -56,7 +56,7 @@ class TranscriptionWorker @AssistedInject constructor(
             Log.d("TranscriptionWorker", "Atmospheric Step: Listening quietly to your words...")
             
             // 2. Perform Transcription with timeout
-            Log.d("TranscriptionWorker", "Starting transcription for: ${file.absolutePath}")
+            Log.d("TranscriptionWorker", "Starting transcription.")
             val transcriptText = withTimeout(1.minutes) {
                 performTranscription(file)
             }

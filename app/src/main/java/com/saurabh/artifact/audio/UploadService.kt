@@ -63,7 +63,7 @@ class UploadService : Service() {
 
     private fun startUpload(draftId: String) {
         if (uploadJob?.isActive == true) {
-            Log.w("UploadService", "Upload already in progress for $draftId")
+            Log.w("UploadService", "Upload already in progress.")
             return
         }
 
@@ -76,7 +76,7 @@ class UploadService : Service() {
             }
 
             if (!acquired) {
-                Log.w("UploadService", "Could not acquire ownership for $draftId (already owned by WORKER or active SERVICE)")
+                Log.w("UploadService", "Could not acquire ownership (already owned by WORKER or active SERVICE)")
                 stopSelf()
                 return@launch
             }
@@ -101,7 +101,7 @@ class UploadService : Service() {
                     handleFailure(draftId, e as Exception)
                 }
             } catch (e: Exception) {
-                Log.e("UploadService", "Upload failed for $draftId", e)
+                Log.e("UploadService", "Upload failed.")
                 handleFailure(draftId, e)
             } finally {
                 withContext(Dispatchers.IO) {

@@ -50,10 +50,29 @@ class StorageManager @Inject constructor(
                 File(it, "Artifact/Drafts")
             } ?: File(context.filesDir, "Artifact/Drafts")
 
-            return persistentDir.apply {
-                if (!exists()) mkdirs()
-            }
+            return persistentDir
         }
+
+    val waveformsDirectory: File
+        get() = File(context.filesDir, "waveforms")
+
+    val transcriptsDirectory: File
+        get() = File(context.filesDir, "transcripts")
+
+    val frozenAudioDirectory: File
+        get() = File(context.filesDir, "frozen_audio")
+
+    val legacyDraftsDirectory: File
+        get() = File(context.filesDir, "drafts")
+
+    val tempRecordingsDirectory: File
+        get() = File(context.cacheDir, "recording_temp")
+
+    val tempTranscodingDirectory: File
+        get() = File(context.cacheDir, "transcoding_temp")
+
+    val tempUploadDirectory: File
+        get() = File(context.cacheDir, "upload_temp")
 
     /**
      * Resolves a specific directory for a draft ID.
@@ -102,9 +121,94 @@ class StorageManager @Inject constructor(
                 fos.close()
             }
         } catch (e: Exception) {
-            Log.e("StorageManager", "Failed to securely overwrite file: ${file.path}", e)
+            Log.e("StorageManager", "Failed to securely overwrite file.")
         }
         
         return file.delete()
+    }
+
+    /**
+     * Result of a storage cleanup operation.
+     */
+    data class StorageCleanupResult(
+        val deletedDirectories: List<String>,
+        val skippedDirectories: List<String>,
+        val failures: List<CleanupFailure>
+    )
+
+    data class CleanupFailure(
+        val directoryName: String,
+        val errorMessage: String
+    )
+
+    /**
+     * Clears all user-specific storage, including drafts and internal/external caches.
+     * This is a privacy-critical operation.
+     * 
+     * Uses a whitelisting approach for cache directories to avoid deleting 
+     * infrastructure or third-party cache (like image_cache or media_cache).
+     */
+    fun clearUserStorage(): StorageCleanupResult {
+        val deleted = mutableListOf<String>()
+        val skipped = mutableListOf<String>()
+        val failures = mutableListOf<CleanupFailure>()
+
+        val targets = listOf(
+            "Drafts Root" to draftsRootDirectory,
+            "Waveforms" to waveformsDirectory,
+            "Transcripts" to transcriptsDirectory,
+            "Frozen Audio" to frozenAudioDirectory,
+            "Legacy Drafts" to legacyDraftsDirectory,
+            "Temp Recordings" to tempRecordingsDirectory,
+            "Temp Transcoding" to tempTranscodingDirectory,
+            "Temp Uploads" to tempUploadDirectory
+        )
+
+        targets.forEach { (name, dir) ->
+            try {
+                if (!dir.exists()) {
+                    skipped.add(name)
+                    return@forEach
+                }
+
+                if (deleteDirectoryRecursively(dir)) {
+                    deleted.add(name)
+                } else {
+                    failures.add(CleanupFailure(name, "Delete operation returned false"))
+                }
+            } catch (e: Exception) {
+                Log.e("StorageManager", "Failed to clear directory.")
+                failures.add(CleanupFailure(name, "Clear failed"))
+            }
+        }
+
+        // Also clear external cache if it exists (all of it, as it's typically transient)
+        try {
+            context.externalCacheDir?.let { dir ->
+                if (dir.exists()) {
+                    if (deleteDirectoryRecursively(dir)) {
+                        deleted.add("External Cache")
+                    } else {
+                        failures.add(CleanupFailure("External Cache", "Delete operation returned false"))
+                    }
+                } else {
+                    skipped.add("External Cache")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("StorageManager", "Failed to clear external cache")
+            failures.add(CleanupFailure("External Cache", "Clear failed"))
+        }
+
+        return StorageCleanupResult(deleted, skipped, failures)
+    }
+
+    /**
+     * Clears all user-specific storage, including drafts and internal/external caches.
+     * This is a privacy-critical operation.
+     * @deprecated Use clearUserStorage() for a structured result and safer whitelisting.
+     */
+    fun clearAllUserStorage(): Boolean {
+        return clearUserStorage().failures.isEmpty()
     }
 }

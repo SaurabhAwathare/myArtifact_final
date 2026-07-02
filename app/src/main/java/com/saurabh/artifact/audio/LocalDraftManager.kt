@@ -1,30 +1,15 @@
 package com.saurabh.artifact.audio
 
-import android.content.Context
 import android.util.Log
 import com.saurabh.artifact.util.StorageManager
-import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class LocalDraftManager @Inject constructor(
-    @param:ApplicationContext private val context: Context,
     private val storageManager: StorageManager,
 ) {
-    private val waveformDir by lazy {
-        File(context.filesDir, "waveforms").apply {
-            if (!exists()) mkdirs()
-        }
-    }
-
-    private val transcriptDir by lazy {
-        File(context.filesDir, "transcripts").apply {
-            if (!exists()) mkdirs()
-        }
-    }
-
     fun createDraftFile(draftId: String, extension: String = "m4a"): File {
         val dir = storageManager.getDraftDirectory(draftId)
         return File(dir, "audio.$extension")
@@ -45,7 +30,7 @@ class LocalDraftManager @Inject constructor(
         gracePeriodMs: Long = RetentionPolicy.RECONCILIATION_GRACE_PERIOD_MS
     ) {
         val now = System.currentTimeMillis()
-        val validDraftIds = allDrafts.map { it.id }.toSet()
+        val validDraftIds = allDrafts.asSequence().map { it.id }.toSet()
         val knownPaths = mutableSetOf<String>()
 
         allDrafts.forEach { draft ->
@@ -57,7 +42,7 @@ class LocalDraftManager @Inject constructor(
         }
 
         // 1. Clean legacy directories
-        val legacyDir = File(context.filesDir, "drafts")
+        val legacyDir = storageManager.legacyDraftsDirectory
         if (legacyDir.exists() && legacyDir.isDirectory) {
             Log.i("LocalDraftManager", "Removing legacy drafts directory")
             storageManager.deleteDirectoryRecursively(legacyDir)
@@ -71,7 +56,7 @@ class LocalDraftManager @Inject constructor(
                 if (draftId !in validDraftIds) {
                     // Check grace period: if the directory was created recently, skip it
                     if ((now - draftDir.lastModified()) > gracePeriodMs) {
-                        Log.i("LocalDraftManager", "Deleting orphaned draft directory: ${draftDir.name}")
+                        Log.i("LocalDraftManager", "Deleting orphaned draft directory.")
                         storageManager.deleteDirectoryRecursively(draftDir)
                     }
                 } else {
@@ -79,7 +64,7 @@ class LocalDraftManager @Inject constructor(
                     draftDir.listFiles()?.forEach { file ->
                         if (file.isFile && file.absolutePath !in knownPaths) {
                             if ((now - file.lastModified()) > gracePeriodMs) {
-                                Log.i("LocalDraftManager", "Deleting untracked file in valid draft: ${file.path}")
+                                Log.i("LocalDraftManager", "Deleting untracked file in valid draft.")
                                 file.delete()
                             }
                         }
@@ -88,12 +73,16 @@ class LocalDraftManager @Inject constructor(
             }
         }
 
-        // 4. Prune other specific tracked directories if they exist outside draft root (safety)
-        listOf(waveformDir, transcriptDir).forEach { dir ->
-            if (dir.exists()) {
+        // 4. Prune specific sidecar directories
+        listOf(
+            storageManager.waveformsDirectory,
+            storageManager.transcriptsDirectory,
+            storageManager.frozenAudioDirectory
+        ).forEach { dir ->
+            if (dir.exists() && dir.isDirectory) {
                 dir.listFiles()?.forEach { file ->
-                    if (file.absolutePath !in knownPaths && (now - file.lastModified() > gracePeriodMs)) {
-                        Log.i("LocalDraftManager", "Deleting untracked file in side-car directory: ${file.path}")
+                    if (file.isFile && file.absolutePath !in knownPaths && (now - file.lastModified() > gracePeriodMs)) {
+                        Log.i("LocalDraftManager", "Deleting untracked sidecar file")
                         file.delete()
                     }
                 }

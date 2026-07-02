@@ -82,7 +82,7 @@ class BackupSyncWorker @AssistedInject constructor(
                 )
                 successCount++
             } catch (e: Exception) {
-                Log.e("BackupSyncWorker", "Failed to backup draft ${draft.id}", e)
+                Log.e("BackupSyncWorker", "Failed to backup draft.")
             }
         }
 

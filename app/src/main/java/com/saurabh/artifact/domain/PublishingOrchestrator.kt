@@ -100,13 +100,13 @@ class PublishingOrchestrator @Inject constructor(
             val freezeResult = approvalRepository.approveAndFreeze(draftId, transcript)
             if (freezeResult.isFailure) return@withContext freezeResult
 
-            Log.i("PublishingOrchestrator", "Draft $draftId approved and frozen. Enqueuing publication.")
+            Log.i("PublishingOrchestrator", "Draft approved and frozen. Enqueuing publication.")
             
             val draft = draftRepository.getDraft(draftId).getOrThrow()
 
             // 0. Strict Validation: Review Required
             if (draft.lifecycle != ArtifactLifecycle.READY_TO_PUBLISH) {
-                Log.e("PublishingOrchestrator", "Attempted to publish unreviewed draft: $draftId")
+                Log.e("PublishingOrchestrator", "Attempted to publish unreviewed draft.")
                 val requiredPercent = (publishingPolicy.minCoverage * 100).toInt()
                 return@withContext Result.failure(Exception("$requiredPercent% Review required before publishing."))
             }
@@ -146,17 +146,17 @@ class PublishingOrchestrator @Inject constructor(
         // 0. Security Validation: Ensure tokens are present and valid
         val userId = authRepository.currentUserId
         if (!uploadGuard.validateApproval(draft, userId)) {
-            Log.i("PublishingOrchestrator", "Security validation failed or missing for $draftId. Re-approving.")
+            Log.i("PublishingOrchestrator", "Security validation failed or missing. Re-approving.")
             val reApproveResult = approvalRepository.approveAndFreezeAuto(draftId)
             if (reApproveResult.isFailure) {
-                Log.e("PublishingOrchestrator", "Failed to auto-approve draft $draftId", reApproveResult.exceptionOrNull())
+                Log.e("PublishingOrchestrator", "Failed to auto-approve draft.")
                 return@withContext PublishingResult.FAILED
             }
         }
         
         // 0.1 Strict Validation: Review Required
         if (draft.lifecycle != ArtifactLifecycle.READY_TO_PUBLISH) {
-            Log.e("PublishingOrchestrator", "Attempted to publish unreviewed draft via legacy route: $draftId")
+            Log.e("PublishingOrchestrator", "Attempted to publish unreviewed draft via legacy route.")
             return@withContext PublishingResult.FAILED
         }
 
@@ -208,7 +208,7 @@ class PublishingOrchestrator @Inject constructor(
             ExistingWorkPolicy.KEEP,
             publishingWork
         )
-        Log.d("PUBLISH_TRACE", "Publishing worker enqueued for $draftId")
+        Log.d("PUBLISH_TRACE", "Publishing worker enqueued.")
     }
 
     suspend fun retryPublishing(draftId: String) = withContext(Dispatchers.IO) {
@@ -217,7 +217,7 @@ class PublishingOrchestrator @Inject constructor(
         // 0. Security Validation: Regenerate tokens if validation fails
         val userId = authRepository.currentUserId
         if (!uploadGuard.validateApproval(draft, userId)) {
-            Log.i("PublishingOrchestrator", "Retrying draft $draftId with invalid security state. Re-approving.")
+            Log.i("PublishingOrchestrator", "Retrying draft with invalid security state. Re-approving.")
             approvalRepository.approveAndFreezeAuto(draftId)
         }
 

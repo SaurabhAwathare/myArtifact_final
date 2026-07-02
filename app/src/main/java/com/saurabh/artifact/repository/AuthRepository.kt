@@ -5,6 +5,7 @@ import androidx.credentials.CredentialManager
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.saurabh.artifact.model.AppError
@@ -62,7 +63,7 @@ class AuthRepository @Inject constructor(
                     if (error.code == com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED) {
                         android.util.Log.d("AuthRepository", "Waiting for profile creation... (Permission Denied)")
                     } else {
-                        android.util.Log.e("AuthRepository", "Error observing user data: ${error.message}")
+                        android.util.Log.e("AuthRepository", "Error observing user data.")
                     }
                     return@addSnapshotListener
                 }
@@ -83,7 +84,7 @@ class AuthRepository @Inject constructor(
             .collection("private").document("settings")
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    android.util.Log.e("AuthRepository", "Error observing private settings: ${error.message}")
+                    android.util.Log.e("AuthRepository", "Error observing private settings.")
                     return@addSnapshotListener
                 }
 
@@ -135,6 +136,10 @@ class AuthRepository @Inject constructor(
 
     suspend fun signOut(): Result<Unit> {
         return try {
+            // Phase 2: Clear FCM token before signing out
+            // Dependency: Requires active firebaseAuth.currentUser
+            clearFcmToken()
+
             // Clear credential state (sign out from Google via Credential Manager)
             credentialManager.clearCredentialState(ClearCredentialStateRequest())
             // Sign out from Firebase
@@ -142,6 +147,28 @@ class AuthRepository @Inject constructor(
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(AppError.from(e))
+        }
+    }
+
+    /**
+     * Removes the FCM token from the user's private settings in Firestore.
+     * This is called during sign-out to ensure the device no longer receives notifications for this user.
+     *
+     * IMPORTANT: This MUST execute before [firebaseAuth.signOut] because the user's UID
+     * is required for the Firestore path.
+     */
+    private suspend fun clearFcmToken() {
+        val uid = firebaseAuth.currentUser?.uid ?: return
+        try {
+            firestore.collection("users").document(uid)
+                .collection("private").document("settings")
+                .update("fcmToken", FieldValue.delete())
+                .await()
+        } catch (e: Exception) {
+            // Handle failures gracefully as per requirement.
+            // Failure to remove the token must NOT leave the application in an inconsistent logout state.
+            // No identifiers (UID) are logged for privacy.
+            android.util.Log.e("AuthRepository", "Failed to clear FCM token during sign out.", e)
         }
     }
 
