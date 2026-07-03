@@ -86,6 +86,7 @@ fun FeedScreen(
     val stage by viewModel.startupStage.collectAsStateWithLifecycle()
     
     val selectedEmotion by viewModel.selectedEmotion.collectAsStateWithLifecycle()
+    val showRankedFeed by viewModel.showRankedFeed.collectAsStateWithLifecycle()
     val publishState by viewModel.currentPublishState.collectAsStateWithLifecycle()
 
     val reflectionPrompt by viewModel.reflectionPrompt.collectAsStateWithLifecycle()
@@ -104,8 +105,6 @@ fun FeedScreen(
         StartupTracer.mark("FeedScreen: viewModel.start() triggered")
         viewModel.start()
     }
-
-    var showRankedFeed by remember { mutableStateOf(value = true) }
 
     val error by viewModel.error.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -155,7 +154,7 @@ fun FeedScreen(
             FeedVibeHeader(
                 selectedEmotion = selectedEmotion,
                 showRankedFeed = showRankedFeed,
-                onToggleFeed = { showRankedFeed = it },
+                onToggleFeed = { viewModel.setShowRankedFeed(it) },
                 onEmotionSelect = { viewModel.setEmotionFilter(it) }
             )
 

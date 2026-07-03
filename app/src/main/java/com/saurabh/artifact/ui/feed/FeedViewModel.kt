@@ -2,6 +2,7 @@ package com.saurabh.artifact.ui.feed
 
 import android.util.Log
 import androidx.collection.LruCache
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
@@ -61,6 +62,7 @@ data class FeedUiState(
     val recommendationReasons: Map<String, FeedRecommendationReason> = emptyMap(),
     val isRankedLoading: Boolean = false,
     val selectedEmotion: String? = null,
+    val showRankedFeed: Boolean = true,
     val reflectionPrompt: ReflectionPrompt? = null,
     val isPromptLoading: Boolean = false,
     val safetyLevel: SafetyLevel = SafetyLevel.LOW,
@@ -72,6 +74,7 @@ data class FeedUiState(
 
 @HiltViewModel
 class FeedViewModel @Inject constructor(
+    private val savedStateHandle: SavedStateHandle,
     private val artifactRepository: ArtifactRepository,
     private val authRepository: AuthRepository,
     private val notificationRepository: NotificationRepository,
@@ -93,8 +96,26 @@ class FeedViewModel @Inject constructor(
     private val getReflectionPromptUseCase: GetReflectionPromptUseCase
 ) : ViewModel(), MemoryTrimable {
 
+    private companion object {
+        const val KEY_SELECTED_EMOTION = "selected_emotion"
+        const val KEY_SHOW_RANKED_FEED = "show_ranked_feed"
+    }
+
+    // Persisted state properties (Single Source of Truth)
+    val selectedEmotion = savedStateHandle.getStateFlow<String?>(KEY_SELECTED_EMOTION, null)
+    val showRankedFeed = savedStateHandle.getStateFlow(KEY_SHOW_RANKED_FEED, true)
+
     private val _uiState = MutableStateFlow(FeedUiState())
-    val uiState: StateFlow<FeedUiState> = _uiState.asStateFlow()
+    val uiState: StateFlow<FeedUiState> = combine(
+        _uiState,
+        selectedEmotion,
+        showRankedFeed
+    ) { current, emotion, ranked ->
+        current.copy(
+            selectedEmotion = emotion,
+            showRankedFeed = ranked
+        )
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, FeedUiState())
 
     // LRU cache for artifact details to prevent unbounded memory growth
     private val detailsCache = object : LruCache<String, ArtifactDetail>(10) {
@@ -133,7 +154,7 @@ class FeedViewModel @Inject constructor(
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val artifacts: Flow<PagingData<FeedDisplayItem>> = combine(
-        _uiState.map { it.selectedEmotion }.distinctUntilChanged(),
+        selectedEmotion,
         _refreshTrigger
     ) { emotion, _ -> emotion }.flatMapLatest { emotion ->
         getFeedFlowUseCase(emotion)
@@ -148,7 +169,7 @@ class FeedViewModel @Inject constructor(
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val personalizedArtifacts: Flow<PagingData<FeedDisplayItem>> = combine(
-        _uiState.map { it.selectedEmotion }.distinctUntilChanged(),
+        selectedEmotion,
         _refreshTrigger
     ) { emotion, _ -> emotion }.flatMapLatest { emotion ->
         getPersonalizedFeedFlowUseCase(emotion)
@@ -162,15 +183,14 @@ class FeedViewModel @Inject constructor(
     }.cachedIn(viewModelScope)
 
     // Legacy compatibility accessors
-    val isRankedLoading = _uiState.map { it.isRankedLoading }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
-    val selectedEmotion = _uiState.map { it.selectedEmotion }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
-    val reflectionPrompt = _uiState.map { it.reflectionPrompt }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
-    val isPromptLoading = _uiState.map { it.isPromptLoading }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
-    val safetyLevel = _uiState.map { it.safetyLevel }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SafetyLevel.LOW)
-    val isCrisis = _uiState.map { it.isCrisis }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
-    val isRefreshing = _uiState.map { it.isRefreshing }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
-    val hasNewContent = _uiState.map { it.hasNewContent }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
-    val error = _uiState.map { it.error }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    val isRankedLoading = uiState.map { it.isRankedLoading }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    val reflectionPrompt = uiState.map { it.reflectionPrompt }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    val isPromptLoading = uiState.map { it.isPromptLoading }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    val safetyLevel = uiState.map { it.safetyLevel }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SafetyLevel.LOW)
+    val isCrisis = uiState.map { it.isCrisis }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    val isRefreshing = uiState.map { it.isRefreshing }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    val hasNewContent = uiState.map { it.hasNewContent }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    val error = uiState.map { it.error }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     init {
         memoryManager.register(this)
@@ -304,12 +324,12 @@ class FeedViewModel @Inject constructor(
 
     fun refreshReflectionPrompt(context: String? = null): kotlinx.coroutines.Job {
         return viewModelScope.launch {
-            if (_uiState.value.isPromptLoading) return@launch
+            if (uiState.value.isPromptLoading) return@launch
             
             _uiState.update { it.copy(isPromptLoading = true) }
             runCatching {
                 val result = getReflectionPromptUseCase(
-                    emotion = _uiState.value.selectedEmotion,
+                    emotion = selectedEmotion.value,
                     context = context
                 )
                 _uiState.update { it.copy(
@@ -325,8 +345,12 @@ class FeedViewModel @Inject constructor(
     }
 
     fun setEmotionFilter(emotion: String?) {
-        _uiState.update { it.copy(selectedEmotion = emotion) }
+        savedStateHandle[KEY_SELECTED_EMOTION] = emotion
         loadRankedFeed()
+    }
+
+    fun setShowRankedFeed(showRanked: Boolean) {
+        savedStateHandle[KEY_SHOW_RANKED_FEED] = showRanked
     }
 
     private val _unfinishedArtifacts = MutableStateFlow<List<FeedArtifact>>(emptyList())

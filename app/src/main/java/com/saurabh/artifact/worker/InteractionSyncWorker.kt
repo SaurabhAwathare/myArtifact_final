@@ -147,16 +147,18 @@ class InteractionSyncWorker @AssistedInject constructor(
                 return@forEach
             }
 
+            val first = events.first()
             val latest = events.last()
             val toDelete = events.dropLast(1)
             
-            val isRedundantCycle = (events.size >= 2) && 
-                (events.first().action != latest.action)
+            val isRedundantCycle = (events.size == 2) && 
+                (first.action == InteractionAction.ADD) && 
+                (latest.action == InteractionAction.REMOVE)
 
-            if (isRedundantCycle && events.size == 2) {
-                // Perfect cycle [ADD, REMOVE] or [REMOVE, ADD]
+            if (isRedundantCycle) {
+                // Perfect net-zero cycle [ADD, REMOVE]
                 events.forEach { pendingInteractionDao.delete(it) }
-                ArtifactLogger.i(TAG, "Cancelled out redundant toggle cycle for $key.")
+                ArtifactLogger.i(TAG, "Cancelled out redundant net-zero toggle cycle for $key.")
             } else {
                 // Collapse to the latest intent
                 toDelete.forEach { pendingInteractionDao.delete(it) }

@@ -92,12 +92,70 @@ class InteractionSyncWorkerCollapsingTest {
     }
 
     @Test
-    fun `collapseEvents should NOT collapse non-collapsible types`() = runTest {
+    fun `collapseEvents should NOT delete REMOVE-ADD sequence (Intimacy Preservation)`() = runTest {
         val artifactId = "art123"
         val userId = "user123"
         val events = listOf(
-            PendingInteractionEntity(id = 1, userId = userId, artifactId = artifactId, interactionType = "COMMENT", action = "CREATE"),
-            PendingInteractionEntity(id = 2, userId = userId, artifactId = artifactId, interactionType = "COMMENT", action = "DELETE")
+            PendingInteractionEntity(id = 1, userId = userId, artifactId = artifactId, interactionType = InteractionType.REACTION, action = InteractionAction.REMOVE),
+            PendingInteractionEntity(id = 2, userId = userId, artifactId = artifactId, interactionType = InteractionType.REACTION, action = InteractionAction.ADD, metadata = "STAYED_WITH_ME")
+        )
+        
+        coEvery { pendingInteractionDao.getPendingForUser(userId) } returns events
+
+        worker.collapseEvents(userId)
+
+        // Only the REMOVE should be deleted, the ADD should survive as the latest intent.
+        coVerify(exactly = 1) { pendingInteractionDao.delete(events[0]) }
+        coVerify(exactly = 0) { pendingInteractionDao.delete(events[1]) }
+    }
+
+    @Test
+    fun `collapseEvents should correctly handle ADD-REMOVE-ADD sequence`() = runTest {
+        val artifactId = "art123"
+        val userId = "user123"
+        val events = listOf(
+            PendingInteractionEntity(id = 1, userId = userId, artifactId = artifactId, interactionType = InteractionType.SAVE, action = InteractionAction.ADD),
+            PendingInteractionEntity(id = 2, userId = userId, artifactId = artifactId, interactionType = InteractionType.SAVE, action = InteractionAction.REMOVE),
+            PendingInteractionEntity(id = 3, userId = userId, artifactId = artifactId, interactionType = InteractionType.SAVE, action = InteractionAction.ADD)
+        )
+        
+        coEvery { pendingInteractionDao.getPendingForUser(userId) } returns events
+
+        worker.collapseEvents(userId)
+
+        // Should collapse to the final ADD.
+        coVerify(exactly = 1) { pendingInteractionDao.delete(events[0]) }
+        coVerify(exactly = 1) { pendingInteractionDao.delete(events[1]) }
+        coVerify(exactly = 0) { pendingInteractionDao.delete(events[2]) }
+    }
+
+    @Test
+    fun `collapseEvents should correctly handle REMOVE-ADD-REMOVE sequence`() = runTest {
+        val artifactId = "art123"
+        val userId = "user123"
+        val events = listOf(
+            PendingInteractionEntity(id = 1, userId = userId, artifactId = artifactId, interactionType = InteractionType.SAVE, action = InteractionAction.REMOVE),
+            PendingInteractionEntity(id = 2, userId = userId, artifactId = artifactId, interactionType = InteractionType.SAVE, action = InteractionAction.ADD),
+            PendingInteractionEntity(id = 3, userId = userId, artifactId = artifactId, interactionType = InteractionType.SAVE, action = InteractionAction.REMOVE)
+        )
+        
+        coEvery { pendingInteractionDao.getPendingForUser(userId) } returns events
+
+        worker.collapseEvents(userId)
+
+        // Should collapse to the final REMOVE.
+        coVerify(exactly = 1) { pendingInteractionDao.delete(events[0]) }
+        coVerify(exactly = 1) { pendingInteractionDao.delete(events[1]) }
+        coVerify(exactly = 0) { pendingInteractionDao.delete(events[2]) }
+    }
+
+    @Test
+    fun `collapseEvents should NOT collapse non-collapsible types (COMMENT)`() = runTest {
+        val artifactId = "art123"
+        val userId = "user123"
+        val events = listOf(
+            PendingInteractionEntity(id = 1, userId = userId, artifactId = artifactId, interactionType = InteractionType.COMMENT, action = InteractionAction.ADD, metadata = "Comment 1"),
+            PendingInteractionEntity(id = 2, userId = userId, artifactId = artifactId, interactionType = InteractionType.COMMENT, action = InteractionAction.ADD, metadata = "Comment 2")
         )
         
         coEvery { pendingInteractionDao.getPendingForUser(userId) } returns events
@@ -105,6 +163,34 @@ class InteractionSyncWorkerCollapsingTest {
         worker.collapseEvents(userId)
 
         coVerify(exactly = 0) { pendingInteractionDao.delete(any()) }
+    }
+
+    @Test
+    fun `collapseEvents should preserve order and correctly collapse a mixed queue`() = runTest {
+        val artifactId = "art123"
+        val userId = "user123"
+        val events = listOf(
+            PendingInteractionEntity(id = 1, userId = userId, artifactId = artifactId, interactionType = InteractionType.REACTION, action = InteractionAction.ADD, metadata = "Like"),
+            PendingInteractionEntity(id = 2, userId = userId, artifactId = artifactId, interactionType = InteractionType.COMMENT, action = InteractionAction.ADD, metadata = "Comment 1"),
+            PendingInteractionEntity(id = 3, userId = userId, artifactId = artifactId, interactionType = InteractionType.REACTION, action = InteractionAction.REMOVE),
+            PendingInteractionEntity(id = 4, userId = userId, artifactId = artifactId, interactionType = InteractionType.SAVE, action = InteractionAction.ADD),
+            PendingInteractionEntity(id = 5, userId = userId, artifactId = artifactId, interactionType = InteractionType.COMMENT, action = InteractionAction.ADD, metadata = "Comment 2")
+        )
+        
+        coEvery { pendingInteractionDao.getPendingForUser(userId) } returns events
+
+        worker.collapseEvents(userId)
+
+        // REACTION: ADD (1) followed by REMOVE (3) should be a redundant cycle and both deleted.
+        coVerify(exactly = 1) { pendingInteractionDao.delete(events[0]) }
+        coVerify(exactly = 1) { pendingInteractionDao.delete(events[2]) }
+        
+        // SAVE: Only one ADD (4), should survive.
+        coVerify(exactly = 0) { pendingInteractionDao.delete(events[3]) }
+        
+        // COMMENT: Both (2) and (5) should survive.
+        coVerify(exactly = 0) { pendingInteractionDao.delete(events[1]) }
+        coVerify(exactly = 0) { pendingInteractionDao.delete(events[4]) }
     }
 
     @Test
