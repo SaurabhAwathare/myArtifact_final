@@ -2,6 +2,9 @@ package com.saurabh.artifact.repository
 
 import android.util.Log
 import androidx.room.withTransaction
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
+import androidx.lifecycle.asFlow
 import com.saurabh.artifact.audio.ArtifactCleanupManager
 import com.saurabh.artifact.audio.DraftDeletionManager
 import com.saurabh.artifact.audio.LocalDraftManager
@@ -12,7 +15,7 @@ import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.withContext
 import java.io.File
 import javax.inject.Inject
@@ -213,10 +216,25 @@ class RecordingRepository @Inject constructor(
     suspend fun finalizeProcessing(id: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             draftDao.get().finalizeProcessing(id)
+            // Mark recovery complete when terminal state reached
+            markRecoveryComplete(id)
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(AppError.from(e))
         }
+    }
+
+    /**
+     * Resets the recovery flag. 
+     * Since isRecovering is derived, this technically doesn't need to do anything 
+     * to the DB besides updating updatedAt if we want to be strict, but for now 
+     * it's a placeholder if we ever need explicit cleanup.
+     * 
+     * Wait, in the approved plan I said isRecovering is NOT persisted.
+     * So markRecoveryComplete is just a logical end.
+     */
+    suspend fun markRecoveryComplete(id: String) {
+        // No-op for now as state is derived from WorkManager + lastRecoveryAttemptAt
     }
 
     suspend fun updateStudioState(
@@ -291,13 +309,15 @@ class RecordingRepository @Inject constructor(
             // 0.1 Purge Zombies: Delete 0-byte drafts older than 30 mins
             purgeZombieDrafts()
 
-            // 1. Recover interrupted recordings
+            val now = System.currentTimeMillis()
+
+            // 1. Recover interrupted recordings (RECORDING lifecycle)
             val recordings = draftDao.get().getActiveRecordings()
             val interrupted = mutableListOf<ArtifactDraftEntity>()
             
             recordings.forEach { draft ->
                 // If no checkpoint for > 60s, consider it interrupted
-                if ((System.currentTimeMillis() - draft.lastCheckpointTimestamp) > 60_000) {
+                if ((now - draft.lastCheckpointTimestamp) > 60_000) {
                     val file = File(draft.localAudioPath)
                     
                     // Durability Drift Logging
@@ -345,7 +365,19 @@ class RecordingRepository @Inject constructor(
                 }
             }
 
-            // 2. Storage Reconciliation
+            // 2. Recover stalled processing (PROCESSING lifecycle)
+            val processingDrafts = draftDao.get().getDraftsByLifecycle(ArtifactLifecycle.PROCESSING)
+            processingDrafts.forEach { draft ->
+                val isStale = (now - draft.updatedAt) > STALE_PROCESSING_TIMEOUT_MS
+                val isCooldownOver = (now - draft.lastRecoveryAttemptAt) > RECOVERY_COOLDOWN_MS
+                
+                if (isStale && isCooldownOver) {
+                    Log.i("RecordingRepository", "Stalled PROCESSING draft detected: ${draft.id}. Eligible for recovery.")
+                    interrupted.add(draft)
+                }
+            }
+
+            // 3. Storage Reconciliation
             try {
                 val allDrafts = draftDao.get().getAllDrafts()
                 localDraftManager.reconcileStorage(allDrafts)
@@ -353,7 +385,7 @@ class RecordingRepository @Inject constructor(
                 // Trigger emergency cleanup if storage is critically low
                 cleanupManager.triggerEmergencyCleanup()
 
-                // 3. Authoritative cleanup for DELETING drafts
+                // 4. Authoritative cleanup for DELETING drafts
                 val deletingDrafts = draftDao.get().getDraftsByLifecycle(ArtifactLifecycle.DELETING)
                 deletingDrafts.forEach { draft ->
                     Log.d("RecordingRepository", "Resuming deletion for draft: ${draft.id}")
@@ -366,6 +398,45 @@ class RecordingRepository @Inject constructor(
             Result.success(interrupted)
         } catch (e: Exception) {
             Result.failure(AppError.from(e))
+        }
+    }
+
+    /**
+     * Updates the recovery attempt timestamp to prevent rapid retry loops.
+     */
+    suspend fun markRecoveryAttempt(id: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val draft = draftDao.get().getDraftById(id) ?: return@withContext Result.failure(AppError.NotFound("Draft", id))
+            draftDao.get().update(draft.copy(lastRecoveryAttemptAt = System.currentTimeMillis()))
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(AppError.from(e))
+        }
+    }
+
+    /**
+     * Observes the recovery state of a specific draft.
+     * Derived from persistent recovery metadata and active WorkManager state.
+     */
+    fun observeRecoveryState(draftId: String, workManager: WorkManager): Flow<Boolean> {
+        return observeDraft(draftId).map { draft ->
+            if (draft == null) return@map false
+            
+            // Core Logic:
+            // 1. Must be in PROCESSING lifecycle
+            // 2. Must have a recovery attempt recorded
+            // 3. That attempt must be newer than the last modification (updatedAt)
+            val hasRecoveryMetadata = draft.lifecycle == ArtifactLifecycle.PROCESSING && 
+                                    draft.lastRecoveryAttemptAt > draft.updatedAt
+            
+            hasRecoveryMetadata
+        }.flatMapLatest { isMarkedRecovering ->
+            if (!isMarkedRecovering) return@flatMapLatest flowOf(false)
+            
+            // Check if work is actually running/enqueued
+            workManager.getWorkInfosForUniqueWorkLiveData("process_$draftId").asFlow().map { workInfos ->
+                workInfos.any { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.RUNNING }
+            }
         }
     }
 
@@ -398,5 +469,17 @@ class RecordingRepository @Inject constructor(
      */
     private suspend fun reconcileLifecycleConsistency() {
         // No longer needed as status.lifecycle is removed.
+    }
+
+    companion object {
+        /**
+         * Threshold to consider a PROCESSING draft as "stalled".
+         */
+        private const val STALE_PROCESSING_TIMEOUT_MS = 15 * 60 * 1000L
+
+        /**
+         * Minimum interval between recovery attempts for the same draft.
+         */
+        private const val RECOVERY_COOLDOWN_MS = 5 * 60 * 1000L
     }
 }

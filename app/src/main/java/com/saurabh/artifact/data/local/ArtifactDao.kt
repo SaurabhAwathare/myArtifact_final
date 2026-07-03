@@ -25,6 +25,9 @@ interface ArtifactDao {
     """)
     fun getArtifactsPaged(userIdPattern: String): PagingSource<Int, ArtifactEntityWithIndex>
 
+    @Query("SELECT EXISTS(SELECT 1 FROM artifacts LIMIT 1)")
+    suspend fun hasCachedArtifacts(): Boolean
+
     @Query("DELETE FROM artifacts")
     suspend fun clearAll()
 

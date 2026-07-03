@@ -89,6 +89,12 @@ data class ArtifactDraftEntity(
     val emotionCompleted: Boolean = false,
     val approvalCompleted: Boolean = false,
 
+    /**
+     * Timestamp of the last system-initiated recovery attempt.
+     * Used for throttling and idempotency checks.
+     */
+    val lastRecoveryAttemptAt: Long = 0,
+
     // Redesign: Persistent Dismissal & Activity Tracking
     val isDismissed: Boolean = false,
 ) : UploadProgress

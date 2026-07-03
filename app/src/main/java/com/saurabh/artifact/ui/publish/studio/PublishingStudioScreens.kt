@@ -118,7 +118,7 @@ fun PublishingStudioScreen(
                     label = "StudioStepTransition"
                 ) { step ->
                     when (step) {
-                        StudioStep.PROCESSING -> StudioLoadingStep()
+                        StudioStep.PROCESSING -> StudioLoadingStep(isRecovering = sessionState.isRecovering)
                         StudioStep.REVIEW -> StudioReviewStep(sessionState, viewModel)
                         StudioStep.DETAILS -> StudioDetailsStep(sessionState, viewModel)
                         StudioStep.APPROVAL -> StudioApprovalStep(sessionState, viewModel)
@@ -252,7 +252,7 @@ fun StudioBottomBar(
 }
 
 @Composable
-fun StudioLoadingStep() {
+fun StudioLoadingStep(isRecovering: Boolean = false) {
     Column(
         modifier = Modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -264,12 +264,12 @@ fun StudioLoadingStep() {
         )
         Spacer(Modifier.height(24.dp))
         Text(
-            "Securing your reflection...",
+            if (isRecovering) "Resuming processing..." else "Securing your reflection...",
             style = ArtifactTheme.typography.titleMedium,
             color = ArtifactTheme.colors.onSurfaceMain
         )
         Text(
-            "This will only take a moment.",
+            if (isRecovering) "Almost back on track." else "This will only take a moment.",
             style = ArtifactTheme.typography.bodySmall,
             color = ArtifactTheme.colors.onSurfaceMuted
         )

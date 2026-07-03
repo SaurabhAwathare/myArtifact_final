@@ -25,6 +25,21 @@ class ArtifactRemoteMediator(
 
     private val artifactDao = database.artifactDao()
 
+    override suspend fun initialize(): InitializeAction {
+        return if (hasUsableCachedData()) {
+            InitializeAction.SKIP_INITIAL_REFRESH
+        } else {
+            InitializeAction.LAUNCH_INITIAL_REFRESH
+        }
+    }
+
+    private suspend fun hasUsableCachedData(): Boolean {
+        // Implementation Note: In Phase 2, "usable cached data" is defined as the presence 
+        // of at least one locally cached artifact. More advanced freshness validation, 
+        // if required in the future, will be addressed separately.
+        return artifactDao.hasCachedArtifacts()
+    }
+
     override suspend fun load(
         loadType: LoadType,
         state: PagingState<Int, ArtifactEntityWithIndex>

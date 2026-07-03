@@ -3,6 +3,7 @@ package com.saurabh.artifact.ui.publish.studio
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.WorkManager
 import com.saurabh.artifact.audio.PlaybackCoordinator
 import com.saurabh.artifact.audio.PlaybackType
 import com.saurabh.artifact.domain.IdentityScout
@@ -64,6 +65,7 @@ data class StudioSessionState(
     val isPublishing: Boolean = false,
     val isSuccess: Boolean = false,
     val isQueuedOffline: Boolean = false,
+    val isRecovering: Boolean = false,
     val error: String? = null,
     val showPrivacyNudge: Boolean = false,
     val privacyWarnings: List<String> = emptyList()
@@ -75,7 +77,8 @@ class PublishingStudioViewModel @Inject constructor(
     private val playbackCoordinator: PlaybackCoordinator,
     private val publishArtifactUseCase: PublishArtifactUseCase,
     private val identityScout: IdentityScout,
-    private val authRepository: AuthRepository
+    private val authRepository: AuthRepository,
+    private val workManager: WorkManager
 ) : ViewModel() {
 
     private val _draftId = MutableStateFlow<String?>(null)
@@ -91,49 +94,44 @@ class PublishingStudioViewModel @Inject constructor(
     val sessionState: StateFlow<StudioSessionState> = _draftId
         .filterNotNull()
         .flatMapLatest { id -> 
-            Log.d("VM_TRACE", "[VM_TRACE] flatMapLatest: draftId=$id | Instance=${this.hashCode()}")
-            recordingRepository.observeDraft(id) 
-        }
-        .filterNotNull()
-        .combine(playbackCoordinator.reviewProgress) { draft, reviewState ->
-            draft to reviewState
-        }
-        .combine(_titleInput) { (draft, review), titleBuffer ->
-            Triple(draft, review, titleBuffer)
-        }
-        .combine(_uiState) { (draft, review, titleBuffer), ui ->
-            val step = StudioStep.fromLifecycle(draft.lifecycle)
+            val draftFlow = recordingRepository.observeDraft(id).filterNotNull()
+            val reviewFlow = playbackCoordinator.reviewProgress
+            val recoveryFlow = recordingRepository.observeRecoveryState(id, workManager)
             
-            // Phase 5: Merge state, prioritizing local buffer for UI responsiveness
-            val displayTitle = titleBuffer ?: draft.title ?: ""
+            combine(
+                draftFlow,
+                reviewFlow,
+                recoveryFlow,
+                _titleInput,
+                _uiState
+            ) { draft, review, isRecovering, titleBuffer, ui ->
+                val step = StudioStep.fromLifecycle(draft.lifecycle)
+                val displayTitle = titleBuffer ?: draft.title ?: ""
 
-            Log.d("STATE_TRACE", "[STATE_TRACE] sessionState EMIT: draftId=${draft.id}, lifecycle=${draft.lifecycle}, step=$step, reviewCompleted=${draft.reviewCompleted} | Instance=${this.hashCode()}")
-            StudioSessionState(
-                draftId = draft.id,
-                currentStep = step,
-                lifecycle = draft.lifecycle,
-                reviewCompleted = draft.reviewCompleted,
-                titleCompleted = draft.titleCompleted,
-                emotionCompleted = draft.emotionCompleted,
-                approvalCompleted = draft.approvalCompleted,
-                title = displayTitle,
-                emotion = draft.emotion,
-                
-                // Playback info
-                isPlaying = playbackCoordinator.isPlaying.value,
-                playbackSpeed = playbackCoordinator.playbackSpeed.value,
-                currentPosition = if (draft.lifecycle == ArtifactLifecycle.REVIEW_REQUIRED) review.furthestPositionMs else 0L,
-                durationMs = draft.durationMs,
-                coveragePercent = if (draft.lifecycle == ArtifactLifecycle.REVIEW_REQUIRED) review.coveragePercent else draft.reviewProgress,
-                
-                // UI info
-                isPublishing = ui.isPublishing,
-                isSuccess = ui.isSuccess || draft.lifecycle == ArtifactLifecycle.PUBLISHED,
-                isQueuedOffline = ui.isQueuedOffline,
-                error = ui.error,
-                showPrivacyNudge = ui.showPrivacyNudge,
-                privacyWarnings = ui.privacyWarnings
-            )
+                StudioSessionState(
+                    draftId = draft.id,
+                    currentStep = step,
+                    lifecycle = draft.lifecycle,
+                    reviewCompleted = draft.reviewCompleted,
+                    titleCompleted = draft.titleCompleted,
+                    emotionCompleted = draft.emotionCompleted,
+                    approvalCompleted = draft.approvalCompleted,
+                    title = displayTitle,
+                    emotion = draft.emotion,
+                    isPlaying = playbackCoordinator.isPlaying.value,
+                    playbackSpeed = playbackCoordinator.playbackSpeed.value,
+                    currentPosition = if (draft.lifecycle == ArtifactLifecycle.REVIEW_REQUIRED) review.furthestPositionMs else 0L,
+                    durationMs = draft.durationMs,
+                    coveragePercent = if (draft.lifecycle == ArtifactLifecycle.REVIEW_REQUIRED) review.coveragePercent else draft.reviewProgress,
+                    isPublishing = ui.isPublishing,
+                    isSuccess = ui.isSuccess || draft.lifecycle == ArtifactLifecycle.PUBLISHED,
+                    isQueuedOffline = ui.isQueuedOffline,
+                    isRecovering = isRecovering,
+                    error = ui.error,
+                    showPrivacyNudge = ui.showPrivacyNudge,
+                    privacyWarnings = ui.privacyWarnings
+                )
+            }
         }
         .stateIn(
             scope = viewModelScope,
@@ -366,6 +364,7 @@ data class StudioUiState(
     val isPublishing: Boolean = false,
     val isSuccess: Boolean = false,
     val isQueuedOffline: Boolean = false,
+    val isRecovering: Boolean = false,
     val error: String? = null,
     val showPrivacyNudge: Boolean = false,
     val privacyWarnings: List<String> = emptyList()

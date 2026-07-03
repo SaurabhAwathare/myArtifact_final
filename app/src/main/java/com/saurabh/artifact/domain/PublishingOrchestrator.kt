@@ -3,6 +3,7 @@ package com.saurabh.artifact.domain
 import android.content.Context
 import android.util.Log
 import androidx.work.*
+import androidx.work.await
 import com.saurabh.artifact.audio.UploadService
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.security.UploadGuard
@@ -90,6 +91,14 @@ class PublishingOrchestrator @Inject constructor(
         .then(safetyWork)
         .then(finalStateWork)
         .enqueue()
+    }
+
+    /**
+     * Checks if a processing chain for the given draft is currently active.
+     */
+    suspend fun isProcessingActive(draftId: String): Boolean = withContext(Dispatchers.IO) {
+        val workInfos = workManager.getWorkInfosForUniqueWork("process_$draftId").get()
+        workInfos.any { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.RUNNING }
     }
 
     suspend fun approveAndPublish(

@@ -867,6 +867,12 @@ object DatabaseMigrations {
         }
     }
 
+    val MIGRATION_54_55 = object : Migration(54, 55) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `artifact_drafts` ADD COLUMN `lastRecoveryAttemptAt` INTEGER NOT NULL DEFAULT 0")
+        }
+    }
+
     val ALL_MIGRATIONS = arrayOf(
         MIGRATION_1_2,
         MIGRATION_2_3,
@@ -903,6 +909,7 @@ object DatabaseMigrations {
         MIGRATION_50_51,
         MIGRATION_51_52,
         MIGRATION_52_53,
-        MIGRATION_53_54
+        MIGRATION_53_54,
+        MIGRATION_54_55
     )
 }

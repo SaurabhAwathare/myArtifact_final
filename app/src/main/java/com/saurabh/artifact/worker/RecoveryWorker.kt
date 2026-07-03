@@ -36,9 +36,20 @@ class RecoveryWorker @AssistedInject constructor(
             val recoveredResult = recordingRepository.recoverInterruptedDrafts()
             recoveredResult.onSuccess { recovered ->
                 if (recovered.isNotEmpty()) {
-                    Log.i("RecoveryWorker", "Successfully recovered ${recovered.size} interrupted recordings. Triggering processing...")
+                    Log.i("RecoveryWorker", "Successfully identified ${recovered.size} interrupted drafts. Evaluating recovery safeguards...")
                     recovered.forEach { draft ->
-                        publishingOrchestrator.startProcessing(draft.id)
+                        // Idempotency: Only restart if work is NOT already active
+                        if (!publishingOrchestrator.isProcessingActive(draft.id)) {
+                            Log.d("RecoveryWorker", "Triggering recovery for draft: ${draft.id}")
+                            
+                            // Mark attempt to ensure cooldown is respected
+                            recordingRepository.markRecoveryAttempt(draft.id)
+                            
+                            // Resume the pipeline
+                            publishingOrchestrator.startProcessing(draft.id)
+                        } else {
+                            Log.d("RecoveryWorker", "Recovery skipped for draft ${draft.id}: Processing already active.")
+                        }
                     }
                 }
             }

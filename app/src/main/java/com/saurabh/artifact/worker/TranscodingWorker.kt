@@ -67,16 +67,27 @@ class TranscodingWorker @AssistedInject constructor(
             // 2. Metadata Extraction (Checksum)
             val checksum = FileIntegrity.calculateChecksum(finalAudioFile.absolutePath)
             
-            // 3. Securely delete intermediate files
-            rawFile.delete()
+            // 2.1 ATOMICITY FIX: Verify generated file essence before DB commitment
+            if (!finalAudioFile.exists() || finalAudioFile.length() == 0L) {
+                Log.e("TranscodingWorker", "Transcoding essence lost: Generated file missing or empty")
+                updateDraftStatus(draftId, null, "Transcoding output verification failed")
+                return@withContext Result.failure()
+            }
 
-            // 4. Finalize paths in DB with targeted update
+            // 3. Finalize paths in DB with targeted update (Commit before cleanup)
             draftDao.updateTranscodingResult(
                 id = draftId,
                 localAudioPath = finalAudioFile.absolutePath,
                 checksum = checksum,
                 isEncrypted = true
             )
+
+            // 4. Securely delete intermediate files (Cleanup only after DB success)
+            if (rawFile.delete()) {
+                Log.d("TranscodingWorker", "Cleaned up intermediate WAV: ${rawFile.name}")
+            } else {
+                Log.w("TranscodingWorker", "Failed to delete intermediate WAV: ${rawFile.name}")
+            }
 
             Log.d("TranscodingWorker", "Transcoding complete: ${finalAudioFile.name}")
             Result.success()

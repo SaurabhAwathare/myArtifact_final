@@ -364,85 +364,91 @@ private fun FeedContent(
     val isEmpty = currentArtifacts.itemCount == 0
     val isRefreshing = currentArtifacts.loadState.refresh is LoadState.Loading
 
-    FadeInContent(
-        visible = !isRankedLoading || !isEmpty,
-        modifier = modifier
-    ) {
-        if (isEmpty) {
-            if (isRefreshing || isRankedLoading) {
-                FeedLoadingState()
-            } else {
-                EmptyFeedState(onRecordClick = { onNavigateToRecord(null) })
+    Box(modifier = modifier) {
+        // ALWAYS keep LazyColumn in composition tree to preserve scroll restoration anchor.
+        // Even if empty, the Paging library will soon populate it from Room if SKIP_INITIAL_REFRESH was used.
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(20.dp, 0.dp, 20.dp, 120.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp)
+        ) {
+            item(key = "header") {
+                FeedHeader(viewModel, reflectionPrompt, stage, onNavigateToRecord)
             }
-        } else {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(20.dp, 0.dp, 20.dp, 120.dp),
-                verticalArrangement = Arrangement.spacedBy(24.dp)
+
+            if (showRankedFeed) {
+                // Inject unfinished sessions at the top of Ranked feed
+                if (unfinished.isNotEmpty()) {
+                    item(key = "unfinished_section") {
+                        Text(
+                            "Continue Listening",
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.padding(bottom = 12.dp)
+                        )
+                    }
+                    items(unfinished, key = { "unf_${it.artifact.id}" }) { item ->
+                        ArtifactItem(
+                            artifactId = item.artifact.id,
+                            viewModel = viewModel,
+                            onReportClick = onReportClick,
+                            feedArtifact = item
+                        )
+                    }
+                    item(key = "divider_unf") {
+                        HorizontalDivider(
+                            modifier = Modifier.padding(vertical = 8.dp),
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
+                        )
+                    }
+                }
+            }
+
+            items(
+                count = currentArtifacts.itemCount,
+                key = currentArtifacts.itemKey { it.id }
+            ) { index ->
+                val item = currentArtifacts[index]
+                when (item) {
+                    is FeedDisplayItem.ArtifactItem -> {
+                        ArtifactItem(
+                            artifactId = item.artifact.id,
+                            viewModel = viewModel,
+                            onReportClick = onReportClick
+                        )
+                    }
+                    is FeedDisplayItem.BreakItem -> {
+                        BreathBreakItem()
+                    }
+                    null -> { /* Paging placeholder */ }
+                }
+            }
+
+            if (currentArtifacts.loadState.append is LoadState.Loading) {
+                item(key = "loading_indicator") { LoadingIndicator() }
+            }
+
+            if (currentArtifacts.itemCount > 0) {
+                item(key = "drawn_signal") {
+                    val context = LocalContext.current
+                    LaunchedEffect(Unit) {
+                        (context as? ComponentActivity)?.reportFullyDrawn()
+                    }
+                }
+            }
+        }
+
+        // Overlay loading or empty states when the paging items are empty.
+        // We use a background to mask the empty LazyColumn (which still contains the header).
+        if (isEmpty) {
+            FadeInContent(
+                visible = isRankedLoading || isRefreshing || isEmpty,
+                modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
             ) {
-                item(key = "header") {
-                    FeedHeader(viewModel, reflectionPrompt, stage, onNavigateToRecord)
-                }
-
-                if (showRankedFeed) {
-                    // Inject unfinished sessions at the top of Ranked feed
-                    if (unfinished.isNotEmpty()) {
-                        item(key = "unfinished_section") {
-                            Text(
-                                "Continue Listening",
-                                style = MaterialTheme.typography.titleMedium,
-                                modifier = Modifier.padding(bottom = 12.dp)
-                            )
-                        }
-                        items(unfinished, key = { "unf_${it.artifact.id}" }) { item ->
-                            ArtifactItem(
-                                artifactId = item.artifact.id,
-                                viewModel = viewModel,
-                                onReportClick = onReportClick,
-                                feedArtifact = item
-                            )
-                        }
-                        item(key = "divider_unf") {
-                            HorizontalDivider(
-                                modifier = Modifier.padding(vertical = 8.dp),
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
-                            )
-                        }
-                    }
-                }
-
-                items(
-                    count = currentArtifacts.itemCount,
-                    key = currentArtifacts.itemKey { it.id }
-                ) { index ->
-                    val item = currentArtifacts[index]
-                    when (item) {
-                        is FeedDisplayItem.ArtifactItem -> {
-                            ArtifactItem(
-                                artifactId = item.artifact.id,
-                                viewModel = viewModel,
-                                onReportClick = onReportClick
-                            )
-                        }
-                        is FeedDisplayItem.BreakItem -> {
-                            BreathBreakItem()
-                        }
-                        null -> { /* Paging placeholder */ }
-                    }
-                }
-
-                if (currentArtifacts.loadState.append is LoadState.Loading) {
-                    item(key = "loading_indicator") { LoadingIndicator() }
-                }
-                
-                if (currentArtifacts.itemCount > 0) {
-                    item(key = "drawn_signal") {
-                        val context = LocalContext.current
-                        LaunchedEffect(Unit) {
-                            (context as? ComponentActivity)?.reportFullyDrawn()
-                        }
-                    }
+                if (isRefreshing || isRankedLoading) {
+                    FeedLoadingState(modifier = Modifier.fillMaxSize())
+                } else {
+                    EmptyFeedState(onRecordClick = { onNavigateToRecord(null) })
                 }
             }
         }
@@ -606,9 +612,9 @@ fun BreathBreakItem(modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun FeedLoadingState() {
+fun FeedLoadingState(modifier: Modifier = Modifier) {
     Column(
-        modifier = Modifier.fillMaxSize().padding(20.dp),
+        modifier = modifier.padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(24.dp)
     ) {
         repeat(3) {

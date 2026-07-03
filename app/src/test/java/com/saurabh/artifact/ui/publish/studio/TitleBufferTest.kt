@@ -26,6 +26,7 @@ class TitleBufferTest {
     private val publishArtifactUseCase = mockk<PublishArtifactUseCase>(relaxed = true)
     private val identityScout = mockk<IdentityScout>(relaxed = true)
     private val authRepository = mockk<AuthRepository>(relaxed = true)
+    private val workManager = mockk<androidx.work.WorkManager>(relaxed = true)
 
     private val testDispatcher = UnconfinedTestDispatcher()
 
@@ -64,7 +65,8 @@ class TitleBufferTest {
             playbackCoordinator,
             publishArtifactUseCase,
             identityScout,
-            authRepository
+            authRepository,
+            workManager
         )
 
         val draftId = "test-draft"
