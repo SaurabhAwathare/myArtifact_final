@@ -55,8 +55,21 @@ data class Artifact(
     val reactionVisibility: ReactionVisibilityMode = ReactionVisibilityMode.APPROXIMATE,
     val titleHistory: List<String> = emptyList(),
 
-    // Field added for Firestore mapping consistency
+    /**
+     * Firestore Release compatibility.
+     *
+     * The Firestore document field is named "isDraft", while the Kotlin property
+     * is named "isDraftField" to avoid colliding with the computed helper
+     * property `isDraft`.
+     *
+     * Both @get:PropertyName and @field:PropertyName are intentionally required
+     * for immutable constructor deserialization in Release builds. @field is used
+     * because @param is not supported by this annotation.
+     *
+     * See RELEASE-B04.
+     */
     @get:PropertyName("isDraft")
+    @field:PropertyName("isDraft")
     val isDraftField: Boolean = false,
 
     // Missing fields causing warnings

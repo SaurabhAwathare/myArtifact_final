@@ -1,5 +1,6 @@
 package com.saurabh.artifact
 
+import androidx.lifecycle.SavedStateHandle
 import android.content.Intent
 import android.util.Log
 import com.saurabh.artifact.domain.auth.CleanupResult
@@ -13,9 +14,7 @@ import com.saurabh.artifact.domain.auth.RegistrationResult
 import com.saurabh.artifact.domain.settings.ObserveStealthModeUseCase
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.startup.StartupCoordinator
-import com.saurabh.artifact.navigation.IncomingArtifact
-import com.saurabh.artifact.navigation.InstantRecord
-import com.saurabh.artifact.navigation.Login
+import com.saurabh.artifact.navigation.*
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -40,7 +39,9 @@ class MainViewModelTest {
     private val observeCurrentUserProfileUseCase = mockk<ObserveCurrentUserProfileUseCase>(relaxed = true)
     private val observeStealthModeUseCase = mockk<ObserveStealthModeUseCase>(relaxed = true)
     private val startupCoordinator = mockk<StartupCoordinator>(relaxed = true)
+    private val savedStateHandle = SavedStateHandle()
 
+    private val testAuthFlow = MutableStateFlow<com.google.firebase.auth.FirebaseUser?>(null)
     private lateinit var viewModel: MainViewModel
     private val testDispatcher = StandardTestDispatcher()
 
@@ -55,7 +56,8 @@ class MainViewModelTest {
 
         Dispatchers.setMain(testDispatcher)
 
-        every { authRepository.currentUser } returns MutableStateFlow(null)
+        testAuthFlow.value = null
+        every { authRepository.currentUser } returns testAuthFlow
         every { observeStealthModeUseCase.invoke() } returns flowOf(false)
         every { startupCoordinator.stage } returns MutableStateFlow(com.saurabh.artifact.startup.StartupStage.ARRIVAL)
         every { startupCoordinator.isRescueModeActive } returns false
@@ -67,7 +69,8 @@ class MainViewModelTest {
             logoutCoordinator,
             observeCurrentUserProfileUseCase,
             observeStealthModeUseCase,
-            startupCoordinator
+            startupCoordinator,
+            savedStateHandle
         )
     }
 
@@ -81,7 +84,7 @@ class MainViewModelTest {
     fun `onLaunchIntent while ready and logged in should emit event immediately`() = runTest {
         // Setup: App is Ready and user is logged in
         val user = mockk<com.google.firebase.auth.FirebaseUser>()
-        every { authRepository.currentUser } returns MutableStateFlow(user)
+        testAuthFlow.value = user
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
         
@@ -108,7 +111,7 @@ class MainViewModelTest {
     fun `onLaunchIntent while initializing should buffer event and deliver after start`() = runTest {
         // Setup: User is logged in, but app is still Initializing
         val user = mockk<com.google.firebase.auth.FirebaseUser>()
-        every { authRepository.currentUser } returns MutableStateFlow(user)
+        testAuthFlow.value = user
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
 
@@ -139,7 +142,7 @@ class MainViewModelTest {
     @Test
     fun `onLaunchIntent with valid App Link URI while ready should emit IncomingArtifact`() = runTest {
         val user = mockk<com.google.firebase.auth.FirebaseUser>()
-        every { authRepository.currentUser } returns MutableStateFlow(user)
+        testAuthFlow.value = user
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
         
@@ -170,9 +173,9 @@ class MainViewModelTest {
     }
 
     @Test
-    fun `pending event should be dropped if destination is Login`() = runTest {
+    fun `pending event should NOT be delivered while at Login`() = runTest {
         // Setup: User is NULL, app will go to Login
-        every { authRepository.currentUser } returns MutableStateFlow(null)
+        testAuthFlow.value = null
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.UNAUTHENTICATED
 
         val intent = mockk<Intent>()
@@ -198,9 +201,9 @@ class MainViewModelTest {
     }
 
     @Test
-    fun `onLaunchIntent while logged out and ready should NOT emit event`() = runTest {
+    fun `onLaunchIntent while logged out and ready should NOT emit event immediately`() = runTest {
         // Setup: App is Ready, but user is logged out
-        every { authRepository.currentUser } returns MutableStateFlow(null)
+        testAuthFlow.value = null
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.UNAUTHENTICATED
         
         viewModel.start()
@@ -208,6 +211,8 @@ class MainViewModelTest {
 
         val intent = mockk<Intent>()
         every { intent.getBooleanExtra("navigate_to_recording", false) } returns true
+        every { intent.getStringExtra("artifactId") } returns null
+        every { intent.action } returns null
 
         val navigationEvents = mutableListOf<Any>()
         val job = launch {
@@ -224,7 +229,7 @@ class MainViewModelTest {
     @Test
     fun `startup should proceed to Ready state when authenticated`() = runTest {
         val user = mockk<com.google.firebase.auth.FirebaseUser>()
-        every { authRepository.currentUser } returns MutableStateFlow(user)
+        testAuthFlow.value = user
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
 
@@ -238,7 +243,7 @@ class MainViewModelTest {
     @Test
     fun `startup should unblock coordinator on registration failure`() = runTest {
         val user = mockk<com.google.firebase.auth.FirebaseUser>()
-        every { authRepository.currentUser } returns MutableStateFlow(user)
+        testAuthFlow.value = user
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.Failure(Exception("Network error"))
 
@@ -254,8 +259,7 @@ class MainViewModelTest {
     fun `auth logout should trigger comprehensive cleanup and wait for completion`() = runTest(testDispatcher) {
         // Setup: App is ready and user is logged in
         val user = mockk<com.google.firebase.auth.FirebaseUser>()
-        val authFlow = MutableStateFlow<com.google.firebase.auth.FirebaseUser?>(user)
-        every { authRepository.currentUser } returns authFlow
+        testAuthFlow.value = user
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
         coEvery { logoutCoordinator.performFullCleanup() } coAnswers {
@@ -267,7 +271,7 @@ class MainViewModelTest {
         advanceUntilIdle() // Reach Ready state
         
         // Trigger Logout
-        authFlow.value = null
+        testAuthFlow.value = null
         
         // Before delay completion, state should NOT be Ready(Login) yet because we wait for cleanup
         advanceTimeBy(50)
@@ -286,8 +290,7 @@ class MainViewModelTest {
     @Test
     fun `cold startup while logged out should NOT trigger cleanup`() = runTest(testDispatcher) {
         // Setup: Initial state is logged out
-        val authFlow = MutableStateFlow<com.google.firebase.auth.FirebaseUser?>(null)
-        every { authRepository.currentUser } returns authFlow
+        testAuthFlow.value = null
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.UNAUTHENTICATED
 
         viewModel.start()
@@ -304,8 +307,7 @@ class MainViewModelTest {
     fun `exception during cleanup should still result in login navigation`() = runTest(testDispatcher) {
         // Setup: App is ready and user is logged in
         val user = mockk<com.google.firebase.auth.FirebaseUser>()
-        val authFlow = MutableStateFlow<com.google.firebase.auth.FirebaseUser?>(user)
-        every { authRepository.currentUser } returns authFlow
+        testAuthFlow.value = user
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
         coEvery { logoutCoordinator.performFullCleanup() } throws RuntimeException("Cleanup failed")
@@ -314,7 +316,7 @@ class MainViewModelTest {
         advanceUntilIdle()
         
         // Trigger Logout
-        authFlow.value = null
+        testAuthFlow.value = null
         advanceUntilIdle()
         
         // Verify destination is still Login despite failure
@@ -325,8 +327,7 @@ class MainViewModelTest {
     fun `cleanup already in progress should not block login navigation`() = runTest(testDispatcher) {
         // Setup: App is ready and user is logged in
         val user = mockk<com.google.firebase.auth.FirebaseUser>()
-        val authFlow = MutableStateFlow<com.google.firebase.auth.FirebaseUser?>(user)
-        every { authRepository.currentUser } returns authFlow
+        testAuthFlow.value = user
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
         coEvery { logoutCoordinator.performFullCleanup() } returns CleanupResult(status = CleanupStatus.ALREADY_IN_PROGRESS)
@@ -335,7 +336,7 @@ class MainViewModelTest {
         advanceUntilIdle()
         
         // Trigger Logout
-        authFlow.value = null
+        testAuthFlow.value = null
         advanceUntilIdle()
         
         // Verify destination
@@ -343,44 +344,334 @@ class MainViewModelTest {
     }
 
     @Test
-    fun `multiple auth events should result in single cleanup trigger due to scan state`() = runTest(testDispatcher) {
-        // Setup: App is ready and user is logged in
+    fun `pending event should survive authentication and deliver after profile check`() = runTest {
+        // Setup: App will go to Login initially
+        testAuthFlow.value = null
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.UNAUTHENTICATED
+
+        val intent = mockk<Intent>()
+        every { intent.getStringExtra("artifactId") } returns "deferred_123"
+        every { intent.getBooleanExtra(any(), any()) } returns false
+        every { intent.action } returns null
+
+        val navigationEvents = mutableListOf<Any>()
+        val job = launch {
+            viewModel.navigationEvent.collect { navigationEvents.add(it) }
+        }
+
+        // 1. Buffer intent while logged out
+        viewModel.onLaunchIntent(intent)
+        
+        // 2. Start app - goes to Login
+        viewModel.start()
+        testScheduler.runCurrent()
+        
+        assertEquals(AppStartupState.Ready(Login), viewModel.startupState.value)
+        assertTrue(navigationEvents.isEmpty())
+
+        // 3. Simulate Login
         val user = mockk<com.google.firebase.auth.FirebaseUser>()
-        val authFlow = MutableStateFlow<com.google.firebase.auth.FirebaseUser?>(user)
-        every { authRepository.currentUser } returns authFlow
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
-        coEvery { logoutCoordinator.performFullCleanup() } coAnswers {
-            delay(100)
-            CleanupResult(status = CleanupStatus.COMPLETED)
+        
+        testAuthFlow.value = user
+        viewModel.retryStartup() 
+        
+        testScheduler.runCurrent()
+
+        // 4. Verify event delivered
+        val event = navigationEvents.filterIsInstance<IncomingArtifact>().firstOrNull()
+        assertEquals("deferred_123", event?.artifactId)
+        job.cancel()
+    }
+
+    @Test
+    fun `failed authentication should leave the event intact`() = runTest {
+        testAuthFlow.value = null
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.UNAUTHENTICATED
+
+        val intent = mockk<Intent>()
+        every { intent.getStringExtra("artifactId") } returns "survivor"
+        every { intent.getBooleanExtra(any(), any()) } returns false
+        every { intent.action } returns null
+
+        val navigationEvents = mutableListOf<Any>()
+        val job = launch {
+            viewModel.navigationEvent.collect { navigationEvents.add(it) }
         }
+
+        // 1. Buffer intent
+        viewModel.onLaunchIntent(intent)
+        viewModel.start()
+        testScheduler.runCurrent()
+
+        // 2. Simulate Failed Authentication (Stays at Login)
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.UNAUTHENTICATED
+        viewModel.retryStartup()
+        testScheduler.runCurrent()
+
+        // 3. Verify event NOT consumed
+        assertTrue(navigationEvents.isEmpty())
+
+        // 4. Simulate Successful Authentication later
+        val user = mockk<com.google.firebase.auth.FirebaseUser>()
+        testAuthFlow.value = user
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
+        coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
+        
+        viewModel.retryStartup()
+        testScheduler.runCurrent()
+
+        // 5. Verify event delivered now
+        val event = navigationEvents.filterIsInstance<IncomingArtifact>().firstOrNull()
+        assertEquals("survivor", event?.artifactId)
+        job.cancel()
+    }
+
+    @Test
+    fun `warm start deferred link should deliver after login`() = runTest {
+        // Setup: App is already Ready(Login)
+        testAuthFlow.value = null
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.UNAUTHENTICATED
         
         viewModel.start()
-        advanceUntilIdle()
+        testScheduler.runCurrent()
+        assertEquals(AppStartupState.Ready(Login), viewModel.startupState.value)
+
+        val navigationEvents = mutableListOf<Any>()
+        val job = launch {
+            viewModel.navigationEvent.collect { navigationEvents.add(it) }
+        }
+
+        // 1. Receive intent while at Login (onNewIntent)
+        val intent = mockk<Intent>()
+        every { intent.getStringExtra("artifactId") } returns "warm_123"
+        every { intent.getBooleanExtra(any(), any()) } returns false
+        every { intent.action } returns null
+
+        viewModel.onLaunchIntent(intent)
+        testScheduler.runCurrent()
+        assertTrue(navigationEvents.isEmpty())
+
+        // 2. Log in
+        val user = mockk<com.google.firebase.auth.FirebaseUser>()
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
+        coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
         
-        // Rapidly change auth state: User -> null -> User -> null
-        authFlow.value = null
-        authFlow.value = user
-        authFlow.value = null
+        testAuthFlow.value = user
+        viewModel.retryStartup()
+        testScheduler.runCurrent()
+
+        // 3. Verify event delivered
+        val event = navigationEvents.filterIsInstance<IncomingArtifact>().firstOrNull()
+        assertEquals("warm_123", event?.artifactId)
+        job.cancel()
+    }
+
+    @Test
+    fun `duplicate navigation should be prevented on recomposition or auth changes`() = runTest {
+        testAuthFlow.value = null
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.UNAUTHENTICATED
+
+        val intent = mockk<Intent>()
+        every { intent.getStringExtra("artifactId") } returns "once_only"
+        every { intent.getBooleanExtra(any(), any()) } returns false
+        every { intent.action } returns null
+
+        val navigationEvents = mutableListOf<Any>()
+        val job = launch {
+            viewModel.navigationEvent.collect { navigationEvents.add(it) }
+        }
+
+        // 1. Buffer and Login
+        viewModel.onLaunchIntent(intent)
+        val user = mockk<com.google.firebase.auth.FirebaseUser>()
+        testAuthFlow.value = user
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
+        coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
         
-        advanceUntilIdle()
+        viewModel.start()
+        testScheduler.runCurrent()
+
+        // 2. Verify delivered once
+        assertEquals(1, navigationEvents.filterIsInstance<IncomingArtifact>().size)
+
+        // 3. Simulate another Auth change or Ready state re-emission
+        // Manually trigger deferred observer again (though it should be finished)
+        viewModel.retryStartup()
+        testScheduler.runCurrent()
+
+        // 4. Verify NOT delivered again
+        assertEquals(1, navigationEvents.filterIsInstance<IncomingArtifact>().size)
+        job.cancel()
+    }
+
+    @Test
+    fun `process death restoration should skip startup when already completed`() = runTest {
+        // 1. Simulate previous successful startup
+        val user = mockk<com.google.firebase.auth.FirebaseUser>()
+        testAuthFlow.value = user
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
+        coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
         
-        // Verify cleanup triggered for transitions to null
-        // scan(null -> User) -> (null, null), (null, User)
-        // User -> null -> (User, null) -> TRIGGER 1
-        // null -> User -> (null, User) -> NO TRIGGER
-        // User -> null -> (User, null) -> TRIGGER 2
+        viewModel.start()
+        testScheduler.runCurrent()
         
-        // Wait, the scan operator emits (previous, current).
-        // If we go User -> null -> User -> null:
-        // 1. (User, null) -> Cleanup starts.
-        // 2. (null, User)
-        // 3. (User, null) -> Cleanup starts again.
+        // Verify state is Ready(Home) and SavedState is populated
+        assertTrue(viewModel.startupState.value is AppStartupState.Ready)
+        assertEquals(true, savedStateHandle.get<Boolean>("startup_completed"))
+        assertEquals("HOME", savedStateHandle.get<String>("resolved_destination_id"))
+
+        // 2. Simulate Process Death by creating a NEW ViewModel with SAME SavedStateHandle
+        val newViewModel = MainViewModel(
+            authRepository,
+            getInitialDestinationUseCase,
+            registrationCoordinator,
+            logoutCoordinator,
+            observeCurrentUserProfileUseCase,
+            observeStealthModeUseCase,
+            startupCoordinator,
+            savedStateHandle
+        )
+
+        // 3. Start the new ViewModel
+        newViewModel.start()
+        testScheduler.runCurrent()
+
+        // 4. Verify startup logic was skipped and state restored immediately
+        assertTrue(newViewModel.startupState.value is AppStartupState.Ready)
+        assertEquals(Home, (newViewModel.startupState.value as AppStartupState.Ready).startDestination)
         
-        // However, LogoutCoordinator handles concurrency.
-        // If the first cleanup is still running, the second trigger will call performFullCleanup() 
-        // which returns ALREADY_IN_PROGRESS immediately.
+        // Verify executeStartup was NOT called (startupCoordinator.start() would have been called if it was)
+        // Note: startupCoordinator was already called once during first ViewModel.start()
+        verify(exactly = 1) { startupCoordinator.start() } 
+    }
+
+    @Test
+    fun `process death restoration should NOT skip startup if user is logged out`() = runTest {
+        // 1. Setup SavedState as if startup completed
+        savedStateHandle["startup_completed"] = true
+        savedStateHandle["resolved_destination_id"] = "HOME"
         
-        coVerify(atLeast = 1) { logoutCoordinator.performFullCleanup() }
+        // 2. Simulate Logged Out state
+        testAuthFlow.value = null
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.UNAUTHENTICATED
+
+        // 3. Start ViewModel
+        viewModel.start()
+        testScheduler.runCurrent()
+
+        // 4. Verify full startup executed (auth check occurred)
+        coVerify { getInitialDestinationUseCase() }
+        assertEquals(AppStartupState.Ready(Login), viewModel.startupState.value)
+    }
+
+    @Test
+    fun `restoration with invalid destination ID should trigger fresh startup`() = runTest {
+        // 1. Setup SavedState with INVALID ID
+        savedStateHandle["startup_completed"] = true
+        savedStateHandle["resolved_destination_id"] = "INVALID_ID"
+        
+        val user = mockk<com.google.firebase.auth.FirebaseUser>()
+        testAuthFlow.value = user
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
+        coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
+
+        // 2. Start ViewModel
+        viewModel.start()
+        testScheduler.runCurrent()
+
+        // 3. Verify full startup executed
+        verify(exactly = 1) { startupCoordinator.start() }
+        assertTrue(viewModel.startupState.value is AppStartupState.Ready)
+    }
+
+    @Test
+    fun `pending startup event should survive process death`() = runTest {
+        // 1. Buffer an event
+        val intent = mockk<Intent>()
+        every { intent.getStringExtra("artifactId") } returns "survivor_123"
+        every { intent.getBooleanExtra(any(), any()) } returns false
+        every { intent.action } returns null
+
+        viewModel.onLaunchIntent(intent)
+        
+        // Verify it was persisted to SavedState
+        val persistedJson = savedStateHandle.get<String>("pending_event_json")
+        assertTrue(persistedJson != null && persistedJson.contains("survivor_123"))
+
+        // 2. Simulate Process Death
+        val newViewModel = MainViewModel(
+            authRepository,
+            getInitialDestinationUseCase,
+            registrationCoordinator,
+            logoutCoordinator,
+            observeCurrentUserProfileUseCase,
+            observeStealthModeUseCase,
+            startupCoordinator,
+            savedStateHandle
+        )
+
+        val navigationEvents = mutableListOf<Any>()
+        val job = launch {
+            newViewModel.navigationEvent.collect { navigationEvents.add(it) }
+        }
+
+        // 3. Restore startup state
+        val user = mockk<com.google.firebase.auth.FirebaseUser>()
+        testAuthFlow.value = user
+        savedStateHandle["startup_completed"] = true
+        savedStateHandle["resolved_destination_id"] = "HOME"
+        
+        newViewModel.start()
+        testScheduler.runCurrent()
+
+        // 4. Verify event delivered after restoration
+        val event = navigationEvents.filterIsInstance<IncomingArtifact>().firstOrNull()
+        assertEquals("survivor_123", event?.artifactId)
+        
+        // Verify SavedState cleared
+        assertTrue(savedStateHandle.get<String>("pending_event_json") == null)
+        job.cancel()
+    }
+
+    @Test
+    fun `deferred observer should only run one instance`() = runTest {
+        testAuthFlow.value = null
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.UNAUTHENTICATED
+
+        val navigationEvents = mutableListOf<Any>()
+        val job = launch {
+            viewModel.navigationEvent.collect { navigationEvents.add(it) }
+        }
+
+        // 1. Send two intents while logged out
+        val intent1 = mockk<Intent>()
+        every { intent1.getStringExtra("artifactId") } returns "first"
+        every { intent1.getBooleanExtra(any(), any()) } returns false
+        every { intent1.action } returns null
+
+        val intent2 = mockk<Intent>()
+        every { intent2.getStringExtra("artifactId") } returns "second"
+        every { intent2.getBooleanExtra(any(), any()) } returns false
+        every { intent2.action } returns null
+
+        viewModel.onLaunchIntent(intent1)
+        viewModel.onLaunchIntent(intent2) // Should replace the first and not double deliver
+
+        // 2. Login
+        val user = mockk<com.google.firebase.auth.FirebaseUser>()
+        testAuthFlow.value = user
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
+        coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
+        
+        viewModel.start()
+        testScheduler.runCurrent()
+
+        // 3. Verify only one delivery (the last one)
+        val artifacts = navigationEvents.filterIsInstance<IncomingArtifact>()
+        assertEquals(1, artifacts.size)
+        assertEquals("second", artifacts.first().artifactId)
+        job.cancel()
     }
 }

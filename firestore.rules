@@ -8,7 +8,7 @@ service cloud.firestore {
     }
 
     function isOwner(userId) {
-      return isAuth() && request.auth.uid == userId;
+      return request.auth != null && request.auth.uid == userId;
     }
 
     // Business Purpose: Determine if user has global administrative rights.
@@ -17,7 +17,7 @@ service cloud.firestore {
     function isGlobalAdmin() {
       return isAuth() &&
              exists(/databases/$(database)/documents/users/$(request.auth.uid)/private/settings) &&
-             (get(/databases/$(database)/documents/users/$(request.auth.uid)/private/settings).data.isAdmin == true);
+             get(/databases/$(database)/documents/users/$(request.auth.uid)/private/settings).data.get('isAdmin', false) == true;
     }
 
     function getIdentityMetadata(data) {
@@ -57,12 +57,14 @@ service cloud.firestore {
     // --- USERS & PROFILES ---
     match /users/{uid} {
       allow read: if isOwner(uid) ||
-                   (isAuth() && !resource.data.keys().hasAny(['email', 'displayName', 'realName', 'fcmToken']));
+                   (request.auth != null && resource != null && !resource.data.keys().hasAny(['email', 'displayName', 'realName', 'fcmToken']));
 
-      allow update: if isOwner(uid) &&
-                   !(request.resource.data.diff(resource.data).affectedKeys()
+      allow update: if resource != null &&
+                   request.auth != null &&
+                   request.auth.uid == uid &&
+                   !(request.resource.data.diff(resource == null ? {} : resource.data).affectedKeys()
                      .hasAny(['isAdmin', 'admin', 'accountStatus', 'email', 'realName'])) &&
-                   isValidIdentityUpdate(resource.data, request.resource.data);
+                   isValidIdentityUpdate(resource == null ? {} : resource.data, request.resource.data);
 
       allow create: if isOwner(uid) &&
                     !("isAdmin" in request.resource.data) &&
@@ -70,16 +72,20 @@ service cloud.firestore {
                     !("accountStatus" in request.resource.data);
 
       // Consolidated Private Data (Zero-Trust Enforcement)
-      match /private/{document=**} {
+      match /private/settings {
         allow read: if isOwner(uid);
-        allow write: if isOwner(uid) &&
-                      (document != 'settings' || (
+        allow write: if isOwner(uid) && (
                         (request.method == 'create' &&
                          request.resource.data.get('isAdmin', false) == false &&
                          request.resource.data.get('accountStatus', 'ACTIVE') == 'ACTIVE') ||
                         (request.method == 'update' &&
                          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['isAdmin', 'accountStatus', 'admin']))
-                      ));
+                      );
+      }
+
+      match /private/{document=**} {
+        allow read: if isOwner(uid);
+        allow write: if isOwner(uid) && (document != /settings);
       }
 
       // Resonance & Engagement
@@ -93,9 +99,11 @@ service cloud.firestore {
         allow create: if isOwner(uid) &&
                       !("isCommentUnlocked" in request.resource.data) &&
                       !("engagementState" in request.resource.data);
-        allow update: if isOwner(uid) &&
-                     !(request.resource.data.diff(resource.data).affectedKeys()
-                       .hasAny(['isCommentUnlocked', 'engagementState']));
+        allow update: if resource != null &&
+                     (request.auth != null &&
+                      request.auth.uid == uid &&
+                      !(request.resource.data.diff(resource == null ? {} : resource.data).affectedKeys()
+                        .hasAny(['isCommentUnlocked', 'engagementState'])));
       }
 
       match /savedArtifacts/{artifactId} {
@@ -107,20 +115,22 @@ service cloud.firestore {
     match /artifacts/{artifactId} {
       allow read: if resource == null ||
                    (resource.data.get('isPublic', false) == true) ||
-                   isOwner(resource.data.userId) ||
+                   (request.auth != null && isOwner(resource.data.get('userId', ''))) ||
                    isGlobalAdmin();
 
       allow create: if isAuth() &&
-                    request.resource.data.userId == request.auth.uid &&
+                    request.resource.data.get('userId', '') == request.auth.uid &&
                     request.resource.data.author.anonymousId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.anonymousId &&
                     request.resource.data.author.keys().hasAll(['anonymousId', 'name']);
 
-      allow update: if isGlobalAdmin() ||
-                    (isOwner(resource.data.userId) &&
-                     !(request.resource.data.diff(resource.data).affectedKeys()
+      allow update: if (resource != null && isGlobalAdmin()) ||
+                    (resource != null &&
+                     request.auth != null &&
+                     request.auth.uid == resource.data.get('userId', '') &&
+                     !(request.resource.data.diff(resource == null ? {} : resource.data).affectedKeys()
                        .hasAny(['commentCount', 'reactionCount'])));
 
-      allow delete: if isGlobalAdmin() || isOwner(resource.data.userId);
+      allow delete: if isGlobalAdmin() || (resource != null && isOwner(resource.data.get('userId', '')));
 
       match /stats/resonance {
         allow read: if true;
@@ -130,7 +140,7 @@ service cloud.firestore {
 
     // --- COMMENTS (The Intimacy Layers) ---
     match /comments/{commentId} {
-      allow read: if isAuth() && (
+      allow read: if isAuth() && resource != null && (
         resource.data.authorId == request.auth.uid ||
         resource.data.artifactOwnerId == request.auth.uid ||
         (resource.data.visibilityLayer == 'RESONANCE' && resource.data.moderationState == 'APPROVED')
@@ -144,15 +154,17 @@ service cloud.firestore {
                       get(/databases/$(database)/documents/users/$(request.auth.uid)/engagement/$(request.resource.data.artifactId)).data.isCommentUnlocked == true
                     );
 
-      allow update: if (isOwner(resource.data.authorId) &&
+      allow update: if (resource != null &&
+                    isOwner(resource.data.authorId) &&
                     !(request.resource.data.diff(resource.data).affectedKeys()
                       .hasAny(['authorId', 'artifactId', 'artifactOwnerId']))) ||
-                    (isOwner(resource.data.artifactOwnerId) &&
+                    (resource != null &&
+                     isOwner(resource.data.artifactOwnerId) &&
                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['creatorReaction'])) ||
                     isGlobalAdmin();
 
-      allow delete: if isOwner(resource.data.authorId) ||
-                    isOwner(resource.data.artifactOwnerId) ||
+      allow delete: if (resource != null && (isOwner(resource.data.authorId) ||
+                    isOwner(resource.data.artifactOwnerId))) ||
                     isGlobalAdmin();
     }
 
@@ -180,9 +192,9 @@ service cloud.firestore {
 
     // --- NOTIFICATIONS & REPORTS ---
     match /notifications/{id} {
-      allow read: if isAuth() && request.auth.uid == resource.data.userId;
-      allow delete: if isAuth() && request.auth.uid == resource.data.userId;
-      allow update: if isAuth() && request.auth.uid == resource.data.userId &&
+      allow read: if request.auth != null && resource != null && request.auth.uid == resource.data.get('userId', '');
+      allow delete: if request.auth != null && resource != null && request.auth.uid == resource.data.get('userId', '');
+      allow update: if request.auth != null && resource != null && request.auth.uid == resource.data.get('userId', '') &&
                     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead']);
       allow create: if false;
     }

@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -17,6 +19,37 @@ configure<com.android.build.api.dsl.ApplicationExtension> {
     namespace = "com.saurabh.artifact"
     compileSdk = 37
 
+    val keystorePropertiesFile = rootProject.file("keystore.properties")
+    val keystoreProperties = Properties()
+    if (keystorePropertiesFile.exists()) {
+        keystorePropertiesFile.inputStream().use { stream ->
+            keystoreProperties.load(stream)
+        }
+    }
+
+    fun getProp(name: String, envName: String): String? {
+        return System.getenv(envName) ?: keystoreProperties.getProperty(name)
+    }
+
+    val storeFilePath = getProp("storeFile", "ARTIFACT_RELEASE_STORE_FILE")
+    val storePasswordValue = getProp("storePassword", "ARTIFACT_RELEASE_STORE_PASSWORD")
+    val keyAliasValue = getProp("keyAlias", "ARTIFACT_RELEASE_KEY_ALIAS")
+    val keyPasswordValue = getProp("keyPassword", "ARTIFACT_RELEASE_KEY_PASSWORD")
+
+    val storeFileObj = storeFilePath?.let { file(it) }
+    val isSigningConfigured = (storeFileObj?.exists() == true) &&
+            (storePasswordValue != null) &&
+            (keyAliasValue != null) &&
+            (keyPasswordValue != null)
+
+    if (!isSigningConfigured) {
+        logger.lifecycle(
+            "WARNING: Release signing is not configured. " +
+                    "Unsigned release artifacts may be generated and cannot be published to Google Play. " +
+                    "Configure keystore.properties or the ARTIFACT_RELEASE_* environment variables to enable release signing.",
+        )
+    }
+
     defaultConfig {
         applicationId = "com.saurabh.artifact"
         minSdk = 24
@@ -27,11 +60,32 @@ configure<com.android.build.api.dsl.ApplicationExtension> {
         testInstrumentationRunner = "com.saurabh.artifact.HiltTestRunner"
     }
 
+    signingConfigs {
+        if (isSigningConfigured) {
+            create("release") {
+                storeFile = storeFileObj
+                storePassword = storePasswordValue
+                keyAlias = keyAliasValue
+                keyPassword = keyPasswordValue
+            }
+        }
+    }
+
     buildTypes {
         debug {
             isDebuggable = true
+            applicationIdSuffix = ".debug"
+            manifestPlaceholders["appLabel"] = "@string/app_name_debug"
+            buildConfigField("String", "FIREBASE_ENV", "\"DEBUG\"")
+            buildConfigField("String", "FIREBASE_PROJECT_ID", "\"myartifact-555e3\"")
         }
         release {
+            if (isSigningConfigured) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+            manifestPlaceholders["appLabel"] = "@string/app_name"
+            buildConfigField("String", "FIREBASE_ENV", "\"PROD\"")
+            buildConfigField("String", "FIREBASE_PROJECT_ID", "\"myartifact-prod\"")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -58,11 +112,11 @@ configure<com.android.build.api.dsl.ApplicationExtension> {
         disable += "NewerVersionAvailable"
         disable += "GradleDependency"
     }
+}
 
-    baselineProfile {
-        filter {
-            include("com.saurabh.artifact.**")
-        }
+baselineProfile {
+    filter {
+        include("com.saurabh.artifact.**")
     }
 }
 

@@ -52,4 +52,14 @@
     <string name="comment_submitted">Your comment has been safely delivered.</string>
     <string name="comments_unlock_requirements">Comments Unlock Requirements</string>
     <string name="reflect_and_respond">Reflect and respond</string>
+
+    <!-- Legal -->
+    <string name="privacy_policy">Privacy Policy</string>
+    <string name="terms_of_service">Terms of Service</string>
+    <string name="legal_acknowledgment">By continuing, you acknowledge that you have read the Privacy Policy and agree to the Terms of Service.</string>
+    <string name="privacy_policy_url">https://myartifact.app/privacy</string>
+    <string name="terms_of_service_url">https://myartifact.app/terms</string>
+
+    <!-- Disclosures -->
+    <string name="audio_collection_disclosure">Voice recordings are uploaded securely so they can be shared within Artifact according to your publishing choices. Drafts and published recordings can be managed or deleted as described in the Privacy Policy.</string>
 </resources>

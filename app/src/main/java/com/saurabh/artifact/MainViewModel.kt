@@ -1,5 +1,6 @@
 package com.saurabh.artifact
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.util.UnstableApi
@@ -12,9 +13,12 @@ import com.saurabh.artifact.domain.settings.ObserveStealthModeUseCase
 import com.saurabh.artifact.startup.StartupCoordinator
 import com.saurabh.artifact.startup.StartupMetrics
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import kotlin.OptIn
 
@@ -37,8 +41,20 @@ class MainViewModel @Inject constructor(
     @get:UnstableApi private val logoutCoordinator: com.saurabh.artifact.domain.auth.LogoutCoordinator,
     observeCurrentUserProfileUseCase: ObserveCurrentUserProfileUseCase,
     observeStealthModeUseCase: ObserveStealthModeUseCase,
-    private val startupCoordinator: StartupCoordinator
+    private val startupCoordinator: StartupCoordinator,
+    private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
+
+    companion object {
+        private const val KEY_STARTUP_COMPLETED = "startup_completed"
+        private const val KEY_RESOLVED_DESTINATION_ID = "resolved_destination_id"
+        private const val KEY_PENDING_EVENT_JSON = "pending_event_json"
+        
+        private const val ID_HOME = "HOME"
+        private const val ID_LOGIN = "LOGIN"
+        private const val ID_ONBOARDING = "ONBOARDING"
+        private const val ID_IDENTITY_REVEAL = "IDENTITY_REVEAL"
+    }
 
     private val _startupState = MutableStateFlow<AppStartupState>(AppStartupState.Initializing)
     val startupState = _startupState.asStateFlow()
@@ -65,10 +81,22 @@ class MainViewModel @Inject constructor(
     val navigationEvent = _navigationEvent.receiveAsFlow()
 
     private var pendingStartupEvent: Any? = null
+    private var deferredNavigationJob: Job? = null
 
     private var isStarted = false
 
     init {
+        // Restore pending event from SavedState if it hasn't been consumed yet
+        savedStateHandle.get<String>(KEY_PENDING_EVENT_JSON)?.let { json ->
+            try {
+                pendingStartupEvent = Json.decodeFromString<IncomingArtifact>(json)
+                android.util.Log.i("AppStartup", "Restored pending startup event from SavedState.")
+            } catch (e: Exception) {
+                // Compatibility: If serialization format changed, discard the event rather than crashing
+                android.util.Log.w("AppStartup", "Failed to restore pending event from SavedState.")
+            }
+        }
+
         // Root Auth State Observation
         // If the user signs out anywhere, we detect the transition and force a full cleanup
         // before resetting to the Login screen. This handles remote logout, token revocation, etc.
@@ -114,6 +142,27 @@ class MainViewModel @Inject constructor(
      */
     fun start() {
         if (isStarted) return
+        
+        // --- PROCESS DEATH RESTORATION ---
+        val wasCompleted = savedStateHandle.get<Boolean>(KEY_STARTUP_COMPLETED) ?: false
+        val destinationId = savedStateHandle.get<String>(KEY_RESOLVED_DESTINATION_ID)
+
+        if (wasCompleted && destinationId != null && authRepository.currentUser.value != null) {
+            val restoredDestination = mapIdToRoute(destinationId)
+            if (restoredDestination != null) {
+                android.util.Log.i("AppStartup", "Restoring startup state from SavedState: $destinationId")
+                _startupState.value = AppStartupState.Ready(restoredDestination)
+                isStarted = true
+                
+                // If there's a pending event (restored in init), start the observer
+                if (pendingStartupEvent != null) {
+                    startDeferredNavigationObserver()
+                }
+                return
+            }
+        }
+        // ---------------------------------
+
         isStarted = true
         android.util.Log.d("APP_FLOW", "STARTUP_BEGIN")
 
@@ -123,6 +172,26 @@ class MainViewModel @Inject constructor(
         }
 
         executeStartup()
+    }
+
+    private fun mapIdToRoute(id: String): Any? {
+        return when (id) {
+            ID_HOME -> Home
+            ID_LOGIN -> Login
+            ID_ONBOARDING -> Onboarding
+            ID_IDENTITY_REVEAL -> IdentityReveal
+            else -> null
+        }
+    }
+
+    private fun mapRouteToId(route: Any): String? {
+        return when (route) {
+            Home -> ID_HOME
+            Login -> ID_LOGIN
+            Onboarding -> ID_ONBOARDING
+            IdentityReveal -> ID_IDENTITY_REVEAL
+            else -> null
+        }
     }
 
     fun retryStartup() {
@@ -197,19 +266,16 @@ class MainViewModel @Inject constructor(
         _startupState.value = AppStartupState.Ready(destination)
         android.util.Log.d("APP_FLOW", "STARTUP_READY")
 
-        // Delivery phase: Only deliver startup events to authenticated users
+        // Persist completion state for process death restoration
+        mapRouteToId(destination)?.let { id ->
+            savedStateHandle[KEY_STARTUP_COMPLETED] = true
+            savedStateHandle[KEY_RESOLVED_DESTINATION_ID] = id
+        }
+
+        // Delivery phase: Deferred navigation observer handles this if buffered
         if (destination !is Login && destination !is Onboarding) {
-            pendingStartupEvent?.let {
-                android.util.Log.i("Navigation", "Delivering pending startup event.")
-                emitNavigationEvent(it)
-                pendingStartupEvent = null
-            }
-        } else {
-            // Clear pending event if we are stuck at Auth screens
-            if (pendingStartupEvent != null) {
-                android.util.Log.w("AuthGuard", "Pending startup event dropped.")
-                pendingStartupEvent = null
-            }
+            // If we are already ready and authenticated, delivery happens immediately in onLaunchIntent.
+            // But if we just became ready, we might have a buffered event.
         }
 
         StartupMetrics.onAuthReady()
@@ -218,18 +284,51 @@ class MainViewModel @Inject constructor(
     fun onLaunchIntent(intent: android.content.Intent?) {
         val event = parseIntent(intent) ?: return
 
-        if (_startupState.value is AppStartupState.Ready) {
-            // Immediate delivery if already ready, respecting Auth Guard
-            if (authRepository.currentUser.value != null) {
-                android.util.Log.d("Navigation", "App is Ready. Emitting intent event immediately.")
-                emitNavigationEvent(event)
-            } else {
-                android.util.Log.w("AuthGuard", "Intent blocked: User is unauthenticated while app is ready.")
-            }
+        if (_startupState.value is AppStartupState.Ready && authRepository.currentUser.value != null) {
+            // Immediate delivery if already ready and authenticated
+            android.util.Log.d("Navigation", "App is Ready and Authenticated. Emitting intent event immediately.")
+            emitNavigationEvent(event)
         } else {
-            // Buffer for delivery after initialization completes
-            android.util.Log.i("Navigation", "App initializing. Buffering startup event: $event")
+            // Buffer for delivery after initialization and authentication completes
+            android.util.Log.i("Navigation", "Buffering startup event: $event")
             pendingStartupEvent = event
+            
+            // Persist pending event if it's an IncomingArtifact (lightweight enough for SavedState)
+            if (event is IncomingArtifact) {
+                try {
+                    val json = Json.encodeToString(event)
+                    savedStateHandle[KEY_PENDING_EVENT_JSON] = json
+                } catch (e: Exception) {
+                    android.util.Log.w("Navigation", "Failed to persist pending event to SavedState.")
+                }
+            }
+            
+            startDeferredNavigationObserver()
+        }
+    }
+
+    private fun startDeferredNavigationObserver() {
+        val job = deferredNavigationJob
+        if (job != null && job.isActive) return
+        
+        deferredNavigationJob = viewModelScope.launch {
+            // 1. Wait until App is Ready AND Authenticated (Home/IdentityReveal)
+            // This implicitly waits for profile validation/repair performed in determineInitialRoute()
+            _startupState.first { state ->
+                state is AppStartupState.Ready && 
+                state.startDestination !is Login && 
+                state.startDestination !is Onboarding
+            }
+
+            // 2. Deliver exactly once if event exists
+            pendingStartupEvent?.let { event ->
+                android.util.Log.i("Navigation", "Delivering deferred startup event.")
+                emitNavigationEvent(event)
+                pendingStartupEvent = null
+                savedStateHandle.remove<String>(KEY_PENDING_EVENT_JSON)
+            }
+            
+            // 3. Observer completes here, no long-lived collector.
         }
     }
 

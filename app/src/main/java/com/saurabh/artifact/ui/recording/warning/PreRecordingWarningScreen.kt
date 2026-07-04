@@ -44,12 +44,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import com.saurabh.artifact.R
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.theme.Obsidian950
 import com.saurabh.artifact.ui.theme.WarningBackgroundBottom
@@ -250,6 +252,19 @@ fun PreRecordingWarningContent(
                     textAlign = TextAlign.Center,
                     lineHeight = 28.sp,
                     fontWeight = FontWeight.Light
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // 6.5 DATA DISCLOSURE
+                Text(
+                    text = stringResource(R.string.audio_collection_disclosure),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = WarningTextSecondary.copy(alpha = 0.6f),
+                    textAlign = TextAlign.Center,
+                    lineHeight = 18.sp,
+                    fontWeight = FontWeight.Normal,
+                    modifier = Modifier.padding(horizontal = 16.dp)
                 )
 
                 Spacer(modifier = Modifier.height(48.dp))

@@ -1,6 +1,5 @@
 package com.saurabh.artifact.ui.publish.studio
 
-import android.util.Log
 import com.saurabh.artifact.audio.PlaybackCoordinator
 import com.saurabh.artifact.audio.ReviewState
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
@@ -10,15 +9,20 @@ import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.model.DraftStatus
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.RecordingRepository
+import com.saurabh.artifact.util.ArtifactLogger
 import io.mockk.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.test.*
+import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import org.junit.Assert.assertEquals
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 import kotlin.time.Duration.Companion.milliseconds
 
+@RunWith(RobolectricTestRunner::class)
 @OptIn(ExperimentalCoroutinesApi::class)
 class TitleBufferTest {
     private val recordingRepository = mockk<RecordingRepository>(relaxed = true)
@@ -28,16 +32,16 @@ class TitleBufferTest {
     private val authRepository = mockk<AuthRepository>(relaxed = true)
     private val workManager = mockk<androidx.work.WorkManager>(relaxed = true)
 
-    private val testDispatcher = UnconfinedTestDispatcher()
+    private val testDispatcher = StandardTestDispatcher()
 
     @Before
     fun setup() {
         Dispatchers.setMain(testDispatcher)
-        mockkStatic(Log::class)
-        every { Log.d(any<String>(), any<String>()) } returns 0
-        every { Log.i(any<String>(), any<String>()) } returns 0
-        every { Log.w(any<String>(), any<String>()) } returns 0
-        every { Log.e(any<String>(), any<String>()) } returns 0
+        mockkObject(ArtifactLogger)
+        every { ArtifactLogger.d(any(), any()) } just runs
+        every { ArtifactLogger.i(any(), any()) } just runs
+        every { ArtifactLogger.w(any(), any(), any()) } just runs
+        every { ArtifactLogger.e(any(), any(), any()) } just runs
         
         val draftId = "test-draft"
         val draftFlow = MutableStateFlow<ArtifactDraftEntity?>(
@@ -56,6 +60,13 @@ class TitleBufferTest {
         every { playbackCoordinator.playbackSpeed } returns MutableStateFlow(1.0f)
         every { playbackCoordinator.playbackCompletedEvent } returns MutableSharedFlow<String>()
         every { playbackCoordinator.duration } returns flowOf(0.milliseconds)
+        every { recordingRepository.observeRecoveryState(any(), any()) } returns flowOf(false)
+    }
+
+    @After
+    fun tearDown() {
+        Dispatchers.resetMain()
+        unmockkAll()
     }
 
     @Test
@@ -72,14 +83,18 @@ class TitleBufferTest {
         val draftId = "test-draft"
         viewModel.loadDraft(draftId)
         
+        // Trigger initial collection
+        runCurrent()
+        
         // Wait for sessionState to load the draft
-        viewModel.sessionState.first { it.draftId == draftId }
+        val state = viewModel.sessionState.filter { it.draftId == draftId }.first()
         
         // Initial state
-        assertEquals("Initial Title", viewModel.sessionState.value.title)
+        assertEquals("Initial Title", state.title)
 
         // Update title
         viewModel.updateTitle("New Title")
+        runCurrent() // Process the combine emission
 
         // Verify: UI state shows new title IMMEDIATELY (from buffer)
         assertEquals("New Title", viewModel.sessionState.value.title)

@@ -1,7 +1,9 @@
 package com.saurabh.artifact.ui.login
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -26,7 +28,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.saurabh.artifact.R
@@ -138,6 +143,70 @@ fun LoginScreen(
                 style = MaterialTheme.typography.labelMedium,
                 color = Color.White.copy(alpha = 0.5f),
                 textAlign = TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            LegalFooter()
+        }
+    }
+}
+
+@Composable
+private fun LegalFooter() {
+    val uriHandler = LocalUriHandler.current
+    val privacyUrl = stringResource(R.string.privacy_policy_url)
+    val termsUrl = stringResource(R.string.terms_of_service_url)
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = stringResource(R.string.legal_acknowledgment),
+            style = MaterialTheme.typography.bodySmall,
+            color = Color.White.copy(alpha = 0.4f),
+            textAlign = TextAlign.Center,
+            lineHeight = 16.sp
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = stringResource(R.string.privacy_policy),
+                style = MaterialTheme.typography.labelMedium,
+                color = GoldAura500.copy(alpha = 0.7f),
+                textDecoration = TextDecoration.Underline,
+                modifier = Modifier.clickable {
+                    try {
+                        uriHandler.openUri(privacyUrl)
+                    } catch (e: Exception) {
+                        // Handle browser not found or invalid URL
+                    }
+                }
+            )
+
+            Text(
+                text = "|",
+                color = Color.White.copy(alpha = 0.2f)
+            )
+
+            Text(
+                text = stringResource(R.string.terms_of_service),
+                style = MaterialTheme.typography.labelMedium,
+                color = GoldAura500.copy(alpha = 0.7f),
+                textDecoration = TextDecoration.Underline,
+                modifier = Modifier.clickable {
+                    try {
+                        uriHandler.openUri(termsUrl)
+                    } catch (e: Exception) {
+                        // Handle browser not found or invalid URL
+                    }
+                }
             )
         }
     }

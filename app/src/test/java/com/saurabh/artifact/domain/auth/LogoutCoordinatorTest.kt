@@ -1,9 +1,6 @@
 package com.saurabh.artifact.domain.auth
 
 import android.content.Context
-import android.util.Log
-import androidx.work.Operation
-import androidx.work.WorkManager
 import com.saurabh.artifact.audio.PlaybackCoordinator
 import com.saurabh.artifact.audio.PlaybackSettingsDataStore
 import com.saurabh.artifact.audio.RecordingSessionManager
@@ -11,6 +8,7 @@ import com.saurabh.artifact.data.local.AppDatabase
 import com.saurabh.artifact.data.local.UserSessionManager
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.SettingsRepository
+import com.saurabh.artifact.util.ArtifactLogger
 import com.saurabh.artifact.util.NotificationHelper
 import com.saurabh.artifact.util.StorageManager
 import com.google.common.util.concurrent.ListenableFuture
@@ -18,11 +16,17 @@ import io.mockk.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import androidx.work.Operation
+import androidx.work.WorkManager
 
+@RunWith(RobolectricTestRunner::class)
 @OptIn(ExperimentalCoroutinesApi::class)
 class LogoutCoordinatorTest {
 
@@ -43,11 +47,11 @@ class LogoutCoordinatorTest {
 
     @Before
     fun setup() {
-        mockkStatic(Log::class)
-        every { Log.i(any(), any()) } returns 0
-        every { Log.d(any(), any()) } returns 0
-        every { Log.e(any(), any()) } returns 0
-        every { Log.e(any(), any(), any()) } returns 0
+        mockkObject(ArtifactLogger)
+        every { ArtifactLogger.d(any(), any()) } just runs
+        every { ArtifactLogger.i(any(), any()) } just runs
+        every { ArtifactLogger.w(any(), any(), any()) } just runs
+        every { ArtifactLogger.e(any(), any(), any()) } just runs
 
         mockkObject(NotificationHelper)
         every { NotificationHelper.cancelAllNotifications(any()) } just runs
@@ -80,8 +84,16 @@ class LogoutCoordinatorTest {
         }
     }
 
+    @After
+    fun tearDown() {
+        unmockkAll()
+    }
+
     @Test
     fun `executeLogout performs cleanup in order`() = runTest(testDispatcher) {
+        // Prepare mock for recording session check
+        every { recordingSessionManager.isRecordingActive() } returns true
+
         val result = coordinator.executeLogout()
 
         assertTrue(result.isSuccess)
@@ -89,10 +101,13 @@ class LogoutCoordinatorTest {
         assertEquals(CleanupStatus.COMPLETED, cleanupResult.status)
 
         // Verify Phase A: Stop
-        coVerify { recordingSessionManager.cancelSession() }
-        coVerify { playbackCoordinator.stop() }
-        verify { workManager.cancelAllWorkByTag(SessionConstants.TAG_USER_SESSION_WORK) }
-        verify { NotificationHelper.cancelAllNotifications(any()) }
+        coVerify(ordering = Ordering.ALL) {
+            recordingSessionManager.isRecordingActive()
+            recordingSessionManager.cancelSession()
+            playbackCoordinator.stop()
+            workManager.cancelAllWorkByTag(SessionConstants.TAG_USER_SESSION_WORK)
+            NotificationHelper.cancelAllNotifications(any())
+        }
 
         // Verify Phase B: Clear State
         coVerify { sessionManager.clear() }

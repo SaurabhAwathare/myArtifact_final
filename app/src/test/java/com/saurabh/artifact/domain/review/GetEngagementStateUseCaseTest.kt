@@ -9,17 +9,22 @@ import com.saurabh.artifact.domain.review.comments.CommentUnlockValidator
 import com.saurabh.artifact.model.EngagementStatus
 import com.saurabh.artifact.repository.CommentUnlockRepository
 import com.saurabh.artifact.repository.EngagementRepository
-import io.mockk.every
-import io.mockk.mockk
+import com.saurabh.artifact.util.ArtifactLogger
+import io.mockk.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.test.runTest
+import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 import java.util.BitSet
 
+@RunWith(RobolectricTestRunner::class)
 @OptIn(ExperimentalCoroutinesApi::class)
 class GetEngagementStateUseCaseTest {
 
@@ -38,6 +43,20 @@ class GetEngagementStateUseCaseTest {
         commentUnlockValidator,
         commentUnlockPolicy
     )
+
+    @Before
+    fun setup() {
+        mockkObject(ArtifactLogger)
+        every { ArtifactLogger.d(any(), any()) } just runs
+        every { ArtifactLogger.i(any(), any()) } just runs
+        every { ArtifactLogger.w(any(), any(), any()) } just runs
+        every { ArtifactLogger.e(any(), any(), any()) } just runs
+    }
+
+    @After
+    fun tearDown() {
+        unmockkAll()
+    }
 
     @Test
     fun `when server says unlocked, status is UNLOCKED`() = runTest {

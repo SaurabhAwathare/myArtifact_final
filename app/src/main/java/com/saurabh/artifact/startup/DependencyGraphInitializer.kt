@@ -24,7 +24,7 @@ class DependencyGraphInitializer : Initializer<Unit> {
         try {
             System.loadLibrary("sqlcipher")
             StartupTracer.mark("SQLCipher Loaded")
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e("Startup", "Failed to load sqlcipher", e)
         }
 

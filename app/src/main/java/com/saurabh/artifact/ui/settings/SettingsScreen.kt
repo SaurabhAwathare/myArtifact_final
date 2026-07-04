@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Gavel
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -46,6 +47,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
@@ -256,6 +258,35 @@ fun SettingsScreen(
                         icon = Icons.Default.DeleteForever,
                         textColor = MaterialTheme.colorScheme.error,
                         onClick = { showDeleteConfirmation = true }
+                    )
+                }
+
+                SettingsSection(title = "Legal") {
+                    val uriHandler = LocalUriHandler.current
+                    val privacyUrl = stringResource(R.string.privacy_policy_url)
+                    val termsUrl = stringResource(R.string.terms_of_service_url)
+
+                    SettingsClickable(
+                        title = stringResource(R.string.privacy_policy),
+                        subtitle = "How we protect your presence",
+                        icon = Icons.Default.Shield,
+                        onClick = {
+                            try {
+                                uriHandler.openUri(privacyUrl)
+                            } catch (_: Exception) {
+                            }
+                        }
+                    )
+                    SettingsClickable(
+                        title = stringResource(R.string.terms_of_service),
+                        subtitle = "Guidelines for our sanctuary",
+                        icon = Icons.Default.Gavel,
+                        onClick = {
+                            try {
+                                uriHandler.openUri(termsUrl)
+                            } catch (_: Exception) {
+                            }
+                        }
                     )
                 }
             }

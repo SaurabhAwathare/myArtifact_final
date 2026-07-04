@@ -9,7 +9,6 @@ import android.content.Intent
 import com.google.firebase.appcheck.FirebaseAppCheck
 import com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory
 import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
-import com.saurabh.artifact.BuildConfig
 import com.saurabh.artifact.util.CoroutineExceptionHandlerUtils
 import com.saurabh.artifact.util.StartupTracer
 import com.saurabh.artifact.domain.auth.SessionConstants
@@ -54,7 +53,8 @@ enum class StartupComponent {
 @Singleton
 class StartupCoordinator @Inject constructor(
     @param:ApplicationContext private val context: Context,
-    private val workManager: WorkManager
+    private val workManager: WorkManager,
+    private val environmentProvider: com.saurabh.artifact.util.EnvironmentProvider
 ) {
     private val scope = CoroutineScope(
         Dispatchers.Main + 
@@ -202,9 +202,18 @@ class StartupCoordinator @Inject constructor(
 
     private fun initializeCore() {
         Log.d("Startup", "Initializing Core Services (App Check)")
+        
+        // Safeguard: Ensure Firebase is initialized before accessing services
+        if (com.google.firebase.FirebaseApp.getApps(context).isEmpty()) {
+            Log.i("Startup", "Firebase not initialized by StartupProvider. Initializing now.")
+            com.google.firebase.FirebaseApp.initializeApp(context)
+        }
+
+        Log.i("Startup", "Current Environment: ${environmentProvider.environment}")
+        Log.i("Startup", "Firebase Project ID: ${environmentProvider.firebaseProjectId}")
 
         val appCheck = FirebaseAppCheck.getInstance()
-        if (BuildConfig.DEBUG) {
+        if (environmentProvider.isDebug) {
             Log.d("Startup", "Installing Debug App Check provider")
             appCheck.installAppCheckProviderFactory(
                 DebugAppCheckProviderFactory.getInstance()
@@ -215,6 +224,7 @@ class StartupCoordinator @Inject constructor(
             appCheck.installAppCheckProviderFactory(
                 PlayIntegrityAppCheckProviderFactory.getInstance()
             )
+            Log.i("Startup", "App Check: PRODUCTION MODE active.")
         }
     }
 
