@@ -13,6 +13,8 @@ import androidx.work.WorkerParameters
 import kotlin.Result as KResult
 import com.google.firebase.auth.FirebaseAuth
 import com.google.gson.Gson
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.domain.review.EngagementSyncPayload
 import com.saurabh.artifact.data.local.*
 import com.saurabh.artifact.model.ReactionType
@@ -40,11 +42,13 @@ class InteractionSyncWorker @AssistedInject constructor(
     private val userRepository: UserRepository,
     private val engagementRepository: EngagementRepository,
     private val commentRepository: CommentRepository,
-    private val gson: Gson
+    private val gson: Gson,
+    private val diagnosticLogger: DiagnosticLogger
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val currentUserId = FirebaseAuth.getInstance().currentUser?.uid ?: return@withContext Result.failure()
+        diagnosticLogger.info(DiagnosticCategory.WORKMANAGER, "SYNC_STARTED", mapOf("worker" to "InteractionSyncWorker"))
         
         // 1. Collapse duplicate/redundant events before processing
         collapseEvents(currentUserId)
@@ -100,8 +104,14 @@ class InteractionSyncWorker @AssistedInject constructor(
         }
 
         when {
-            hasTransientFailure -> Result.retry()
-            else -> Result.success() // Succeed even with terminal/DLQ failures to drain the queue
+            hasTransientFailure -> {
+                diagnosticLogger.warn(DiagnosticCategory.WORKMANAGER, "SYNC_RETRY", mapOf("worker" to "InteractionSyncWorker"))
+                Result.retry()
+            }
+            else -> {
+                diagnosticLogger.info(DiagnosticCategory.WORKMANAGER, "SYNC_COMPLETED", mapOf("worker" to "InteractionSyncWorker"))
+                Result.success() // Succeed even with terminal/DLQ failures to drain the queue
+            }
         }
     }
 

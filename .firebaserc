@@ -1,7 +1,6 @@
 {
   "projects": {
     "default": "myartifact-555e3",
-    "debug": "myartifact-555e3",
-    "production": "myartifact-prod"
+    "debug": "myartifact-555e3"
   }
 }

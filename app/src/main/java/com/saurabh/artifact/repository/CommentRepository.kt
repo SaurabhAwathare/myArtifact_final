@@ -14,6 +14,8 @@ import com.saurabh.artifact.data.local.InteractionAction
 import com.saurabh.artifact.data.local.InteractionType
 import com.saurabh.artifact.data.local.PendingInteractionDao
 import com.saurabh.artifact.data.local.PendingInteractionEntity
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.service.ModerationService
 import com.saurabh.artifact.worker.InteractionSyncWorker
@@ -33,7 +35,8 @@ class CommentRepository @Inject constructor(
     private val firestore: FirebaseFirestore,
     private val moderationService: ModerationService,
     private val pendingInteractionDao: PendingInteractionDao,
-    private val gson: Gson
+    private val gson: Gson,
+    private val diagnosticLogger: DiagnosticLogger
 ) {
 
     /**
@@ -207,8 +210,10 @@ class CommentRepository @Inject constructor(
             pendingInteractionDao.insert(pending)
             InteractionSyncWorker.enqueue(context)
 
+            diagnosticLogger.info(DiagnosticCategory.RESONANCE, "REACTION_ADDED", mapOf("commentId" to commentId, "type" to type.id))
             Result.success(Unit)
         } catch (e: Exception) {
+            diagnosticLogger.error(DiagnosticCategory.RESONANCE, "REACTION_FAILED", mapOf("commentId" to commentId, "type" to type.id), e)
             Log.e("CommentRepository", "Failed to queue comment reaction", e)
             Result.failure(AppError.from(e))
         }

@@ -133,12 +133,15 @@ export const onEngagementUpdated = functions.firestore
       const existingCoverage = existingData.coverage;
 
       // 1. Correct Blob Extraction & Validation
-      if (!clientCoverage || typeof clientCoverage.toBuffer !== "function") {
-        console.warn(`Engagement update for user=${userId}, art=${artifactId} missing valid coverage blob. Skipping.`);
+      if (!clientCoverage) {
+        console.warn(`Engagement update for user=${userId}, art=${artifactId} missing coverage. Skipping.`);
         return null;
       }
 
-      const clientBuffer = clientCoverage.toBuffer();
+      const clientBuffer = (typeof clientCoverage.toBuffer === "function")
+        ? clientCoverage.toBuffer()
+        : Buffer.from(clientCoverage);
+
       if (clientBuffer.length === 0) {
         console.warn(`Engagement update for user=${userId}, art=${artifactId} has empty coverage. Skipping.`);
         return null;
@@ -146,8 +149,11 @@ export const onEngagementUpdated = functions.firestore
 
       // Aggregation: Multi-device support via BitSet OR
       let mergedCoverage: Buffer;
-      if (existingCoverage && typeof existingCoverage.toBuffer === "function") {
-        mergedCoverage = mergeBitSets(existingCoverage.toBuffer(), clientBuffer);
+      if (existingCoverage) {
+        const existingBuffer = (typeof existingCoverage.toBuffer === "function")
+          ? existingCoverage.toBuffer()
+          : Buffer.from(existingCoverage);
+        mergedCoverage = mergeBitSets(existingBuffer, clientBuffer);
       } else {
         mergedCoverage = clientBuffer;
       }
@@ -676,4 +682,139 @@ export const onArtifactCreated = functions.firestore
       logger.info(`Creation notification sent for artifact ${artifactId}`);
     });
   });
+
+/**
+ * Authoritatively handles permanent account cleanup when a user is deleted from Firebase Auth.
+ * Triggers cascading deletions across Firestore and Storage while preserving data integrity.
+ * Designed for idempotency and resilience.
+ */
+export const onUserDeleted = functions.auth.user().onDelete(async (user) => {
+  const uid = user.uid;
+  const db = admin.firestore();
+
+  logger.info(`Starting permanent cleanup for user: ${uid}`);
+
+  // Helper to delete all documents returned by a query in batches
+  const deleteQueryBatch = async (query: admin.firestore.Query) => {
+    const querySnapshot = await query.get();
+    if (querySnapshot.size === 0) return 0;
+
+    const batch = db.batch();
+    querySnapshot.docs.forEach((doc) => batch.delete(doc.ref));
+    await batch.commit();
+    return querySnapshot.size;
+  };
+
+  try {
+    // 1. Cleanup Artifacts
+    // Deleting an artifact document triggers 'onArtifactDeleted' for full cascading cleanup (Storage, Reactions, etc.)
+    const artifactsSnapshot = await db.collection("artifacts").where("userId", "==", uid).get();
+    for (const doc of artifactsSnapshot.docs) {
+      await doc.ref.delete();
+      logger.info(`Deleted user-owned artifact: ${doc.id}`);
+    }
+
+    // 2. Cleanup Reflections (Comments where user was the author)
+    let commentsSize;
+    do {
+      commentsSize = await deleteQueryBatch(db.collection("comments").where("authorId", "==", uid).limit(500));
+      if (commentsSize > 0) logger.info(`Deleted ${commentsSize} reflections for user: ${uid}`);
+    } while (commentsSize > 0);
+
+    // 3. Cleanup Notifications
+    let notificationsSize;
+    do {
+      notificationsSize = await deleteQueryBatch(db.collection("notifications").where("userId", "==", uid).limit(500));
+      if (notificationsSize > 0) logger.info(`Deleted ${notificationsSize} notifications for user: ${uid}`);
+    } while (notificationsSize > 0);
+
+    // 4. Cleanup Resonances (Followers/Following) in other users
+    // resonance_out: users/{uid}/resonance_out/{targetId}
+    const resonanceOutSnapshot = await db.collection("users").doc(uid).collection("resonance_out").get();
+    for (const doc of resonanceOutSnapshot.docs) {
+      const targetId = doc.id;
+      try {
+        await db.collection("users").doc(targetId).collection("resonance_in").doc(uid).delete();
+        await db.collection("users").doc(targetId).update({
+          resonanceInCount: FieldValue.increment(-1),
+          followersCount: FieldValue.increment(-1)
+        });
+        logger.info(`Removed user ${uid} from resonance_in of ${targetId}`);
+      } catch (e) {
+        logger.warn(`Failed to cleanup resonance_in for target ${targetId}:`, e);
+      }
+    }
+
+    // resonance_in: users/{uid}/resonance_in/{followerId}
+    const resonanceInSnapshot = await db.collection("users").doc(uid).collection("resonance_in").get();
+    for (const doc of resonanceInSnapshot.docs) {
+      const followerId = doc.id;
+      try {
+        await db.collection("users").doc(followerId).collection("resonance_out").doc(uid).delete();
+        await db.collection("users").doc(followerId).update({
+          resonanceOutCount: FieldValue.increment(-1),
+          followingCount: FieldValue.increment(-1)
+        });
+        logger.info(`Removed user ${uid} from resonance_out of ${followerId}`);
+      } catch (e) {
+        logger.warn(`Failed to cleanup resonance_out for follower ${followerId}:`, e);
+      }
+    }
+
+    // 5. Cleanup Username reservation
+    const userDoc = await db.collection("users").doc(uid).get();
+    const username = userDoc.data()?.anonymousName;
+    if (typeof username === "string" && username) {
+      await db.collection("usernames").doc(username.toLowerCase().trim()).delete();
+      logger.info(`Deleted username reservation: ${username}`);
+    }
+
+    // 6. Cleanup Listening Sessions
+    let sessionsSize;
+    do {
+      sessionsSize = await deleteQueryBatch(db.collection("listening_sessions").where("userId", "==", uid).limit(500));
+      if (sessionsSize > 0) logger.info(`Deleted ${sessionsSize} listening sessions for user: ${uid}`);
+    } while (sessionsSize > 0);
+
+    // 7. Final User Document & Subcollections Deletion
+    const userRef = db.collection("users").doc(uid);
+    const subCollections = [
+      "engagement",
+      "savedArtifacts",
+      "resonance_in",
+      "resonance_out",
+      "followers",
+      "following",
+      "recommendation_profiles"
+    ];
+
+    for (const sub of subCollections) {
+      try {
+        await deleteQueryBatch(userRef.collection(sub));
+      } catch (e) {
+        logger.warn(`Failed to clear subcollection ${sub} for user ${uid}:`, e);
+      }
+    }
+
+    // Nested private collection cleanup
+    const privateRef = userRef.collection("private");
+    await deleteQueryBatch(privateRef.doc("intents").collection("follow"));
+    await deleteQueryBatch(privateRef.doc("intents").collection("reactions"));
+    await deleteQueryBatch(privateRef.doc("interactions").collection("reactions"));
+    await deleteQueryBatch(privateRef.doc("blocks").collection("users"));
+
+    await privateRef.doc("settings").delete();
+    await privateRef.doc("intents").delete();
+    await privateRef.doc("interactions").delete();
+    await privateRef.doc("blocks").delete();
+
+    await userRef.delete();
+    logger.info(`Successfully completed cleanup for user: ${uid}`);
+
+    return null;
+  } catch (error) {
+    logger.error(`Cleanup failed for user ${uid}:`, error);
+    return null;
+  }
+});
 

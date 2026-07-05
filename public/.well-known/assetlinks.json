@@ -7,9 +7,7 @@
       "namespace": "android_app",
       "package_name": "com.saurabh.artifact",
       "sha256_cert_fingerprints": [
-        "F3:EA:19:81:20:AF:22:8B:7E:5B:61:B2:A5:AB:5A:5F:9A:CC:BA:95:7E:24:E1:35:E3:98:72:E0:23:E4:3D:67",
-        "PLACEHOLDER_RELEASE_FINGERPRINT",
-        "PLACEHOLDER_PLAY_SIGNING_FINGERPRINT"
+        "F3:EA:19:81:20:AF:22:8B:7E:5B:61:B2:A5:AB:5A:5F:9A:CC:BA:95:7E:24:E1:35:E3:98:72:E0:23:E4:3D:67"
       ]
     }
   }

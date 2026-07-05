@@ -2,6 +2,8 @@ package com.saurabh.artifact.ui.profile
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.audio.PlaybackCoordinator
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.model.Artifact
@@ -60,6 +62,7 @@ class ProfileViewModel @Inject constructor(
     getProfileDataUseCase: com.saurabh.artifact.domain.profile.GetProfileDataUseCase,
     private val profileInteractionUseCase: com.saurabh.artifact.domain.profile.ProfileInteractionUseCase,
     private val logoutCoordinator: com.saurabh.artifact.domain.auth.LogoutCoordinator,
+    private val diagnosticLogger: DiagnosticLogger
 ) : ViewModel() {
 
     val currentUserId: String? get() = authRepository.currentUser.value?.uid
@@ -78,7 +81,11 @@ class ProfileViewModel @Inject constructor(
     }
 
     val uiState: StateFlow<ProfileUiState> = combine(
-        profileDataFlow,
+        profileDataFlow.onEach { data ->
+            if (data != null) {
+                diagnosticLogger.info(DiagnosticCategory.PROFILE, "PROFILE_LOADED", mapOf("isSelf" to data.isSelf, "publishedCount" to data.publishedArtifacts.size))
+            }
+        },
         userProfileManager.activeAvatarConfig,
         _selectedTab,
         _logoutState,

@@ -23,6 +23,8 @@ import com.saurabh.artifact.R
 import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.data.local.RecordingStatus
 import com.saurabh.artifact.data.local.UserSessionManager
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.domain.PublishingOrchestrator
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.ArtifactRepository
@@ -46,6 +48,7 @@ class RecordingService : Service() {
 
     private val binder = RecordingBinder()
     @Inject lateinit var publishingOrchestrator: PublishingOrchestrator
+    @Inject lateinit var diagnosticLogger: DiagnosticLogger
 
     private val serviceScope = CoroutineScope(
         Dispatchers.Main + 
@@ -277,6 +280,7 @@ class RecordingService : Service() {
     fun startRecording(draftId: String = "") {
         // Permission Check inside Service (Defense in Depth)
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            diagnosticLogger.error(DiagnosticCategory.RECORDING, "RECORDING_FAILED", mapOf("reason" to "PERMISSION_DENIED"))
             ArtifactLogger.e("RecordingService", "startRecording failed: Permission RECORD_AUDIO not granted")
             _recordingState.value = RecordingState(status = RecordingStatus.FAILED, errorCode = "PERMISSION_DENIED")
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -286,6 +290,7 @@ class RecordingService : Service() {
 
         // Storage Check
         if (!storageManager.isStorageAvailable()) {
+            diagnosticLogger.error(DiagnosticCategory.RECORDING, "RECORDING_FAILED", mapOf("reason" to "STORAGE_FULL"))
             ArtifactLogger.e("RecordingService", "startRecording failed: Low storage (${storageManager.availableStorageMb} MB available)")
             _recordingState.value = RecordingState(status = RecordingStatus.FAILED, errorCode = "STORAGE_FULL")
             // Trigger emergency cleanup in background
@@ -304,6 +309,7 @@ class RecordingService : Service() {
 
         // Audio Focus Management: Ensure we have the microphone path cleared
         if (!requestAudioFocus()) {
+            diagnosticLogger.error(DiagnosticCategory.RECORDING, "RECORDING_FAILED", mapOf("reason" to "AUDIO_FOCUS_DENIED"))
             ArtifactLogger.e("RecordingService", "Could not acquire audio focus. Recording aborted.")
             _recordingState.value = RecordingState(status = RecordingStatus.FAILED, errorCode = "HARDWARE_IN_USE")
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -378,8 +384,10 @@ class RecordingService : Service() {
 
                 startTimer()
                 updateNotification(0, RecordingStatus.RECORDING)
+                diagnosticLogger.info(DiagnosticCategory.RECORDING, "RECORDING_STARTED", mapOf("draftId" to finalDraftId))
                 Log.d("RecordingService", "startRecording successful. State updated to RECORDING.")
             } catch (e: Exception) {
+                diagnosticLogger.error(DiagnosticCategory.RECORDING, "RECORDING_FAILED", mapOf("draftId" to finalDraftId), e)
                 ArtifactLogger.e("RecordingService", "startRecording failed: ${e.message}", e)
                 _recordingState.value = _recordingState.value.copy(status = RecordingStatus.FAILED)
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -400,6 +408,7 @@ class RecordingService : Service() {
         audioRecorder?.pause()
         timerJob?.cancel()
         _recordingState.value = _recordingState.value.copy(status = RecordingStatus.PAUSED)
+        diagnosticLogger.info(DiagnosticCategory.RECORDING, "RECORDING_PAUSED", mapOf("draftId" to _recordingState.value.draftId))
         
         wasPausedByFocusLoss = focusLossState
         
@@ -425,6 +434,7 @@ class RecordingService : Service() {
         audioRecorder?.resume()
         startTimer()
         _recordingState.value = _recordingState.value.copy(status = RecordingStatus.RECORDING)
+        diagnosticLogger.info(DiagnosticCategory.RECORDING, "RECORDING_RESUMED", mapOf("draftId" to _recordingState.value.draftId))
         
         _recordingState.value.draftId.let { id ->
             serviceScope.launch {
@@ -498,6 +508,7 @@ class RecordingService : Service() {
 
                         if (result.isSuccess) {
                             Log.d("RecordingService", "Atmospheric Handoff: Securing your artifact...")
+                            diagnosticLogger.info(DiagnosticCategory.RECORDING, "RECORDING_FINISHED", mapOf("draftId" to draftId, "durationMs" to durationMs))
                             
                             // hand off to the enhancement pipeline (which now starts with Transcoding)
                             publishingOrchestrator.startProcessing(draftId)
@@ -537,6 +548,7 @@ class RecordingService : Service() {
     }
 
     fun cancelRecording() {
+        diagnosticLogger.info(DiagnosticCategory.RECORDING, "RECORDING_CANCELLED", mapOf("draftId" to _recordingState.value.draftId))
         cleanup()
         
         val file = _recordingState.value.outputFile

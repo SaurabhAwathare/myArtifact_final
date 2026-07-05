@@ -3,6 +3,8 @@ package com.saurabh.artifact.domain
 import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.storage.StorageException
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.audio.ArtifactCleanupManager
 import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.model.ArtifactStatus
@@ -24,22 +26,26 @@ class PublishingManager @Inject constructor(
     private val artifactRepository: ArtifactRepository,
     private val userRepository: UserRepository,
     private val cleanupManager: ArtifactCleanupManager,
-    private val uploadGuard: UploadGuard
+    private val uploadGuard: UploadGuard,
+    private val diagnosticLogger: DiagnosticLogger
 ) {
 
     suspend fun performPublish(
         draftId: String,
         onProgress: suspend (Long, Long, String?) -> Unit = { _, _, _ -> }
     ): Result<Unit> = withContext(Dispatchers.IO) {
+        diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISH_STARTED", mapOf("draftId" to draftId))
         Log.i("PublishingManager", "Starting publishing flow for draft.")
         try {
             val draft = draftRepository.getDraft(draftId).getOrNull() 
                 ?: return@withContext Result.failure<Unit>(Exception("Draft not found")).also {
+                    diagnosticLogger.error(DiagnosticCategory.PUBLISH, "PUBLISH_FAILED", mapOf("draftId" to draftId, "reason" to "DRAFT_NOT_FOUND"))
                     Log.e("PublishingManager", "Draft not found in repository.")
                 }
             
             val firebaseUser = FirebaseAuth.getInstance().currentUser 
                 ?: return@withContext Result.failure<Unit>(Exception("User not authenticated")).also {
+                    diagnosticLogger.error(DiagnosticCategory.PUBLISH, "PUBLISH_FAILED", mapOf("draftId" to draftId, "reason" to "UNAUTHENTICATED"))
                     Log.e("PublishingManager", "No authenticated user found for draft.")
                 }
 
@@ -47,6 +53,7 @@ class PublishingManager @Inject constructor(
             Log.d("PublishingManager", "Step 1: Validating approval and integrity.")
             if (!uploadGuard.validateApproval(draft, firebaseUser.uid)) {
                 val errorMsg = "Security or Integrity validation failed. Token or Timestamp mismatch."
+                diagnosticLogger.error(DiagnosticCategory.PUBLISH, "PUBLISH_FAILED", mapOf("draftId" to draftId, "reason" to "VALIDATION_FAILED"))
                 Log.e("PublishingManager", errorMsg)
                 draftRepository.updateUploadStatus(draftId, SyncStatus.Failed(errorMsg))
                 return@withContext Result.failure(Exception(errorMsg))
@@ -113,6 +120,7 @@ class PublishingManager @Inject constructor(
                     userId = firebaseUser.uid,
                     draft = draft.copy(localAudioPath = audioPath),
                     onProgress = { transferred, total, sessionUri ->
+                        diagnosticLogger.debug(DiagnosticCategory.PUBLISH, "UPLOAD_PROGRESS", mapOf("draftId" to draftId, "transferred" to transferred, "total" to total))
                         draftRepository.updateUploadProgress(draftId, transferred, total, sessionUri?.toString())
                         onProgress(transferred, total, sessionUri?.toString())
                     }
@@ -143,9 +151,11 @@ class PublishingManager @Inject constructor(
 
             cleanupManager.scheduleRetentionCleanup(draftId)
             
+            diagnosticLogger.info(DiagnosticCategory.PUBLISH, "UPLOAD_SUCCESS", mapOf("draftId" to draftId))
             Log.i("PublishingManager", "Draft published successfully")
             Result.success(Unit)
         } catch (e: Exception) {
+            diagnosticLogger.error(DiagnosticCategory.PUBLISH, "UPLOAD_FAILED", mapOf("draftId" to draftId, "stage" to getFailureStage(e)), e)
             Log.e("PublishingManager", "Publishing flow failed at stage ${getFailureStage(e)}", e)
             Result.failure(e)
         }

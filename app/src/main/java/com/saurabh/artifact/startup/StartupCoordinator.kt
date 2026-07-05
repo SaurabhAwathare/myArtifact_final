@@ -203,12 +203,6 @@ class StartupCoordinator @Inject constructor(
     private fun initializeCore() {
         Log.d("Startup", "Initializing Core Services (App Check)")
         
-        // Safeguard: Ensure Firebase is initialized before accessing services
-        if (com.google.firebase.FirebaseApp.getApps(context).isEmpty()) {
-            Log.i("Startup", "Firebase not initialized by StartupProvider. Initializing now.")
-            com.google.firebase.FirebaseApp.initializeApp(context)
-        }
-
         Log.i("Startup", "Current Environment: ${environmentProvider.environment}")
         Log.i("Startup", "Firebase Project ID: ${environmentProvider.firebaseProjectId}")
 

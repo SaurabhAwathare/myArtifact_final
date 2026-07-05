@@ -7,6 +7,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import androidx.datastore.preferences.core.emptyPreferences
 import com.google.firebase.firestore.FirebaseFirestore
 import android.util.Log
+import androidx.media3.common.util.UnstableApi
 import com.saurabh.artifact.model.UserSettings
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -24,6 +25,7 @@ import javax.inject.Singleton
 
 private val Context.dataStore by preferencesDataStore(name = "settings")
 
+@UnstableApi
 @Singleton
 class SettingsRepository @Inject constructor(
     @param:ApplicationContext private val context: Context,
@@ -157,24 +159,19 @@ class SettingsRepository @Inject constructor(
     }
 
     suspend fun deleteUserAccount(): Result<Unit> {
-        val user = authRepository.currentUser.value ?: return Result.failure(Exception("Not logged in"))
-        val userId = user.uid
+        authRepository.currentUser.value ?: return Result.failure(Exception("Not logged in"))
         
         return try {
-            // 1. Mark account for deletion in Firestore (Optional: Provides UI feedback state)
-            firestore.collection("users").document(userId)
-                .update("accountStatus", "DELETION_PENDING")
-                .await()
-
-            // 2. Perform Full Local Cleanup (Hardening)
+            // 1. Perform Full Local Cleanup (Hardening)
+            // This clears Room database, DataStores, caches, and stops active media.
             logoutCoordinator.get().performFullCleanup()
             
-            // 3. Delete Auth account (This triggers the Cloud Function 'onUserDeleted')
+            // 2. Delete Auth account (This becomes the authoritative trigger for 'onUserDeleted' Cloud Function)
             authRepository.deleteCurrentUser().getOrThrow()
 
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("SettingsRepository", "Account deletion trigger failed", e)
+            Log.e("SettingsRepository", "Account deletion sequence failed", e)
             Result.failure(e)
         }
     }

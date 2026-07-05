@@ -37,7 +37,7 @@ data class User(
     val totalContributions: Long = 0,
     val lastPromptId: String = "",
     val identityMetadata: IdentityMetadata = IdentityMetadata(),
-    val schemaVersion: Int = 1
+    val schemaVersion: Int = 2
 ) {
     /**
      * Derives the user's current dominant emotion based on interaction history.

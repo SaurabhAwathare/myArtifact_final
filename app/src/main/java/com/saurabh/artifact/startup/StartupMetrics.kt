@@ -12,13 +12,18 @@ object StartupMetrics {
 
     private var startupTrace: Trace? = null
 
-    fun onAppCreate() {
+    fun onAppCreate(context: android.content.Context) {
         appCreateTime = System.currentTimeMillis()
         Log.i("STARTUP_METRICS", "App Created at $appCreateTime")
 
         try {
-            startupTrace = FirebasePerformance.getInstance().newTrace("startup_flow")
-            startupTrace?.start()
+            // Defensive check to ensure Firebase is ready before starting trace
+            if (com.google.firebase.FirebaseApp.getApps(context).isNotEmpty()) {
+                startupTrace = FirebasePerformance.getInstance().newTrace("startup_flow")
+                startupTrace?.start()
+            } else {
+                Log.w("STARTUP_METRICS", "Firebase not initialized; skipping startup trace")
+            }
         } catch (e: Exception) {
             Log.e("STARTUP_METRICS", "Failed to start Firebase trace", e)
         }

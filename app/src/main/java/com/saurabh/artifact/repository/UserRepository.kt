@@ -188,7 +188,7 @@ class UserRepository @Inject constructor(
                         val privateMissing = !privateSnapshot.exists()
 
                         if (needsRepair || privateMissing) {
-                            if (needsRepair) transaction.set(userRef, user)
+                            if (needsRepair) transaction.set(userRef, user, com.google.firebase.firestore.SetOptions.merge())
                             
                             if (privateMissing) {
                                 val defaultPrivate = UserPrivateSettings(

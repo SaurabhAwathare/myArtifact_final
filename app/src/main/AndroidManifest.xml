@@ -94,10 +94,12 @@
             android:name="firebase_performance_collection_enabled"
             android:value="false" />
 
+        <!-- Restored for standard Firebase initialization -->
         <provider
             android:name="com.google.firebase.provider.FirebaseInitProvider"
             android:authorities="${applicationId}.firebaseinitprovider"
-            tools:node="remove" />
+            android:exported="false"
+            tools:node="merge" />
 
         <provider
             android:name="com.google.mlkit.common.internal.MlKitInitProvider"

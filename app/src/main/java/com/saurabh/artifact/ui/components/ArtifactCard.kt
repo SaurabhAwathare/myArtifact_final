@@ -58,6 +58,7 @@ import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.ui.components.motion.PressableScale
 import com.saurabh.artifact.ui.theme.ArtifactTheme
+import com.saurabh.artifact.ui.theme.LocalStartupStage
 import com.saurabh.artifact.ui.theme.Spacing
 import com.saurabh.artifact.ui.util.FeedbackUtils
 import com.saurabh.artifact.util.TimeUtils
@@ -584,24 +585,27 @@ fun PreviewArtifactCardWorstCase() {
 @Preview(showBackground = true, backgroundColor = 0xFF050505)
 @Composable
 fun PreviewArtifactCardAtmospheric() {
-    ArtifactTheme {
-        val mockArtifact = Artifact(
-            id = "1",
-            userId = "user_1",
-            author = AuthorSnapshot(name = "QuietLoom"),
-            title = "A reflection on the evening rain and the sound of silence.",
-            audioUrl = "",
-            durationMs = 120000,
-            emotion = "Hopeful"
-        )
-        ArtifactCard(
-            artifact = mockArtifact,
-            isPlaying = true,
-            onPlayClick = {},
-            currentPosition = 30000,
-            durationMs = 120000,
-            currentUserId = "user_1",
-            modifier = Modifier.padding(vertical = Spacing.Medium)
-        )
+    androidx.compose.runtime.CompositionLocalProvider(LocalStartupStage provides com.saurabh.artifact.startup.StartupStage.STABLE) {
+        ArtifactTheme {
+            val mockArtifact = Artifact(
+                id = "1",
+                userId = "user_1",
+                author = AuthorSnapshot(name = "QuietLoom"),
+                title = "A reflection on the evening rain and the sound of silence.",
+                audioUrl = "",
+                durationMs = 120000,
+                emotion = "Hopeful",
+                reactionCount = 12
+            )
+            ArtifactCard(
+                artifact = mockArtifact,
+                isPlaying = true,
+                onPlayClick = {},
+                currentPosition = 30000,
+                durationMs = 120000,
+                currentUserId = "user_1",
+                modifier = Modifier.padding(vertical = Spacing.Medium)
+            )
+        }
     }
 }

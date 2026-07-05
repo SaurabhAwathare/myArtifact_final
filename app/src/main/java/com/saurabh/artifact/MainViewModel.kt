@@ -4,6 +4,8 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.util.UnstableApi
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.navigation.*
 import com.saurabh.artifact.domain.auth.GetInitialDestinationUseCase
 import com.saurabh.artifact.domain.auth.InitialDestination
@@ -42,7 +44,8 @@ class MainViewModel @Inject constructor(
     observeCurrentUserProfileUseCase: ObserveCurrentUserProfileUseCase,
     observeStealthModeUseCase: ObserveStealthModeUseCase,
     private val startupCoordinator: StartupCoordinator,
-    private val savedStateHandle: SavedStateHandle
+    private val savedStateHandle: SavedStateHandle,
+    private val diagnosticLogger: DiagnosticLogger
 ) : ViewModel() {
 
     companion object {
@@ -109,15 +112,15 @@ class MainViewModel @Inject constructor(
                     val isTransitionToUnauthenticated = previous != null && current == null
                     
                     if (isTransitionToUnauthenticated && isStarted && _startupState.value !is AppStartupState.Initializing) {
-                        android.util.Log.i("LogoutHardening", "Root observer detected unauthenticated transition. Initiating cleanup.")
+                        diagnosticLogger.info(DiagnosticCategory.AUTH, "LOGOUT_STARTED")
                         
                         try {
                             // BLOCKING: Ensure cleanup completes before UI transition to prevent stale data visibility
                             val result = logoutCoordinator.performFullCleanup()
-                            android.util.Log.i("LogoutHardening", "Session cleanup completed.")
+                            diagnosticLogger.info(DiagnosticCategory.AUTH, "LOGOUT_COMPLETED")
                         } catch (e: Exception) {
                             // Security: Never log sensitive data (UID, email, tokens) on failure
-                            android.util.Log.e("LogoutHardening", "Session cleanup failed with an unexpected error.")
+                            diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_FAILED", throwable = e)
                         } finally {
                             // Hard Reset: Ensure navigation to Login screen regardless of cleanup success
                             _startupState.value = AppStartupState.Ready(Login)
@@ -150,7 +153,7 @@ class MainViewModel @Inject constructor(
         if (wasCompleted && destinationId != null && authRepository.currentUser.value != null) {
             val restoredDestination = mapIdToRoute(destinationId)
             if (restoredDestination != null) {
-                android.util.Log.i("AppStartup", "Restoring startup state from SavedState: $destinationId")
+                diagnosticLogger.info(DiagnosticCategory.STARTUP, "STARTUP_RESTORED", mapOf("destination" to destinationId))
                 _startupState.value = AppStartupState.Ready(restoredDestination)
                 isStarted = true
                 
@@ -164,7 +167,7 @@ class MainViewModel @Inject constructor(
         // ---------------------------------
 
         isStarted = true
-        android.util.Log.d("APP_FLOW", "STARTUP_BEGIN")
+        diagnosticLogger.info(DiagnosticCategory.STARTUP, "STARTUP_BEGIN")
 
         if (startupCoordinator.isRescueModeActive) {
             _startupState.value = AppStartupState.Rescue
@@ -222,35 +225,34 @@ class MainViewModel @Inject constructor(
     }
 
     private suspend fun determineInitialRoute() {
-        android.util.Log.d("APP_FLOW", "AUTH_CHECK_BEGIN")
+        diagnosticLogger.debug(DiagnosticCategory.STARTUP, "AUTH_CHECK_BEGIN")
         val initialDestination = getInitialDestinationUseCase()
-        android.util.Log.d("APP_FLOW", "AUTH_CHECK_SUCCESS: $initialDestination")
+        diagnosticLogger.debug(DiagnosticCategory.STARTUP, "AUTH_CHECK_SUCCESS", mapOf("result" to initialDestination.name))
 
         val destination: Any = when (initialDestination) {
             InitialDestination.ONBOARDING -> Onboarding
             InitialDestination.UNAUTHENTICATED -> Login
             InitialDestination.AUTHENTICATED -> {
                 // REGISTRATION GATE
-                android.util.Log.d("APP_FLOW", "PROFILE_CHECK_BEGIN")
+                diagnosticLogger.debug(DiagnosticCategory.STARTUP, "PROFILE_CHECK_BEGIN")
                 _startupState.value = AppStartupState.Registering
                 val result = try {
                     registrationCoordinator.ensureProfileExists()
                 } catch (e: Exception) {
-                    android.util.Log.e("AppStartup", "PROFILE_CHECK_FAILED")
+                    diagnosticLogger.error(DiagnosticCategory.STARTUP, "PROFILE_CHECK_FAILED", throwable = e)
                     RegistrationResult.Failure(e)
                 }
                 
                 when (result) {
                     is RegistrationResult.SuccessExistingUser -> {
-                        android.util.Log.d("APP_FLOW", "PROFILE_CHECK_SUCCESS: Existing User")
+                        diagnosticLogger.debug(DiagnosticCategory.STARTUP, "PROFILE_CHECK_SUCCESS", mapOf("user_type" to "EXISTING"))
                         Home
                     }
                     is RegistrationResult.SuccessNewUser -> {
-                        android.util.Log.d("APP_FLOW", "PROFILE_CHECK_SUCCESS: New User")
+                        diagnosticLogger.debug(DiagnosticCategory.STARTUP, "PROFILE_CHECK_SUCCESS", mapOf("user_type" to "NEW"))
                         IdentityReveal
                     }
                     is RegistrationResult.Failure -> {
-                        android.util.Log.e("AppStartup", "PROFILE_CHECK_FAILED")
                         _startupState.value = AppStartupState.Error("Failed to initialize profile. Please check your connection and try again.")
                         startupCoordinator.completeAll()
                         return
@@ -264,7 +266,7 @@ class MainViewModel @Inject constructor(
         startupCoordinator.emitReadiness(com.saurabh.artifact.startup.StartupComponent.DATABASE)
 
         _startupState.value = AppStartupState.Ready(destination)
-        android.util.Log.d("APP_FLOW", "STARTUP_READY")
+        diagnosticLogger.info(DiagnosticCategory.STARTUP, "STARTUP_READY", mapOf("destination" to destination.javaClass.simpleName))
 
         // Persist completion state for process death restoration
         mapRouteToId(destination)?.let { id ->
@@ -286,11 +288,11 @@ class MainViewModel @Inject constructor(
 
         if (_startupState.value is AppStartupState.Ready && authRepository.currentUser.value != null) {
             // Immediate delivery if already ready and authenticated
-            android.util.Log.d("Navigation", "App is Ready and Authenticated. Emitting intent event immediately.")
+            diagnosticLogger.info(DiagnosticCategory.NAVIGATION, "DEEP_LINK_OPENED", mapOf("event" to event.javaClass.simpleName))
             emitNavigationEvent(event)
         } else {
             // Buffer for delivery after initialization and authentication completes
-            android.util.Log.i("Navigation", "Buffering startup event: $event")
+            diagnosticLogger.info(DiagnosticCategory.NAVIGATION, "DEEP_LINK_BUFFERED", mapOf("event" to event.javaClass.simpleName))
             pendingStartupEvent = event
             
             // Persist pending event if it's an IncomingArtifact (lightweight enough for SavedState)
@@ -322,7 +324,7 @@ class MainViewModel @Inject constructor(
 
             // 2. Deliver exactly once if event exists
             pendingStartupEvent?.let { event ->
-                android.util.Log.i("Navigation", "Delivering deferred startup event.")
+                diagnosticLogger.info(DiagnosticCategory.NAVIGATION, "DEEP_LINK_DELIVERED", mapOf("event" to event.javaClass.simpleName))
                 emitNavigationEvent(event)
                 pendingStartupEvent = null
                 savedStateHandle.remove<String>(KEY_PENDING_EVENT_JSON)
@@ -383,6 +385,7 @@ class MainViewModel @Inject constructor(
      * Sensitive screens automatically trigger FLAG_SECURE regardless of global stealth mode.
      */
     fun updateSecurityStatus(route: String?) {
+        diagnosticLogger.debug(DiagnosticCategory.NAVIGATION, "SCREEN_ENTERED", mapOf("route" to (route ?: "null")))
         val sensitiveRoutes = listOf(
             "com.saurabh.artifact.navigation.Settings",
             "com.saurabh.artifact.navigation.DraftList",

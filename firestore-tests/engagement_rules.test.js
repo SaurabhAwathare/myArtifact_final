@@ -4,6 +4,8 @@ const {
   initializeTestEnvironment,
 } = require("@firebase/rules-unit-testing");
 const fs = require("fs");
+const firebase = require("firebase/compat/app");
+require("firebase/compat/firestore");
 
 let testEnv;
 
@@ -81,7 +83,7 @@ describe("Engagement Rules", () => {
     const engagementRef = alice.firestore().collection("users").doc("alice").collection("engagement").doc("art1");
 
     // 100% coverage bitset for a 10s audio
-    const coverage = [255, 255, 15];
+    const coverage = firebase.firestore.Blob.fromUint8Array(new Uint8Array([255, 255, 15]));
 
     await assertSucceeds(
       engagementRef.set({
@@ -128,7 +130,7 @@ describe("Engagement Rules", () => {
     const engagementRef = alice.firestore().collection("users").doc("alice").collection("engagement").doc("art_long");
 
     // Client sends 10s worth of coverage for a 100s artifact
-    const coverage = [255, 255, 15];
+    const coverage = firebase.firestore.Blob.fromUint8Array(new Uint8Array([255, 255, 15]));
 
     await assertSucceeds(
       engagementRef.set({
@@ -163,7 +165,7 @@ describe("Engagement Rules", () => {
     await engagementRef.set({
         artifactId: "art_multi",
         userId: "alice",
-        coverage: [255, 3],
+        coverage: firebase.firestore.Blob.fromUint8Array(new Uint8Array([255, 3])),
         hasReachedEnd: false,
         updatedAt: Date.now()
     });
@@ -173,7 +175,7 @@ describe("Engagement Rules", () => {
 
     // Device B: Next 5s (Segments 10-19) -> Byte 1: 252 (bits 10-15), Byte 2: 15 (bits 16-19)
     await engagementRef.update({
-        coverage: [0, 252, 15],
+        coverage: firebase.firestore.Blob.fromUint8Array(new Uint8Array([0, 252, 15])),
         hasReachedEnd: true,
         updatedAt: Date.now() + 1000
     });

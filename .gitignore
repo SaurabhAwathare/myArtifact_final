@@ -15,4 +15,5 @@
 local.properties
 *.jks
 *.keystore
+*.p12
 keystore.properties

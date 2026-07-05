@@ -1,5 +1,7 @@
 package com.saurabh.artifact.ui.settings
 
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.security.DataExportManager
 import com.saurabh.artifact.util.ClipboardGuard
 import androidx.lifecycle.ViewModel
@@ -33,7 +35,8 @@ class SettingsViewModel @Inject constructor(
     private val dataExportManager: DataExportManager,
     private val clipboardGuard: ClipboardGuard,
     private val logoutCoordinator: com.saurabh.artifact.domain.auth.LogoutCoordinator,
-    val credentialHelper: CredentialHelper
+    val credentialHelper: CredentialHelper,
+    private val diagnosticLogger: DiagnosticLogger
 ) : ViewModel() {
 
     val isAnonymous = authRepository.currentUser.map { it?.isAnonymous ?: true }
@@ -78,7 +81,17 @@ class SettingsViewModel @Inject constructor(
 
     private fun update(reducer: (UserSettings) -> UserSettings) {
         viewModelScope.launch {
-            repository.updateSettings(reducer(uiState.value))
+            val oldSettings = uiState.value
+            val newSettings = reducer(oldSettings)
+            repository.updateSettings(newSettings)
+            
+            // Log changes
+            if (oldSettings.stealthModeEnabled != newSettings.stealthModeEnabled) {
+                diagnosticLogger.info(DiagnosticCategory.SETTINGS, "SETTING_CHANGED", mapOf("setting" to "stealthMode", "value" to newSettings.stealthModeEnabled))
+            }
+            if (oldSettings.biometricLockEnabled != newSettings.biometricLockEnabled) {
+                diagnosticLogger.info(DiagnosticCategory.SETTINGS, "SETTING_CHANGED", mapOf("setting" to "biometricLock", "value" to newSettings.biometricLockEnabled))
+            }
         }
     }
 
@@ -126,24 +139,30 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun logout() {
+        diagnosticLogger.info(DiagnosticCategory.SETTINGS, "LOGOUT_STARTED")
         viewModelScope.launch {
             logoutCoordinator.executeLogout()
                 .onSuccess {
+                    diagnosticLogger.info(DiagnosticCategory.SETTINGS, "LOGOUT_COMPLETED")
                     _events.emit(SettingsUiEvent.LoggedOut)
                 }
                 .onFailure {
+                    diagnosticLogger.error(DiagnosticCategory.SETTINGS, "LOGOUT_FAILED", throwable = it)
                     _events.emit(SettingsUiEvent.ShowMessage(UiText.StringResource(R.string.logout_failed)))
                 }
         }
     }
 
     fun exportData(outputUri: android.net.Uri) {
+        diagnosticLogger.info(DiagnosticCategory.SETTINGS, "EXPORT_STARTED")
         viewModelScope.launch {
             dataExportManager.exportAllDrafts(outputUri)
                 .onSuccess {
+                    diagnosticLogger.info(DiagnosticCategory.SETTINGS, "EXPORT_SUCCESS")
                     _events.emit(SettingsUiEvent.ShowMessage(UiText.StringResource(R.string.export_ready)))
                 }
                 .onFailure {
+                    diagnosticLogger.error(DiagnosticCategory.SETTINGS, "EXPORT_FAILED", throwable = it)
                     _events.emit(SettingsUiEvent.ShowMessage(UiText.StringResource(R.string.export_failed)))
                 }
         }

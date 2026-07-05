@@ -85,7 +85,7 @@ configure<com.android.build.api.dsl.ApplicationExtension> {
             }
             manifestPlaceholders["appLabel"] = "@string/app_name"
             buildConfigField("String", "FIREBASE_ENV", "\"PROD\"")
-            buildConfigField("String", "FIREBASE_PROJECT_ID", "\"myartifact-prod\"")
+            buildConfigField("String", "FIREBASE_PROJECT_ID", "\"myartifact-555e3\"")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

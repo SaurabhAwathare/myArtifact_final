@@ -28,6 +28,8 @@ import androidx.media3.session.SessionError
 import androidx.media3.session.SessionResult
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.EngagementRepository
 import javax.inject.Inject
@@ -44,6 +46,7 @@ class PlaybackService : MediaLibraryService() {
     @Inject lateinit var artifactRepository: ArtifactRepository
     @Inject lateinit var engagementRepository: EngagementRepository
     @Inject lateinit var settingsDataStore: PlaybackSettingsDataStore
+    @Inject lateinit var diagnosticLogger: DiagnosticLogger
 
     private var mediaSession: MediaLibrarySession? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -117,6 +120,44 @@ class PlaybackService : MediaLibraryService() {
         player.addListener(object : Player.Listener {
             override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
                 Log.d("PlaybackService", "Metadata updated for session sync: ${mediaMetadata.title}")
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                val artifact = player.currentMediaItem?.mediaId ?: "unknown"
+                when (playbackState) {
+                    Player.STATE_READY -> {
+                        if (player.playWhenReady) {
+                            diagnosticLogger.info(DiagnosticCategory.PLAYER, "PLAYBACK_STARTED", mapOf("artifactId" to artifact))
+                        }
+                    }
+                    Player.STATE_ENDED -> {
+                        diagnosticLogger.info(DiagnosticCategory.PLAYER, "PLAYBACK_COMPLETED", mapOf("artifactId" to artifact))
+                    }
+                    Player.STATE_IDLE -> {
+                        // Could be stopped or failed
+                    }
+                    Player.STATE_BUFFERING -> {
+                        diagnosticLogger.debug(DiagnosticCategory.PLAYER, "PLAYBACK_BUFFERING", mapOf("artifactId" to artifact))
+                    }
+                }
+            }
+
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                val artifact = player.currentMediaItem?.mediaId ?: "unknown"
+                if (!playWhenReady) {
+                    diagnosticLogger.info(DiagnosticCategory.PLAYER, "PLAYBACK_PAUSED", mapOf("artifactId" to artifact))
+                } else if (player.playbackState == Player.STATE_READY) {
+                    diagnosticLogger.info(DiagnosticCategory.PLAYER, "PLAYBACK_STARTED", mapOf("artifactId" to artifact))
+                }
+            }
+
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                val artifact = player.currentMediaItem?.mediaId ?: "unknown"
+                diagnosticLogger.error(DiagnosticCategory.PLAYER, "PLAYBACK_FAILED", mapOf("artifactId" to artifact), error)
+            }
+            
+            override fun onPlaybackParametersChanged(playbackParameters: androidx.media3.common.PlaybackParameters) {
+                diagnosticLogger.info(DiagnosticCategory.PLAYER, "PLAYBACK_SPEED_CHANGED", mapOf("speed" to playbackParameters.speed))
             }
         })
 

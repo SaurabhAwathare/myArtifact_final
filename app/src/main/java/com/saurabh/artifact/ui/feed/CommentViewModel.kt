@@ -3,6 +3,8 @@ package com.saurabh.artifact.ui.feed
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.audio.ReviewAuthorityService
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.ArtifactRepository
@@ -44,7 +46,8 @@ class CommentViewModel @Inject constructor(
     private val reviewAuthorityService: ReviewAuthorityService,
     private val uploadGuard: UploadGuard,
     private val commentUnlockPolicy: CommentUnlockPolicy,
-    private val commentMerger: CommentMerger
+    private val commentMerger: CommentMerger,
+    private val diagnosticLogger: DiagnosticLogger
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(CommentUiState())
@@ -70,6 +73,7 @@ class CommentViewModel @Inject constructor(
         if (content.isBlank()) return
         
         viewModelScope.launch {
+            diagnosticLogger.info(DiagnosticCategory.COMMENTS, "COMMENT_SUBMIT_STARTED", mapOf("artifactId" to artifactId))
             _uiState.update { it.copy(isSubmitting = true, errorMessage = null) }
             
             userRepository.getOrCreateProfile()
@@ -86,12 +90,15 @@ class CommentViewModel @Inject constructor(
                     )
 
                     if (resultSubmission.isSuccess) {
+                        diagnosticLogger.info(DiagnosticCategory.COMMENTS, "COMMENT_SUBMIT_SUCCESS", mapOf("artifactId" to artifactId))
                         _uiState.update { it.copy(isSubmitting = false, submissionSuccess = true) }
                     } else {
+                        diagnosticLogger.error(DiagnosticCategory.COMMENTS, "COMMENT_SUBMIT_FAILED", mapOf("artifactId" to artifactId), resultSubmission.exceptionOrNull())
                         _uiState.update { it.copy(isSubmitting = false, errorMessage = resultSubmission.exceptionOrNull()?.message) }
                     }
                 }
                 .onFailure { e ->
+                    diagnosticLogger.error(DiagnosticCategory.COMMENTS, "COMMENT_SUBMIT_ERROR", mapOf("artifactId" to artifactId), e)
                     _uiState.update { it.copy(isSubmitting = false, errorMessage = e.message) }
                 }
         }
@@ -121,6 +128,9 @@ class CommentViewModel @Inject constructor(
                     
                     status to currentProgress
                 }.collect { (status, progress) ->
+                    if (status == EngagementStatus.UNLOCKED && _uiState.value.engagementStatus == EngagementStatus.LOCKED) {
+                        diagnosticLogger.info(DiagnosticCategory.COMMENTS, "COMMENT_UNLOCK_VERIFIED", mapOf("artifactId" to artifactId))
+                    }
                     _uiState.update { 
                         it.copy(
                             engagementStatus = status,

@@ -8,6 +8,8 @@ import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import androidx.paging.map
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.audio.ArtifactCleanupManager
 import com.saurabh.artifact.audio.PlaybackCoordinator
 import com.saurabh.artifact.audio.PublishStateManager
@@ -93,7 +95,8 @@ class FeedViewModel @Inject constructor(
     private val feedSeparatorMapper: FeedSeparatorMapper,
     getFeedFlowUseCase: GetFeedFlowUseCase,
     getPersonalizedFeedFlowUseCase: GetPersonalizedFeedFlowUseCase,
-    private val getReflectionPromptUseCase: GetReflectionPromptUseCase
+    private val getReflectionPromptUseCase: GetReflectionPromptUseCase,
+    private val diagnosticLogger: DiagnosticLogger
 ) : ViewModel(), MemoryTrimable {
 
     private companion object {
@@ -226,6 +229,7 @@ class FeedViewModel @Inject constructor(
         if (started) return
         started = true
 
+        diagnosticLogger.info(DiagnosticCategory.FEED, "FEED_HYDRATION_STARTED")
         Log.d("APP_FLOW", "FeedViewModel.start() - Production Staggered Hydration")
         StartupTracer.mark("Feed Hydration Started")
         StartupMetrics.onFeedHydrationStart()
@@ -359,9 +363,11 @@ class FeedViewModel @Inject constructor(
     fun loadRankedFeed(): kotlinx.coroutines.Job {
         return viewModelScope.launch {
             val userId = currentUserId ?: run {
+                diagnosticLogger.warn(DiagnosticCategory.FEED, "FEED_LOAD_BLOCKED", mapOf("reason" to "UNAUTHENTICATED"))
                 Log.w("AuthGuard", "loadRankedFeed blocked: User is null.")
                 return@launch
             }
+            diagnosticLogger.debug(DiagnosticCategory.FEED, "FEED_LOAD_STARTED", mapOf("type" to "RANKED"))
             _uiState.update { it.copy(isRankedLoading = true) }
             
             runCatching {
@@ -380,7 +386,9 @@ class FeedViewModel @Inject constructor(
                 unfinishedItems.take(3).forEach { feedArtifact ->
                     audioPlayer.preCache(feedArtifact.artifact)
                 }
+                diagnosticLogger.info(DiagnosticCategory.FEED, "FEED_LOAD_SUCCESS", mapOf("count" to feedItems.size))
             }.onFailure {
+                diagnosticLogger.error(DiagnosticCategory.FEED, "FEED_LOAD_FAILED", throwable = it)
                 Log.e("FeedViewModel", "Error loading ranked feed", it)
             }
             _uiState.update { it.copy(isRankedLoading = false) }
@@ -388,6 +396,7 @@ class FeedViewModel @Inject constructor(
     }
 
     fun refreshFeed() {
+        diagnosticLogger.info(DiagnosticCategory.FEED, "FEED_REFRESH_TRIGGERED")
         viewModelScope.launch {
             _uiState.update { it.copy(isRefreshing = true, hasNewContent = false) }
             lastLoadedTimestamp = System.currentTimeMillis()
@@ -403,6 +412,7 @@ class FeedViewModel @Inject constructor(
             delay(500.milliseconds)
             
             _uiState.update { it.copy(isRefreshing = false) }
+            diagnosticLogger.info(DiagnosticCategory.FEED, "FEED_REFRESH_SUCCESS")
         }
     }
 

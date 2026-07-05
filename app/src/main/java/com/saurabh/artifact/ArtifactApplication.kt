@@ -9,6 +9,8 @@ import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import coil.request.CachePolicy
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.startup.StartupCoordinator
 import com.saurabh.artifact.util.MemoryManager
 import com.saurabh.artifact.util.StartupTracer
@@ -44,12 +46,18 @@ class ArtifactApplication : Application(), ImageLoaderFactory, Configuration.Pro
     @Inject
     lateinit var startupCoordinator: Lazy<StartupCoordinator>
 
+    @Inject
+    lateinit var diagnosticLogger: Lazy<DiagnosticLogger>
+
     private var _imageLoader: ImageLoader? = null
 
     override fun onCreate() {
         super.onCreate()
         
         setupRescueTracker()
+        
+        // Log App Startup
+        diagnosticLogger.get().info(DiagnosticCategory.APP, "APP_LAUNCHED")
         
         // Initialize Notification Channels
         com.saurabh.artifact.util.NotificationHelper.initNotificationChannels(this)
