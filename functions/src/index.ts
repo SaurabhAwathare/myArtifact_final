@@ -1,8 +1,8 @@
 import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
-import { FieldValue } from "firebase-admin/firestore";
-import { withIdempotency } from "./util/idempotency";
-import { logger } from "./util/logger";
+import {FieldValue} from "firebase-admin/firestore";
+import {withIdempotency} from "./util/idempotency";
+import {logger} from "./util/logger";
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -138,9 +138,9 @@ export const onEngagementUpdated = functions.firestore
         return null;
       }
 
-      const clientBuffer = (typeof clientCoverage.toBuffer === "function")
-        ? clientCoverage.toBuffer()
-        : Buffer.from(clientCoverage);
+      const clientBuffer = (typeof clientCoverage.toBuffer === "function") ?
+        clientCoverage.toBuffer() :
+        Buffer.from(clientCoverage);
 
       if (clientBuffer.length === 0) {
         console.warn(`Engagement update for user=${userId}, art=${artifactId} has empty coverage. Skipping.`);
@@ -150,9 +150,9 @@ export const onEngagementUpdated = functions.firestore
       // Aggregation: Multi-device support via BitSet OR
       let mergedCoverage: Buffer;
       if (existingCoverage) {
-        const existingBuffer = (typeof existingCoverage.toBuffer === "function")
-          ? existingCoverage.toBuffer()
-          : Buffer.from(existingCoverage);
+        const existingBuffer = (typeof existingCoverage.toBuffer === "function") ?
+          existingCoverage.toBuffer() :
+          Buffer.from(existingCoverage);
         mergedCoverage = mergeBitSets(existingBuffer, clientBuffer);
       } else {
         mergedCoverage = clientBuffer;
@@ -192,12 +192,12 @@ export const onEngagementUpdated = functions.firestore
             unlockReason: isUnlocked ? "LISTENING_THRESHOLD_REACHED" : "INSUFFICIENT_ENGAGEMENT",
             unlockVersion: (oldState?.unlockVersion || 0) + 1,
             evaluatedAt: FieldValue.serverTimestamp(),
-            coveragePercent: parseFloat(coveragePercent.toFixed(4))
-          }
+            coveragePercent: parseFloat(coveragePercent.toFixed(4)),
+          },
         });
       }
 
-      return { unlocked: isUnlocked, coveragePercent };
+      return {unlocked: isUnlocked, coveragePercent};
     });
   });
 
@@ -370,7 +370,7 @@ export const onReactionCreated = functions.firestore
         [`breakdown.${typeId}`]: FieldValue.increment(1),
         lastUpdated: FieldValue.serverTimestamp(),
       },
-      { merge: true }
+      {merge: true}
     );
 
     // 2. Update Main Artifact Metadata (for efficient feed loading)
@@ -415,7 +415,7 @@ export const onReactionDeleted = functions.firestore
         [`breakdown.${typeId}`]: FieldValue.increment(-1),
         lastUpdated: FieldValue.serverTimestamp(),
       },
-      { merge: true }
+      {merge: true}
     );
 
     // 2. Update Main Artifact Metadata
@@ -445,9 +445,9 @@ export const onFollowIntentCreated = functions.firestore
     const targetId = context.params.targetId;
     const data = snapshot.data();
 
-    if (!data || data.action !== 'FOLLOW') return null;
+    if (!data || data.action !== "FOLLOW") return null;
 
-    const idempotencyKey = `follow_${uid}_${targetId}_${data.timestamp?.seconds || 'initial'}`;
+    const idempotencyKey = `follow_${uid}_${targetId}_${data.timestamp?.seconds || "initial"}`;
 
     return withIdempotency(idempotencyKey, async () => {
       const db = admin.firestore();
@@ -467,17 +467,17 @@ export const onFollowIntentCreated = functions.firestore
         const timestamp = FieldValue.serverTimestamp();
 
         // 1. Create Markers
-        transaction.set(resonanceOutRef, { createdAt: timestamp });
-        transaction.set(resonanceInRef, { createdAt: timestamp });
+        transaction.set(resonanceOutRef, {createdAt: timestamp});
+        transaction.set(resonanceInRef, {createdAt: timestamp});
 
         // 2. Update Counters
         transaction.update(currentUserRef, {
           resonanceOutCount: FieldValue.increment(1),
-          followingCount: FieldValue.increment(1) // Legacy
+          followingCount: FieldValue.increment(1), // Legacy
         });
         transaction.update(targetUserRef, {
           resonanceInCount: FieldValue.increment(1),
-          followersCount: FieldValue.increment(1) // Legacy
+          followersCount: FieldValue.increment(1), // Legacy
         });
       });
 
@@ -487,10 +487,10 @@ export const onFollowIntentCreated = functions.firestore
         message: "PRESENCE_RESONATED",
         type: "RESONANCE",
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        isRead: false
+        isRead: false,
       });
 
-      logger.interaction("FOLLOW_SUCCESS", { userId: uid, artifactId: targetId }, "SUCCESS");
+      logger.interaction("FOLLOW_SUCCESS", {userId: uid, artifactId: targetId}, "SUCCESS");
     });
   });
 
@@ -521,15 +521,15 @@ export const onFollowIntentDeleted = functions.firestore
       // 2. Decrement Counters
       transaction.update(currentUserRef, {
         resonanceOutCount: FieldValue.increment(-1),
-        followingCount: FieldValue.increment(-1)
+        followingCount: FieldValue.increment(-1),
       });
       transaction.update(targetUserRef, {
         resonanceInCount: FieldValue.increment(-1),
-        followersCount: FieldValue.increment(-1)
+        followersCount: FieldValue.increment(-1),
       });
     });
 
-    logger.interaction("UNFOLLOW_SUCCESS", { userId: uid, artifactId: targetId }, "SUCCESS");
+    logger.interaction("UNFOLLOW_SUCCESS", {userId: uid, artifactId: targetId}, "SUCCESS");
     return null;
   });
 
@@ -543,9 +543,9 @@ export const onReactionIntentCreated = functions.firestore
     const artifactId = context.params.artifactId;
     const data = snapshot.data();
 
-    if (!data || data.action !== 'ADD') return null;
+    if (!data || data.action !== "ADD") return null;
 
-    const idempotencyKey = `react_${uid}_${artifactId}_${data.timestamp?.seconds || 'initial'}`;
+    const idempotencyKey = `react_${uid}_${artifactId}_${data.timestamp?.seconds || "initial"}`;
 
     return withIdempotency(idempotencyKey, async () => {
       const db = admin.firestore();
@@ -564,11 +564,11 @@ export const onReactionIntentCreated = functions.firestore
 
         // 2. Create Global Reaction Marker (Zero-Trust)
         transaction.set(globalRef, {
-            artifactId: artifactId,
-            userId: uid,
-            artifactOwnerId: ownerId,
-            type: data.type,
-            createdAt: admin.firestore.FieldValue.serverTimestamp()
+          artifactId: artifactId,
+          userId: uid,
+          artifactOwnerId: ownerId,
+          type: data.type,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
         });
       });
 
@@ -580,11 +580,11 @@ export const onReactionIntentCreated = functions.firestore
           artifactId: artifactId,
           type: "RESONANCE",
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          isRead: false
+          isRead: false,
         });
       }
 
-      logger.interaction("REACTION_SUCCESS", { userId: uid, artifactId: artifactId }, "SUCCESS");
+      logger.interaction("REACTION_SUCCESS", {userId: uid, artifactId: artifactId}, "SUCCESS");
     });
   });
 
@@ -602,7 +602,7 @@ export const onReactionIntentDeleted = functions.firestore
 
     await db.collection("artifact_reactions").doc(reactionId).delete();
 
-    logger.interaction("REACTION_REMOVED", { userId: uid, artifactId: artifactId }, "SUCCESS");
+    logger.interaction("REACTION_REMOVED", {userId: uid, artifactId: artifactId}, "SUCCESS");
     return null;
   });
 
@@ -737,7 +737,7 @@ export const onUserDeleted = functions.auth.user().onDelete(async (user) => {
         await db.collection("users").doc(targetId).collection("resonance_in").doc(uid).delete();
         await db.collection("users").doc(targetId).update({
           resonanceInCount: FieldValue.increment(-1),
-          followersCount: FieldValue.increment(-1)
+          followersCount: FieldValue.increment(-1),
         });
         logger.info(`Removed user ${uid} from resonance_in of ${targetId}`);
       } catch (e) {
@@ -753,7 +753,7 @@ export const onUserDeleted = functions.auth.user().onDelete(async (user) => {
         await db.collection("users").doc(followerId).collection("resonance_out").doc(uid).delete();
         await db.collection("users").doc(followerId).update({
           resonanceOutCount: FieldValue.increment(-1),
-          followingCount: FieldValue.increment(-1)
+          followingCount: FieldValue.increment(-1),
         });
         logger.info(`Removed user ${uid} from resonance_out of ${followerId}`);
       } catch (e) {
@@ -785,7 +785,7 @@ export const onUserDeleted = functions.auth.user().onDelete(async (user) => {
       "resonance_out",
       "followers",
       "following",
-      "recommendation_profiles"
+      "recommendation_profiles",
     ];
 
     for (const sub of subCollections) {

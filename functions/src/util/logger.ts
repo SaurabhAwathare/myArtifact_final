@@ -16,13 +16,13 @@ export const logger = {
   /**
    * Logs an interaction event with correlation IDs.
    */
-  interaction: (event: string, interactionData: any, status: 'SUCCESS' | 'FAILURE' | 'PROCESSING', details?: any) => {
+  interaction: (event: string, interactionData: any, status: "SUCCESS" | "FAILURE" | "PROCESSING", details?: any) => {
     functions.logger.info(`INTERACTION_EVENT: ${event}`, {
-      correlationId: interactionData.correlationId || 'unknown',
+      correlationId: interactionData.correlationId || "unknown",
       artifactId: interactionData.artifactId,
       userId: interactionData.userId,
       status,
-      ...details
+      ...details,
     });
-  }
+  },
 };

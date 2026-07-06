@@ -44,6 +44,7 @@ class MainViewModel @Inject constructor(
     observeCurrentUserProfileUseCase: ObserveCurrentUserProfileUseCase,
     observeStealthModeUseCase: ObserveStealthModeUseCase,
     private val startupCoordinator: StartupCoordinator,
+    private val userProfileManager: com.saurabh.artifact.repository.UserProfileManager,
     private val savedStateHandle: SavedStateHandle,
     private val diagnosticLogger: DiagnosticLogger
 ) : ViewModel() {
@@ -246,10 +247,12 @@ class MainViewModel @Inject constructor(
                 when (result) {
                     is RegistrationResult.SuccessExistingUser -> {
                         diagnosticLogger.debug(DiagnosticCategory.STARTUP, "PROFILE_CHECK_SUCCESS", mapOf("user_type" to "EXISTING"))
+                        userProfileManager.startIdentityMonitoring()
                         Home
                     }
                     is RegistrationResult.SuccessNewUser -> {
                         diagnosticLogger.debug(DiagnosticCategory.STARTUP, "PROFILE_CHECK_SUCCESS", mapOf("user_type" to "NEW"))
+                        userProfileManager.startIdentityMonitoring()
                         IdentityReveal
                     }
                     is RegistrationResult.Failure -> {

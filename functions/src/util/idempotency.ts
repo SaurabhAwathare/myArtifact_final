@@ -1,6 +1,6 @@
 import * as admin from "firebase-admin";
-import { FieldValue } from "firebase-admin/firestore";
-import { logger } from "./logger";
+import {FieldValue} from "firebase-admin/firestore";
+import {logger} from "./logger";
 
 /**
  * Ensures that a task is only executed once for a given idempotency key.
@@ -19,18 +19,18 @@ export async function withIdempotency(
 
       if (doc.exists) {
         const data = doc.data();
-        if (data?.status === 'SUCCESS') {
+        if (data?.status === "SUCCESS") {
           logger.info(`Idempotency: Key ${key} already succeeded. Returning cached result.`);
           return data.result;
         }
-        if (data?.status === 'PROCESSING') {
+        if (data?.status === "PROCESSING") {
           throw new Error(`Idempotency: Key ${key} is currently being processed.`);
         }
       }
 
       transaction.set(keyRef, {
-        status: 'PROCESSING',
-        startedAt: FieldValue.serverTimestamp()
+        status: "PROCESSING",
+        startedAt: FieldValue.serverTimestamp(),
       });
 
       // Execute task
@@ -38,9 +38,9 @@ export async function withIdempotency(
         const result = await task();
 
         transaction.update(keyRef, {
-          status: 'SUCCESS',
+          status: "SUCCESS",
           result: result || null,
-          completedAt: FieldValue.serverTimestamp()
+          completedAt: FieldValue.serverTimestamp(),
         });
 
         return result;

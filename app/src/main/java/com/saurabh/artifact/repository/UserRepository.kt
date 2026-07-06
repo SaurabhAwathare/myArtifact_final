@@ -607,20 +607,24 @@ class UserRepository @Inject constructor(
                 generatedName to nextVersion
             }.await()
 
-            // 4. Update local profile cache (Optimistic)
-            getCachedProfile()?.let { user ->
-                val newSeed = java.util.UUID.randomUUID().toString()
-                val updatedUser = user.copy(
-                    anonymousName = newName,
-                    avatarSeed = newSeed,
-                    avatarConfig = user.avatarConfig.copy(seed = newSeed),
-                    identityMetadata = user.identityMetadata.copy(
-                        emergencyResetCount = user.identityMetadata.emergencyResetCount + 1,
-                        identityResetVersion = newVersion,
-                        resetStartedAt = com.google.firebase.Timestamp.now()
+            // 4. Update local profile cache (Isolated/Optimistic)
+            try {
+                getCachedProfile()?.let { user ->
+                    val newSeed = java.util.UUID.randomUUID().toString()
+                    val updatedUser = user.copy(
+                        anonymousName = newName,
+                        avatarSeed = newSeed,
+                        avatarConfig = user.avatarConfig.copy(seed = newSeed),
+                        identityMetadata = user.identityMetadata.copy(
+                            emergencyResetCount = user.identityMetadata.emergencyResetCount + 1,
+                            identityResetVersion = newVersion,
+                            resetStartedAt = com.google.firebase.Timestamp.now()
+                        )
                     )
-                )
-                userDao.get().insertProfile(mapUserToLocal(updatedUser))
+                    userDao.get().insertProfile(mapUserToLocal(updatedUser))
+                }
+            } catch (e: Exception) {
+                Log.e("UserRepository", "Local profile cache update failed during emergency reset", e)
             }
 
             // Zero-Trust: Notification handled by backend (optional/future)
@@ -629,19 +633,23 @@ class UserRepository @Inject constructor(
             //     message = "IDENTITY_PROTECTED|$newName"
             // )
 
-            // Log moderation event
-            val reportRef = firestore.collection("reports").document()
-            reportRef.set(mapOf(
-                "type" to "EMERGENCY_RESET",
-                "userId" to userId,
-                "reporterId" to userId,
-                "timestamp" to FieldValue.serverTimestamp(),
-                "reason" to "USER_TRIGGERED_PRIVACY_PROTECTION",
-                "version" to newVersion
-            )).await()
+            // Log moderation event (Isolated)
+            try {
+                val reportRef = firestore.collection("reports").document()
+                reportRef.set(mapOf(
+                    "type" to "EMERGENCY_RESET",
+                    "userId" to userId,
+                    "reporterId" to userId,
+                    "timestamp" to FieldValue.serverTimestamp(),
+                    "reason" to "USER_TRIGGERED_PRIVACY_PROTECTION",
+                    "version" to newVersion
+                )).await()
+            } catch (e: Exception) {
+                Log.e("UserRepository", "Moderation audit logging failed during emergency reset", e)
+            }
 
-            // Trigger global identity synchronization
-            IdentitySyncWorker.enqueue(context, userId, newVersion)
+            // Trigger global identity synchronization (supersede any existing propagation)
+            IdentitySyncWorker.enqueue(context, userId, newVersion, androidx.work.ExistingWorkPolicy.REPLACE)
 
             Result.success(Unit)
         } catch (e: Exception) {

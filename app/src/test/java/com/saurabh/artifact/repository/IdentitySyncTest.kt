@@ -42,7 +42,7 @@ class IdentitySyncTest {
         every { authRepository.userData } returns kotlinx.coroutines.flow.MutableStateFlow(null)
 
         mockkObject(IdentitySyncWorker)
-        every { IdentitySyncWorker.enqueue(any(), any()) } just Runs
+        every { IdentitySyncWorker.enqueue(any(), any(), any(), any()) } just Runs
     }
 
     @After

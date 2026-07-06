@@ -12,6 +12,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -69,6 +71,41 @@ class UserProfileManager @Inject constructor(
      * SSOT flow for the active username.
      */
     val activeUsername: Flow<String> = sessionManager.userProfile.map { it.username }
+
+    /**
+     * Phase 2: Explicitly reconciles identity propagation state.
+     * Schedules IdentitySyncWorker if identityResetVersion > lastCompletedIdentityVersion.
+     * Uses KEEP policy to avoid restarting work that is already in progress.
+     */
+    fun reconcileIdentitySync(user: com.saurabh.artifact.model.User) {
+        if (user.identityMetadata.isIdentitySyncPending) {
+            android.util.Log.i("UserProfileManager", "Detected pending identity sync for ${user.id}. Scheduling recovery.")
+            IdentitySyncWorker.enqueue(
+                context = context,
+                userId = user.id,
+                version = user.identityMetadata.identityResetVersion,
+                policy = androidx.work.ExistingWorkPolicy.KEEP
+            )
+        }
+    }
+
+    /**
+     * Phase 2: Starts active monitoring of identity propagation state.
+     * Triggers reconciliation on initial load and whenever version fields change.
+     */
+    fun startIdentityMonitoring() {
+        managerScope.launch {
+            authRepository.userData
+                .filterNotNull()
+                .distinctUntilChanged { old, new ->
+                    old.identityMetadata.identityResetVersion == new.identityMetadata.identityResetVersion &&
+                    old.identityMetadata.lastCompletedIdentityVersion == new.identityMetadata.lastCompletedIdentityVersion
+                }
+                .collect { user ->
+                    reconcileIdentitySync(user)
+                }
+        }
+    }
 
     /**
      * Updates the user's avatar configuration.

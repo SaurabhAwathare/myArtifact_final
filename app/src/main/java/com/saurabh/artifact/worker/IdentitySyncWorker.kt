@@ -88,14 +88,17 @@ class IdentitySyncWorker @AssistedInject constructor(
             }
 
             // 4. Monotonic Update of lastCompletedIdentityVersion
-            if (workerVersion > 0) {
+            // Use fallback to identityResetVersion for recovery scenarios where version might not be in inputData
+            val targetVersion = if (workerVersion > 0) workerVersion else user.identityMetadata.identityResetVersion
+            
+            if (targetVersion > 0) {
                 val userRef = firestore.collection("users").document(userId)
                 firestore.runTransaction { transaction ->
                     val snapshot = transaction[userRef]
                     val currentCompleted = snapshot.getLong("identityMetadata.lastCompletedIdentityVersion") ?: 0L
-                    if (workerVersion > currentCompleted) {
+                    if (targetVersion > currentCompleted) {
                         transaction.update(userRef, mapOf(
-                            "identityMetadata.lastCompletedIdentityVersion" to workerVersion,
+                            "identityMetadata.lastCompletedIdentityVersion" to targetVersion,
                             "identityMetadata.resetCompletedAt" to FieldValue.serverTimestamp()
                         ))
                     }
@@ -114,7 +117,12 @@ class IdentitySyncWorker @AssistedInject constructor(
         const val KEY_VERSION = "version"
         private const val BATCH_LIMIT = 500
 
-        fun enqueue(context: Context, userId: String, version: Long = 0) {
+        fun enqueue(
+            context: Context, 
+            userId: String, 
+            version: Long = 0,
+            policy: ExistingWorkPolicy = ExistingWorkPolicy.REPLACE
+        ) {
             val constraints = Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build()
@@ -131,7 +139,7 @@ class IdentitySyncWorker @AssistedInject constructor(
 
             WorkManager.getInstance(context).enqueueUniqueWork(
                 "identity_sync_$userId",
-                ExistingWorkPolicy.REPLACE,
+                policy,
                 request
             )
         }
