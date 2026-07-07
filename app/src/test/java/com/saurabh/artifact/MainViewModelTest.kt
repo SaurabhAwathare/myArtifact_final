@@ -13,6 +13,8 @@ import com.saurabh.artifact.domain.auth.RegistrationCoordinator
 import com.saurabh.artifact.domain.auth.RegistrationResult
 import com.saurabh.artifact.domain.settings.ObserveStealthModeUseCase
 import com.saurabh.artifact.repository.AuthRepository
+import com.saurabh.artifact.repository.UserProfileManager
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.startup.StartupCoordinator
 import com.saurabh.artifact.navigation.*
 import io.mockk.*
@@ -39,6 +41,8 @@ class MainViewModelTest {
     private val observeCurrentUserProfileUseCase = mockk<ObserveCurrentUserProfileUseCase>(relaxed = true)
     private val observeStealthModeUseCase = mockk<ObserveStealthModeUseCase>(relaxed = true)
     private val startupCoordinator = mockk<StartupCoordinator>(relaxed = true)
+    private val userProfileManager = mockk<UserProfileManager>(relaxed = true)
+    private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
     private val savedStateHandle = SavedStateHandle()
 
     private val testAuthFlow = MutableStateFlow<com.google.firebase.auth.FirebaseUser?>(null)
@@ -70,7 +74,9 @@ class MainViewModelTest {
             observeCurrentUserProfileUseCase,
             observeStealthModeUseCase,
             startupCoordinator,
-            savedStateHandle
+            userProfileManager,
+            savedStateHandle,
+            diagnosticLogger
         )
     }
 
@@ -531,7 +537,9 @@ class MainViewModelTest {
             observeCurrentUserProfileUseCase,
             observeStealthModeUseCase,
             startupCoordinator,
-            savedStateHandle
+            userProfileManager,
+            savedStateHandle,
+            diagnosticLogger
         )
 
         // 3. Start the new ViewModel
@@ -609,7 +617,9 @@ class MainViewModelTest {
             observeCurrentUserProfileUseCase,
             observeStealthModeUseCase,
             startupCoordinator,
-            savedStateHandle
+            userProfileManager,
+            savedStateHandle,
+            diagnosticLogger
         )
 
         val navigationEvents = mutableListOf<Any>()

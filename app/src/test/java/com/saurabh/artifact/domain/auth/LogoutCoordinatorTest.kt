@@ -8,7 +8,7 @@ import com.saurabh.artifact.data.local.AppDatabase
 import com.saurabh.artifact.data.local.UserSessionManager
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.SettingsRepository
-import com.saurabh.artifact.util.ArtifactLogger
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.util.NotificationHelper
 import com.saurabh.artifact.util.StorageManager
 import com.google.common.util.concurrent.ListenableFuture
@@ -40,6 +40,7 @@ class LogoutCoordinatorTest {
     private val workManager = mockk<WorkManager>(relaxed = true)
     private val database = mockk<AppDatabase>(relaxed = true)
     private val storageManager = mockk<StorageManager>(relaxed = true)
+    private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
     
     private val testDispatcher = UnconfinedTestDispatcher()
 
@@ -47,12 +48,6 @@ class LogoutCoordinatorTest {
 
     @Before
     fun setup() {
-        mockkObject(ArtifactLogger)
-        every { ArtifactLogger.d(any(), any()) } just runs
-        every { ArtifactLogger.i(any(), any()) } just runs
-        every { ArtifactLogger.w(any(), any(), any()) } just runs
-        every { ArtifactLogger.e(any(), any(), any()) } just runs
-
         mockkObject(NotificationHelper)
         every { NotificationHelper.cancelAllNotifications(any()) } just runs
 
@@ -77,7 +72,8 @@ class LogoutCoordinatorTest {
             recordingSessionManager,
             workManager,
             database,
-            storageManager
+            storageManager,
+            diagnosticLogger
         ).apply {
             ioDispatcher = testDispatcher
             mainDispatcher = testDispatcher
@@ -104,7 +100,7 @@ class LogoutCoordinatorTest {
         coVerify(ordering = Ordering.ALL) {
             recordingSessionManager.isRecordingActive()
             recordingSessionManager.cancelSession()
-            playbackCoordinator.stop()
+            playbackCoordinator.release()
             workManager.cancelAllWorkByTag(SessionConstants.TAG_USER_SESSION_WORK)
             NotificationHelper.cancelAllNotifications(any())
         }
@@ -147,7 +143,7 @@ class LogoutCoordinatorTest {
         assertEquals(false, cleanupResult.room)
         
         // Verify playback was still stopped (Step 2)
-        coVerify { playbackCoordinator.stop() }
+        coVerify { playbackCoordinator.release() }
         
         // Verify storage cleanup was still attempted (Phase C.5)
         verify { storageManager.clearUserStorage() }

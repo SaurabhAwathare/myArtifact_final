@@ -2,11 +2,12 @@ package com.saurabh.artifact.audio
 
 import android.content.Context
 import android.content.Intent
-import android.util.Log
 import androidx.core.content.ContextCompat
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.data.local.RecordingStatus
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.repository.RecordingRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -35,7 +36,8 @@ class RecordingSessionManager @Inject constructor(
     private val recordingRepository: RecordingRepository,
     private val localDraftManager: LocalDraftManager,
     private val draftDao: DraftDao,
-    private val cleanupManager: ArtifactCleanupManager
+    private val cleanupManager: ArtifactCleanupManager,
+    private val diagnosticLogger: DiagnosticLogger
 ) {
     private val managerScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val sessionMutex = Mutex()
@@ -125,7 +127,7 @@ class RecordingSessionManager @Inject constructor(
     suspend fun startNewSession(explicitDraftId: String? = null) = sessionMutex.withLock {
         val currentStatus = _rawServiceState.value.status
         if (currentStatus != RecordingStatus.IDLE && currentStatus != RecordingStatus.FAILED && currentStatus != RecordingStatus.COMPLETED) {
-            Log.w("RecordingSessionManager", "startNewSession ignored: Already in state $currentStatus")
+            diagnosticLogger.warn(DiagnosticCategory.RECORDING, "SESSION_START_IGNORED", mapOf("currentStatus" to currentStatus.name))
             return@withLock
         }
 

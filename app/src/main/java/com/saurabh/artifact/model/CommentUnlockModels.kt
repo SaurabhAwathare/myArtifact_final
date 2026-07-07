@@ -1,6 +1,7 @@
 package com.saurabh.artifact.model
 
 import com.google.firebase.Timestamp
+import com.google.firebase.firestore.Blob
 import com.google.firebase.firestore.PropertyName
 
 /**
@@ -17,7 +18,7 @@ data class UserArtifactEngagement(
     val totalDurationMs: Long = 0,   // Cached duration for progress calculation
     val hasReachedEnd: Boolean = false,
     val updatedAt: Long = System.currentTimeMillis(),
-    val coverage: ByteArray = byteArrayOf(), // Added for server-side validation
+    val coverage: Blob = Blob.fromBytes(byteArrayOf()), // Added for server-side validation
     val engagementState: EngagementState? = null // Server-managed
 ) {
     override fun equals(other: Any?): Boolean {
@@ -34,7 +35,7 @@ data class UserArtifactEngagement(
         if (totalDurationMs != other.totalDurationMs) return false
         if (hasReachedEnd != other.hasReachedEnd) return false
         if (updatedAt != other.updatedAt) return false
-        if (!coverage.contentEquals(other.coverage)) return false
+        if (coverage != other.coverage) return false
         if (engagementState != other.engagementState) return false
 
         return true
@@ -49,7 +50,7 @@ data class UserArtifactEngagement(
         result = 31 * result + totalDurationMs.hashCode()
         result = 31 * result + hasReachedEnd.hashCode()
         result = 31 * result + updatedAt.hashCode()
-        result = 31 * result + coverage.contentHashCode()
+        result = 31 * result + coverage.hashCode()
         result = 31 * result + (engagementState?.hashCode() ?: 0)
         return result
     }

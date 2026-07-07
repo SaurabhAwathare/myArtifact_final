@@ -1,6 +1,5 @@
 package com.saurabh.artifact.ui.feed
 
-import android.util.Log
 import android.content.Intent
 import androidx.core.net.toUri
 import androidx.compose.animation.*
@@ -32,6 +31,7 @@ import androidx.paging.compose.itemKey
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.map
 import androidx.compose.ui.zIndex
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.ui.components.ArtifactCard
 import com.saurabh.artifact.ui.components.ArtifactFeedCard
 import com.saurabh.artifact.ui.components.AmbientUploadBar
@@ -76,7 +76,8 @@ fun FeedScreen(
     onReportArtifact: (String) -> Unit,
     viewModel: FeedViewModel = hiltViewModel(),
 ) {
-    Log.d("APP_FLOW", "Composition: FeedScreen Entered")
+    val logger = ArtifactTheme.logger
+    logger.trace(DiagnosticCategory.FEED, "FEED_SCREEN_COMPOSITION")
     
     val recentArtifacts = viewModel.artifacts.collectAsLazyPagingItems()
     val forYouArtifacts = viewModel.personalizedArtifacts.collectAsLazyPagingItems()
@@ -101,7 +102,7 @@ fun FeedScreen(
         // Wait for first frame and navigation to settle
         withFrameNanos { }
         delay(100.milliseconds) // Reduced from 300ms for faster hydration
-        Log.d("APP_FLOW", "FeedScreen: viewModel.start() triggered")
+        logger.debug(DiagnosticCategory.FEED, "FEED_START_TRIGGERED")
         StartupTracer.mark("FeedScreen: viewModel.start() triggered")
         viewModel.start()
     }
@@ -463,6 +464,7 @@ fun FeedHeader(
     onNavigateToRecord: (String?) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val logger = ArtifactTheme.logger
     val isPromptLoading by viewModel.isPromptLoading.collectAsStateWithLifecycle()
     val safetyLevel by viewModel.safetyLevel.collectAsStateWithLifecycle()
     val isCrisis by viewModel.isCrisis.collectAsStateWithLifecycle()
@@ -481,7 +483,7 @@ fun FeedHeader(
                         }
                         context.startActivity(intent)
                     } catch (e: Exception) {
-                        Log.e("FeedScreen", "Failed to launch dialer", e)
+                        logger.error(DiagnosticCategory.FEED, "DIALER_LAUNCH_FAILED", throwable = e)
                     }
                 },
                 onContinue = { viewModel.dismissCrisis() }

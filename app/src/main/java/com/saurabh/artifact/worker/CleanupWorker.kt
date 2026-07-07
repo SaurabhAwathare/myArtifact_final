@@ -1,13 +1,15 @@
 package com.saurabh.artifact.worker
 
 import android.content.Context
-import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.saurabh.artifact.audio.DraftDeletionManager
 import com.saurabh.artifact.audio.RetentionPolicy
 import com.saurabh.artifact.data.local.DraftDao
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.util.StorageManager
 import dagger.assisted.Assisted
@@ -24,7 +26,8 @@ class CleanupWorker @AssistedInject constructor(
     @Assisted params: WorkerParameters,
     private val draftDao: DraftDao,
     private val deletionManager: DraftDeletionManager,
-    private val storageManager: StorageManager
+    private val storageManager: StorageManager,
+    private val diagnosticLogger: DiagnosticLogger
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
@@ -36,7 +39,7 @@ class CleanupWorker @AssistedInject constructor(
 
         val artifactId = inputData.getString(KEY_ARTIFACT_ID) ?: return Result.failure()
         
-        Log.d("CleanupWorker", "Starting local cleanup for artifact.")
+        diagnosticLogger.info(DiagnosticCategory.WORKMANAGER, "CLEANUP_STARTED", mapOf(LogKeys.ARTIFACT_ID to artifactId))
         
         return try {
             // 1. Find the draft in local database
@@ -45,39 +48,40 @@ class CleanupWorker @AssistedInject constructor(
             if (draft != null) {
                 // 2. Authoritative delete
                 deletionManager.deleteDraft(draft.id)
-                Log.d("CleanupWorker", "Successfully cleaned up local data.")
+                diagnosticLogger.info(DiagnosticCategory.WORKMANAGER, "CLEANUP_SUCCESS", mapOf(LogKeys.ARTIFACT_ID to artifactId))
             } else {
-                Log.w("CleanupWorker", "No local draft found for artifact.")
+                diagnosticLogger.warn(DiagnosticCategory.WORKMANAGER, "CLEANUP_DRAFT_NOT_FOUND", mapOf(LogKeys.ARTIFACT_ID to artifactId))
             }
             
             Result.success()
         } catch (e: Exception) {
-            Log.e("CleanupWorker", "Failed to cleanup local data for $artifactId", e)
+            diagnosticLogger.error(DiagnosticCategory.WORKMANAGER, "CLEANUP_FAILED", mapOf(LogKeys.ARTIFACT_ID to artifactId), e)
             Result.retry()
         }
     }
 
     private suspend fun performEmergencyCleanup(): Result {
-        Log.i("CleanupWorker", "Starting emergency storage cleanup...")
+        diagnosticLogger.info(DiagnosticCategory.STORAGE, "EMERGENCY_CLEANUP_STARTED")
         
         val availableMb = storageManager.availableStorageMb
         if (availableMb > RetentionPolicy.EMERGENCY_STORAGE_THRESHOLD_MB) {
-            Log.d("CleanupWorker", "Storage still above threshold ($availableMb MB). Skipping emergency cleanup.")
+            diagnosticLogger.debug(DiagnosticCategory.STORAGE, "EMERGENCY_CLEANUP_SKIPPED", mapOf("availableMb" to availableMb))
             return Result.success()
         }
 
         return try {
             // Find all published artifacts that still have local files
             val publishedDrafts = draftDao.getDraftsByLifecycle(ArtifactLifecycle.PUBLISHED)
-            Log.i("CleanupWorker", "Found ${publishedDrafts.size} published drafts to purge for storage relief.")
+            diagnosticLogger.info(DiagnosticCategory.STORAGE, "EMERGENCY_CLEANUP_PURGING", mapOf("count" to publishedDrafts.size))
             
             publishedDrafts.forEach { draft ->
                 deletionManager.deleteDraft(draft.id)
             }
             
+            diagnosticLogger.info(DiagnosticCategory.STORAGE, "EMERGENCY_CLEANUP_SUCCESS")
             Result.success()
         } catch (e: Exception) {
-            Log.e("CleanupWorker", "Emergency cleanup failed", e)
+            diagnosticLogger.error(DiagnosticCategory.STORAGE, "EMERGENCY_CLEANUP_FAILED", throwable = e)
             Result.retry()
         }
     }

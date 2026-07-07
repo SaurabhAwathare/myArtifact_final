@@ -21,7 +21,8 @@ class RecordingFinalizationIdempotencyTest {
         wavRecoveryManager = mockk(),
         deletionManager = mockk(),
         cleanupManager = mockk(),
-        draftsDatabase = { appDatabase }
+        draftsDatabase = { appDatabase },
+        diagnosticLogger = mockk(relaxed = true)
     )
 
     @Before

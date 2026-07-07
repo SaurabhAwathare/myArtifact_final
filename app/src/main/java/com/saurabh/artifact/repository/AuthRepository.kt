@@ -8,6 +8,9 @@ import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.User
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,7 +24,8 @@ class AuthRepository @Inject constructor(
     private val firebaseAuth: FirebaseAuth,
     private val firestore: FirebaseFirestore,
     private val credentialManager: CredentialManager,
-    private val profileRepairService: com.saurabh.artifact.domain.auth.ProfileRepairService
+    private val profileRepairService: com.saurabh.artifact.domain.auth.ProfileRepairService,
+    private val diagnosticLogger: DiagnosticLogger
 ) {
     private val _currentUser = MutableStateFlow(firebaseAuth.currentUser)
     val currentUser: StateFlow<FirebaseUser?> = _currentUser
@@ -61,9 +65,18 @@ class AuthRepository @Inject constructor(
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     if (error.code == com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED) {
-                        android.util.Log.d("AuthRepository", "Waiting for profile creation... (Permission Denied)")
+                        diagnosticLogger.debug(
+                            DiagnosticCategory.AUTH,
+                            "USER_DATA_OBSERVE_PENDING",
+                            mapOf("reason" to "Permission Denied (Profile not yet created)")
+                        )
                     } else {
-                        android.util.Log.e("AuthRepository", "Error observing user data.")
+                        diagnosticLogger.error(
+                            DiagnosticCategory.AUTH,
+                            "USER_DATA_OBSERVE_FAILED",
+                            mapOf(LogKeys.ERROR_CODE to error.code.name),
+                            error
+                        )
                     }
                     return@addSnapshotListener
                 }
@@ -84,7 +97,12 @@ class AuthRepository @Inject constructor(
             .collection("private").document("settings")
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    android.util.Log.e("AuthRepository", "Error observing private settings.")
+                    diagnosticLogger.error(
+                        DiagnosticCategory.AUTH,
+                        "PRIVATE_SETTINGS_OBSERVE_FAILED",
+                        mapOf(LogKeys.ERROR_CODE to error.code.name),
+                        error
+                    )
                     return@addSnapshotListener
                 }
 
@@ -168,7 +186,7 @@ class AuthRepository @Inject constructor(
             // Handle failures gracefully as per requirement.
             // Failure to remove the token must NOT leave the application in an inconsistent logout state.
             // No identifiers (UID) are logged for privacy.
-            android.util.Log.e("AuthRepository", "Failed to clear FCM token during sign out.", e)
+            diagnosticLogger.error(DiagnosticCategory.AUTH, "FCM_TOKEN_CLEAR_FAILED", throwable = e)
         }
     }
 

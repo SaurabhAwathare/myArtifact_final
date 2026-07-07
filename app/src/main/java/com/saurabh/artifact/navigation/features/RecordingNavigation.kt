@@ -1,10 +1,12 @@
 package com.saurabh.artifact.navigation.features
 
-import android.util.Log
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.composable
 import androidx.navigation.toRoute
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.navigation.*
 import com.saurabh.artifact.ui.drafts.list.DraftListScreen
 import com.saurabh.artifact.ui.publish.studio.PublishingStudioScreen
@@ -13,6 +15,7 @@ import com.saurabh.artifact.ui.recording.warning.PreRecordingWarningScreen
 
 fun NavGraphBuilder.recordingNavigation(
     navController: NavHostController,
+    diagnosticLogger: DiagnosticLogger
 ) {
     val onBack = {
         navController.popBackStack()
@@ -23,8 +26,7 @@ fun NavGraphBuilder.recordingNavigation(
         DraftListScreen(
             onBack = onBack,
             onNavigateToStudio = { draftId ->
-                Log.d("NAV_TRACE", "Navigate -> PublishingStudio")
-                Log.d("NAV_TRACE", "[NAV_TRACE] DraftList -> PublishingStudio(draftId=$draftId)")
+                diagnosticLogger.info(DiagnosticCategory.NAVIGATION, "NAVIGATE_TO_PUBLISHING_STUDIO", mapOf(LogKeys.DRAFT_ID to draftId, "source" to "DraftList"))
                 navController.navigate(PublishingStudio(draftId)) {
                     launchSingleTop = true
                 }
@@ -37,13 +39,13 @@ fun NavGraphBuilder.recordingNavigation(
         PublishingStudioScreen(
             draftId = route.draftId,
             onFinish = {
-                Log.d("NAV_TRACE", "[NAV_TRACE] PublishingStudio(onFinish) -> Home")
+                diagnosticLogger.info(DiagnosticCategory.NAVIGATION, "NAVIGATE_FROM_STUDIO", mapOf(LogKeys.DRAFT_ID to route.draftId, "action" to "FINISH"))
                 navController.navigate(Home) {
                     popUpTo(Home) { inclusive = true }
                 }
             },
             onCancel = {
-                Log.d("NAV_TRACE", "[NAV_TRACE] PublishingStudio(onCancel) -> popBackStack")
+                diagnosticLogger.info(DiagnosticCategory.NAVIGATION, "NAVIGATE_FROM_STUDIO", mapOf(LogKeys.DRAFT_ID to route.draftId, "action" to "CANCEL"))
                 navController.popBackStack()
             }
         )
@@ -67,8 +69,7 @@ fun NavGraphBuilder.recordingNavigation(
         RecordingScreen(
             onFinished = { draftId ->
                 // Navigate directly to the unified Publishing Studio
-                Log.d("NAV_TRACE", "Navigate -> PublishingStudio")
-                Log.d("NAV_TRACE", "[NAV_TRACE] InstantRecord -> PublishingStudio(draftId=$draftId)")
+                diagnosticLogger.info(DiagnosticCategory.NAVIGATION, "NAVIGATE_TO_PUBLISHING_STUDIO", mapOf(LogKeys.DRAFT_ID to draftId, "source" to "InstantRecord"))
                 navController.navigate(PublishingStudio(draftId)) {
                     popUpTo(InstantRecord()) { inclusive = true }
                     launchSingleTop = true
@@ -83,13 +84,13 @@ fun NavGraphBuilder.recordingNavigation(
         PublishingStudioScreen(
             draftId = route.draftId,
             onFinish = {
-                Log.d("NAV_TRACE", "[NAV_TRACE] PublishingStudio(onFinish) -> Home")
+                diagnosticLogger.info(DiagnosticCategory.NAVIGATION, "NAVIGATE_FROM_STUDIO", mapOf(LogKeys.DRAFT_ID to route.draftId, "action" to "FINISH"))
                 navController.navigate(Home) {
                     popUpTo(Home) { inclusive = true }
                 }
             },
             onCancel = {
-                Log.d("NAV_TRACE", "[NAV_TRACE] PublishingStudio(onCancel) -> popBackStack")
+                diagnosticLogger.info(DiagnosticCategory.NAVIGATION, "NAVIGATE_FROM_STUDIO", mapOf(LogKeys.DRAFT_ID to route.draftId, "action" to "CANCEL"))
                 navController.popBackStack()
             }
         )

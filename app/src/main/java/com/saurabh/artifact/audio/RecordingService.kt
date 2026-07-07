@@ -13,9 +13,7 @@ import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
-import android.util.Log
 import com.saurabh.artifact.util.CoroutineExceptionHandlerUtils
-import com.saurabh.artifact.util.ArtifactLogger
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import com.saurabh.artifact.MainActivity
@@ -25,6 +23,7 @@ import com.saurabh.artifact.data.local.RecordingStatus
 import com.saurabh.artifact.data.local.UserSessionManager
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.domain.PublishingOrchestrator
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.ArtifactRepository
@@ -67,21 +66,21 @@ class RecordingService : Service() {
     private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
         when (focusChange) {
             AudioManager.AUDIOFOCUS_LOSS -> {
-                Log.d("RecordingService", "Audio focus lost (permanent). Pausing recording.")
+                diagnosticLogger.info(DiagnosticCategory.RECORDING, "AUDIO_FOCUS_LOSS_PERMANENT")
                 wasPausedByFocusLoss = false
                 pauseRecording()
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
                 if (_recordingState.value.status == RecordingStatus.RECORDING) {
-                    Log.d("RecordingService", "Audio focus lost (transient: $focusChange). Pausing recording.")
+                    diagnosticLogger.info(DiagnosticCategory.RECORDING, "AUDIO_FOCUS_LOSS_TRANSIENT", mapOf("focusChange" to focusChange))
                     wasPausedByFocusLoss = true
                     pauseRecording()
                 }
             }
             AudioManager.AUDIOFOCUS_GAIN -> {
                 if (wasPausedByFocusLoss && _recordingState.value.status == RecordingStatus.PAUSED) {
-                    Log.d("RecordingService", "Audio focus regained. Resuming recording.")
+                    diagnosticLogger.info(DiagnosticCategory.RECORDING, "AUDIO_FOCUS_REGAINED")
                     wasPausedByFocusLoss = false
                     resumeRecording()
                 }
@@ -122,7 +121,7 @@ class RecordingService : Service() {
         super.onCreate()
         audioRecorder = AudioRecorder(applicationContext).apply {
             onError = { what, extra ->
-                ArtifactLogger.e("RecordingService", "Hardware error: what=$what, extra=$extra")
+                diagnosticLogger.error(DiagnosticCategory.RECORDING, "HARDWARE_ERROR", mapOf("what" to what, "extra" to extra))
                 _recordingState.value = _recordingState.value.copy(
                     status = RecordingStatus.FAILED,
                     errorCode = "HARDWARE_ERROR_$what"
@@ -130,7 +129,7 @@ class RecordingService : Service() {
                 stopRecording()
             }
             onInfo = { what, extra ->
-                Log.i("RecordingService", "Hardware info: what=$what, extra=$extra")
+                diagnosticLogger.info(DiagnosticCategory.RECORDING, "HARDWARE_INFO", mapOf("what" to what, "extra" to extra))
                 if (what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_DURATION_REACHED || 
                     what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_FILESIZE_REACHED) {
                     if (what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_FILESIZE_REACHED) {
@@ -140,7 +139,7 @@ class RecordingService : Service() {
                 }
             }
             onStorageError = { e ->
-                ArtifactLogger.e("RecordingService", "Storage error during recording", e)
+                diagnosticLogger.error(DiagnosticCategory.RECORDING, "STORAGE_ERROR", throwable = e)
                 _recordingState.value = _recordingState.value.copy(errorCode = "STORAGE_FULL")
                 stopRecording()
             }
@@ -183,16 +182,16 @@ class RecordingService : Service() {
                 // Check for Do Not Disturb access
                 val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
                 if (!notificationManager.isNotificationPolicyAccessGranted) {
-                    Log.w("RecordingService", "Cannot enable silent mode: DND access not granted")
+                    diagnosticLogger.warn(DiagnosticCategory.RECORDING, "SILENT_MODE_DENIED", mapOf("reason" to "DND access not granted"))
                     return
                 }
 
                 originalRingerMode = am.ringerMode
                 am.ringerMode = AudioManager.RINGER_MODE_SILENT
-                Log.d("RecordingService", "Silent mode enabled (Original: $originalRingerMode)")
+                diagnosticLogger.debug(DiagnosticCategory.RECORDING, "SILENT_MODE_ENABLED", mapOf("originalMode" to originalRingerMode))
             }
         } catch (e: Exception) {
-            ArtifactLogger.e("RecordingService", "Failed to enable silent mode", e)
+            diagnosticLogger.error(DiagnosticCategory.RECORDING, "SILENT_MODE_FAILED", throwable = e)
         }
     }
 
@@ -201,12 +200,12 @@ class RecordingService : Service() {
             audioManager?.let { am ->
                 if (originalRingerMode != -1) {
                     am.ringerMode = originalRingerMode
-                    Log.d("RecordingService", "Ringer mode restored to $originalRingerMode")
+                    diagnosticLogger.debug(DiagnosticCategory.RECORDING, "RINGER_MODE_RESTORED", mapOf("mode" to originalRingerMode))
                     originalRingerMode = -1
                 }
             }
         } catch (e: Exception) {
-            ArtifactLogger.e("RecordingService", "Failed to restore ringer mode", e)
+            diagnosticLogger.error(DiagnosticCategory.RECORDING, "RINGER_MODE_RESTORE_FAILED", throwable = e)
         }
     }
 
@@ -229,13 +228,13 @@ class RecordingService : Service() {
                     pacingJob?.cancel()
                     // Psychological Pacing: Intentional Delay before capture starts
                     pacingJob = serviceScope.launch {
-                        Log.d("RecordingService", "Pacing: 1500ms intentional silence before capture")
+                        diagnosticLogger.debug(DiagnosticCategory.RECORDING, "RECORDING_PACING_STARTED")
                         _recordingState.value = RecordingState(status = RecordingStatus.PREPARING)
                         delay(1500.milliseconds)
                         startRecording(draftId)
                     }
                 } else {
-                    Log.w("RecordingService", "Ignoring ACTION_START: Already in state ${_recordingState.value.status}")
+                    diagnosticLogger.warn(DiagnosticCategory.RECORDING, "RECORDING_START_IGNORED", mapOf("status" to _recordingState.value.status.name))
                 }
             }
             ACTION_PAUSE -> pauseRecording()
@@ -254,7 +253,7 @@ class RecordingService : Service() {
         val action = intent?.action
         val draftId = intent?.getStringExtra("draft_id") ?: ""
 
-        Log.d("RecordingService", "onStartCommand: action=$action")
+        diagnosticLogger.debug(DiagnosticCategory.RECORDING, "SERVICE_START_COMMAND", mapOf("action" to (action ?: "null")))
 
         // 1. Ensure Foreground immediately
         try {
@@ -265,7 +264,7 @@ class RecordingService : Service() {
                 startForeground(NOTIFICATION_ID, notification)
             }
         } catch (e: Exception) {
-            ArtifactLogger.e("RecordingService", "Foreground startup failed", e)
+            diagnosticLogger.error(DiagnosticCategory.RECORDING, "SERVICE_FOREGROUND_FAILED", throwable = e)
             _recordingState.value = RecordingState(status = RecordingStatus.FAILED)
             stopSelf()
             return START_NOT_STICKY
@@ -281,7 +280,6 @@ class RecordingService : Service() {
         // Permission Check inside Service (Defense in Depth)
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             diagnosticLogger.error(DiagnosticCategory.RECORDING, "RECORDING_FAILED", mapOf("reason" to "PERMISSION_DENIED"))
-            ArtifactLogger.e("RecordingService", "startRecording failed: Permission RECORD_AUDIO not granted")
             _recordingState.value = RecordingState(status = RecordingStatus.FAILED, errorCode = "PERMISSION_DENIED")
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
@@ -291,7 +289,6 @@ class RecordingService : Service() {
         // Storage Check
         if (!storageManager.isStorageAvailable()) {
             diagnosticLogger.error(DiagnosticCategory.RECORDING, "RECORDING_FAILED", mapOf("reason" to "STORAGE_FULL"))
-            ArtifactLogger.e("RecordingService", "startRecording failed: Low storage (${storageManager.availableStorageMb} MB available)")
             _recordingState.value = RecordingState(status = RecordingStatus.FAILED, errorCode = "STORAGE_FULL")
             // Trigger emergency cleanup in background
             serviceScope.launch(Dispatchers.IO) {
@@ -310,7 +307,6 @@ class RecordingService : Service() {
         // Audio Focus Management: Ensure we have the microphone path cleared
         if (!requestAudioFocus()) {
             diagnosticLogger.error(DiagnosticCategory.RECORDING, "RECORDING_FAILED", mapOf("reason" to "AUDIO_FOCUS_DENIED"))
-            ArtifactLogger.e("RecordingService", "Could not acquire audio focus. Recording aborted.")
             _recordingState.value = RecordingState(status = RecordingStatus.FAILED, errorCode = "HARDWARE_IN_USE")
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
@@ -344,7 +340,7 @@ class RecordingService : Service() {
                             val currentDuration = _recordingState.value.durationSeconds * 1000
                             
                             serviceScope.launch {
-                                Log.d("RecordingService", "Durable Checkpoint: $durableBytes bytes persisted")
+                                diagnosticLogger.debug(DiagnosticCategory.DATABASE, "DRAFT_DURABLE_CHECKPOINT", mapOf(LogKeys.DRAFT_ID to finalDraftId, "bytes" to durableBytes))
                                 recordingRepository.updateRecordingProgress(
                                     id = finalDraftId,
                                     durationMs = currentDuration,
@@ -358,7 +354,7 @@ class RecordingService : Service() {
                 } ?: false
 
                 if (!started) {
-                    ArtifactLogger.e("RecordingService", "Audio recorder startup timed out")
+                    diagnosticLogger.error(DiagnosticCategory.RECORDING, "RECORDING_HARDWARE_TIMEOUT", mapOf(LogKeys.DRAFT_ID to finalDraftId))
                     _recordingState.value = RecordingState(status = RecordingStatus.FAILED)
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
@@ -384,11 +380,9 @@ class RecordingService : Service() {
 
                 startTimer()
                 updateNotification(0, RecordingStatus.RECORDING)
-                diagnosticLogger.info(DiagnosticCategory.RECORDING, "RECORDING_STARTED", mapOf("draftId" to finalDraftId))
-                Log.d("RecordingService", "startRecording successful. State updated to RECORDING.")
+                diagnosticLogger.info(DiagnosticCategory.RECORDING, "RECORDING_STARTED", mapOf(LogKeys.DRAFT_ID to finalDraftId))
             } catch (e: Exception) {
-                diagnosticLogger.error(DiagnosticCategory.RECORDING, "RECORDING_FAILED", mapOf("draftId" to finalDraftId), e)
-                ArtifactLogger.e("RecordingService", "startRecording failed: ${e.message}", e)
+                diagnosticLogger.error(DiagnosticCategory.RECORDING, "RECORDING_START_FAILED", mapOf(LogKeys.DRAFT_ID to finalDraftId), e)
                 _recordingState.value = _recordingState.value.copy(status = RecordingStatus.FAILED)
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
@@ -398,7 +392,7 @@ class RecordingService : Service() {
 
     fun pauseRecording() {
         if (_recordingState.value.status != RecordingStatus.RECORDING) {
-            Log.w("RecordingService", "pauseRecording() ignored: Status is not RECORDING")
+            diagnosticLogger.warn(DiagnosticCategory.RECORDING, "RECORDING_PAUSE_IGNORED", mapOf("status" to _recordingState.value.status.name))
             return
         }
 
@@ -408,7 +402,7 @@ class RecordingService : Service() {
         audioRecorder?.pause()
         timerJob?.cancel()
         _recordingState.value = _recordingState.value.copy(status = RecordingStatus.PAUSED)
-        diagnosticLogger.info(DiagnosticCategory.RECORDING, "RECORDING_PAUSED", mapOf("draftId" to _recordingState.value.draftId))
+        diagnosticLogger.info(DiagnosticCategory.RECORDING, "RECORDING_PAUSED", mapOf(LogKeys.DRAFT_ID to _recordingState.value.draftId))
         
         wasPausedByFocusLoss = focusLossState
         
@@ -426,7 +420,7 @@ class RecordingService : Service() {
 
     fun resumeRecording() {
         if (_recordingState.value.status != RecordingStatus.PAUSED) {
-            Log.w("RecordingService", "resumeRecording() ignored: Status is not PAUSED")
+            diagnosticLogger.warn(DiagnosticCategory.RECORDING, "RECORDING_RESUME_IGNORED", mapOf("status" to _recordingState.value.status.name))
             return
         }
         
@@ -434,7 +428,7 @@ class RecordingService : Service() {
         audioRecorder?.resume()
         startTimer()
         _recordingState.value = _recordingState.value.copy(status = RecordingStatus.RECORDING)
-        diagnosticLogger.info(DiagnosticCategory.RECORDING, "RECORDING_RESUMED", mapOf("draftId" to _recordingState.value.draftId))
+        diagnosticLogger.info(DiagnosticCategory.RECORDING, "RECORDING_RESUMED", mapOf(LogKeys.DRAFT_ID to _recordingState.value.draftId))
         
         _recordingState.value.draftId.let { id ->
             serviceScope.launch {
@@ -452,7 +446,7 @@ class RecordingService : Service() {
     fun stopRecording() {
         if ((_recordingState.value.status == RecordingStatus.IDLE) || 
             (_recordingState.value.status == RecordingStatus.COMPLETED)) {
-            Log.d("RecordingService", "stopRecording() ignored: Already in state ${_recordingState.value.status}")
+            diagnosticLogger.debug(DiagnosticCategory.RECORDING, "RECORDING_STOP_IGNORED", mapOf("status" to _recordingState.value.status.name))
             return
         }
 
@@ -461,16 +455,15 @@ class RecordingService : Service() {
             stopMutex.withLock {
                 // Re-check status inside lock to prevent race conditions
                 if (_recordingState.value.status == RecordingStatus.COMPLETED) {
-                    Log.d("RecordingService", "stopRecording() race condition prevented: already COMPLETED")
+                    diagnosticLogger.debug(DiagnosticCategory.RECORDING, "RECORDING_STOP_RACE_PREVENTED")
                     return@withLock
                 }
 
                 try {
-                    Log.d("RecordingService", "Finalizing session. State set to FINALIZING.")
+                    diagnosticLogger.debug(DiagnosticCategory.RECORDING, "RECORDING_FINALIZING")
                     _recordingState.value = _recordingState.value.copy(status = RecordingStatus.PREPARING) 
 
                     pacingJob?.cancel()
-                    Log.d("RecordingService", "Stopping recording hardware...")
                     audioRecorder?.stop()
                     timerJob?.cancel()
                     abandonAudioFocus()
@@ -486,8 +479,6 @@ class RecordingService : Service() {
                     val finalFile = _recordingState.value.outputFile
                     val draftId = _recordingState.value.draftId
                     
-                    Log.d("RecordingService", "Validating output file.")
-                    
                     // 1. HARD VALIDATION: Does the file exist and have data?
                     if (finalFile != null && finalFile.exists() && finalFile.length() > 0) {
                         val audioDataLength = finalFile.length() - WavHeaderUtils.HEADER_SIZE
@@ -498,7 +489,7 @@ class RecordingService : Service() {
                             bitsPerSample = 16
                         )
 
-                        Log.d("RecordingService", "Calculated duration from file: $durationMs ms")
+                        diagnosticLogger.debug(DiagnosticCategory.RECORDING, "RECORDING_FILE_VALIDATED", mapOf("durationMs" to durationMs, "bytes" to finalFile.length()))
 
                         val result = recordingRepository.finalizeRecording(
                             id = draftId,
@@ -507,26 +498,24 @@ class RecordingService : Service() {
                         )
 
                         if (result.isSuccess) {
-                            Log.d("RecordingService", "Atmospheric Handoff: Securing your artifact...")
-                            diagnosticLogger.info(DiagnosticCategory.RECORDING, "RECORDING_FINISHED", mapOf("draftId" to draftId, "durationMs" to durationMs))
+                            diagnosticLogger.info(DiagnosticCategory.RECORDING, "RECORDING_FINISHED", mapOf(LogKeys.DRAFT_ID to draftId, LogKeys.DURATION_MS to durationMs))
                             
                             // hand off to the enhancement pipeline (which now starts with Transcoding)
                             publishingOrchestrator.startProcessing(draftId)
 
                             // CENTRALIZED CLEANUP: Clear the active session
                             userSessionManager.setActiveDraftId(null)
-                            Log.d("RecordingService", "Session handed off to processing pipeline.")
                             
                             // Emit final session state to UI - ONLY AFTER SUCCESSFUL PERSISTENCE
                             _recordingState.value = _recordingState.value.copy(
                                 status = RecordingStatus.COMPLETED
                             )
                         } else {
-                            ArtifactLogger.e("RecordingService", "Finalization failed: ${result.exceptionOrNull()?.message}")
+                            diagnosticLogger.error(DiagnosticCategory.RECORDING, "RECORDING_FINALIZATION_FAILED", mapOf(LogKeys.DRAFT_ID to draftId), result.exceptionOrNull())
                             _recordingState.value = _recordingState.value.copy(status = RecordingStatus.FAILED)
                         }
                     } else {
-                        ArtifactLogger.e("RecordingService", "Output file validation failed: file=${finalFile?.exists()}, length=${finalFile?.length()}")
+                        diagnosticLogger.error(DiagnosticCategory.RECORDING, "RECORDING_FILE_INVALID", mapOf(LogKeys.DRAFT_ID to draftId, "exists" to (finalFile?.exists() ?: false), "length" to (finalFile?.length() ?: 0L)))
                         _recordingState.value = _recordingState.value.copy(status = RecordingStatus.FAILED)
                         if (finalFile?.exists() == true) finalFile.delete()
                         draftDao.getDraftById(draftId)?.let {
@@ -536,10 +525,10 @@ class RecordingService : Service() {
                         }
                     }
                 } catch (e: Exception) {
-                    ArtifactLogger.e("RecordingService", "Error during stopRecording flow", e)
+                    diagnosticLogger.error(DiagnosticCategory.RECORDING, "RECORDING_STOP_FAILED", throwable = e)
                     _recordingState.value = _recordingState.value.copy(status = RecordingStatus.FAILED)
                 } finally {
-                    Log.d("RecordingService", "Stopping service foreground and self")
+                    diagnosticLogger.info(DiagnosticCategory.RECORDING, "SERVICE_STOPPING")
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
                 }
@@ -601,7 +590,7 @@ class RecordingService : Service() {
 
                     // Emergency stop: Storage critically low (< 50MB)
                     if (tick % 40 == 0 && availableMb < 50) { 
-                        ArtifactLogger.e("RecordingService", "Emergency stop: Storage critically low ($availableMb MB)")
+                        diagnosticLogger.error(DiagnosticCategory.RECORDING, "EMERGENCY_STOP_STORAGE_LOW", mapOf("availableMb" to availableMb))
                         _recordingState.value = _recordingState.value.copy(errorCode = "STORAGE_FULL")
                         withContext(Dispatchers.Main) {
                             stopRecording()
@@ -691,7 +680,7 @@ class RecordingService : Service() {
         // Android 13+ requires POST_NOTIFICATIONS permission
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ActivityCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                Log.w("RecordingService", "POST_NOTIFICATIONS permission not granted. Skipping notification update.")
+                diagnosticLogger.warn(DiagnosticCategory.NOTIFICATIONS, "NOTIFICATION_PERMISSION_MISSING")
                 return
             }
         }
@@ -699,7 +688,7 @@ class RecordingService : Service() {
         try {
             notificationManager.notify(NOTIFICATION_ID, createNotification(seconds, status))
         } catch (e: SecurityException) {
-            ArtifactLogger.e("RecordingService", "SecurityException while updating notification", e)
+            diagnosticLogger.error(DiagnosticCategory.NOTIFICATIONS, "NOTIFICATION_UPDATE_FAILED", throwable = e)
         }
     }
 
@@ -716,7 +705,7 @@ class RecordingService : Service() {
     }
 
     override fun onDestroy() {
-        Log.d("RecordingService", "Service onDestroy() invoked.")
+        diagnosticLogger.debug(DiagnosticCategory.RECORDING, "SERVICE_DESTROY_INVOKED")
         
         // 1. Stop hardware and release resources synchronously first
         cleanup()

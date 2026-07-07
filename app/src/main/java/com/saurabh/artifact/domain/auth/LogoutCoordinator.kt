@@ -2,16 +2,20 @@ package com.saurabh.artifact.domain.auth
 
 import android.content.Context
 import android.content.Intent
-import android.util.Log
 import androidx.media3.common.util.UnstableApi
 import androidx.work.WorkManager
 import com.saurabh.artifact.audio.MediaCache
+import com.saurabh.artifact.audio.MediaPreCacher
 import com.saurabh.artifact.audio.PlaybackCoordinator
+import com.saurabh.artifact.audio.PlaybackService
 import com.saurabh.artifact.audio.PlaybackSettingsDataStore
 import com.saurabh.artifact.audio.RecordingSessionManager
 import com.saurabh.artifact.audio.UploadService
 import com.saurabh.artifact.data.local.AppDatabase
 import com.saurabh.artifact.data.local.UserSessionManager
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.SettingsRepository
 import com.saurabh.artifact.util.NotificationHelper
@@ -40,6 +44,7 @@ class LogoutCoordinator @Inject constructor(
     private val workManager: WorkManager,
     private val database: AppDatabase,
     private val storageManager: StorageManager,
+    private val diagnosticLogger: DiagnosticLogger
 ) {
 
     // Dispatchers can be overridden for testing
@@ -62,15 +67,15 @@ class LogoutCoordinator @Inject constructor(
             if (cleanupResult.status != CleanupStatus.ALREADY_IN_PROGRESS) {
                 try {
                     authRepository.signOut()
-                    Log.d("LogoutCoordinator", "Firebase sign-out complete.")
+                    diagnosticLogger.info(DiagnosticCategory.AUTH, "LOGOUT_FIREBASE_SUCCESS")
                 } catch (e: Exception) {
-                    Log.e("LogoutCoordinator", "Firebase sign-out failed", e)
+                    diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_FIREBASE_FAILED", throwable = e)
                 }
             }
             
             Result.success(cleanupResult)
         } catch (e: Exception) {
-            Log.e("LogoutCoordinator", "Logout sequence encountered a fatal error.")
+            diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_FATAL_ERROR", throwable = e)
             Result.failure(e)
         }
     }
@@ -83,13 +88,17 @@ class LogoutCoordinator @Inject constructor(
     suspend fun performFullCleanup(): CleanupResult {
         // Concurrency Control: Prevent duplicate cleanup execution
         if (cleanupMutex.isLocked) {
-            Log.i("LogoutCoordinator", "Cleanup already in progress. Skipping redundant request.")
+            diagnosticLogger.info(
+                DiagnosticCategory.AUTH,
+                "LOGOUT_CLEANUP_SKIPPED",
+                mapOf("reason" to "Already in progress")
+            )
             return CleanupResult(status = CleanupStatus.ALREADY_IN_PROGRESS)
         }
 
         return cleanupMutex.withLock {
             withContext(ioDispatcher) {
-                Log.i("LogoutCoordinator", "Initiating deterministic cleanup pipeline...")
+                diagnosticLogger.info(DiagnosticCategory.AUTH, "LOGOUT_CLEANUP_STARTED")
 
                 var recordingSuccess = true
                 var playbackSuccess = true
@@ -102,28 +111,30 @@ class LogoutCoordinator @Inject constructor(
                 var mediaCacheSuccess = true
 
                 // PHASE A: Stop Active Work (Prevent new IO/writes)
-                Log.d("LogoutCoordinator", "[Phase A] Stopping active work...")
+                diagnosticLogger.debug(DiagnosticCategory.AUTH, "LOGOUT_CLEANUP_PHASE_A")
                 
                 // 1. Stop active recording
                 try {
                     withContext(mainDispatcher) {
                         if (recordingSessionManager.isRecordingActive()) {
-                            Log.d("LogoutCoordinator", "Terminating active recording session.")
+                            diagnosticLogger.info(DiagnosticCategory.AUTH, "LOGOUT_STOP_RECORDING")
                             recordingSessionManager.cancelSession()
                         }
                     }
                 } catch (e: Exception) {
-                    Log.e("LogoutCoordinator", "Failed to stop recording", e)
+                    diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_STOP_RECORDING_FAILED", throwable = e)
                     recordingSuccess = false
                 }
 
-                // 2. Stop active playback
+                // 2. Release playback and pre-cache resources (Deterministic)
                 try {
                     withContext(mainDispatcher) {
-                        playbackCoordinator.stop()
+                        playbackCoordinator.release()
+                        MediaPreCacher.cancelAll()
+                        context.stopService(Intent(context, PlaybackService::class.java))
                     }
                 } catch (e: Exception) {
-                    Log.e("LogoutCoordinator", "Failed to stop playback", e)
+                    diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_STOP_PLAYBACK_FAILED", throwable = e)
                     playbackSuccess = false
                 }
 
@@ -131,7 +142,7 @@ class LogoutCoordinator @Inject constructor(
                 try {
                     context.stopService(Intent(context, UploadService::class.java))
                 } catch (e: Exception) {
-                    Log.e("LogoutCoordinator", "Failed to stop upload service", e)
+                    diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_STOP_UPLOAD_FAILED", throwable = e)
                     uploadsSuccess = false
                 }
 
@@ -139,7 +150,7 @@ class LogoutCoordinator @Inject constructor(
                 try {
                     workManager.cancelAllWorkByTag(SessionConstants.TAG_USER_SESSION_WORK).result.await()
                 } catch (e: Exception) {
-                    Log.e("LogoutCoordinator", "Failed to cancel background workers", e)
+                    diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_STOP_WORKERS_FAILED", throwable = e)
                     workersSuccess = false
                 }
 
@@ -147,21 +158,18 @@ class LogoutCoordinator @Inject constructor(
                 try {
                     NotificationHelper.cancelAllNotifications(context)
                 } catch (e: Exception) {
-                    Log.e("LogoutCoordinator", "Failed to cancel notifications", e)
+                    diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_STOP_NOTIFICATIONS_FAILED", throwable = e)
                     notificationsSuccess = false
                 }
 
-                // Grace period to allow services to release locks
-                delay(200)
-
                 // PHASE B: Clear Local State (DataStores)
-                Log.d("LogoutCoordinator", "[Phase B] Clearing local DataStores...")
+                diagnosticLogger.debug(DiagnosticCategory.AUTH, "LOGOUT_CLEANUP_PHASE_B")
                 
                 // 6. Clear Session DataStore
                 try {
                     sessionManager.clear()
                 } catch (e: Exception) {
-                    Log.e("LogoutCoordinator", "Failed to clear Session DataStore", e)
+                    diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_SESSION_FAILED", throwable = e)
                     sessionDSSuccess = false
                 }
 
@@ -169,7 +177,7 @@ class LogoutCoordinator @Inject constructor(
                 try {
                     settingsRepository.signOut()
                 } catch (e: Exception) {
-                    Log.e("LogoutCoordinator", "Failed to clear Settings DataStore", e)
+                    diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_SETTINGS_FAILED", throwable = e)
                     settingsDSSuccess = false
                 }
 
@@ -177,36 +185,35 @@ class LogoutCoordinator @Inject constructor(
                 try {
                     playbackSettingsDataStore.clear()
                 } catch (e: Exception) {
-                    Log.e("LogoutCoordinator", "Failed to clear Playback DataStore", e)
+                    diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_PLAYBACK_DS_FAILED", throwable = e)
                     settingsDSSuccess = settingsDSSuccess && false 
                 }
 
                 // PHASE C: Database Cleanup
-                Log.d("LogoutCoordinator", "[Phase C] Clearing Room database...")
+                diagnosticLogger.debug(DiagnosticCategory.AUTH, "LOGOUT_CLEANUP_PHASE_C")
                 try {
                     database.clearAllTables()
                 } catch (e: Exception) {
-                    Log.e("LogoutCoordinator", "Failed to clear Room database", e)
+                    diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_DB_FAILED", throwable = e)
                     roomSuccess = false
                 }
 
                 // PHASE C.5: User File Cleanup
-                Log.d("LogoutCoordinator", "[Phase C.5] Clearing user file storage...")
+                diagnosticLogger.debug(DiagnosticCategory.AUTH, "LOGOUT_CLEANUP_PHASE_C_5")
                 try {
                     storageManager.clearUserStorage()
-                    Log.i("LogoutCoordinator", "User storage cleanup completed.")
                 } catch (e: Exception) {
-                    Log.e("LogoutCoordinator", "Failed to clear user storage", e)
+                    diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_STORAGE_FAILED", throwable = e)
                 }
 
                 // PHASE D: Finalize
-                Log.d("LogoutCoordinator", "[Phase D] Finalizing cleanup...")
+                diagnosticLogger.debug(DiagnosticCategory.AUTH, "LOGOUT_CLEANUP_PHASE_D")
                 
                 // 9. Release Media Cache handles
                 try {
                     MediaCache.release()
                 } catch (e: Exception) {
-                    Log.e("LogoutCoordinator", "Failed to release MediaCache", e)
+                    diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_RELEASE_CACHE_FAILED", throwable = e)
                     mediaCacheSuccess = false
                 }
 
@@ -222,7 +229,7 @@ class LogoutCoordinator @Inject constructor(
                     settingsDataStore = settingsDSSuccess,
                     mediaCache = mediaCacheSuccess
                 ).also {
-                    Log.i("LogoutCoordinator", "Cleanup complete.")
+                    diagnosticLogger.info(DiagnosticCategory.AUTH, "LOGOUT_CLEANUP_COMPLETED")
                 }
             }
         }

@@ -50,7 +50,8 @@ class TranscodingWorkerTest {
             draftDao = draftDao,
             localDraftManager = localDraftManager,
             encryptedStorageManager = encryptedStorageManager,
-            wavRecoveryManager = wavRecoveryManager
+            wavRecoveryManager = wavRecoveryManager,
+            diagnosticLogger = mockk(relaxed = true)
         )
     }
 

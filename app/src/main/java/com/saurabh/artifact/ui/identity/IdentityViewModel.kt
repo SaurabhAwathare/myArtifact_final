@@ -2,6 +2,8 @@ package com.saurabh.artifact.ui.identity
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.repository.UserProfileManager
 import com.saurabh.artifact.util.UsernameGenerator
 import com.saurabh.artifact.util.SecureString
@@ -9,7 +11,6 @@ import com.saurabh.artifact.model.*
 import com.saurabh.artifact.ui.util.UiText
 import com.saurabh.artifact.ui.util.ErrorMessageMapper
 import com.saurabh.artifact.R
-import android.util.Log
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -31,7 +32,8 @@ class IdentityViewModel @Inject constructor(
     private val userRepository: com.saurabh.artifact.repository.UserRepository,
     private val validator: com.saurabh.artifact.domain.UsernameValidator,
     private val identityProtectionPolicy: com.saurabh.artifact.domain.IdentityProtectionPolicy,
-    private val auth: com.google.firebase.auth.FirebaseAuth
+    private val auth: com.google.firebase.auth.FirebaseAuth,
+    private val diagnosticLogger: DiagnosticLogger
 ) : ViewModel() {
 
     private val _avatarConfig = MutableStateFlow(AvatarConfig())
@@ -229,7 +231,7 @@ class IdentityViewModel @Inject constructor(
                         onSuccess()
                     }
                     .onFailure { e ->
-                        Log.e("IdentityViewModel", "Failed to save username", e)
+                        diagnosticLogger.error(DiagnosticCategory.PROFILE, "USERNAME_SAVE_FAILED", throwable = e)
                         _uiState.value = IdentityUiState.Error(ErrorMessageMapper.map(e))
                     }
             } else {
@@ -255,7 +257,7 @@ class IdentityViewModel @Inject constructor(
                     onSuccess()
                 }
                 .onFailure { e ->
-                    Log.e("IdentityViewModel", "Emergency reset failed", e)
+                    diagnosticLogger.error(DiagnosticCategory.PROFILE, "EMERGENCY_RESET_FAILED", throwable = e)
                     _uiState.value = IdentityUiState.Error(ErrorMessageMapper.map(e))
                 }
         }
@@ -270,7 +272,7 @@ class IdentityViewModel @Inject constructor(
         viewModelScope.launch {
             userRepository.reportIdentityExposure(reporterId, reportedUserId, artifactId, commentId)
                 .onFailure { e ->
-                    Log.e("IdentityViewModel", "Failed to report exposure", e)
+                    diagnosticLogger.error(DiagnosticCategory.PROFILE, "EXPOSURE_REPORT_FAILED", throwable = e)
                 }
         }
     }

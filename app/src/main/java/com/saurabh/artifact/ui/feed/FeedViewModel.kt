@@ -1,6 +1,5 @@
 package com.saurabh.artifact.ui.feed
 
-import android.util.Log
 import androidx.collection.LruCache
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -222,7 +221,7 @@ class FeedViewModel @Inject constructor(
 
     fun start() {
         if (currentUserId == null) {
-            Log.w("AuthGuard", "FeedViewModel.start() blocked: User is null.")
+            diagnosticLogger.warn(DiagnosticCategory.FEED, "FEED_START_BLOCKED", mapOf("reason" to "User is null"))
             _uiState.update { it.copy(artifactCache = emptyMap(), hydrationLevels = emptyMap()) }
             return
         }
@@ -230,7 +229,6 @@ class FeedViewModel @Inject constructor(
         started = true
 
         diagnosticLogger.info(DiagnosticCategory.FEED, "FEED_HYDRATION_STARTED")
-        Log.d("APP_FLOW", "FeedViewModel.start() - Production Staggered Hydration")
         StartupTracer.mark("Feed Hydration Started")
         StartupMetrics.onFeedHydrationStart()
         
@@ -240,7 +238,7 @@ class FeedViewModel @Inject constructor(
                 runCatching { 
                     loadRankedFeed()
                     StartupTracer.mark("Ranked Feed Loaded")
-                }.onFailure { Log.e("FeedHydration", "Ranked feed load failed", it) }
+                }.onFailure { diagnosticLogger.error(DiagnosticCategory.FEED, "FEED_RANKED_LOAD_FAILED", throwable = it) }
             }
 
             // PHASE 2: Contextual Enrichment (Prompts & Personalization Init)
@@ -249,7 +247,7 @@ class FeedViewModel @Inject constructor(
                 runCatching { 
                     refreshReflectionPrompt()
                     StartupTracer.mark("Reflection Prompt Hydrated")
-                }.onFailure { Log.e("FeedHydration", "Prompt refresh failed", it) }
+                }.onFailure { diagnosticLogger.error(DiagnosticCategory.FEED, "FEED_PROMPT_REFRESH_FAILED", throwable = it) }
             }
 
             // PHASE 3: Background & Deferred (Low priority syncs)
@@ -278,7 +276,7 @@ class FeedViewModel @Inject constructor(
             .limit(1)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    Log.e("FeedViewModel", "New content listener error", error)
+                    diagnosticLogger.error(DiagnosticCategory.FEED, "NEW_CONTENT_LISTENER_ERROR", throwable = error)
                     return@addSnapshotListener
                 }
 
@@ -296,7 +294,7 @@ class FeedViewModel @Inject constructor(
             audioPlayer.currentProgress.collect { progress ->
                 if (progress != null && progress.isValidationMet) {
                     val artifactId = progress.artifactId
-                    Log.d("FeedViewModel", "Artifact $artifactId threshold met locally")
+                    diagnosticLogger.debug(DiagnosticCategory.FEED, "PLAYBACK_THRESHOLD_MET", mapOf("artifactId" to artifactId))
                 }
             }
         }
@@ -342,7 +340,7 @@ class FeedViewModel @Inject constructor(
                     reflectionPrompt = result.prompt
                 ) }
             }.onFailure {
-                Log.e("FeedViewModel", "Error refreshing prompt", it)
+                diagnosticLogger.error(DiagnosticCategory.FEED, "PROMPT_REFRESH_FAILED", throwable = it)
             }
             _uiState.update { it.copy(isPromptLoading = false) }
         }
@@ -364,7 +362,6 @@ class FeedViewModel @Inject constructor(
         return viewModelScope.launch {
             val userId = currentUserId ?: run {
                 diagnosticLogger.warn(DiagnosticCategory.FEED, "FEED_LOAD_BLOCKED", mapOf("reason" to "UNAUTHENTICATED"))
-                Log.w("AuthGuard", "loadRankedFeed blocked: User is null.")
                 return@launch
             }
             diagnosticLogger.debug(DiagnosticCategory.FEED, "FEED_LOAD_STARTED", mapOf("type" to "RANKED"))
@@ -389,7 +386,6 @@ class FeedViewModel @Inject constructor(
                 diagnosticLogger.info(DiagnosticCategory.FEED, "FEED_LOAD_SUCCESS", mapOf("count" to feedItems.size))
             }.onFailure {
                 diagnosticLogger.error(DiagnosticCategory.FEED, "FEED_LOAD_FAILED", throwable = it)
-                Log.e("FeedViewModel", "Error loading ranked feed", it)
             }
             _uiState.update { it.copy(isRankedLoading = false) }
         }
@@ -469,7 +465,7 @@ class FeedViewModel @Inject constructor(
                 }
             }
         } catch (e: Exception) {
-            Log.e("FeedViewModel", "Error playing audio", e)
+            diagnosticLogger.error(DiagnosticCategory.FEED, "PLAYBACK_ERROR", throwable = e)
             _uiState.update { it.copy(error = UiError(UiText.StringResource(R.string.generic_error))) }
         }
     }
@@ -521,7 +517,7 @@ class FeedViewModel @Inject constructor(
                     _uiState.update { it.copy(artifactDetails = it.artifactDetails + (artifactId to detail)) }
                 }
                 .onFailure { e ->
-                    Log.e("FeedViewModel", "Error loading details for $artifactId", e)
+                    diagnosticLogger.error(DiagnosticCategory.FEED, "LOAD_DETAILS_FAILED", mapOf("artifactId" to artifactId), throwable = e)
                 }
         }
     }
@@ -557,13 +553,13 @@ class FeedViewModel @Inject constructor(
     }
 
     override fun trimMemory(level: Int) {
-        Log.d("FeedViewModel", "Trimming memory, level: $level")
+        diagnosticLogger.debug(DiagnosticCategory.PERFORMANCE, "TRIM_MEMORY", mapOf("level" to level))
         // Use numeric values for clarity as constants are deprecated in some contexts
         // TRIM_MEMORY_COMPLETE = 80, TRIM_MEMORY_RUNNING_CRITICAL = 15
         if (level >= 80 || level == 15) {
             detailsCache.evictAll()
             _uiState.update { it.copy(artifactDetails = emptyMap()) }
-            Log.d("FeedViewModel", "Cache cleared due to high memory pressure")
+            diagnosticLogger.info(DiagnosticCategory.PERFORMANCE, "MEMORY_CACHE_CLEARED_CRITICAL")
         } 
         // TRIM_MEMORY_UI_HIDDEN = 20, TRIM_MEMORY_RUNNING_LOW = 10
         else if (level >= 20 || level == 10) {
@@ -573,7 +569,7 @@ class FeedViewModel @Inject constructor(
                 val keys = detailsCache.snapshot().keys
                 current.copy(artifactDetails = current.artifactDetails.filterKeys { it in keys })
             }
-            Log.d("FeedViewModel", "Cache reduced to 2 items")
+            diagnosticLogger.info(DiagnosticCategory.PERFORMANCE, "MEMORY_CACHE_REDUCED")
         }
     }
 

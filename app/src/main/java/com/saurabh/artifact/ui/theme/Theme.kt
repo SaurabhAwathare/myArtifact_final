@@ -13,6 +13,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.startup.StartupStage
 
 /**
@@ -54,6 +55,13 @@ val LocalArtifactColors = staticCompositionLocalOf {
 }
 
 val LocalStartupStage = compositionLocalOf { StartupStage.ARRIVAL }
+
+/**
+ * Global diagnostic logger for UI components.
+ */
+val LocalDiagnosticLogger = staticCompositionLocalOf<DiagnosticLogger> {
+    error("No DiagnosticLogger provided")
+}
 
 /**
  * Provides the current authenticated user's profile globally.
@@ -148,4 +156,8 @@ object ArtifactTheme {
     val currentUser: com.saurabh.artifact.model.User?
         @Composable
         get() = LocalUserProfile.current
+
+    val logger: DiagnosticLogger
+        @Composable
+        get() = LocalDiagnosticLogger.current
 }

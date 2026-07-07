@@ -1,11 +1,13 @@
 package com.saurabh.artifact.worker
 
 import android.content.Context
-import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.*
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.repository.UserRepository
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -18,11 +20,13 @@ class IdentitySyncWorker @AssistedInject constructor(
     @Assisted private val appContext: Context,
     @Assisted workerParams: WorkerParameters,
     private val firestore: FirebaseFirestore,
-    private val userRepository: UserRepository
+    private val userRepository: UserRepository,
+    private val diagnosticLogger: DiagnosticLogger
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val userId = inputData.getString(KEY_USER_ID) ?: return@withContext Result.failure()
+        diagnosticLogger.info(DiagnosticCategory.WORKMANAGER, "IDENTITY_SYNC_STARTED", mapOf(LogKeys.USER_ID to userId))
         
         try {
             // 1. Fetch the latest profile from Firestore (Source of Truth)
@@ -107,7 +111,7 @@ class IdentitySyncWorker @AssistedInject constructor(
 
             Result.success()
         } catch (e: Exception) {
-            Log.e("IdentitySyncWorker", "Identity sync failed", e)
+            diagnosticLogger.error(DiagnosticCategory.WORKMANAGER, "IDENTITY_SYNC_FAILED", mapOf(LogKeys.USER_ID to userId), e)
             if (runAttemptCount < 3) Result.retry() else Result.failure()
         }
     }

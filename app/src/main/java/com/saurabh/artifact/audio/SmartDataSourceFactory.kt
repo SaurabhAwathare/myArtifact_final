@@ -20,39 +20,32 @@ class SmartDataSourceFactory(
 
     private val defaultDataSourceFactory = DefaultDataSource.Factory(context)
     private val encryptedDataSourceFactory = EncryptedFileDataSource.Factory(context)
-    private val cache = MediaCache.getInstance(context)
 
     override fun createDataSource(): DataSource {
         return object : DataSource {
             private var currentDataSource: DataSource? = null
-            
-            private var cachedDataSource: DataSource? = null
-            private var encryptedDataSource: DataSource? = null
             private val listeners = mutableListOf<TransferListener>()
 
-            private fun getCachedDataSource(): DataSource {
-                return cachedDataSource ?: CacheDataSource.Factory()
-                    .setCache(cache)
+            private fun createCachedDataSource(): DataSource {
+                return CacheDataSource.Factory()
+                    .setCache(MediaCache.getInstance(context))
                     .setUpstreamDataSourceFactory(defaultDataSourceFactory)
                     .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
                     .createDataSource().also { 
-                        cachedDataSource = it 
                         listeners.forEach { listener -> it.addTransferListener(listener) }
                     }
             }
 
-            private fun getEncryptedDataSource(): DataSource {
-                return encryptedDataSource ?: encryptedDataSourceFactory.createDataSource()
+            private fun createEncryptedDataSource(): DataSource {
+                return encryptedDataSourceFactory.createDataSource()
                     .also { 
-                        encryptedDataSource = it 
                         listeners.forEach { listener -> it.addTransferListener(listener) }
                     }
             }
 
             override fun addTransferListener(transferListener: TransferListener) {
                 listeners.add(transferListener)
-                cachedDataSource?.addTransferListener(transferListener)
-                encryptedDataSource?.addTransferListener(transferListener)
+                currentDataSource?.addTransferListener(transferListener)
             }
 
             override fun open(dataSpec: DataSpec): Long {
@@ -68,9 +61,9 @@ class SmartDataSourceFactory(
                                  (path.startsWith(this@SmartDataSourceFactory.context.filesDir.absolutePath) && !path.endsWith(".wav"))
                 
                 currentDataSource = if (isEncrypted) {
-                    getEncryptedDataSource()
+                    createEncryptedDataSource()
                 } else {
-                    getCachedDataSource()
+                    createCachedDataSource()
                 }
                 return currentDataSource!!.open(dataSpec)
             }
@@ -89,11 +82,8 @@ class SmartDataSourceFactory(
 
             override fun close() {
                 try {
-                    cachedDataSource?.close()
-                    encryptedDataSource?.close()
+                    currentDataSource?.close()
                 } finally {
-                    cachedDataSource = null
-                    encryptedDataSource = null
                     currentDataSource = null
                 }
             }

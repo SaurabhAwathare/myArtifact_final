@@ -2,6 +2,8 @@ package com.saurabh.artifact.ui.moderation
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.ArtifactComment
 import com.saurabh.artifact.model.UserReport
@@ -17,6 +19,7 @@ import javax.inject.Inject
 class ModerationViewModel @Inject constructor(
     private val artifactRepository: ArtifactRepository,
     private val commentRepository: CommentRepository,
+    private val diagnosticLogger: DiagnosticLogger
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<ModerationUiState>(ModerationUiState.Loading)
@@ -56,7 +59,7 @@ class ModerationViewModel @Inject constructor(
                 }
                 .onFailure { error ->
                     // For simplicity, we just log here. In a real app, we'd show a Snackbar.
-                    android.util.Log.e("ModerationViewModel", "Resolution failed", error)
+                    diagnosticLogger.error(DiagnosticCategory.SECURITY, "MODERATION_RESOLUTION_FAILED", mapOf("reportId" to reportId), error)
                 }
         }
     }

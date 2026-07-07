@@ -11,7 +11,7 @@ import com.saurabh.artifact.data.local.*
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.service.PersonalizationEngine
 import com.saurabh.artifact.service.ReflectionAIService
-import com.saurabh.artifact.util.ArtifactLogger
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.worker.InteractionSyncWorker
 import io.mockk.*
 import kotlinx.coroutines.runBlocking
@@ -33,6 +33,7 @@ class ArtifactRepositoryTest {
     private val artifactDao = mockk<ArtifactDao>(relaxed = true)
     private val database = mockk<AppDatabase>(relaxed = true)
     private val pendingInteractionDao = mockk<PendingInteractionDao>(relaxed = true)
+    private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
 
     private lateinit var repository: ArtifactRepository
 
@@ -42,7 +43,6 @@ class ArtifactRepositoryTest {
         every { Log.d(any<String>(), any<String>()) } returns 0
         every { Log.w(any<String>(), any<String>()) } returns 0
         every { Log.e(any<String>(), any<String>()) } returns 0
-        mockkObject(ArtifactLogger)
         
         repository = ArtifactRepository(
             context = context,
@@ -56,7 +56,8 @@ class ArtifactRepositoryTest {
             settingsRepository = { settingsRepository },
             artifactDao = { artifactDao },
             database = { database },
-            pendingInteractionDao = { pendingInteractionDao }
+            pendingInteractionDao = { pendingInteractionDao },
+            diagnosticLogger = diagnosticLogger
         )
     }
 

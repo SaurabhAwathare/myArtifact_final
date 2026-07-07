@@ -10,6 +10,7 @@ import com.saurabh.artifact.data.local.*
 import com.saurabh.artifact.domain.review.EngagementSyncPayload
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.*
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.util.ArtifactLogger
 import io.mockk.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -30,6 +31,7 @@ class InteractionSyncWorkerIntegrationTest {
     private val commentRepository = mockk<CommentRepository>(relaxed = true)
     private val workerParams = mockk<WorkerParameters>(relaxed = true)
     private val gson = Gson()
+    private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
 
     private lateinit var worker: InteractionSyncWorker
     private val userId = "user123"
@@ -62,7 +64,8 @@ class InteractionSyncWorkerIntegrationTest {
             userRepository = userRepository,
             engagementRepository = engagementRepository,
             commentRepository = commentRepository,
-            gson = gson
+            gson = gson,
+            diagnosticLogger = diagnosticLogger
         )
     }
 

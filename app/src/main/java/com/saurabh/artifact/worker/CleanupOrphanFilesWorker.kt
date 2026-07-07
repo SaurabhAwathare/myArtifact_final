@@ -1,13 +1,14 @@
 package com.saurabh.artifact.worker
 
 import android.content.Context
-import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.saurabh.artifact.audio.LocalDraftManager
 import com.saurabh.artifact.data.local.DatabaseMaintenanceManager
 import com.saurabh.artifact.data.local.DraftDao
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 
@@ -23,10 +24,11 @@ class CleanupOrphanFilesWorker @AssistedInject constructor(
     private val draftDao: DraftDao,
     private val localDraftManager: LocalDraftManager,
     private val maintenanceManager: DatabaseMaintenanceManager,
+    private val diagnosticLogger: DiagnosticLogger
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
-        Log.d("CleanupOrphanFilesWorker", "Starting orphan cleanup and database maintenance...")
+        diagnosticLogger.info(DiagnosticCategory.WORKMANAGER, "ORPHAN_CLEANUP_STARTED")
         
         return try {
             // 1. Reconcile filesystem
@@ -36,10 +38,10 @@ class CleanupOrphanFilesWorker @AssistedInject constructor(
             // 2. Perform database maintenance (Pruning & VACUUM)
             maintenanceManager.runMaintenance()
             
-            Log.d("CleanupOrphanFilesWorker", "Orphan cleanup and database maintenance complete.")
+            diagnosticLogger.info(DiagnosticCategory.WORKMANAGER, "ORPHAN_CLEANUP_SUCCESS")
             Result.success()
         } catch (e: Exception) {
-            Log.e("CleanupOrphanFilesWorker", "Error during cleanup/maintenance", e)
+            diagnosticLogger.error(DiagnosticCategory.WORKMANAGER, "ORPHAN_CLEANUP_FAILED", throwable = e)
             Result.failure()
         }
     }

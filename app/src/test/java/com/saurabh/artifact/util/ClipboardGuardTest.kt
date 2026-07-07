@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.os.Build
 import androidx.test.core.app.ApplicationProvider
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import io.mockk.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -27,12 +28,13 @@ class ClipboardGuardTest {
     private lateinit var clipboardGuard: ClipboardGuard
     private lateinit var clipboardManager: ClipboardManager
     private lateinit var context: Context
+    private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
 
     @Before
     fun setup() {
         context = ApplicationProvider.getApplicationContext()
         clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboardGuard = ClipboardGuard()
+        clipboardGuard = ClipboardGuard(diagnosticLogger)
     }
 
     @Test

@@ -94,10 +94,10 @@ class MainViewModel @Inject constructor(
         savedStateHandle.get<String>(KEY_PENDING_EVENT_JSON)?.let { json ->
             try {
                 pendingStartupEvent = Json.decodeFromString<IncomingArtifact>(json)
-                android.util.Log.i("AppStartup", "Restored pending startup event from SavedState.")
+                diagnosticLogger.info(DiagnosticCategory.STARTUP, "STARTUP_EVENT_RESTORED")
             } catch (e: Exception) {
                 // Compatibility: If serialization format changed, discard the event rather than crashing
-                android.util.Log.w("AppStartup", "Failed to restore pending event from SavedState.")
+                diagnosticLogger.warn(DiagnosticCategory.STARTUP, "STARTUP_EVENT_RESTORE_FAILED")
             }
         }
 
@@ -134,7 +134,7 @@ class MainViewModel @Inject constructor(
         startupCoordinator.terminalError
             .filterNotNull()
             .onEach { error ->
-                android.util.Log.e("AppStartup", "Terminal failure detected.")
+                diagnosticLogger.error(DiagnosticCategory.STARTUP, "STARTUP_TERMINAL_FAILURE")
                 _startupState.value = AppStartupState.Error("Security initialization failed.")
             }
             .launchIn(viewModelScope)
@@ -199,7 +199,7 @@ class MainViewModel @Inject constructor(
     }
 
     fun retryStartup() {
-        android.util.Log.i("AppStartup", "Retrying startup...")
+        diagnosticLogger.info(DiagnosticCategory.STARTUP, "STARTUP_RETRY_TRIGGERED")
         _startupState.value = AppStartupState.Initializing
         startupCoordinator.reset()
         executeStartup()
@@ -218,7 +218,7 @@ class MainViewModel @Inject constructor(
                     determineInitialRoute()
                 }
             } catch (e: Exception) {
-                android.util.Log.e("AppStartup", "Critical failure during startup sequence.")
+                diagnosticLogger.error(DiagnosticCategory.STARTUP, "STARTUP_CRITICAL_FAILURE", throwable = e)
                 _startupState.value = AppStartupState.Error("An unexpected error occurred during startup.")
                 startupCoordinator.completeAll()
             }
@@ -304,7 +304,7 @@ class MainViewModel @Inject constructor(
                     val json = Json.encodeToString(event)
                     savedStateHandle[KEY_PENDING_EVENT_JSON] = json
                 } catch (e: Exception) {
-                    android.util.Log.w("Navigation", "Failed to persist pending event to SavedState.")
+                    diagnosticLogger.warn(DiagnosticCategory.NAVIGATION, "PENDING_EVENT_PERSIST_FAILED")
                 }
             }
             

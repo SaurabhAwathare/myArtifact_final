@@ -4,6 +4,8 @@ import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.composable
 import androidx.navigation.toRoute
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.navigation.*
 import com.saurabh.artifact.ui.avatar.AvatarEditorScreen
 import com.saurabh.artifact.ui.identity.IdentitySelectionScreen
@@ -18,6 +20,7 @@ import com.saurabh.artifact.model.PlaybackSource
 fun NavGraphBuilder.profileNavigation(
     navController: NavHostController,
     playerViewModel: PlayerViewModel,
+    diagnosticLogger: DiagnosticLogger
 ) {
     val onBack = {
         navController.popBackStack()
@@ -50,6 +53,7 @@ fun NavGraphBuilder.profileNavigation(
 
     composable<Profile> { backStackEntry ->
         val profile = backStackEntry.toRoute<Profile>()
+        diagnosticLogger.debug(DiagnosticCategory.NAVIGATION, "NAVIGATE_TO_PROFILE", mapOf("targetUserId" to (profile.userId ?: "self")))
         ProfileScreen(
             userId = profile.userId,
             onLogout = onLogout,

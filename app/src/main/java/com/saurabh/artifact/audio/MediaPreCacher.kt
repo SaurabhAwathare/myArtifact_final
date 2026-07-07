@@ -68,4 +68,24 @@ object MediaPreCacher {
         activeJobs[url] = job
     }
 
+    /**
+     * Cancels all active background caching jobs and waits for them to complete.
+     * This is critical to ensure no CacheWriter is active when MediaCache is released.
+     */
+    suspend fun cancelAll() {
+        Log.d("MediaPreCacher", "Canceling all active pre-cache jobs...")
+        val jobs = activeJobs.values.toList()
+        activeJobs.clear()
+        
+        // Wait for all individual jobs to finish cancellation
+        jobs.forEach { it.cancelAndJoin() }
+        
+        // Ensure the scope itself is cleaned up
+        scope.coroutineContext.cancelChildren()
+        
+        // Wait for any remaining children in the job hierarchy
+        scope.coroutineContext.job.children.forEach { it.join() }
+        
+        Log.d("MediaPreCacher", "All pre-cache jobs cancelled and joined.")
+    }
 }

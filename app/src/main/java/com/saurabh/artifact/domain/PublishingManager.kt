@@ -1,10 +1,10 @@
 package com.saurabh.artifact.domain
 
-import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.storage.StorageException
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.audio.ArtifactCleanupManager
 import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.model.ArtifactStatus
@@ -34,36 +34,32 @@ class PublishingManager @Inject constructor(
         draftId: String,
         onProgress: suspend (Long, Long, String?) -> Unit = { _, _, _ -> }
     ): Result<Unit> = withContext(Dispatchers.IO) {
-        diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISH_STARTED", mapOf("draftId" to draftId))
-        Log.i("PublishingManager", "Starting publishing flow for draft.")
+        diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISH_STARTED", mapOf(LogKeys.DRAFT_ID to draftId))
         try {
             val draft = draftRepository.getDraft(draftId).getOrNull() 
                 ?: return@withContext Result.failure<Unit>(Exception("Draft not found")).also {
-                    diagnosticLogger.error(DiagnosticCategory.PUBLISH, "PUBLISH_FAILED", mapOf("draftId" to draftId, "reason" to "DRAFT_NOT_FOUND"))
-                    Log.e("PublishingManager", "Draft not found in repository.")
+                    diagnosticLogger.error(DiagnosticCategory.PUBLISH, "PUBLISH_FAILED", mapOf(LogKeys.DRAFT_ID to draftId, "reason" to "DRAFT_NOT_FOUND"))
                 }
             
             val firebaseUser = FirebaseAuth.getInstance().currentUser 
                 ?: return@withContext Result.failure<Unit>(Exception("User not authenticated")).also {
-                    diagnosticLogger.error(DiagnosticCategory.PUBLISH, "PUBLISH_FAILED", mapOf("draftId" to draftId, "reason" to "UNAUTHENTICATED"))
-                    Log.e("PublishingManager", "No authenticated user found for draft.")
+                    diagnosticLogger.error(DiagnosticCategory.PUBLISH, "PUBLISH_FAILED", mapOf(LogKeys.DRAFT_ID to draftId, "reason" to "UNAUTHENTICATED"))
                 }
 
             // 1. Security & Integrity Validation
-            Log.d("PublishingManager", "Step 1: Validating approval and integrity.")
+            diagnosticLogger.debug(DiagnosticCategory.PUBLISH, "PUBLISH_STEP_1_VALIDATION", mapOf(LogKeys.DRAFT_ID to draftId))
             if (!uploadGuard.validateApproval(draft, firebaseUser.uid)) {
-                val errorMsg = "Security or Integrity validation failed. Token or Timestamp mismatch."
-                diagnosticLogger.error(DiagnosticCategory.PUBLISH, "PUBLISH_FAILED", mapOf("draftId" to draftId, "reason" to "VALIDATION_FAILED"))
-                Log.e("PublishingManager", errorMsg)
+                val errorMsg = "Security or Integrity validation failed."
+                diagnosticLogger.error(DiagnosticCategory.PUBLISH, "PUBLISH_FAILED", mapOf(LogKeys.DRAFT_ID to draftId, "reason" to "VALIDATION_FAILED"))
                 draftRepository.updateUploadStatus(draftId, SyncStatus.Failed(errorMsg))
                 return@withContext Result.failure(Exception(errorMsg))
             }
 
             // 2. Check remote status to avoid redundant uploads
-            Log.d("PublishingManager", "Step 2: Checking remote status.")
+            diagnosticLogger.debug(DiagnosticCategory.PUBLISH, "PUBLISH_STEP_2_REMOTE_CHECK", mapOf(LogKeys.DRAFT_ID to draftId))
             val remoteArtifact = artifactRepository.getArtifact(draftId).getOrNull()
             if (remoteArtifact != null && remoteArtifact.status == ArtifactStatus.ACTIVE) {
-                Log.i("PublishingManager", "Artifact is already ACTIVE on Firestore. Syncing local state.")
+                diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISH_ALREADY_ACTIVE", mapOf(LogKeys.DRAFT_ID to draftId))
                 withContext(NonCancellable) {
                     draftRepository.markAsPublished(draftId, draftId)
                 }
@@ -71,7 +67,7 @@ class PublishingManager @Inject constructor(
             }
 
             if (draft.lifecycle == ArtifactLifecycle.PUBLISHED) {
-                Log.i("PublishingManager", "Draft already marked as PUBLISHED locally.")
+                diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISH_ALREADY_LOCAL_PUBLISHED", mapOf(LogKeys.DRAFT_ID to draftId))
                 return@withContext Result.success(Unit)
             }
 
@@ -79,7 +75,7 @@ class PublishingManager @Inject constructor(
             draftRepository.updateUploadStatus(draftId, SyncStatus.Uploading)
 
             // 3. Upload Transcript
-            Log.d("PublishingManager", "Step 3: Uploading transcript.")
+            diagnosticLogger.debug(DiagnosticCategory.PUBLISH, "PUBLISH_STEP_3_TRANSCRIPT", mapOf(LogKeys.DRAFT_ID to draftId))
             val transcriptUrl = if (draft.frozenTranscriptJson != null) {
                 artifactRepository.uploadTranscript(
                     userId = firebaseUser.uid,
@@ -89,9 +85,9 @@ class PublishingManager @Inject constructor(
             } else null
 
             // 4. Fetch User Profile (Offline-First)
-            Log.d("PublishingManager", "Step 4: Fetching user profile.")
+            diagnosticLogger.debug(DiagnosticCategory.PUBLISH, "PUBLISH_STEP_4_PROFILE", mapOf(LogKeys.DRAFT_ID to draftId))
             val userProfile = userRepository.getOrCreateProfile().map { it.user }.getOrElse {
-                Log.w("PublishingManager", "Network profile fetch failed, attempting to use cached profile")
+                diagnosticLogger.warn(DiagnosticCategory.PUBLISH, "PUBLISH_PROFILE_FETCH_FAILED_RETRYING_CACHED", mapOf(LogKeys.DRAFT_ID to draftId))
                 userRepository.getCachedProfile() ?: throw Exception("User profile not available (even offline)")
             }
 
@@ -99,7 +95,7 @@ class PublishingManager @Inject constructor(
             val authorSnapshot = com.saurabh.artifact.model.AuthorSnapshot.fromUser(userProfile)
 
             // 5. Pre-register Firestore Document
-            Log.d("PublishingManager", "Step 5: Pre-registering Firestore document.")
+            diagnosticLogger.debug(DiagnosticCategory.FIRESTORE, "PUBLISH_STEP_5_PRE_REGISTER", mapOf(LogKeys.DRAFT_ID to draftId))
             artifactRepository.createArtifactDocument(
                 userId = firebaseUser.uid,
                 author = authorSnapshot,
@@ -111,16 +107,16 @@ class PublishingManager @Inject constructor(
             ).getOrThrow()
 
             // 6. Upload Audio (Resumable)
-            Log.d("PublishingManager", "Step 6: Starting audio upload.")
+            diagnosticLogger.debug(DiagnosticCategory.STORAGE, "PUBLISH_STEP_6_AUDIO", mapOf(LogKeys.DRAFT_ID to draftId))
             val downloadUrl = if (draft.uploadedAudioUrl != null) {
-                Log.i("PublishingManager", "Using checkpointed audio URL.")
+                diagnosticLogger.info(DiagnosticCategory.STORAGE, "PUBLISH_AUDIO_CHECKPOINT_REUSE", mapOf(LogKeys.DRAFT_ID to draftId))
                 draft.uploadedAudioUrl
             } else {
                 val uploadResult = artifactRepository.uploadArtifactResumable(
                     userId = firebaseUser.uid,
                     draft = draft.copy(localAudioPath = audioPath),
                     onProgress = { transferred, total, sessionUri ->
-                        diagnosticLogger.debug(DiagnosticCategory.PUBLISH, "UPLOAD_PROGRESS", mapOf("draftId" to draftId, "transferred" to transferred, "total" to total))
+                        diagnosticLogger.debug(DiagnosticCategory.PUBLISH, "UPLOAD_PROGRESS", mapOf(LogKeys.DRAFT_ID to draftId, "transferred" to transferred, "total" to total))
                         draftRepository.updateUploadProgress(draftId, transferred, total, sessionUri?.toString())
                         onProgress(transferred, total, sessionUri?.toString())
                     }
@@ -134,7 +130,7 @@ class PublishingManager @Inject constructor(
             draftRepository.updateUploadStatus(draftId, SyncStatus.Finalizing)
 
             // 7. Finalize Firestore Document
-            Log.d("PublishingManager", "Step 7: Finalizing Firestore document.")
+            diagnosticLogger.debug(DiagnosticCategory.FIRESTORE, "PUBLISH_STEP_7_FINALIZE", mapOf(LogKeys.DRAFT_ID to draftId))
             artifactRepository.finalizeArtifactDocument(
                 artifactId = draftId,
                 audioUrl = downloadUrl,
@@ -144,19 +140,17 @@ class PublishingManager @Inject constructor(
             ).getOrThrow()
 
             // 8. Success Cleanup
-            Log.d("PublishingManager", "Step 8: Cleanup and marking as published.")
+            diagnosticLogger.debug(DiagnosticCategory.PUBLISH, "PUBLISH_STEP_8_CLEANUP", mapOf(LogKeys.DRAFT_ID to draftId))
             withContext(NonCancellable) {
                 draftRepository.markAsPublished(draftId, draftId)
             }
 
             cleanupManager.scheduleRetentionCleanup(draftId)
             
-            diagnosticLogger.info(DiagnosticCategory.PUBLISH, "UPLOAD_SUCCESS", mapOf("draftId" to draftId))
-            Log.i("PublishingManager", "Draft published successfully")
+            diagnosticLogger.info(DiagnosticCategory.PUBLISH, "UPLOAD_SUCCESS", mapOf(LogKeys.DRAFT_ID to draftId))
             Result.success(Unit)
         } catch (e: Exception) {
-            diagnosticLogger.error(DiagnosticCategory.PUBLISH, "UPLOAD_FAILED", mapOf("draftId" to draftId, "stage" to getFailureStage(e)), e)
-            Log.e("PublishingManager", "Publishing flow failed at stage ${getFailureStage(e)}", e)
+            diagnosticLogger.error(DiagnosticCategory.PUBLISH, "UPLOAD_FAILED", mapOf(LogKeys.DRAFT_ID to draftId, "stage" to getFailureStage(e)), e)
             Result.failure(e)
         }
     }

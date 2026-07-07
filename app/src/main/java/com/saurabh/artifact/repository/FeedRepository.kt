@@ -5,6 +5,8 @@ import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
@@ -19,7 +21,8 @@ data class PaginatedArtifacts(
 
 @Singleton
 class FeedRepository @Inject constructor(
-    private val firestore: FirebaseFirestore
+    private val firestore: FirebaseFirestore,
+    private val diagnosticLogger: DiagnosticLogger
 ) {
 
     suspend fun getResonatingArtifacts(
@@ -82,7 +85,7 @@ class FeedRepository @Inject constructor(
             val sorted = allArtifacts.asSequence().sortedByDescending { it.createdAt }.take(limit).toList()
             Result.success(PaginatedArtifacts(sorted, lastDocInBatch))
         } catch (e: Exception) {
-            Log.e("FeedRepository", "Error fetching followed artifacts", e)
+            diagnosticLogger.error(DiagnosticCategory.FEED, "FEED_RESONATING_FETCH_FAILED", throwable = e)
             Result.failure(AppError.from(e))
         }
     }
@@ -116,7 +119,7 @@ class FeedRepository @Inject constructor(
                 }
             Result.success(sessions)
         } catch (e: Exception) {
-            Log.e("FeedRepository", "Error fetching unfinished sessions", e)
+            diagnosticLogger.error(DiagnosticCategory.FEED, "FEED_UNFINISHED_FETCH_FAILED", throwable = e)
             Result.failure(AppError.from(e))
         }
     }
@@ -157,7 +160,7 @@ class FeedRepository @Inject constructor(
             
             Result.success(PaginatedArtifacts(artifacts, snapshot.documents.lastOrNull()))
         } catch (e: Exception) {
-            Log.e("FeedRepository", "Error fetching discovery candidates", e)
+            diagnosticLogger.error(DiagnosticCategory.FEED, "FEED_DISCOVERY_FETCH_FAILED", throwable = e)
             Result.failure(AppError.from(e))
         }
     }
@@ -179,7 +182,7 @@ class FeedRepository @Inject constructor(
                 Result.failure(AppError.NotFound("EmotionalProfile", userId))
             }
         } catch (e: Exception) {
-            Log.e("FeedRepository", "Error fetching emotional profile", e)
+            diagnosticLogger.error(DiagnosticCategory.FEED, "FEED_PROFILE_FETCH_FAILED", throwable = e)
             Result.failure(AppError.from(e))
         }
     }

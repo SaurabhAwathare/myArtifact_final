@@ -179,4 +179,13 @@ class PlaybackCoordinator @Inject constructor(
             _sleepTimerRemaining.value = null
         }
     }
+
+    /**
+     * Fully releases all playback resources, including the Media3 controller and transient players.
+     * This should be called during logout to ensure no stale references to MediaCache survive.
+     */
+    fun release() {
+        playbackSessionManager.release()
+        transientPlayerManager.release()
+    }
 }

@@ -1,6 +1,5 @@
 package com.saurabh.artifact.repository
 
-import android.util.Log
 import androidx.room.withTransaction
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
@@ -12,6 +11,9 @@ import com.saurabh.artifact.audio.WavHeaderUtils
 import com.saurabh.artifact.audio.WavRecoveryManager
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.data.local.DraftDao
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -30,6 +32,7 @@ class RecordingRepository @Inject constructor(
     private val deletionManager: DraftDeletionManager,
     private val cleanupManager: ArtifactCleanupManager,
     private val draftsDatabase: dagger.Lazy<com.saurabh.artifact.data.local.AppDatabase>,
+    private val diagnosticLogger: DiagnosticLogger
 ) {
     
     suspend fun createDraft(
@@ -94,9 +97,17 @@ class RecordingRepository @Inject constructor(
 
     fun observeDraft(id: String): Flow<ArtifactDraftEntity?> = draftDao.get().observeDraftById(id).onEach { draft ->
         if (draft != null) {
-            android.util.Log.d("DB_TRACE", "[DB_TRACE] observeDraft emission: draftId=${draft.id}, lifecycle=${draft.lifecycle}, reviewProgress=${draft.reviewProgress}")
+            diagnosticLogger.trace(
+                DiagnosticCategory.DATABASE,
+                "DRAFT_OBSERVE_EMISSION",
+                mapOf(
+                    LogKeys.DRAFT_ID to draft.id,
+                    "lifecycle" to draft.lifecycle.name,
+                    "reviewProgress" to draft.reviewProgress
+                )
+            )
         } else {
-            android.util.Log.d("DB_TRACE", "[DB_TRACE] observeDraft emission: NULL for $id")
+            diagnosticLogger.trace(DiagnosticCategory.DATABASE, "DRAFT_OBSERVE_NULL", mapOf(LogKeys.DRAFT_ID to id))
         }
     }
 
@@ -158,7 +169,11 @@ class RecordingRepository @Inject constructor(
     }
 
     suspend fun updateLifecycle(id: String, lifecycle: ArtifactLifecycle, isRecovery: Boolean = false): Result<Unit> = withContext(Dispatchers.IO) {
-        android.util.Log.d("STATE_TRACE", "updateLifecycle: ID=$id, NEW=$lifecycle, isRecovery=$isRecovery (DB_TRACE)")
+        diagnosticLogger.debug(
+            DiagnosticCategory.DATABASE,
+            "DRAFT_LIFECYCLE_UPDATE",
+            mapOf(LogKeys.DRAFT_ID to id, "lifecycle" to lifecycle.name, "isRecovery" to isRecovery)
+        )
         try {
             draftDao.get().updateLifecycle(id, lifecycle, isRecovery = isRecovery)
             Result.success(Unit)
@@ -168,7 +183,11 @@ class RecordingRepository @Inject constructor(
     }
 
     suspend fun recoverDraft(id: String, lifecycle: ArtifactLifecycle): Result<Unit> = withContext(Dispatchers.IO) {
-        android.util.Log.d("STATE_TRACE", "recoverDraft: ID=$id, NEW=$lifecycle (RECOVERY)")
+        diagnosticLogger.info(
+            DiagnosticCategory.RECORDING,
+            "DRAFT_RECOVERY_STARTED",
+            mapOf(LogKeys.DRAFT_ID to id, "targetLifecycle" to lifecycle.name)
+        )
         try {
             draftDao.get().updateLifecycle(id, lifecycle, isRecovery = true)
             Result.success(Unit)
@@ -244,7 +263,11 @@ class RecordingRepository @Inject constructor(
         emotion: Boolean,
         approval: Boolean
     ): Result<Unit> = withContext(Dispatchers.IO) {
-        android.util.Log.d("STATE_TRACE", "updateStudioState: ID=$id, R=$review, T=$title, E=$emotion, A=$approval (DB_TRACE)")
+        diagnosticLogger.debug(
+            DiagnosticCategory.DATABASE,
+            "DRAFT_STUDIO_STATE_UPDATE",
+            mapOf(LogKeys.DRAFT_ID to id, "review" to review, "title" to title, "emotion" to emotion, "approval" to approval)
+        )
         try {
             draftDao.get().updateStudioState(id, review, title, emotion, approval)
             Result.success(Unit)
@@ -301,7 +324,7 @@ class RecordingRepository @Inject constructor(
 
     suspend fun recoverInterruptedDrafts(): Result<List<ArtifactDraftEntity>> = withContext(Dispatchers.IO) {
         try {
-            Log.d("RecordingRepository", "Starting recovery check...")
+            diagnosticLogger.info(DiagnosticCategory.RECORDING, "INTERRUPTED_DRAFTS_RECOVERY_STARTED")
             
             // 0. Repair Lifecycle Desynchronization
             reconcileLifecycleConsistency()
@@ -324,9 +347,17 @@ class RecordingRepository @Inject constructor(
                     if (file.exists()) {
                         val drift = file.length() - draft.durableBytes
                         if (drift < 0) {
-                            Log.e("RecordingRepository", "CRITICAL: Silent truncation detected for draft ${draft.id}. Metadata expects ${draft.durableBytes} bytes, but file is ${file.length()} bytes.")
+                            diagnosticLogger.error(
+                                DiagnosticCategory.RECORDING,
+                                "RECOVERY_SILENT_TRUNCATION",
+                                mapOf(LogKeys.DRAFT_ID to draft.id, "expectedBytes" to draft.durableBytes, "actualBytes" to file.length())
+                            )
                         } else {
-                            Log.d("RecordingRepository", "Recovery drift for ${draft.id}: $drift bytes (uncommitted Page Cache tail)")
+                            diagnosticLogger.debug(
+                                DiagnosticCategory.RECORDING,
+                                "RECOVERY_DRIFT_DETECTED",
+                                mapOf(LogKeys.DRAFT_ID to draft.id, "driftBytes" to drift)
+                            )
                         }
                     }
 
@@ -361,7 +392,11 @@ class RecordingRepository @Inject constructor(
                     draftDao.get().update(updated, isRecovery = true)
                     interrupted.add(updated)
                     
-                    Log.d("RecordingRepository", "Recovery for ${draft.id}: $recoveryResult -> New Lifecycle: $newLifecycle")
+                    diagnosticLogger.info(
+                        DiagnosticCategory.RECORDING,
+                        "RECOVERY_DRAFT_REPAIRED",
+                        mapOf(LogKeys.DRAFT_ID to draft.id, "result" to recoveryResult.name, "newLifecycle" to newLifecycle.name)
+                    )
                 }
             }
 
@@ -372,7 +407,7 @@ class RecordingRepository @Inject constructor(
                 val isCooldownOver = (now - draft.lastRecoveryAttemptAt) > RECOVERY_COOLDOWN_MS
                 
                 if (isStale && isCooldownOver) {
-                    Log.i("RecordingRepository", "Stalled PROCESSING draft detected: ${draft.id}. Eligible for recovery.")
+                    diagnosticLogger.info(DiagnosticCategory.RECORDING, "RECOVERY_STALLED_PROCESSING", mapOf(LogKeys.DRAFT_ID to draft.id))
                     interrupted.add(draft)
                 }
             }
@@ -388,15 +423,16 @@ class RecordingRepository @Inject constructor(
                 // 4. Authoritative cleanup for DELETING drafts
                 val deletingDrafts = draftDao.get().getDraftsByLifecycle(ArtifactLifecycle.DELETING)
                 deletingDrafts.forEach { draft ->
-                    Log.d("RecordingRepository", "Resuming deletion for draft: ${draft.id}")
+                    diagnosticLogger.debug(DiagnosticCategory.RECORDING, "RECOVERY_RESUMING_DELETION", mapOf(LogKeys.DRAFT_ID to draft.id))
                     deletionManager.deleteDraft(draft.id)
                 }
-            } catch (_: Exception) {
-                Log.e("RecordingRepository", "Cleanup orphans/deleting failed")
+            } catch (e: Exception) {
+                diagnosticLogger.error(DiagnosticCategory.RECORDING, "RECOVERY_CLEANUP_FAILED", throwable = e)
             }
 
             Result.success(interrupted)
         } catch (e: Exception) {
+            diagnosticLogger.error(DiagnosticCategory.RECORDING, "RECOVERY_FATAL_ERROR", throwable = e)
             Result.failure(AppError.from(e))
         }
     }
@@ -456,7 +492,7 @@ class RecordingRepository @Inject constructor(
             val isOldEnough = (now - draft.updatedAt) > zombieThreshold
             
             if (isZombieCandidate && isOldEnough) {
-                Log.i("RecordingRepository", "Purging zombie draft: ${draft.id} (Lifecycle: ${draft.lifecycle})")
+                diagnosticLogger.info(DiagnosticCategory.RECORDING, "PURGING_ZOMBIE_DRAFT", mapOf(LogKeys.DRAFT_ID to draft.id, "lifecycle" to draft.lifecycle.name))
                 deletionManager.deleteDraft(draft.id)
             }
         }

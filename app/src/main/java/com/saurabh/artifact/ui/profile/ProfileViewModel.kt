@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.audio.PlaybackCoordinator
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.model.Artifact
@@ -222,16 +223,16 @@ class ProfileViewModel @Inject constructor(
     }
 
     fun deleteDraft(draftId: String) {
-        android.util.Log.d("ProfileViewModel", "User initiated delete for draft: $draftId")
+        diagnosticLogger.info(DiagnosticCategory.PROFILE, "DRAFT_DELETE_STARTED", mapOf(LogKeys.DRAFT_ID to draftId))
         viewModelScope.launch {
             _isActionLoading.value = true
             profileInteractionUseCase.deleteDraft(draftId)
                 .onSuccess {
-                    android.util.Log.d("ProfileViewModel", "Delete success for draft: $draftId")
+                    diagnosticLogger.info(DiagnosticCategory.PROFILE, "DRAFT_DELETE_SUCCESS", mapOf(LogKeys.DRAFT_ID to draftId))
                     _message.value = UiText.StringResource(R.string.draft_deleted)
                 }
                 .onFailure { e ->
-                    android.util.Log.e("ProfileViewModel", "Delete failed for draft: $draftId", e)
+                    diagnosticLogger.error(DiagnosticCategory.PROFILE, "DRAFT_DELETE_FAILED", mapOf(LogKeys.DRAFT_ID to draftId), e)
                     _message.value = ErrorMessageMapper.map(e)
                 }
             _isActionLoading.value = false
@@ -253,16 +254,16 @@ class ProfileViewModel @Inject constructor(
     }
 
     fun deletePublishedArtifact(artifactId: String) {
-        android.util.Log.d("ProfileViewModel", "User initiated delete for artifact: $artifactId")
+        diagnosticLogger.info(DiagnosticCategory.PROFILE, "ARTIFACT_DELETE_STARTED", mapOf(LogKeys.ARTIFACT_ID to artifactId))
         viewModelScope.launch {
             _isActionLoading.value = true
             profileInteractionUseCase.deletePublishedArtifact(artifactId)
                 .onSuccess {
-                    android.util.Log.d("ProfileViewModel", "Delete success for artifact: $artifactId")
+                    diagnosticLogger.info(DiagnosticCategory.PROFILE, "ARTIFACT_DELETE_SUCCESS", mapOf(LogKeys.ARTIFACT_ID to artifactId))
                     _message.value = UiText.StringResource(R.string.reflection_deleted)
                 }
                 .onFailure { e ->
-                    android.util.Log.e("ProfileViewModel", "Delete failed for artifact: $artifactId", e)
+                    diagnosticLogger.error(DiagnosticCategory.PROFILE, "ARTIFACT_DELETE_FAILED", mapOf(LogKeys.ARTIFACT_ID to artifactId), e)
                     _message.value = ErrorMessageMapper.map(e)
                 }
             _isActionLoading.value = false

@@ -2,13 +2,15 @@ package com.saurabh.artifact.audio
 
 import android.content.ComponentName
 import android.content.Context
-import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.EngagementRepository
@@ -42,6 +44,7 @@ class PlaybackSessionManager @Inject constructor(
     private val settingsDataStore: PlaybackSettingsDataStore,
     private val analytics: PlaybackAnalyticsManager,
     private val artifactRepository: Lazy<ArtifactRepository>,
+    private val diagnosticLogger: DiagnosticLogger
 ) {
     private val scope = CoroutineScope(
         SupervisorJob() + 
@@ -271,7 +274,7 @@ class PlaybackSessionManager @Inject constructor(
                 
                 controller
             } catch (e: Exception) {
-                Log.e("PlaybackSessionManager", "Failed to init MediaController", e)
+                diagnosticLogger.error(DiagnosticCategory.PLAYER, "CONTROLLER_INIT_FAILED", throwable = e)
                 null
             }
         }
@@ -361,7 +364,7 @@ class PlaybackSessionManager @Inject constructor(
     @androidx.annotation.OptIn(UnstableApi::class)
     fun preCache(artifact: Artifact) {
         MediaPreCacher.preCache(context, artifact.audioUrl)
-        Log.d("PlaybackSessionManager", "Enqueued background pre-cache.")
+        diagnosticLogger.debug(DiagnosticCategory.PLAYER, "PRE_CACHE_ENQUEUED", mapOf(LogKeys.ARTIFACT_ID to artifact.id))
     }
 
     private fun createMediaItem(artifact: Artifact): MediaItem {
@@ -436,7 +439,7 @@ class PlaybackSessionManager @Inject constructor(
     }
 
     fun stop() {
-        Log.d("LOOP_FIX", "PlaybackSessionManager.stop(): clearing playback state")
+        diagnosticLogger.info(DiagnosticCategory.PLAYER, "PLAYBACK_STOP_REQUESTED")
         // Synchronously clear state to prevent race conditions in UI/Navigation
         _currentArtifact.value = null
         _activePlayback.value = null
@@ -480,7 +483,7 @@ class PlaybackSessionManager @Inject constructor(
             cleanupManager.get().deletingArtifactIds.collect { deletingIds ->
                 val currentId = _currentArtifact.value?.id ?: return@collect
                 if (currentId in deletingIds) {
-                    Log.d("PlaybackSessionManager", "Stopping playback as it is being deleted.")
+                    diagnosticLogger.info(DiagnosticCategory.SYNC, "PLAYBACK_STOP_CLEANUP_SYNC", mapOf(LogKeys.ARTIFACT_ID to currentId))
                     stop()
                 }
             }
@@ -508,7 +511,7 @@ class PlaybackSessionManager @Inject constructor(
             try {
                 MediaController.releaseFuture(it) 
             } catch (e: Exception) {
-                Log.e("PlaybackSessionManager", "Error releasing controller future", e)
+                diagnosticLogger.error(DiagnosticCategory.PLAYER, "CONTROLLER_RELEASE_FAILED", throwable = e)
             }
         }
         controller = null

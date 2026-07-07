@@ -4,10 +4,12 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.os.IBinder
-import android.util.Log
 import androidx.core.content.ContextCompat
 import com.saurabh.artifact.data.local.UploadOwner
 import com.saurabh.artifact.data.local.UploadTaskDao
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.model.SyncStatus
 import com.saurabh.artifact.repository.DraftRepository
 import com.saurabh.artifact.util.NotificationHelper
@@ -24,6 +26,7 @@ class UploadService : Service() {
     @Inject lateinit var publishingManager: com.saurabh.artifact.domain.PublishingManager
     @Inject lateinit var draftRepository: DraftRepository
     @Inject lateinit var uploadTaskDao: UploadTaskDao
+    @Inject lateinit var diagnosticLogger: DiagnosticLogger
 
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var uploadJob: Job? = null
@@ -63,11 +66,12 @@ class UploadService : Service() {
 
     private fun startUpload(draftId: String) {
         if (uploadJob?.isActive == true) {
-            Log.w("UploadService", "Upload already in progress.")
+            diagnosticLogger.warn(DiagnosticCategory.PUBLISH, "UPLOAD_SERVICE_BUSY", mapOf(LogKeys.ARTIFACT_ID to draftId))
             return
         }
 
         _activeDraftId.value = draftId
+        diagnosticLogger.info(DiagnosticCategory.PUBLISH, "UPLOAD_SERVICE_START", mapOf(LogKeys.ARTIFACT_ID to draftId))
         uploadJob = serviceScope.launch {
             // 1. Acquire Ownership (with 10 min timeout threshold)
             val timeoutThreshold = System.currentTimeMillis() - 10 * 60 * 1000L
@@ -76,7 +80,7 @@ class UploadService : Service() {
             }
 
             if (!acquired) {
-                Log.w("UploadService", "Could not acquire ownership (already owned by WORKER or active SERVICE)")
+                diagnosticLogger.info(DiagnosticCategory.PUBLISH, "UPLOAD_SERVICE_OWNERSHIP_BLOCKED", mapOf(LogKeys.ARTIFACT_ID to draftId))
                 stopSelf()
                 return@launch
             }
@@ -96,12 +100,14 @@ class UploadService : Service() {
                         NotificationHelper.updateUploadProgress(attributionContext, title, progress, draftId)
                     }
                 ).onSuccess {
+                    diagnosticLogger.info(DiagnosticCategory.PUBLISH, "UPLOAD_SERVICE_SUCCESS", mapOf(LogKeys.ARTIFACT_ID to draftId))
                     NotificationHelper.showUploadSuccessNotification(attributionContext, title)
                 }.onFailure { e ->
+                    diagnosticLogger.error(DiagnosticCategory.PUBLISH, "UPLOAD_SERVICE_FAILED", mapOf(LogKeys.ARTIFACT_ID to draftId), e)
                     handleFailure(draftId, e as Exception)
                 }
             } catch (e: Exception) {
-                Log.e("UploadService", "Upload failed.")
+                diagnosticLogger.error(DiagnosticCategory.PUBLISH, "UPLOAD_SERVICE_FATAL", mapOf(LogKeys.ARTIFACT_ID to draftId), e)
                 handleFailure(draftId, e)
             } finally {
                 withContext(Dispatchers.IO) {

@@ -1,13 +1,15 @@
 package com.saurabh.artifact.worker
 
 import android.content.Context
-import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import com.saurabh.artifact.data.local.UploadOwner
 import com.saurabh.artifact.data.local.UploadTaskDao
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.model.SyncStatus
 import com.saurabh.artifact.repository.DraftRepository
 import com.saurabh.artifact.util.NotificationHelper
@@ -23,7 +25,8 @@ class PublishingWorker @AssistedInject constructor(
     @Assisted workerParams: WorkerParameters,
     private val publishingManager: com.saurabh.artifact.domain.PublishingManager,
     private val draftRepository: DraftRepository,
-    private val uploadTaskDao: UploadTaskDao
+    private val uploadTaskDao: UploadTaskDao,
+    private val diagnosticLogger: DiagnosticLogger
 ) : CoroutineWorker(appContext, workerParams) {
 
     private var startTime = System.currentTimeMillis()
@@ -31,15 +34,16 @@ class PublishingWorker @AssistedInject constructor(
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val draftId = inputData.getString(KEY_DRAFT_ID) ?: return@withContext Result.failure()
-        Log.d("PUBLISH_TRACE", "Publishing worker started for $draftId")
+        diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISHING_WORKER_STARTED", mapOf(LogKeys.DRAFT_ID to draftId))
         
         startTime = System.currentTimeMillis()
 
         // 0. Initialize Foreground Service for long-running upload
         try {
             setForeground(getForegroundInfo())
+            diagnosticLogger.debug(DiagnosticCategory.WORKMANAGER, "PUBLISHING_FOREGROUND_SET", mapOf(LogKeys.DRAFT_ID to draftId))
         } catch (e: Exception) {
-            Log.w("PublishingWorker", "Could not set foreground info", e)
+            diagnosticLogger.warn(DiagnosticCategory.WORKMANAGER, "PUBLISHING_FOREGROUND_FAILED", mapOf(LogKeys.DRAFT_ID to draftId), e)
         }
 
         // 0.2 Acquire Ownership (with 10 min timeout threshold)
@@ -49,7 +53,11 @@ class PublishingWorker @AssistedInject constructor(
         }
 
         if (!acquired) {
-            Log.i("PublishingWorker", "Could not acquire ownership for $draftId (likely owned by SERVICE or active WORKER)")
+            diagnosticLogger.info(
+                DiagnosticCategory.PUBLISH, 
+                "PUBLISHING_OWNERSHIP_BLOCKED", 
+                mapOf(LogKeys.DRAFT_ID to draftId, "reason" to "Owned by other component")
+            )
             return@withContext Result.retry() // Let WorkManager back off and try again if the other component fails
         }
 
@@ -69,10 +77,13 @@ class PublishingWorker @AssistedInject constructor(
             )
 
             if (result.isSuccess) {
+                diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISHING_WORKER_SUCCESS", mapOf(LogKeys.DRAFT_ID to draftId))
                 NotificationHelper.showUploadSuccessNotification(appContext, title)
                 Result.success()
             } else {
-                handleFailure(draftId, result.exceptionOrNull() as Exception)
+                val exception = result.exceptionOrNull() as Exception
+                diagnosticLogger.error(DiagnosticCategory.PUBLISH, "PUBLISHING_WORKER_FAILED", mapOf(LogKeys.DRAFT_ID to draftId), exception)
+                handleFailure(draftId, exception)
             }
         } finally {
             withContext(Dispatchers.IO) {

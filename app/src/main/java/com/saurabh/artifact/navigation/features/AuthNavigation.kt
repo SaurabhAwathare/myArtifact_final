@@ -1,11 +1,12 @@
 package com.saurabh.artifact.navigation.features
 
-import android.util.Log
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.composable
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.domain.auth.RegistrationResult
 import com.saurabh.artifact.navigation.Login
 import com.saurabh.artifact.navigation.Onboarding
@@ -20,6 +21,7 @@ import kotlinx.coroutines.launch
 fun NavGraphBuilder.authNavigation(
     navController: NavHostController,
     onboardingManager: OnboardingManager,
+    diagnosticLogger: DiagnosticLogger
 ) {
     composable<Onboarding> {
         val scope = rememberCoroutineScope()
@@ -40,7 +42,7 @@ fun NavGraphBuilder.authNavigation(
     composable<Login> {
         val onLoginSuccess = remember(navController) {
             { result: RegistrationResult ->
-                Log.d("APP_FLOW", "Action: Login Success ($result)")
+                diagnosticLogger.info(DiagnosticCategory.AUTH, "LOGIN_SUCCESS", mapOf("result" to result.javaClass.simpleName))
                 when (result) {
                     is RegistrationResult.SuccessNewUser -> {
                         navController.navigate(IdentityReveal) {

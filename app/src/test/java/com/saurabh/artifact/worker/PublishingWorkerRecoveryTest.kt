@@ -55,7 +55,8 @@ class PublishingWorkerRecoveryTest {
             workerParams = workerParams,
             recordingRepository = recordingRepository,
             encryptionManager = mockk(relaxed = true),
-            publishingOrchestrator = publishingOrchestrator
+            publishingOrchestrator = publishingOrchestrator,
+            diagnosticLogger = mockk(relaxed = true)
         )
 
         val result = worker.doWork()

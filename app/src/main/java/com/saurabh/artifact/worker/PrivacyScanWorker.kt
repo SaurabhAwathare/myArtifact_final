@@ -1,11 +1,13 @@
 package com.saurabh.artifact.worker
 
 import android.content.Context
-import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.saurabh.artifact.data.local.DraftDao
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.service.SensitiveInfoScanner
 import dagger.assisted.Assisted
@@ -22,11 +24,13 @@ class PrivacyScanWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted workerParams: WorkerParameters,
     private val draftDao: DraftDao,
-    private val scanner: SensitiveInfoScanner
+    private val scanner: SensitiveInfoScanner,
+    private val diagnosticLogger: DiagnosticLogger
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val draftId = inputData.getString(KEY_DRAFT_ID) ?: return@withContext Result.failure()
+        diagnosticLogger.info(DiagnosticCategory.SECURITY, "PRIVACY_SCAN_STARTED", mapOf(LogKeys.DRAFT_ID to draftId))
         
         try {
             updateState(draftId, ProcessingStage.PRIVACY_SCANNING)
@@ -37,21 +41,21 @@ class PrivacyScanWorker @AssistedInject constructor(
             delay(1.seconds)
             
             val transcriptPath = draft.localTranscriptPath
-            Log.d("PrivacyScanWorker", "Scanning transcript.")
+            diagnosticLogger.debug(DiagnosticCategory.SECURITY, "PRIVACY_SCAN_TRANSCRIPT", mapOf(LogKeys.DRAFT_ID to draftId))
             
             val flaggedSegments = if (transcriptPath != null) {
                 val file = File(transcriptPath)
                 if (file.exists()) {
                     val text = file.readText()
-                    Log.d("PrivacyScanWorker", "Transcript content length: ${text.length}")
+                    diagnosticLogger.debug(DiagnosticCategory.SECURITY, "PRIVACY_SCAN_CONTENT_ANALYSIS", mapOf(LogKeys.DRAFT_ID to draftId, "textLength" to text.length))
                     val segments = listOf(TranscriptSegment(text = text, startMs = 0, endMs = draft.durationMs, confidence = 1.0f))
                     scanner.scan(segments)
                 } else {
-                    Log.w("PrivacyScanWorker", "Transcript file missing.")
+                    diagnosticLogger.warn(DiagnosticCategory.SECURITY, "PRIVACY_SCAN_TRANSCRIPT_MISSING", mapOf(LogKeys.DRAFT_ID to draftId))
                     emptyList()
                 }
             } else {
-                Log.w("PrivacyScanWorker", "No transcript path for draft.")
+                diagnosticLogger.warn(DiagnosticCategory.SECURITY, "PRIVACY_SCAN_PATH_NULL", mapOf(LogKeys.DRAFT_ID to draftId))
                 emptyList()
             }
             
@@ -60,9 +64,10 @@ class PrivacyScanWorker @AssistedInject constructor(
             // Finalizing scan with targeted update
             draftDao.updatePrivacyResult(draftId, sensitiveJson)
             
+            diagnosticLogger.info(DiagnosticCategory.SECURITY, "PRIVACY_SCAN_SUCCESS", mapOf(LogKeys.DRAFT_ID to draftId, "flaggedCount" to flaggedSegments.size))
             Result.success()
         } catch (e: Exception) {
-            Log.e("PrivacyScanWorker", "Error during privacy scan", e)
+            diagnosticLogger.error(DiagnosticCategory.SECURITY, "PRIVACY_SCAN_FAILED", mapOf(LogKeys.DRAFT_ID to draftId), e)
             updateState(draftId, null, "Privacy scan failed: ${e.message}")
             Result.retry()
         }

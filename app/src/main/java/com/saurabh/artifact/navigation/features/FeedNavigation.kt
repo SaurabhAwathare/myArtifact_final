@@ -6,6 +6,8 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.composable
 import androidx.navigation.toRoute
 import com.saurabh.artifact.audio.RecordingSessionManager
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.navigation.*
 import com.saurabh.artifact.ui.comments.CommentsScreen
 import com.saurabh.artifact.ui.feed.FeedScreen
@@ -16,13 +18,14 @@ fun NavGraphBuilder.feedNavigation(
     recordingSessionManager: RecordingSessionManager,
     onReportArtifact: (String) -> Unit,
     onPlayArtifactById: (String) -> Unit,
+    diagnosticLogger: DiagnosticLogger
 ) {
     val onNavigateToDebugMenu = {
         navController.navigate(DebugMenu)
     }
 
     composable<Home> {
-        android.util.Log.d("NAV_TRACE", "Navigate -> Feed")
+        diagnosticLogger.debug(DiagnosticCategory.NAVIGATION, "NAVIGATE_TO_FEED", mapOf("source" to "Home"))
         val onNavigateToProfile = remember(navController) {
             {
                 navController.navigate(Profile())
@@ -61,7 +64,7 @@ fun NavGraphBuilder.feedNavigation(
     }
 
     composable<Feed> {
-        android.util.Log.d("NAV_TRACE", "Navigate -> Feed")
+        diagnosticLogger.debug(DiagnosticCategory.NAVIGATION, "NAVIGATE_TO_FEED", mapOf("source" to "Feed"))
         val onNavigateToProfile = remember(navController) {
             {
                 navController.navigate(Profile())

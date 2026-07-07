@@ -6,6 +6,7 @@ import com.google.gson.Gson
 import com.saurabh.artifact.data.local.*
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.*
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.util.ArtifactLogger
 import android.util.Log
 import io.mockk.*
@@ -28,6 +29,7 @@ class InteractionSyncWorkerCommentTest {
     private val commentRepository = mockk<CommentRepository>(relaxed = true)
     private val gson = Gson()
     private val workerParams = mockk<WorkerParameters>(relaxed = true)
+    private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
 
     private lateinit var worker: InteractionSyncWorker
 
@@ -52,7 +54,8 @@ class InteractionSyncWorkerCommentTest {
             userRepository = userRepository,
             engagementRepository = engagementRepository,
             commentRepository = commentRepository,
-            gson = gson
+            gson = gson,
+            diagnosticLogger = diagnosticLogger
         )
 
         mockkStatic(FirebaseAuth::class)

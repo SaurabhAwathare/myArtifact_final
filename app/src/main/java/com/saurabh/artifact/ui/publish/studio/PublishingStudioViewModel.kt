@@ -1,9 +1,11 @@
 package com.saurabh.artifact.ui.publish.studio
 
-import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkManager
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.audio.PlaybackCoordinator
 import com.saurabh.artifact.audio.PlaybackType
 import com.saurabh.artifact.domain.IdentityScout
@@ -78,7 +80,8 @@ class PublishingStudioViewModel @Inject constructor(
     private val publishArtifactUseCase: PublishArtifactUseCase,
     private val identityScout: IdentityScout,
     private val authRepository: AuthRepository,
-    private val workManager: WorkManager
+    private val workManager: WorkManager,
+    private val diagnosticLogger: DiagnosticLogger
 ) : ViewModel() {
 
     private val _draftId = MutableStateFlow<String?>(null)
@@ -140,14 +143,14 @@ class PublishingStudioViewModel @Inject constructor(
         )
 
     init {
-        Log.d("VM_TRACE", "[VM_TRACE] CREATED: Instance=${this.hashCode()}")
+        diagnosticLogger.info(DiagnosticCategory.STUDIO, "VM_CREATED", mapOf("instanceId" to this.hashCode()))
         playbackCoordinator.stop()
 
         // Handle playback completion for automatic state persistence
         viewModelScope.launch {
             playbackCoordinator.playbackCompletedEvent.collect { completedId ->
                 if (completedId == _draftId.value) {
-                    Log.d("STUDIO_TRACE", "Playback completed for $completedId. Updating DB.")
+                    diagnosticLogger.info(DiagnosticCategory.STUDIO, "PLAYBACK_COMPLETED", mapOf(LogKeys.DRAFT_ID to completedId))
                     recordingRepository.updateStudioState(
                         id = completedId,
                         review = true,
@@ -162,7 +165,7 @@ class PublishingStudioViewModel @Inject constructor(
 
     fun loadDraft(draftId: String) {
         if (_draftId.value == draftId) return
-        Log.d("VM_TRACE", "[VM_TRACE] loadDraft: draftId=$draftId | Instance=${this.hashCode()}")
+        diagnosticLogger.info(DiagnosticCategory.STUDIO, "DRAFT_LOADED", mapOf(LogKeys.DRAFT_ID to draftId))
         _draftId.value = draftId
         
         // Reset buffers when loading new draft
@@ -188,7 +191,7 @@ class PublishingStudioViewModel @Inject constructor(
         titleDebounceJob = viewModelScope.launch {
             kotlinx.coroutines.delay(500)
             
-            Log.d("STATE_TRACE", "[STATE_TRACE] Debounced updateTitle: title='$title', draftId=$draftId")
+            diagnosticLogger.debug(DiagnosticCategory.STUDIO, "TITLE_UPDATE_DEBOUNCED", mapOf(LogKeys.DRAFT_ID to draftId, "titleLength" to title.length))
             val result = recordingRepository.updateDraftMetadata(draftId, title, sessionState.value.emotion)
             if (result.isSuccess) {
                 recordingRepository.updateStudioState(
@@ -206,7 +209,7 @@ class PublishingStudioViewModel @Inject constructor(
 
     fun updateEmotion(emotion: Emotion) {
         val draftId = _draftId.value ?: return
-        Log.d("STATE_TRACE", "[STATE_TRACE] updateEmotion: emotion=${emotion.label}, draftId=$draftId | Instance=${this.hashCode()}")
+        diagnosticLogger.debug(DiagnosticCategory.STUDIO, "EMOTION_UPDATED", mapOf(LogKeys.DRAFT_ID to draftId, "emotion" to emotion.label))
         viewModelScope.launch {
             recordingRepository.updateDraftMetadata(draftId, sessionState.value.title, emotion)
             recordingRepository.updateStudioState(
@@ -230,7 +233,7 @@ class PublishingStudioViewModel @Inject constructor(
             else -> currentLifecycle
         }
 
-        Log.d("STATE_TRACE", "[STATE_TRACE] nextStep: draftId=$draftId, currentStep=${sessionState.value.currentStep}, nextStep=${StudioStep.fromLifecycle(nextLifecycle)}, source=nextStep | Instance=${this.hashCode()}")
+        diagnosticLogger.info(DiagnosticCategory.STUDIO, "NEXT_STEP_REQUESTED", mapOf(LogKeys.DRAFT_ID to draftId, "nextStep" to StudioStep.fromLifecycle(nextLifecycle).name))
         
         if (currentLifecycle == ArtifactLifecycle.REVIEW_REQUIRED && playbackCoordinator.isPlaying.value) {
             playbackCoordinator.togglePlayPause()
@@ -251,7 +254,7 @@ class PublishingStudioViewModel @Inject constructor(
             else -> currentLifecycle
         }
         
-        Log.d("STATE_TRACE", "[STATE_TRACE] previousStep: draftId=$draftId, currentStep=${sessionState.value.currentStep}, prevStep=${StudioStep.fromLifecycle(prevLifecycle)}, source=previousStep | Instance=${this.hashCode()}")
+        diagnosticLogger.info(DiagnosticCategory.STUDIO, "PREVIOUS_STEP_REQUESTED", mapOf(LogKeys.DRAFT_ID to draftId, "prevStep" to StudioStep.fromLifecycle(prevLifecycle).name))
 
         viewModelScope.launch {
             recordingRepository.updateLifecycle(draftId, prevLifecycle)
@@ -259,7 +262,7 @@ class PublishingStudioViewModel @Inject constructor(
     }
 
     fun onPublishClick() {
-        Log.d("STUDIO_TRACE", "Publish button pressed")
+        diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISH_CLICKED")
         val state = sessionState.value
         val title = state.title
         
@@ -298,29 +301,25 @@ class PublishingStudioViewModel @Inject constructor(
         val draftId = state.draftId ?: return
         if (state.title.isBlank() || state.emotion == null || !state.reviewCompleted) return
 
-        Log.d("STATE_TRACE", "[STATE_TRACE] performPublish: draftId=$draftId | Instance=${this.hashCode()}")
+        diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISH_PERFORM_STARTED", mapOf(LogKeys.DRAFT_ID to draftId))
         viewModelScope.launch {
-            _uiState.update { 
-                Log.d("STATE_TRACE", "[STATE_TRACE] performPublish: _uiState.update isPublishing=true")
-                it.copy(isPublishing = true) 
-            }
+            _uiState.update { it.copy(isPublishing = true) }
             
             recordingRepository.getDraft(draftId).onSuccess { draft ->
                 publishArtifactUseCase(draft.localAudioPath)
                     .onSuccess { result ->
                         if (result == PublishingResult.FAILED) {
+                            diagnosticLogger.error(DiagnosticCategory.PUBLISH, "PUBLISH_INITIATION_FAILED", mapOf(LogKeys.DRAFT_ID to draftId))
                             _uiState.update { 
-                                Log.e("STATE_TRACE", "[STATE_TRACE] performPublish: FAILED result from use case")
                                 it.copy(isPublishing = false, error = "Publishing failed to initiate. Please try again.") 
                             }
                             return@onSuccess
                         }
 
-                        Log.d("LOOP_FIX", "Publishing success -> stop() called")
+                        diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISH_INITIATION_SUCCESS", mapOf(LogKeys.DRAFT_ID to draftId))
                         playbackCoordinator.stop()
 
                         _uiState.update { 
-                            Log.d("STATE_TRACE", "[STATE_TRACE] performPublish: _uiState.update isSuccess=true")
                             it.copy(
                                 isPublishing = false, 
                                 isSuccess = true,
@@ -329,8 +328,8 @@ class PublishingStudioViewModel @Inject constructor(
                         }
                     }
                     .onFailure { e ->
+                        diagnosticLogger.error(DiagnosticCategory.PUBLISH, "PUBLISH_INITIATION_ERROR", mapOf(LogKeys.DRAFT_ID to draftId, LogKeys.EXCEPTION_MESSAGE to (e.message ?: "null")), e)
                         _uiState.update { 
-                            Log.d("STATE_TRACE", "[STATE_TRACE] performPublish: _uiState.update error=${e.message}")
                             it.copy(isPublishing = false, error = e.message) 
                         }
                     }
@@ -354,7 +353,7 @@ class PublishingStudioViewModel @Inject constructor(
     }
 
     override fun onCleared() {
-        Log.d("VM_TRACE", "[VM_TRACE] DESTROYED: Instance=${this.hashCode()}")
+        diagnosticLogger.info(DiagnosticCategory.STUDIO, "VM_DESTROYED", mapOf("instanceId" to this.hashCode()))
         super.onCleared()
         playbackCoordinator.requestStop(PlaybackType.DRAFT_PREVIEW)
     }

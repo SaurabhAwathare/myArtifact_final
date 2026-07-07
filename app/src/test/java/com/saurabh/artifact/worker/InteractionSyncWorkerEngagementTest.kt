@@ -9,6 +9,7 @@ import com.saurabh.artifact.repository.ReactionRepository
 import com.saurabh.artifact.repository.UserRepository
 import com.saurabh.artifact.repository.EngagementRepository
 import com.saurabh.artifact.repository.CommentRepository
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.util.ArtifactLogger
 import android.util.Log
 import io.mockk.*
@@ -32,6 +33,7 @@ class InteractionSyncWorkerEngagementTest {
     private val firestore = mockk<FirebaseFirestore>(relaxed = true)
     private val gson = Gson()
     private val workerParams = mockk<WorkerParameters>(relaxed = true)
+    private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
 
     private lateinit var worker: InteractionSyncWorker
 
@@ -59,7 +61,8 @@ class InteractionSyncWorkerEngagementTest {
             userRepository = userRepository,
             engagementRepository = engagementRepository,
             commentRepository = commentRepository,
-            gson = gson
+            gson = gson,
+            diagnosticLogger = diagnosticLogger
         )
     }
 

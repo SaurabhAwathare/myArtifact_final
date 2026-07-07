@@ -24,7 +24,7 @@ import com.saurabh.artifact.repository.ReactionRepository
 import com.saurabh.artifact.repository.UserRepository
 import com.saurabh.artifact.repository.EngagementRepository
 import com.saurabh.artifact.repository.CommentRepository
-import com.saurabh.artifact.util.ArtifactLogger
+import com.saurabh.artifact.diagnostics.logInteraction
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
@@ -65,11 +65,11 @@ class InteractionSyncWorker @AssistedInject constructor(
                 retryCount = interaction.retryCount + 1
             )
             
-            ArtifactLogger.logInteraction(processingInteraction, "PROCESSING")
+            diagnosticLogger.logInteraction(processingInteraction, "PROCESSING")
 
             val result = processInteraction(processingInteraction, currentUserId)
             if (result.isSuccess) {
-                ArtifactLogger.logInteraction(processingInteraction, "SUCCESS")
+                diagnosticLogger.logInteraction(processingInteraction, "SUCCESS")
                 pendingInteractionDao.delete(interaction)
             } else {
                 val error = result.exceptionOrNull() ?: Exception("Unknown error")
@@ -82,11 +82,11 @@ class InteractionSyncWorker @AssistedInject constructor(
                 
                 if (isTransient) {
                     if (errorInteraction.retryCount >= MAX_RETRIES) {
-                        ArtifactLogger.logInteraction(errorInteraction, "RETRY_LIMIT_EXCEEDED", mapOf("error" to error.message, "exception" to error.javaClass.simpleName))
+                        diagnosticLogger.logInteraction(errorInteraction, "RETRY_LIMIT_EXCEEDED", mapOf("error" to error.message, "exception" to error.javaClass.simpleName))
                         moveToDeadLetterQueue(errorInteraction, "RETRY_LIMIT_EXCEEDED", error.message)
                         pendingInteractionDao.delete(interaction)
                     } else {
-                        ArtifactLogger.logInteraction(errorInteraction, "TRANSIENT_FAILURE", mapOf("error" to error.message, "exception" to error.javaClass.simpleName))
+                        diagnosticLogger.logInteraction(errorInteraction, "TRANSIENT_FAILURE", mapOf("error" to error.message, "exception" to error.javaClass.simpleName))
                         // Update retry count and error in DB for the next run
                         pendingInteractionDao.insert(errorInteraction)
                         hasTransientFailure = true
@@ -96,7 +96,7 @@ class InteractionSyncWorker @AssistedInject constructor(
                     }
                 } else {
                     // Permanent error (e.g. 404, 403)
-                    ArtifactLogger.logInteraction(errorInteraction, "PERMANENT_FAILURE", mapOf("error" to error.message, "exception" to error.javaClass.simpleName))
+                    diagnosticLogger.logInteraction(errorInteraction, "PERMANENT_FAILURE", mapOf("error" to error.message, "exception" to error.javaClass.simpleName))
                     moveToDeadLetterQueue(errorInteraction, "PERMANENT", error.message)
                     pendingInteractionDao.delete(interaction)
                 }
@@ -134,7 +134,7 @@ class InteractionSyncWorker @AssistedInject constructor(
             retryCount = interaction.retryCount
         )
         deadLetterInteractionDao.insert(dlqEntry)
-        ArtifactLogger.w(TAG, "Interaction ${interaction.id} moved to DLQ. Type: $failureType. Reason: $reason")
+        diagnosticLogger.warn(DiagnosticCategory.SYNC, "DLQ_MOVE", mapOf("interactionId" to interaction.id, "failureType" to failureType, "reason" to (reason ?: "unknown")))
     }
 
     /**
@@ -153,7 +153,7 @@ class InteractionSyncWorker @AssistedInject constructor(
             // Check if this type is collapsible
             val type = events.first().interactionType
             if (!isCollapsible(type)) {
-                ArtifactLogger.d(TAG, "Type $type is not collapsible. Preserving order for $key.")
+                diagnosticLogger.debug(DiagnosticCategory.SYNC, "COLLAPSE_SKIPPED_NOT_COLLAPSIBLE", mapOf("type" to type, "key" to key))
                 return@forEach
             }
 
@@ -168,11 +168,11 @@ class InteractionSyncWorker @AssistedInject constructor(
             if (isRedundantCycle) {
                 // Perfect net-zero cycle [ADD, REMOVE]
                 events.forEach { pendingInteractionDao.delete(it) }
-                ArtifactLogger.i(TAG, "Cancelled out redundant net-zero toggle cycle for $key.")
+                diagnosticLogger.info(DiagnosticCategory.SYNC, "COLLAPSE_CYCLE_CANCELLED", mapOf("key" to key))
             } else {
                 // Collapse to the latest intent
                 toDelete.forEach { pendingInteractionDao.delete(it) }
-                ArtifactLogger.i(TAG, "Collapsed ${events.size} events for $key into 1 latest event (${latest.action}).")
+                diagnosticLogger.info(DiagnosticCategory.SYNC, "COLLAPSE_COMPLETED", mapOf("key" to key, "count" to events.size, "latestAction" to latest.action))
             }
         }
     }

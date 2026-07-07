@@ -11,6 +11,7 @@ import com.saurabh.artifact.domain.player.GetPlayerContextUseCase
 import com.saurabh.artifact.domain.player.PlayerMetadata
 import com.saurabh.artifact.domain.player.PlayerInteractionUseCase
 import com.saurabh.artifact.domain.review.comments.CommentUnlockPolicy
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.AuthRepository
@@ -24,7 +25,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.*
-import android.util.Log
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -44,20 +44,13 @@ class PlayerViewModelTest {
     private val deleteArtifactUseCase = mockk<DeleteArtifactUseCase>(relaxed = true)
     private val publishingPolicy = mockk<PublishingReviewPolicy>(relaxed = true)
     private val commentPolicy = mockk<CommentUnlockPolicy>(relaxed = true)
+    private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
 
     private lateinit var viewModel: PlayerViewModel
     private val testDispatcher = StandardTestDispatcher()
 
     @Before
     fun setup() {
-        mockkStatic(Log::class)
-        every { Log.v(any<String>(), any<String>()) } returns 0
-        every { Log.d(any<String>(), any<String>()) } returns 0
-        every { Log.i(any<String>(), any<String>()) } returns 0
-        every { Log.w(any<String>(), any<String>()) } returns 0
-        every { Log.e(any<String>(), any<String>()) } returns 0
-        every { Log.e(any<String>(), any<String>(), any<Throwable>()) } returns 0
-
         Dispatchers.setMain(testDispatcher)
         
         // Mock required flows
@@ -84,7 +77,7 @@ class PlayerViewModelTest {
         savedStateHandle, playbackCoordinator, authRepository, { reactionUseCase }, 
         { playerInteractionUseCase }, getPlayerContextUseCase, { playableArtifactRepository }, 
         reviewSessionManager, { deleteArtifactUseCase }, 
-        publishingPolicy, commentPolicy
+        publishingPolicy, commentPolicy, diagnosticLogger
     )
 }
 
@@ -107,7 +100,7 @@ class PlayerViewModelTest {
             savedStateHandle, playbackCoordinator, authRepository, { reactionUseCase }, 
             { playerInteractionUseCase }, getPlayerContextUseCase, { playableArtifactRepository }, 
             reviewSessionManager, { deleteArtifactUseCase },
-            publishingPolicy, commentPolicy
+            publishingPolicy, commentPolicy, diagnosticLogger
         )
         
         // Start collecting uiState in backgroundScope (automatically cancelled at end of test)

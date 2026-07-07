@@ -1,17 +1,11 @@
 package com.saurabh.artifact.worker
 
 import android.content.Context
-import android.util.Log
 import androidx.hilt.work.HiltWorker
-import androidx.work.BackoffPolicy
-import androidx.work.Constraints
-import androidx.work.CoroutineWorker
-import androidx.work.ExistingWorkPolicy
-import androidx.work.NetworkType
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.WorkManager
-import androidx.work.WorkerParameters
-import androidx.work.workDataOf
+import androidx.work.*
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.domain.auth.SessionConstants
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -26,10 +20,13 @@ class PublishingRecoveryWorker @AssistedInject constructor(
     @Assisted private val context: Context,
     @Assisted params: WorkerParameters,
     private val uploadTaskDao: com.saurabh.artifact.data.local.UploadTaskDao,
-    private val workManager: WorkManager
+    private val workManager: WorkManager,
+    private val diagnosticLogger: DiagnosticLogger
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
+        diagnosticLogger.info(DiagnosticCategory.WORKMANAGER, "PUBLISHING_RECOVERY_STARTED")
+        
         val now = System.currentTimeMillis()
         val oneHourAgo = now - TimeUnit.HOURS.toMillis(1)
 
@@ -38,12 +35,14 @@ class PublishingRecoveryWorker @AssistedInject constructor(
         }
 
         if (pendingTasks.isEmpty()) {
+            diagnosticLogger.info(DiagnosticCategory.WORKMANAGER, "PUBLISHING_RECOVERY_NO_STUCK_TASKS")
             return Result.success()
         }
 
-        Log.i("PublishingRecovery", "Found ${pendingTasks.size} stuck upload tasks. Re-triggering...")
+        diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISHING_RECOVERY_RETRIGGER", mapOf("count" to pendingTasks.size))
 
         for (task in pendingTasks) {
+            diagnosticLogger.debug(DiagnosticCategory.PUBLISH, "PUBLISHING_RECOVERY_TASK", mapOf(LogKeys.DRAFT_ID to task.draftId))
             val inputData = workDataOf(PublishingWorker.KEY_DRAFT_ID to task.draftId)
             
             val constraints = Constraints.Builder()

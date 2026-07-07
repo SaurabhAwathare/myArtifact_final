@@ -11,6 +11,9 @@ import com.saurabh.artifact.domain.player.DeleteArtifactUseCase
 import com.saurabh.artifact.domain.player.GetPlayerContextUseCase
 import com.saurabh.artifact.domain.player.PlayerInteractionUseCase
 import com.saurabh.artifact.domain.player.PlayerMetadata
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.PlayableArtifactRepository
@@ -46,7 +49,8 @@ class PlayerViewModel @Inject constructor(
     private val reviewSessionManager: ReviewSessionManager,
     private val deleteArtifactUseCase: dagger.Lazy<DeleteArtifactUseCase>,
     private val publishingPolicy: com.saurabh.artifact.domain.review.publishing.PublishingReviewPolicy,
-    private val commentPolicy: com.saurabh.artifact.domain.review.comments.CommentUnlockPolicy
+    private val commentPolicy: com.saurabh.artifact.domain.review.comments.CommentUnlockPolicy,
+    private val diagnosticLogger: DiagnosticLogger
 ) : ViewModel() {
 
     private val _isExpanded = savedStateHandle.getStateFlow("is_expanded", false)
@@ -91,15 +95,19 @@ class PlayerViewModel @Inject constructor(
             playbackCoordinator.currentArtifact.collect { artifact ->
                 val currentPlayable = _currentPlayableArtifact.value
                 
-                android.util.Log.d("PLAYER_SYNC", """
-                    Sync Update:
-                    - currentArtifact: ${artifact?.id} (isDraft=${artifact?.isDraft})
-                    - currentPlayable: ${currentPlayable?.id}
-                    - LoadState: ${_loadState.value}
-                """.trimIndent())
+                diagnosticLogger.debug(
+                    DiagnosticCategory.SYNC, 
+                    "PLAYER_SYNC_UPDATE", 
+                    mapOf(
+                        LogKeys.ARTIFACT_ID to (artifact?.id ?: "null"),
+                        "isDraft" to (artifact?.isDraft ?: false),
+                        "playableId" to (currentPlayable?.id ?: "null"),
+                        "loadState" to _loadState.value.name
+                    )
+                )
 
                 if (artifact != null && currentPlayable != null && artifact.id != currentPlayable.id) {
-                    android.util.Log.d("PLAYER_SYNC", "ID Mismatch detected. Purging stale playable: ${currentPlayable.id}")
+                    diagnosticLogger.info(DiagnosticCategory.SYNC, "PLAYER_ID_MISMATCH_PURGE", mapOf("staleId" to currentPlayable.id, "newId" to artifact.id))
                     _currentPlayableArtifact.value = null
                     _loadState.value = PlayerLoadState.IDLE
                 } else if (artifact == null) {
@@ -111,7 +119,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     private fun resetState() {
-        android.util.Log.d("PLAYER_SYNC", "resetState() called - clearing all player metadata")
+        diagnosticLogger.info(DiagnosticCategory.PLAYER, "PLAYER_RESET_STATE")
         setExpanded(false)
         _showAdvancedControls.value = false
         _currentPlayableArtifact.value = null
@@ -232,7 +240,15 @@ class PlayerViewModel @Inject constructor(
         val isListenerReviewMatching = artifact != null && listenerReview?.artifactId == artifact.id
         
         if (artifact != null) {
-            android.util.Log.v("PLAYER_SYNC", "UI State Recompute: artifact=${artifact.id}, isDraft=${artifact.isDraft}, isReviewMatching=$isReviewMatching")
+            diagnosticLogger.trace(
+                DiagnosticCategory.PLAYER, 
+                "UI_STATE_RECOMPUTE", 
+                mapOf(
+                    LogKeys.ARTIFACT_ID to artifact.id, 
+                    "isDraft" to artifact.isDraft, 
+                    "isReviewMatching" to isReviewMatching
+                )
+            )
         }
 
         PlayerUiState(
@@ -300,7 +316,14 @@ class PlayerViewModel @Inject constructor(
                 .collect { (artifactId, isThresholdMet) ->
                     if (isThresholdMet && artifactId != null) {
                         val active = playbackCoordinator.activePlayback.value
-                        android.util.Log.d("LOOP_FIX", "navigateToPublish check: active=${active?.playbackType}, artifact=$artifactId")
+                        diagnosticLogger.debug(
+                            DiagnosticCategory.PLAYER, 
+                            "NAVIGATE_TO_PUBLISH_CHECK", 
+                            mapOf(
+                                "playbackType" to (active?.playbackType?.name ?: "null"), 
+                                LogKeys.ARTIFACT_ID to artifactId
+                            )
+                        )
                         
                         if (active?.artifactId == artifactId && active.playbackType == com.saurabh.artifact.audio.PlaybackType.DRAFT_PREVIEW) {
                             _navigateToPublish.emit(artifactId)
@@ -325,7 +348,11 @@ class PlayerViewModel @Inject constructor(
     fun toggleResonanceConnection() {
         val artifact = uiState.value.currentArtifact ?: return
         val currentUserId = authRepository.currentUser.value?.uid ?: run {
-            android.util.Log.w("PlayerViewModel", "Blocked toggleResonanceConnection: User is null.")
+            diagnosticLogger.warn(
+                DiagnosticCategory.RESONANCE, 
+                "RESONANCE_CONNECTION_BLOCKED", 
+                mapOf("reason" to "USER_NULL")
+            )
             return
         }
         val ownerId = uiState.value.internalOwnerId
@@ -356,7 +383,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun playArtifact(artifact: Artifact, collection: List<Artifact> = emptyList()) {
-        android.util.Log.d("NAV_TRACE", "Navigate -> Player")
+        diagnosticLogger.debug(DiagnosticCategory.NAVIGATION, "PLAYER_SCREEN_ENTERED", mapOf("source" to "playArtifact"))
         setExpanded(true)
         _loadState.value = PlayerLoadState.LOADED
         _currentPlayableArtifact.value = null // Clear playable as we have a real artifact
@@ -368,7 +395,7 @@ class PlayerViewModel @Inject constructor(
 
     fun playArtifactById(artifactId: String, source: PlaybackSource = PlaybackSource.FEED_PLAYBACK) {
         viewModelScope.launch {
-            android.util.Log.d("NAV_TRACE", "Navigate -> Player")
+            diagnosticLogger.debug(DiagnosticCategory.NAVIGATION, "PLAYER_SCREEN_ENTERED", mapOf("source" to "playArtifactById"))
             setExpanded(true)
             _loadState.value = PlayerLoadState.LOADING
             _loadError.value = null
@@ -458,7 +485,11 @@ class PlayerViewModel @Inject constructor(
         
         // Phase 6: Action Safety
         if (!artifact.isDraft) {
-            android.util.Log.w("PLAYER_SYNC", "Safety: Blocked attempt to delete published artifact ${artifact.id} via draft flow")
+            diagnosticLogger.warn(
+                DiagnosticCategory.PLAYER, 
+                "DELETE_BLOCKED_PUBLISHED", 
+                mapOf(LogKeys.ARTIFACT_ID to artifact.id)
+            )
             return
         }
 
@@ -482,7 +513,14 @@ class PlayerViewModel @Inject constructor(
             setExpanded(false)
             onNavigate(originalArtifact.id)
         } else {
-            android.util.Log.w("PLAYER_SYNC", "Safety: Blocked Edit navigation for non-draft ${artifact?.id}")
+            diagnosticLogger.warn(
+                DiagnosticCategory.NAVIGATION, 
+                "EDIT_NAVIGATION_BLOCKED", 
+                mapOf(
+                    LogKeys.ARTIFACT_ID to (artifact?.id ?: "null"), 
+                    "reason" to "NON_DRAFT"
+                )
+            )
         }
     }
 
@@ -493,7 +531,15 @@ class PlayerViewModel @Inject constructor(
             setExpanded(false)
             onNavigate(originalArtifact.id)
         } else {
-            android.util.Log.w("PLAYER_SYNC", "Safety: Blocked Publish navigation. isDraft=${originalArtifact?.isDraft}, isThresholdMet=$isThresholdMet")
+            diagnosticLogger.warn(
+                DiagnosticCategory.NAVIGATION, 
+                "PUBLISH_NAVIGATION_BLOCKED", 
+                mapOf(
+                    LogKeys.ARTIFACT_ID to (originalArtifact?.id ?: "null"), 
+                    "isDraft" to (originalArtifact?.isDraft ?: false), 
+                    "isThresholdMet" to isThresholdMet
+                )
+            )
         }
     }
 

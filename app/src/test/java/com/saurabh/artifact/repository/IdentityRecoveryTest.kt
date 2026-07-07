@@ -38,6 +38,8 @@ class IdentityRecoveryTest {
         mockkObject(IdentitySyncWorker)
         every { IdentitySyncWorker.enqueue(any(), any(), any(), any()) } just Runs
         
+        every { authRepository.userData } returns MutableStateFlow(null)
+
         userProfileManager = UserProfileManager(
             context = context,
             sessionManager = sessionManager,

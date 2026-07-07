@@ -1,11 +1,13 @@
 package com.saurabh.artifact.worker
 
 import android.content.Context
-import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.saurabh.artifact.audio.LocalDraftManager
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.RecordingRepository
 import dagger.assisted.Assisted
@@ -29,16 +31,19 @@ class TranscriptionWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted workerParams: WorkerParameters,
     private val recordingRepository: RecordingRepository,
-    private val localDraftManager: LocalDraftManager
+    private val localDraftManager: LocalDraftManager,
+    private val diagnosticLogger: DiagnosticLogger
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val draftId = inputData.getString(KEY_DRAFT_ID) ?: return@withContext Result.failure()
+        diagnosticLogger.info(DiagnosticCategory.RECORDING, "TRANSCRIPTION_STARTED", mapOf(LogKeys.DRAFT_ID to draftId))
+        
         val draft = recordingRepository.getDraft(draftId).getOrNull() ?: return@withContext Result.failure()
         val file = File(draft.localAudioPath)
 
         if (!file.exists()) {
-            Log.e("TranscriptionWorker", "File not found.")
+            diagnosticLogger.error(DiagnosticCategory.RECORDING, "TRANSCRIPTION_FILE_MISSING", mapOf(LogKeys.DRAFT_ID to draftId))
             updateSubState(draftId, null, "File not found")
             return@withContext Result.failure()
         }
@@ -46,19 +51,18 @@ class TranscriptionWorker @AssistedInject constructor(
         try {
             // IDEMPOTENCY CHECK: If transcript already exists and repository knows about it, skip
             if (draft.localTranscriptPath != null && File(draft.localTranscriptPath).exists()) {
-                Log.d("TranscriptionWorker", "Idempotency Trigger: Transcript already exists. Skipping.")
+                diagnosticLogger.info(DiagnosticCategory.RECORDING, "TRANSCRIPTION_SKIP_IDEMPOTENT", mapOf(LogKeys.DRAFT_ID to draftId))
                 return@withContext Result.success()
             }
 
             updateSubState(draftId, com.saurabh.artifact.model.ProcessingStage.TRANSCRIBING)
 
             // 1. Prepare audio for processing with timeout
-            Log.d("TranscriptionWorker", "Atmospheric Step: Listening quietly to your words...")
+            diagnosticLogger.debug(DiagnosticCategory.RECORDING, "TRANSCRIPTION_PROCESSING", mapOf(LogKeys.DRAFT_ID to draftId))
             
             // 2. Perform Transcription with timeout
-            Log.d("TranscriptionWorker", "Starting transcription.")
             val transcriptText = withTimeout(1.minutes) {
-                performTranscription(file)
+                performTranscription(file, draftId)
             }
 
             // Save transcript to file
@@ -80,10 +84,10 @@ class TranscriptionWorker @AssistedInject constructor(
                 primaryStyle = conversationStyle
             )
 
-            Log.d("TranscriptionWorker", "Transcription completed successfully")
+            diagnosticLogger.info(DiagnosticCategory.RECORDING, "TRANSCRIPTION_SUCCESS", mapOf(LogKeys.DRAFT_ID to draftId))
             Result.success()
         } catch (e: Exception) {
-            Log.e("TranscriptionWorker", "Error during transcription: ${e.message}", e)
+            diagnosticLogger.error(DiagnosticCategory.RECORDING, "TRANSCRIPTION_FAILED", mapOf(LogKeys.DRAFT_ID to draftId), e)
             updateSubState(draftId, null, "Transcription failed: ${e.message}")
             Result.retry()
         }
@@ -98,8 +102,8 @@ class TranscriptionWorker @AssistedInject constructor(
         recordingRepository.updateProcessingStatus(id, newProcessing)
     }
 
-    private suspend fun performTranscription(file: File): String {
-        Log.d("TranscriptionWorker", "Processing file: ${file.name}")
+    private suspend fun performTranscription(file: File, draftId: String): String {
+        diagnosticLogger.debug(DiagnosticCategory.RECORDING, "TRANSCRIPTION_FILE_ANALYSIS", mapOf(LogKeys.DRAFT_ID to draftId, "fileName" to file.name))
         delay(3.seconds) // Simulate work
         val segments = listOf(
             TranscriptSegment(

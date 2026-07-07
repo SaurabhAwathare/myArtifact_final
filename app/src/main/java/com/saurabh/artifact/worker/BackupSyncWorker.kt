@@ -1,12 +1,14 @@
 package com.saurabh.artifact.worker
 
 import android.content.Context
-import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.google.firebase.storage.FirebaseStorage
 import com.saurabh.artifact.data.local.DraftDao
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.model.ProcessingStage
 import com.saurabh.artifact.model.ProcessingStatus
@@ -30,10 +32,12 @@ class BackupSyncWorker @AssistedInject constructor(
     private val backupEncryptionManager: BackupEncryptionManager,
     private val storage: FirebaseStorage,
     private val connectivityObserver: ConnectivityObserver,
+    private val diagnosticLogger: DiagnosticLogger
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
         val userId = authRepository.currentUser.value?.uid ?: return Result.failure()
+        diagnosticLogger.info(DiagnosticCategory.WORKMANAGER, "BACKUP_SYNC_STARTED")
         
         if (!connectivityObserver.isOnline()) {
             return Result.retry()
@@ -82,10 +86,16 @@ class BackupSyncWorker @AssistedInject constructor(
                 )
                 successCount++
             } catch (e: Exception) {
-                Log.e("BackupSyncWorker", "Failed to backup draft.")
+                diagnosticLogger.error(DiagnosticCategory.WORKMANAGER, "BACKUP_DRAFT_FAILED", mapOf(LogKeys.DRAFT_ID to draft.id), e)
             }
         }
 
-        return if (successCount == pendingDrafts.size) Result.success() else Result.retry()
+        return if (successCount == pendingDrafts.size) {
+            diagnosticLogger.info(DiagnosticCategory.WORKMANAGER, "BACKUP_SYNC_SUCCESS", mapOf("count" to successCount))
+            Result.success()
+        } else {
+            diagnosticLogger.warn(DiagnosticCategory.WORKMANAGER, "BACKUP_SYNC_PARTIAL_FAILURE", mapOf("success" to successCount, "total" to pendingDrafts.size))
+            Result.retry()
+        }
     }
 }

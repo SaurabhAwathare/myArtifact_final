@@ -1,7 +1,6 @@
 package com.saurabh.artifact.worker
 
 import android.content.Context
-import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
@@ -10,6 +9,9 @@ import com.saurabh.artifact.util.EncryptedStorageManager
 import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.audio.WavRecoveryManager
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.util.FileIntegrity
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -29,15 +31,18 @@ class TranscodingWorker @AssistedInject constructor(
     private val localDraftManager: LocalDraftManager,
     private val encryptedStorageManager: EncryptedStorageManager,
     private val wavRecoveryManager: WavRecoveryManager,
+    private val diagnosticLogger: DiagnosticLogger
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val draftId = inputData.getString(AudioNormalizationWorker.KEY_DRAFT_ID) ?: return@withContext Result.failure()
+        diagnosticLogger.info(DiagnosticCategory.RECORDING, "TRANSCODING_STARTED", mapOf(LogKeys.DRAFT_ID to draftId))
+        
         val draft = draftDao.getDraftById(draftId) ?: return@withContext Result.failure()
 
         val rawFile = draft.rawPcmPath?.let { File(it) } ?: return@withContext Result.failure()
         if (!rawFile.exists()) {
-            Log.e("TranscodingWorker", "Raw file missing for draft: $draftId")
+            diagnosticLogger.error(DiagnosticCategory.RECORDING, "TRANSCODING_RAW_FILE_MISSING", mapOf(LogKeys.DRAFT_ID to draftId))
             return@withContext Result.failure()
         }
 
@@ -45,7 +50,7 @@ class TranscodingWorker @AssistedInject constructor(
             // IDEMPOTENCY CHECK: If the artifact already exists and metadata is correct, skip
             val existingFile = File(draft.localAudioPath)
             if (existingFile.exists() && existingFile.length() > 0 && !draft.isEncrypted) {
-                Log.d("TranscodingWorker", "Idempotency Trigger: Optimized artifact already exists. Skipping.")
+                diagnosticLogger.info(DiagnosticCategory.RECORDING, "TRANSCODING_SKIP_IDEMPOTENT", mapOf(LogKeys.DRAFT_ID to draftId))
                 return@withContext Result.success()
             }
 
@@ -54,14 +59,14 @@ class TranscodingWorker @AssistedInject constructor(
             // 0. Defense-in-Depth: Validate and repair WAV header before transcoding
             val recoveryResult = wavRecoveryManager.recover(rawFile)
             if (recoveryResult == WavRecoveryManager.RecoveryResult.CORRUPTED) {
-                Log.e("TranscodingWorker", "Unrecoverable WAV header: CORRUPTED")
+                diagnosticLogger.error(DiagnosticCategory.RECORDING, "TRANSCODING_WAV_CORRUPTED", mapOf(LogKeys.DRAFT_ID to draftId))
                 updateDraftStatus(draftId, null, "Unrecoverable WAV header")
                 return@withContext Result.failure()
             }
 
             // 1. Transcode raw WAV to finalized location (Encrypted)
             val finalAudioFile = localDraftManager.createDraftFile(draftId, "m4a")
-            Log.d("TranscodingWorker", "Atmospheric Step: Refining audio essence (securing reflection)...")
+            diagnosticLogger.debug(DiagnosticCategory.RECORDING, "TRANSCODING_PROCESSING", mapOf(LogKeys.DRAFT_ID to draftId))
             transcodeAndEncrypt(rawFile, finalAudioFile)
             
             // 2. Metadata Extraction (Checksum)
@@ -69,7 +74,7 @@ class TranscodingWorker @AssistedInject constructor(
             
             // 2.1 ATOMICITY FIX: Verify generated file essence before DB commitment
             if (!finalAudioFile.exists() || finalAudioFile.length() == 0L) {
-                Log.e("TranscodingWorker", "Transcoding essence lost: Generated file missing or empty")
+                diagnosticLogger.error(DiagnosticCategory.RECORDING, "TRANSCODING_OUTPUT_EMPTY", mapOf(LogKeys.DRAFT_ID to draftId))
                 updateDraftStatus(draftId, null, "Transcoding output verification failed")
                 return@withContext Result.failure()
             }
@@ -84,15 +89,15 @@ class TranscodingWorker @AssistedInject constructor(
 
             // 4. Securely delete intermediate files (Cleanup only after DB success)
             if (rawFile.delete()) {
-                Log.d("TranscodingWorker", "Cleaned up intermediate WAV: ${rawFile.name}")
+                diagnosticLogger.debug(DiagnosticCategory.STORAGE, "TRANSCODING_CLEANUP_RAW", mapOf(LogKeys.DRAFT_ID to draftId))
             } else {
-                Log.w("TranscodingWorker", "Failed to delete intermediate WAV: ${rawFile.name}")
+                diagnosticLogger.warn(DiagnosticCategory.STORAGE, "TRANSCODING_CLEANUP_RAW_FAILED", mapOf(LogKeys.DRAFT_ID to draftId))
             }
 
-            Log.d("TranscodingWorker", "Transcoding complete: ${finalAudioFile.name}")
+            diagnosticLogger.info(DiagnosticCategory.RECORDING, "TRANSCODING_SUCCESS", mapOf(LogKeys.DRAFT_ID to draftId))
             Result.success()
         } catch (e: Exception) {
-            Log.e("TranscodingWorker", "Transcoding failed", e)
+            diagnosticLogger.error(DiagnosticCategory.RECORDING, "TRANSCODING_FAILED", mapOf(LogKeys.DRAFT_ID to draftId), e)
             updateDraftStatus(draftId, null, "Transcoding failed: ${e.message}")
             Result.retry()
         }

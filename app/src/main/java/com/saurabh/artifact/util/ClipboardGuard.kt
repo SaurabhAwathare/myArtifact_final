@@ -6,7 +6,8 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.os.Build
 import android.os.PersistableBundle
-import android.util.Log
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import kotlinx.coroutines.*
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -22,7 +23,9 @@ import kotlin.time.Duration.Companion.seconds
  * 3. Only clear if the clipboard still contains the original sensitive data.
  */
 @Singleton
-class ClipboardGuard @Inject constructor() {
+class ClipboardGuard @Inject constructor(
+    private val diagnosticLogger: DiagnosticLogger
+) {
 
     private val guardScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var clearJob: Job? = null
@@ -52,7 +55,7 @@ class ClipboardGuard @Inject constructor() {
         }
 
         clipboard.setPrimaryClip(clip)
-        Log.d("ClipboardGuard", "Sensitive data copied to clipboard. Scheduled for clearing in $autoClearDelay.")
+        diagnosticLogger.info(DiagnosticCategory.SECURITY, "CLIPBOARD_SENSITIVE_COPY", mapOf("delayMs" to autoClearDelay.inWholeMilliseconds))
 
         // Cancel any pending clear job to avoid race conditions
         clearJob?.cancel()
@@ -79,9 +82,9 @@ class ClipboardGuard @Inject constructor() {
                     // Fallback for older versions: set an empty clip
                     clipboard.setPrimaryClip(ClipData.newPlainText("", ""))
                 }
-                Log.d("ClipboardGuard", "Clipboard cleared automatically by security policy.")
+                diagnosticLogger.info(DiagnosticCategory.SECURITY, "CLIPBOARD_CLEARED_AUTO")
             } else {
-                Log.d("ClipboardGuard", "Clipboard clearing skipped: content has changed.")
+                diagnosticLogger.debug(DiagnosticCategory.SECURITY, "CLIPBOARD_CLEAR_SKIPPED_CONTENT_CHANGED")
             }
         }
     }

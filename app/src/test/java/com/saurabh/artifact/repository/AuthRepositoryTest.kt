@@ -11,6 +11,7 @@ import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.domain.auth.ProfileRepairService
 import io.mockk.*
 import kotlinx.coroutines.runBlocking
@@ -23,6 +24,7 @@ class AuthRepositoryTest {
     private val firestore = mockk<FirebaseFirestore>(relaxed = true)
     private val credentialManager = mockk<CredentialManager>(relaxed = true)
     private val profileRepairService = mockk<ProfileRepairService>(relaxed = true)
+    private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
 
     private lateinit var repository: AuthRepository
 
@@ -38,7 +40,8 @@ class AuthRepositoryTest {
             firebaseAuth = firebaseAuth,
             firestore = firestore,
             credentialManager = credentialManager,
-            profileRepairService = profileRepairService
+            profileRepairService = profileRepairService,
+            diagnosticLogger = diagnosticLogger
         )
     }
 
@@ -105,7 +108,7 @@ class AuthRepositoryTest {
         assert(result.isSuccess)
         
         verify { firebaseAuth.signOut() }
-        verify { Log.e("AuthRepository", "Failed to clear FCM token during sign out.", any()) }
+        verify { diagnosticLogger.error(any(), "FCM_TOKEN_CLEAR_FAILED", any(), any()) }
     }
 
     @Test
@@ -136,7 +139,7 @@ class AuthRepositoryTest {
 
         assert(result.isSuccess)
         verify { firebaseAuth.signOut() }
-        verify { Log.e("AuthRepository", any(), permissionDeniedException) }
+        verify { diagnosticLogger.error(any(), any(), any(), permissionDeniedException) }
     }
 
     @Test

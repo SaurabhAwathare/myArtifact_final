@@ -6,6 +6,7 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.gson.Gson
 import com.saurabh.artifact.data.local.PendingInteractionDao
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.service.ModerationService
 import com.saurabh.artifact.worker.InteractionSyncWorker
@@ -26,6 +27,7 @@ class CommentRepositoryQueueTest {
     private val moderationService = mockk<ModerationService>(relaxed = true)
     private val pendingInteractionDao = mockk<PendingInteractionDao>(relaxed = true)
     private val gson = Gson()
+    private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
 
     private lateinit var repository: CommentRepository
 
@@ -39,7 +41,7 @@ class CommentRepositoryQueueTest {
         every { InteractionSyncWorker.enqueue(any()) } just Runs
 
         repository = CommentRepository(
-            context, firestore, moderationService, pendingInteractionDao, gson
+            context, firestore, moderationService, pendingInteractionDao, gson, diagnosticLogger
         )
     }
 

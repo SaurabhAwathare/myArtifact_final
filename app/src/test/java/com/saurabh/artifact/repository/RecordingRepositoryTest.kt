@@ -9,6 +9,7 @@ import com.saurabh.artifact.audio.WavRecoveryManager
 import com.saurabh.artifact.audio.ArtifactCleanupManager
 import com.saurabh.artifact.audio.DraftDeletionManager
 import com.saurabh.artifact.data.local.AppDatabase
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.repository.UserRepository
 import io.mockk.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -29,6 +30,7 @@ class RecordingRepositoryTest {
     private val deletionManager = mockk<DraftDeletionManager>(relaxed = true)
     private val cleanupManager = mockk<ArtifactCleanupManager>(relaxed = true)
     private val draftsDatabase = mockk<AppDatabase>(relaxed = true)
+    private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
 
     private lateinit var repository: RecordingRepository
 
@@ -48,7 +50,8 @@ class RecordingRepositoryTest {
             wavRecoveryManager = wavRecoveryManager,
             deletionManager = deletionManager,
             cleanupManager = cleanupManager,
-            draftsDatabase = Lazy { draftsDatabase }
+            draftsDatabase = Lazy { draftsDatabase },
+            diagnosticLogger = diagnosticLogger
         )
     }
 

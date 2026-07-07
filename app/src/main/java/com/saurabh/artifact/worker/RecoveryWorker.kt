@@ -1,10 +1,12 @@
 package com.saurabh.artifact.worker
 
 import android.content.Context
-import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.repository.RecordingRepository
 import com.saurabh.artifact.security.DatabaseEncryptionManager
 import com.saurabh.artifact.domain.PublishingOrchestrator
@@ -23,24 +25,24 @@ class RecoveryWorker @AssistedInject constructor(
     @Assisted workerParams: WorkerParameters,
     private val recordingRepository: RecordingRepository,
     private val encryptionManager: DatabaseEncryptionManager,
-    private val publishingOrchestrator: PublishingOrchestrator
+    private val publishingOrchestrator: PublishingOrchestrator,
+    private val diagnosticLogger: DiagnosticLogger
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        diagnosticLogger.info(DiagnosticCategory.WORKMANAGER, "RECOVERY_SCAN_STARTED")
         try {
-            Log.d("RecoveryWorker", "Starting automated recovery scan...")
-            
             // Periodically refresh encryption metadata to ensure it uses the latest master key
             encryptionManager.refreshEncryptionMetadata()
 
             val recoveredResult = recordingRepository.recoverInterruptedDrafts()
             recoveredResult.onSuccess { recovered ->
                 if (recovered.isNotEmpty()) {
-                    Log.i("RecoveryWorker", "Successfully identified ${recovered.size} interrupted drafts. Evaluating recovery safeguards...")
+                    diagnosticLogger.info(DiagnosticCategory.RECORDING, "RECOVERY_IDENTIFIED_DRAFTS", mapOf("count" to recovered.size))
                     recovered.forEach { draft ->
                         // Idempotency: Only restart if work is NOT already active
                         if (!publishingOrchestrator.isProcessingActive(draft.id)) {
-                            Log.d("RecoveryWorker", "Triggering recovery for draft: ${draft.id}")
+                            diagnosticLogger.info(DiagnosticCategory.RECORDING, "RECOVERY_TRIGGERING_PIPELINE", mapOf(LogKeys.DRAFT_ID to draft.id))
                             
                             // Mark attempt to ensure cooldown is respected
                             recordingRepository.markRecoveryAttempt(draft.id)
@@ -48,14 +50,15 @@ class RecoveryWorker @AssistedInject constructor(
                             // Resume the pipeline
                             publishingOrchestrator.startProcessing(draft.id)
                         } else {
-                            Log.d("RecoveryWorker", "Recovery skipped for draft ${draft.id}: Processing already active.")
+                            diagnosticLogger.debug(DiagnosticCategory.RECORDING, "RECOVERY_SKIPPED_ALREADY_ACTIVE", mapOf(LogKeys.DRAFT_ID to draft.id))
                         }
                     }
                 }
             }
+            diagnosticLogger.info(DiagnosticCategory.WORKMANAGER, "RECOVERY_SCAN_SUCCESS")
             Result.success()
         } catch (e: Exception) {
-            Log.e("RecoveryWorker", "Recovery scan failed", e)
+            diagnosticLogger.error(DiagnosticCategory.WORKMANAGER, "RECOVERY_SCAN_FAILED", throwable = e)
             Result.retry()
         }
     }

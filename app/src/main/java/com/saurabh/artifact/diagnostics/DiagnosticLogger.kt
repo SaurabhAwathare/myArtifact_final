@@ -36,6 +36,9 @@ interface DiagnosticLogger {
     fun error(category: DiagnosticCategory, eventName: String, metadata: Map<String, Any> = emptyMap(), throwable: Throwable? = null) =
         log(category, eventName, Level.ERROR, metadata, throwable)
 
+    fun fatal(eventName: String, metadata: Map<String, Any> = emptyMap(), throwable: Throwable? = null) =
+        log(DiagnosticCategory.CRASH, eventName, Level.ERROR, metadata, throwable)
+
     /**
      * Measures the duration of a block of code and logs it.
      */

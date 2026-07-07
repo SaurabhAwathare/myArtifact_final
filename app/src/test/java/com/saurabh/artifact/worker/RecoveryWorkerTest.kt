@@ -9,6 +9,7 @@ import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.repository.RecordingRepository
 import com.saurabh.artifact.security.DatabaseEncryptionManager
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import io.mockk.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
@@ -40,7 +41,8 @@ class RecoveryWorkerTest {
             workerParams = workerParams,
             recordingRepository = recordingRepository,
             encryptionManager = encryptionManager,
-            publishingOrchestrator = publishingOrchestrator
+            publishingOrchestrator = publishingOrchestrator,
+            diagnosticLogger = mockk(relaxed = true)
         )
     }
 

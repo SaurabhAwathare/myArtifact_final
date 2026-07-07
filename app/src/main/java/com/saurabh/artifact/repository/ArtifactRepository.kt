@@ -46,7 +46,9 @@ import com.saurabh.artifact.model.UserReport
 import com.saurabh.artifact.model.Visibility
 import com.saurabh.artifact.service.PersonalizationEngine
 import com.saurabh.artifact.service.ReflectionAIService
-import com.saurabh.artifact.util.ArtifactLogger
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.data.local.ArtifactEntityWithIndex
 import com.saurabh.artifact.util.CoroutineExceptionHandlerUtils
 import com.saurabh.artifact.util.NetworkUtils
@@ -88,7 +90,8 @@ class ArtifactRepository @Inject constructor(
     private val settingsRepository: dagger.Lazy<SettingsRepository>,
     private val artifactDao: dagger.Lazy<ArtifactDao>,
     private val database: dagger.Lazy<AppDatabase>,
-    private val pendingInteractionDao: dagger.Lazy<PendingInteractionDao>
+    private val pendingInteractionDao: dagger.Lazy<PendingInteractionDao>,
+    private val diagnosticLogger: DiagnosticLogger
 ) {
     private val repositoryScope = CoroutineScope(
         SupervisorJob() + 
@@ -169,9 +172,9 @@ class ArtifactRepository @Inject constructor(
         val subscription = docRef.addSnapshotListener { snapshot, error ->
             if (error != null) {
                 if (error.code == com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED) {
-                    Log.w("ArtifactRepository", "Access denied for artifact $artifactId (likely private)")
+                    diagnosticLogger.warn(DiagnosticCategory.FIRESTORE, "ARTIFACT_OBSERVE_DENIED", mapOf(LogKeys.ARTIFACT_ID to artifactId))
                 } else {
-                    ArtifactLogger.e("ArtifactRepository", "Error observing artifact $artifactId", error)
+                    diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "ARTIFACT_OBSERVE_FAILED", mapOf(LogKeys.ARTIFACT_ID to artifactId), error)
                 }
                 trySend(null)
                 return@addSnapshotListener
@@ -197,7 +200,7 @@ class ArtifactRepository @Inject constructor(
                     if (System.currentTimeMillis() - local.lastUpdated < twoHoursMillis) {
                         return@withContext Result.success(mapArtifactEntityToArtifact(local))
                     } else {
-                        Log.d("ArtifactRepository", "Cache expired for $artifactId, refreshing from Firestore")
+                        diagnosticLogger.debug(DiagnosticCategory.DATABASE, "ARTIFACT_CACHE_EXPIRED", mapOf(LogKeys.ARTIFACT_ID to artifactId))
                     }
                 }
             }
@@ -272,7 +275,12 @@ class ArtifactRepository @Inject constructor(
             
             Result.success(results)
         } catch (e: Exception) {
-            ArtifactLogger.e("ArtifactRepository", "Batch fetch failed for ${ids.size} items", e)
+            diagnosticLogger.error(
+                DiagnosticCategory.FIRESTORE, 
+                "ARTIFACT_BATCH_FETCH_FAILED", 
+                mapOf("count" to ids.size), 
+                e
+            )
             Result.failure(AppError.from(e))
         }
     }
@@ -290,7 +298,7 @@ class ArtifactRepository @Inject constructor(
             }
             Result.success(reports)
         } catch (e: Exception) {
-            ArtifactLogger.e("ArtifactRepository", "Error fetching reports", e)
+            diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "FETCH_PENDING_REPORTS_FAILED", throwable = e)
             Result.failure(e)
         }
     }
@@ -330,7 +338,12 @@ class ArtifactRepository @Inject constructor(
             }.await()
             Result.success(Unit)
         } catch (e: Exception) {
-            ArtifactLogger.e("ArtifactRepository", "Error resolving report", e)
+            diagnosticLogger.error(
+                DiagnosticCategory.FIRESTORE, 
+                "REPORT_RESOLVE_FAILED", 
+                mapOf(LogKeys.ARTIFACT_ID to artifactId, "reportId" to reportId), 
+                e
+            )
             Result.failure(e)
         }
     }
@@ -426,7 +439,12 @@ class ArtifactRepository @Inject constructor(
 
             Result.success(Unit)
         } catch (e: Exception) {
-            ArtifactLogger.e("ArtifactRepository", "Private feedback failed", e)
+            diagnosticLogger.error(
+                DiagnosticCategory.FIRESTORE, 
+                "PRIVATE_FEEDBACK_FAILED", 
+                mapOf(LogKeys.ARTIFACT_ID to artifactId, "type" to type.name), 
+                e
+            )
             Result.failure(e)
         }
     }
@@ -484,7 +502,12 @@ class ArtifactRepository @Inject constructor(
                         .await()
                 }
             } catch (e: Exception) {
-                ArtifactLogger.e("ArtifactRepository", "Report metadata update failed", e)
+                diagnosticLogger.error(
+                    DiagnosticCategory.FIRESTORE, 
+                    "REPORT_METADATA_UPDATE_FAILED", 
+                    mapOf(LogKeys.ARTIFACT_ID to artifactId), 
+                    e
+                )
             }
 
             // 4. Update local Room DB for immediate hiding
@@ -500,12 +523,22 @@ class ArtifactRepository @Inject constructor(
                     }
                 }
             } catch (e: Exception) {
-                ArtifactLogger.e("ArtifactRepository", "Local moderation update failed", e)
+                diagnosticLogger.error(
+                    DiagnosticCategory.DATABASE, 
+                    "REPORT_LOCAL_SYNC_FAILED", 
+                    mapOf(LogKeys.ARTIFACT_ID to artifactId), 
+                    e
+                )
             }
                 
             Result.success(Unit)
         } catch (e: Exception) {
-            ArtifactLogger.e("ArtifactRepository", "Report submission failed", e)
+            diagnosticLogger.error(
+                DiagnosticCategory.FIRESTORE, 
+                "REPORT_SUBMISSION_FAILED", 
+                mapOf(LogKeys.ARTIFACT_ID to artifactId), 
+                e
+            )
             Result.failure(AppError.from(e))
         }
     }
@@ -647,7 +680,7 @@ class ArtifactRepository @Inject constructor(
             }.await()
             Result.success(Unit)
         } catch (e: Exception) {
-            ArtifactLogger.e("ArtifactRepository", "Error recording play", e)
+            diagnosticLogger.error(DiagnosticCategory.RESONANCE, "PLAY_RECORD_FAILED", mapOf("emotion" to emotion), e)
             Result.failure(AppError.from(e))
         }
     }
@@ -662,7 +695,7 @@ class ArtifactRepository @Inject constructor(
         shelf: String = "Stayed With Me"
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            Log.d("ArtifactRepository", "Saving artifact for user: $userId")
+            diagnosticLogger.debug(DiagnosticCategory.RESONANCE, "ARTIFACT_SAVE_QUEUED", mapOf(LogKeys.ARTIFACT_ID to artifact.id))
             
             // 1. Record pending interaction
             val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
@@ -680,7 +713,7 @@ class ArtifactRepository @Inject constructor(
 
             Result.success(Unit)
         } catch (e: Exception) {
-            ArtifactLogger.e("ArtifactRepository", "Failed to queue save for artifact ${artifact.id}", e)
+            diagnosticLogger.error(DiagnosticCategory.RESONANCE, "ARTIFACT_SAVE_QUEUE_FAILED", mapOf(LogKeys.ARTIFACT_ID to artifact.id), e)
             Result.failure(e)
         }
     }
@@ -691,7 +724,7 @@ class ArtifactRepository @Inject constructor(
      */
     suspend fun unsaveArtifact(userId: String, artifactId: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            Log.d("ArtifactRepository", "Unsaving artifact for user: $userId")
+            diagnosticLogger.debug(DiagnosticCategory.RESONANCE, "ARTIFACT_UNSAVE_QUEUED", mapOf(LogKeys.ARTIFACT_ID to artifactId))
             
             // 1. Record pending interaction
             val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
@@ -708,7 +741,7 @@ class ArtifactRepository @Inject constructor(
 
             Result.success(Unit)
         } catch (e: Exception) {
-            ArtifactLogger.e("ArtifactRepository", "Failed to queue unsave for artifact $artifactId", e)
+            diagnosticLogger.error(DiagnosticCategory.RESONANCE, "ARTIFACT_UNSAVE_QUEUE_FAILED", mapOf(LogKeys.ARTIFACT_ID to artifactId), e)
             Result.failure(e)
         }
     }
@@ -844,7 +877,7 @@ class ArtifactRepository @Inject constructor(
                 .build()
 
             while (true) {
-                Log.d("PUBLISH_TRACE", "Firebase upload started for ${draft.id}")
+                diagnosticLogger.info(DiagnosticCategory.STORAGE, "UPLOAD_STARTED", mapOf(LogKeys.DRAFT_ID to draft.id))
                 val loopResult: Result<String> = try {
                     withTimeout(5.minutes) {
                         val uploadTask = if (draft.uploadSessionUri != null) {
@@ -863,7 +896,7 @@ class ArtifactRepository @Inject constructor(
                             // Detect expired or invalid resumable session (404/410)
                             val httpCode = e.httpResultCode
                             if (draft.uploadSessionUri != null && (httpCode == 404 || httpCode == 410)) {
-                                Log.w("ArtifactRepository", "Resumable session expired (HTTP $httpCode). Clearing URI and restarting.")
+                                diagnosticLogger.warn(DiagnosticCategory.STORAGE, "UPLOAD_SESSION_EXPIRED", mapOf(LogKeys.DRAFT_ID to draft.id, "httpCode" to httpCode))
                                 // Clear the invalid session URI in the DB via DAO
                                 draftDao.get().updateSyncProgress(draft.id, 0, draft.totalBytes, null)
                                 
@@ -888,16 +921,16 @@ class ArtifactRepository @Inject constructor(
                     if (e is CancellationException) throw e
                     
                     if (!isTransientError(e)) {
-                        ArtifactLogger.e("ArtifactRepository", "Terminal upload failure: ${e.message}")
+                        diagnosticLogger.error(DiagnosticCategory.STORAGE, "UPLOAD_FAILED_TERMINAL", mapOf(LogKeys.DRAFT_ID to draft.id), e)
                         Result.failure(e)
                     } else {
                         currentRetry++
                         if (currentRetry > maxRetries) {
-                            ArtifactLogger.e("ArtifactRepository", "Max retries exceeded for transient error", e)
+                            diagnosticLogger.error(DiagnosticCategory.STORAGE, "UPLOAD_FAILED_MAX_RETRIES", mapOf(LogKeys.DRAFT_ID to draft.id), e)
                             Result.failure(e)
                         } else {
                             val delayTime = (2.0.pow(currentRetry.toDouble()).toLong() * 1000L)
-                            Log.w("ArtifactRepository", "Upload attempt $currentRetry failed, retrying in $delayTime ms", e)
+                            diagnosticLogger.warn(DiagnosticCategory.STORAGE, "UPLOAD_RETRYING", mapOf(LogKeys.DRAFT_ID to draft.id, "retry" to currentRetry, "delayMs" to delayTime))
                             delay(delayTime.milliseconds)
                             continue // Loop again
                         }
@@ -908,7 +941,7 @@ class ArtifactRepository @Inject constructor(
             @Suppress("UNREACHABLE_CODE")
             Result.failure(IllegalStateException("Unreachable"))
         } catch (e: Exception) {
-            ArtifactLogger.e("ArtifactRepository", "Resumable upload failed", e)
+            diagnosticLogger.error(DiagnosticCategory.STORAGE, "UPLOAD_FAILED_WRAPPER", mapOf(LogKeys.DRAFT_ID to draft.id), e)
             Result.failure(e)
         }
     }
@@ -928,7 +961,7 @@ class ArtifactRepository @Inject constructor(
             try {
                 return ref.downloadUrl.await().toString()
             } catch (_: Exception) {
-                Log.w("ArtifactRepository", "Metadata fetch attempt ${attempt + 1} failed, retrying...")
+                diagnosticLogger.warn(DiagnosticCategory.STORAGE, "DOWNLOAD_URL_FETCH_RETRYING", mapOf("attempt" to attempt + 1))
                 delay((attempt + 1).seconds)
             }
         }
@@ -946,14 +979,14 @@ class ArtifactRepository @Inject constructor(
     ): Result<String> = withContext(Dispatchers.IO) {
         return@withContext try {
             // HARDENING: Audit Snapshot before persistence
-            Log.d("ArtifactRepository", "Pre-registering Firestore document for ${draft.id} | Author: ${author.name} (${author.sigil})")
+            diagnosticLogger.debug(DiagnosticCategory.FIRESTORE, "ARTIFACT_DOCUMENT_PRE_REGISTER", mapOf(LogKeys.DRAFT_ID to draft.id))
             
             // 1. Recover Transcript from Frozen Snapshot
             val transcript = draft.frozenTranscriptJson?.toUnsecureString()?.let { json ->
                 try {
                     kotlinx.serialization.json.Json.decodeFromString<List<TranscriptSegment>>(json)
                 } catch (e: Exception) {
-                    ArtifactLogger.e("ArtifactRepository", "Failed to decode frozen transcript", e)
+                    diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "TRANSCRIPT_DECODE_FAILED", mapOf(LogKeys.DRAFT_ID to draft.id), e)
                     emptyList()
                 }
             } ?: emptyList()
@@ -1005,7 +1038,7 @@ class ArtifactRepository @Inject constructor(
 
             Result.success(draft.id)
         } catch (e: Exception) {
-            ArtifactLogger.e("ArtifactRepository", "Firestore write failed", e)
+            diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "ARTIFACT_DOCUMENT_CREATE_FAILED", mapOf(LogKeys.DRAFT_ID to draft.id), e)
             Result.failure(e)
         }
     }
@@ -1033,7 +1066,7 @@ class ArtifactRepository @Inject constructor(
                 .update(updates).await()
             Result.success(Unit)
         } catch (e: Exception) {
-            ArtifactLogger.e("ArtifactRepository", "Failed to finalize artifact $artifactId", e)
+            diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "ARTIFACT_DOCUMENT_FINALIZE_FAILED", mapOf(LogKeys.ARTIFACT_ID to artifactId), e)
             Result.failure(e)
         }
     }
@@ -1056,7 +1089,7 @@ class ArtifactRepository @Inject constructor(
             val downloadUrl = fileRef.downloadUrl.await().toString()
             Result.success(downloadUrl)
         } catch (e: Exception) {
-            ArtifactLogger.e("ArtifactRepository", "Transcript upload failed", e)
+            diagnosticLogger.error(DiagnosticCategory.STORAGE, "TRANSCRIPT_UPLOAD_FAILED", mapOf(LogKeys.DRAFT_ID to draftId), e)
             Result.failure(e)
         }
     }
@@ -1069,7 +1102,7 @@ class ArtifactRepository @Inject constructor(
             val transcript = kotlinx.serialization.json.Json.decodeFromString<List<TranscriptSegment>>(json)
             Result.success(transcript)
         } catch (e: Exception) {
-            ArtifactLogger.e("ArtifactRepository", "Failed to fetch transcript from $url", e)
+            diagnosticLogger.error(DiagnosticCategory.STORAGE, "TRANSCRIPT_FETCH_FAILED", mapOf("url" to url), e)
             Result.failure(e)
         }
     }
@@ -1112,7 +1145,7 @@ class ArtifactRepository @Inject constructor(
 
             Result.success(Unit)
         } catch (e: Exception) {
-            ArtifactLogger.e("ArtifactRepository", "Rename failed", e)
+            diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "ARTIFACT_RENAME_FAILED", mapOf(LogKeys.ARTIFACT_ID to artifactId), e)
             Result.failure(e)
         }
     }
@@ -1129,7 +1162,7 @@ class ArtifactRepository @Inject constructor(
                 .get().await()
             settingsDoc.getBoolean("isAdmin") == true
         } catch (e: Exception) {
-            ArtifactLogger.e("ArtifactRepository", "Failed to check admin status", e)
+            diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "ADMIN_CHECK_FAILED", throwable = e)
             false
         }
     }
@@ -1147,7 +1180,7 @@ class ArtifactRepository @Inject constructor(
             val doc = artifactRef.get().await()
             
             if (!doc.exists()) {
-                Log.w("ArtifactRepository", "Artifact $artifactId not found in Firestore.")
+                diagnosticLogger.warn(DiagnosticCategory.FIRESTORE, "ARTIFACT_DELETE_NOT_FOUND", mapOf(LogKeys.ARTIFACT_ID to artifactId))
                 return@withContext Result.success(Unit)
             }
             
@@ -1155,7 +1188,7 @@ class ArtifactRepository @Inject constructor(
             val isAdmin = isCurrentUserAdmin()
             
             if (ownerId != currentUserId && !isAdmin) {
-                Log.w("ArtifactRepository", "Unauthorized soft-deletion attempt for $artifactId by $currentUserId")
+                diagnosticLogger.warn(DiagnosticCategory.FIRESTORE, "ARTIFACT_DELETE_UNAUTHORIZED", mapOf(LogKeys.ARTIFACT_ID to artifactId, LogKeys.USER_ID to currentUserId))
                 return@withContext Result.failure(Exception("Unauthorized: You do not own this reflection"))
             }
             
@@ -1166,7 +1199,7 @@ class ArtifactRepository @Inject constructor(
                 transaction.update(artifactRef, "deletedAt", FieldValue.serverTimestamp())
             }.await()
             
-            Log.d("ArtifactRepository", "Artifact $artifactId soft-deleted.")
+            diagnosticLogger.info(DiagnosticCategory.FIRESTORE, "ARTIFACT_SOFT_DELETED", mapOf(LogKeys.ARTIFACT_ID to artifactId))
 
             // 2. Decrement artifactsCount
             userRepository.get().decrementArtifactsCount(currentUserId)
@@ -1178,12 +1211,12 @@ class ArtifactRepository @Inject constructor(
                 // Also clear from Drafts if orphaned
                 draftDao.get().getDraftByArtifactId(artifactId)?.let { draftDao.get().deleteById(it.id) }
             } catch (e: Exception) {
-                ArtifactLogger.e("ArtifactRepository", "Local sync failed after soft-delete", e)
+                diagnosticLogger.error(DiagnosticCategory.DATABASE, "ARTIFACT_DELETE_LOCAL_SYNC_FAILED", mapOf(LogKeys.ARTIFACT_ID to artifactId), e)
             }
 
             Result.success(Unit)
         } catch (e: Exception) {
-            ArtifactLogger.e("ArtifactRepository", "Soft delete failure for $artifactId", e)
+            diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "ARTIFACT_DELETE_FAILED", mapOf(LogKeys.ARTIFACT_ID to artifactId), e)
             Result.failure(e)
         }
     }
@@ -1251,9 +1284,9 @@ class ArtifactRepository @Inject constructor(
                 color = snapshot.avatarColor,
                 configJson = kotlinx.serialization.json.Json.encodeToString(snapshot.avatarConfig)
             )
-            Log.d("ArtifactRepository", "Local author snapshot updated for $userId")
+            diagnosticLogger.debug(DiagnosticCategory.DATABASE, "AUTHOR_SNAPSHOT_UPDATED", mapOf(LogKeys.USER_ID to userId))
         } catch (e: Exception) {
-            Log.e("ArtifactRepository", "Failed to update local author snapshot", e)
+            diagnosticLogger.error(DiagnosticCategory.DATABASE, "AUTHOR_SNAPSHOT_UPDATE_FAILED", mapOf(LogKeys.USER_ID to userId), e)
         }
     }
 }

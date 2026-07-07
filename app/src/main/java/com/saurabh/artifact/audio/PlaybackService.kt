@@ -30,6 +30,7 @@ import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.EngagementRepository
 import javax.inject.Inject
@@ -64,7 +65,7 @@ class PlaybackService : MediaLibraryService() {
     @androidx.annotation.OptIn(UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
-        Log.d("PlaybackService", "onCreate - Initializing MediaSession")
+        diagnosticLogger.info(DiagnosticCategory.PLAYER, "SERVICE_CREATE_STARTED")
         
         attributionContext = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
             createAttributionContext("media_playback")
@@ -86,7 +87,7 @@ class PlaybackService : MediaLibraryService() {
 
     @androidx.annotation.OptIn(UnstableApi::class)
     private fun initializeSession() {
-        Log.d("PlaybackService", "Initializing ExoPlayer and MediaSession")
+        diagnosticLogger.debug(DiagnosticCategory.PLAYER, "SESSION_INIT_STARTED")
         
         val dataSourceFactory = SmartDataSourceFactory(attributionContext)
         
@@ -119,7 +120,7 @@ class PlaybackService : MediaLibraryService() {
         // Wait for basic metadata to be ready before attaching to session
         player.addListener(object : Player.Listener {
             override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
-                Log.d("PlaybackService", "Metadata updated for session sync: ${mediaMetadata.title}")
+                diagnosticLogger.trace(DiagnosticCategory.PLAYER, "METADATA_UPDATED", mapOf("title" to (mediaMetadata.title ?: "null")))
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -258,13 +259,14 @@ class PlaybackService : MediaLibraryService() {
                                 pos,
                             )
                             val duration = android.os.SystemClock.elapsedRealtime() - startTime
-                            Log.d("PlaybackService", "onPlaybackResumption - Success in ${duration}ms for ${artifacts.size} items")
+                            diagnosticLogger.info(DiagnosticCategory.PLAYER, "RESUMPTION_SUCCESS", mapOf(LogKeys.DURATION_MS to duration, "count" to artifacts.size))
                             completer.set(result)
                         } else {
+                            diagnosticLogger.warn(DiagnosticCategory.PLAYER, "RESUMPTION_NO_ITEMS")
                             completer.setException(Exception("No items to resume"))
                         }
                     } catch (e: Exception) {
-                        Log.e("PlaybackService", "onPlaybackResumption - Failed", e)
+                        diagnosticLogger.error(DiagnosticCategory.PLAYER, "RESUMPTION_FAILED", throwable = e)
                         completer.setException(e)
                     }
                 }
@@ -317,7 +319,7 @@ class PlaybackService : MediaLibraryService() {
             
             override fun onPostConnect(session: MediaSession, controller: MediaSession.ControllerInfo) {
                 super.onPostConnect(session, controller)
-                Log.d("PlaybackService", "Controller connected: ${controller.packageName}")
+                diagnosticLogger.debug(DiagnosticCategory.PLAYER, "CONTROLLER_CONNECTED", mapOf("packageName" to controller.packageName))
             }
         }
 
@@ -372,7 +374,7 @@ class PlaybackService : MediaLibraryService() {
     }
 
     override fun onDestroy() {
-        Log.d("PlaybackService", "onDestroy - Releasing resources")
+        diagnosticLogger.info(DiagnosticCategory.PLAYER, "SERVICE_DESTROY_INVOKED")
         serviceScope.cancel()
         mediaSession?.run {
             player.release()

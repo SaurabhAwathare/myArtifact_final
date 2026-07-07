@@ -1,6 +1,5 @@
 package com.saurabh.artifact.ui.login
 
-import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.saurabh.artifact.auth.CredentialHelper

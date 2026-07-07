@@ -9,6 +9,8 @@ import com.google.crypto.tink.Aead
 import com.google.crypto.tink.KeyTemplates
 import com.google.crypto.tink.aead.AeadConfig
 import com.google.crypto.tink.integration.android.AndroidKeysetManager
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.startup.StartupComponent
 import com.saurabh.artifact.startup.StartupCoordinator
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -30,7 +32,8 @@ private val Context.dataStore by preferencesDataStore(name = "db_encryption_pref
 @Singleton
 class DatabaseEncryptionManager @Inject constructor(
     @param:ApplicationContext private val context: Context,
-    private val startupCoordinator: StartupCoordinator
+    private val startupCoordinator: StartupCoordinator,
+    private val diagnosticLogger: DiagnosticLogger
 ) {
     private val googleAEAD: Aead by lazy {
         AeadConfig.register()
@@ -64,7 +67,7 @@ class DatabaseEncryptionManager @Inject constructor(
                     
                     // VALIDATION: Check if this passphrase can actually open the database
                     if (!validatePassphrase(passphrase)) {
-                        android.util.Log.e("DatabaseEncryption", "Passphrase validation failed, attempting recovery")
+                        diagnosticLogger.error(DiagnosticCategory.SECURITY, "DB_PASSPHRASE_VALIDATION_FAILED")
                         // If validation fails, it might be a genuinely corrupted DB or wrong key.
                         // We generate a new one, but keep the old DB renamed.
                         generateAndStoreNewPassphrase()
@@ -72,7 +75,7 @@ class DatabaseEncryptionManager @Inject constructor(
                         passphrase
                     }
                 } catch (e: Exception) {
-                    android.util.Log.e("DatabaseEncryption", "Decryption failed: ${e.message}", e)
+                    diagnosticLogger.error(DiagnosticCategory.SECURITY, "DB_DECRYPTION_FAILED", throwable = e)
                     // If decryption fails (e.g., keyset changed), generate new one
                     generateAndStoreNewPassphrase()
                 }
@@ -97,10 +100,10 @@ class DatabaseEncryptionManager @Inject constructor(
             runBlocking {
                 saveEncryptedPassphrase(currentPassphrase)
             }
-            android.util.Log.i("DatabaseEncryption", "Encryption metadata refreshed")
+            diagnosticLogger.info(DiagnosticCategory.SECURITY, "DB_ENCRYPTION_METADATA_REFRESHED")
             Result.success(Unit)
         } catch (e: Exception) {
-            android.util.Log.e("DatabaseEncryption", "Refresh failed", e)
+            diagnosticLogger.error(DiagnosticCategory.SECURITY, "DB_ENCRYPTION_METADATA_REFRESH_FAILED", throwable = e)
             Result.failure(e)
         }
     }
@@ -139,7 +142,7 @@ class DatabaseEncryptionManager @Inject constructor(
             }
             true
         } catch (e: Exception) {
-            android.util.Log.e("DatabaseEncryption", "Database validation error: ${e.message}")
+            diagnosticLogger.error(DiagnosticCategory.SECURITY, "DB_VALIDATION_ERROR", throwable = e)
             false
         }
     }
@@ -172,10 +175,10 @@ class DatabaseEncryptionManager @Inject constructor(
                 renameFile(File(dbFile.absolutePath + "-shm"), timestamp)
                 renameFile(File(dbFile.absolutePath + "-wal"), timestamp)
                 
-                android.util.Log.w("DatabaseEncryption", "Renamed corrupted database to ${corruptedDbFile.name}")
+                diagnosticLogger.warn(DiagnosticCategory.SECURITY, "DB_CORRUPTED_RENAMED", mapOf("newName" to corruptedDbFile.name))
             }
         } catch (e: Exception) {
-            android.util.Log.e("DatabaseEncryption", "Failed to rename corrupted database", e)
+            diagnosticLogger.error(DiagnosticCategory.SECURITY, "DB_RENAME_FAILED", throwable = e)
         }
     }
 

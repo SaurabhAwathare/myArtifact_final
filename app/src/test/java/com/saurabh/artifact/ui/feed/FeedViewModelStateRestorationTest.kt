@@ -18,6 +18,7 @@ import com.saurabh.artifact.service.FeedComposer
 import com.saurabh.artifact.service.FeedSeparatorMapper
 import com.saurabh.artifact.service.PersonalizationEngine
 import com.saurabh.artifact.security.UploadGuard
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.startup.StartupCoordinator
 import com.saurabh.artifact.util.MemoryManager
 import io.mockk.*
@@ -55,17 +56,12 @@ class FeedViewModelStateRestorationTest {
     private val getFeedFlowUseCase = mockk<GetFeedFlowUseCase>(relaxed = true)
     private val getPersonalizedFeedFlowUseCase = mockk<GetPersonalizedFeedFlowUseCase>(relaxed = true)
     private val getReflectionPromptUseCase = mockk<GetReflectionPromptUseCase>(relaxed = true)
+    private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
 
     private val testDispatcher = StandardTestDispatcher()
 
     @Before
     fun setup() {
-        mockkStatic(android.util.Log::class)
-        every { android.util.Log.d(any<String>(), any<String>()) } returns 0
-        every { android.util.Log.w(any<String>(), any<String>()) } returns 0
-        every { android.util.Log.e(any<String>(), any<String>()) } returns 0
-        every { android.util.Log.e(any<String>(), any<String>(), any<Throwable>()) } returns 0
-        
         Dispatchers.setMain(testDispatcher)
         
         every { authRepository.currentUser } returns MutableStateFlow(null)
@@ -106,7 +102,8 @@ class FeedViewModelStateRestorationTest {
             feedSeparatorMapper = feedSeparatorMapper,
             getFeedFlowUseCase = getFeedFlowUseCase,
             getPersonalizedFeedFlowUseCase = getPersonalizedFeedFlowUseCase,
-            getReflectionPromptUseCase = getReflectionPromptUseCase
+            getReflectionPromptUseCase = getReflectionPromptUseCase,
+            diagnosticLogger = diagnosticLogger
         )
     }
 

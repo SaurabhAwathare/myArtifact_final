@@ -1,7 +1,6 @@
 package com.saurabh.artifact.repository
 
 import android.content.Context
-import android.util.Log
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
@@ -16,6 +15,7 @@ import com.saurabh.artifact.data.local.PendingInteractionDao
 import com.saurabh.artifact.data.local.PendingInteractionEntity
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.service.ModerationService
 import com.saurabh.artifact.worker.InteractionSyncWorker
@@ -104,7 +104,7 @@ class CommentRepository @Inject constructor(
         } catch (e: Exception) {
             // Fallback for offline: if fetching artifactDoc fails, we can't reliably get ownerId
             // but for Phase 20A we maintain the current requirement of knowing the owner for security rules.
-            Log.e("CommentRepository", "Failed to queue reflection", e)
+            diagnosticLogger.error(DiagnosticCategory.COMMENTS, "REFLECTION_QUEUE_FAILED", mapOf(LogKeys.ARTIFACT_ID to artifactId), e)
             Result.failure(AppError.from(e))
         }
     }
@@ -213,8 +213,7 @@ class CommentRepository @Inject constructor(
             diagnosticLogger.info(DiagnosticCategory.RESONANCE, "REACTION_ADDED", mapOf("commentId" to commentId, "type" to type.id))
             Result.success(Unit)
         } catch (e: Exception) {
-            diagnosticLogger.error(DiagnosticCategory.RESONANCE, "REACTION_FAILED", mapOf("commentId" to commentId, "type" to type.id), e)
-            Log.e("CommentRepository", "Failed to queue comment reaction", e)
+            diagnosticLogger.error(DiagnosticCategory.RESONANCE, "REACTION_FAILED", mapOf(LogKeys.COMMENT_ID to commentId, "type" to type.id), e)
             Result.failure(AppError.from(e))
         }
     }

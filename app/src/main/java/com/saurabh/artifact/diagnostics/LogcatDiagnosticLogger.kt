@@ -1,6 +1,7 @@
 package com.saurabh.artifact.diagnostics
 
 import android.util.Log
+import com.google.firebase.crashlytics.FirebaseCrashlytics
 import com.saurabh.artifact.BuildConfig
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -37,12 +38,43 @@ class LogcatDiagnosticLogger @Inject constructor(
         val logMessage = formatLog(event, throwable)
         val tag = "Artifact_${category.name}"
 
+        // Always log to Logcat based on levels
         when (level) {
             DiagnosticLogger.Level.TRACE -> Log.v(tag, logMessage)
             DiagnosticLogger.Level.DEBUG -> Log.d(tag, logMessage)
             DiagnosticLogger.Level.INFO -> Log.i(tag, logMessage)
             DiagnosticLogger.Level.WARN -> Log.w(tag, logMessage, throwable)
             DiagnosticLogger.Level.ERROR -> Log.e(tag, logMessage, throwable)
+        }
+
+        // Route to Crashlytics in non-debug builds
+        if (!BuildConfig.DEBUG) {
+            recordToCrashlytics(event, level, logMessage, throwable)
+        }
+    }
+
+    private fun recordToCrashlytics(
+        event: DiagnosticEvent,
+        level: DiagnosticLogger.Level,
+        logMessage: String,
+        throwable: Throwable?
+    ) {
+        val crashlytics = FirebaseCrashlytics.getInstance()
+        
+        // Log the message to Crashlytics log buffer
+        crashlytics.log("${level.name}/Artifact_${event.category.name}: $logMessage")
+
+        // Record exceptions for WARN and ERROR levels
+        if (level >= DiagnosticLogger.Level.WARN) {
+            // Set context keys for the next crash/non-fatal
+            crashlytics.setCustomKey("last_event_category", event.category.name)
+            crashlytics.setCustomKey("last_event_name", event.eventName)
+            event.metadata.forEach { (key, value) ->
+                crashlytics.setCustomKey("meta_$key", value.toString())
+            }
+
+            val exception = throwable ?: Exception("Non-fatal ${level.name}: ${event.eventName}")
+            crashlytics.recordException(exception)
         }
     }
 

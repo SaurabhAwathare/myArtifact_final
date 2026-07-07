@@ -13,6 +13,7 @@ import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.CommentRepository
 import com.saurabh.artifact.repository.UserRepository
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.security.UploadGuard
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
@@ -38,6 +39,7 @@ class CommentViewModelTest {
     private val uploadGuard = mockk<UploadGuard>(relaxed = true)
     private val commentUnlockPolicy = mockk<CommentUnlockPolicy>(relaxed = true)
     private val commentMerger = mockk<CommentMerger>(relaxed = true)
+    private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
 
     private lateinit var viewModel: CommentViewModel
     private val testDispatcher = StandardTestDispatcher()
@@ -47,11 +49,6 @@ class CommentViewModelTest {
 
     @Before
     fun setup() {
-        mockkStatic(android.util.Log::class)
-        every { android.util.Log.d(any<String>(), any<String>()) } returns 0
-        every { android.util.Log.e(any<String>(), any<String>(), any<Throwable>()) } returns 0
-        every { android.util.Log.w(any<String>(), any<String>()) } returns 0
-
         Dispatchers.setMain(testDispatcher)
         every { auth.currentUserId } returns "user789"
         every { commentUnlockPolicy.minCoverage } returns 0.95f
@@ -62,7 +59,7 @@ class CommentViewModelTest {
 
         viewModel = CommentViewModel(
             context, repository, artifactRepository, auth, userRepository,
-            getEngagementStateUseCase, reviewAuthorityService, uploadGuard, commentUnlockPolicy, commentMerger
+            getEngagementStateUseCase, reviewAuthorityService, uploadGuard, commentUnlockPolicy, commentMerger, diagnosticLogger
         )
     }
 
@@ -116,7 +113,7 @@ class CommentViewModelTest {
         // Create new ViewModel instance (simulating process recreation)
         val newViewModel = CommentViewModel(
             context, repository, artifactRepository, auth, userRepository,
-            getEngagementStateUseCase, reviewAuthorityService, uploadGuard, commentUnlockPolicy, commentMerger
+            getEngagementStateUseCase, reviewAuthorityService, uploadGuard, commentUnlockPolicy, commentMerger, diagnosticLogger
         )
         
         newViewModel.loadComments(artifactId, ownerId)

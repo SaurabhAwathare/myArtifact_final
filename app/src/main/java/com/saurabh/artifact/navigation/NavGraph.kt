@@ -1,14 +1,16 @@
 package com.saurabh.artifact.navigation
 
-import android.util.Log
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import com.saurabh.artifact.audio.RecordingSessionManager
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.navigation.features.authNavigation
 import com.saurabh.artifact.navigation.features.feedNavigation
 import com.saurabh.artifact.navigation.features.profileNavigation
@@ -26,20 +28,21 @@ fun NavGraph(
     onReportArtifact: (String) -> Unit,
     onPlayArtifactById: (String) -> Unit,
     playerViewModel: PlayerViewModel,
-    onDestinationChanged: (String?) -> Unit = {}
+    onDestinationChanged: (String?) -> Unit = {},
+    diagnosticLogger: DiagnosticLogger
 ) {
     // Stability access via VisualTier to avoid top-level invalidation of the NavHost
     val isStable = com.saurabh.artifact.ui.theme.ArtifactTheme.isStable
 
-    Log.d("NAV_DEBUG", "NavGraph rendering. Start destination = $startDestination")
+    diagnosticLogger.debug(DiagnosticCategory.NAVIGATION, "NAV_GRAPH_RENDERING", mapOf("startDestination" to startDestination.javaClass.simpleName))
 
     androidx.compose.runtime.LaunchedEffect(navController) {
         navController.addOnDestinationChangedListener { _, destination, _ ->
-            Log.d("NAV_TRACE", "Current destination = ${destination.route}")
+            diagnosticLogger.info(DiagnosticCategory.NAVIGATION, "DESTINATION_CHANGED", mapOf("route" to (destination.route ?: "null")))
         }
         navController.currentBackStackEntryFlow.collect { entry ->
             val route = entry.destination.route
-            Log.d("NAV_DEBUG", "Current route = $route")
+            diagnosticLogger.debug(DiagnosticCategory.NAVIGATION, "ROUTE_OBSERVED", mapOf("route" to (route ?: "null")))
             onDestinationChanged(route)
         }
     }
@@ -76,9 +79,9 @@ fun NavGraph(
             )
         }
     ) {
-        authNavigation(navController, onboardingManager)
-        feedNavigation(navController, recordingSessionManager, onReportArtifact, onPlayArtifactById)
-        profileNavigation(navController, playerViewModel)
-        recordingNavigation(navController)
+        authNavigation(navController, onboardingManager, diagnosticLogger)
+        feedNavigation(navController, recordingSessionManager, onReportArtifact, onPlayArtifactById, diagnosticLogger)
+        profileNavigation(navController, playerViewModel, diagnosticLogger)
+        recordingNavigation(navController, diagnosticLogger)
     }
 }

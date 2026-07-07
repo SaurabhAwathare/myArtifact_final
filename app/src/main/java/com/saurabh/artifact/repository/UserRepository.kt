@@ -16,10 +16,11 @@ import com.saurabh.artifact.util.SecureString
 import com.saurabh.artifact.util.UsernameGenerator
 import com.saurabh.artifact.data.local.UserDao
 import com.saurabh.artifact.data.local.UserLocalEntity
-import android.util.Log
 import android.content.Context
 import com.saurabh.artifact.worker.IdentitySyncWorker
-import com.saurabh.artifact.util.ArtifactLogger
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.diagnostics.LogKeys
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.serialization.decodeFromString
 import kotlinx.coroutines.Dispatchers
@@ -48,7 +49,8 @@ class UserRepository @Inject constructor(
     private val identityProtectionPolicy: com.saurabh.artifact.domain.IdentityProtectionPolicy,
     private val profileRepairService: com.saurabh.artifact.domain.auth.ProfileRepairService,
     private val registrationCoordinator: Lazy<com.saurabh.artifact.domain.auth.RegistrationCoordinator>,
-    private val pendingInteractionDao: Lazy<com.saurabh.artifact.data.local.PendingInteractionDao>
+    private val pendingInteractionDao: Lazy<com.saurabh.artifact.data.local.PendingInteractionDao>,
+    private val diagnosticLogger: DiagnosticLogger
 ) {
     private val usersCollection = firestore.collection("users")
     private val usernamesCollection = firestore.collection("usernames")
@@ -133,7 +135,7 @@ class UserRepository @Inject constructor(
 
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("UserRepository", "createUsername failed: userId=$userId, username=$username", e)
+            diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "USERNAME_CREATE_FAILED", mapOf(LogKeys.USER_ID to userId, "username" to username), e)
             Result.failure(AppError.from(e))
         }
     }
@@ -148,7 +150,7 @@ class UserRepository @Inject constructor(
             val doc = usernamesCollection.document(username.lowercase().trim()).get().await()
             Result.success(!doc.exists())
         } catch (e: Exception) {
-            Log.e("UserRepository", "Error checking username availability", e)
+            diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "USERNAME_AVAILABILITY_CHECK_FAILED", mapOf("username" to username), e)
             Result.failure(AppError.from(e))
         }
     }
@@ -163,7 +165,7 @@ class UserRepository @Inject constructor(
                     initialUser.reload().await()
                 }
             } catch (e: Exception) {
-                Log.w("UserRepository", "Failed to reload user or timeout reached", e)
+                diagnosticLogger.warn(DiagnosticCategory.AUTH, "USER_RELOAD_FAILED", mapOf(LogKeys.USER_ID to initialUser.uid), e)
                 if (e !is kotlinx.coroutines.TimeoutCancellationException) {
                     auth.signOut()
                     return@withContext Result.failure(AppError.from(e))
@@ -180,7 +182,7 @@ class UserRepository @Inject constructor(
                     val snapshot = transaction[userRef]
                     
                     if (snapshot.exists()) {
-                        Log.d("UserRepository", "User exists, validating schema...")
+                        diagnosticLogger.debug(DiagnosticCategory.FIRESTORE, "USER_PROFILE_EXISTS", mapOf(LogKeys.USER_ID to currentUser.uid))
                         
                         val (user, needsRepair) = profileRepairService.loadAndRepair(snapshot)
                         
@@ -246,15 +248,15 @@ class UserRepository @Inject constructor(
             try {
                 userDao.get().insertProfile(mapUserToLocal(profileResult.user))
             } catch (e: Exception) {
-                Log.e("UserRepository", "Failed to cache user profile locally", e)
+                diagnosticLogger.error(DiagnosticCategory.DATABASE, "USER_PROFILE_CACHE_FAILED", mapOf(LogKeys.USER_ID to profileResult.user.id), e)
             }
 
             Result.success(profileResult)
         } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
-            Log.e("APP_FLOW", "REGISTRATION_FAILED: TIMEOUT", e)
+            diagnosticLogger.error(DiagnosticCategory.AUTH, "REGISTRATION_TIMEOUT", throwable = e)
             Result.failure(AppError.from(e))
         } catch (e: Exception) {
-            Log.e("APP_FLOW", "REGISTRATION_FAILED", e)
+            diagnosticLogger.error(DiagnosticCategory.AUTH, "REGISTRATION_FAILED", throwable = e)
             Result.failure(AppError.from(e))
         }
     }
@@ -268,7 +270,7 @@ class UserRepository @Inject constructor(
         return@withContext try {
             userDao.get().getProfile(currentUserId)?.let { mapLocalToUser(it) }
         } catch (e: Exception) {
-            Log.e("UserRepository", "Error fetching cached profile", e)
+            diagnosticLogger.error(DiagnosticCategory.DATABASE, "USER_PROFILE_FETCH_CACHED_FAILED", mapOf(LogKeys.USER_ID to currentUserId), e)
             null
         }
     }
@@ -308,7 +310,7 @@ class UserRepository @Inject constructor(
     fun streamUserProfile(userId: String?): Flow<User?> = callbackFlow {
         // 1. Defensive Validation
         if (userId.isNullOrBlank()) {
-            Log.w("UserRepository", "streamUserProfile: Received null/blank userId. Emitting null.")
+            diagnosticLogger.warn(DiagnosticCategory.FIRESTORE, "USER_PROFILE_STREAM_MISSING_ID")
             trySend(null)
             close()
             return@callbackFlow
@@ -318,7 +320,7 @@ class UserRepository @Inject constructor(
         val docRef = try {
             usersCollection.document(userId.trim())
         } catch (e: Exception) {
-            Log.e("UserRepository", "streamUserProfile: Invalid path for userId.")
+            diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "USER_PROFILE_STREAM_INVALID_PATH", mapOf(LogKeys.USER_ID to userId), e)
             trySend(null)
             close(e)
             return@callbackFlow
@@ -327,7 +329,7 @@ class UserRepository @Inject constructor(
         // 3. Listener Implementation
         val registration = docRef.addSnapshotListener { snapshot, error ->
             if (error != null) {
-                Log.e("UserRepository", "Error streaming profile.")
+                diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "USER_PROFILE_STREAM_FAILED", mapOf(LogKeys.USER_ID to userId), error)
                 // HARDENING: If it's a permanent error (Permission Denied), we emit null and close.
                 // However, we MUST trySend(null) first to unblock any 'combine' operators.
                 trySend(null)
@@ -342,22 +344,22 @@ class UserRepository @Inject constructor(
                     val (user, _) = profileRepairService.loadAndRepair(snapshot)
                     trySend(user)
                 } catch (e: Exception) {
-                    Log.e("UserRepository", "Parsing error for user $userId", e)
+                    diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "USER_PROFILE_STREAM_PARSE_ERROR", mapOf(LogKeys.USER_ID to userId), e)
                     trySend(null)
                 }
             } else {
-                Log.i("UserRepository", "User profile $userId does not exist or was deleted.")
+                diagnosticLogger.info(DiagnosticCategory.FIRESTORE, "USER_PROFILE_NOT_FOUND", mapOf(LogKeys.USER_ID to userId))
                 trySend(null)
             }
         }
 
         // 4. Graceful Cleanup
         awaitClose {
-            Log.d("UserRepository", "Closing stream for $userId")
+            diagnosticLogger.debug(DiagnosticCategory.FIRESTORE, "USER_PROFILE_STREAM_CLOSED", mapOf(LogKeys.USER_ID to userId))
             registration.remove()
         }
     }.catch { e ->
-        Log.e("UserRepository", "Flow crashed in streamUserProfile", e)
+        diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "USER_PROFILE_STREAM_CRASHED", throwable = e)
         emit(null)
     }
 
@@ -383,10 +385,10 @@ class UserRepository @Inject constructor(
             pendingInteractionDao.get().insert(pending)
             com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
             
-            ArtifactLogger.i("UserRepository", "Follow interaction queued locally for $targetUserId")
+            diagnosticLogger.info(DiagnosticCategory.RESONANCE, "FOLLOW_QUEUED", mapOf("targetUserId" to targetUserId))
             Result.success(Unit)
         } catch (e: Exception) {
-            ArtifactLogger.e("UserRepository", "Failed to queue follow interaction", e)
+            diagnosticLogger.error(DiagnosticCategory.RESONANCE, "FOLLOW_QUEUE_FAILED", mapOf("targetUserId" to targetUserId), e)
             Result.failure(e)
         }
     }
@@ -412,10 +414,10 @@ class UserRepository @Inject constructor(
             pendingInteractionDao.get().insert(pending)
             com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
             
-            ArtifactLogger.i("UserRepository", "Unfollow interaction queued locally for $targetUserId")
+            diagnosticLogger.info(DiagnosticCategory.RESONANCE, "UNFOLLOW_QUEUED", mapOf("targetUserId" to targetUserId))
             Result.success(Unit)
         } catch (e: Exception) {
-            ArtifactLogger.e("UserRepository", "Failed to queue unfollow interaction", e)
+            diagnosticLogger.error(DiagnosticCategory.RESONANCE, "UNFOLLOW_QUEUE_FAILED", mapOf("targetUserId" to targetUserId), e)
             Result.failure(e)
         }
     }
@@ -438,10 +440,10 @@ class UserRepository @Inject constructor(
                 "version" to 1
             )).await()
             
-            ArtifactLogger.i("UserRepository", "Follow intent created for $targetUserId")
+            diagnosticLogger.info(DiagnosticCategory.RESONANCE, "FOLLOW_INTENT_CREATED", mapOf("targetUserId" to targetUserId))
             Result.success(Unit)
         } catch (e: Exception) {
-            ArtifactLogger.e("UserRepository", "Failed to create follow intent", e)
+            diagnosticLogger.error(DiagnosticCategory.RESONANCE, "FOLLOW_INTENT_FAILED", mapOf("targetUserId" to targetUserId), e)
             Result.failure(e)
         }
     }
@@ -459,10 +461,10 @@ class UserRepository @Inject constructor(
             
             intentRef.delete().await()
             
-            ArtifactLogger.i("UserRepository", "Follow intent removed for $targetUserId")
+            diagnosticLogger.info(DiagnosticCategory.RESONANCE, "FOLLOW_INTENT_REMOVED", mapOf("targetUserId" to targetUserId))
             Result.success(Unit)
         } catch (e: Exception) {
-            ArtifactLogger.e("UserRepository", "Failed to remove follow intent", e)
+            diagnosticLogger.error(DiagnosticCategory.RESONANCE, "FOLLOW_INTENT_REMOVE_FAILED", mapOf("targetUserId" to targetUserId), e)
             Result.failure(e)
         }
     }
@@ -549,9 +551,10 @@ class UserRepository @Inject constructor(
                 // userId = userId,
                 // message = "AVATAR_UPDATED"
             // )
+            diagnosticLogger.info(DiagnosticCategory.AUTH, "AVATAR_CONFIG_UPDATED", mapOf(LogKeys.USER_ID to userId))
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("UserRepository", "updateAvatarConfig failed", e)
+            diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "AVATAR_CONFIG_UPDATE_FAILED", mapOf(LogKeys.USER_ID to userId), e)
             Result.failure(AppError.from(e))
         }
     }
@@ -624,7 +627,7 @@ class UserRepository @Inject constructor(
                     userDao.get().insertProfile(mapUserToLocal(updatedUser))
                 }
             } catch (e: Exception) {
-                Log.e("UserRepository", "Local profile cache update failed during emergency reset", e)
+                diagnosticLogger.error(DiagnosticCategory.DATABASE, "EMERGENCY_RESET_CACHE_FAILED", mapOf(LogKeys.USER_ID to userId), e)
             }
 
             // Zero-Trust: Notification handled by backend (optional/future)
@@ -645,15 +648,16 @@ class UserRepository @Inject constructor(
                     "version" to newVersion
                 )).await()
             } catch (e: Exception) {
-                Log.e("UserRepository", "Moderation audit logging failed during emergency reset", e)
+                diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "EMERGENCY_RESET_AUDIT_FAILED", mapOf(LogKeys.USER_ID to userId), e)
             }
 
             // Trigger global identity synchronization (supersede any existing propagation)
             IdentitySyncWorker.enqueue(context, userId, newVersion, androidx.work.ExistingWorkPolicy.REPLACE)
 
+            diagnosticLogger.info(DiagnosticCategory.AUTH, "EMERGENCY_RESET_SUCCESS", mapOf(LogKeys.USER_ID to userId, "version" to newVersion))
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("UserRepository", "emergencyIdentityReset failed", e)
+            diagnosticLogger.error(DiagnosticCategory.AUTH, "EMERGENCY_RESET_FAILED", mapOf(LogKeys.USER_ID to userId), e)
             Result.failure(AppError.from(e))
         }
     }
@@ -682,7 +686,7 @@ class UserRepository @Inject constructor(
 
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("UserRepository", "reportIdentityExposure failed", e)
+            diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "IDENTITY_EXPOSURE_REPORT_FAILED", mapOf("reporterId" to reporterId, "reportedUserId" to reportedUserId), e)
             Result.failure(e)
         }
     }
@@ -701,7 +705,7 @@ class UserRepository @Inject constructor(
 
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("UserRepository", "blockUser failed", e)
+            diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "BLOCK_USER_FAILED", mapOf(LogKeys.USER_ID to userId, "targetUserId" to targetUserId), e)
             Result.failure(AppError.from(e))
         }
     }
@@ -750,7 +754,7 @@ class UserRepository @Inject constructor(
 
                 Result.success(orderedUsers to snapshot.documents.lastOrNull())
             } catch (e: Exception) {
-                Log.e("UserRepository", "getResonanceUsers failed for $userId ($type)", e)
+                diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "RESONANCE_USERS_FETCH_FAILED", mapOf(LogKeys.USER_ID to userId, "type" to type), e)
                 Result.failure(e)
             }
         }
@@ -763,7 +767,7 @@ class UserRepository @Inject constructor(
         try {
             usersCollection.document(userId).update("artifactsCount", FieldValue.increment(1)).await()
         } catch (e: Exception) {
-            Log.e("UserRepository", "Failed to increment artifactsCount for $userId", e)
+            diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "INCREMENT_ARTIFACTS_COUNT_FAILED", mapOf(LogKeys.USER_ID to userId), e)
         }
     }
 
@@ -774,7 +778,7 @@ class UserRepository @Inject constructor(
         try {
             usersCollection.document(userId).update("artifactsCount", FieldValue.increment(-1)).await()
         } catch (e: Exception) {
-            Log.e("UserRepository", "Failed to decrement artifactsCount for $userId", e)
+            diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "DECREMENT_ARTIFACTS_COUNT_FAILED", mapOf(LogKeys.USER_ID to userId), e)
         }
     }
 }

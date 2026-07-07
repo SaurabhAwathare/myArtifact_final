@@ -1,9 +1,11 @@
 package com.saurabh.artifact.ui.recording
 
-import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.audio.RecordingSessionManager
 import com.saurabh.artifact.data.local.RecordingStatus
 import com.saurabh.artifact.data.local.UserSessionManager
@@ -24,7 +26,8 @@ class RecordingViewModel @Inject constructor(
     private val promptRepository: PromptRepository,
     private val userSessionManager: UserSessionManager,
     private val recordingSessionManager: RecordingSessionManager,
-    private val savedStateHandle: SavedStateHandle
+    private val savedStateHandle: SavedStateHandle,
+    private val diagnosticLogger: DiagnosticLogger
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(RecordingUiState())
@@ -41,7 +44,7 @@ class RecordingViewModel @Inject constructor(
 
     init {
         if (authRepository.currentUser.value == null) {
-            Log.w("AuthGuard", "RecordingViewModel init blocked: User is null.")
+            diagnosticLogger.warn(DiagnosticCategory.AUTH, "RECORDING_BLOCKED_AUTH", mapOf("reason" to "USER_NULL"))
         } else {
             loadPrompts()
             observeRecordingSession()
@@ -141,7 +144,7 @@ class RecordingViewModel @Inject constructor(
                 ) }
 
                 if (state.status == RecordingStatus.COMPLETED && state.draftId.isNotEmpty()) {
-                    Log.d("RecordingViewModel", "Recording finalized via Manager. Draft ID: ${state.draftId}")
+                    diagnosticLogger.info(DiagnosticCategory.RECORDING, "RECORDING_FINALIZED", mapOf(LogKeys.DRAFT_ID to state.draftId))
                     viewModelScope.launch {
                         _navigationEvents.send(state.draftId)
                     }
@@ -159,7 +162,7 @@ class RecordingViewModel @Inject constructor(
 
     fun startRecording() {
         viewModelScope.launch {
-            Log.d("RecordingViewModel", "Auto-starting recording session via RecordingSessionManager")
+            diagnosticLogger.debug(DiagnosticCategory.RECORDING, "RECORDING_AUTO_START")
             recordingSessionManager.startNewSession()
         }
     }

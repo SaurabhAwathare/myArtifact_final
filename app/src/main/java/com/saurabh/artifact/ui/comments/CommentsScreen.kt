@@ -55,6 +55,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.model.ArtifactComment
 import com.saurabh.artifact.model.AvatarConfig
 import com.saurabh.artifact.model.ReactionType
@@ -77,16 +79,18 @@ fun CommentsScreen(
     onBack: () -> Unit,
     viewModel: CommentViewModel = hiltViewModel()
 ) {
-    android.util.Log.d("ReviewDebug", "CommentsScreen entering Composition for artifactId=$artifactId")
+    val logger = ArtifactTheme.logger
+    logger.trace(DiagnosticCategory.COMMENTS, "COMMENTS_SCREEN_COMPOSITION", mapOf(LogKeys.ARTIFACT_ID to artifactId))
+    
     val uiState by viewModel.uiState.collectAsState()
     var reportingCommentId by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(uiState.engagementStatus) {
-        android.util.Log.d("ReviewDebug", "UI Compose observed engagementStatus change: ${uiState.engagementStatus}")
+        logger.debug(DiagnosticCategory.COMMENTS, "ENGAGEMENT_STATUS_CHANGED", mapOf("status" to uiState.engagementStatus.name))
     }
 
     LaunchedEffect(artifactId, ownerId) {
-        android.util.Log.d("ReviewDebug", "CommentsScreen LaunchedEffect triggered for artifactId=$artifactId")
+        logger.debug(DiagnosticCategory.COMMENTS, "COMMENTS_LOAD_TRIGGERED", mapOf(LogKeys.ARTIFACT_ID to artifactId))
         viewModel.loadComments(artifactId, ownerId)
     }
 

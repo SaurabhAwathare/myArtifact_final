@@ -3,7 +3,6 @@ package com.saurabh.artifact
 import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
-import android.util.Log
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -44,6 +43,7 @@ import com.saurabh.artifact.ui.splash.SplashUI
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.theme.LocalStartupStage
 import com.saurabh.artifact.ui.theme.LocalUserProfile
+import com.saurabh.artifact.ui.theme.LocalDiagnosticLogger
 import com.saurabh.artifact.ui.theme.Obsidian950
 import com.saurabh.artifact.util.OnboardingManager
 import dagger.Lazy
@@ -54,6 +54,9 @@ import javax.inject.Inject
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     private val mainViewModel: MainViewModel by viewModels()
+
+    @Inject
+    lateinit var diagnosticLogger: Lazy<com.saurabh.artifact.diagnostics.DiagnosticLogger>
 
     @Inject
     lateinit var recordingSessionManager: Lazy<RecordingSessionManager>
@@ -70,14 +73,13 @@ class MainActivity : ComponentActivity() {
             mainViewModel.startupState.value is AppStartupState.Initializing
         }
 
-        Log.d("ReviewDebug", "MainActivity onCreate - APP STARTED")
+        diagnosticLogger.get().info(com.saurabh.artifact.diagnostics.DiagnosticCategory.APP, "MAIN_ACTIVITY_CREATED")
         
         // SIMULATE CRASH LOOP for verification
         // throw RuntimeException("Test Crash for Rescue Mode")
 
         // Ensure logs are flushed
-        Log.i("ReviewDebug", "Checking if log level INFO works")
-        Log.d("APP_FLOW", "1. MainActivity.onCreate")
+        diagnosticLogger.get().debug(com.saurabh.artifact.diagnostics.DiagnosticCategory.APP, "MAIN_ACTIVITY_ONCREATE_STARTED")
         
         if (savedInstanceState == null) {
             mainViewModel.onLaunchIntent(intent)
@@ -91,13 +93,14 @@ class MainActivity : ComponentActivity() {
         observeSecurityFlags()
 
         setContent {
-            Log.d("APP_FLOW", "2. Compose Root setContent")
+            diagnosticLogger.get().debug(com.saurabh.artifact.diagnostics.DiagnosticCategory.APP, "MAIN_ACTIVITY_SET_CONTENT_STARTED")
             
             ArtifactTheme {
                 AppRoot(
                     mainViewModel = mainViewModel, 
                     recordingSessionManager = recordingSessionManager.get(),
                     onboardingManager = onboardingManager.get(),
+                    diagnosticLogger = diagnosticLogger.get()
                 )
             }
         }
@@ -126,25 +129,28 @@ fun AppRoot(
     mainViewModel: MainViewModel,
     recordingSessionManager: RecordingSessionManager,
     onboardingManager: OnboardingManager,
+    diagnosticLogger: com.saurabh.artifact.diagnostics.DiagnosticLogger
 ) {
     // Only collect the essential stage at the root
     val stage by mainViewModel.startupStage.collectAsStateWithLifecycle()
     val userProfile by mainViewModel.currentUserProfile.collectAsStateWithLifecycle()
 
     SideEffect {
-        Log.d("PERF_DEBUG", "AppRoot Recomposed. Stage: $stage")
+        diagnosticLogger.trace(com.saurabh.artifact.diagnostics.DiagnosticCategory.PERFORMANCE, "APP_ROOT_RECOMPOSED", mapOf("stage" to stage.name))
     }
 
     CompositionLocalProvider(
         LocalStartupStage provides stage,
-        LocalUserProfile provides userProfile
+        LocalUserProfile provides userProfile,
+        LocalDiagnosticLogger provides diagnosticLogger
     ) {
         // Defer more expensive state collection until we are past Presence
         AuthenticatedIsland(
             stage = stage,
             mainViewModel = mainViewModel,
             recordingSessionManager = recordingSessionManager,
-            onboardingManager = onboardingManager
+            onboardingManager = onboardingManager,
+            diagnosticLogger = diagnosticLogger
         )
     }
 }
@@ -154,14 +160,15 @@ fun AuthenticatedIsland(
     stage: StartupStage,
     mainViewModel: MainViewModel,
     recordingSessionManager: RecordingSessionManager,
-    onboardingManager: OnboardingManager
+    onboardingManager: OnboardingManager,
+    diagnosticLogger: com.saurabh.artifact.diagnostics.DiagnosticLogger
 ) {
     val startupState by mainViewModel.startupState.collectAsStateWithLifecycle()
     val playerViewModel: PlayerViewModel = hiltViewModel()
 
     // Debug logging for startup state
     LaunchedEffect(startupState) {
-        Log.d("STARTUP_DEBUG", "startupState = $startupState")
+        diagnosticLogger.debug(com.saurabh.artifact.diagnostics.DiagnosticCategory.STARTUP, "STARTUP_STATE_CHANGED", mapOf("state" to startupState.javaClass.simpleName))
     }
 
     when (startupState) {
@@ -213,7 +220,8 @@ fun AuthenticatedIsland(
                         onReportArtifact = { mainViewModel.showReportSheet(it) },
                         onPlayArtifactById = { playerViewModel.playArtifactById(it, PlaybackSource.FEED_PLAYBACK) },
                         playerViewModel = playerViewModel,
-                        onDestinationChanged = { mainViewModel.updateSecurityStatus(it) }
+                        onDestinationChanged = { mainViewModel.updateSecurityStatus(it) },
+                        diagnosticLogger = diagnosticLogger
                     )
 
                     // Global Overlay Management

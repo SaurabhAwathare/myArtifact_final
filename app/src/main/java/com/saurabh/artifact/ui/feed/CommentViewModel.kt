@@ -106,7 +106,7 @@ class CommentViewModel @Inject constructor(
 
     @OptIn(ExperimentalCoroutinesApi::class)
     fun loadComments(artifactId: String, ownerId: String) {
-        android.util.Log.d("ReviewDebug", "loadComments called for artifactId=$artifactId")
+        diagnosticLogger.debug(DiagnosticCategory.COMMENTS, "COMMENT_LOAD_STARTED", mapOf("artifactId" to artifactId))
         
         collectionJob?.cancel()
         collectionJob = viewModelScope.launch {

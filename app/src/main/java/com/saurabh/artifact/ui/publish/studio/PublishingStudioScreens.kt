@@ -1,6 +1,5 @@
 package com.saurabh.artifact.ui.publish.studio
 
-import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
@@ -25,6 +24,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.model.Emotion
 import com.saurabh.artifact.ui.components.EmotionSelector
 import com.saurabh.artifact.ui.player.components.PlaybackControls
@@ -42,22 +43,23 @@ fun PublishingStudioScreen(
     onCancel: () -> Unit,
     viewModel: PublishingStudioViewModel = hiltViewModel()
 ) {
+    val logger = ArtifactTheme.logger
     val sessionState by viewModel.sessionState.collectAsState()
 
     LaunchedEffect(draftId) {
-        Log.d("LIFECYCLE_TRACE", "PublishingStudioScreen: LaunchedEffect(draftId=$draftId)")
+        logger.trace(DiagnosticCategory.STUDIO, "STUDIO_SCREEN_LAUNCHED", mapOf(LogKeys.DRAFT_ID to draftId))
         viewModel.loadDraft(draftId)
     }
 
     LaunchedEffect(sessionState.isSuccess) {
         if (sessionState.isSuccess && !sessionState.isQueuedOffline) {
-            Log.d("NAV_TRACE", "PublishingStudioScreen: sessionState.isSuccess -> onFinish()")
+            logger.info(DiagnosticCategory.PUBLISH, "STUDIO_SUCCESS_NAVIGATE")
             onFinish()
         }
     }
 
     BackHandler {
-        Log.d("NAV_TRACE", "PublishingStudioScreen: BackHandler triggered. currentStep=${sessionState.currentStep}")
+        logger.debug(DiagnosticCategory.NAVIGATION, "STUDIO_BACK_TRIGGERED", mapOf("step" to sessionState.currentStep.name))
         if (sessionState.currentStep == StudioStep.REVIEW) {
             onCancel()
         } else {

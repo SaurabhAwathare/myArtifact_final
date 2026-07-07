@@ -10,6 +10,7 @@ import com.saurabh.artifact.repository.ReactionRepository
 import com.saurabh.artifact.repository.UserRepository
 import com.saurabh.artifact.repository.EngagementRepository
 import com.saurabh.artifact.repository.CommentRepository
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.util.ArtifactLogger
 import com.saurabh.artifact.util.NetworkUtils
 import io.mockk.*
@@ -36,6 +37,7 @@ class InteractionSyncWorkerRecoveryTest {
     private val firebaseUser = mockk<FirebaseUser>()
     private val workerParams = mockk<WorkerParameters>(relaxed = true)
     private val gson = Gson()
+    private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
 
     private lateinit var worker: InteractionSyncWorker
 
@@ -68,7 +70,8 @@ class InteractionSyncWorkerRecoveryTest {
             userRepository = userRepository,
             engagementRepository = engagementRepository,
             commentRepository = commentRepository,
-            gson = gson
+            gson = gson,
+            diagnosticLogger = diagnosticLogger
         )
     }
 
