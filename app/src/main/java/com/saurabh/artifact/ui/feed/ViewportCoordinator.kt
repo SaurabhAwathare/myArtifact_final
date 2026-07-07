@@ -38,6 +38,10 @@ fun ViewportCoordinator(
                     val key = item.key as? String ?: return@forEach
                     if (key.startsWith("header") || key.startsWith("break")) return@forEach
 
+                    // Normalize ID by removing UI-specific prefixes (e.g., "unf_" for unfinished items)
+                    // This prevents UI-specific keys from leaking into the data layer.
+                    val artifactId = key.removePrefix("unf_")
+
                     // Calculate distance from center to determine priority
                     val itemCenter = item.offset + (item.size / 2)
                     val distanceFromCenter = abs(itemCenter - viewportCenter)
@@ -45,7 +49,7 @@ fun ViewportCoordinator(
                     val level = when {
                         // The most centered item gets FULL hydration
                         distanceFromCenter < item.size / 2 -> {
-                            currentViewModel.onArtifactFocused(key) // Trigger heavy data load
+                            currentViewModel.onArtifactFocused(artifactId) // Trigger heavy data load with canonical ID
                             HydrationLevel.FULL
                         }
                         // Immediately visible items get ENRICHED
@@ -54,8 +58,13 @@ fun ViewportCoordinator(
                         else -> HydrationLevel.METADATA
                     }
                     
-                    updates[key] = level
-                    currentViewModel.hydrateArtifact(key) // Mark as basic hydrated
+                    // Use canonical ID instead of UI-specific key for hydration state.
+                    // This ensures state is shared across all visual instances of the same artifact.
+                    val currentLevel = updates[artifactId] ?: HydrationLevel.SHELL
+                    if (level > currentLevel) {
+                        updates[artifactId] = level
+                    }
+                    currentViewModel.hydrateArtifact(artifactId) // Mark as basic hydrated with canonical ID
                 }
                 
                 if (updates.isNotEmpty()) {
