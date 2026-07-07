@@ -31,6 +31,7 @@ class TitleBufferTest {
     private val identityScout = mockk<IdentityScout>(relaxed = true)
     private val authRepository = mockk<AuthRepository>(relaxed = true)
     private val workManager = mockk<androidx.work.WorkManager>(relaxed = true)
+    private val diagnosticLogger = mockk<com.saurabh.artifact.diagnostics.DiagnosticLogger>(relaxed = true)
 
     private val testDispatcher = StandardTestDispatcher()
 
@@ -77,7 +78,8 @@ class TitleBufferTest {
             publishArtifactUseCase,
             identityScout,
             authRepository,
-            workManager
+            workManager,
+            diagnosticLogger
         )
 
         val draftId = "test-draft"
