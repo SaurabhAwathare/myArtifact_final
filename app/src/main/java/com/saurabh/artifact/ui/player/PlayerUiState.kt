@@ -7,7 +7,7 @@ import com.saurabh.artifact.model.*
  */
 data class PlayerUiState(
     val currentArtifact: PlayerArtifact? = null,
-    val internalOwnerId: String = "", // Compatibility field for creator actions and CommentsScreen
+    val internalOwnerId: String = "", // Compatibility field for creator actions
     val currentPlayableArtifact: PlayableArtifact? = null,
     val loadState: PlayerLoadState = PlayerLoadState.IDLE,
     val isPlaying: Boolean = false,
@@ -17,7 +17,6 @@ data class PlayerUiState(
     val playbackSpeed: Float = 1.0f,
     val playbackProgress: Float = 0f, // Actual current position (0.0 to 1.0)
     val listeningProgress: Float = 0f, // Furthest point reached (0.0 to 1.0)
-    val engagementStatus: EngagementStatus = EngagementStatus.LOCKED,
     val error: String? = null,
     val isExpanded: Boolean = false,
     val playerMode: PlayerMode = PlayerMode.HIDDEN,
@@ -32,21 +31,19 @@ data class PlayerUiState(
     val saveSyncStatus: InteractionSyncStatus = InteractionSyncStatus.SYNCED,
     val isOwner: Boolean = false,
     val resonanceSummary: String = "",
-    val commentCount: Long = 0,
     
     // Advanced Controls State
     val isSilenceSkipEnabled: Boolean = false,
     val sleepTimerMillisRemaining: Long? = null,
     val currentTranscriptSegment: TranscriptSegment? = null,
     val showAdvancedControls: Boolean = false,
-    val showComments: Boolean = false,
 
     // Review Mode State (Phase 1)
     val coveragePercent: Float = 0f,
     val isThresholdMet: Boolean = false,
     val isPlaybackEnded: Boolean = false,
     
-    // Unlock Requirements (Policy-driven)
+    // Requirements (Policy-driven)
     val requiredCoverage: Float = 0.95f,
     val isReachedEndRequired: Boolean = true
 )

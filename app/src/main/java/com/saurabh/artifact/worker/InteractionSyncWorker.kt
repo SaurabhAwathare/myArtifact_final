@@ -19,14 +19,10 @@ import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.domain.review.EngagementSyncPayload
 import com.saurabh.artifact.data.local.*
 import com.saurabh.artifact.model.ReactionType
-import com.saurabh.artifact.model.CommentSyncPayload
-import com.saurabh.artifact.domain.review.comments.CommentUnlockPolicy
-import com.saurabh.artifact.domain.review.comments.CommentUnlockValidator
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.ReactionRepository
 import com.saurabh.artifact.repository.UserRepository
 import com.saurabh.artifact.repository.EngagementRepository
-import com.saurabh.artifact.repository.CommentRepository
 import com.saurabh.artifact.diagnostics.logInteraction
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -44,9 +40,6 @@ class InteractionSyncWorker @AssistedInject constructor(
     private val artifactRepository: ArtifactRepository,
     private val userRepository: UserRepository,
     private val engagementRepository: EngagementRepository,
-    private val commentRepository: CommentRepository,
-    private val commentUnlockValidator: CommentUnlockValidator,
-    private val commentUnlockPolicy: CommentUnlockPolicy,
     private val gson: Gson,
     private val diagnosticLogger: DiagnosticLogger
 ) : CoroutineWorker(appContext, workerParams) {
@@ -185,9 +178,7 @@ class InteractionSyncWorker @AssistedInject constructor(
     private fun isCollapsible(type: String): Boolean {
         return type == InteractionType.SAVE || 
                type == InteractionType.REACTION || 
-               type == InteractionType.FOLLOW ||
-               type == InteractionType.ENGAGEMENT ||
-               type == InteractionType.COMMENT_REACTION
+               type == InteractionType.FOLLOW
     }
 
     /**
@@ -223,42 +214,6 @@ class InteractionSyncWorker @AssistedInject constructor(
                     } else {
                         userRepository.syncUnfollowFromFirestore(userId, targetUserId)
                     }
-                }
-                InteractionType.ENGAGEMENT -> {
-                    val payloadJson = interaction.metadata ?: throw Exception("Engagement metadata missing")
-                    val payload = gson.fromJson(payloadJson, EngagementSyncPayload::class.java)
-                    engagementRepository.syncEngagementToFirestore(userId, payload)
-                }
-                InteractionType.COMMENT -> {
-                    val payloadJson = interaction.metadata ?: throw Exception("Comment metadata missing")
-                    val payload = gson.fromJson(payloadJson, CommentSyncPayload::class.java)
-                    val syncResult = commentRepository.syncCommentToFirestore(userId, payload)
-                    
-                    if (syncResult.isFailure) {
-                        val error = syncResult.exceptionOrNull()
-                        if (error is FirebaseFirestoreException && error.code.name == "PERMISSION_DENIED") {
-                            // Check local evidence of eligibility
-                            val engagement = engagementRepository.getEngagement(payload.artifactId).getOrNull()
-                            val isEligibleLocally = engagement?.let { 
-                                commentUnlockValidator.validate(it, commentUnlockPolicy).isValid 
-                            } ?: false
-
-                            if (isEligibleLocally) {
-                                diagnosticLogger.info(DiagnosticCategory.SYNC, "COMMENT_SYNC_RETRY_PENDING_UNLOCK", mapOf("artifactId" to payload.artifactId))
-                                // Evidence exists locally; likely a propagation race.
-                                throw com.saurabh.artifact.model.AppError.NetworkFailure(
-                                    technicalMessage = "Waiting for comment unlock propagation"
-                                )
-                            } else {
-                                diagnosticLogger.warn(DiagnosticCategory.SYNC, "COMMENT_SYNC_PERMANENT_DENIED", mapOf("artifactId" to payload.artifactId))
-                            }
-                        }
-                    }
-                    syncResult
-                }
-                InteractionType.COMMENT_REACTION -> {
-                    val type = interaction.metadata?.let { ReactionType.fromId(it) } ?: ReactionType.I_HEAR_YOU
-                    commentRepository.syncCommentReactionToFirestore(interaction.artifactId, type)
                 }
                 else -> throw Exception("Unknown interaction type: ${interaction.interactionType}")
             }

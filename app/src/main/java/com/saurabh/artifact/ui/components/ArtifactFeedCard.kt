@@ -61,7 +61,7 @@ fun ArtifactFeedCard(
             onPlayClick = onPlayClick,
             isBuffering = isBuffering,
             hydrationLevel = hydrationLevel,
-            currentPosition = if (feedArtifact.isUnfinished && !isPlaying) feedArtifact.lastPositionMs else currentPosition,
+            currentPosition = currentPosition,
             durationMs = feedArtifact.artifact.durationMs,
             onReportClick = onReportClick,
             onDeleteClick = onDeleteClick,

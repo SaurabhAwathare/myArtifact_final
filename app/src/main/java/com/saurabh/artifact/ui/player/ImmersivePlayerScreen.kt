@@ -52,7 +52,6 @@ fun ImmersivePlayerScreen(
     onSeek: (Float) -> Unit,
     onScrubbing: (Float) -> Unit = {},
     onShowAdvanced: () -> Unit,
-    onCommentClick: () -> Unit,
     onResonateClick: (com.saurabh.artifact.model.ReactionType) -> Unit = {},
     onResonateConnectionClick: () -> Unit = {},
     onSaveClick: () -> Unit = {},
@@ -63,15 +62,10 @@ fun ImmersivePlayerScreen(
 ) {
     var showTranscript by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
-    var showUnlockGuidance by remember { mutableStateOf(false) }
     
     // 0. System Back Handling
     BackHandler {
-        if (showUnlockGuidance) {
-            showUnlockGuidance = false
-        } else {
-            onCollapse()
-        }
+        onCollapse()
     }
     
     // Gesture State for swipe-down to collapse
@@ -408,15 +402,6 @@ fun ImmersivePlayerScreen(
                     isSaved = uiState.isSaved,
                     saveSyncStatus = uiState.saveSyncStatus,
                     onSaveClick = onSaveClick,
-                    engagementStatus = uiState.engagementStatus,
-                    commentCount = uiState.commentCount,
-                    onCommentClick = {
-                        if (uiState.engagementStatus == EngagementStatus.LOCKED) {
-                            showUnlockGuidance = true
-                        } else {
-                            onCommentClick()
-                        }
-                    },
                     showResonance = !uiState.isOwner,
                     showSave = !uiState.isOwner
                 )
@@ -431,101 +416,8 @@ fun ImmersivePlayerScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // 7. Context Actions (Standardized for published artifacts)
-            if (!isVerifiedDraft && (uiState.engagementStatus == EngagementStatus.LOCKED && showUnlockGuidance)) {
-                val isUnlocked = uiState.engagementStatus == EngagementStatus.UNLOCKED
-                val isVerifying = uiState.engagementStatus == EngagementStatus.VERIFYING
-                val stringRes = androidx.compose.ui.res.stringResource(id = com.saurabh.artifact.R.string.reflect_and_respond)
-                val unlockRes = androidx.compose.ui.res.stringResource(id = com.saurabh.artifact.R.string.comments_unlock_requirements)
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 24.dp)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(Color.White.copy(alpha = 0.04f))
-                        .clickable(enabled = true, onClick = onCommentClick)
-                        .padding(horizontal = 20.dp, vertical = 16.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Rounded.EditNote,
-                            contentDescription = null,
-                            tint = if (isUnlocked) GoldAura400 else if (isVerifying) GoldAura400.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.2f),
-                            modifier = Modifier.size(24.dp).padding(end = 12.dp)
-                        )
-
-                        val message = when {
-                            isUnlocked || isVerifying -> stringRes
-                            else -> unlockRes
-                        }
-                        
-                        Text(
-                            text = message,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = if (isUnlocked || isVerifying) Color.White else Color.White.copy(alpha = 0.5f),
-                            fontWeight = FontWeight.Medium,
-                            letterSpacing = 0.3.sp
-                        )
-                        
-                        Spacer(modifier = Modifier.weight(1f))
-                        
-                        if (isUnlocked) {
-                             IconButton(
-                                onClick = onShowAdvanced,
-                                modifier = Modifier.size(32.dp)
-                            ) {
-                                Icon(
-                                    Icons.Rounded.MoreVert, 
-                                    contentDescription = "More Options", 
-                                    tint = Color.White.copy(alpha = 0.3f),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-                    }
-
-                    if (!isUnlocked) {
-                        Spacer(modifier = Modifier.height(12.dp))
-                        
-                        val requiredPercent = (uiState.requiredCoverage * 100).toInt()
-                        val currentPercent = (uiState.coveragePercent * 100).toInt()
-                        val hasMetCoverage = uiState.coveragePercent >= uiState.requiredCoverage || isVerifying
-                        
-                        RequirementItem(
-                            label = "Listen to $requiredPercent%",
-                            isMet = hasMetCoverage,
-                            progress = if (isVerifying) "Synced" else "$currentPercent%"
-                        )
-                        
-                        if (uiState.isReachedEndRequired) {
-                            RequirementItem(
-                                label = "Reach end of artifact",
-                                isMet = uiState.isPlaybackEnded || isVerifying
-                            )
-                        }
-
-                        if (hasMetCoverage && uiState.isReachedEndRequired && !uiState.isPlaybackEnded && !isVerifying) {
-                            Text(
-                                text = "Almost there. Finish listening to unlock.",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = GoldAura400,
-                                modifier = Modifier.padding(top = 8.dp)
-                            )
-                        } else if (isVerifying) {
-                            Text(
-                                text = "Synchronizing with server...",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = GoldAura400.copy(alpha = 0.7f),
-                                modifier = Modifier.padding(top = 8.dp)
-                            )
-                        }
-                    }
-                }
-            } else {
-                // Ensure padding even if no context action bar
-                Spacer(modifier = Modifier.height(24.dp))
-            }
+            // Ensure padding even if no context action bar
+            Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }

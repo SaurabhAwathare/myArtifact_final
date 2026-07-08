@@ -22,9 +22,6 @@ object InteractionType {
     const val REACTION = "REACTION"
     const val SAVE = "SAVE"
     const val FOLLOW = "FOLLOW"
-    const val ENGAGEMENT = "ENGAGEMENT"
-    const val COMMENT = "COMMENT"
-    const val COMMENT_REACTION = "COMMENT_REACTION"
 }
 
 object InteractionAction {

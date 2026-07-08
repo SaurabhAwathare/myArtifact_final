@@ -139,7 +139,6 @@ class ArtifactRemoteMediator(
             emotionTag = artifact.emotionTag,
             playCount = artifact.playCount,
             reactionCount = artifact.reactionCount,
-            commentCount = artifact.commentCount,
             reportCount = artifact.reportCount,
             safetyConcernCount = artifact.safetyConcernCount,
             reporterIds = artifact.reporterIds,

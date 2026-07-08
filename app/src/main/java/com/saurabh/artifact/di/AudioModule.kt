@@ -76,14 +76,4 @@ object AudioModule {
     @Singleton
     fun providePublishingReviewValidator(): com.saurabh.artifact.domain.review.publishing.PublishingReviewValidator = 
         com.saurabh.artifact.domain.review.publishing.PublishingReviewValidator()
-
-    @Provides
-    @Singleton
-    fun provideCommentUnlockPolicy(): com.saurabh.artifact.domain.review.comments.CommentUnlockPolicy = 
-        com.saurabh.artifact.domain.review.comments.CommentUnlockPolicy()
-
-    @Provides
-    @Singleton
-    fun provideCommentUnlockValidator(): com.saurabh.artifact.domain.review.comments.CommentUnlockValidator = 
-        com.saurabh.artifact.domain.review.comments.CommentUnlockValidator()
 }

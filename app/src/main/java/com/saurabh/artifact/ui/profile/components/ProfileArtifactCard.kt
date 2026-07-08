@@ -38,7 +38,6 @@ fun ProfileArtifactCard(
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
     onPublishClick: () -> Unit = {},
-    onViewComments: (() -> Unit)? = null,
     isSaved: Boolean = false,
     onUnsave: () -> Unit = {},
     isBuffering: Boolean = false,
@@ -182,11 +181,6 @@ fun ProfileArtifactCard(
                                 isOwner = isOwner
                             )
                         }
-
-                        StatItem(
-                            icon = Icons.Rounded.ChatBubbleOutline,
-                            count = artifact.commentCount
-                        )
                     }
                 }
 
@@ -210,8 +204,7 @@ fun ProfileArtifactCard(
             onPublishClick = onPublishClick,
             onReviewClick = onPlayClick,
             onDeleteClick = { showDeleteDialog = true },
-            onUnsaveClick = onUnsave,
-            onViewCommentsClick = onViewComments
+            onUnsaveClick = onUnsave
         ) {
             showMenu = false
         }
@@ -236,27 +229,6 @@ fun ProfileArtifactCard(
                 showDeleteDialog = false
             },
             onDismiss = { showDeleteDialog = false }
-        )
-    }
-}
-
-@Composable
-private fun StatItem(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    count: Long
-) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            modifier = Modifier.size(14.dp),
-            tint = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.4f)
-        )
-        Spacer(modifier = Modifier.width(4.dp))
-        Text(
-            text = "$count responses",
-            style = ArtifactTheme.typography.labelSmall,
-            color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.6f)
         )
     }
 }

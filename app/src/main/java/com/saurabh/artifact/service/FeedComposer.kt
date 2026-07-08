@@ -19,27 +19,14 @@ class FeedComposer @Inject constructor(
      */
     suspend fun composeFeed(userId: String): List<FeedArtifact> = coroutineScope {
         val resonatedJob = async { repository.getResonatingArtifacts(userId) }
-        val unfinishedJob = async { repository.getUnfinishedSessions(userId) }
         val discoveryJob = async { repository.getDiscoveryCandidates(userId) }
         val profileJob = async { repository.getEmotionalProfile(userId) }
 
         val resonated = resonatedJob.await().getOrDefault(PaginatedArtifacts(emptyList(), null))
-        val unfinishedSessions = unfinishedJob.await().getOrDefault(emptyList())
         val discovery = discoveryJob.await().getOrDefault(PaginatedArtifacts(emptyList(), null))
         val profile = profileJob.await().getOrElse { EmotionalCompatibilityProfile(userId = userId) }
 
-        // 1. Map Unfinished to FeedArtifacts
-        val unfinishedItems = unfinishedSessions.mapNotNull { session ->
-            val artifact = discovery.artifacts.find { it.id == session.artifactId } ?: return@mapNotNull null
-            FeedArtifact(
-                artifact = artifact,
-                reason = FeedRecommendationReason.CONTINUE_LISTENING,
-                isUnfinished = true,
-                lastPositionMs = session.lastPositionMs
-            )
-        }
-
-        // 2. Map Resonated to FeedArtifacts
+        // 1. Map Resonated to FeedArtifacts
         val resonatedItems = resonated.artifacts.map { artifact ->
             FeedArtifact(
                 artifact = artifact,
@@ -48,9 +35,9 @@ class FeedComposer @Inject constructor(
             )
         }
 
-        // 3. Map Discovery to FeedArtifacts
+        // 2. Map Discovery to FeedArtifacts
         val discoveryItems = discovery.artifacts
-            .filter { disc -> resonated.artifacts.none { it.id == disc.id } && unfinishedSessions.none { it.artifactId == disc.id } }
+            .filter { disc -> resonated.artifacts.none { it.id == disc.id } }
             .map { artifact ->
                 val alignment = calculateEmotionalAlignment(artifact, profile)
                 FeedArtifact(
@@ -60,14 +47,13 @@ class FeedComposer @Inject constructor(
                 )
             }
 
-        // 4. Blend & Rank
-        val combined = (unfinishedItems + resonatedItems + discoveryItems)
-            .sortedWith(compareByDescending<FeedArtifact> { it.isUnfinished }
-                .thenByDescending { it.reason == FeedRecommendationReason.RESONATING_PRESENCE }
+        // 3. Blend & Rank
+        val combined = (resonatedItems + discoveryItems)
+            .sortedWith(compareByDescending<FeedArtifact> { it.reason == FeedRecommendationReason.RESONATING_PRESENCE }
                 .thenByDescending { it.compatibilityScore }
             )
 
-        // 5. Apply Emotional Pacing
+        // 4. Apply Emotional Pacing
         pacingEngine.paceFeed(combined)
     }
 

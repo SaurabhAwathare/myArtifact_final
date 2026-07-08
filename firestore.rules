@@ -96,14 +96,10 @@ service cloud.firestore {
 
       match /engagement/{id} {
         allow read: if isOwner(uid);
-        allow create: if isOwner(uid) &&
-                      !("isCommentUnlocked" in request.resource.data) &&
-                      !("engagementState" in request.resource.data);
+        allow create: if isOwner(uid);
         allow update: if resource != null &&
                      (request.auth != null &&
-                      request.auth.uid == uid &&
-                      !(request.resource.data.diff(resource == null ? {} : resource.data).affectedKeys()
-                        .hasAny(['isCommentUnlocked', 'engagementState'])));
+                      request.auth.uid == uid);
       }
 
       match /savedArtifacts/{artifactId} {
@@ -128,7 +124,7 @@ service cloud.firestore {
                      request.auth != null &&
                      request.auth.uid == resource.data.get('userId', '') &&
                      !(request.resource.data.diff(resource == null ? {} : resource.data).affectedKeys()
-                       .hasAny(['commentCount', 'reactionCount'])));
+                       .hasAny(['reactionCount'])));
 
       allow delete: if isGlobalAdmin() || (resource != null && isOwner(resource.data.get('userId', '')));
 
@@ -136,36 +132,6 @@ service cloud.firestore {
         allow read: if true;
         allow write: if false;
       }
-    }
-
-    // --- COMMENTS (The Intimacy Layers) ---
-    match /comments/{commentId} {
-      allow read: if isAuth() && resource != null && (
-        resource.data.authorId == request.auth.uid ||
-        resource.data.artifactOwnerId == request.auth.uid ||
-        (resource.data.visibilityLayer == 'RESONANCE' && resource.data.moderationState == 'APPROVED')
-      );
-
-      allow create: if isAuth() &&
-                    request.resource.data.authorId == request.auth.uid &&
-                    request.resource.data.artifactOwnerId == get(/databases/$(database)/documents/artifacts/$(request.resource.data.artifactId)).data.userId &&
-                    (
-                      request.resource.data.artifactOwnerId == request.auth.uid ||
-                      get(/databases/$(database)/documents/users/$(request.auth.uid)/engagement/$(request.resource.data.artifactId)).data.isCommentUnlocked == true
-                    );
-
-      allow update: if (resource != null &&
-                    isOwner(resource.data.authorId) &&
-                    !(request.resource.data.diff(resource.data).affectedKeys()
-                      .hasAny(['authorId', 'artifactId', 'artifactOwnerId']))) ||
-                    (resource != null &&
-                     isOwner(resource.data.artifactOwnerId) &&
-                     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['creatorReaction'])) ||
-                    isGlobalAdmin();
-
-      allow delete: if (resource != null && (isOwner(resource.data.authorId) ||
-                    isOwner(resource.data.artifactOwnerId))) ||
-                    isGlobalAdmin();
     }
 
     match /artifact_reaction_counts/{artifactId} {

@@ -91,40 +91,6 @@ class FeedRepository @Inject constructor(
     }
 
     /**
-     * Fetches unfinished listening sessions for a user.
-     * MIGRATED: Now queries the private 'engagement' subcollection.
-     */
-    suspend fun getUnfinishedSessions(userId: String): Result<List<ListeningSession>> = withContext(Dispatchers.IO) {
-        return@withContext try {
-            val sessions = firestore.collection("users")
-                .document(userId)
-                .collection("engagement")
-                .whereEqualTo("hasReachedEnd", false)
-                .orderBy("updatedAt", Query.Direction.DESCENDING)
-                .limit(5)
-                .get()
-                .await()
-                .documents.mapNotNull { doc ->
-                    val eng = doc.toObject(UserArtifactEngagement::class.java) ?: return@mapNotNull null
-                    // Map Engagement to ListeningSession for backward compatibility in FeedComposer
-                    ListeningSession(
-                        id = eng.artifactId,
-                        userId = eng.userId,
-                        artifactId = eng.artifactId,
-                        lastPositionMs = eng.lastPositionMs,
-                        totalDurationMs = eng.totalDurationMs,
-                        isCompleted = eng.hasReachedEnd,
-                        updatedAt = Timestamp(java.util.Date(eng.updatedAt))
-                    )
-                }
-            Result.success(sessions)
-        } catch (e: Exception) {
-            diagnosticLogger.error(DiagnosticCategory.FEED, "FEED_UNFINISHED_FETCH_FAILED", throwable = e)
-            Result.failure(AppError.from(e))
-        }
-    }
-
-    /**
      * Fetches discovery candidates based on emotional compatibility with pagination.
      */
     suspend fun getDiscoveryCandidates(

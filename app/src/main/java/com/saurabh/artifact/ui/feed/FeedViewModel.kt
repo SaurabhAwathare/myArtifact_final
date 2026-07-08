@@ -53,7 +53,7 @@ enum class HydrationLevel {
     SHELL,      // Static frame, default fonts, no animations
     METADATA,   // Adds reactions, counts, and tags
     ENRICHED,   // Adds play button, static waveform
-    FULL        // Interactive waveform, atmospheric effects, comments
+    FULL        // Interactive waveform, atmospheric effects
 }
 
 data class FeedUiState(
@@ -355,9 +355,6 @@ class FeedViewModel @Inject constructor(
         savedStateHandle[KEY_SHOW_RANKED_FEED] = showRanked
     }
 
-    private val _unfinishedArtifacts = MutableStateFlow<List<FeedArtifact>>(emptyList())
-    val unfinishedArtifacts: StateFlow<List<FeedArtifact>> = _unfinishedArtifacts.asStateFlow()
-
     fun loadRankedFeed(): kotlinx.coroutines.Job {
         return viewModelScope.launch {
             val userId = currentUserId ?: run {
@@ -376,13 +373,6 @@ class FeedViewModel @Inject constructor(
                 val reasons = feedItems.associateBy({ it.artifact.id }, { it.reason })
                 _uiState.update { it.copy(recommendationReasons = it.recommendationReasons + reasons) }
 
-                // Currently, we only expose the unfinished items to the UI for the top section
-                val unfinishedItems = feedItems.filter { it.isUnfinished }
-                _unfinishedArtifacts.value = unfinishedItems
-                
-                unfinishedItems.take(3).forEach { feedArtifact ->
-                    audioPlayer.preCache(feedArtifact.artifact)
-                }
                 diagnosticLogger.info(DiagnosticCategory.FEED, "FEED_LOAD_SUCCESS", mapOf("count" to feedItems.size))
             }.onFailure {
                 diagnosticLogger.error(DiagnosticCategory.FEED, "FEED_LOAD_FAILED", throwable = it)

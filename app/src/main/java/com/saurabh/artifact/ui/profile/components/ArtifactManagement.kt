@@ -26,7 +26,6 @@ fun ArtifactManagementBottomSheet(
     isListened: Boolean = false,
     reviewProgress: Float = 0f,
     onDeleteClick: () -> Unit,
-    onViewCommentsClick: (() -> Unit)? = null,
     isSaved: Boolean = false,
     onUnsaveClick: () -> Unit = {},
     onDismiss: () -> Unit
@@ -77,17 +76,6 @@ fun ArtifactManagementBottomSheet(
                     label = "Release from Archive",
                     onClick = {
                         onUnsaveClick()
-                        onDismiss()
-                    }
-                )
-            }
-
-            if (onViewCommentsClick != null && !isDraft) {
-                ManagementActionItem(
-                    icon = Icons.Rounded.ChatBubbleOutline,
-                    label = "View Comments",
-                    onClick = {
-                        onViewCommentsClick()
                         onDismiss()
                     }
                 )

@@ -31,9 +31,6 @@ object Feed : Route
 @Serializable
 object Notifications : Route
 
-@Serializable
-data class Comments(val artifactId: String, val ownerId: String) : Route
-
 // --- Profile Routes ---
 
 @Serializable

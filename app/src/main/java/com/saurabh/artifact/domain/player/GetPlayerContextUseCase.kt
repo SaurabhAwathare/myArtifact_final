@@ -18,8 +18,7 @@ class GetPlayerContextUseCase @Inject constructor(
     private val userRepository: UserRepository,
     private val savedArtifactManager: SavedArtifactManager,
     private val authRepository: AuthRepository,
-    private val pendingInteractionDao: com.saurabh.artifact.data.local.PendingInteractionDao,
-    private val getEngagementStateUseCase: com.saurabh.artifact.domain.review.GetEngagementStateUseCase
+    private val pendingInteractionDao: com.saurabh.artifact.data.local.PendingInteractionDao
 ) {
     @OptIn(ExperimentalCoroutinesApi::class)
     fun execute(
@@ -39,8 +38,6 @@ class GetPlayerContextUseCase @Inject constructor(
         artifact: Artifact
     ): Flow<PlayerMetadata> {
         val userIdFlow = authRepository.currentUser.map { it?.uid }
-        
-        val engagementStatusFlow = getEngagementStateUseCase.execute(artifact.id)
         
         // Live observation of the artifact itself for real-time counts
         val artifactUpdateFlow = artifactRepository.observeArtifact(artifact.id)
@@ -141,7 +138,6 @@ class GetPlayerContextUseCase @Inject constructor(
         }
 
         return combine(
-            engagementStatusFlow,
             resonanceSummaryFlow,
             isResonatedFlow,
             resonanceSyncStatusFlow,
@@ -152,19 +148,17 @@ class GetPlayerContextUseCase @Inject constructor(
             saveSyncStatusFlow,
             artifactUpdateFlow
         ) { params: Array<Any?> ->
-            val updatedArtifact = params[9] as Artifact
+            val updatedArtifact = params[8] as Artifact
             PlayerMetadata(
                 artifactId = artifact.id,
-                engagementStatus = params[0] as EngagementStatus,
-                resonanceSummary = params[1] as String,
-                isResonated = params[2] as Boolean,
-                resonanceSyncStatus = params[3] as InteractionSyncStatus,
-                selectedReactionType = params[4] as ReactionType,
-                isResonating = params[5] as Boolean,
-                followSyncStatus = params[6] as InteractionSyncStatus,
-                isSaved = params[7] as Boolean,
-                saveSyncStatus = params[8] as InteractionSyncStatus,
-                commentCount = updatedArtifact.commentCount
+                resonanceSummary = params[0] as String,
+                isResonated = params[1] as Boolean,
+                resonanceSyncStatus = params[2] as InteractionSyncStatus,
+                selectedReactionType = params[3] as ReactionType,
+                isResonating = params[4] as Boolean,
+                followSyncStatus = params[5] as InteractionSyncStatus,
+                isSaved = params[6] as Boolean,
+                saveSyncStatus = params[7] as InteractionSyncStatus
             )
         }
     }
@@ -172,7 +166,6 @@ class GetPlayerContextUseCase @Inject constructor(
 
 data class PlayerMetadata(
     val artifactId: String = "",
-    val engagementStatus: EngagementStatus = EngagementStatus.LOCKED,
     val resonanceSummary: String = "",
     val isResonated: Boolean = false,
     val resonanceSyncStatus: InteractionSyncStatus = InteractionSyncStatus.SYNCED,
@@ -180,6 +173,5 @@ data class PlayerMetadata(
     val isResonating: Boolean = false,
     val followSyncStatus: InteractionSyncStatus = InteractionSyncStatus.SYNCED,
     val isSaved: Boolean = false,
-    val saveSyncStatus: InteractionSyncStatus = InteractionSyncStatus.SYNCED,
-    val commentCount: Long = 0
+    val saveSyncStatus: InteractionSyncStatus = InteractionSyncStatus.SYNCED
 )

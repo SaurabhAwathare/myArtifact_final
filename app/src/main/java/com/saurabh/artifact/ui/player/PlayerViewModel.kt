@@ -49,13 +49,11 @@ class PlayerViewModel @Inject constructor(
     private val reviewSessionManager: ReviewSessionManager,
     private val deleteArtifactUseCase: dagger.Lazy<DeleteArtifactUseCase>,
     private val publishingPolicy: com.saurabh.artifact.domain.review.publishing.PublishingReviewPolicy,
-    private val commentPolicy: com.saurabh.artifact.domain.review.comments.CommentUnlockPolicy,
     private val diagnosticLogger: DiagnosticLogger
 ) : ViewModel() {
 
     private val _isExpanded = savedStateHandle.getStateFlow("is_expanded", false)
     private val _showAdvancedControls = MutableStateFlow(false)
-    private val _showComments = MutableStateFlow(false)
 
     private val _interactionError = MutableSharedFlow<String>(replay = 0)
     val interactionError: SharedFlow<String> = _interactionError.asSharedFlow()
@@ -162,9 +160,8 @@ class PlayerViewModel @Inject constructor(
         playbackCoordinator.currentArtifact,
         metadata,
         _isExpanded,
-        _showAdvancedControls,
-        _showComments
-    ) { artifact, md, expanded, advanced, comments ->
+        _showAdvancedControls
+    ) { artifact, md, expanded, advanced ->
         val isOwner = artifact?.userId == authRepository.currentUserId
         val isMetadataSynced = artifact != null && md.artifactId == artifact.id
         val mode = when {
@@ -178,7 +175,6 @@ class PlayerViewModel @Inject constructor(
             internalOwnerId = artifact?.userId ?: "",
             isOwner = isOwner,
             isDraft = artifact?.isDraft == true,
-            engagementStatus = if (isMetadataSynced) md.engagementStatus else EngagementStatus.LOCKED,
             isResonated = if (isMetadataSynced) md.isResonated else false,
             resonanceSyncStatus = if (isMetadataSynced) md.resonanceSyncStatus else InteractionSyncStatus.SYNCED,
             selectedReactionType = md.selectedReactionType,
@@ -187,11 +183,9 @@ class PlayerViewModel @Inject constructor(
             isSaved = if (isMetadataSynced) md.isSaved else false,
             saveSyncStatus = if (isMetadataSynced) md.saveSyncStatus else InteractionSyncStatus.SYNCED,
             resonanceSummary = if (isMetadataSynced) md.resonanceSummary else "",
-            commentCount = if (isMetadataSynced) md.commentCount else 0,
             playerMode = mode,
             isExpanded = expanded,
-            showAdvancedControls = advanced,
-            showComments = comments
+            showAdvancedControls = advanced
         )
     }.distinctUntilChanged()
 
@@ -264,7 +258,6 @@ class PlayerViewModel @Inject constructor(
             playbackSpeed = dynamic.playbackSpeed,
             playbackProgress = dynamic.playbackProgress,
             listeningProgress = dynamic.listeningProgress,
-            engagementStatus = static.engagementStatus,
             isExpanded = static.isExpanded,
             playerMode = static.playerMode,
             isResonated = static.isResonated,
@@ -276,12 +269,10 @@ class PlayerViewModel @Inject constructor(
             saveSyncStatus = static.saveSyncStatus,
             isOwner = static.isOwner,
             resonanceSummary = static.resonanceSummary,
-            commentCount = static.commentCount,
             isSilenceSkipEnabled = dynamic.isSilenceSkipEnabled,
             sleepTimerMillisRemaining = dynamic.sleepTimerMillisRemaining,
             currentTranscriptSegment = dynamic.currentTranscriptSegment,
             showAdvancedControls = static.showAdvancedControls,
-            showComments = static.showComments,
             
             // DECISION: Map progress based on whether it's a draft review or a listener unlock
             coveragePercent = if (static.isDraft) {
@@ -299,8 +290,8 @@ class PlayerViewModel @Inject constructor(
             } else {
                 if (isListenerReviewMatching) listenerReview?.hasReachedEnd ?: false else false
             },
-            requiredCoverage = if (static.isDraft) publishingPolicy.minCoverage else commentPolicy.minCoverage,
-            isReachedEndRequired = if (static.isDraft) publishingPolicy.requireReachedEnd else commentPolicy.requireReachedEnd
+            requiredCoverage = publishingPolicy.minCoverage,
+            isReachedEndRequired = publishingPolicy.requireReachedEnd
         )
     }.stateIn(
         scope = viewModelScope,
@@ -459,10 +450,6 @@ class PlayerViewModel @Inject constructor(
         _showAdvancedControls.value = show
     }
 
-    fun setShowComments(show: Boolean) {
-        _showComments.value = show
-    }
-
     fun rewind() {
         viewModelScope.launch {
             val currentPos = playbackCoordinator.smoothPosition.first()
@@ -583,7 +570,6 @@ private data class PlayerStaticState(
     val internalOwnerId: String = "",
     val isOwner: Boolean = false,
     val isDraft: Boolean = false,
-    val engagementStatus: EngagementStatus = EngagementStatus.LOCKED,
     val isResonated: Boolean = false,
     val resonanceSyncStatus: InteractionSyncStatus = InteractionSyncStatus.SYNCED,
     val selectedReactionType: ReactionType = ReactionType.I_HEAR_YOU,
@@ -592,11 +578,9 @@ private data class PlayerStaticState(
     val isSaved: Boolean = false,
     val saveSyncStatus: InteractionSyncStatus = InteractionSyncStatus.SYNCED,
     val resonanceSummary: String = "",
-    val commentCount: Long = 0,
     val playerMode: PlayerMode = PlayerMode.HIDDEN,
     val isExpanded: Boolean = false,
-    val showAdvancedControls: Boolean = false,
-    val showComments: Boolean = false
+    val showAdvancedControls: Boolean = false
 )
 
 private data class PlayerDynamicState(

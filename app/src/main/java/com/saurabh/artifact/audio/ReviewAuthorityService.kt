@@ -6,8 +6,8 @@ import com.saurabh.artifact.audio.validation.DefaultReviewTracker
 import com.saurabh.artifact.audio.validation.ReviewProgress
 import com.saurabh.artifact.audio.validation.ReviewTracker
 import com.saurabh.artifact.domain.review.EngagementEvidence
-import com.saurabh.artifact.domain.review.comments.CommentUnlockPolicy
-import com.saurabh.artifact.domain.review.comments.CommentUnlockValidator
+import com.saurabh.artifact.domain.review.publishing.PublishingReviewPolicy
+import com.saurabh.artifact.domain.review.publishing.PublishingReviewValidator
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.repository.EngagementRepository
 import kotlinx.coroutines.*
@@ -17,16 +17,15 @@ import javax.inject.Singleton
 import kotlin.time.Duration.Companion.milliseconds
 
 /**
- * Authoritative service for review validation and engagement tracking.
- * Unifies logic for Comment Unlocking and Resume-Play.
- * Uses CommentUnlockPolicy for its authoritative validation.
+ * Authoritative service for engagement tracking and playback evidence.
+ * Unifies logic for draft review validation and listener engagement.
  */
 @Singleton
 class ReviewAuthorityService @Inject constructor(
     private val playbackSessionManager: PlaybackSessionManager,
     private val engagementRepository: EngagementRepository,
-    private val commentValidator: CommentUnlockValidator,
-    private val commentPolicy: CommentUnlockPolicy
+    private val validator: PublishingReviewValidator,
+    private val policy: PublishingReviewPolicy
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     
@@ -121,15 +120,14 @@ class ReviewAuthorityService @Inject constructor(
     }
 
     /**
-     * Initializes a review session, ensuring the [Publishing Flow Invariants](file:///docs/architecture/PublishingFlowInvariants.md)
-     * are maintained regarding field ownership and recovery.
+     * Initializes a review session.
      */
     private suspend fun initializeSession(artifact: Artifact) {
         if (activeTracker?.progress?.artifactId == artifact.id) return
 
         val evidence = engagementRepository.getEngagement(artifact.id)
             .getOrNull()
-            ?.copy(durationMs = artifact.durationMs) // Phase 6: Always sync with authoritative duration
+            ?.copy(durationMs = artifact.durationMs)
             ?: EngagementEvidence(
                 artifactId = artifact.id,
                 versionTag = "v1",
@@ -139,8 +137,8 @@ class ReviewAuthorityService @Inject constructor(
 
         activeTracker = DefaultReviewTracker(
             initialEvidence = evidence,
-            segmentSizer = { commentPolicy.getSegmentSizeMs(it) },
-            validator = { commentValidator.validate(it, commentPolicy) }
+            segmentSizer = { policy.getSegmentSizeMs(it) },
+            validator = { validator.validate(it, policy) }
         )
         _currentProgress.value = activeTracker?.progress
         lastTickTime = SystemClock.elapsedRealtime()
@@ -162,7 +160,6 @@ class ReviewAuthorityService @Inject constructor(
         if (completionTriggered) return
         completionTriggered = true
 
-        android.util.Log.d("STUDIO_TRACE", "ReviewAuthorityService: handleCompletion (LIFECYCLE_TRACE)")
         scope.launch(Dispatchers.IO) {
             engagementRepository.saveEngagement(progress.evidence)
         }

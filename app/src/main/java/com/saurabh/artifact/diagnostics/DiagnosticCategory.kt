@@ -13,7 +13,6 @@ enum class DiagnosticCategory {
     RECORDING,
     STUDIO,
     PUBLISH,
-    COMMENTS,
     RESONANCE,
     PROFILE,
     SETTINGS,

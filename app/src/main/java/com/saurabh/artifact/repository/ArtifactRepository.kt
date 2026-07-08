@@ -145,22 +145,10 @@ class ArtifactRepository @Inject constructor(
         val reactionCountsDoc = firestore.collection("artifact_reaction_counts").document(doc.id).get().await()
         val reactionCounts = reactionCountsDoc.toObject(ArtifactReactionCounts::class.java)?.copy(artifactId = doc.id)
 
-        @Suppress("UNCHECKED_CAST")
-        val comments = (doc["comments"] as? List<Map<String, Any>>)?.map { map ->
-            ArtifactComment(
-                id = map["id"] as? String ?: "",
-                authorId = map["authorId"] as? String ?: "",
-                authorAnonymousName = map["authorName"] as? String ?: "",
-                authorAvatarSeed = map["authorAvatarSeed"] as? String ?: "",
-                createdAt = map["createdAt"] as? Timestamp ?: Timestamp.now()
-            )
-        } ?: emptyList()
-
         return@withContext ArtifactDetail(
             id = doc.id,
             amplitudeData = downsampledAmplitudes,
-            reactionCounts = reactionCounts,
-            comments = comments
+            reactionCounts = reactionCounts
         )
     }
 
@@ -306,17 +294,15 @@ class ArtifactRepository @Inject constructor(
     suspend fun resolveReport(
         reportId: String,
         artifactId: String,
-        action: ModerationAction,
-        commentId: String? = null
+        action: ModerationAction
     ): Result<Unit> = withContext(Dispatchers.IO) {
         val reportRef = firestore.collection("reports").document(reportId)
         val artifactRef = firestore.collection("artifacts").document(artifactId)
-        val commentRef = commentId?.let { firestore.collection("comments").document(it) }
 
         return@withContext try {
             firestore.runTransaction { transaction ->
                 val status = when (action) {
-                    ModerationAction.HIDE_ARTIFACT, ModerationAction.BLOCK_COMMENT, ModerationAction.APPROVE_COMMENT -> ReportStatus.RESOLVED
+                    ModerationAction.HIDE_ARTIFACT -> ReportStatus.RESOLVED
                     ModerationAction.DISMISS -> ReportStatus.DISMISSED
                 }
                 
@@ -326,12 +312,6 @@ class ArtifactRepository @Inject constructor(
                     ModerationAction.HIDE_ARTIFACT -> {
                         transaction.update(artifactRef, "moderation.status", ModerationStatus.HIDDEN.name)
                         transaction.update(artifactRef, "isPublic", false)
-                    }
-                    ModerationAction.BLOCK_COMMENT -> {
-                        commentRef?.let { transaction.update(it, "moderationState", CommentModerationState.BLOCKED.name) }
-                    }
-                    ModerationAction.APPROVE_COMMENT -> {
-                        commentRef?.let { transaction.update(it, "moderationState", CommentModerationState.APPROVED.name) }
                     }
                     ModerationAction.DISMISS -> { /* Just resolve the report */ }
                 }
@@ -350,8 +330,6 @@ class ArtifactRepository @Inject constructor(
 
     enum class ModerationAction {
         HIDE_ARTIFACT,
-        BLOCK_COMMENT,
-        APPROVE_COMMENT,
         DISMISS
     }
 
@@ -450,7 +428,7 @@ class ArtifactRepository @Inject constructor(
     }
 
     /**
-     * Submits a user report for an artifact or comment.
+     * Submits a user report for an artifact.
      * Uses device hash for privacy-preserving reporting.
      * Prevents duplicate reports from the same user.
      */
@@ -458,20 +436,15 @@ class ArtifactRepository @Inject constructor(
         artifactId: String,
         reason: ReportReason,
         details: String,
-        deviceId: Int,
-        commentId: String? = null
+        deviceId: Int
     ): Result<Unit> = withContext(Dispatchers.IO) {
         return@withContext try {
             val userId = auth.currentUser?.uid 
                 ?: return@withContext Result.failure(AppError.Unauthenticated())
 
-            // 1. Check for duplicate reports in a transaction (optional, but good for data integrity)
-            // For now, we'll use arrayUnion which is idempotent in Firestore
-            
             val reportId = UUID.randomUUID().toString()
             val reportData = mutableMapOf<String, Any?>(
                 "artifactId" to artifactId,
-                "commentId" to commentId,
                 "reporterDeviceId" to deviceId,
                 "reason" to reason.name,
                 "details" to details,
@@ -485,22 +458,13 @@ class ArtifactRepository @Inject constructor(
             
             // 3. Increment report count and record reporter ID
             try {
-                if (commentId != null) {
-                    firestore.collection("comments").document(commentId)
-                        .update(
-                            "reportCount", FieldValue.increment(1),
-                            "reporterIds", FieldValue.arrayUnion(userId)
-                        )
-                        .await()
-                } else {
-                    firestore.collection("artifacts").document(artifactId)
-                        .update(
-                            "reportCount", FieldValue.increment(1),
-                            "safetyConcernCount", FieldValue.increment(1),
-                            "reporterIds", FieldValue.arrayUnion(userId)
-                        )
-                        .await()
-                }
+                firestore.collection("artifacts").document(artifactId)
+                    .update(
+                        "reportCount", FieldValue.increment(1),
+                        "safetyConcernCount", FieldValue.increment(1),
+                        "reporterIds", FieldValue.arrayUnion(userId)
+                    )
+                    .await()
             } catch (e: Exception) {
                 diagnosticLogger.error(
                     DiagnosticCategory.FIRESTORE, 
@@ -512,15 +476,13 @@ class ArtifactRepository @Inject constructor(
 
             // 4. Update local Room DB for immediate hiding
             try {
-                if (commentId == null) {
-                    val localArtifact = artifactDao.get().getArtifactById(artifactId)
-                    if (localArtifact != null) {
-                        val updatedArtifact = localArtifact.copy(
-                            reportCount = localArtifact.reportCount + 1,
-                            reporterIds = localArtifact.reporterIds + userId
-                        )
-                        artifactDao.get().insertAll(listOf(updatedArtifact))
-                    }
+                val localArtifact = artifactDao.get().getArtifactById(artifactId)
+                if (localArtifact != null) {
+                    val updatedArtifact = localArtifact.copy(
+                        reportCount = localArtifact.reportCount + 1,
+                        reporterIds = localArtifact.reporterIds + userId
+                    )
+                    artifactDao.get().insertAll(listOf(updatedArtifact))
                 }
             } catch (e: Exception) {
                 diagnosticLogger.error(
@@ -590,7 +552,6 @@ class ArtifactRepository @Inject constructor(
             emotionTag = entity.emotionTag,
             playCount = entity.playCount,
             reactionCount = entity.reactionCount,
-            commentCount = entity.commentCount,
             reportCount = entity.reportCount,
             safetyConcernCount = entity.safetyConcernCount,
             reporterIds = entity.reporterIds,
@@ -625,7 +586,6 @@ class ArtifactRepository @Inject constructor(
             emotionTag = artifact.emotionTag,
             playCount = artifact.playCount,
             reactionCount = artifact.reactionCount,
-            commentCount = artifact.commentCount,
             reportCount = artifact.reportCount,
             safetyConcernCount = artifact.safetyConcernCount,
             reporterIds = artifact.reporterIds,
@@ -1254,7 +1214,6 @@ class ArtifactRepository @Inject constructor(
             ),
             "playCount" to artifact.playCount,
             "reactionCount" to artifact.reactionCount,
-            "commentCount" to artifact.commentCount,
             "reportCount" to artifact.reportCount,
             "transcriptUrl" to artifact.transcriptUrl,
             "conversationMetadata" to mapOf(

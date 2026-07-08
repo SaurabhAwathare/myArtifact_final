@@ -9,254 +9,8 @@ if (!admin.apps.length) {
 }
 
 /**
- * Triggers when a new reply is added to an artifact.
- * Sends a push notification to the artifact owner.
- */
-export const onReplyCreated = functions.firestore
-  .document("artifacts/{artifactId}/replies/{replyId}")
-  .onCreate(async (snapshot, context) => {
-    const artifactId = context.params.artifactId;
-
-    try {
-      // 1. Get the artifact document
-      const artifactDoc = await admin
-        .firestore()
-        .collection("artifacts")
-        .doc(artifactId)
-        .get();
-
-      if (!artifactDoc.exists) {
-        console.log(`Artifact ${artifactId} does not exist`);
-        return null;
-      }
-
-      // 2. Get artifact owner ID
-      const artifactData = artifactDoc.data();
-
-      if (!artifactData || !artifactData.userId) {
-        console.log("Artifact owner ID not found");
-        return null;
-      }
-
-      const ownerId = artifactData.userId;
-
-      // 3. Get owner user document
-      const userDoc = await admin
-        .firestore()
-        .collection("users")
-        .doc(ownerId)
-        .get();
-
-      if (!userDoc.exists) {
-        console.log(`User ${ownerId} does not exist`);
-        return null;
-      }
-
-      // 4. Get FCM token
-      const userData = userDoc.data();
-
-      if (!userData || !userData.fcmToken) {
-        console.log(`No FCM token found for user ${ownerId}`);
-        return null;
-      }
-
-      const fcmToken = userData.fcmToken;
-
-      // 5. Create notification payload
-      const message: admin.messaging.Message = {
-        notification: {
-          title: "A Quiet Resonance 🕯️",
-          body: "A new reflection has gathered on your artifact",
-        },
-        data: {
-          artifactId: artifactId,
-          channelId: "replies_channel",
-        },
-        token: fcmToken,
-        android: {
-          priority: "high",
-          notification: {
-            channelId: "replies_channel",
-          },
-        },
-      };
-
-      // 6. Send push notification
-      await admin.messaging().send(message);
-
-      console.log(`Notification sent successfully to user ${ownerId}`);
-
-      return null;
-    } catch (error) {
-      console.error("Error sending push notification:", error);
-      return null;
-    }
-  });
-
-/**
- * Authoritatively calculates comment unlock state based on listening engagement.
- * Move business logic from client to server for Zero-Trust authorization.
- */
-export const onEngagementUpdated = functions.firestore
-  .document("users/{userId}/engagement/{artifactId}")
-  .onWrite(async (change, context) => {
-    const data = change.after.data();
-    if (!data) return null;
-
-    const artifactId = context.params.artifactId;
-    const userId = context.params.userId;
-
-    // Idempotency: Use a key based on the update timestamp to avoid re-processing the same change
-    const updatedAt = data.updatedAt || 0;
-    const idempotencyKey = `eng_${userId}_${artifactId}_${updatedAt}`;
-
-    return withIdempotency(idempotencyKey, async () => {
-      const db = admin.firestore();
-      const artifactRef = db.collection("artifacts").doc(artifactId);
-      const artifactDoc = await artifactRef.get();
-
-      if (!artifactDoc.exists) {
-        console.log(`Artifact ${artifactId} not found. Skipping.`);
-        return null;
-      }
-
-      const artifactData = artifactDoc.data();
-      const authoritativeDurationMs = artifactData?.durationMs || 0;
-
-      if (authoritativeDurationMs <= 0) {
-        console.log(`Artifact ${artifactId} has no duration. Skipping.`);
-        return null;
-      }
-
-      const clientCoverage = data.coverage;
-      const existingData = change.before.data() || {};
-      const existingCoverage = existingData.coverage;
-
-      // 1. Correct Blob Extraction & Validation
-      if (!clientCoverage) {
-        console.warn(`Engagement update for user=${userId}, art=${artifactId} missing coverage. Skipping.`);
-        return null;
-      }
-
-      const clientBuffer = (typeof clientCoverage.toBuffer === "function") ?
-        clientCoverage.toBuffer() :
-        Buffer.from(clientCoverage);
-
-      if (clientBuffer.length === 0) {
-        console.warn(`Engagement update for user=${userId}, art=${artifactId} has empty coverage. Skipping.`);
-        return null;
-      }
-
-      // Aggregation: Multi-device support via BitSet OR
-      let mergedCoverage: Buffer;
-      if (existingCoverage) {
-        const existingBuffer = (typeof existingCoverage.toBuffer === "function") ?
-          existingCoverage.toBuffer() :
-          Buffer.from(existingCoverage);
-        mergedCoverage = mergeBitSets(existingBuffer, clientBuffer);
-      } else {
-        mergedCoverage = clientBuffer;
-      }
-
-      // 2. State Calculation
-      const segmentSizeMs = getSegmentSizeMs(authoritativeDurationMs);
-      const totalSegments = Math.max(1, Math.floor(authoritativeDurationMs / segmentSizeMs));
-      const setBitsCount = countSetBitsInBuffer(mergedCoverage);
-      const coveragePercent = setBitsCount / totalSegments;
-
-      // 3. Range Validation
-      if (coveragePercent < 0 || coveragePercent > 1.1) { // 1.1 buffer for edge cases/math jitter
-        console.error(`Invalid coverage calculated for user=${userId}, art=${artifactId}: ${coveragePercent.toFixed(4)}. Aborting update to prevent data corruption.`);
-        return null;
-      }
-
-      // Verification: Check if threshold met
-      const isUnlocked = coveragePercent >= 0.95 && data.hasReachedEnd;
-
-      const oldState = existingData.engagementState;
-
-      // Only update if something changed
-      const shouldUpdate = !oldState ||
-                           oldState.unlocked !== isUnlocked ||
-                           Math.abs((oldState.coveragePercent || 0) - coveragePercent) > 0.001 ||
-                           !buffersEqual(existingCoverage, mergedCoverage);
-
-      if (shouldUpdate) {
-        console.log(`Updating Engagement: user=${userId}, art=${artifactId}, coverage=${coveragePercent.toFixed(4)}, unlocked=${isUnlocked}`);
-
-        await change.after.ref.update({
-          coverage: mergedCoverage,
-          isCommentUnlocked: isUnlocked,
-          engagementState: {
-            unlocked: isUnlocked,
-            unlockReason: isUnlocked ? "LISTENING_THRESHOLD_REACHED" : "INSUFFICIENT_ENGAGEMENT",
-            unlockVersion: (oldState?.unlockVersion || 0) + 1,
-            evaluatedAt: FieldValue.serverTimestamp(),
-            coveragePercent: parseFloat(coveragePercent.toFixed(4)),
-          },
-        });
-      }
-
-      return {unlocked: isUnlocked, coveragePercent};
-    });
-  });
-
-/**
- * Merges two bitsets represented as Buffers using bitwise OR.
- */
-function mergeBitSets(b1: Buffer, b2: Buffer): Buffer {
-  const length = Math.max(b1.length, b2.length);
-  const result = Buffer.alloc(length);
-  for (let i = 0; i < length; i++) {
-    result[i] = (b1[i] || 0) | (b2[i] || 0);
-  }
-  return result;
-}
-
-/**
- * Compares two buffers for equality.
- */
-function buffersEqual(b1: any, b2: any): boolean {
-  if (!b1 || !b2) return b1 === b2;
-  return Buffer.compare(Buffer.from(b1), Buffer.from(b2)) === 0;
-}
-
-/**
- * Port of ReviewPolicy.getSegmentSizeMs
- */
-function getSegmentSizeMs(durationMs: number): number {
-  if (durationMs < 60000) return 500;
-  if (durationMs < 600000) return 5000;
-  return 10000;
-}
-
-/**
- * Counts set bits in a Buffer.
- */
-function countSetBitsInBuffer(buffer: Buffer): number {
-  let count = 0;
-  for (const byte of buffer) {
-    count += countSetBits(byte);
-  }
-  return count;
-}
-
-/**
- * Counts the number of set bits (1s) in a byte.
- */
-function countSetBits(n: number): number {
-  let count = 0;
-  let temp = n & 0xff; // Ensure we only treat as a byte
-  while (temp > 0) {
-    temp &= (temp - 1);
-    count++;
-  }
-  return count;
-}
-
-/**
  * Robust cascading cleanup triggered when an artifact is deleted.
- * Handles reactions, comments, replies, aggregates, and metadata.
+ * Handles reactions, aggregates, and metadata.
  * Designed for idempotency and high reliability with recursive batching.
  */
 export const onArtifactDeleted = functions.firestore
@@ -295,7 +49,6 @@ export const onArtifactDeleted = functions.firestore
 
       // 2. Cleanup top-level collections associated with artifactId via field
       const collections = [
-        "comments",
         "artifact_reactions",
         "notifications",
       ];
@@ -315,9 +68,8 @@ export const onArtifactDeleted = functions.firestore
       const engagementSize = await deleteQueryBatch(engagementQuery);
       if (engagementSize > 0) console.log(`Deleted ${engagementSize} engagement records via collectionGroup`);
 
-      // 4. Cleanup sub-collections (reactions and replies)
-
-      const subCollections = ["reactions", "replies"];
+      // 4. Cleanup sub-collections (reactions)
+      const subCollections = ["reactions"];
       for (const sub of subCollections) {
         let size;
         do {
@@ -328,7 +80,7 @@ export const onArtifactDeleted = functions.firestore
         } while (size > 0);
       }
 
-      // 3. Cleanup reaction aggregates
+      // 5. Cleanup reaction aggregates
       await db
         .collection("artifact_reaction_counts")
         .doc(artifactId)
@@ -607,52 +359,6 @@ export const onReactionIntentDeleted = functions.firestore
   });
 
 /**
- * Authoritatively handles comment creation.
- * Increments artifact comment count and sends notification to owner.
- * Idempotent via commentId.
- */
-export const onCommentCreated = functions.firestore
-  .document("comments/{commentId}")
-  .onCreate(async (snapshot, context) => {
-    const data = snapshot.data();
-    if (!data) return null;
-
-    const commentId = context.params.commentId;
-    const artifactId = data.artifactId;
-    const authorId = data.authorId;
-    const ownerId = data.artifactOwnerId;
-
-    const idempotencyKey = `comment_${commentId}`;
-
-    return withIdempotency(idempotencyKey, async () => {
-      const db = admin.firestore();
-      const artifactRef = db.collection("artifacts").doc(artifactId);
-
-      // 1. Increment Count
-      await artifactRef.update({
-        commentCount: FieldValue.increment(1),
-      });
-
-      // 2. Notify Owner (Zero-Trust)
-      if (ownerId && ownerId !== authorId) {
-        const artifactDoc = await artifactRef.get();
-        const title = artifactDoc.data()?.title || "";
-
-        await db.collection("notifications").add({
-          userId: ownerId,
-          message: title ? `REFLECTION_ARRIVAL|${title}` : "REFLECTION_ARRIVAL_GENERIC",
-          artifactId: artifactId,
-          type: "REFLECTION",
-          createdAt: FieldValue.serverTimestamp(),
-          isRead: false,
-        });
-      }
-
-      logger.info(`Comment count incremented for ${artifactId}`);
-    });
-  });
-
-/**
  * Authoritatively handles artifact creation notifications.
  */
 export const onArtifactCreated = functions.firestore
@@ -714,21 +420,14 @@ export const onUserDeleted = functions.auth.user().onDelete(async (user) => {
       logger.info(`Deleted user-owned artifact: ${doc.id}`);
     }
 
-    // 2. Cleanup Reflections (Comments where user was the author)
-    let commentsSize;
-    do {
-      commentsSize = await deleteQueryBatch(db.collection("comments").where("authorId", "==", uid).limit(500));
-      if (commentsSize > 0) logger.info(`Deleted ${commentsSize} reflections for user: ${uid}`);
-    } while (commentsSize > 0);
-
-    // 3. Cleanup Notifications
+    // 2. Cleanup Notifications
     let notificationsSize;
     do {
       notificationsSize = await deleteQueryBatch(db.collection("notifications").where("userId", "==", uid).limit(500));
       if (notificationsSize > 0) logger.info(`Deleted ${notificationsSize} notifications for user: ${uid}`);
     } while (notificationsSize > 0);
 
-    // 4. Cleanup Resonances (Followers/Following) in other users
+    // 3. Cleanup Resonances (Followers/Following) in other users
     // resonance_out: users/{uid}/resonance_out/{targetId}
     const resonanceOutSnapshot = await db.collection("users").doc(uid).collection("resonance_out").get();
     for (const doc of resonanceOutSnapshot.docs) {
@@ -761,7 +460,7 @@ export const onUserDeleted = functions.auth.user().onDelete(async (user) => {
       }
     }
 
-    // 5. Cleanup Username reservation
+    // 4. Cleanup Username reservation
     const userDoc = await db.collection("users").doc(uid).get();
     const username = userDoc.data()?.anonymousName;
     if (typeof username === "string" && username) {
@@ -769,14 +468,14 @@ export const onUserDeleted = functions.auth.user().onDelete(async (user) => {
       logger.info(`Deleted username reservation: ${username}`);
     }
 
-    // 6. Cleanup Listening Sessions
+    // 5. Cleanup Listening Sessions
     let sessionsSize;
     do {
       sessionsSize = await deleteQueryBatch(db.collection("listening_sessions").where("userId", "==", uid).limit(500));
       if (sessionsSize > 0) logger.info(`Deleted ${sessionsSize} listening sessions for user: ${uid}`);
     } while (sessionsSize > 0);
 
-    // 7. Final User Document & Subcollections Deletion
+    // 6. Final User Document & Subcollections Deletion
     const userRef = db.collection("users").doc(uid);
     const subCollections = [
       "engagement",
@@ -817,4 +516,3 @@ export const onUserDeleted = functions.auth.user().onDelete(async (user) => {
     return null;
   }
 });
-

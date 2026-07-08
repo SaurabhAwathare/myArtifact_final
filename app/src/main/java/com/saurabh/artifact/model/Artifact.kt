@@ -40,7 +40,6 @@ data class Artifact(
     val prompt: String = "",
     val playCount: Long = 0,
     val reactionCount: Long = 0,
-    val commentCount: Long = 0,
     val moderationStatus: String = "CLEAN",
     val toxicityScore: Float = 0f,
     val reportCount: Long = 0,
@@ -176,13 +175,11 @@ enum class PiiType {
 data class ArtifactDetail(
     val id: String = "",
     val amplitudeData: List<Float> = emptyList(),
-    val comments: List<ArtifactComment> = emptyList(),
     val reactionCounts: ArtifactReactionCounts? = null,
 )
 
 enum class NotificationType {
     RESONANCE,    // General reaction
-    REFLECTION,   // Comment/Reply
     @Suppress("unused") SUPPORT,      // Strength/Space
     @Suppress("unused") PRESENCE,     // Witnessed/Viewed (future)
     @Suppress("unused") SYSTEM        // Upload/Admin

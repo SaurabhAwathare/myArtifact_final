@@ -10,7 +10,6 @@ import com.saurabh.artifact.domain.player.DeleteArtifactUseCase
 import com.saurabh.artifact.domain.player.GetPlayerContextUseCase
 import com.saurabh.artifact.domain.player.PlayerMetadata
 import com.saurabh.artifact.domain.player.PlayerInteractionUseCase
-import com.saurabh.artifact.domain.review.comments.CommentUnlockPolicy
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.repository.ArtifactRepository
@@ -43,7 +42,6 @@ class PlayerViewModelTest {
     private val reviewSessionManager = mockk<ReviewSessionManager>(relaxed = true)
     private val deleteArtifactUseCase = mockk<DeleteArtifactUseCase>(relaxed = true)
     private val publishingPolicy = mockk<PublishingReviewPolicy>(relaxed = true)
-    private val commentPolicy = mockk<CommentUnlockPolicy>(relaxed = true)
     private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
 
     private lateinit var viewModel: PlayerViewModel
@@ -68,18 +66,17 @@ class PlayerViewModelTest {
         every { playbackCoordinator.error } returns MutableSharedFlow()
         every { playbackCoordinator.playbackCompletedEvent } returns MutableSharedFlow()
         every { reviewSessionManager.reviewProgress } returns MutableStateFlow(ReviewState())
-        every { commentPolicy.minCoverage } returns 0.95f
         every { authRepository.currentUser } returns MutableStateFlow(mockk(relaxed = true))
         every { authRepository.currentUserId } returns "user123"
         every { playbackCoordinator.currentProgress } returns MutableStateFlow(null)
 
-    viewModel = PlayerViewModel(
-        savedStateHandle, playbackCoordinator, authRepository, { reactionUseCase }, 
-        { playerInteractionUseCase }, getPlayerContextUseCase, { playableArtifactRepository }, 
-        reviewSessionManager, { deleteArtifactUseCase }, 
-        publishingPolicy, commentPolicy, diagnosticLogger
-    )
-}
+        viewModel = PlayerViewModel(
+            savedStateHandle, playbackCoordinator, authRepository, { reactionUseCase }, 
+            { playerInteractionUseCase }, getPlayerContextUseCase, { playableArtifactRepository }, 
+            reviewSessionManager, { deleteArtifactUseCase }, 
+            publishingPolicy, diagnosticLogger
+        )
+    }
 
     @After
     fun tearDown() {
@@ -100,7 +97,7 @@ class PlayerViewModelTest {
             savedStateHandle, playbackCoordinator, authRepository, { reactionUseCase }, 
             { playerInteractionUseCase }, getPlayerContextUseCase, { playableArtifactRepository }, 
             reviewSessionManager, { deleteArtifactUseCase },
-            publishingPolicy, commentPolicy, diagnosticLogger
+            publishingPolicy, diagnosticLogger
         )
         
         // Start collecting uiState in backgroundScope (automatically cancelled at end of test)

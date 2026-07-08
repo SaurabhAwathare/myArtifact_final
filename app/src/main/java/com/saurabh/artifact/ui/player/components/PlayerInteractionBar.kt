@@ -44,9 +44,6 @@ fun PlayerInteractionBar(
     isSaved: Boolean,
     saveSyncStatus: InteractionSyncStatus,
     onSaveClick: () -> Unit,
-    engagementStatus: EngagementStatus,
-    commentCount: Long,
-    onCommentClick: () -> Unit,
     modifier: Modifier = Modifier,
     showResonance: Boolean = true,
     showSave: Boolean = true,
@@ -73,16 +70,6 @@ fun PlayerInteractionBar(
                 onClick = { 
                     showReactionPicker = !showReactionPicker
                 }
-            )
-
-            InteractionItem(
-                icon = Icons.Rounded.ChatBubbleOutline,
-                label = "Comments",
-                count = commentCount,
-                isActive = engagementStatus == EngagementStatus.UNLOCKED,
-                enabled = engagementStatus == EngagementStatus.UNLOCKED || engagementStatus == EngagementStatus.VERIFYING,
-                loading = engagementStatus == EngagementStatus.VERIFYING,
-                onClick = onCommentClick
             )
 
             if (showResonance) {

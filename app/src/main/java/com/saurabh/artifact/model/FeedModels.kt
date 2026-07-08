@@ -8,9 +8,7 @@ import com.google.firebase.Timestamp
 data class FeedArtifact(
     val artifact: Artifact,
     val reason: FeedRecommendationReason = FeedRecommendationReason.DISCOVERY,
-    val compatibilityScore: Float = 0f,
-    val isUnfinished: Boolean = false,
-    val lastPositionMs: Long = 0
+    val compatibilityScore: Float = 0f
 )
 
 /**
@@ -19,22 +17,8 @@ data class FeedArtifact(
 enum class FeedRecommendationReason(val label: String) {
     RESONATING_PRESENCE("From a presence you resonate with"),
     EMOTIONAL_RESONANCE("Resonates with your mood"),
-    CONTINUE_LISTENING("Pick up where you left off"),
     DISCOVERY("A voice you might connect with")
 }
-
-/**
- * Tracks a user's progress through an artifact.
- */
-data class ListeningSession(
-    val id: String = "",
-    val userId: String = "",
-    val artifactId: String = "",
-    val lastPositionMs: Long = 0,
-    val totalDurationMs: Long = 0,
-    val isCompleted: Boolean = false,
-    val updatedAt: Timestamp = Timestamp.now()
-)
 
 /**
  * Defines the user's current "listening mood" and preferences.

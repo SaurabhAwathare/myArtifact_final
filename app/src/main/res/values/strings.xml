@@ -34,24 +34,11 @@
     <string name="action_support">Support</string>
 
     <!-- Notification Messages -->
-    <string name="notification_reply_received">Someone replied to your artifact 💬</string>
     <string name="notification_new_artifact">You published a new artifact: %s ✨</string>
     <string name="notification_identity_refreshed">You have shed your old presence and emerged as %1$s · %2$s 🎭</string>
     <string name="notification_presence_resonated">Someone has started following your journey ✨</string>
     <string name="notification_avatar_updated">You updated your avatar 🎨</string>
     <string name="notification_username_updated">You updated your username to %s ✨</string>
-    <string name="notification_reflection_arrival">A quiet reflection has arrived in your hearth for \"%s\" 🕯️</string>
-    <string name="notification_reflection_arrival_generic">Someone has shared a quiet reflection in your hearth 🕯️</string>
-
-    <!-- Comments & Unlock -->
-    <string name="comments_label">Comments</string>
-    <string name="add_comment">Add Comment</string>
-    <string name="no_comments_yet">No comments yet.</string>
-    <string name="be_the_first_to_comment">Be the first to share your thoughts.</string>
-    <string name="write_comment_placeholder">What does this artifact evoke in you?</string>
-    <string name="comment_submitted">Your comment has been safely delivered.</string>
-    <string name="comments_unlock_requirements">Comments Unlock Requirements</string>
-    <string name="reflect_and_respond">Reflect and respond</string>
 
     <!-- Legal -->
     <string name="privacy_policy">Privacy Policy</string>

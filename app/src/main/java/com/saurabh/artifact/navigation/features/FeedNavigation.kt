@@ -9,7 +9,6 @@ import com.saurabh.artifact.audio.RecordingSessionManager
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.navigation.*
-import com.saurabh.artifact.ui.comments.CommentsScreen
 import com.saurabh.artifact.ui.feed.FeedScreen
 import com.saurabh.artifact.ui.notifications.NotificationScreen
 
@@ -35,12 +34,6 @@ fun NavGraphBuilder.feedNavigation(
         val onNavigateToNotifications = remember(navController) {
             {
                 navController.navigate(Notifications)
-            }
-        }
-
-        val onNavigateToComments = remember(navController) {
-            { artifactId: String, ownerId: String ->
-                navController.navigate(Comments(artifactId, ownerId))
             }
         }
 
@@ -103,15 +96,6 @@ fun NavGraphBuilder.feedNavigation(
                 onPlayArtifactById(artifactId)
                 navController.popBackStack() // Return to feed to see the player
             }
-        )
-    }
-
-    composable<Comments> { backStackEntry ->
-        val comments = backStackEntry.toRoute<Comments>()
-        CommentsScreen(
-            artifactId = comments.artifactId,
-            ownerId = comments.ownerId,
-            onBack = { navController.popBackStack() }
         )
     }
 }
