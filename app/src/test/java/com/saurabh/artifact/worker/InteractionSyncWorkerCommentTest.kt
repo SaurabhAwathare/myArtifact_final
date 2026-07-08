@@ -6,6 +6,8 @@ import com.google.gson.Gson
 import com.saurabh.artifact.data.local.*
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.*
+import com.saurabh.artifact.domain.review.comments.CommentUnlockPolicy
+import com.saurabh.artifact.domain.review.comments.CommentUnlockValidator
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.util.ArtifactLogger
 import android.util.Log
@@ -15,6 +17,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Before
 import org.junit.After
 import org.junit.Test
+import org.junit.Assert.assertEquals
 import androidx.work.WorkerParameters
 import kotlin.time.Duration.Companion.seconds
 
@@ -27,6 +30,8 @@ class InteractionSyncWorkerCommentTest {
     private val userRepository = mockk<UserRepository>(relaxed = true)
     private val engagementRepository = mockk<EngagementRepository>(relaxed = true)
     private val commentRepository = mockk<CommentRepository>(relaxed = true)
+    private val commentUnlockValidator = mockk<CommentUnlockValidator>(relaxed = true)
+    private val commentUnlockPolicy = CommentUnlockPolicy()
     private val gson = Gson()
     private val workerParams = mockk<WorkerParameters>(relaxed = true)
     private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
@@ -54,6 +59,8 @@ class InteractionSyncWorkerCommentTest {
             userRepository = userRepository,
             engagementRepository = engagementRepository,
             commentRepository = commentRepository,
+            commentUnlockValidator = commentUnlockValidator,
+            commentUnlockPolicy = commentUnlockPolicy,
             gson = gson,
             diagnosticLogger = diagnosticLogger
         )
@@ -119,5 +126,94 @@ class InteractionSyncWorkerCommentTest {
 
         coVerify { commentRepository.syncCommentReactionToFirestore("comment123", any()) }
         coVerify { pendingInteractionDao.delete(interaction) }
+    }
+
+    @Test
+    fun `worker should retry comment if PERMISSION_DENIED and local evidence exists`() = runTest(timeout = 10.seconds) {
+        val artifactId = "a123"
+        val payload = CommentSyncPayload(
+            commentId = "c123",
+            artifactId = artifactId,
+            content = "test",
+            visibility = VisibilityLayer.SANCTUARY,
+            authorType = AuthorType.PSEUDONYM,
+            authorName = "User",
+            authorAvatarSeed = "seed",
+            artifactOwnerId = "owner123",
+            moderationState = CommentModerationState.APPROVED,
+            createdAtMillis = 123456789L
+        )
+        val interaction = PendingInteractionEntity(
+            userId = "user123",
+            artifactId = artifactId,
+            interactionType = InteractionType.COMMENT,
+            action = InteractionAction.ADD,
+            metadata = gson.toJson(payload)
+        )
+
+        coEvery { pendingInteractionDao.getPendingForUser("user123") } returns listOf(interaction)
+        
+        val firestoreError = mockk<com.google.firebase.firestore.FirebaseFirestoreException>(relaxed = true)
+        val mockCode = mockk<com.google.firebase.firestore.FirebaseFirestoreException.Code>(relaxed = true)
+        every { mockCode.name } returns "PERMISSION_DENIED"
+        every { firestoreError.code } returns mockCode
+        coEvery { commentRepository.syncCommentToFirestore(any(), any()) } returns Result.failure(firestoreError)
+
+        // Mock local evidence as valid
+        val mockEvidence = mockk<com.saurabh.artifact.domain.review.EngagementEvidence>()
+        coEvery { engagementRepository.getEngagement(artifactId) } returns Result.success(mockEvidence)
+        every { commentUnlockValidator.validate(mockEvidence, any()) } returns com.saurabh.artifact.audio.validation.ReviewResult(
+            coveragePercent = 1.0f,
+            reachedEnd = true,
+            isValid = true
+        )
+
+        val result = worker.doWork()
+
+        assertEquals(androidx.work.ListenableWorker.Result.retry(), result)
+        coVerify(exactly = 0) { pendingInteractionDao.delete(interaction) }
+        coVerify(exactly = 0) { deadLetterInteractionDao.insert(any()) }
+    }
+
+    @Test
+    fun `worker should NOT retry comment if PERMISSION_DENIED and NO local evidence exists`() = runTest(timeout = 10.seconds) {
+        val artifactId = "a123"
+        val payload = CommentSyncPayload(
+            commentId = "c123",
+            artifactId = artifactId,
+            content = "test",
+            visibility = VisibilityLayer.SANCTUARY,
+            authorType = AuthorType.PSEUDONYM,
+            authorName = "User",
+            authorAvatarSeed = "seed",
+            artifactOwnerId = "owner123",
+            moderationState = CommentModerationState.APPROVED,
+            createdAtMillis = 123456789L
+        )
+        val interaction = PendingInteractionEntity(
+            userId = "user123",
+            artifactId = artifactId,
+            interactionType = InteractionType.COMMENT,
+            action = InteractionAction.ADD,
+            metadata = gson.toJson(payload)
+        )
+
+        coEvery { pendingInteractionDao.getPendingForUser("user123") } returns listOf(interaction)
+        
+        val firestoreError = mockk<com.google.firebase.firestore.FirebaseFirestoreException>(relaxed = true)
+        val mockCode = mockk<com.google.firebase.firestore.FirebaseFirestoreException.Code>(relaxed = true)
+        every { mockCode.name } returns "PERMISSION_DENIED"
+        every { firestoreError.code } returns mockCode
+        coEvery { commentRepository.syncCommentToFirestore(any(), any()) } returns Result.failure(firestoreError)
+
+        // Mock local evidence as INVALID
+        coEvery { engagementRepository.getEngagement(artifactId) } returns Result.failure(Exception("Not found"))
+
+        val result = worker.doWork()
+
+        // Should NOT retry, should move to DLQ
+        assertEquals(androidx.work.ListenableWorker.Result.success(), result)
+        coVerify { pendingInteractionDao.delete(interaction) }
+        coVerify { deadLetterInteractionDao.insert(any()) }
     }
 }

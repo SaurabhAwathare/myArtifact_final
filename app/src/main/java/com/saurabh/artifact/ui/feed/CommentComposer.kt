@@ -12,6 +12,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.saurabh.artifact.model.AuthorType
+import com.saurabh.artifact.model.EngagementStatus
 import com.saurabh.artifact.model.VisibilityLayer
 import com.saurabh.artifact.ui.components.HiddenCommentNotice
 import com.saurabh.artifact.ui.components.MindfulTextField
@@ -29,6 +30,9 @@ fun CommentComposer(
     var content by remember { mutableStateOf("") }
     var visibilityLayer by remember { mutableStateOf(VisibilityLayer.RESONANCE) }
     var authorType by remember { mutableStateOf(AuthorType.PSEUDONYM) }
+
+    val isLocked = uiState.engagementStatus == EngagementStatus.LOCKED || uiState.engagementStatus == EngagementStatus.ERROR
+    val canSend = content.isNotBlank() && !uiState.isSubmitting && !isLocked
 
     Column(
         modifier = Modifier
@@ -53,7 +57,7 @@ fun CommentComposer(
             ),
             keyboardActions = androidx.compose.foundation.text.KeyboardActions(
                 onSend = {
-                    if (content.isNotBlank() && !uiState.isSubmitting) {
+                    if (canSend) {
                         viewModel.submitReflection(artifactId, content, visibilityLayer, authorType)
                     }
                 }
@@ -107,12 +111,21 @@ fun CommentComposer(
 
             Spacer(Modifier.weight(1f))
 
+            if (isLocked) {
+                Text(
+                    "Listen to unlock commenting",
+                    color = ReflectionWhite.copy(alpha = 0.5f),
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(end = 8.dp)
+                )
+            }
+
             // Action Button
             Button(
                 onClick = { 
                     viewModel.submitReflection(artifactId, content, visibilityLayer, authorType)
                 },
-                enabled = content.isNotBlank() && !uiState.isSubmitting,
+                enabled = canSend,
                 colors = ButtonDefaults.buttonColors(containerColor = GoldAura400),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
                 modifier = Modifier.height(36.dp)

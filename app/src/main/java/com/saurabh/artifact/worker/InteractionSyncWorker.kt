@@ -12,6 +12,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import kotlin.Result as KResult
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.gson.Gson
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
@@ -19,6 +20,8 @@ import com.saurabh.artifact.domain.review.EngagementSyncPayload
 import com.saurabh.artifact.data.local.*
 import com.saurabh.artifact.model.ReactionType
 import com.saurabh.artifact.model.CommentSyncPayload
+import com.saurabh.artifact.domain.review.comments.CommentUnlockPolicy
+import com.saurabh.artifact.domain.review.comments.CommentUnlockValidator
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.ReactionRepository
 import com.saurabh.artifact.repository.UserRepository
@@ -42,6 +45,8 @@ class InteractionSyncWorker @AssistedInject constructor(
     private val userRepository: UserRepository,
     private val engagementRepository: EngagementRepository,
     private val commentRepository: CommentRepository,
+    private val commentUnlockValidator: CommentUnlockValidator,
+    private val commentUnlockPolicy: CommentUnlockPolicy,
     private val gson: Gson,
     private val diagnosticLogger: DiagnosticLogger
 ) : CoroutineWorker(appContext, workerParams) {
@@ -227,7 +232,29 @@ class InteractionSyncWorker @AssistedInject constructor(
                 InteractionType.COMMENT -> {
                     val payloadJson = interaction.metadata ?: throw Exception("Comment metadata missing")
                     val payload = gson.fromJson(payloadJson, CommentSyncPayload::class.java)
-                    commentRepository.syncCommentToFirestore(userId, payload)
+                    val syncResult = commentRepository.syncCommentToFirestore(userId, payload)
+                    
+                    if (syncResult.isFailure) {
+                        val error = syncResult.exceptionOrNull()
+                        if (error is FirebaseFirestoreException && error.code.name == "PERMISSION_DENIED") {
+                            // Check local evidence of eligibility
+                            val engagement = engagementRepository.getEngagement(payload.artifactId).getOrNull()
+                            val isEligibleLocally = engagement?.let { 
+                                commentUnlockValidator.validate(it, commentUnlockPolicy).isValid 
+                            } ?: false
+
+                            if (isEligibleLocally) {
+                                diagnosticLogger.info(DiagnosticCategory.SYNC, "COMMENT_SYNC_RETRY_PENDING_UNLOCK", mapOf("artifactId" to payload.artifactId))
+                                // Evidence exists locally; likely a propagation race.
+                                throw com.saurabh.artifact.model.AppError.NetworkFailure(
+                                    technicalMessage = "Waiting for comment unlock propagation"
+                                )
+                            } else {
+                                diagnosticLogger.warn(DiagnosticCategory.SYNC, "COMMENT_SYNC_PERMANENT_DENIED", mapOf("artifactId" to payload.artifactId))
+                            }
+                        }
+                    }
+                    syncResult
                 }
                 InteractionType.COMMENT_REACTION -> {
                     val type = interaction.metadata?.let { ReactionType.fromId(it) } ?: ReactionType.I_HEAR_YOU

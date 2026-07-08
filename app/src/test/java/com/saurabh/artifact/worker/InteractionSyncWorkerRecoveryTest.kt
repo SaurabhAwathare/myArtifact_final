@@ -9,7 +9,9 @@ import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.ReactionRepository
 import com.saurabh.artifact.repository.UserRepository
 import com.saurabh.artifact.repository.EngagementRepository
-import com.saurabh.artifact.repository.CommentRepository
+import com.saurabh.artifact.repository.*
+import com.saurabh.artifact.domain.review.comments.CommentUnlockPolicy
+import com.saurabh.artifact.domain.review.comments.CommentUnlockValidator
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.util.ArtifactLogger
 import com.saurabh.artifact.util.NetworkUtils
@@ -33,6 +35,8 @@ class InteractionSyncWorkerRecoveryTest {
     private val userRepository = mockk<UserRepository>(relaxed = true)
     private val engagementRepository = mockk<EngagementRepository>(relaxed = true)
     private val commentRepository = mockk<CommentRepository>(relaxed = true)
+    private val commentUnlockValidator = mockk<CommentUnlockValidator>(relaxed = true)
+    private val commentUnlockPolicy = CommentUnlockPolicy()
     private val auth = mockk<FirebaseAuth>()
     private val firebaseUser = mockk<FirebaseUser>()
     private val workerParams = mockk<WorkerParameters>(relaxed = true)
@@ -70,6 +74,8 @@ class InteractionSyncWorkerRecoveryTest {
             userRepository = userRepository,
             engagementRepository = engagementRepository,
             commentRepository = commentRepository,
+            commentUnlockValidator = commentUnlockValidator,
+            commentUnlockPolicy = commentUnlockPolicy,
             gson = gson,
             diagnosticLogger = diagnosticLogger
         )

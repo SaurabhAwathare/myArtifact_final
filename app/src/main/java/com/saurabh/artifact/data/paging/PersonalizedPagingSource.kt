@@ -1,5 +1,6 @@
 package com.saurabh.artifact.data.paging
 
+import android.util.Log
 import androidx.paging.PagingSource
 import androidx.paging.PagingState
 import com.google.firebase.firestore.DocumentSnapshot
@@ -16,6 +17,8 @@ class PersonalizedPagingSource(
     private val feedRanker: FeedRanker,
     private val emotion: String? = null
 ) : PagingSource<PersonalizedPagingSource.PageKey, Pair<Artifact, Int>>() {
+
+    private val emittedIds = mutableSetOf<String>()
 
     data class PageKey(
         val resonatedLast: DocumentSnapshot? = null,
@@ -46,8 +49,17 @@ class PersonalizedPagingSource(
                     lastVisible = key.discoveryLast
                 ).getOrDefault(PaginatedArtifacts(emptyList(), null))
 
+                Log.d("PagingSourceDiag", "Page Offset: ${key.offset}")
+                Log.d("PagingSourceDiag", "Resonating IDs: ${resonatedResult.artifacts.map { it.id }}")
+                Log.d("PagingSourceDiag", "Discovery IDs: ${discoveryResult.artifacts.map { it.id }}")
+
                 val combined = (resonatedResult.artifacts + discoveryResult.artifacts)
+                    .filter { it.id !in emittedIds }
                     .distinctBy { it.id }
+
+                emittedIds.addAll(combined.map { it.id })
+
+                Log.d("PagingSourceDiag", "Final Combined IDs (New): ${combined.map { it.id }}")
 
                 val ranked = if (combined.isNotEmpty()) {
                     feedRanker.rank(combined, user = null, currentMood = emotion)

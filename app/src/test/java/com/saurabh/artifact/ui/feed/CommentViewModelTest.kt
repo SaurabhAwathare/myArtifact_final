@@ -143,4 +143,43 @@ class CommentViewModelTest {
         // Now shared comments should be observed
         verify { repository.observeSharedComments(artifactId) }
     }
+
+    @Test
+    fun `submitReflection is blocked when engagement status is LOCKED`() = runTest {
+        // Set state to LOCKED (default in setup, but being explicit)
+        val statusFlow = MutableStateFlow(EngagementStatus.LOCKED)
+        every { getEngagementStateUseCase.execute(artifactId) } returns statusFlow
+        viewModel.loadComments(artifactId, ownerId)
+        advanceUntilIdle()
+
+        viewModel.submitReflection(artifactId, "Test comment", com.saurabh.artifact.model.VisibilityLayer.RESONANCE, com.saurabh.artifact.model.AuthorType.PSEUDONYM)
+        advanceUntilIdle()
+
+        // Verify repository was NOT called
+        coVerify(exactly = 0) { repository.submitReflection(any(), any(), any(), any(), any(), any(), any()) }
+        
+        // Verify UI error message
+        assertEquals("You must listen to the artifact before commenting.", viewModel.uiState.value.errorMessage)
+    }
+
+    @Test
+    fun `submitReflection is allowed when engagement status is UNLOCKED`() = runTest {
+        // Set state to UNLOCKED
+        val statusFlow = MutableStateFlow(EngagementStatus.UNLOCKED)
+        every { getEngagementStateUseCase.execute(artifactId) } returns statusFlow
+        viewModel.loadComments(artifactId, ownerId)
+        advanceUntilIdle()
+
+        coEvery { repository.submitReflection(any(), any(), any(), any(), any(), any(), any()) } returns Result.success(Unit)
+        
+        val mockUser = com.saurabh.artifact.model.User(id = "user789", anonymousName = "Tester", avatarSeed = "seed")
+        coEvery { userRepository.getOrCreateProfile() } returns Result.success(com.saurabh.artifact.repository.ProfileResult(mockUser, false))
+
+        viewModel.submitReflection(artifactId, "Test comment", com.saurabh.artifact.model.VisibilityLayer.RESONANCE, com.saurabh.artifact.model.AuthorType.PSEUDONYM)
+        advanceUntilIdle()
+
+        // Verify repository WAS called
+        coVerify(exactly = 1) { repository.submitReflection(artifactId, any(), "Test comment", any(), any(), any(), any()) }
+        assertEquals(null, viewModel.uiState.value.errorMessage)
+    }
 }

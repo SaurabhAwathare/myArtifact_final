@@ -14,6 +14,9 @@ import com.saurabh.artifact.domain.review.EngagementEvidence
 import com.saurabh.artifact.domain.review.GetEngagementStateUseCase
 import com.saurabh.artifact.model.EngagementStatus
 import com.saurabh.artifact.repository.*
+import com.saurabh.artifact.domain.review.comments.CommentUnlockPolicy
+import com.saurabh.artifact.domain.review.comments.CommentUnlockValidator
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.worker.InteractionSyncWorker
 import dagger.hilt.android.testing.HiltAndroidRule
 import dagger.hilt.android.testing.HiltAndroidTest
@@ -54,6 +57,12 @@ class CommentUnlockIntegrationTest {
     lateinit var commentRepository: CommentRepository
 
     @Inject
+    lateinit var commentUnlockValidator: CommentUnlockValidator
+
+    @Inject
+    lateinit var commentUnlockPolicy: CommentUnlockPolicy
+
+    @Inject
     lateinit var getEngagementStateUseCase: GetEngagementStateUseCase
 
     @Inject
@@ -76,6 +85,9 @@ class CommentUnlockIntegrationTest {
 
     @Inject
     lateinit var gson: Gson
+
+    @Inject
+    lateinit var diagnosticLogger: DiagnosticLogger
 
     private lateinit var context: Context
     private val testArtifactId = "test_artifact_happy"
@@ -124,7 +136,10 @@ class CommentUnlockIntegrationTest {
             userRepository = userRepository,
             engagementRepository = engagementRepository,
             commentRepository = commentRepository,
-            gson = gson
+            commentUnlockValidator = commentUnlockValidator,
+            commentUnlockPolicy = commentUnlockPolicy,
+            gson = gson,
+            diagnosticLogger = diagnosticLogger
         )
         val syncResult = manualWorker.doWork()
         assertEquals(ListenableWorker.Result.success(), syncResult)

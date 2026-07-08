@@ -72,6 +72,14 @@ class CommentViewModel @Inject constructor(
     ) {
         if (content.isBlank()) return
         
+        // Defensive check: Only allow submission if not LOCKED/ERROR
+        val currentStatus = _uiState.value.engagementStatus
+        if (currentStatus == EngagementStatus.LOCKED || currentStatus == EngagementStatus.ERROR) {
+            diagnosticLogger.warn(DiagnosticCategory.COMMENTS, "COMMENT_SUBMIT_BLOCKED_LOCKED", mapOf("artifactId" to artifactId, "status" to currentStatus.name))
+            _uiState.update { it.copy(errorMessage = "You must listen to the artifact before commenting.") }
+            return
+        }
+        
         viewModelScope.launch {
             diagnosticLogger.info(DiagnosticCategory.COMMENTS, "COMMENT_SUBMIT_STARTED", mapOf("artifactId" to artifactId))
             _uiState.update { it.copy(isSubmitting = true, errorMessage = null) }

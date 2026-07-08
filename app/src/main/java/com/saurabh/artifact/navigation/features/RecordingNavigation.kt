@@ -10,6 +10,7 @@ import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.navigation.*
 import com.saurabh.artifact.ui.drafts.list.DraftListScreen
 import com.saurabh.artifact.ui.publish.studio.PublishingStudioScreen
+import com.saurabh.artifact.ui.recording.decision.PostRecordingDecisionScreen
 import com.saurabh.artifact.ui.recording.RecordingScreen
 import com.saurabh.artifact.ui.recording.warning.PreRecordingWarningScreen
 
@@ -68,14 +69,32 @@ fun NavGraphBuilder.recordingNavigation(
     composable<InstantRecord> {
         RecordingScreen(
             onFinished = { draftId ->
-                // Navigate directly to the unified Publishing Studio
-                diagnosticLogger.info(DiagnosticCategory.NAVIGATION, "NAVIGATE_TO_PUBLISHING_STUDIO", mapOf(LogKeys.DRAFT_ID to draftId, "source" to "InstantRecord"))
-                navController.navigate(PublishingStudio(draftId)) {
+                // Navigate to the post-recording decision screen
+                diagnosticLogger.info(DiagnosticCategory.NAVIGATION, "NAVIGATE_TO_POST_RECORDING_DECISION", mapOf(LogKeys.DRAFT_ID to draftId, "source" to "InstantRecord"))
+                navController.navigate(PostRecordingDecision(draftId)) {
                     popUpTo(InstantRecord()) { inclusive = true }
                     launchSingleTop = true
                 }
             },
             onBack = onBack
+        )
+    }
+
+    composable<PostRecordingDecision> { backStackEntry ->
+        val route = backStackEntry.toRoute<PostRecordingDecision>()
+        PostRecordingDecisionScreen(
+            draftId = route.draftId,
+            onReview = { draftId ->
+                diagnosticLogger.info(DiagnosticCategory.NAVIGATION, "NAVIGATE_TO_PUBLISHING_STUDIO", mapOf(LogKeys.DRAFT_ID to draftId, "source" to "PostRecordingDecision"))
+                navController.navigate(PublishingStudio(draftId)) {
+                    popUpTo(PostRecordingDecision(route.draftId)) { inclusive = true }
+                    launchSingleTop = true
+                }
+            },
+            onSaveAsDraft = {
+                diagnosticLogger.info(DiagnosticCategory.NAVIGATION, "NAVIGATE_SAVE_AS_DRAFT", mapOf(LogKeys.DRAFT_ID to route.draftId))
+                navController.popBackStack()
+            }
         )
     }
 
