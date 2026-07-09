@@ -324,7 +324,7 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-    fun toggleResonate(type: ReactionType = metadata.value.selectedReactionType) {
+    fun toggleResonate(type: ReactionType = ReactionType.I_HEAR_YOU) {
         val artifactId = uiState.value.currentArtifact?.id ?: return
         val userId = authRepository.currentUser.value?.uid ?: return
 

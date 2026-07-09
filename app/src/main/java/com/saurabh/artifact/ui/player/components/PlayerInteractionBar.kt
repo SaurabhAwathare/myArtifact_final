@@ -47,8 +47,6 @@ fun PlayerInteractionBar(
     showResonance: Boolean = true,
     showSave: Boolean = true,
 ) {
-    var showReactionPicker by remember { mutableStateOf(value = false) }
-
     Column(modifier = modifier) {
         Row(
             modifier = Modifier
@@ -61,13 +59,13 @@ fun PlayerInteractionBar(
         ) {
             InteractionItem(
                 icon = if (isResonated) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                label = if (isResonated) selectedReactionType.label else "Resonate",
+                label = "Resonate",
                 count = null,
                 isActive = isResonated,
                 syncStatus = resonanceSyncStatus,
                 activeColor = GoldAura400,
                 onClick = { 
-                    showReactionPicker = !showReactionPicker
+                    onResonateClick(ReactionType.I_HEAR_YOU)
                 }
             )
 
@@ -91,46 +89,6 @@ fun PlayerInteractionBar(
                     activeColor = GoldAura400,
                     onClick = onSaveClick
                 )
-            }
-        }
-
-        if (showReactionPicker) {
-            ReactionPicker {
-                onResonateClick(it)
-                showReactionPicker = false
-            }
-        }
-    }
-}
-
-@Composable
-private fun ReactionPicker(
-    onReactionSelected: (ReactionType) -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 8.dp)
-            .background(Color.White.copy(alpha = 0.05f), RoundedCornerShape(16.dp))
-            .padding(12.dp)
-    ) {
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            items(ReactionType.entries.toList()) { type ->
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.clickable { onReactionSelected(type) }
-                ) {
-                    Text(text = type.emoji, fontSize = 24.sp)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = type.label,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.copy(alpha = 0.7f),
-                        fontSize = 8.sp
-                    )
-                }
             }
         }
     }
