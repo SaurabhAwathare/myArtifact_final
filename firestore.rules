@@ -88,19 +88,11 @@ service cloud.firestore {
         allow write: if isOwner(uid) && (document != /settings);
       }
 
-      // Resonance & Engagement
+      // Resonance
       match /resonance_in/{targetId} { allow read: if isAuth(); allow write: if false; }
       match /resonance_out/{targetId} { allow read: if isAuth(); allow write: if false; }
       match /followers/{targetId} { allow read: if isAuth(); allow write: if false; }
       match /following/{targetId} { allow read: if isAuth(); allow write: if false; }
-
-      match /engagement/{id} {
-        allow read: if isOwner(uid);
-        allow create: if isOwner(uid);
-        allow update: if resource != null &&
-                     (request.auth != null &&
-                      request.auth.uid == uid);
-      }
 
       match /savedArtifacts/{artifactId} {
         allow read, write: if isOwner(uid);

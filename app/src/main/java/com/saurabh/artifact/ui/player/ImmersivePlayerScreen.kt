@@ -28,7 +28,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.saurabh.artifact.model.PlayableArtifact
 import com.saurabh.artifact.model.AuthorSnapshot
-import com.saurabh.artifact.model.EngagementStatus
 import com.saurabh.artifact.ui.components.ResonanceDisplay
 import com.saurabh.artifact.ui.player.components.*
 import com.saurabh.artifact.ui.theme.GoldAura400
@@ -422,40 +421,6 @@ fun ImmersivePlayerScreen(
     }
 }
 
-@Composable
-private fun RequirementItem(
-    label: String,
-    isMet: Boolean,
-    progress: String? = null
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(
-            imageVector = if (isMet) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
-            contentDescription = null,
-            tint = if (isMet) GoldAura400 else Color.White.copy(alpha = 0.2f),
-            modifier = Modifier.size(16.dp)
-        )
-        
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = if (isMet) Color.White.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.4f),
-            modifier = Modifier.padding(start = 8.dp).weight(1f)
-        )
-        
-        if (progress != null) {
-            Text(
-                text = progress,
-                style = MaterialTheme.typography.labelSmall,
-                color = if (isMet) GoldAura400 else Color.White.copy(alpha = 0.4f)
-            )
-        }
-    }
-}
-
 @Preview
 @Composable
 fun ImmersiveDraftPlayerPreview() {
@@ -488,7 +453,6 @@ fun ImmersiveDraftPlayerPreview() {
             onSpeedChange = {},
             onSeek = {},
             onShowAdvanced = {},
-            onCommentClick = {},
             playableArtifact = null
         )
     }

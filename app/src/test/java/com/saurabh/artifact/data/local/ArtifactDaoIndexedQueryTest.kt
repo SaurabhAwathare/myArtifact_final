@@ -113,7 +113,6 @@ class ArtifactDaoIndexedQueryTest {
             emotionTag = "Neutral",
             playCount = 0,
             reactionCount = 0,
-            commentCount = 0,
             amplitudeData = emptyList()
         )
     }

@@ -4,7 +4,7 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 
 /**
- * Persists playback position (for resume) for an artifact.
+ * Persists both playback position (for resume) and listening evidence (for validation).
  * Unified source of truth for user interaction with an artifact.
  */
 @Entity(tableName = "artifact_engagement")
@@ -15,6 +15,8 @@ data class ArtifactEngagement(
     val audioChecksum: String = "",
     val coverage: ByteArray, // Serialized BitSet
     val lastPositionMs: Long, // Resume position
+    val furthestPositionMs: Long, // Validation progress
+    val hasReachedEnd: Boolean,
     val lastUpdated: Long = System.currentTimeMillis(),
 ) {
     override fun equals(other: Any?): Boolean {
@@ -27,6 +29,8 @@ data class ArtifactEngagement(
         if (audioChecksum != other.audioChecksum) return false
         if (!coverage.contentEquals(other.coverage)) return false
         if (lastPositionMs != other.lastPositionMs) return false
+        if (furthestPositionMs != other.furthestPositionMs) return false
+        if (hasReachedEnd != other.hasReachedEnd) return false
         return lastUpdated == other.lastUpdated
     }
 
@@ -37,6 +41,8 @@ data class ArtifactEngagement(
         result = (31 * result) + audioChecksum.hashCode()
         result = (31 * result) + coverage.contentHashCode()
         result = (31 * result) + lastPositionMs.hashCode()
+        result = (31 * result) + furthestPositionMs.hashCode()
+        result = (31 * result) + hasReachedEnd.hashCode()
         result = (31 * result) + lastUpdated.hashCode()
         return result
     }

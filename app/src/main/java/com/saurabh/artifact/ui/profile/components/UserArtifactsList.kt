@@ -25,7 +25,6 @@ fun LazyListScope.userArtifactsList(
     onPlayClick: (Artifact) -> Unit,
     onRename: (Artifact, String) -> Unit,
     onDelete: (Artifact) -> Unit,
-    onViewComments: (Artifact) -> Unit,
     onSaveClick: (Artifact) -> Unit = {},
     savedIds: Set<String> = emptySet(),
     emptyMessage: String? = null
@@ -53,8 +52,7 @@ fun LazyListScope.userArtifactsList(
                     onPlayClick = { onPlayClick(artifact) },
                     onRename = { newTitle -> onRename(artifact, newTitle) },
                     onDelete = { onDelete(artifact) },
-                    onUnsave = { onSaveClick(artifact) },
-                    onViewComments = { onViewComments(artifact) }
+                    onUnsave = { onSaveClick(artifact) }
                 )
             }
         }

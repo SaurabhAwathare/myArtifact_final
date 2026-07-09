@@ -8,7 +8,7 @@ enum class StartupStage {
     ARRIVAL,    // Minimal calm entry, ambient motion
     PRESENCE,   // Reflection prompt, emotional state check-in
     DISCOVERY,  // Gradual feed appearance, skeleton items
-    IMMERSION,  // Comments, reactions, social observers
+    IMMERSION,  // Reactions, social observers
     RITUAL,     // Audio player, waveforms, media preloading
     STABLE      // Full visual fidelity and background tasks
 }

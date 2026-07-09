@@ -171,7 +171,7 @@ class StartupCoordinator @Inject constructor(
                 _stage.value = StartupStage.DISCOVERY
                 StartupTracer.mark("Transition: DISCOVERY")
 
-                // WAIT FOR DATABASE before Immersion (where comments/reactions live)
+                // WAIT FOR DATABASE before Immersion (where social interactions live)
                 awaitReadiness(StartupComponent.DATABASE)
 
                 // STAGGER 3: Immersion (Social/Reactions)

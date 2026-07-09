@@ -43,7 +43,6 @@ fun GlobalOverlayHost(
     onNavigateToPublish: (String) -> Unit = { id -> 
         navController.navigate(PublishingStudio(id)) { launchSingleTop = true } 
     },
-    onNavigateToComments: (String, String) -> Unit,
     onReportArtifact: (String) -> Unit,
     playerViewModel: PlayerViewModel = hiltViewModel(),
 ) {
@@ -68,7 +67,6 @@ fun GlobalOverlayHost(
         ArtifactPlayerView(
             onNavigateToDraftEdit = onNavigateToDraftEdit,
             onNavigateToPublish = onNavigateToPublish,
-            onNavigateToComments = onNavigateToComments,
             onReportArtifact = onReportArtifact,
             viewModel = playerViewModel
         )

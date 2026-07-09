@@ -81,7 +81,6 @@ fun FeedScreen(
     
     val recentArtifacts = viewModel.artifacts.collectAsLazyPagingItems()
     val forYouArtifacts = viewModel.personalizedArtifacts.collectAsLazyPagingItems()
-    val unfinished by viewModel.unfinishedArtifacts.collectAsStateWithLifecycle()
     
     val isRankedLoading by viewModel.isRankedLoading.collectAsStateWithLifecycle()
     val stage by viewModel.startupStage.collectAsStateWithLifecycle()
@@ -184,7 +183,6 @@ fun FeedScreen(
                         isRankedLoading = isRankedLoading,
                         forYouArtifacts = forYouArtifacts,
                         recentArtifacts = recentArtifacts,
-                        unfinished = unfinished,
                         listState = listState,
                         viewModel = viewModel,
                         reflectionPrompt = reflectionPrompt,
@@ -254,8 +252,8 @@ private fun FeedTopBar(
                     Icon(
                         Icons.Rounded.Notifications,
                         contentDescription = if (unreadCount > 0)
-                            "Comments, new activity available"
-                        else "Comments"
+                            "New activity available"
+                        else "Notifications"
                     )
                 }
             }
@@ -352,7 +350,6 @@ private fun FeedContent(
     isRankedLoading: Boolean,
     forYouArtifacts: androidx.paging.compose.LazyPagingItems<FeedDisplayItem>,
     recentArtifacts: androidx.paging.compose.LazyPagingItems<FeedDisplayItem>,
-    unfinished: List<FeedArtifact>,
     listState: androidx.compose.foundation.lazy.LazyListState,
     viewModel: FeedViewModel,
     reflectionPrompt: ReflectionPrompt?,
@@ -376,33 +373,6 @@ private fun FeedContent(
         ) {
             item(key = "header") {
                 FeedHeader(viewModel, reflectionPrompt, stage, onNavigateToRecord)
-            }
-
-            if (showRankedFeed) {
-                // Inject unfinished sessions at the top of Ranked feed
-                if (unfinished.isNotEmpty()) {
-                    item(key = "unfinished_section") {
-                        Text(
-                            "Continue Listening",
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.padding(bottom = 12.dp)
-                        )
-                    }
-                    items(unfinished, key = { "unf_${it.artifact.id}" }) { item ->
-                        ArtifactItem(
-                            artifactId = item.artifact.id,
-                            viewModel = viewModel,
-                            onReportClick = onReportClick,
-                            feedArtifact = item
-                        )
-                    }
-                    item(key = "divider_unf") {
-                        HorizontalDivider(
-                            modifier = Modifier.padding(vertical = 8.dp),
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
-                        )
-                    }
-                }
             }
 
             items(
@@ -546,10 +516,10 @@ fun ArtifactItem(
             reason = reason ?: com.saurabh.artifact.model.FeedRecommendationReason.DISCOVERY
         )
 
-        // Show labels ONLY for high-value reasons (Resonance, Unfinished)
+        // Show labels ONLY for high-value reasons (Resonance)
         // Suppress DISCOVERY labels to reduce UI clutter
         val shouldShowLabel = when {
-            feedArtifact != null -> true // Unfinished sessions always show labels
+            feedArtifact != null -> true
             reason != null && reason != com.saurabh.artifact.model.FeedRecommendationReason.DISCOVERY -> true
             else -> false
         }

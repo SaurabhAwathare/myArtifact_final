@@ -12,17 +12,13 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import kotlin.Result as KResult
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FirebaseFirestoreException
-import com.google.gson.Gson
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
-import com.saurabh.artifact.domain.review.EngagementSyncPayload
 import com.saurabh.artifact.data.local.*
 import com.saurabh.artifact.model.ReactionType
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.ReactionRepository
 import com.saurabh.artifact.repository.UserRepository
-import com.saurabh.artifact.repository.EngagementRepository
 import com.saurabh.artifact.diagnostics.logInteraction
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -39,8 +35,6 @@ class InteractionSyncWorker @AssistedInject constructor(
     private val reactionRepository: ReactionRepository,
     private val artifactRepository: ArtifactRepository,
     private val userRepository: UserRepository,
-    private val engagementRepository: EngagementRepository,
-    private val gson: Gson,
     private val diagnosticLogger: DiagnosticLogger
 ) : CoroutineWorker(appContext, workerParams) {
 

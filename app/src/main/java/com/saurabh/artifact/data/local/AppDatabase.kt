@@ -16,7 +16,7 @@ import androidx.room.TypeConverters
         UserLocalEntity::class,
         DeadLetterInteractionEntity::class,
     ],
-    version = 55,
+    version = 56,
     autoMigrations = [
         // Auto-migrations can be added here for simple schema changes
     ],

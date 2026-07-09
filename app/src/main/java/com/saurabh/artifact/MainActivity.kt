@@ -27,7 +27,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.rememberNavController
 import com.saurabh.artifact.audio.RecordingSessionManager
-import com.saurabh.artifact.navigation.Comments
 import com.saurabh.artifact.navigation.NavGraph
 import com.saurabh.artifact.navigation.PublishingStudio
 import com.saurabh.artifact.startup.StartupStage
@@ -236,9 +235,6 @@ fun AuthenticatedIsland(
                             },
                             onNavigateToPublish = { draftId ->
                                 navController.navigate(PublishingStudio(draftId)) { launchSingleTop = true }
-                            },
-                            onNavigateToComments = { artifactId, userId ->
-                                navController.navigate(Comments(artifactId, userId))
                             },
                             onReportArtifact = { mainViewModel.showReportSheet(it) },
                             playerViewModel = playerViewModel

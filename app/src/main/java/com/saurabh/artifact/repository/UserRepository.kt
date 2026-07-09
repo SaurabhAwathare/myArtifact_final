@@ -668,8 +668,7 @@ class UserRepository @Inject constructor(
     suspend fun reportIdentityExposure(
         reporterId: String,
         reportedUserId: String,
-        artifactId: String?,
-        commentId: String?
+        artifactId: String?
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val reportRef = firestore.collection("reports").document()
@@ -679,7 +678,6 @@ class UserRepository @Inject constructor(
                 "reporterId" to reporterId,
                 "reportedUserId" to reportedUserId,
                 "artifactId" to artifactId,
-                "commentId" to commentId,
                 "timestamp" to FieldValue.serverTimestamp(),
                 "status" to "PENDING"
             )).await()

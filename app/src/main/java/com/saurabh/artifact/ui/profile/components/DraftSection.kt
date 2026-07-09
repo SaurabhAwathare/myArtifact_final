@@ -44,8 +44,7 @@ fun LazyListScope.draftSection(
                     onPlayClick = { onPlayClick(draft) },
                     onRename = { newTitle -> onRename(draft, newTitle) },
                     onPublishClick = { onPublishClick(draft) },
-                    onDelete = { onDelete(draft) },
-                    onViewComments = null // Drafts don't have comments
+                    onDelete = { onDelete(draft) }
                 )
             }
         }

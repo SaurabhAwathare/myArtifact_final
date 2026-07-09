@@ -97,7 +97,7 @@ fun ModerationScreen(
                             ReportCard(
                                 item = item,
                                 onAction = { action ->
-                                    viewModel.resolveReport(item.report.id, item.report.artifactId, action, item.report.commentId)
+                                    viewModel.resolveReport(item.report.id, item.report.artifactId, action)
                                 }
                             )
                         }
@@ -155,24 +155,6 @@ fun ReportCard(
                 )
             } ?: Text("Artifact details unavailable", color = MaterialTheme.colorScheme.error)
 
-            item.comment?.let { comment ->
-                Spacer(modifier = Modifier.height(Spacing.Medium))
-                Text(
-                    text = "Reported Comment:",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Text(
-                    text = comment.content,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    text = "Comment Author: ${comment.authorAnonymousName ?: "Quiet Presence"}",
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-
             Spacer(modifier = Modifier.height(Spacing.Large))
 
             Row(
@@ -190,24 +172,13 @@ fun ReportCard(
                 
                 Spacer(modifier = Modifier.width(Spacing.Small))
 
-                if (item.report.commentId != null) {
-                    Button(
-                        onClick = { onAction(ArtifactRepository.ModerationAction.BLOCK_COMMENT) },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                    ) {
-                        Icon(Icons.Default.Close, contentDescription = null)
-                        Spacer(modifier = Modifier.width(Spacing.Small))
-                        Text("Block Comment")
-                    }
-                } else {
-                    Button(
-                        onClick = { onAction(ArtifactRepository.ModerationAction.HIDE_ARTIFACT) },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                    ) {
-                        Icon(Icons.Default.Close, contentDescription = null)
-                        Spacer(modifier = Modifier.width(Spacing.Small))
-                        Text("Hide Artifact")
-                    }
+                Button(
+                    onClick = { onAction(ArtifactRepository.ModerationAction.HIDE_ARTIFACT) },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = null)
+                    Spacer(modifier = Modifier.width(Spacing.Small))
+                    Text("Hide Artifact")
                 }
             }
         }

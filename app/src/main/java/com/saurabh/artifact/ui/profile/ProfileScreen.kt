@@ -31,7 +31,6 @@ fun ProfileScreen(
     onNavigateToReview: (String) -> Unit,
     onNavigateToPublish: (String) -> Unit = {},
     onNavigateToResonanceList: (String, String, String) -> Unit = { _, _, _ -> },
-    onNavigateToComments: (String, String) -> Unit = { _, _ -> },
     viewModel: ProfileViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -191,9 +190,6 @@ fun ProfileScreen(
                                     viewModel.deletePublishedArtifact(artifact.id)
                                 },
                                 onSaveClick = { viewModel.toggleSave(it) },
-                                onViewComments = { artifact -> 
-                                    onNavigateToComments(artifact.id, artifact.userId)
-                                },
                                 emptyMessage = if (uiState.isSelf) "You haven't shared any reflections yet." else "This journey is just beginning."
                             )
                         }
@@ -230,9 +226,6 @@ fun ProfileScreen(
                                         },
                                         onDelete = { artifact -> 
                                             viewModel.deletePublishedArtifact(artifact.id)
-                                        },
-                                        onViewComments = { artifact -> 
-                                            onNavigateToComments(artifact.id, artifact.userId)
                                         }
                                     )
                                 }
@@ -257,9 +250,6 @@ fun ProfileScreen(
                                     viewModel.deletePublishedArtifact(artifact.id)
                                 },
                                 onSaveClick = { viewModel.toggleSave(it) },
-                                onViewComments = { artifact -> 
-                                    onNavigateToComments(artifact.id, artifact.userId)
-                                },
                                 emptyMessage = "Moments that resonate with you will stay here."
                             )
                         }

@@ -5,10 +5,8 @@ import androidx.lifecycle.viewModelScope
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.model.Artifact
-import com.saurabh.artifact.model.ArtifactComment
 import com.saurabh.artifact.model.UserReport
 import com.saurabh.artifact.repository.ArtifactRepository
-import com.saurabh.artifact.repository.CommentRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,7 +16,6 @@ import javax.inject.Inject
 @HiltViewModel
 class ModerationViewModel @Inject constructor(
     private val artifactRepository: ArtifactRepository,
-    private val commentRepository: CommentRepository,
     private val diagnosticLogger: DiagnosticLogger
 ) : ViewModel() {
 
@@ -39,8 +36,7 @@ class ModerationViewModel @Inject constructor(
                     } else {
                         val reportItems = reports.map { report ->
                             val artifact = artifactRepository.getArtifactById(report.artifactId).getOrNull()
-                            val comment = report.commentId?.let { commentRepository.getCommentById(it).getOrNull() }
-                            ReportItem(report, artifact, comment)
+                            ReportItem(report, artifact)
                         }
                         _uiState.value = ModerationUiState.Success(reportItems)
                     }
@@ -51,9 +47,9 @@ class ModerationViewModel @Inject constructor(
         }
     }
 
-    fun resolveReport(reportId: String, artifactId: String, action: ArtifactRepository.ModerationAction, commentId: String? = null) {
+    fun resolveReport(reportId: String, artifactId: String, action: ArtifactRepository.ModerationAction) {
         viewModelScope.launch {
-            artifactRepository.resolveReport(reportId, artifactId, action, commentId)
+            artifactRepository.resolveReport(reportId, artifactId, action)
                 .onSuccess {
                     loadPendingReports()
                 }
@@ -74,6 +70,5 @@ sealed class ModerationUiState {
 
 data class ReportItem(
     val report: UserReport,
-    val artifact: Artifact?,
-    val comment: ArtifactComment? = null
+    val artifact: Artifact?
 )

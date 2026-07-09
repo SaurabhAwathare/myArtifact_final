@@ -51,12 +51,6 @@ class IdentitySyncWorker @AssistedInject constructor(
                 "author.avatarConfig" to avatarConfig
             )
 
-            val commentAuthorUpdate = mapOf(
-                "authorAnonymousName" to name,
-                "authorAvatarSeed" to avatarSeed
-                // Note: If sigil/config were added to ArtifactComment, they'd be updated here too
-            )
-
             // 2. Sync Artifacts
             val artifactsQuery = firestore.collection("artifacts")
                 .whereEqualTo("userId", userId)
@@ -74,24 +68,7 @@ class IdentitySyncWorker @AssistedInject constructor(
                 }
             }
 
-            // 3. Sync Comments
-            val commentsQuery = firestore.collection("comments")
-                .whereEqualTo("authorId", userId)
-                .get()
-                .await()
-
-            if (!commentsQuery.isEmpty) {
-                val batches = commentsQuery.documents.chunked(BATCH_LIMIT)
-                for (chunk in batches) {
-                    val batch = firestore.batch()
-                    for (doc in chunk) {
-                        batch.update(doc.reference, commentAuthorUpdate)
-                    }
-                    batch.commit().await()
-                }
-            }
-
-            // 4. Monotonic Update of lastCompletedIdentityVersion
+            // 3. Monotonic Update of lastCompletedIdentityVersion
             // Use fallback to identityResetVersion for recovery scenarios where version might not be in inputData
             val targetVersion = if (workerVersion > 0) workerVersion else user.identityMetadata.identityResetVersion
             

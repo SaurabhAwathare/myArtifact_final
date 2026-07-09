@@ -15,7 +15,6 @@ import com.saurabh.artifact.ui.profile.ResonanceListScreen
 import com.saurabh.artifact.ui.settings.SettingsScreen
 import com.saurabh.artifact.ui.debug.DebugMenuScreen
 import com.saurabh.artifact.ui.player.PlayerViewModel
-import com.saurabh.artifact.model.PlaybackSource
 
 fun NavGraphBuilder.profileNavigation(
     navController: NavHostController,
@@ -37,10 +36,6 @@ fun NavGraphBuilder.profileNavigation(
 
     val onNavigateToAvatarEditor = {
         navController.navigate(AvatarEditor)
-    }
-
-    val onNavigateToComments = { artifactId: String, ownerId: String ->
-        navController.navigate(Comments(artifactId, ownerId))
     }
 
     val onLogout = {
@@ -68,15 +63,11 @@ fun NavGraphBuilder.profileNavigation(
             },
             onNavigateToResonanceList = { id, type, title ->
                 navController.navigate(ResonanceList(id, type, title))
-            },
-            onNavigateToComments = onNavigateToComments
+            }
         )
     }
 
     composable<ResonanceList> {
-        // We don't strictly need to extract them here if ResonanceListScreen uses ViewModel with SavedStateHandle
-        // but for consistency:
-        // val resonance = it.toRoute<ResonanceList>()
         ResonanceListScreen(
             onBack = onBack,
             onUserClick = { clickedUserId ->

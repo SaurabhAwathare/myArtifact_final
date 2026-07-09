@@ -11,13 +11,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -26,17 +22,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.saurabh.artifact.ui.comments.CommentsScreen
 import com.saurabh.artifact.ui.components.base.AppButton
 import com.saurabh.artifact.ui.components.base.AppEmptyState
 import com.saurabh.artifact.ui.components.motion.MotionTokens
 import com.saurabh.artifact.ui.player.components.AdvancedControlsSheet
-import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.theme.GoldAura400
 import com.saurabh.artifact.ui.theme.Obsidian950
 import com.saurabh.artifact.ui.theme.ZIndexTokens
@@ -46,7 +39,6 @@ import com.saurabh.artifact.ui.theme.ZIndexTokens
 fun ArtifactPlayerView(
     onNavigateToDraftEdit: (String) -> Unit = {},
     onNavigateToPublish: (String) -> Unit = {},
-    onNavigateToComments: (String, String) -> Unit = { _, _ -> },
     onReportArtifact: (String) -> Unit = {},
     viewModel: PlayerViewModel = hiltViewModel(),
 ) {
@@ -157,9 +149,6 @@ fun ArtifactPlayerView(
                     onSeek = { viewModel.seekTo((it * uiState.durationMs).toLong()) },
                     onScrubbing = { viewModel.onScrubbing((it * uiState.durationMs).toLong()) },
                     onShowAdvanced = { viewModel.setShowAdvancedControls(true) },
-                    onCommentClick = { 
-                        viewModel.setShowComments(true)
-                    },
                     onResonateClick = { viewModel.toggleResonate(it) },
                     onResonateConnectionClick = { viewModel.toggleResonanceConnection() },
                     onSaveClick = { viewModel.toggleSave() },
@@ -213,25 +202,6 @@ fun ArtifactPlayerView(
                     },
                     onDismiss = { viewModel.setShowAdvancedControls(false) }
                 )
-            }
-        }
-
-        // 3. COMMENTS SHEET
-        if (uiState.showComments) {
-            val artifact = uiState.currentArtifact
-            if (artifact != null) {
-                ModalBottomSheet(
-                    onDismissRequest = { viewModel.setShowComments(false) },
-                    sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-                    containerColor = ArtifactTheme.colors.surfaceHearth,
-                    dragHandle = { BottomSheetDefaults.DragHandle(color = Color.White.copy(alpha = 0.2f)) }
-                ) {
-                    CommentsScreen(
-                        artifactId = artifact.id,
-                        ownerId = uiState.internalOwnerId,
-                        onBack = { viewModel.setShowComments(false) }
-                    )
-                }
             }
         }
 

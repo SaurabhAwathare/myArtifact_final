@@ -24,14 +24,12 @@ import com.saurabh.artifact.data.local.PendingInteractionDao
 import com.saurabh.artifact.data.paging.ArtifactRemoteMediator
 import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.Artifact
-import com.saurabh.artifact.model.ArtifactComment
 import com.saurabh.artifact.model.ArtifactConversationMetadata
 import com.saurabh.artifact.model.ArtifactDetail
 import com.saurabh.artifact.model.ArtifactReactionCounts
 import com.saurabh.artifact.model.ArtifactStatus
 import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.model.AvatarConfig
-import com.saurabh.artifact.model.CommentModerationState
 import com.saurabh.artifact.model.Emotion
 import com.saurabh.artifact.model.FeedbackType
 import com.saurabh.artifact.model.ModerationMetadata

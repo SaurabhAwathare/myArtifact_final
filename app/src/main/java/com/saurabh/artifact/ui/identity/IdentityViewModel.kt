@@ -266,11 +266,11 @@ class IdentityViewModel @Inject constructor(
     /**
      * Reports an identity exposure incident.
      */
-    fun reportExposure(reportedUserId: String, artifactId: String?, commentId: String?) {
+    fun reportExposure(reportedUserId: String, artifactId: String?) {
         val reporterId = authRepository.currentUser.value?.uid ?: return
         
         viewModelScope.launch {
-            userRepository.reportIdentityExposure(reporterId, reportedUserId, artifactId, commentId)
+            userRepository.reportIdentityExposure(reporterId, reportedUserId, artifactId)
                 .onFailure { e ->
                     diagnosticLogger.error(DiagnosticCategory.PROFILE, "EXPOSURE_REPORT_FAILED", throwable = e)
                 }

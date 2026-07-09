@@ -23,7 +23,6 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.saurabh.artifact.model.EngagementStatus
 import com.saurabh.artifact.model.ReactionType
 import com.saurabh.artifact.model.InteractionSyncStatus
 import com.saurabh.artifact.ui.theme.GoldAura400

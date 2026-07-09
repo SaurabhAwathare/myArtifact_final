@@ -1,12 +1,19 @@
 package com.saurabh.artifact.util
 
 import android.Manifest
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.app.ActivityCompat
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import androidx.work.ForegroundInfo
+import com.saurabh.artifact.MainActivity
 import com.saurabh.artifact.R
 
 /**
@@ -17,7 +24,7 @@ object NotificationHelper {
 
     const val CHANNEL_ID_INTERACTIONS = "interactions_channel"
     const val CHANNEL_NAME_INTERACTIONS = "Resonances"
-    const val CHANNEL_DESC_INTERACTIONS = "Quiet notifications for reflections and reactions to your shared artifacts."
+    const val CHANNEL_DESC_INTERACTIONS = "Quiet notifications for reactions to your shared artifacts."
 
     const val CHANNEL_ID_REMINDERS = "reminders_channel"
     const val CHANNEL_NAME_REMINDERS = "Reminders"
@@ -32,6 +39,7 @@ object NotificationHelper {
     const val CHANNEL_DESC_PLAYBACK = "Controls and status for your listening experience."
 
     const val UPLOAD_NOTIFICATION_ID = 3001
+    const val REMINDER_NOTIFICATION_ID = 4001
 
     /**
      * Initializes all notification channels for the app.
@@ -94,5 +102,97 @@ object NotificationHelper {
         } else {
             true
         }
+    }
+
+    fun buildUploadProgressNotification(
+        context: Context,
+        title: String,
+        progress: Int,
+        draftId: String
+    ): Notification {
+        return NotificationCompat.Builder(context, CHANNEL_ID_UPLOADS)
+            .setContentTitle(title)
+            .setContentText("Uploading reflection...")
+            .setSmallIcon(R.mipmap.ic_launcher) // Placeholder icon
+            .setOngoing(true)
+            .setProgress(100, progress, false)
+            .setOnlyAlertOnce(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+            .build()
+    }
+
+    fun updateUploadProgress(
+        context: Context,
+        title: String,
+        progress: Int,
+        draftId: String
+    ) {
+        if (ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+            val notification = buildUploadProgressNotification(context, title, progress, draftId)
+            NotificationManagerCompat.from(context).notify(UPLOAD_NOTIFICATION_ID, notification)
+        }
+    }
+
+    fun showUploadSuccessNotification(context: Context, title: String) {
+        if (ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+            val notification = NotificationCompat.Builder(context, CHANNEL_ID_UPLOADS)
+                .setContentTitle("Upload Complete")
+                .setContentText("Your reflection \"$title\" has been safely archived.")
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setAutoCancel(true)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .build()
+            
+            NotificationManagerCompat.from(context).notify(UPLOAD_NOTIFICATION_ID + 1, notification)
+        }
+    }
+
+    fun showUploadErrorNotification(context: Context, message: String) {
+        if (ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+            val notification = NotificationCompat.Builder(context, CHANNEL_ID_UPLOADS)
+                .setContentTitle("Upload Failed")
+                .setContentText(message)
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setAutoCancel(true)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .build()
+            
+            NotificationManagerCompat.from(context).notify(UPLOAD_NOTIFICATION_ID + 2, notification)
+        }
+    }
+
+    fun cancelAllNotifications(context: Context) {
+        NotificationManagerCompat.from(context).cancelAll()
+    }
+
+    fun showReminderNotification(context: Context, title: String, message: String) {
+        if (ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+            val intent = Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            }
+            val pendingIntent = PendingIntent.getActivity(
+                context, 0, intent,
+                PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val notification = NotificationCompat.Builder(context, CHANNEL_ID_REMINDERS)
+                .setContentTitle(title)
+                .setContentText(message)
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .build()
+
+            NotificationManagerCompat.from(context).notify(REMINDER_NOTIFICATION_ID, notification)
+        }
+    }
+
+    fun getUploadForegroundInfo(context: Context, title: String, progress: Int): ForegroundInfo {
+        return ForegroundInfo(
+            UPLOAD_NOTIFICATION_ID,
+            buildUploadProgressNotification(context, title, progress, "")
+        )
     }
 }

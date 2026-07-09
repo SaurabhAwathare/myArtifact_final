@@ -79,7 +79,7 @@ fun LoginScreen(
             Spacer(modifier = Modifier.height(8.dp))
             
             Text(
-                text = "Protected comments. Private identity.",
+                text = "Pure expression. Private identity.",
                 style = MaterialTheme.typography.bodyLarge,
                 color = Color.White.copy(alpha = 0.7f)
             )

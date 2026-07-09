@@ -13,5 +13,7 @@ data class EngagementEvidence(
     val audioChecksum: String = "", // Ensure evidence matches specific audio content
     val coverage: BitSet = BitSet(),
     val lastPositionMs: Long = 0L, // Current playback position for resuming
+    val furthestPositionMs: Long = 0L, // Max position reached through valid playback
+    val hasReachedEnd: Boolean = false,
     val lastUpdated: Long = System.currentTimeMillis(),
 )
