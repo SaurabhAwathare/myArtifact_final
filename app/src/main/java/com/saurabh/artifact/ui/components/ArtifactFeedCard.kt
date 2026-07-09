@@ -31,6 +31,7 @@ fun ArtifactFeedCard(
     onDeleteClick: () -> Unit = {},
     onFeedbackClick: () -> Unit = {},
     onSettingsClick: () -> Unit = {},
+    onAuthorClick: (String) -> Unit = {},
     currentUserId: String? = null
 ) {
     Column(modifier = modifier) {
@@ -67,6 +68,7 @@ fun ArtifactFeedCard(
             onDeleteClick = onDeleteClick,
             onFeedbackClick = onFeedbackClick,
             onSettingsClick = onSettingsClick,
+            onAuthorClick = onAuthorClick,
             currentUserId = currentUserId
         )
     }

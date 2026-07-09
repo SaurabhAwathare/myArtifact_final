@@ -57,7 +57,8 @@ fun ImmersivePlayerScreen(
     onEditClick: () -> Unit = {},
     onPublishClick: () -> Unit = {},
     onDeleteClick: () -> Unit = {},
-    onMoreClick: () -> Unit = {}
+    onMoreClick: () -> Unit = {},
+    onAuthorClick: (String) -> Unit = {}
 ) {
     var showTranscript by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
@@ -264,7 +265,14 @@ fun ImmersivePlayerScreen(
 
                                     com.saurabh.artifact.ui.components.ArtifactAvatar(
                                         config = safeAvatarConfig,
-                                        size = 180.dp
+                                        size = 180.dp,
+                                        modifier = Modifier.clickable { 
+                                            android.util.Log.d("ImmersivePlayerScreen", "PLAYER_AUTHOR_CLICK: avatar click, userId=${uiState.internalOwnerId}")
+                                            if (uiState.internalOwnerId.isEmpty()) {
+                                                android.util.Log.e("ImmersivePlayerScreen", "PLAYER_AUTHOR_ID_EMPTY: avatar click")
+                                            }
+                                            onAuthorClick(uiState.internalOwnerId) 
+                                        }
                                     )
                                 }
                             }
@@ -298,7 +306,14 @@ fun ImmersivePlayerScreen(
                                             text = authorName,
                                             style = MaterialTheme.typography.bodyLarge,
                                             color = Color.White.copy(alpha = 0.5f),
-                                            fontWeight = FontWeight.Medium
+                                            fontWeight = FontWeight.Medium,
+                                            modifier = Modifier.clickable { 
+                                                android.util.Log.d("ImmersivePlayerScreen", "PLAYER_AUTHOR_CLICK: name click, userId=${uiState.internalOwnerId}")
+                                                if (uiState.internalOwnerId.isEmpty()) {
+                                                    android.util.Log.e("ImmersivePlayerScreen", "PLAYER_AUTHOR_ID_EMPTY: name click")
+                                                }
+                                                onAuthorClick(uiState.internalOwnerId) 
+                                            }
                                         )
                                         if (authorSigil.isNotEmpty()) {
                                             Text(

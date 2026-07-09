@@ -74,6 +74,7 @@ fun FeedScreen(
     onNavigateToNotifications: () -> Unit,
     onNavigateToDebugMenu: () -> Unit,
     onReportArtifact: (String) -> Unit,
+    onAuthorClick: (String) -> Unit = {},
     viewModel: FeedViewModel = hiltViewModel(),
 ) {
     val logger = ArtifactTheme.logger
@@ -188,7 +189,8 @@ fun FeedScreen(
                         reflectionPrompt = reflectionPrompt,
                         stage = stage,
                         onNavigateToRecord = onNavigateToRecord,
-                        onReportClick = onReportArtifact
+                        onReportClick = onReportArtifact,
+                        onAuthorClick = onAuthorClick
                     )
                 }
 
@@ -356,6 +358,7 @@ private fun FeedContent(
     stage: StartupStage,
     onNavigateToRecord: (String?) -> Unit,
     onReportClick: (String) -> Unit,
+    onAuthorClick: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val currentArtifacts = if (showRankedFeed) forYouArtifacts else recentArtifacts
@@ -385,7 +388,8 @@ private fun FeedContent(
                         ArtifactItem(
                             artifactId = item.artifact.id,
                             viewModel = viewModel,
-                            onReportClick = onReportClick
+                            onReportClick = onReportClick,
+                            onAuthorClick = onAuthorClick
                         )
                     }
                     is FeedDisplayItem.BreakItem -> {
@@ -473,14 +477,12 @@ fun FeedHeader(
     }
 }
 
-/**
- * Optimized ArtifactItem that isolates state observation to the item level.
- */
 @Composable
 fun ArtifactItem(
     artifactId: String,
     viewModel: FeedViewModel,
     onReportClick: (String) -> Unit,
+    onAuthorClick: (String) -> Unit,
     modifier: Modifier = Modifier,
     feedArtifact: FeedArtifact? = null
 ) {
@@ -539,6 +541,7 @@ fun ArtifactItem(
                 onDeleteClick = { viewModel.deleteArtifact(artifactId) },
                 onFeedbackClick = { viewModel.submitFeedback(artifactId, FeedbackType.NOT_FOR_ME) },
                 onSettingsClick = { viewModel.showSettingsComingSoon() },
+                onAuthorClick = onAuthorClick,
                 currentUserId = viewModel.currentUserId,
                 modifier = modifier
             )
@@ -556,6 +559,7 @@ fun ArtifactItem(
                 onDeleteClick = { viewModel.deleteArtifact(artifactId) },
                 onFeedbackClick = { viewModel.submitFeedback(artifactId, FeedbackType.NOT_FOR_ME) },
                 onSettingsClick = { viewModel.showSettingsComingSoon() },
+                onAuthorClick = onAuthorClick,
                 currentUserId = viewModel.currentUserId,
                 modifier = modifier
             )

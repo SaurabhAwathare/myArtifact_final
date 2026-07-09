@@ -66,8 +66,14 @@ sealed class AppError : Exception() {
         override val recoveryPath: RecoveryPath? = null,
     ) : AppError()
 
+    data class ReauthenticationRequired(
+        override val technicalMessage: String = "Recent login required for this operation",
+        override val recoveryPath: RecoveryPath? = RecoveryPath.Reauthenticate,
+    ) : AppError()
+
     companion object {
         fun from(e: Throwable): AppError = when (e) {
+            is com.google.firebase.auth.FirebaseAuthRecentLoginRequiredException -> ReauthenticationRequired()
             is com.google.firebase.firestore.FirebaseFirestoreException -> {
                 when (e.code) {
                     com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED -> PermissionDenied()

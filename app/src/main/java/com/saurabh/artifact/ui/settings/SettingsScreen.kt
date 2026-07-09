@@ -328,11 +328,11 @@ fun SettingsScreen(
     if (showReauthenticationDialog) {
         AlertDialog(
             onDismissRequest = { showReauthenticationDialog = false },
-            title = { Text("Authentication Required") },
+            title = { Text("Verify your identity") },
             text = { 
                 Text(
                     if (isAnonymous) "To delete your anonymous account, we need to verify your current session."
-                    else "For your security, please sign in again before deleting your account."
+                    else "For your security, please sign in again before permanently deleting your account."
                 )
             },
             confirmButton = {
@@ -363,7 +363,7 @@ fun SettingsScreen(
                         }
                     }
                 ) {
-                    Text(if (isAnonymous) "Verify & Delete" else "Sign in to Delete")
+                    Text("Continue")
                 }
             },
             dismissButton = {

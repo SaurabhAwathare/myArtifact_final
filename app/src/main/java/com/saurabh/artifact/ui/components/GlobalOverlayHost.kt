@@ -68,6 +68,19 @@ fun GlobalOverlayHost(
             onNavigateToDraftEdit = onNavigateToDraftEdit,
             onNavigateToPublish = onNavigateToPublish,
             onReportArtifact = onReportArtifact,
+            onAuthorClick = { userId ->
+                android.util.Log.d("GlobalOverlayHost", "PROFILE_NAVIGATION_REQUESTED: userId=$userId")
+                if (userId.isNotEmpty()) {
+                    // Collapse the expanded player before navigation so the destination
+                    // screen is immediately visible while keeping playback active.
+                    playerViewModel.setExpanded(false)
+
+                    android.util.Log.d("GlobalOverlayHost", "PROFILE_NAVIGATION_EXECUTED: destination=Profile($userId)")
+                    navController.navigate(com.saurabh.artifact.navigation.Profile(userId))
+                } else {
+                    android.util.Log.e("GlobalOverlayHost", "PROFILE_NAVIGATION_ABORTED: userId is empty")
+                }
+            },
             viewModel = playerViewModel
         )
 

@@ -52,7 +52,10 @@ fun NavGraphBuilder.feedNavigation(
             onNavigateToProfile = onNavigateToProfile,
             onNavigateToNotifications = onNavigateToNotifications,
             onNavigateToDebugMenu = onNavigateToDebugMenu,
-            onReportArtifact = onReportArtifact
+            onReportArtifact = onReportArtifact,
+            onAuthorClick = { userId ->
+                navController.navigate(Profile(userId))
+            }
         )
     }
 
@@ -85,7 +88,10 @@ fun NavGraphBuilder.feedNavigation(
             onNavigateToProfile = onNavigateToProfile,
             onNavigateToNotifications = onNavigateToNotifications,
             onNavigateToDebugMenu = onNavigateToDebugMenu,
-            onReportArtifact = onReportArtifact
+            onReportArtifact = onReportArtifact,
+            onAuthorClick = { userId ->
+                navController.navigate(Profile(userId))
+            }
         )
     }
 

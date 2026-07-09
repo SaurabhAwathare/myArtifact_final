@@ -342,6 +342,21 @@ class UserRepository @Inject constructor(
             if ((snapshot != null) && snapshot.exists()) {
                 try {
                     val (user, _) = profileRepairService.loadAndRepair(snapshot)
+                    
+                    // Investigation Instrumentation: PROFILE_USER_RECEIVED
+                    diagnosticLogger.info(
+                        DiagnosticCategory.FIRESTORE,
+                        "PROFILE_USER_RECEIVED",
+                        mapOf(
+                            LogKeys.USER_ID to userId,
+                            "followersCount" to (user.followersCount),
+                            "followingCount" to (user.followingCount),
+                            "resonanceInCount" to (user.resonanceInCount),
+                            "resonanceOutCount" to (user.resonanceOutCount),
+                            "timestamp" to System.currentTimeMillis()
+                        )
+                    )
+
                     trySend(user)
                 } catch (e: Exception) {
                     diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "USER_PROFILE_STREAM_PARSE_ERROR", mapOf(LogKeys.USER_ID to userId), e)

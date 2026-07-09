@@ -48,6 +48,7 @@ import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.data.local.ArtifactEntityWithIndex
+import com.google.firebase.firestore.FirebaseFirestoreException
 import com.saurabh.artifact.util.CoroutineExceptionHandlerUtils
 import com.saurabh.artifact.util.NetworkUtils
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -342,9 +343,16 @@ class ArtifactRepository @Inject constructor(
     }
 
     fun getUserArtifacts(userId: String, onlyActive: Boolean = false): Flow<List<Artifact>> = callbackFlow {
+        val currentUserId = auth.currentUser?.uid
+        val isPublicOnly = userId != currentUserId
+
         var query = firestore.collection("artifacts")
             .whereEqualTo("userId", userId)
             
+        if (isPublicOnly) {
+            query = query.whereEqualTo("isPublic", true)
+        }
+
         if (onlyActive) {
             query = query.whereEqualTo("status", ArtifactStatus.ACTIVE.name)
         }
@@ -353,6 +361,17 @@ class ArtifactRepository @Inject constructor(
 
         val subscription = query.addSnapshotListener { snapshot, error ->
             if (error != null) {
+                diagnosticLogger.error(
+                    category = DiagnosticCategory.PROFILE,
+                    eventName = "PROFILE_ARTIFACT_QUERY_FAILED",
+                    metadata = mapOf(
+                        "userId" to userId,
+                        "errorCode" to (error as? FirebaseFirestoreException)?.code?.name.orEmpty(),
+                        "errorMessage" to error.message.orEmpty(),
+                        "isPublicOnly" to isPublicOnly
+                    ),
+                    throwable = error
+                )
                 trySend(emptyList())
                 return@addSnapshotListener
             }

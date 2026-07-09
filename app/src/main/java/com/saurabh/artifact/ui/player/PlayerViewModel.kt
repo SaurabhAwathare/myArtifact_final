@@ -170,9 +170,14 @@ class PlayerViewModel @Inject constructor(
             else -> PlayerMode.MINI
         }
 
+        val internalOwnerId = artifact?.userId ?: ""
+        if (artifact != null && internalOwnerId.isEmpty()) {
+            diagnosticLogger.warn(DiagnosticCategory.PLAYER, "PLAYER_INTERNAL_OWNER_ID_EMPTY", mapOf(LogKeys.ARTIFACT_ID to artifact.id))
+        }
+
         PlayerStaticState(
             artifact = artifact?.toPlayerArtifact(),
-            internalOwnerId = artifact?.userId ?: "",
+            internalOwnerId = internalOwnerId,
             isOwner = isOwner,
             isDraft = artifact?.isDraft == true,
             isResonated = if (isMetadataSynced) md.isResonated else false,
@@ -230,6 +235,11 @@ class PlayerViewModel @Inject constructor(
         val playable = params[6] as PlayableArtifact?
 
         val artifact = static.artifact
+
+        if (artifact != null && playable != null && playable.originalArtifact == null) {
+            diagnosticLogger.trace(DiagnosticCategory.PLAYER, "PLAYER_PLAYABLE_ORIGINAL_MISSING", mapOf(LogKeys.ARTIFACT_ID to artifact.id))
+        }
+
         val isReviewMatching = artifact != null && review.artifactId == artifact.id
         val isListenerReviewMatching = artifact != null && listenerReview?.artifactId == artifact.id
         

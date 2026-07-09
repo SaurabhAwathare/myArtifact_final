@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.saurabh.artifact.auth.CredentialHelper
 import com.saurabh.artifact.model.UserSettings
+import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.repository.SettingsRepository
 import com.saurabh.artifact.ui.util.UiText
 import com.saurabh.artifact.ui.util.ErrorMessageMapper
@@ -96,16 +97,18 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun initiateDelete() {
+        if (_isDeleting.value) return
+        
         viewModelScope.launch {
             _isDeleting.value = true
             val result = repository.deleteUserAccount()
-            _isDeleting.value = false
             
             result.onSuccess {
+                _isDeleting.value = false
                 _events.emit(SettingsUiEvent.AccountDeleted)
             }.onFailure { e ->
-                if (e.message?.contains("RECENT_LOGIN_REQUIRED", ignoreCase = true) == true || 
-                    e.message?.contains("reauthenticate", ignoreCase = true) == true) {
+                _isDeleting.value = false
+                if (e is AppError.ReauthenticationRequired) {
                     _events.emit(SettingsUiEvent.ReauthenticationRequired)
                 } else {
                     _events.emit(SettingsUiEvent.ShowMessage(ErrorMessageMapper.map(e)))
@@ -115,12 +118,19 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun reauthenticateAndRetry(idToken: String? = null) {
+        if (_isDeleting.value) return
+
         viewModelScope.launch {
             _isDeleting.value = true
+            
             val reauthenticationResult = if (idToken != null) {
                 authRepository.reauthenticateWithGoogle(idToken)
-            } else {
+            } else if (isAnonymous.value) {
+                // Anonymous users don't need Google ID token for re-auth in this context
+                // but the current AuthRepository.reauthenticateWithGoogle expects one.
                 Result.failure(Exception("Google Sign-In verification required."))
+            } else {
+                Result.failure(Exception("Authentication credentials missing."))
             }
 
             reauthenticationResult.onSuccess {

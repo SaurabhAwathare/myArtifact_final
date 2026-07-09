@@ -40,6 +40,7 @@ fun ArtifactPlayerView(
     onNavigateToDraftEdit: (String) -> Unit = {},
     onNavigateToPublish: (String) -> Unit = {},
     onReportArtifact: (String) -> Unit = {},
+    onAuthorClick: (String) -> Unit = {},
     viewModel: PlayerViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -157,7 +158,8 @@ fun ArtifactPlayerView(
                     onDeleteClick = {
                         viewModel.deleteCurrentArtifact()
                     },
-                    onMoreClick = { showOptionsSheet = true }
+                    onMoreClick = { showOptionsSheet = true },
+                    onAuthorClick = onAuthorClick
                 )
             }
         }

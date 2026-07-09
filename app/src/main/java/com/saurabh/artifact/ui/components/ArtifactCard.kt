@@ -83,6 +83,7 @@ fun ArtifactCard(
     onDeleteClick: () -> Unit = {},
     onFeedbackClick: () -> Unit = {},
     onSettingsClick: () -> Unit = {},
+    onAuthorClick: (String) -> Unit = {},
     currentUserId: String? = null,
 ) {
     if (hydrationLevel == com.saurabh.artifact.ui.feed.HydrationLevel.SHELL) {
@@ -202,7 +203,8 @@ fun ArtifactCard(
                                 ArtifactAvatar(
                                     config = artifact.authorAvatarConfig,
                                     size = 32.dp,
-                                    isStatic = true
+                                    isStatic = true,
+                                    modifier = Modifier.clickable { onAuthorClick(artifact.userId) }
                                 )
                                 
                                 Spacer(modifier = Modifier.width(Spacing.Medium))
@@ -214,7 +216,9 @@ fun ArtifactCard(
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(
                                             text = displayUsername,
-                                            modifier = Modifier.weight(1f, fill = false),
+                                            modifier = Modifier
+                                                .weight(1f, fill = false)
+                                                .clickable { onAuthorClick(artifact.userId) },
                                             style = ArtifactTheme.typography.labelLarge.copy(
                                                 fontWeight = FontWeight.SemiBold,
                                                 fontSize = 15.sp

@@ -22,6 +22,9 @@ class NotificationRepository @Inject constructor(
 ) {
     private val notificationsCollection = firestore.collection("notifications")
 
+    // Optimization: Pre-compute valid types for fast lookup
+    private val validNotificationTypes = NotificationType.entries.map { it.name }.toSet()
+
     fun listenNotifications(userId: String): Flow<List<NotificationItem>> = callbackFlow {
         if (userId.isEmpty()) {
             Log.w("NotificationRepository", "listenNotifications called with empty userId")
@@ -46,8 +49,26 @@ class NotificationRepository @Inject constructor(
                 }
                 
                 launch(Dispatchers.Default) {
-                    val notifications = snapshot?.documents?.mapNotNull { 
-                        it.toObject(NotificationItem::class.java)?.copy(id = it.id)
+                    val notifications = snapshot?.documents?.mapNotNull { doc ->
+                        val typeStr = doc.getString("type")
+
+                        if (typeStr == null) {
+                            Log.w("NotificationRepository", "Skipping notification ${doc.id}: Missing type field")
+                            return@mapNotNull null
+                        }
+
+                        if (typeStr !in validNotificationTypes) {
+                            val uid = doc.getString("userId") ?: "unknown"
+                            Log.w("NotificationRepository", "Skipping notification ${doc.id}: Unknown type '$typeStr', userId=$uid")
+                            return@mapNotNull null
+                        }
+
+                        try {
+                            doc.toObject(NotificationItem::class.java)?.copy(id = doc.id)
+                        } catch (e: RuntimeException) {
+                            Log.e("NotificationRepository", "Failed to deserialize notification ${doc.id}", e)
+                            null
+                        }
                     } ?: emptyList()
                     trySend(notifications)
                 }
