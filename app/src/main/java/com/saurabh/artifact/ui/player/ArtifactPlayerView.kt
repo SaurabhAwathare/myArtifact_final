@@ -47,6 +47,7 @@ fun ArtifactPlayerView(
     val snackbarHostState = remember { SnackbarHostState() }
     val context = androidx.compose.ui.platform.LocalContext.current
     var showOptionsSheet by remember { mutableStateOf(false) }
+    var showCommentSheet by remember { mutableStateOf(false) }
 
     // Observe interaction errors from the ViewModel
     LaunchedEffect(Unit) {
@@ -158,13 +159,25 @@ fun ArtifactPlayerView(
                     onDeleteClick = {
                         viewModel.deleteCurrentArtifact()
                     },
+                    onCommentClick = { showCommentSheet = true },
                     onMoreClick = { showOptionsSheet = true },
                     onAuthorClick = onAuthorClick
                 )
             }
         }
 
-        // 2. ARTIFACT OPTIONS (SHARE, REPORT, ETC)
+        // 2. COMMENT SYSTEM
+        val currentArtifact = uiState.currentArtifact
+        if (showCommentSheet && currentArtifact != null) {
+            Box(modifier = Modifier.zIndex(ZIndexTokens.MODAL_OVERLAYS)) {
+                com.saurabh.artifact.ui.comment.components.CommentSheetHost(
+                    artifactId = currentArtifact.id,
+                    onDismiss = { showCommentSheet = false }
+                )
+            }
+        }
+
+        // 3. ARTIFACT OPTIONS (SHARE, REPORT, ETC)
         if (showOptionsSheet) {
             val artifact = uiState.currentArtifact
             if (artifact != null) {

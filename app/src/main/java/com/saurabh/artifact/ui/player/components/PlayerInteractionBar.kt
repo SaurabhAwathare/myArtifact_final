@@ -43,9 +43,12 @@ fun PlayerInteractionBar(
     isSaved: Boolean,
     saveSyncStatus: InteractionSyncStatus,
     onSaveClick: () -> Unit,
+    onCommentClick: () -> Unit,
     modifier: Modifier = Modifier,
     showResonance: Boolean = true,
     showSave: Boolean = true,
+    isCommentEnabled: Boolean = true,
+    commentDisabledReason: String? = null,
 ) {
     Column(modifier = modifier) {
         Row(
@@ -90,6 +93,16 @@ fun PlayerInteractionBar(
                     onClick = onSaveClick
                 )
             }
+
+            InteractionItem(
+                icon = Icons.Rounded.ChatBubbleOutline,
+                label = "Comment",
+                isActive = false,
+                enabled = isCommentEnabled,
+                disabledReason = commentDisabledReason,
+                activeColor = GoldAura400,
+                onClick = onCommentClick
+            )
         }
     }
 }
@@ -103,10 +116,12 @@ private fun InteractionItem(
     onClick: () -> Unit,
     syncStatus: InteractionSyncStatus = InteractionSyncStatus.SYNCED,
     enabled: Boolean = true,
+    disabledReason: String? = null,
     loading: Boolean = false,
     activeColor: Color = Color.White
 ) {
     val haptic = LocalHapticFeedback.current
+    val context = androidx.compose.ui.platform.LocalContext.current
     
     val contentColor = if (!enabled && !loading) {
         Color.White.copy(alpha = 0.12f)
@@ -127,9 +142,17 @@ private fun InteractionItem(
         verticalArrangement = Arrangement.Center,
         modifier = Modifier
             .clip(RoundedCornerShape(16.dp))
-            .clickable(enabled = enabled) {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                onClick()
+            .clickable(enabled = enabled || disabledReason != null) {
+                if (enabled) {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onClick()
+                } else if (disabledReason != null) {
+                    com.saurabh.artifact.ui.util.FeedbackUtils.explainDisabledAction(
+                        context,
+                        haptic,
+                        disabledReason
+                    )
+                }
             }
             .padding(horizontal = 12.dp, vertical = 8.dp)
     ) {

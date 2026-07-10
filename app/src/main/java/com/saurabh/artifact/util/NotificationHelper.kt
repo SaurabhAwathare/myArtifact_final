@@ -8,6 +8,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.os.Build
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
@@ -190,9 +191,15 @@ object NotificationHelper {
     }
 
     fun getUploadForegroundInfo(context: Context, title: String, progress: Int): ForegroundInfo {
-        return ForegroundInfo(
-            UPLOAD_NOTIFICATION_ID,
-            buildUploadProgressNotification(context, title, progress, "")
-        )
+        val notification = buildUploadProgressNotification(context, title, progress, "")
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            ForegroundInfo(
+                UPLOAD_NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            )
+        } else {
+            ForegroundInfo(UPLOAD_NOTIFICATION_ID, notification)
+        }
     }
 }

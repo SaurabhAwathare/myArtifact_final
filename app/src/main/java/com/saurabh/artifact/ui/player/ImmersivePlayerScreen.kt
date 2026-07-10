@@ -57,6 +57,7 @@ fun ImmersivePlayerScreen(
     onEditClick: () -> Unit = {},
     onPublishClick: () -> Unit = {},
     onDeleteClick: () -> Unit = {},
+    onCommentClick: () -> Unit = {},
     onMoreClick: () -> Unit = {},
     onAuthorClick: (String) -> Unit = {}
 ) {
@@ -416,6 +417,9 @@ fun ImmersivePlayerScreen(
                     isSaved = uiState.isSaved,
                     saveSyncStatus = uiState.saveSyncStatus,
                     onSaveClick = onSaveClick,
+                    onCommentClick = onCommentClick,
+                    isCommentEnabled = uiState.isThresholdMet,
+                    commentDisabledReason = if (!uiState.isThresholdMet) "Listen to at least 95% of this Artifact before joining the conversation." else null,
                     showResonance = !uiState.isOwner,
                     showSave = !uiState.isOwner
                 )

@@ -12,14 +12,17 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.saurabh.artifact.model.AvatarConfig
+import com.saurabh.artifact.model.User
 import com.saurabh.artifact.ui.components.ArtifactAvatar
+import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.theme.GoldAura500
 import com.saurabh.artifact.ui.theme.Obsidian950
-import com.saurabh.artifact.util.UsernameGenerator
 
 @Composable
 fun IdentityRevealScreen(
@@ -52,6 +55,38 @@ fun IdentityRevealScreen(
         label = "scale"
     )
 
+    IdentityRevealScreenContent(
+        userProfile = userProfile,
+        alpha = alpha,
+        scale = scale,
+        onContinue = onContinue
+    )
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF0A0A0A)
+@Composable
+fun IdentityRevealScreenPreview() {
+    ArtifactTheme {
+        IdentityRevealScreenContent(
+            userProfile = User(
+                anonymousName = "Silent Phoenix",
+                anonymousSigil = "PHX-77",
+                avatarConfig = AvatarConfig(seed = "preview")
+            ),
+            alpha = 1f,
+            scale = 1f,
+            onContinue = {}
+        )
+    }
+}
+
+@Composable
+private fun IdentityRevealScreenContent(
+    userProfile: User?,
+    alpha: Float,
+    scale: Float,
+    onContinue: () -> Unit
+) {
     Scaffold(
         containerColor = Obsidian950
     ) { innerPadding ->
@@ -67,15 +102,6 @@ fun IdentityRevealScreen(
                 verticalArrangement = Arrangement.Center,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text(
-                    text = "Meet Your Artifact",
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = Color.White.copy(alpha = 0.7f),
-                    modifier = Modifier.alpha(alpha)
-                )
-
-                Spacer(modifier = Modifier.height(48.dp))
-
                 Box(
                     modifier = Modifier
                         .size(200.dp)

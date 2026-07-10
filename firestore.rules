@@ -1,6 +1,62 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: users/{uid}
+// Document ID: Firebase Auth UID
+// Fields:
+//   - anonymousId: string (required) - Publicly visible identifier
+//   - anonymousName: string (required) - Display name for anonymous interactions
+//   - ... other user profile fields ...
+//
+// Collection: artifacts/{artifactId}
+// Document ID: auto-generated
+// Fields:
+//   - userId: string (required, immutable) - Creator's UID
+//   - isPublic: boolean (required) - Visibility toggle
+//   - author: map (required, immutable) - Snapshot of creator's anonymous identity
+//   - ... other artifact content fields ...
+//
+// Collection: artifacts/{artifactId}/comments
+// Document ID: auto-generated
+// Fields:
+//   - artifactId: string (required, immutable) - Parent artifact ID
+//   - creatorId: string (required, immutable) - UID of the author
+//   - author: map (required, immutable) - Snapshot of author identity
+//     - anonymousId: string (required)
+//     - name: string (required)
+//     - sigil: string (required)
+//   - text: string (required, 1-1000 chars) - Comment content
+//   - status: string (required, enum: ACTIVE, DELETED, HIDDEN, MODERATED)
+//   - createdAt: timestamp (server-generated, immutable)
+//   - updatedAt: timestamp (server-generated)
+// ===============================================================
+
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // Business Purpose: Centralized visibility check for Artifacts and their sub-collections.
+    // Security Purpose: Single source of truth for read access.
+    function canReadArtifact(artifactId) {
+      let artifact = get(/databases/$(database)/documents/artifacts/$(artifactId)).data;
+      return artifact.get('isPublic', false) == true ||
+             (request.auth != null && artifact.get('userId', '') == request.auth.uid) ||
+             isGlobalAdmin();
+    }
+
+    function isValidComment(data) {
+      // MAX_COMMENT_LENGTH must sync with CommentConstants.kt (currently 1000)
+      return data.keys().hasAll(['artifactId', 'creatorId', 'author', 'text', 'status']) &&
+             data.artifactId is string &&
+             data.creatorId is string &&
+             data.author is map &&
+             data.author.keys().hasAll(['anonymousId', 'name', 'sigil']) &&
+             data.text is string &&
+             data.text.size() >= 1 &&
+             data.text.size() <= 1000 &&
+             data.status in ['ACTIVE', 'DELETED', 'HIDDEN', 'MODERATED'];
+    }
 
     // --- HELPER FUNCTIONS ---
     function isAuth() {
@@ -101,10 +157,9 @@ service cloud.firestore {
 
     // --- ARTIFACTS (The Hearth) ---
     match /artifacts/{artifactId} {
-      allow read: if resource == null ||
-                   (resource.data.get('isPublic', false) == true) ||
-                   (request.auth != null && isOwner(resource.data.get('userId', ''))) ||
-                   isGlobalAdmin();
+      allow read: if resource.data.isPublic == true ||
+                    (request.auth != null && resource.data.userId == request.auth.uid) ||
+                    isGlobalAdmin();
 
       allow create: if isAuth() &&
                     request.resource.data.get('userId', '') == request.auth.uid &&
@@ -123,6 +178,32 @@ service cloud.firestore {
       match /stats/resonance {
         allow read: if true;
         allow write: if false;
+      }
+
+      // --- COMMENTS SUBCOLLECTION ---
+      match /comments/{commentId} {
+        // Read: Reuse Artifact visibility logic
+        allow read: if resource == null || canReadArtifact(artifactId);
+
+        // Create: Authenticated user, matching creatorId and artifactId, valid data
+        allow create: if isAuth() &&
+                      isValidComment(request.resource.data) &&
+                      request.resource.data.creatorId == request.auth.uid &&
+                      request.resource.data.artifactId == artifactId &&
+                      // Ensure author.anonymousId matches user's anonymousId
+                      request.resource.data.author.anonymousId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.anonymousId;
+
+        // Update: Only owner can soft-delete (status: DELETED)
+        allow update: if isAuth() &&
+                      resource.data.creatorId == request.auth.uid &&
+                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']) &&
+                      request.resource.data.status == 'DELETED' &&
+                      // Ensure immutable fields didn't change
+                      request.resource.data.creatorId == resource.data.creatorId &&
+                      request.resource.data.artifactId == resource.data.artifactId;
+
+        // Delete: Hard delete not allowed
+        allow delete: if false;
       }
     }
 

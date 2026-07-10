@@ -20,4 +20,20 @@ object TimeUtils {
     fun formatDurationMillis(millis: Long, configuration: Configuration): String {
         return formatDuration(millis / 1000, configuration)
     }
+
+    /**
+     * Returns a simple relative time string (e.g., "2m ago", "1h ago").
+     */
+    fun getRelativeTime(timestamp: com.google.firebase.Timestamp): String {
+        val now = System.currentTimeMillis()
+        val time = timestamp.toDate().time
+        val diff = now - time
+        
+        return when {
+            diff < 60000 -> "Just now"
+            diff < 3600000 -> "${(diff / 60000).coerceAtLeast(1)}m ago"
+            diff < 86400000 -> "${(diff / 3600000).coerceAtLeast(1)}h ago"
+            else -> "${(diff / 86400000).coerceAtLeast(1)}d ago"
+        }
+    }
 }

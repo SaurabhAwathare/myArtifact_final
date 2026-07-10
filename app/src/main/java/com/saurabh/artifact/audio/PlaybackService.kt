@@ -323,7 +323,7 @@ class PlaybackService : MediaLibraryService() {
             }
         }
 
-        mediaSession = MediaLibrarySession.Builder(attributionContext, player, callback)
+        mediaSession = MediaLibrarySession.Builder(this, player, callback)
             .setSessionActivity(createSessionActivityPendingIntent())
             .build()
     }

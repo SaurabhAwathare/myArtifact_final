@@ -87,7 +87,15 @@ class UploadService : Service() {
 
             // 2. Start Foreground
             val notification = NotificationHelper.buildUploadProgressNotification(attributionContext, "Preparing...", 0, draftId)
-            startForeground(NotificationHelper.UPLOAD_NOTIFICATION_ID, notification)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startForeground(
+                    NotificationHelper.UPLOAD_NOTIFICATION_ID,
+                    notification,
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                )
+            } else {
+                startForeground(NotificationHelper.UPLOAD_NOTIFICATION_ID, notification)
+            }
 
             try {
                 val draft = draftRepository.getDraft(draftId).getOrNull()
