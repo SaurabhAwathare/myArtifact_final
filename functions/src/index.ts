@@ -9,159 +9,165 @@ if (!admin.apps.length) {
 }
 
 /**
- * Robust cascading cleanup triggered when an artifact is deleted.
- * Handles reactions, aggregates, and metadata.
- * Designed for idempotency and high reliability with recursive batching.
+ * Robust cascading cleanup triggered when an artifact's status changes to DELETED.
+ * Handles Storage files, reactions, aggregates, metadata, and final document deletion.
+ * Designed for idempotency and high reliability.
  */
-export const onArtifactDeleted = functions.firestore
+export const onArtifactCleanupTrigger = functions.firestore
   .document("artifacts/{artifactId}")
-  .onDelete(async (snapshot, context) => {
+  .onUpdate(async (change, context) => {
+    const newData = change.after.data();
+    const oldData = change.before.data();
     const artifactId = context.params.artifactId;
     const db = admin.firestore();
-    const eventId = context.eventId;
     const startTime = Date.now();
 
-    logger.info(`[DELETE ARTIFACT] START | ArtifactID=${artifactId} | EventId=${eventId}`);
+    // Only trigger if status transitioned to DELETED
+    if (newData.status !== "DELETED" || oldData.status === "DELETED") {
+      return null;
+    }
 
-    // Summary trackers
-    let storageDeleted = false;
-    const collectionsCleaned: string[] = [];
-    let engagementDeletedCount = 0;
-    const subCollectionsCleaned: string[] = [];
-    let aggregatesDeleted = false;
+    logger.info(`[CLEANUP] START | ArtifactID=${artifactId} | EventId=${context.eventId}`);
+
+    // REQUIREMENT 1: Captured-State Deletion (Read all metadata into local variables)
+    const audioUrl = newData.audioUrl;
+    const transcriptUrl = newData.transcriptUrl;
+    const userId = newData.userId;
 
     // Helper to delete all documents returned by a query in batches
-    const deleteQueryBatch = async (query: admin.firestore.Query) => {
-      const querySnapshot = await query.get();
-      if (querySnapshot.size === 0) return 0;
+    const deleteQueryBatch = async (query: admin.firestore.Query, label: string) => {
+      try {
+        const querySnapshot = await query.get();
+        if (querySnapshot.size === 0) {
+          logger.info(`[CLEANUP] ${label} | NONE`);
+          return 0;
+        }
 
-      const batch = db.batch();
-      querySnapshot.docs.forEach((doc) => batch.delete(doc.ref));
-      await batch.commit();
-      return querySnapshot.size;
+        const batch = db.batch();
+        querySnapshot.docs.forEach((doc) => batch.delete(doc.ref));
+        await batch.commit();
+        logger.info(`[CLEANUP] ${label} | DELETED Count=${querySnapshot.size}`);
+        return querySnapshot.size;
+      } catch (e) {
+        logger.error(`[CLEANUP] ${label} | ERROR:`, e);
+        throw e; // Rethrow to trigger Function retry
+      }
     };
 
     try {
-      // 1. Storage Cleanup: Delete the audio file
-      const storageStageStart = Date.now();
-      logger.info(`[DELETE ARTIFACT] ArtifactID=${artifactId} | Stage=Storage Cleanup | START`);
-      const audioUrl = snapshot.data()?.audioUrl;
+      // 1. Storage Cleanup: Audio
       if (audioUrl && audioUrl.includes("firebasestorage")) {
         try {
           const decodedPath = decodeURIComponent(audioUrl.split("/o/")[1].split("?")[0]);
           await admin.storage().bucket().file(decodedPath).delete();
-          storageDeleted = true;
-          logger.info(`[DELETE ARTIFACT] ArtifactID=${artifactId} | StoragePath=${decodedPath} | DELETED`);
-        } catch (e) {
-          logger.warn(`[DELETE ARTIFACT] ArtifactID=${artifactId} | StoragePath=${audioUrl} | WARN (Possibly already gone):`, e);
+          logger.info(`[CLEANUP] Audio | DELETED | Path=${decodedPath}`);
+        } catch (e: any) {
+          if (e.code === 404) {
+            logger.warn(`[CLEANUP] Audio | ALREADY_GONE | Path=${audioUrl}`);
+          } else {
+            logger.error(`[CLEANUP] Audio | ERROR:`, e);
+            throw e;
+          }
         }
-      } else {
-        logger.info(`[DELETE ARTIFACT] ArtifactID=${artifactId} | StoragePath=NONE`);
       }
-      logger.info(`[DELETE ARTIFACT] ArtifactID=${artifactId} | Stage=Storage Cleanup | FINISH | Duration=${Date.now() - storageStageStart}ms`);
 
-      // 2. Cleanup top-level collections associated with artifactId via field
-      const collections = [
-        "artifact_reactions",
-        "notifications",
-      ];
-      for (const col of collections) {
-        const colStart = Date.now();
-        logger.info(`[DELETE ARTIFACT] ArtifactID=${artifactId} | Collection=${col} | START`);
+      // 2. Storage Cleanup: Transcript
+      if (transcriptUrl && transcriptUrl.includes("firebasestorage")) {
         try {
-          let size;
-          let totalDeleted = 0;
-          do {
-            size = await deleteQueryBatch(
-              db.collection(col).where("artifactId", "==", artifactId).limit(500)
-            );
-            if (size > 0) {
-              totalDeleted += size;
-              logger.info(`[DELETE ARTIFACT] ArtifactID=${artifactId} | Collection=${col} | DeletedBatch=${size} | Total=${totalDeleted}`);
-            }
-          } while (size > 0);
-          collectionsCleaned.push(`${col}(${totalDeleted})`);
-          logger.info(`[DELETE ARTIFACT] ArtifactID=${artifactId} | Collection=${col} | FINISH | Duration=${Date.now() - colStart}ms`);
-        } catch (e) {
-          logger.error(`[DELETE ARTIFACT] ArtifactID=${artifactId} | Collection=${col} | ERROR:`, e);
+          const decodedPath = decodeURIComponent(transcriptUrl.split("/o/")[1].split("?")[0]);
+          await admin.storage().bucket().file(decodedPath).delete();
+          logger.info(`[CLEANUP] Transcript | DELETED | Path=${decodedPath}`);
+        } catch (e: any) {
+          if (e.code === 404) {
+            logger.warn(`[CLEANUP] Transcript | ALREADY_GONE | Path=${transcriptUrl}`);
+          } else {
+            logger.error(`[CLEANUP] Transcript | ERROR:`, e);
+            throw e;
+          }
         }
       }
 
-      // 3. Cleanup private engagement data for all users who interacted with this artifact
-      const engagementStageStart = Date.now();
-      logger.info(`[DELETE ARTIFACT] ArtifactID=${artifactId} | Stage=Engagement Cleanup | START`);
+      // 3. Comments Cleanup (Subcollection)
       try {
-        const engagementQuery = db.collectionGroup("engagement").where("artifactId", "==", artifactId);
-        engagementDeletedCount = await deleteQueryBatch(engagementQuery);
-        logger.info(`[DELETE ARTIFACT] ArtifactID=${artifactId} | EngagementDeleted=${engagementDeletedCount}`);
+        await db.recursiveDelete(change.after.ref.collection("comments"));
+        logger.info(`[CLEANUP] Comments | DELETED`);
       } catch (e) {
-        logger.error(`[DELETE ARTIFACT] ArtifactID=${artifactId} | Stage=Engagement Cleanup | ERROR:`, e);
+        logger.error(`[CLEANUP] Comments | ERROR:`, e);
+        throw e;
       }
-      logger.info(`[DELETE ARTIFACT] ArtifactID=${artifactId} | Stage=Engagement Cleanup | FINISH | Duration=${Date.now() - engagementStageStart}ms`);
 
-      // 4. Cleanup sub-collections (reactions)
-      const subCollections = ["reactions"];
-      for (const sub of subCollections) {
-        const subStart = Date.now();
-        logger.info(`[DELETE ARTIFACT] ArtifactID=${artifactId} | Subcollection=${sub} | START`);
+      // 4. Reactions (Subcollection)
+      try {
+        await db.recursiveDelete(change.after.ref.collection("reactions"));
+        logger.info(`[CLEANUP] Sub-Reactions | DELETED`);
+      } catch (e) {
+        logger.error(`[CLEANUP] Sub-Reactions | ERROR:`, e);
+        throw e;
+      }
+
+      // 5. Top-level Reactions (artifact_reactions)
+      await deleteQueryBatch(
+        db.collection("artifact_reactions").where("artifactId", "==", artifactId),
+        "Global Reactions"
+      );
+
+      // 6. Reaction Counts (Aggregate)
+      try {
+        await db.collection("artifact_reaction_counts").doc(artifactId).delete();
+        logger.info(`[CLEANUP] Aggregates | DELETED`);
+      } catch (e) {
+        logger.error(`[CLEANUP] Aggregates | ERROR:`, e);
+        throw e;
+      }
+
+      // 7. Notifications
+      await deleteQueryBatch(
+        db.collection("notifications").where("artifactId", "==", artifactId),
+        "Notifications"
+      );
+
+      // 8. Engagement Records (Collection Group)
+      await deleteQueryBatch(
+        db.collectionGroup("engagement").where("artifactId", "==", artifactId),
+        "Engagement Records"
+      );
+
+      // 9. Ownership Record
+      if (userId) {
         try {
-          let size;
-          let totalDeleted = 0;
-          do {
-            size = await deleteQueryBatch(
-              snapshot.ref.collection(sub).limit(500)
-            );
-            if (size > 0) {
-              totalDeleted += size;
-              logger.info(`[DELETE ARTIFACT] ArtifactID=${artifactId} | Subcollection=${sub} | DeletedBatch=${size} | Total=${totalDeleted}`);
-            }
-          } while (size > 0);
-          subCollectionsCleaned.push(`${sub}(${totalDeleted})`);
-          logger.info(`[DELETE ARTIFACT] ArtifactID=${artifactId} | Subcollection=${sub} | FINISH | Duration=${Date.now() - subStart}ms`);
+          await db.collection("users").doc(userId)
+            .collection("private").document("published_artifacts")
+            .collection("artifacts").document(artifactId)
+            .delete();
+          logger.info(`[CLEANUP] Ownership Record | DELETED`);
         } catch (e) {
-          logger.error(`[DELETE ARTIFACT] ArtifactID=${artifactId} | Subcollection=${sub} | ERROR:`, e);
+          logger.error(`[CLEANUP] Ownership Record | ERROR:`, e);
+          throw e;
         }
       }
 
-      // 5. Cleanup reaction aggregates
-      const aggStageStart = Date.now();
-      logger.info(`[DELETE ARTIFACT] ArtifactID=${artifactId} | Stage=Aggregates Cleanup | START`);
-      try {
-        await db
-          .collection("artifact_reaction_counts")
-          .doc(artifactId)
-          .delete();
-        aggregatesDeleted = true;
-        logger.info(`[DELETE ARTIFACT] ArtifactID=${artifactId} | Aggregates | DELETED`);
-      } catch (e) {
-        logger.error(`[DELETE ARTIFACT] ArtifactID=${artifactId} | Stage=Aggregates Cleanup | ERROR:`, e);
-      }
-      logger.info(`[DELETE ARTIFACT] ArtifactID=${artifactId} | Stage=Aggregates Cleanup | FINISH | Duration=${Date.now() - aggStageStart}ms`);
+      // 10. Private Feedback
+      await deleteQueryBatch(
+        db.collection("feedback_private").where("artifactId", "==", artifactId),
+        "Private Feedback"
+      );
+
+      // 11. FINAL: Delete the Artifact document itself
+      await change.after.ref.delete();
+      logger.info(`[CLEANUP] Artifact Document | DELETED`);
 
       const totalDuration = Date.now() - startTime;
-      logger.info(`
-==================================
-DELETE ARTIFACT SUMMARY
-ArtifactID: ${artifactId}
-Storage Deleted: ${storageDeleted ? "YES" : "NO"}
-Collections Cleaned: ${collectionsCleaned.join(", ")}
-Engagement Records: ${engagementDeletedCount}
-Sub-collections: ${subCollectionsCleaned.join(", ")}
-Aggregates Deleted: ${aggregatesDeleted ? "YES" : "NO"}
-Elapsed Total Time: ${totalDuration}ms
-==================================
-      `);
+      logger.info(`[CLEANUP] FINISH | ArtifactID=${artifactId} | TotalDuration=${totalDuration}ms`);
 
       return null;
     } catch (error) {
-      logger.error(`[DELETE ARTIFACT] ArtifactID=${artifactId} | FATAL ERROR:`, error);
-      return null;
+      logger.error(`[CLEANUP] FATAL ERROR | ArtifactID=${artifactId}:`, error);
+      throw error; // Trigger function retry
     }
   });
 
 /**
  * Updates global reaction aggregates when a new reaction is created.
- * Handles both the dedicated count document and the main artifact metadata.
  */
 export const onReactionCreated = functions.firestore
   .document("artifact_reactions/{reactionId}")
@@ -189,7 +195,7 @@ export const onReactionCreated = functions.firestore
       {merge: true}
     );
 
-    // 2. Update Main Artifact Metadata (for efficient feed loading)
+    // 2. Update Main Artifact Metadata
     const artifactRef = db.collection("artifacts").doc(artifactId);
     batch.update(artifactRef, {
       reactionCount: FieldValue.increment(1),
@@ -252,7 +258,6 @@ export const onReactionDeleted = functions.firestore
 
 /**
  * Authoritatively handles follow/resonance intents.
- * Updates markers and counters for both users atomically.
  */
 export const onFollowIntentCreated = functions.firestore
   .document("users/{uid}/private/intents/follow/{targetId}")
@@ -289,11 +294,11 @@ export const onFollowIntentCreated = functions.firestore
         // 2. Update Counters
         transaction.update(currentUserRef, {
           resonanceOutCount: FieldValue.increment(1),
-          followingCount: FieldValue.increment(1), // Legacy
+          followingCount: FieldValue.increment(1),
         });
         transaction.update(targetUserRef, {
           resonanceInCount: FieldValue.increment(1),
-          followersCount: FieldValue.increment(1), // Legacy
+          followersCount: FieldValue.increment(1),
         });
       });
 
@@ -454,19 +459,15 @@ export const onArtifactCreated = functions.firestore
   });
 
 /**
- * Authoritatively handles permanent account cleanup when a user is deleted from Firebase Auth.
- * Triggers cascading deletions across Firestore and Storage while preserving data integrity.
- * Designed for idempotency and resilience.
+ * Authoritatively handles permanent account cleanup when a user is deleted.
  */
 export const onUserDeleted = functions.auth.user().onDelete(async (user, context) => {
   const uid = user.uid;
   const db = admin.firestore();
   const executionId = Math.random().toString(36).substring(7);
-  const eventId = context.eventId;
   const startTime = Date.now();
 
-  logger.info(`[DELETE USER] START | ExecutionId=${executionId} | EventId=${eventId} | UID=${uid}`);
-  logger.info(`[DELETE USER] Config | Project=${process.env.GCLOUD_PROJECT} | Timeout=${process.env.FUNCTION_TIMEOUT_SEC}s | Memory=${process.env.FUNCTION_MEMORY_MB}MB | Region=${process.env.FUNCTION_REGION}`);
+  logger.info(`[DELETE USER] START | UID=${uid}`);
 
   // Summary trackers
   let artifactsFound = 0;
@@ -489,53 +490,36 @@ export const onUserDeleted = functions.auth.user().onDelete(async (user, context
 
   try {
     // 1. Cleanup Artifacts
-    const artifactStageStart = Date.now();
-    logger.info(`[DELETE USER] ExecutionId=${executionId} | Stage=Artifact Query | START`);
     const artifactsSnapshot = await db.collection("artifacts").where("userId", "==", uid).get();
     artifactsFound = artifactsSnapshot.size;
-    logger.info(`[DELETE USER] ExecutionId=${executionId} | Stage=Artifact Query | FINISH | Count=${artifactsFound} | Duration=${Date.now() - artifactStageStart}ms`);
 
-    logger.info(`[DELETE USER] ExecutionId=${executionId} | Stage=Artifact Deletion | START`);
     for (const doc of artifactsSnapshot.docs) {
-      const artStart = Date.now();
-      logger.info(`[DELETE USER] ExecutionId=${executionId} | ArtifactID=${doc.id} | START`);
       try {
         await doc.ref.delete();
         artifactsDeletedCount++;
-        logger.info(`[DELETE USER] ExecutionId=${executionId} | ArtifactID=${doc.id} | FINISH | Duration=${Date.now() - artStart}ms`);
       } catch (e) {
-        logger.error(`[DELETE USER] ExecutionId=${executionId} | ArtifactID=${doc.id} | ERROR:`, e);
+        logger.error(`[DELETE USER] ArtifactID=${doc.id} | ERROR:`, e);
       }
     }
-    logger.info(`[DELETE USER] ExecutionId=${executionId} | Stage=Artifact Deletion | FINISH | Duration=${Date.now() - artifactStageStart}ms`);
 
     // 2. Cleanup Notifications
-    const notifStageStart = Date.now();
-    logger.info(`[DELETE USER] ExecutionId=${executionId} | Stage=Notifications | START`);
     try {
       let notificationsSize;
       do {
         notificationsSize = await deleteQueryBatch(db.collection("notifications").where("userId", "==", uid).limit(500));
         if (notificationsSize > 0) {
           notificationsDeletedTotal += notificationsSize;
-          logger.info(`[DELETE USER] ExecutionId=${executionId} | Stage=Notifications | Deleted=${notificationsSize} | Total=${notificationsDeletedTotal}`);
         }
       } while (notificationsSize > 0);
     } catch (e) {
-      logger.error(`[DELETE USER] ExecutionId=${executionId} | Stage=Notifications | ERROR:`, e);
+      logger.error(`[DELETE USER] Stage=Notifications | ERROR:`, e);
     }
-    logger.info(`[DELETE USER] ExecutionId=${executionId} | Stage=Notifications | FINISH | Total=${notificationsDeletedTotal} | Duration=${Date.now() - notifStageStart}ms`);
 
-    // 3. Cleanup Resonances (Followers/Following) in other users
-    const resonanceStageStart = Date.now();
-    logger.info(`[DELETE USER] ExecutionId=${executionId} | Stage=Resonance | START`);
+    // 3. Cleanup Resonances
     try {
-      // resonance_out: users/{uid}/resonance_out/{targetId}
       const resonanceOutSnapshot = await db.collection("users").doc(uid).collection("resonance_out").get();
-      logger.info(`[DELETE USER] ExecutionId=${executionId} | Stage=Resonance | OutboundCount=${resonanceOutSnapshot.size}`);
       for (const doc of resonanceOutSnapshot.docs) {
         const targetId = doc.id;
-        const resStart = Date.now();
         try {
           await db.collection("users").doc(targetId).collection("resonance_in").doc(uid).delete();
           await db.collection("users").doc(targetId).update({
@@ -543,18 +527,14 @@ export const onUserDeleted = functions.auth.user().onDelete(async (user, context
             followersCount: FieldValue.increment(-1),
           });
           resonanceUpdatedCount++;
-          logger.info(`[DELETE USER] ExecutionId=${executionId} | ResonanceOut=users/${targetId}/resonance_in/${uid} | FINISH | Duration=${Date.now() - resStart}ms`);
         } catch (e) {
-          logger.warn(`[DELETE USER] ExecutionId=${executionId} | ResonanceOut=users/${targetId}/resonance_in/${uid} | ERROR:`, e);
+          logger.warn(`[DELETE USER] ResonanceOut=users/${targetId}/resonance_in/${uid} | ERROR:`, e);
         }
       }
 
-      // resonance_in: users/{uid}/resonance_in/{followerId}
       const resonanceInSnapshot = await db.collection("users").doc(uid).collection("resonance_in").get();
-      logger.info(`[DELETE USER] ExecutionId=${executionId} | Stage=Resonance | InboundCount=${resonanceInSnapshot.size}`);
       for (const doc of resonanceInSnapshot.docs) {
         const followerId = doc.id;
-        const resStart = Date.now();
         try {
           await db.collection("users").doc(followerId).collection("resonance_out").doc(uid).delete();
           await db.collection("users").doc(followerId).update({
@@ -562,53 +542,39 @@ export const onUserDeleted = functions.auth.user().onDelete(async (user, context
             followingCount: FieldValue.increment(-1),
           });
           resonanceUpdatedCount++;
-          logger.info(`[DELETE USER] ExecutionId=${executionId} | ResonanceIn=users/${followerId}/resonance_out/${uid} | FINISH | Duration=${Date.now() - resStart}ms`);
         } catch (e) {
-          logger.warn(`[DELETE USER] ExecutionId=${executionId} | ResonanceIn=users/${followerId}/resonance_out/${uid} | ERROR:`, e);
+          logger.warn(`[DELETE USER] ResonanceIn=users/${followerId}/resonance_out/${uid} | ERROR:`, e);
         }
       }
     } catch (e) {
-      logger.error(`[DELETE USER] ExecutionId=${executionId} | Stage=Resonance | ERROR:`, e);
+      logger.error(`[DELETE USER] Stage=Resonance | ERROR:`, e);
     }
-    logger.info(`[DELETE USER] ExecutionId=${executionId} | Stage=Resonance | FINISH | Duration=${Date.now() - resonanceStageStart}ms`);
 
-    // 4. Cleanup Username reservation
-    const usernameStageStart = Date.now();
-    logger.info(`[DELETE USER] ExecutionId=${executionId} | Stage=Username | START`);
+    // 4. Cleanup Username
     try {
       const userDoc = await db.collection("users").doc(uid).get();
       const username = userDoc.data()?.anonymousName;
       if (typeof username === "string" && username) {
         await db.collection("usernames").doc(username.toLowerCase().trim()).delete();
-        logger.info(`[DELETE USER] ExecutionId=${executionId} | Username=${username} | DELETED`);
-      } else {
-        logger.info(`[DELETE USER] ExecutionId=${executionId} | Username=NONE`);
       }
     } catch (e) {
-      logger.error(`[DELETE USER] ExecutionId=${executionId} | Stage=Username | ERROR:`, e);
+      logger.error(`[DELETE USER] Stage=Username | ERROR:`, e);
     }
-    logger.info(`[DELETE USER] ExecutionId=${executionId} | Stage=Username | FINISH | Duration=${Date.now() - usernameStageStart}ms`);
 
     // 5. Cleanup Listening Sessions
-    const sessionsStageStart = Date.now();
-    logger.info(`[DELETE USER] ExecutionId=${executionId} | Stage=Listening Sessions | START`);
     try {
       let sessionsSize;
       do {
         sessionsSize = await deleteQueryBatch(db.collection("listening_sessions").where("userId", "==", uid).limit(500));
         if (sessionsSize > 0) {
           sessionsDeletedTotal += sessionsSize;
-          logger.info(`[DELETE USER] ExecutionId=${executionId} | Stage=Listening Sessions | Deleted=${sessionsSize} | Total=${sessionsDeletedTotal}`);
         }
       } while (sessionsSize > 0);
     } catch (e) {
-      logger.error(`[DELETE USER] ExecutionId=${executionId} | Stage=Listening Sessions | ERROR:`, e);
+      logger.error(`[DELETE USER] Stage=Listening Sessions | ERROR:`, e);
     }
-    logger.info(`[DELETE USER] ExecutionId=${executionId} | Stage=Listening Sessions | FINISH | Total=${sessionsDeletedTotal} | Duration=${Date.now() - sessionsStageStart}ms`);
 
     // 6. Final User Document & Subcollections Deletion
-    const userDocStageStart = Date.now();
-    logger.info(`[DELETE USER] ExecutionId=${executionId} | Stage=User Doc & Subcollections | START`);
     const userRef = db.collection("users").doc(uid);
     const subCollections = [
       "engagement",
@@ -621,16 +587,13 @@ export const onUserDeleted = functions.auth.user().onDelete(async (user, context
     ];
 
     for (const sub of subCollections) {
-      const subStart = Date.now();
       try {
-        const deleted = await deleteQueryBatch(userRef.collection(sub));
-        logger.info(`[DELETE USER] ExecutionId=${executionId} | Subcollection=${sub} | Deleted=${deleted} | Duration=${Date.now() - subStart}ms`);
+        await deleteQueryBatch(userRef.collection(sub));
       } catch (e) {
-        logger.warn(`[DELETE USER] ExecutionId=${executionId} | Subcollection=${sub} | ERROR:`, e);
+        logger.warn(`[DELETE USER] Subcollection=${sub} | ERROR:`, e);
       }
     }
 
-    // Nested private collection cleanup
     try {
       const privateRef = userRef.collection("private");
       await deleteQueryBatch(privateRef.doc("intents").collection("follow"));
@@ -642,39 +605,23 @@ export const onUserDeleted = functions.auth.user().onDelete(async (user, context
       await privateRef.doc("intents").delete();
       await privateRef.doc("interactions").delete();
       await privateRef.doc("blocks").delete();
-      logger.info(`[DELETE USER] ExecutionId=${executionId} | Stage=Private Collections | FINISH`);
     } catch (e) {
-      logger.error(`[DELETE USER] ExecutionId=${executionId} | Stage=Private Collections | ERROR:`, e);
+      logger.error(`[DELETE USER] Stage=Private Collections | ERROR:`, e);
     }
 
     try {
       await userRef.delete();
       profileDeleted = true;
-      logger.info(`[DELETE USER] ExecutionId=${executionId} | Stage=Final User Doc | DELETED`);
     } catch (e) {
-      logger.error(`[DELETE USER] ExecutionId=${executionId} | Stage=Final User Doc | ERROR:`, e);
+      logger.error(`[DELETE USER] Stage=Final User Doc | ERROR:`, e);
     }
-    logger.info(`[DELETE USER] ExecutionId=${executionId} | Stage=User Doc & Subcollections | FINISH | Duration=${Date.now() - userDocStageStart}ms`);
 
     const totalDuration = Date.now() - startTime;
-    logger.info(`
-==================================
-DELETE USER SUMMARY
-ExecutionId: ${executionId}
-UID: ${uid}
-Artifacts Found: ${artifactsFound}
-Artifacts Deleted: ${artifactsDeletedCount}
-Notifications Deleted: ${notificationsDeletedTotal}
-Resonance Updated: ${resonanceUpdatedCount}
-Listening Sessions Deleted: ${sessionsDeletedTotal}
-Profile Deleted: ${profileDeleted ? "YES" : "NO"}
-Elapsed Total Time: ${totalDuration}ms
-==================================
-    `);
+    logger.info(`[DELETE USER] FINISH | Artifacts Deleted: ${artifactsDeletedCount} | Profile Deleted: ${profileDeleted ? "YES" : "NO"} | Duration=${totalDuration}ms`);
 
     return null;
   } catch (error) {
-    logger.error(`[DELETE USER] ExecutionId=${executionId} | FATAL ERROR:`, error);
+    logger.error(`[DELETE USER] FATAL ERROR | UID=${uid}:`, error);
     return null;
   }
 });

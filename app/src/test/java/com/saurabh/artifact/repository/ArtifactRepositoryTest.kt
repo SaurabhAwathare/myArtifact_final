@@ -211,6 +211,53 @@ class ArtifactRepositoryTest {
     }
 
     @Test
+    fun `deletePublishedArtifact should perform soft delete by setting status to DELETED`() = runBlocking {
+        val artifactId = "art123"
+        val userId = "user123"
+        
+        every { auth.currentUser?.uid } returns userId
+        
+        val docRef = mockk<DocumentReference>(relaxed = true)
+        every { firestore.collection("artifacts").document(artifactId) } returns docRef
+        
+        val snapshot = mockk<com.google.firebase.firestore.DocumentSnapshot>(relaxed = true)
+        every { snapshot.exists() } returns true
+        every { snapshot.getString("userId") } returns userId
+        
+        val getTask = mockk<com.google.android.gms.tasks.Task<com.google.firebase.firestore.DocumentSnapshot>>(relaxed = true)
+        every { docRef.get() } returns getTask
+        
+        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        coEvery { getTask.await() } returns snapshot
+
+        // Mock Transaction
+        val transaction = mockk<com.google.firebase.firestore.Transaction>(relaxed = true)
+        val transactionTask = mockk<com.google.android.gms.tasks.Task<Unit>>(relaxed = true)
+        
+        // Properly capture and execute the transaction lambda
+        val transactionSlot = slot<com.google.firebase.firestore.Transaction.Function<Unit>>()
+        every { firestore.runTransaction(capture(transactionSlot)) } returns transactionTask
+        coEvery { transactionTask.await() } answers {
+            transactionSlot.captured.apply(transaction)
+            Unit
+        }
+
+        val result = repository.deletePublishedArtifact(artifactId)
+
+        assert(result.isSuccess)
+        
+        // Verify soft delete updates
+        verify { transaction.update(docRef, "status", ArtifactStatus.DELETED.name) }
+        verify { transaction.update(docRef, "isPublic", false) }
+        verify { transaction.update(docRef, "deletedAt", any()) }
+        
+        // Verify cascading local cleanup
+        coVerify { artifactDao.deleteById(artifactId) }
+        coVerify { database.engagementDao().deleteEngagement(artifactId) }
+        coVerify { userRepository.decrementArtifactsCount(userId) }
+    }
+
+    @Test
     fun `isTransientError should return true for network errors`() {
         assert(ArtifactRepository.isTransientError(AppError.NetworkFailure()))
         
