@@ -57,7 +57,11 @@ class CommentViewModel @Inject constructor(
      * that already contains the artifactId.
      */
     fun initialize(id: String) {
-        if (id.isEmpty() || id == artifactId) return
+        android.util.Log.d("CommentVM", "initialize: current=$artifactId, new=$id")
+        if (id.isEmpty() || id == artifactId) {
+            android.util.Log.d("CommentVM", "initialize: skipping (id empty or same)")
+            return
+        }
         
         artifactId = id
         loadInitialComments()
@@ -67,6 +71,7 @@ class CommentViewModel @Inject constructor(
      * Loads the first page of comments.
      */
     fun loadInitialComments() {
+        android.util.Log.d("CommentVM", "loadInitialComments: artifactId=$artifactId, thread=${Thread.currentThread().name}")
         if (artifactId.isEmpty()) return
 
         viewModelScope.launch {
@@ -74,6 +79,7 @@ class CommentViewModel @Inject constructor(
             
             getCommentsUseCase(artifactId)
                 .onSuccess { paginatedComments ->
+                    android.util.Log.d("CommentVM", "loadInitialComments success: count=${paginatedComments.comments.size}, artifactId=$artifactId")
                     lastVisibleCursor = paginatedComments.lastVisible
                     _uiState.update { 
                         it.copy(
@@ -98,17 +104,23 @@ class CommentViewModel @Inject constructor(
      * Loads the next page of comments for pagination.
      */
     fun loadNextPage() {
-        if (artifactId.isEmpty() || !_uiState.value.hasMorePages || _uiState.value.isLoadingNextPage) return
+        android.util.Log.d("CommentVM", "loadNextPage: artifactId=$artifactId, hasMore=${_uiState.value.hasMorePages}")
+        if (artifactId.isEmpty() || 
+            !_uiState.value.hasMorePages || 
+            _uiState.value.isLoadingNextPage || 
+            _uiState.value.isInitialLoading || 
+            lastVisibleCursor == null) return
 
         viewModelScope.launch {
             _uiState.update { it.copy(isLoadingNextPage = true) }
 
             getCommentsUseCase(artifactId, lastVisible = lastVisibleCursor)
                 .onSuccess { paginatedComments ->
+                    android.util.Log.d("CommentVM", "loadNextPage success: count=${paginatedComments.comments.size}, artifactId=$artifactId")
                     lastVisibleCursor = paginatedComments.lastVisible
                     _uiState.update { 
                         it.copy(
-                            comments = it.comments + paginatedComments.comments,
+                            comments = (it.comments + paginatedComments.comments).distinctBy { comment -> comment.id },
                             isLoadingNextPage = false,
                             hasMorePages = paginatedComments.lastVisible != null
                         )
@@ -129,6 +141,7 @@ class CommentViewModel @Inject constructor(
      * Refreshes the comment list from the beginning.
      */
     fun refreshComments() {
+        android.util.Log.d("CommentVM", "refreshComments: artifactId=$artifactId")
         if (artifactId.isEmpty()) return
 
         viewModelScope.launch {
@@ -136,6 +149,7 @@ class CommentViewModel @Inject constructor(
 
             getCommentsUseCase(artifactId)
                 .onSuccess { paginatedComments ->
+                    android.util.Log.d("CommentVM", "refreshComments success: count=${paginatedComments.comments.size}, artifactId=$artifactId")
                     lastVisibleCursor = paginatedComments.lastVisible
                     _uiState.update { 
                         it.copy(
@@ -162,6 +176,7 @@ class CommentViewModel @Inject constructor(
      * @param text The comment text to submit.
      */
     fun submitComment(text: String) {
+        android.util.Log.d("CommentVM", "submitComment: text=$text, artifactId=$artifactId")
         if (artifactId.isEmpty() || _uiState.value.isSubmitting) return
 
         viewModelScope.launch {
@@ -169,11 +184,12 @@ class CommentViewModel @Inject constructor(
 
             addCommentUseCase(artifactId, text)
                 .onSuccess { newComment ->
+                    android.util.Log.d("CommentVM", "submitComment success: id=${newComment.id}, artifactId=$artifactId")
                     // Opting for refreshing or merging? 
                     // To ensure consistency with Firestore ordering, merging at the top for immediate feedback
                     _uiState.update { 
                         it.copy(
-                            comments = listOf(newComment) + it.comments,
+                            comments = (listOf(newComment) + it.comments).distinctBy { comment -> comment.id },
                             isSubmitting = false
                         )
                     }
