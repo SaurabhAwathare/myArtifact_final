@@ -65,7 +65,7 @@ export const onArtifactCleanupTrigger = functions.firestore
           if (e.code === 404) {
             logger.warn(`[CLEANUP] Audio | ALREADY_GONE | Path=${audioUrl}`);
           } else {
-            logger.error(`[CLEANUP] Audio | ERROR:`, e);
+            logger.error("[CLEANUP] Audio | ERROR:", e);
             throw e;
           }
         }
@@ -81,7 +81,7 @@ export const onArtifactCleanupTrigger = functions.firestore
           if (e.code === 404) {
             logger.warn(`[CLEANUP] Transcript | ALREADY_GONE | Path=${transcriptUrl}`);
           } else {
-            logger.error(`[CLEANUP] Transcript | ERROR:`, e);
+            logger.error("[CLEANUP] Transcript | ERROR:", e);
             throw e;
           }
         }
@@ -90,18 +90,18 @@ export const onArtifactCleanupTrigger = functions.firestore
       // 3. Comments Cleanup (Subcollection)
       try {
         await db.recursiveDelete(change.after.ref.collection("comments"));
-        logger.info(`[CLEANUP] Comments | DELETED`);
+        logger.info("[CLEANUP] Comments | DELETED");
       } catch (e) {
-        logger.error(`[CLEANUP] Comments | ERROR:`, e);
+        logger.error("[CLEANUP] Comments | ERROR:", e);
         throw e;
       }
 
       // 4. Reactions (Subcollection)
       try {
         await db.recursiveDelete(change.after.ref.collection("reactions"));
-        logger.info(`[CLEANUP] Sub-Reactions | DELETED`);
+        logger.info("[CLEANUP] Sub-Reactions | DELETED");
       } catch (e) {
-        logger.error(`[CLEANUP] Sub-Reactions | ERROR:`, e);
+        logger.error("[CLEANUP] Sub-Reactions | ERROR:", e);
         throw e;
       }
 
@@ -114,9 +114,9 @@ export const onArtifactCleanupTrigger = functions.firestore
       // 6. Reaction Counts (Aggregate)
       try {
         await db.collection("artifact_reaction_counts").doc(artifactId).delete();
-        logger.info(`[CLEANUP] Aggregates | DELETED`);
+        logger.info("[CLEANUP] Aggregates | DELETED");
       } catch (e) {
-        logger.error(`[CLEANUP] Aggregates | ERROR:`, e);
+        logger.error("[CLEANUP] Aggregates | ERROR:", e);
         throw e;
       }
 
@@ -136,12 +136,12 @@ export const onArtifactCleanupTrigger = functions.firestore
       if (userId) {
         try {
           await db.collection("users").doc(userId)
-            .collection("private").document("published_artifacts")
-            .collection("artifacts").document(artifactId)
+            .collection("private").doc("published_artifacts")
+            .collection("artifacts").doc(artifactId)
             .delete();
-          logger.info(`[CLEANUP] Ownership Record | DELETED`);
+          logger.info("[CLEANUP] Ownership Record | DELETED");
         } catch (e) {
-          logger.error(`[CLEANUP] Ownership Record | ERROR:`, e);
+          logger.error("[CLEANUP] Ownership Record | ERROR:", e);
           throw e;
         }
       }
@@ -154,7 +154,7 @@ export const onArtifactCleanupTrigger = functions.firestore
 
       // 11. FINAL: Delete the Artifact document itself
       await change.after.ref.delete();
-      logger.info(`[CLEANUP] Artifact Document | DELETED`);
+      logger.info("[CLEANUP] Artifact Document | DELETED");
 
       const totalDuration = Date.now() - startTime;
       logger.info(`[CLEANUP] FINISH | ArtifactID=${artifactId} | TotalDuration=${totalDuration}ms`);
@@ -464,13 +464,11 @@ export const onArtifactCreated = functions.firestore
 export const onUserDeleted = functions.auth.user().onDelete(async (user, context) => {
   const uid = user.uid;
   const db = admin.firestore();
-  const executionId = Math.random().toString(36).substring(7);
   const startTime = Date.now();
 
   logger.info(`[DELETE USER] START | UID=${uid}`);
 
   // Summary trackers
-  let artifactsFound = 0;
   let artifactsDeletedCount = 0;
   let notificationsDeletedTotal = 0;
   let resonanceUpdatedCount = 0;
@@ -491,7 +489,6 @@ export const onUserDeleted = functions.auth.user().onDelete(async (user, context
   try {
     // 1. Cleanup Artifacts
     const artifactsSnapshot = await db.collection("artifacts").where("userId", "==", uid).get();
-    artifactsFound = artifactsSnapshot.size;
 
     for (const doc of artifactsSnapshot.docs) {
       try {
@@ -512,7 +509,7 @@ export const onUserDeleted = functions.auth.user().onDelete(async (user, context
         }
       } while (notificationsSize > 0);
     } catch (e) {
-      logger.error(`[DELETE USER] Stage=Notifications | ERROR:`, e);
+      logger.error("[DELETE USER] Stage=Notifications | ERROR:", e);
     }
 
     // 3. Cleanup Resonances
@@ -547,7 +544,7 @@ export const onUserDeleted = functions.auth.user().onDelete(async (user, context
         }
       }
     } catch (e) {
-      logger.error(`[DELETE USER] Stage=Resonance | ERROR:`, e);
+      logger.error("[DELETE USER] Stage=Resonance | ERROR:", e);
     }
 
     // 4. Cleanup Username
@@ -558,7 +555,7 @@ export const onUserDeleted = functions.auth.user().onDelete(async (user, context
         await db.collection("usernames").doc(username.toLowerCase().trim()).delete();
       }
     } catch (e) {
-      logger.error(`[DELETE USER] Stage=Username | ERROR:`, e);
+      logger.error("[DELETE USER] Stage=Username | ERROR:", e);
     }
 
     // 5. Cleanup Listening Sessions
@@ -571,7 +568,7 @@ export const onUserDeleted = functions.auth.user().onDelete(async (user, context
         }
       } while (sessionsSize > 0);
     } catch (e) {
-      logger.error(`[DELETE USER] Stage=Listening Sessions | ERROR:`, e);
+      logger.error("[DELETE USER] Stage=Listening Sessions | ERROR:", e);
     }
 
     // 6. Final User Document & Subcollections Deletion
@@ -606,14 +603,14 @@ export const onUserDeleted = functions.auth.user().onDelete(async (user, context
       await privateRef.doc("interactions").delete();
       await privateRef.doc("blocks").delete();
     } catch (e) {
-      logger.error(`[DELETE USER] Stage=Private Collections | ERROR:`, e);
+      logger.error("[DELETE USER] Stage=Private Collections | ERROR:", e);
     }
 
     try {
       await userRef.delete();
       profileDeleted = true;
     } catch (e) {
-      logger.error(`[DELETE USER] Stage=Final User Doc | ERROR:`, e);
+      logger.error("[DELETE USER] Stage=Final User Doc | ERROR:", e);
     }
 
     const totalDuration = Date.now() - startTime;

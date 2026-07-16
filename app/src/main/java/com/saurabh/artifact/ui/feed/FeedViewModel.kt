@@ -9,7 +9,6 @@ import androidx.paging.cachedIn
 import androidx.paging.map
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
-import com.saurabh.artifact.audio.ArtifactCleanupManager
 import com.saurabh.artifact.audio.PlaybackCoordinator
 import com.saurabh.artifact.audio.PublishStateManager
 import com.saurabh.artifact.audio.ReviewSessionManager
@@ -86,7 +85,6 @@ class FeedViewModel @Inject constructor(
     savedArtifactManager: SavedArtifactManager,
     private val firestore: FirebaseFirestore,
     val audioPlayer: PlaybackCoordinator,
-    private val cleanupManager: ArtifactCleanupManager,
     private val reviewSessionManager: ReviewSessionManager,
     private val publishStateManager: PublishStateManager,
     private val uploadGuard: UploadGuard,
@@ -416,19 +414,6 @@ class FeedViewModel @Inject constructor(
 
     fun clearError() {
         _uiState.update { it.copy(error = null) }
-    }
-
-    fun deleteArtifact(artifactId: String) {
-        viewModelScope.launch {
-            cleanupManager.deleteArtifact(artifactId)
-                .onSuccess {
-                    _uiState.update { it.copy(error = UiError(UiText.StringResource(R.string.reflection_deleted))) }
-                    _refreshTrigger.value += 1
-                }
-                .onFailure { e ->
-                    _uiState.update { it.copy(error = ErrorMessageMapper.mapToUiError(e, onRetry = { deleteArtifact(artifactId) })) }
-                }
-        }
     }
 
     fun dismissCrisis() {

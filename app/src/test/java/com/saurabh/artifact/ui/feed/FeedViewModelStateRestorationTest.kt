@@ -2,7 +2,6 @@ package com.saurabh.artifact.ui.feed
 
 import androidx.lifecycle.SavedStateHandle
 import com.google.firebase.firestore.FirebaseFirestore
-import com.saurabh.artifact.audio.ArtifactCleanupManager
 import com.saurabh.artifact.audio.PlaybackCoordinator
 import com.saurabh.artifact.audio.PublishStateManager
 import com.saurabh.artifact.audio.ReviewSessionManager
@@ -47,7 +46,6 @@ class FeedViewModelStateRestorationTest {
     private val savedArtifactManager = mockk<SavedArtifactManager>(relaxed = true)
     private val firestore = mockk<FirebaseFirestore>(relaxed = true)
     private val audioPlayer = mockk<PlaybackCoordinator>(relaxed = true)
-    private val cleanupManager = mockk<ArtifactCleanupManager>(relaxed = true)
     private val reviewSessionManager = mockk<ReviewSessionManager>(relaxed = true)
     private val publishStateManager = mockk<PublishStateManager>(relaxed = true)
     private val uploadGuard = mockk<UploadGuard>(relaxed = true)
@@ -94,7 +92,6 @@ class FeedViewModelStateRestorationTest {
             savedArtifactManager = savedArtifactManager,
             firestore = firestore,
             audioPlayer = audioPlayer,
-            cleanupManager = cleanupManager,
             reviewSessionManager = reviewSessionManager,
             publishStateManager = publishStateManager,
             uploadGuard = uploadGuard,

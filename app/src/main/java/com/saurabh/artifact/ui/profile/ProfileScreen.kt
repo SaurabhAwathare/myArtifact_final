@@ -19,6 +19,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import com.saurabh.artifact.ui.profile.components.ProfileHeader
 import com.saurabh.artifact.ui.profile.components.draftSection
 import com.saurabh.artifact.ui.profile.components.userArtifactsList
+import com.saurabh.artifact.ui.components.AppSnackbarHost
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -94,7 +95,7 @@ fun ProfileScreen(
                 )
             )
         },
-        snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
+        snackbarHost = { AppSnackbarHost(hostState = snackbarHostState) }
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
             PullToRefreshBox(

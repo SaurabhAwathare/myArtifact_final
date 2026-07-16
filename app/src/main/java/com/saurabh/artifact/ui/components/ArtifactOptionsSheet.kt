@@ -32,7 +32,8 @@ fun ArtifactOptionsSheet(
     onSettingsClick: () -> Unit = {},
     onShareClick: () -> Unit = {},
     isPublic: Boolean = true,
-    isDraft: Boolean = false
+    isDraft: Boolean = false,
+    showDelete: Boolean = true
 ) {
     Popup(
         onDismissRequest = onDismiss,
@@ -110,16 +111,18 @@ fun ArtifactOptionsSheet(
                         }
                     )
 
-                    OptionItem(
-                        label = "Delete Artifact",
-                        description = "Permanently remove this from your journey",
-                        icon = Icons.Rounded.DeleteOutline,
-                        isError = true,
-                        onClick = {
-                            onDeleteClick()
-                            onDismiss()
-                        }
-                    )
+                    if (showDelete) {
+                        OptionItem(
+                            label = "Delete Artifact",
+                            description = "Permanently remove this from your journey",
+                            icon = Icons.Rounded.DeleteOutline,
+                            isError = true,
+                            onClick = {
+                                onDeleteClick()
+                                onDismiss()
+                            }
+                        )
+                    }
                 } else {
                     OptionItem(
                         label = "Give feedback",

@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.SnackbarDuration
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -33,6 +32,7 @@ import com.saurabh.artifact.ui.player.components.AdvancedControlsSheet
 import com.saurabh.artifact.ui.theme.GoldAura400
 import com.saurabh.artifact.ui.theme.Obsidian950
 import com.saurabh.artifact.ui.theme.ZIndexTokens
+import com.saurabh.artifact.ui.components.AppSnackbarHost
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -125,11 +125,11 @@ fun ArtifactPlayerView(
         // 1. FULLSCREEN IMMERSIVE PLAYER
         AnimatedVisibility(
             visible = uiState.playerMode == PlayerMode.FULLSCREEN,
-            enter = slideInVertically(
+            enter = androidx.compose.animation.slideInVertically(
                 initialOffsetY = { it }, 
                 animationSpec = tween(MotionTokens.DURATION_LONG)
             ),
-            exit = slideOutVertically(
+            exit = androidx.compose.animation.slideOutVertically(
                 targetOffsetY = { it }, 
                 animationSpec = tween(MotionTokens.DURATION_LONG)
             ),
@@ -157,6 +157,8 @@ fun ArtifactPlayerView(
                     onEditClick = { viewModel.onEditClick(onNavigateToDraftEdit) },
                     onPublishClick = { viewModel.onPublishClick(onNavigateToPublish) },
                     onDeleteClick = {
+                        // Phase 2: Action Safety - Only allow draft deletion from Player
+                        // Published artifacts must be deleted from Profile
                         viewModel.deleteCurrentArtifact()
                     },
                     onCommentClick = { showCommentSheet = true },
@@ -190,10 +192,7 @@ fun ArtifactPlayerView(
                         showOptionsSheet = false
                     },
                     onDismiss = { showOptionsSheet = false },
-                    onDeleteClick = {
-                        viewModel.deleteCurrentArtifact()
-                        showOptionsSheet = false
-                    },
+                    showDelete = false, // Centralize management in Profile
                     onShareClick = {
                         viewModel.onShareClicked()
                     }
@@ -221,11 +220,10 @@ fun ArtifactPlayerView(
         }
 
         // 4. Error Notifications
-        SnackbarHost(
+        AppSnackbarHost(
             hostState = snackbarHostState,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 120.dp)
                 .zIndex(ZIndexTokens.FULL_SCREEN_OVERLAYS + 1f)
         )
     }

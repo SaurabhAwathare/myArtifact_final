@@ -80,7 +80,6 @@ fun ArtifactCard(
     currentPosition: Long = 0,
     durationMs: Long = 0,
     onReportClick: () -> Unit = {},
-    onDeleteClick: () -> Unit = {},
     onFeedbackClick: () -> Unit = {},
     onSettingsClick: () -> Unit = {},
     onAuthorClick: (String) -> Unit = {},
@@ -95,7 +94,6 @@ fun ArtifactCard(
     val stage = ArtifactTheme.stage
 
     var showOptionsSheet by remember { mutableStateOf(false) }
-    var showDeleteConfirm by remember { mutableStateOf(false) }
     val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
     
@@ -401,7 +399,7 @@ fun ArtifactCard(
             isDraft = artifact.isDraft,
             onReportClick = onReportClick,
             onDismiss = { showOptionsSheet = false },
-            onDeleteClick = { showDeleteConfirm = true },
+            showDelete = false,
             onFeedbackClick = onFeedbackClick,
             onSettingsClick = onSettingsClick,
             onShareClick = {
@@ -420,30 +418,6 @@ fun ArtifactCard(
                 }
                 val shareIntent = android.content.Intent.createChooser(sendIntent, null)
                 context.startActivity(shareIntent)
-            }
-        )
-    }
-
-    if (showDeleteConfirm) {
-        AlertDialog(
-            onDismissRequest = { showDeleteConfirm = false },
-            title = { Text("Delete Artifact?") },
-            text = { Text("This will permanently remove this artifact and all associated resonances. This action cannot be undone.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        onDeleteClick()
-                        showDeleteConfirm = false
-                    },
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                ) {
-                    Text("Delete")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteConfirm = false }) {
-                    Text("Cancel")
-                }
             }
         )
     }

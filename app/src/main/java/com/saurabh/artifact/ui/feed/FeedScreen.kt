@@ -45,6 +45,8 @@ import com.saurabh.artifact.ui.components.motion.FadeInContent
 import com.saurabh.artifact.ui.components.state.LoadingPlaceholder
 import com.saurabh.artifact.ui.theme.Spacing
 import com.saurabh.artifact.ui.components.recording.AuraDock
+import com.saurabh.artifact.ui.components.AppSnackbarHost
+import com.saurabh.artifact.ui.util.LocalBottomOverlayOffset
 import com.saurabh.artifact.startup.StartupStage
 import com.saurabh.artifact.startup.StartupMetrics
 import com.saurabh.artifact.ui.components.PetalChip
@@ -137,12 +139,12 @@ fun FeedScreen(
                 onNavigateToDebugMenu = onNavigateToDebugMenu
             )
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = { AppSnackbarHost(snackbarHostState) },
         floatingActionButton = {
-            val isPlayerActive by viewModel.currentlyPlayingArtifact.collectAsStateWithLifecycle()
+            val bottomOffset = LocalBottomOverlayOffset.current
             AuraDock(
                 onInitiate = { onNavigateToRecord(null) },
-                modifier = Modifier.padding(bottom = if (isPlayerActive != null) 90.dp else 16.dp)
+                modifier = Modifier.padding(bottom = 16.dp + bottomOffset)
             )
         },
         floatingActionButtonPosition = FabPosition.End
@@ -538,7 +540,6 @@ fun ArtifactItem(
                     viewModel.onArtifactFocused(artifactId)
                 },
                 onReportClick = { onReportClick(artifactId) },
-                onDeleteClick = { viewModel.deleteArtifact(artifactId) },
                 onFeedbackClick = { viewModel.submitFeedback(artifactId, FeedbackType.NOT_FOR_ME) },
                 onSettingsClick = { viewModel.showSettingsComingSoon() },
                 onAuthorClick = onAuthorClick,
@@ -556,7 +557,6 @@ fun ArtifactItem(
                     viewModel.onArtifactFocused(artifactId)
                 },
                 onReportClick = { onReportClick(artifactId) },
-                onDeleteClick = { viewModel.deleteArtifact(artifactId) },
                 onFeedbackClick = { viewModel.submitFeedback(artifactId, FeedbackType.NOT_FOR_ME) },
                 onSettingsClick = { viewModel.showSettingsComingSoon() },
                 onAuthorClick = onAuthorClick,

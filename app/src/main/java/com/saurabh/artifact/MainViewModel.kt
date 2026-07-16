@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import kotlin.OptIn
 
@@ -87,7 +88,7 @@ class MainViewModel @Inject constructor(
     private var pendingStartupEvent: Any? = null
     private var deferredNavigationJob: Job? = null
 
-    private var isStarted = false
+    private val started = AtomicBoolean(false)
 
     init {
         // Restore pending event from SavedState if it hasn't been consumed yet
@@ -112,7 +113,7 @@ class MainViewModel @Inject constructor(
                 .collect { (previous, current) ->
                     val isTransitionToUnauthenticated = previous != null && current == null
                     
-                    if (isTransitionToUnauthenticated && isStarted && _startupState.value !is AppStartupState.Initializing) {
+                    if (isTransitionToUnauthenticated && started.get() && _startupState.value !is AppStartupState.Initializing) {
                         diagnosticLogger.info(DiagnosticCategory.AUTH, "LOGOUT_STARTED")
                         
                         try {
@@ -145,7 +146,7 @@ class MainViewModel @Inject constructor(
      * Determines the initial route BEFORE the UI is allowed to transition from the Splash Screen.
      */
     fun start() {
-        if (isStarted) return
+        if (started.getAndSet(true)) return
         
         // --- PROCESS DEATH RESTORATION ---
         val wasCompleted = savedStateHandle.get<Boolean>(KEY_STARTUP_COMPLETED) ?: false
@@ -156,7 +157,6 @@ class MainViewModel @Inject constructor(
             if (restoredDestination != null) {
                 diagnosticLogger.info(DiagnosticCategory.STARTUP, "STARTUP_RESTORED", mapOf("destination" to destinationId))
                 _startupState.value = AppStartupState.Ready(restoredDestination)
-                isStarted = true
                 
                 // If there's a pending event (restored in init), start the observer
                 if (pendingStartupEvent != null) {
@@ -167,7 +167,6 @@ class MainViewModel @Inject constructor(
         }
         // ---------------------------------
 
-        isStarted = true
         diagnosticLogger.info(DiagnosticCategory.STARTUP, "STARTUP_BEGIN")
 
         if (startupCoordinator.isRescueModeActive) {

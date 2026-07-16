@@ -20,6 +20,9 @@ import com.saurabh.artifact.ui.player.PlayerViewModel
 import com.saurabh.artifact.ui.player.PlayerMode
 import com.saurabh.artifact.ui.player.components.MiniPlayer
 import com.saurabh.artifact.ui.recording.components.MiniRecorder
+import com.saurabh.artifact.ui.util.BottomOverlayConstants
+import com.saurabh.artifact.ui.util.LocalBottomOverlayOffset
+import com.saurabh.artifact.data.local.RecordingStatus
 
 private val ScreensWithoutOverlays = listOf(
     InstantRecord::class,
@@ -45,12 +48,29 @@ fun GlobalOverlayHost(
     },
     onReportArtifact: (String) -> Unit,
     playerViewModel: PlayerViewModel = hiltViewModel(),
+    content: @Composable () -> Unit
 ) {
     val currentDestination = navController.currentBackStackEntryAsState().value?.destination
     val showOverlays = isOverlayVisibleOnRoute(currentDestination)
     
     val uiState by playerViewModel.uiState.collectAsStateWithLifecycle()
     val recordingState by recordingSessionManager.sessionState.collectAsStateWithLifecycle()
+
+    val totalOffset = remember(showOverlays, uiState.playerMode, recordingState.status) {
+        if (!showOverlays || uiState.playerMode == PlayerMode.FULLSCREEN) {
+            0.dp
+        } else {
+            val isPlayerVisible = uiState.playerMode == PlayerMode.MINI
+            val isRecorderVisible = recordingState.status == RecordingStatus.RECORDING || 
+                                   recordingState.status == RecordingStatus.PAUSED
+            
+            var offset = 0.dp
+            if (isPlayerVisible) offset += BottomOverlayConstants.MINI_PLAYER_HEIGHT
+            if (isRecorderVisible) offset += BottomOverlayConstants.MINI_RECORDER_OCCUPIED_HEIGHT
+            if (isPlayerVisible && isRecorderVisible) offset += BottomOverlayConstants.OVERLAY_SPACING
+            offset
+        }
+    }
 
     // Observe Navigation Events for Review Completion
     LaunchedEffect(Unit) {
@@ -62,60 +82,65 @@ fun GlobalOverlayHost(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        // 1. PLAYER SYSTEM
-        ArtifactPlayerView(
-            onNavigateToDraftEdit = onNavigateToDraftEdit,
-            onNavigateToPublish = onNavigateToPublish,
-            onReportArtifact = onReportArtifact,
-            onAuthorClick = { userId ->
-                android.util.Log.d("GlobalOverlayHost", "PROFILE_NAVIGATION_REQUESTED: userId=$userId")
-                if (userId.isNotEmpty()) {
-                    // Collapse the expanded player before navigation so the destination
-                    // screen is immediately visible while keeping playback active.
-                    playerViewModel.setExpanded(false)
+    CompositionLocalProvider(LocalBottomOverlayOffset provides totalOffset) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            // 0. ACTUAL APP CONTENT
+            content()
 
-                    android.util.Log.d("GlobalOverlayHost", "PROFILE_NAVIGATION_EXECUTED: destination=Profile($userId)")
-                    navController.navigate(com.saurabh.artifact.navigation.Profile(userId))
-                } else {
-                    android.util.Log.e("GlobalOverlayHost", "PROFILE_NAVIGATION_ABORTED: userId is empty")
-                }
-            },
-            viewModel = playerViewModel
-        )
+            // 1. PLAYER SYSTEM (Full Screen & Hidden layers)
+            ArtifactPlayerView(
+                onNavigateToDraftEdit = onNavigateToDraftEdit,
+                onNavigateToPublish = onNavigateToPublish,
+                onReportArtifact = onReportArtifact,
+                onAuthorClick = { userId ->
+                    android.util.Log.d("GlobalOverlayHost", "PROFILE_NAVIGATION_REQUESTED: userId=$userId")
+                    if (userId.isNotEmpty()) {
+                        // Collapse the expanded player before navigation so the destination
+                        // screen is immediately visible while keeping playback active.
+                        playerViewModel.setExpanded(false)
 
-        // 2. BOTTOM STACK (Floating Overlays)
-        if (showOverlays && (uiState.playerMode != PlayerMode.FULLSCREEN)) {
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .zIndex(ZIndexTokens.MINI_OVERLAYS),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // Mini Recorder
-                MiniRecorder(
-                    status = recordingState.status,
-                    durationSeconds = recordingState.durationSeconds,
-                    onClick = {
-                        navController.navigate(InstantRecord()) {
-                            launchSingleTop = true
-                        }
+                        android.util.Log.d("GlobalOverlayHost", "PROFILE_NAVIGATION_EXECUTED: destination=Profile($userId)")
+                        navController.navigate(com.saurabh.artifact.navigation.Profile(userId))
+                    } else {
+                        android.util.Log.e("GlobalOverlayHost", "PROFILE_NAVIGATION_ABORTED: userId is empty")
                     }
-                )
+                },
+                viewModel = playerViewModel
+            )
 
-                // Mini Player
-                androidx.compose.animation.AnimatedVisibility(
-                    visible = uiState.playerMode == PlayerMode.MINI,
-                    enter = androidx.compose.animation.expandVertically() + androidx.compose.animation.fadeIn(),
-                    exit = androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut()
+            // 2. BOTTOM STACK (Floating Overlays)
+            if (showOverlays && (uiState.playerMode != PlayerMode.FULLSCREEN)) {
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .navigationBarsPadding()
+                        .zIndex(ZIndexTokens.MINI_OVERLAYS),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    MiniPlayer(
-                        uiState = uiState,
-                        onExpand = { playerViewModel.setExpanded(true) },
-                        onTogglePlay = { playerViewModel.togglePlayPause() }
+                    // Mini Recorder
+                    MiniRecorder(
+                        status = recordingState.status,
+                        durationSeconds = recordingState.durationSeconds,
+                        onClick = {
+                            navController.navigate(InstantRecord()) {
+                                launchSingleTop = true
+                            }
+                        }
                     )
+
+                    // Mini Player
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = uiState.playerMode == PlayerMode.MINI,
+                        enter = androidx.compose.animation.expandVertically() + androidx.compose.animation.fadeIn(),
+                        exit = androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut()
+                    ) {
+                        MiniPlayer(
+                            uiState = uiState,
+                            onExpand = { playerViewModel.setExpanded(true) },
+                            onTogglePlay = { playerViewModel.togglePlayPause() }
+                        )
+                    }
                 }
             }
         }

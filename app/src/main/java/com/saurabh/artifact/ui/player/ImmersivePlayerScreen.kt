@@ -191,6 +191,7 @@ fun ImmersivePlayerScreen(
                     }
 
                     if (!isVerifiedDraft) {
+                        // showDelete is false for published artifacts in Player per product goal
                         IconButton(
                             onClick = onMoreClick,
                             modifier = Modifier.size(48.dp)
