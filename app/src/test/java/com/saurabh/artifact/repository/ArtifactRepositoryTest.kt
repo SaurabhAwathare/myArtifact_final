@@ -12,6 +12,7 @@ import com.saurabh.artifact.model.*
 import com.saurabh.artifact.service.PersonalizationEngine
 import com.saurabh.artifact.service.ReflectionAIService
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.worker.InteractionSyncWorker
 import io.mockk.*
 import kotlinx.coroutines.runBlocking
@@ -263,5 +264,43 @@ class ArtifactRepositoryTest {
         
         val otherError = Exception("Permanent error")
         assert(!ArtifactRepository.isTransientError(otherError))
+    }
+
+    @Test
+    fun `getArtifactDetail should return artifact detail even if reaction counts fetch fails`() = runBlocking {
+        val artifactId = "art123"
+        val doc = mockk<com.google.firebase.firestore.DocumentSnapshot>(relaxed = true)
+        every { doc.exists() } returns true
+        every { doc.id } returns artifactId
+        every { doc.get("amplitudeData") } returns listOf(1, 2, 3)
+        
+        val artifactRef = mockk<DocumentReference>(relaxed = true)
+        every { firestore.collection("artifacts").document(artifactId) } returns artifactRef
+        
+        val getTask = mockk<com.google.android.gms.tasks.Task<com.google.firebase.firestore.DocumentSnapshot>>(relaxed = true)
+        every { artifactRef.get() } returns getTask
+        
+        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        coEvery { getTask.await() } returns doc
+        
+        // Mock reaction counts failure
+        val reactionCountsRef = mockk<DocumentReference>(relaxed = true)
+        every { firestore.collection("artifact_reaction_counts").document(artifactId) } returns reactionCountsRef
+        
+        val reactionCountsTask = mockk<com.google.android.gms.tasks.Task<com.google.firebase.firestore.DocumentSnapshot>>(relaxed = true)
+        every { reactionCountsRef.get() } returns reactionCountsTask
+        
+        coEvery { reactionCountsTask.await() } throws Exception("Offline / Cache Miss")
+        
+        val result = repository.getArtifactDetail(artifactId)
+        
+        assert(result.isSuccess)
+        val detail = result.getOrThrow()
+        assertEquals(artifactId, detail.id)
+        assert(detail.reactionCounts != null)
+        assertEquals(artifactId, detail.reactionCounts?.artifactId)
+        assertEquals(0, detail.reactionCounts?.totalCount)
+        
+        verify { diagnosticLogger.warn(DiagnosticCategory.FIRESTORE, "DETAIL_REACTION_COUNTS_CACHE_MISS", any()) }
     }
 }

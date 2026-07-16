@@ -141,8 +141,25 @@ class ArtifactRepository @Inject constructor(
         val downsampledAmplitudes = downsampleAmplitudes(rawAmplitudes, 64)
 
         // Fetch Reaction Counts - Still IO
-        val reactionCountsDoc = firestore.collection("artifact_reaction_counts").document(doc.id).get().await()
-        val reactionCounts = reactionCountsDoc.toObject(ArtifactReactionCounts::class.java)?.copy(artifactId = doc.id)
+        // HARDENING: Treat reaction counts as optional metadata to allow offline access to details
+        val reactionCounts = try {
+            val reactionCountsDoc = firestore.collection("artifact_reaction_counts").document(doc.id).get().await()
+            reactionCountsDoc.toObject(ArtifactReactionCounts::class.java)?.copy(artifactId = doc.id)
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            
+            diagnosticLogger.warn(
+                category = DiagnosticCategory.FIRESTORE,
+                eventName = "DETAIL_REACTION_COUNTS_CACHE_MISS",
+                metadata = mapOf(
+                    LogKeys.ARTIFACT_ID to doc.id,
+                    LogKeys.EXCEPTION_CLASS to e.javaClass.simpleName,
+                    LogKeys.ERROR_CODE to (e as? FirebaseFirestoreException)?.code?.name.orEmpty()
+                )
+            )
+            // Return default counts to prevent failing the entire detail request
+            ArtifactReactionCounts(artifactId = doc.id)
+        }
 
         return@withContext ArtifactDetail(
             id = doc.id,
