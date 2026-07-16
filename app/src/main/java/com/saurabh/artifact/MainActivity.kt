@@ -58,7 +58,7 @@ class MainActivity : ComponentActivity() {
             val startupState by mainViewModel.startupState.collectAsStateWithLifecycle()
             val stage by mainViewModel.startupStage.collectAsStateWithLifecycle()
 
-            ArtifactTheme {
+            ArtifactTheme(logger = diagnosticLogger) {
                 AppRoot(
                     startupState = startupState,
                     stage = stage,

@@ -13,6 +13,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.startup.StartupStage
 
@@ -57,10 +58,25 @@ val LocalArtifactColors = staticCompositionLocalOf {
 val LocalStartupStage = compositionLocalOf { StartupStage.ARRIVAL }
 
 /**
+ * A safe, no-op implementation of [DiagnosticLogger] for Previews and defaults.
+ */
+internal object NoOpDiagnosticLogger : DiagnosticLogger {
+    override fun log(
+        category: DiagnosticCategory,
+        eventName: String,
+        level: DiagnosticLogger.Level,
+        metadata: Map<String, Any>,
+        throwable: Throwable?
+    ) {
+        // No-op
+    }
+}
+
+/**
  * Global diagnostic logger for UI components.
  */
 val LocalDiagnosticLogger = staticCompositionLocalOf<DiagnosticLogger> {
-    error("No DiagnosticLogger provided")
+    NoOpDiagnosticLogger
 }
 
 /**
@@ -85,6 +101,7 @@ private val DarkColorScheme = darkColorScheme(
 
 @Composable
 fun ArtifactTheme(
+    logger: DiagnosticLogger = NoOpDiagnosticLogger,
     content: @Composable () -> Unit
 ) {
     // Artifact is a permanent dark-mode emotional experience.
@@ -118,7 +135,8 @@ fun ArtifactTheme(
 
     CompositionLocalProvider(
         LocalArtifactColors provides artifactColors,
-        LocalEmotionalTokens provides EmotionalTokens()
+        LocalEmotionalTokens provides EmotionalTokens(),
+        LocalDiagnosticLogger provides logger
     ) {
         MaterialTheme(
             colorScheme = colorScheme,
