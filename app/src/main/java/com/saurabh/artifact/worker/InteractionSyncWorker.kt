@@ -16,7 +16,10 @@ import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.data.local.*
 import com.saurabh.artifact.model.ReactionType
+import com.saurabh.artifact.model.SyncState
 import com.saurabh.artifact.repository.ArtifactRepository
+import com.saurabh.artifact.repository.EngagementRepository
+import com.saurabh.artifact.repository.FirestoreEngagementRepository
 import com.saurabh.artifact.repository.ReactionRepository
 import com.saurabh.artifact.repository.UserRepository
 import com.saurabh.artifact.diagnostics.logInteraction
@@ -34,6 +37,8 @@ class InteractionSyncWorker @AssistedInject constructor(
     private val deadLetterInteractionDao: DeadLetterInteractionDao,
     private val reactionRepository: ReactionRepository,
     private val artifactRepository: ArtifactRepository,
+    private val engagementRepository: EngagementRepository,
+    private val firestoreEngagementRepository: FirestoreEngagementRepository,
     private val userRepository: UserRepository,
     private val diagnosticLogger: DiagnosticLogger
 ) : CoroutineWorker(appContext, workerParams) {
@@ -42,14 +47,21 @@ class InteractionSyncWorker @AssistedInject constructor(
         val currentUserId = FirebaseAuth.getInstance().currentUser?.uid ?: return@withContext Result.failure()
         diagnosticLogger.info(DiagnosticCategory.WORKMANAGER, "SYNC_STARTED", mapOf("worker" to "InteractionSyncWorker"))
         
-        // 1. Collapse duplicate/redundant events before processing
+        var isRetryRequired = false
+
+        // 1. Sync Engagement Evidence (Phase 1)
+        if (!syncEngagement(currentUserId)) {
+            isRetryRequired = true
+        }
+
+        // 2. Collapse duplicate/redundant interaction events before processing
         collapseEvents(currentUserId)
 
         val pending = pendingInteractionDao.getPendingForUser(currentUserId)
-        if (pending.isEmpty()) return@withContext Result.success()
+        if (pending.isEmpty() && !isRetryRequired) return@withContext Result.success()
 
         val workerId = id.toString()
-        var hasTransientFailure = false
+        var hasInteractionTransientFailure = false
 
         for (interaction in pending) {
             val processingInteraction = interaction.copy(
@@ -81,7 +93,7 @@ class InteractionSyncWorker @AssistedInject constructor(
                         diagnosticLogger.logInteraction(errorInteraction, "TRANSIENT_FAILURE", mapOf("error" to error.message, "exception" to error.javaClass.simpleName))
                         // Update retry count and error in DB for the next run
                         pendingInteractionDao.insert(errorInteraction)
-                        hasTransientFailure = true
+                        hasInteractionTransientFailure = true
                         
                         // CRITICAL: Break on transient failure to preserve sequential ordering.
                         break
@@ -96,7 +108,7 @@ class InteractionSyncWorker @AssistedInject constructor(
         }
 
         when {
-            hasTransientFailure -> {
+            isRetryRequired || hasInteractionTransientFailure -> {
                 diagnosticLogger.warn(DiagnosticCategory.WORKMANAGER, "SYNC_RETRY", mapOf("worker" to "InteractionSyncWorker"))
                 Result.retry()
             }
@@ -105,6 +117,45 @@ class InteractionSyncWorker @AssistedInject constructor(
                 Result.success() // Succeed even with terminal/DLQ failures to drain the queue
             }
         }
+    }
+
+    /**
+     * Sweeps the engagement table for unsynced records and uploads them to Firestore.
+     * Returns true if all processing completed (even if with terminal failures),
+     * or false if a retry is required due to transient network issues.
+     */
+    private suspend fun syncEngagement(userId: String): Boolean {
+        val pending = engagementRepository.getEngagementsRequiringSync()
+        if (pending.isEmpty()) return true
+
+        var hasTransientFailure = false
+
+        for (evidence in pending) {
+            diagnosticLogger.info(DiagnosticCategory.SYNC, "ENGAGEMENT_SYNC_START", mapOf("artifactId" to evidence.artifactId))
+            
+            engagementRepository.updateSyncStatus(evidence.artifactId, SyncState.SYNCING)
+            
+            val result = firestoreEngagementRepository.uploadEngagement(userId, evidence)
+            
+            if (result.isSuccess) {
+                diagnosticLogger.info(DiagnosticCategory.SYNC, "ENGAGEMENT_SYNC_SUCCESS", mapOf<String, Any>("artifactId" to evidence.artifactId))
+                engagementRepository.markEngagementSynced(evidence.artifactId)
+            } else {
+                val error = result.exceptionOrNull() ?: Exception("Unknown sync error")
+                val isTransient = ArtifactRepository.isTransientError(error)
+                
+                if (isTransient) {
+                    diagnosticLogger.warn(DiagnosticCategory.SYNC, "ENGAGEMENT_SYNC_TRANSIENT", mapOf<String, Any>("artifactId" to evidence.artifactId, "error" to (error.message ?: "unknown")))
+                    engagementRepository.updateSyncStatus(evidence.artifactId, SyncState.PENDING, error.message)
+                    hasTransientFailure = true
+                } else {
+                    diagnosticLogger.error(DiagnosticCategory.SYNC, "ENGAGEMENT_SYNC_PERMANENT", mapOf<String, Any>("artifactId" to evidence.artifactId, "error" to (error.message ?: "unknown")))
+                    engagementRepository.updateSyncStatus(evidence.artifactId, SyncState.FAILED, error.message)
+                }
+            }
+        }
+        
+        return !hasTransientFailure
     }
 
     private suspend fun moveToDeadLetterQueue(

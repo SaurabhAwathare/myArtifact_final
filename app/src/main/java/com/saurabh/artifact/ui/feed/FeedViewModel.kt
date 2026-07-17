@@ -408,6 +408,10 @@ class FeedViewModel @Inject constructor(
         return _uiState.map { it.artifactCache[id] }.distinctUntilChanged()
     }
 
+    fun getArtifactDetailFlow(id: String): Flow<ArtifactDetail?> {
+        return _uiState.map { it.artifactDetails[id] }.distinctUntilChanged()
+    }
+
     fun getRecommendationReason(id: String): Flow<FeedRecommendationReason?> {
         return _uiState.map { it.recommendationReasons[id] }.distinctUntilChanged()
     }

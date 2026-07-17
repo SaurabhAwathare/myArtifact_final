@@ -493,6 +493,10 @@ fun ArtifactItem(
         viewModel.getArtifactFlow(artifactId)
     }.collectAsStateWithLifecycle(initialValue = null)
 
+    val artifactDetail by remember(viewModel, artifactId) {
+        viewModel.getArtifactDetailFlow(artifactId)
+    }.collectAsStateWithLifecycle(initialValue = null)
+
     val reason by remember(viewModel, artifactId) {
         viewModel.getRecommendationReason(artifactId)
     }.collectAsStateWithLifecycle(initialValue = null)
@@ -544,6 +548,7 @@ fun ArtifactItem(
                 onSettingsClick = { viewModel.showSettingsComingSoon() },
                 onAuthorClick = onAuthorClick,
                 currentUserId = viewModel.currentUserId,
+                artifactDetail = artifactDetail,
                 modifier = modifier
             )
         } else {
@@ -561,6 +566,7 @@ fun ArtifactItem(
                 onSettingsClick = { viewModel.showSettingsComingSoon() },
                 onAuthorClick = onAuthorClick,
                 currentUserId = viewModel.currentUserId,
+                artifactDetail = artifactDetail,
                 modifier = modifier
             )
         }

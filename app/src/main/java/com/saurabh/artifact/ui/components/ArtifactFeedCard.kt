@@ -31,7 +31,8 @@ fun ArtifactFeedCard(
     onFeedbackClick: () -> Unit = {},
     onSettingsClick: () -> Unit = {},
     onAuthorClick: (String) -> Unit = {},
-    currentUserId: String? = null
+    currentUserId: String? = null,
+    artifactDetail: com.saurabh.artifact.model.ArtifactDetail? = null
 ) {
     Column(modifier = modifier) {
         // Recommendation Context Label
@@ -67,7 +68,8 @@ fun ArtifactFeedCard(
             onFeedbackClick = onFeedbackClick,
             onSettingsClick = onSettingsClick,
             onAuthorClick = onAuthorClick,
-            currentUserId = currentUserId
+            currentUserId = currentUserId,
+            artifactDetail = artifactDetail
         )
     }
 }

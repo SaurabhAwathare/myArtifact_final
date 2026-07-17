@@ -84,6 +84,7 @@ fun ArtifactCard(
     onSettingsClick: () -> Unit = {},
     onAuthorClick: (String) -> Unit = {},
     currentUserId: String? = null,
+    artifactDetail: com.saurabh.artifact.model.ArtifactDetail? = null,
 ) {
     if (hydrationLevel == com.saurabh.artifact.ui.feed.HydrationLevel.SHELL) {
         LightweightArtifactCard(artifact, onPlayClick, modifier)
@@ -359,7 +360,9 @@ fun ArtifactCard(
                                     Spacer(modifier = Modifier.width(Spacing.Medium))
 
                                     AmbientWaveform(
-                                        amplitudes = artifact.amplitudeData.takeIf { it.isNotEmpty() } ?: listOf(0.4f, 0.6f, 0.5f, 0.8f, 0.3f, 0.7f, 0.5f, 0.4f, 0.6f, 0.9f, 0.5f, 0.4f),
+                                        amplitudes = artifactDetail?.amplitudeData?.takeIf { it.isNotEmpty() }
+                                            ?: artifact.amplitudeData.takeIf { it.isNotEmpty() }
+                                            ?: listOf(0.4f, 0.6f, 0.5f, 0.8f, 0.3f, 0.7f, 0.5f, 0.4f, 0.6f, 0.9f, 0.5f, 0.4f),
                                         progress = progress,
                                         modifier = Modifier.weight(1f).height(waveformHeight),
                                         isPaused = !isPlaying,
@@ -373,17 +376,19 @@ fun ArtifactCard(
 
                         Spacer(modifier = Modifier.height(Spacing.Small))
 
-                        if (hydrationLevel >= com.saurabh.artifact.ui.feed.HydrationLevel.METADATA && 
+                        val effectiveReactionCounts = artifactDetail?.reactionCounts ?: com.saurabh.artifact.model.ArtifactReactionCounts(
+                            artifactId = artifact.id,
+                            totalCount = artifact.reactionCount.toInt(),
+                            visibility = artifact.reactionVisibility
+                        )
+
+                        if (hydrationLevel >= com.saurabh.artifact.ui.feed.HydrationLevel.METADATA &&
                             stage >= com.saurabh.artifact.startup.StartupStage.IMMERSION &&
-                            artifact.reactionCount > 0
+                            effectiveReactionCounts.totalCount > 0
                         ) {
                             Spacer(modifier = Modifier.height(Spacing.Small))
                             ResonanceDisplay(
-                                counts = com.saurabh.artifact.model.ArtifactReactionCounts(
-                                    artifactId = artifact.id,
-                                    totalCount = artifact.reactionCount.toInt(),
-                                    visibility = artifact.reactionVisibility
-                                ),
+                                counts = effectiveReactionCounts,
                                 isOwner = isOwner,
                                 modifier = Modifier.fillMaxWidth()
                             )

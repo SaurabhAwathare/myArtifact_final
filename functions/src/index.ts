@@ -3,6 +3,8 @@ import * as admin from "firebase-admin";
 import {FieldValue} from "firebase-admin/firestore";
 import {withIdempotency} from "./util/idempotency";
 import {logger} from "./util/logger";
+import {validateCoverage} from "./util/validation/coverage";
+import {POLICY_VERSION, VALIDATION_VERSION, UnlockReason} from "./util/validation/constants";
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -622,3 +624,79 @@ export const onUserDeleted = functions.auth.user().onDelete(async (user, context
     return null;
   }
 });
+
+/**
+ * Authoritative backend validator for the "Listen Before You Respond" feature.
+ * Triggers when a user's engagement record is updated.
+ */
+export const onEngagementUpdated = functions.firestore
+  .document("users/{uid}/engagement/{artifactId}")
+  .onWrite(async (change, context) => {
+    const after = change.after.data();
+    if (!after) return null; // Deletion handled by onUserDeleted or onArtifactCleanup
+
+    // 1. Loop Prevention & Idempotency
+    if (after.isCommentUnlocked === true) {
+      return null;
+    }
+
+    const uid = context.params.uid;
+    const artifactId = context.params.artifactId;
+    const db = admin.firestore();
+
+    try {
+      // 2. Load Authoritative Artifact Metadata
+      const artifactDoc = await db.collection("artifacts").doc(artifactId).get();
+      if (!artifactDoc.exists) {
+        logger.warn(`[UNLOCK] Artifact missing | ArtifactID=${artifactId} | UserID=${uid}`);
+        return null;
+      }
+
+      const artifactData = artifactDoc.data()!;
+      const durationMs = artifactData.durationMs;
+
+      if (!durationMs || durationMs <= 0) {
+        logger.error(`[UNLOCK] Invalid duration | ArtifactID=${artifactId} | Duration=${durationMs}`);
+        return null;
+      }
+
+      // 3. Extract Evidence
+      const coverageBuffer = after.coverage;
+      const hasReachedEnd = after.hasReachedEnd === true;
+
+      if (!coverageBuffer) {
+        logger.warn(`[UNLOCK] Missing coverage | ArtifactID=${artifactId} | UserID=${uid}`);
+        return null;
+      }
+
+      // 4. Validate Coverage (Policy V1)
+      const result = validateCoverage(durationMs, coverageBuffer as Buffer, hasReachedEnd);
+
+      // Sanity Check: Malformed bitset
+      if (result.cardinality > result.totalSegments + 8) { // Small buffer for byte alignment
+        logger.error(`[UNLOCK] Malformed BitSet | Cardinality=${result.cardinality} | Max=${result.totalSegments}`);
+        return null;
+      }
+
+      logger.info(`[UNLOCK] Validation | UserID=${uid} | ArtID=${artifactId} | Coverage=${(result.coveragePercent * 100).toFixed(2)}% | Valid=${result.isValid}`);
+
+      // 5. Authoritative Unlock
+      if (result.isValid) {
+        await change.after.ref.update({
+          isCommentUnlocked: true,
+          "engagementState.unlocked": true,
+          unlockReason: UnlockReason.LISTENING_THRESHOLD,
+          unlockTimestamp: FieldValue.serverTimestamp(),
+          validationVersion: VALIDATION_VERSION,
+          policyVersion: POLICY_VERSION,
+        });
+
+        logger.info(`[UNLOCK] SUCCESS | UserID=${uid} | ArtifactID=${artifactId}`);
+      }
+
+      return null;
+    } catch (error) {
+      logger.error(`[UNLOCK] FATAL ERROR | ArtifactID=${artifactId} | UserID=${uid}:`, error);
+      throw error; // Retry
+    }
+  });

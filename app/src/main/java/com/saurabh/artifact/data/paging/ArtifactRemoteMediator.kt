@@ -57,6 +57,7 @@ class ArtifactRemoteMediator(
                 .whereEqualTo("isPublic", true)
                 .whereEqualTo("status", com.saurabh.artifact.model.ArtifactStatus.ACTIVE.name)
                 .orderBy("createdAt", Query.Direction.DESCENDING)
+                .orderBy(com.google.firebase.firestore.FieldPath.documentId(), Query.Direction.DESCENDING)
 
             if (!emotion.isNullOrEmpty() && emotion != "All") {
                 val relatedEmotions = com.saurabh.artifact.util.EmotionCategoryMapper.getRelatedEmotions(emotion)
@@ -65,7 +66,7 @@ class ArtifactRemoteMediator(
 
             if (lastItem != null) {
                 val lastTimestamp = com.google.firebase.Timestamp(lastItem.createdAt / 1000, ((lastItem.createdAt % 1000) * 1_000_000).toInt())
-                query = query.startAfter(lastTimestamp)
+                query = query.startAfter(lastTimestamp, lastItem.id)
             }
 
             val snapshot = NetworkUtils.retryWithBackoff {

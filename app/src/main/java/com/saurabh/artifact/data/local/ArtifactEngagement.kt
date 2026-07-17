@@ -2,6 +2,7 @@ package com.saurabh.artifact.data.local
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import com.saurabh.artifact.model.SyncState
 
 /**
  * Persists both playback position (for resume) and listening evidence (for validation).
@@ -18,6 +19,11 @@ data class ArtifactEngagement(
     val furthestPositionMs: Long, // Validation progress
     val hasReachedEnd: Boolean,
     val lastUpdated: Long = System.currentTimeMillis(),
+    val syncState: SyncState = SyncState.PENDING,
+    val lastSyncAttempt: Long = 0L,
+    val lastSyncSuccess: Long = 0L,
+    val syncRetryCount: Int = 0,
+    val lastSyncError: String? = null
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -31,7 +37,12 @@ data class ArtifactEngagement(
         if (lastPositionMs != other.lastPositionMs) return false
         if (furthestPositionMs != other.furthestPositionMs) return false
         if (hasReachedEnd != other.hasReachedEnd) return false
-        return lastUpdated == other.lastUpdated
+        if (lastUpdated != other.lastUpdated) return false
+        if (syncState != other.syncState) return false
+        if (lastSyncAttempt != other.lastSyncAttempt) return false
+        if (lastSyncSuccess != other.lastSyncSuccess) return false
+        if (syncRetryCount != other.syncRetryCount) return false
+        return lastSyncError == other.lastSyncError
     }
 
     override fun hashCode(): Int {
@@ -44,6 +55,11 @@ data class ArtifactEngagement(
         result = (31 * result) + furthestPositionMs.hashCode()
         result = (31 * result) + hasReachedEnd.hashCode()
         result = (31 * result) + lastUpdated.hashCode()
+        result = (31 * result) + syncState.hashCode()
+        result = (31 * result) + lastSyncAttempt.hashCode()
+        result = (31 * result) + lastSyncSuccess.hashCode()
+        result = (31 * result) + syncRetryCount.hashCode()
+        result = (31 * result) + (lastSyncError?.hashCode() ?: 0)
         return result
     }
 }

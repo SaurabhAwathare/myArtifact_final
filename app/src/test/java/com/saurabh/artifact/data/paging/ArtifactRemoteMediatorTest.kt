@@ -67,6 +67,7 @@ class ArtifactRemoteMediatorTest {
         every { firestore.collection("artifacts") } returns mockk(relaxed = true) {
             every { whereEqualTo(any<String>(), any()) } returns this
             every { orderBy(any<String>(), any()) } returns this
+            every { orderBy(any<com.google.firebase.firestore.FieldPath>(), any()) } returns this
             every { limit(any()) } returns query
         }
         

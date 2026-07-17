@@ -289,15 +289,29 @@ class PlaybackSessionManager @Inject constructor(
 
         if (currentMediaItem != null) {
             scope.launch {
-                val artifactResult = artifactRepository.get().getArtifactById(currentMediaItem.mediaId)
-                _currentArtifact.value = artifactResult.getOrNull()
-                
-                val queueItems = mutableListOf<Artifact>()
-                for (i in 0 until controller.mediaItemCount) {
-                    val item = controller.getMediaItemAt(i)
-                    artifactRepository.get().getArtifactById(item.mediaId).onSuccess { queueItems.add(it) }
+                // 1. Extract all media IDs in controller order
+                val mediaIds = (0 until controller.mediaItemCount).map { i ->
+                    controller.getMediaItemAt(i).mediaId
                 }
-                _queue.value = queueItems
+
+                // 2. Perform a single batch fetch for efficiency
+                val artifactsResult = artifactRepository.get().getArtifactsByIds(mediaIds)
+                val artifacts = artifactsResult.getOrDefault(emptyList())
+
+                // 3. Reconstruct the queue in the exact order defined by the controller
+                // We map from the IDs back to the fetched objects to ensure order is preserved
+                val artifactMap = artifacts.associateBy { it.id }
+                val orderedQueue = mediaIds.mapNotNull { id -> artifactMap[id] }
+
+                // 4. Update state atomically to prevent transient UI blanking
+                _currentArtifact.value = artifactMap[currentMediaItem.mediaId]
+                _queue.value = orderedQueue
+                
+                diagnosticLogger.debug(
+                    DiagnosticCategory.PLAYER, 
+                    "SESSION_SYNCED_WITH_CONTROLLER", 
+                    mapOf("queueSize" to orderedQueue.size, "currentId" to currentMediaItem.mediaId)
+                )
             }
         }
     }

@@ -8,9 +8,20 @@ import com.saurabh.artifact.model.EmotionResult
 import com.saurabh.artifact.model.EmotionalTone
 import com.saurabh.artifact.model.PromptCategory
 import com.saurabh.artifact.model.SyncStatus
+import com.saurabh.artifact.model.SyncState
 import kotlinx.serialization.json.Json
 
 class Converters {
+    @TypeConverter
+    fun fromSyncState(state: SyncState): String = state.name
+
+    @TypeConverter
+    fun toSyncState(value: String): SyncState = try {
+        SyncState.valueOf(value)
+    } catch (_: Exception) {
+        SyncState.PENDING
+    }
+
     @TypeConverter
     fun fromDraftStatus(status: DraftStatus): String = Json.encodeToString(status)
 
