@@ -47,7 +47,10 @@ service cloud.firestore {
 
     function isValidComment(data) {
       // MAX_COMMENT_LENGTH must sync with CommentConstants.kt (currently 1000)
-      return data.keys().hasAll(['artifactId', 'creatorId', 'author', 'text', 'status']) &&
+      let requiredFields = ['artifactId', 'creatorId', 'author', 'text', 'status'];
+      let optionalFields = ['createdAt', 'updatedAt', 'identityMetadata'];
+      return data.keys().hasAll(requiredFields) &&
+             data.keys().hasOnly(requiredFields.concat(optionalFields)) &&
              data.artifactId is string &&
              data.creatorId is string &&
              data.author is map &&
@@ -65,6 +68,19 @@ service cloud.firestore {
 
     function isOwner(userId) {
       return request.auth != null && request.auth.uid == userId;
+    }
+
+    // Business Purpose: Verify if the user has unlocked comments for a specific artifact.
+    // Security Purpose: Authoritative check against backend-verified engagement document.
+    function isCommentUnlocked(uid, artifactId) {
+      let path = /databases/$(database)/documents/users/$(uid)/engagement/$(artifactId);
+      return exists(path) && get(path).data.get('isCommentUnlocked', false) == true;
+    }
+
+    // Business Purpose: Identify fields that only the backend Cloud Function may modify.
+    // Security Purpose: Prevents client-side privilege escalation or manual unlocking.
+    function backendFields() {
+      return ['isCommentUnlocked', 'unlockTimestamp', 'unlockReason', 'engagementState'];
     }
 
     // Business Purpose: Determine if user has global administrative rights.
@@ -150,8 +166,18 @@ service cloud.firestore {
       match /followers/{targetId} { allow read: if isAuth(); allow write: if false; }
       match /following/{targetId} { allow read: if isAuth(); allow write: if false; }
 
+      // Saved Artifacts
       match /savedArtifacts/{artifactId} {
         allow read, write: if isOwner(uid);
+      }
+
+      // Engagement (Listen Before You Respond Enforcement)
+      match /engagement/{artifactId} {
+        allow read: if isOwner(uid);
+        allow create: if isOwner(uid) &&
+                      !(request.resource.data.keys().hasAny(backendFields()));
+        allow update: if isOwner(uid) &&
+                      !(request.resource.data.diff(resource.data).affectedKeys().hasAny(backendFields()));
       }
     }
 
@@ -171,7 +197,7 @@ service cloud.firestore {
                      request.auth != null &&
                      request.auth.uid == resource.data.get('userId', '') &&
                      !(request.resource.data.diff(resource == null ? {} : resource.data).affectedKeys()
-                       .hasAny(['reactionCount'])));
+                       .hasAny(['reactionCount', 'commentCount'])));
 
       // Prevent users from hard-deleting the Artifact document to ensure Cloud Function trigger
       allow delete: if isGlobalAdmin();
@@ -191,20 +217,25 @@ service cloud.firestore {
                       isValidComment(request.resource.data) &&
                       request.resource.data.creatorId == request.auth.uid &&
                       request.resource.data.artifactId == artifactId &&
+                      // Authoritative Unlock Enforcement (Phase 3)
+                      isCommentUnlocked(request.auth.uid, artifactId) &&
                       // Ensure author.anonymousId matches user's anonymousId
                       request.resource.data.author.anonymousId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.anonymousId;
 
-        // Update: Only owner can soft-delete (status: DELETED)
-        allow update: if isAuth() &&
-                      resource.data.creatorId == request.auth.uid &&
-                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']) &&
-                      request.resource.data.status == 'DELETED' &&
-                      // Ensure immutable fields didn't change
-                      request.resource.data.creatorId == resource.data.creatorId &&
-                      request.resource.data.artifactId == resource.data.artifactId;
+        // Update: Only owner can soft-delete (status: DELETED), or artifact owner can update creatorReaction
+        allow update: if isAuth() && (
+                      (resource.data.get('creatorId', '') == request.auth.uid &&
+                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']) &&
+                       request.resource.data.status == 'DELETED' &&
+                       request.resource.data.get('creatorId', '') == resource.data.get('creatorId', '') &&
+                       request.resource.data.get('artifactId', '') == resource.data.get('artifactId', '')) ||
+                      (request.auth.uid == get(/databases/$(database)/documents/artifacts/$(artifactId)).data.userId &&
+                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['creatorReaction'])) ||
+                      isGlobalAdmin()
+                    );
 
-        // Delete: Hard delete not allowed
-        allow delete: if false;
+        // Delete: Hard delete only allowed for admins
+        allow delete: if isGlobalAdmin();
       }
     }
 

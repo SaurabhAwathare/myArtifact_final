@@ -486,7 +486,21 @@ object DatabaseMigrations {
 
     val MIGRATION_55_56 = object : Migration(55, 56) {
         override fun migrate(db: SupportSQLiteDatabase) {
-            // Remove commentCount from artifacts table
+            // 1. Update artifact_engagement with sync and backend fields
+            db.execSQL("ALTER TABLE `artifact_engagement` ADD COLUMN `syncState` TEXT NOT NULL DEFAULT 'PENDING'")
+            db.execSQL("ALTER TABLE `artifact_engagement` ADD COLUMN `lastSyncAttempt` INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE `artifact_engagement` ADD COLUMN `lastSyncSuccess` INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE `artifact_engagement` ADD COLUMN `syncRetryCount` INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE `artifact_engagement` ADD COLUMN `lastSyncError` TEXT")
+            
+            // Backend-authoritative fields
+            db.execSQL("ALTER TABLE `artifact_engagement` ADD COLUMN `isCommentUnlocked` INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE `artifact_engagement` ADD COLUMN `unlockTimestamp` INTEGER")
+            db.execSQL("ALTER TABLE `artifact_engagement` ADD COLUMN `engagementState` TEXT NOT NULL DEFAULT 'LOCKED'")
+            db.execSQL("ALTER TABLE `artifact_engagement` ADD COLUMN `unlockReason` TEXT")
+            db.execSQL("ALTER TABLE `artifact_engagement` ADD COLUMN `remoteUpdatedAt` INTEGER")
+
+            // 2. Remove commentCount from artifacts table
             db.execSQL(
                 """
                 CREATE TABLE IF NOT EXISTS `artifacts_new` (
@@ -508,8 +522,8 @@ object DatabaseMigrations {
                     `emotionTag` TEXT NOT NULL, 
                     `playCount` INTEGER NOT NULL, 
                     `reactionCount` INTEGER NOT NULL, 
-                    `reportCount` INTEGER NOT NULL DEFAULT 0, 
-                    `safetyConcernCount` INTEGER NOT NULL DEFAULT 0, 
+                    `reportCount` INTEGER NOT NULL, 
+                    `safetyConcernCount` INTEGER NOT NULL, 
                     `reporterIds` TEXT NOT NULL, 
                     `amplitudeData` TEXT NOT NULL, 
                     `transcriptUrl` TEXT, 

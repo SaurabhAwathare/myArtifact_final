@@ -1,5 +1,6 @@
 package com.saurabh.artifact.domain.review
 
+import com.saurabh.artifact.model.SyncState
 import java.util.BitSet
 
 /**
@@ -16,4 +17,6 @@ data class EngagementEvidence(
     val furthestPositionMs: Long = 0L, // Max position reached through valid playback
     val hasReachedEnd: Boolean = false,
     val lastUpdated: Long = System.currentTimeMillis(),
+    val unlockStatus: UnlockStatus = UnlockStatus(),
+    val syncState: SyncState = SyncState.SYNCED
 )

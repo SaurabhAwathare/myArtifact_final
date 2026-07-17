@@ -31,9 +31,9 @@ describe("Phase 4: Firestore Rule Improvements", () => {
     });
   }
 
-  async function setupComment(commentId, data) {
+  async function setupComment(artifactId, commentId, data) {
     await testEnv.withSecurityRulesDisabled(async (context) => {
-      await context.firestore().collection("comments").doc(commentId).set(data);
+      await context.firestore().collection("artifacts").doc(artifactId).collection("comments").doc(commentId).set(data);
     });
   }
 
@@ -72,33 +72,54 @@ describe("Phase 4: Firestore Rule Improvements", () => {
   });
 
   it("should allow artifact owner to update creatorReaction on a comment", async () => {
-    await setupComment("com1", { artifactOwnerId: "bob", authorId: "alice", text: "Hello" });
+    await setupArtifact("art1", { userId: "bob" });
+    await setupComment("art1", "com1", {
+        artifactId: "art1",
+        creatorId: "alice",
+        author: { anonymousId: "anon1", name: "Alice", sigil: "A" },
+        text: "Hello",
+        status: "ACTIVE"
+    });
 
     const bob = testEnv.authenticatedContext("bob");
     await assertSucceeds(
-      bob.firestore().collection("comments").doc("com1").update({
+      bob.firestore().collection("artifacts").doc("art1").collection("comments").doc("com1").update({
         creatorReaction: "HEART",
       })
     );
   });
 
   it("should prevent artifact owner from updating other fields on a comment", async () => {
-    await setupComment("com1", { artifactOwnerId: "bob", authorId: "alice", text: "Hello" });
+    await setupArtifact("art1", { userId: "bob" });
+    await setupComment("art1", "com1", {
+        artifactId: "art1",
+        creatorId: "alice",
+        author: { anonymousId: "anon1", name: "Alice", sigil: "A" },
+        text: "Hello",
+        status: "ACTIVE"
+    });
 
     const bob = testEnv.authenticatedContext("bob");
     await assertFails(
-      bob.firestore().collection("comments").doc("com1").update({
+      bob.firestore().collection("artifacts").doc("art1").collection("comments").doc("com1").update({
         text: "Hacked",
       })
     );
   });
 
   it("should prevent non-owner from updating creatorReaction", async () => {
-    await setupComment("com1", { artifactOwnerId: "bob", authorId: "alice", text: "Hello" });
+    await setupArtifact("art1", { userId: "bob" });
+    await setupComment("art1", "com1", {
+        artifactId: "art1",
+        creatorId: "alice",
+        author: { anonymousId: "anon1", name: "Alice", sigil: "A" },
+        text: "Hello",
+        status: "ACTIVE"
+    });
 
     const charlie = testEnv.authenticatedContext("charlie");
     await assertFails(
-      charlie.firestore().collection("comments").doc("com1").update({
+      charlie.firestore().collection("artifacts").doc("art1").collection("comments").doc("com1").update({
         creatorReaction: "HEART",
       })
     );

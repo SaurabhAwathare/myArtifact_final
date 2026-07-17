@@ -7,8 +7,11 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.saurabh.artifact.domain.comment.AddCommentUseCase
 import com.saurabh.artifact.domain.comment.DeleteCommentUseCase
 import com.saurabh.artifact.domain.comment.GetCommentsUseCase
+import com.saurabh.artifact.domain.review.EngagementEvidence
+import com.saurabh.artifact.repository.EngagementRepository
 import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.Comment
+import com.saurabh.artifact.model.SyncState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,6 +19,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -32,7 +36,8 @@ class CommentViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle,
     private val getCommentsUseCase: GetCommentsUseCase,
     private val addCommentUseCase: AddCommentUseCase,
-    private val deleteCommentUseCase: DeleteCommentUseCase
+    private val deleteCommentUseCase: DeleteCommentUseCase,
+    private val engagementRepository: EngagementRepository
 ) : ViewModel() {
 
     private var artifactId: String = savedStateHandle.get<String>("artifactId") ?: ""
@@ -48,6 +53,7 @@ class CommentViewModel @Inject constructor(
     init {
         if (artifactId.isNotEmpty()) {
             loadInitialComments()
+            observeUnlockStatus()
         }
     }
 
@@ -65,6 +71,55 @@ class CommentViewModel @Inject constructor(
         
         artifactId = id
         loadInitialComments()
+        observeUnlockStatus()
+    }
+
+    /**
+     * Observes the backend authoritative unlock state and local sync progress.
+     */
+    private fun observeUnlockStatus() {
+        if (artifactId.isEmpty()) return
+
+        viewModelScope.launch {
+            engagementRepository.observeEngagementEvidence(artifactId)
+                .collectLatest { evidence ->
+                    val newState = deriveUnlockState(evidence)
+                    _uiState.update { it.copy(unlockState = newState) }
+                }
+        }
+    }
+
+    /**
+     * Derives the UI presentation state for comment unlocking.
+     */
+    private fun deriveUnlockState(evidence: EngagementEvidence?): CommentUnlockState {
+        if (evidence == null) return CommentUnlockState.LOCKED
+
+        // 1. Authoritative Unlock (Backend Says YES)
+        if (evidence.unlockStatus.isCommentUnlocked) {
+            return CommentUnlockState.UNLOCKED
+        }
+
+        // 2. Local Sync in Progress (Evidence moving to server)
+        if (evidence.syncState == SyncState.PENDING || evidence.syncState == SyncState.SYNCING) {
+            return CommentUnlockState.SYNCING
+        }
+
+        // 3. Post-Sync Verification
+        // If we just synced (SYNCED) but backend is still false.
+        if (evidence.syncState == SyncState.SYNCED && !evidence.unlockStatus.isCommentUnlocked) {
+            // We show VERIFYING while we wait for the backend to process the latest evidence.
+            // We trust the backend's UNLOCK_TIMESTAMP or UPDATED_AT to know if it has seen our latest sync.
+            // Note: In a real app, we might use a small timeout here to transition back to LOCKED if no flip occurs.
+            return CommentUnlockState.VERIFYING
+        }
+
+        // 4. Fallback/Failure
+        return if (evidence.syncState == SyncState.FAILED) {
+            CommentUnlockState.ERROR
+        } else {
+            CommentUnlockState.LOCKED
+        }
     }
 
     /**

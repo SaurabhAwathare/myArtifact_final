@@ -1,17 +1,7 @@
-# Tasks - Phase 1: Engagement Synchronization
-
-- [x] **Infrastructure & Models**
-    - [x] Create `SyncState` enum
-    - [x] Update `ArtifactEngagement` Room entity with sync metadata
-    - [x] Update `EngagementDao` with sync-related queries
-- [x] **Synchronization Components**
-    - [x] Implement `EngagementSyncScheduler` (WorkManager orchestration)
-    - [x] Implement `FirestoreEngagementRepository` (Firestore writes)
-- [x] **Repository Integration**
-    - [x] Update `EngagementRepository` to use `SyncState` and trigger scheduler
-- [x] **Worker Implementation**
-    - [x] Update `InteractionSyncWorker` to perform engagement sync "sweep"
-- [x] **Verification**
-    - [x] Manual verification of Room -> Worker -> Firestore flow
-    - [x] Verify offline persistence and resumption
-    - [x] Verify idempotency and unique work behavior
+- [x] Phase 1: Validate Current Schema (Completed)
+- [x] Phase 2: Repair MIGRATION_55_56
+    - [x] Add `ALTER TABLE` for `artifact_engagement` sync fields
+    - [x] Update `artifacts_new` creation SQL (remove defaults)
+- [x] Phase 3: Verify Artifacts Table Recreation
+- [x] Phase 4: Verify Migration Completeness
+- [x] Phase 5: Static Verification

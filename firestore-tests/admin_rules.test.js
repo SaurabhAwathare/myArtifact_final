@@ -133,10 +133,12 @@ describe("Admin Privilege Escalation", () => {
       await db.collection("users").doc(admin_uid).collection("private").doc("settings").set({
         isAdmin: true
       });
-      await db.collection("comments").doc("com1").set({
-        authorId: "bob",
+      await db.collection("artifacts").doc("art1").collection("comments").doc("com1").set({
+        creatorId: "bob",
+        author: { anonymousId: "bob_anon", name: "Bob", sigil: "B" },
         text: "Spam",
         artifactId: "art1",
+        status: "ACTIVE",
         artifactOwnerId: "bob",
         visibilityLayer: "RESONANCE",
         moderationState: "PENDING"
@@ -145,7 +147,7 @@ describe("Admin Privilege Escalation", () => {
 
     const alice = testEnv.authenticatedContext(admin_uid);
     await assertSucceeds(
-      alice.firestore().collection("comments").doc("com1").delete()
+      alice.firestore().collection("artifacts").doc("art1").collection("comments").doc("com1").delete()
     );
   });
 });

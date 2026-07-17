@@ -16,7 +16,8 @@ data class CommentUiState(
     val error: AppError? = null,
     val isSubmitting: Boolean = false,
     val submissionError: AppError? = null,
-    val hasMorePages: Boolean = true
+    val hasMorePages: Boolean = true,
+    val unlockState: CommentUnlockState = CommentUnlockState.LOCKED
 ) {
     /**
      * Helper to determine if the list is empty and not currently loading for the first time.

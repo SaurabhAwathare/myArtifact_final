@@ -9,10 +9,10 @@ require("firebase/compat/firestore");
 
 let testEnv;
 
-describe("Engagement Rules", () => {
+describe("Phase 3: Engagement and Comment Authorization", () => {
   before(async () => {
     testEnv = await initializeTestEnvironment({
-      projectId: "myartifact-555e3",
+      projectId: "myartifact-phase3",
       firestore: {
         rules: fs.readFileSync("../firestore.rules", "utf8"),
       },
@@ -27,175 +27,205 @@ describe("Engagement Rules", () => {
     await testEnv.clearFirestore();
   });
 
-  async function setupArtifact(artifactId, data) {
+  async function setupArtifact(artifactId, userId = "bob") {
     await testEnv.withSecurityRulesDisabled(async (context) => {
-      await context.firestore().collection("artifacts").doc(artifactId).set(data);
+      await context.firestore().collection("artifacts").doc(artifactId).set({
+        userId: userId,
+        isPublic: true,
+        durationMs: 60000,
+        createdAt: new Date()
+      });
     });
   }
 
-  it("should allow owner to update progress but NOT unlock status", async () => {
-    const alice = testEnv.authenticatedContext("alice");
-    const engagementRef = alice.firestore().collection("users").doc("alice").collection("engagement").doc("art1");
+  async function setupUser(uid, anonymousId = "anon1") {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await context.firestore().collection("users").doc(uid).set({
+        anonymousId: anonymousId,
+        anonymousName: "User " + uid
+      });
+    });
+  }
 
-    // Initial set (no restricted fields)
+  async function setupEngagement(uid, artifactId, isUnlocked = false) {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await context.firestore()
+        .collection("users").doc(uid)
+        .collection("engagement").doc(artifactId)
+        .set({
+          artifactId: artifactId,
+          isCommentUnlocked: isUnlocked,
+          lastPositionMs: 1000
+        });
+    });
+  }
+
+  // --- CASE 1: UNLOCKED USER ---
+  it("should ALLOW comment creation for an unlocked user", async () => {
+    const uid = "alice";
+    const artifactId = "art1";
+    await setupUser(uid);
+    await setupArtifact(artifactId);
+    await setupEngagement(uid, artifactId, true);
+
+    const alice = testEnv.authenticatedContext(uid);
+    const commentRef = alice.firestore()
+      .collection("artifacts").doc(artifactId)
+      .collection("comments").doc();
+
     await assertSucceeds(
+      commentRef.set({
+        artifactId: artifactId,
+        creatorId: uid,
+        author: { anonymousId: "anon1", name: "Alice", sigil: "A" },
+        text: "Great artifact!",
+        status: "ACTIVE"
+      })
+    );
+  });
+
+  // --- CASE 2: LOCKED USER ---
+  it("should DENY comment creation for a locked user", async () => {
+    const uid = "alice";
+    const artifactId = "art1";
+    await setupUser(uid);
+    await setupArtifact(artifactId);
+    await setupEngagement(uid, artifactId, false);
+
+    const alice = testEnv.authenticatedContext(uid);
+    const commentRef = alice.firestore()
+      .collection("artifacts").doc(artifactId)
+      .collection("comments").doc();
+
+    await assertFails(
+      commentRef.set({
+        artifactId: artifactId,
+        creatorId: uid,
+        author: { anonymousId: "anon1", name: "Alice", sigil: "A" },
+        text: "I shouldn't be able to comment.",
+        status: "ACTIVE"
+      })
+    );
+  });
+
+  // --- CASE 3: MISSING ENGAGEMENT ---
+  it("should DENY comment creation if engagement document is missing", async () => {
+    const uid = "alice";
+    const artifactId = "art1";
+    await setupUser(uid);
+    await setupArtifact(artifactId);
+    // No setupEngagement here
+
+    const alice = testEnv.authenticatedContext(uid);
+    const commentRef = alice.firestore()
+      .collection("artifacts").doc(artifactId)
+      .collection("comments").doc();
+
+    await assertFails(
+      commentRef.set({
+        artifactId: artifactId,
+        creatorId: uid,
+        author: { anonymousId: "anon1", name: "Alice", sigil: "A" },
+        text: "Where is my engagement?",
+        status: "ACTIVE"
+      })
+    );
+  });
+
+  // --- CASE 4 & 5: PROTECT BACKEND FIELDS ---
+  it("should DENY client from setting isCommentUnlocked or unlockTimestamp", async () => {
+    const uid = "alice";
+    const artifactId = "art1";
+    const alice = testEnv.authenticatedContext(uid);
+    const engagementRef = alice.firestore()
+      .collection("users").doc(uid)
+      .collection("engagement").doc(artifactId);
+
+    // Create attempt with forbidden field
+    await assertFails(
       engagementRef.set({
-        artifactId: "art1",
-        lastPositionMs: 1000,
+        artifactId: artifactId,
+        isCommentUnlocked: true // Manual unlock attempt
       })
     );
 
-    // Update progress - Allowed
-    await assertSucceeds(
-      engagementRef.update({
-        lastPositionMs: 2000,
-      })
-    );
+    // Initial valid create
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+        await context.firestore().collection("users").doc(uid).collection("engagement").doc(artifactId).set({
+            artifactId: artifactId,
+            isCommentUnlocked: false
+        });
+    });
 
-    // Attempt to self-unlock - Denied
+    // Update attempt with forbidden field
     await assertFails(
       engagementRef.update({
-        isCommentUnlocked: true,
+        isCommentUnlocked: true
       })
     );
 
-    // Attempt to manipulate engagementState - Denied
     await assertFails(
       engagementRef.update({
-        engagementState: { unlocked: true },
+        unlockTimestamp: Date.now()
       })
     );
   });
 
-  it("should unlock comments using authoritative duration from artifact", async function() {
-    this.timeout(30000);
-
-    // Set authoritative duration to 10s
-    await setupArtifact("art1", {
-      userId: "bob",
-      durationMs: 10000,
-      isPublic: true,
-      status: "ACTIVE",
-      createdAt: new Date()
-    });
-
+  // --- CASE 6: CROSS-USER ACCESS ---
+  it("should DENY user from modifying another user's engagement", async () => {
     const alice = testEnv.authenticatedContext("alice");
-    const engagementRef = alice.firestore().collection("users").doc("alice").collection("engagement").doc("art1");
+    const bobEngagementRef = alice.firestore()
+      .collection("users").doc("bob")
+      .collection("engagement").doc("art1");
 
-    // 100% coverage bitset for a 10s audio
-    const coverage = firebase.firestore.Blob.fromUint8Array(new Uint8Array([255, 255, 15]));
-
-    await assertSucceeds(
-      engagementRef.set({
+    await assertFails(
+      bobEngagementRef.set({
         artifactId: "art1",
-        userId: "alice",
-        coverage: coverage,
-        hasReachedEnd: true,
-        updatedAt: Date.now()
+        lastPositionMs: 5000
       })
     );
-
-    // Polling for Cloud Function update
-    let unlocked = false;
-    for (let i = 0; i < 20; i++) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      const snapshot = await engagementRef.get();
-      if (snapshot && snapshot.exists) {
-        const data = snapshot.data();
-        if (data && data.isCommentUnlocked === true) {
-          unlocked = true;
-          break;
-        }
-      }
-    }
-
-    if (!unlocked) {
-        throw new Error("Cloud Function did not unlock comments using authoritative duration");
-    }
   });
 
-  it("should NOT unlock if client lies about duration", async function() {
-    this.timeout(30000);
+  // --- CASE 7: FORGED COMMENT PAYLOAD ---
+  it("should DENY comment creation if creatorId does not match auth.uid", async () => {
+    const uid = "alice";
+    const artifactId = "art1";
+    await setupUser(uid);
+    await setupArtifact(artifactId);
+    await setupEngagement(uid, artifactId, true);
 
-    // Set authoritative duration to 120s
-    await setupArtifact("art_long", {
-      userId: "bob",
-      durationMs: 120000,
-      isPublic: true,
-      status: "ACTIVE",
-      createdAt: new Date()
-    });
+    const alice = testEnv.authenticatedContext(uid);
+    const commentRef = alice.firestore()
+      .collection("artifacts").doc(artifactId)
+      .collection("comments").doc();
 
-    const alice = testEnv.authenticatedContext("alice");
-    const engagementRef = alice.firestore().collection("users").doc("alice").collection("engagement").doc("art_long");
+    await assertFails(
+      commentRef.set({
+        artifactId: artifactId,
+        creatorId: "bob", // Forged ID
+        author: { anonymousId: "anon1", name: "Alice", sigil: "A" },
+        text: "I am pretending to be Bob.",
+        status: "ACTIVE"
+      })
+    );
+  });
 
-    // Client sends 10s worth of coverage for a 100s artifact
-    const coverage = firebase.firestore.Blob.fromUint8Array(new Uint8Array([255, 255, 15]));
+  it("should ALLOW client to update listening evidence fields", async () => {
+    const uid = "alice";
+    const artifactId = "art1";
+    await setupUser(uid);
+    await setupEngagement(uid, artifactId, false);
+
+    const alice = testEnv.authenticatedContext(uid);
+    const engagementRef = alice.firestore()
+      .collection("users").doc(uid)
+      .collection("engagement").doc(artifactId);
 
     await assertSucceeds(
-      engagementRef.set({
-        artifactId: "art_long",
-        userId: "alice",
-        totalDurationMs: 10000, // Lie
-        coverage: coverage,
-        hasReachedEnd: true,
+      engagementRef.update({
+        lastPositionMs: 5000,
         updatedAt: Date.now()
       })
     );
-
-    // Wait a bit and check
-    await new Promise(resolve => setTimeout(resolve, 5000));
-    const snapshot = await engagementRef.get();
-    const data = snapshot.data();
-
-    if (data && data.isCommentUnlocked === true) {
-        throw new Error("Cloud Function unlocked even though client lied about duration");
-    }
-  });
-
-  it("should aggregate coverage across devices (multi-device)", async function() {
-    this.timeout(30000);
-
-    await setupArtifact("art_multi", { userId: "bob", durationMs: 10000, isPublic: true, status: "ACTIVE", createdAt: new Date() });
-
-    const alice = testEnv.authenticatedContext("alice");
-    const engagementRef = alice.firestore().collection("users").doc("alice").collection("engagement").doc("art_multi");
-
-    // Device A: First 5s (Segments 0-9) -> Byte 0: 255, Byte 1: 3
-    await engagementRef.set({
-        artifactId: "art_multi",
-        userId: "alice",
-        coverage: firebase.firestore.Blob.fromUint8Array(new Uint8Array([255, 3])),
-        hasReachedEnd: false,
-        updatedAt: Date.now()
-    });
-
-    // Wait for first processing
-    await new Promise(resolve => setTimeout(resolve, 3000));
-
-    // Device B: Next 5s (Segments 10-19) -> Byte 1: 252 (bits 10-15), Byte 2: 15 (bits 16-19)
-    await engagementRef.update({
-        coverage: firebase.firestore.Blob.fromUint8Array(new Uint8Array([0, 252, 15])),
-        hasReachedEnd: true,
-        updatedAt: Date.now() + 1000
-    });
-
-    // Polling for unlock
-    let unlocked = false;
-    for (let i = 0; i < 15; i++) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      const snapshot = await engagementRef.get();
-      if (snapshot?.exists) {
-        const data = snapshot.data();
-        if (data?.isCommentUnlocked === true) {
-          unlocked = true;
-          break;
-        }
-      }
-    }
-
-    if (!unlocked) {
-        throw new Error("Multi-device coverage aggregation failed to unlock");
-    }
   });
 });

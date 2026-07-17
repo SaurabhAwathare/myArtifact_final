@@ -23,7 +23,14 @@ data class ArtifactEngagement(
     val lastSyncAttempt: Long = 0L,
     val lastSyncSuccess: Long = 0L,
     val syncRetryCount: Int = 0,
-    val lastSyncError: String? = null
+    val lastSyncError: String? = null,
+    
+    // Authoritative fields from backend
+    val isCommentUnlocked: Boolean = false,
+    val unlockTimestamp: Long? = null,
+    val engagementState: String = "LOCKED",
+    val unlockReason: String? = null,
+    val remoteUpdatedAt: Long? = null
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -42,6 +49,10 @@ data class ArtifactEngagement(
         if (lastSyncAttempt != other.lastSyncAttempt) return false
         if (lastSyncSuccess != other.lastSyncSuccess) return false
         if (syncRetryCount != other.syncRetryCount) return false
+        if (isCommentUnlocked != other.isCommentUnlocked) return false
+        if (unlockTimestamp != other.unlockTimestamp) return false
+        if (engagementState != other.engagementState) return false
+        if (unlockReason != other.unlockReason) return false
         return lastSyncError == other.lastSyncError
     }
 
@@ -60,6 +71,10 @@ data class ArtifactEngagement(
         result = (31 * result) + lastSyncSuccess.hashCode()
         result = (31 * result) + syncRetryCount.hashCode()
         result = (31 * result) + (lastSyncError?.hashCode() ?: 0)
+        result = (31 * result) + isCommentUnlocked.hashCode()
+        result = (31 * result) + (unlockTimestamp?.hashCode() ?: 0)
+        result = (31 * result) + engagementState.hashCode()
+        result = (31 * result) + (unlockReason?.hashCode() ?: 0)
         return result
     }
 }

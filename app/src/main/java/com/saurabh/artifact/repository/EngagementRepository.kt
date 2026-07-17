@@ -1,15 +1,22 @@
 package com.saurabh.artifact.repository
 
+import com.google.firebase.auth.FirebaseAuth
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.data.local.ArtifactEngagement
 import com.saurabh.artifact.data.local.EngagementDao
 import com.saurabh.artifact.domain.review.EngagementEvidence
+import com.saurabh.artifact.domain.review.EngagementState
+import com.saurabh.artifact.domain.review.UnlockStatus
 import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.SyncState
 import com.saurabh.artifact.worker.EngagementSyncScheduler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import java.util.BitSet
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -17,7 +24,9 @@ import javax.inject.Singleton
 @Singleton
 class EngagementRepository @Inject constructor(
     private val engagementDao: EngagementDao,
-    private val syncScheduler: EngagementSyncScheduler
+    private val firestoreRepository: FirestoreEngagementRepository,
+    private val syncScheduler: EngagementSyncScheduler,
+    private val diagnosticLogger: DiagnosticLogger
 ) {
 
     suspend fun getEngagement(artifactId: String): Result<EngagementEvidence> = withContext(Dispatchers.IO) {
@@ -45,8 +54,48 @@ class EngagementRepository @Inject constructor(
         engagementDao.markAsSynced(artifactId, System.currentTimeMillis())
     }
 
+    /**
+     * Observes engagement evidence, combining local sync state with remote authoritative unlock status.
+     */
     fun observeEngagementEvidence(artifactId: String): Flow<EngagementEvidence?> {
-        return engagementDao.observeEngagement(artifactId).map { it?.toDomain() }
+        val currentUserId = FirebaseAuth.getInstance().currentUser?.uid
+            ?: return engagementDao.observeEngagement(artifactId).map { it?.toDomain() }
+
+        val localFlow = engagementDao.observeEngagement(artifactId)
+        val remoteFlow = firestoreRepository.observeRemoteUnlockStatus(currentUserId, artifactId)
+
+        return combine(localFlow, remoteFlow) { local, remote ->
+            if (local == null) return@combine null
+
+            // If we have remote data, update local cache (side effect in flow is risky but here it ensures persistence)
+            // However, better to just merge them into the domain model returned.
+            // We also update the local DB so that if we go offline, the last known unlock state is preserved.
+            if (remote != null) {
+                updateLocalUnlockCache(artifactId, remote)
+            }
+
+            local.toDomain().copy(
+                unlockStatus = remote ?: UnlockStatus(
+                    isCommentUnlocked = local.isCommentUnlocked,
+                    unlockTimestamp = local.unlockTimestamp,
+                    engagementState = EngagementState.fromString(local.engagementState),
+                    unlockReason = local.unlockReason
+                )
+            )
+        }
+    }
+
+    private suspend fun updateLocalUnlockCache(artifactId: String, remote: UnlockStatus) {
+        withContext(Dispatchers.IO) {
+            engagementDao.updateUnlockStatus(
+                artifactId = artifactId,
+                isUnlocked = remote.isCommentUnlocked,
+                timestamp = remote.unlockTimestamp,
+                state = remote.engagementState.name,
+                reason = remote.unlockReason,
+                remoteUpdated = remote.updatedAt
+            )
+        }
     }
 
     suspend fun saveEngagement(evidence: EngagementEvidence): Result<Unit> = withContext(Dispatchers.IO) {
@@ -62,7 +111,21 @@ class EngagementRepository @Inject constructor(
 
     suspend fun updateLastPosition(artifactId: String, positionMs: Long): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            engagementDao.updateLastPosition(artifactId, positionMs)
+            val exists = engagementDao.getEngagement(artifactId) != null
+            val rowsUpdated = engagementDao.updateLastPosition(artifactId, positionMs)
+
+            diagnosticLogger.info(
+                DiagnosticCategory.DATABASE,
+                "INVESTIGATION_LOG",
+                mapOf(
+                    "TRACE_ID" to artifactId,
+                    "Stage" to "RoomUpdate",
+                    "ExistsBeforeUpdate" to exists,
+                    "RowsUpdated" to rowsUpdated,
+                    "PendingSync" to (rowsUpdated > 0)
+                )
+            )
+
             syncScheduler.scheduleSync()
             Result.success(Unit)
         } catch (e: Exception) {
@@ -80,7 +143,15 @@ class EngagementRepository @Inject constructor(
             lastPositionMs = lastPositionMs,
             furthestPositionMs = furthestPositionMs,
             hasReachedEnd = hasReachedEnd,
-            lastUpdated = lastUpdated
+            lastUpdated = lastUpdated,
+            unlockStatus = UnlockStatus(
+                isCommentUnlocked = isCommentUnlocked,
+                unlockTimestamp = unlockTimestamp,
+                engagementState = EngagementState.fromString(engagementState),
+                unlockReason = unlockReason,
+                updatedAt = remoteUpdatedAt
+            ),
+            syncState = syncState
         )
     }
 
@@ -94,7 +165,13 @@ class EngagementRepository @Inject constructor(
             lastPositionMs = lastPositionMs,
             furthestPositionMs = furthestPositionMs,
             hasReachedEnd = hasReachedEnd,
-            lastUpdated = lastUpdated
+            lastUpdated = lastUpdated,
+            syncState = syncState,
+            isCommentUnlocked = unlockStatus.isCommentUnlocked,
+            unlockTimestamp = unlockStatus.unlockTimestamp,
+            engagementState = unlockStatus.engagementState.name,
+            unlockReason = unlockStatus.unlockReason,
+            remoteUpdatedAt = unlockStatus.updatedAt
         )
     }
 }

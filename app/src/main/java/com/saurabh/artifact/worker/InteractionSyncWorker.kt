@@ -126,11 +126,36 @@ class InteractionSyncWorker @AssistedInject constructor(
      */
     private suspend fun syncEngagement(userId: String): Boolean {
         val pending = engagementRepository.getEngagementsRequiringSync()
+        
+        diagnosticLogger.info(
+            DiagnosticCategory.SYNC,
+            "INVESTIGATION_LOG",
+            mapOf(
+                "Stage" to "WorkerLoad",
+                "PendingSyncCount" to pending.size,
+                "ArtifactIds" to pending.map { it.artifactId }
+            )
+        )
+
         if (pending.isEmpty()) return true
 
         var hasTransientFailure = false
 
         for (evidence in pending) {
+            val traceId = evidence.artifactId
+            diagnosticLogger.info(
+                DiagnosticCategory.SYNC,
+                "INVESTIGATION_LOG",
+                mapOf(
+                    "TRACE_ID" to traceId,
+                    "Stage" to "WorkerStart",
+                    "AuthUID" to (FirebaseAuth.getInstance().currentUser?.uid ?: "null"),
+                    "ArtifactId" to evidence.artifactId,
+                    "Thread" to Thread.currentThread().name,
+                    "Timestamp" to System.currentTimeMillis()
+                )
+            )
+
             diagnosticLogger.info(DiagnosticCategory.SYNC, "ENGAGEMENT_SYNC_START", mapOf("artifactId" to evidence.artifactId))
             
             engagementRepository.updateSyncStatus(evidence.artifactId, SyncState.SYNCING)

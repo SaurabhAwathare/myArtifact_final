@@ -110,6 +110,7 @@ fun CommentSheet(
             CommentComposer(
                 text = inputText,
                 isSubmitting = uiState.isSubmitting,
+                unlockState = uiState.unlockState,
                 onTextChanged = { inputText = it },
                 onSubmit = { onSubmit(inputText) },
                 modifier = Modifier

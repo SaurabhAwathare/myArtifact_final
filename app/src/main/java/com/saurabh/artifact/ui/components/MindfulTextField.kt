@@ -31,6 +31,7 @@ fun MindfulTextField(
     onValueChange: (String) -> Unit,
     placeholder: String,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     keyboardActions: KeyboardActions = KeyboardActions.Default,
     visualTransformation: VisualTransformation = VisualTransformation.None
@@ -47,6 +48,7 @@ fun MindfulTextField(
         BasicTextField(
             value = value,
             onValueChange = onValueChange,
+            enabled = enabled,
             modifier = Modifier
                 .fillMaxWidth()
                 .onFocusChanged { isFocused = it.isFocused }

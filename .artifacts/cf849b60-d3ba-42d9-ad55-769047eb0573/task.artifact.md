@@ -1,0 +1,21 @@
+# Tasks - Phase 4: Android Integration (Authoritative Comment Unlock)
+
+- [x] **Domain Layer**
+    - [x] Create `EngagementState.kt` (Enum)
+    - [x] Create `UnlockStatus.kt` (Data Class)
+    - [x] Update `EngagementEvidence.kt` to include `UnlockStatus`
+- [x] **Data Layer (Local)**
+    - [x] Update `ArtifactEngagement` Room entity with unlock fields
+    - [x] Update `EngagementDao` if necessary
+- [x] **Data Layer (Repository)**
+    - [x] Implement `observeRemoteUnlockStatus` in `FirestoreEngagementRepository`
+    - [x] Update `EngagementRepository` to combine local and remote data into `EngagementEvidence`
+- [x] **Presentation Layer**
+    - [x] Create `CommentUnlockState.kt` (UI State)
+    - [x] Update `CommentUiState.kt` to include `unlockState`
+    - [x] Update `CommentViewModel.kt` to derive `CommentUnlockState`
+- [x] **UI Components**
+    - [x] Update `CommentComposer.kt` to reflect `CommentUnlockState`
+- [ ] **Verification**
+    - [ ] Unit test `CommentViewModel` logic
+    - [ ] Manual verification of transition cases

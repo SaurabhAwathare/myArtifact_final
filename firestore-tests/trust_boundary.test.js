@@ -77,30 +77,35 @@ describe("Trust Boundary Hardening", () => {
 
   it("should prevent comment creation with forged artifactOwnerId", async () => {
     await setupArtifact("art1", { userId: "bob" });
+    await setupUser("alice", { anonymousId: "anon1" });
     await setupEngagement("alice", "art1", { isCommentUnlocked: true });
 
     const alice = testEnv.authenticatedContext("alice");
     await assertFails(
-      alice.firestore().collection("comments").doc("com1").set({
-        authorId: "alice",
+      alice.firestore().collection("artifacts").doc("art1").collection("comments").doc("com1").set({
         artifactId: "art1",
-        artifactOwnerId: "charlie", // Forged
+        creatorId: "alice",
+        author: { anonymousId: "anon1", name: "Alice", sigil: "A" },
         text: "Hello",
+        status: "ACTIVE",
+        artifactOwnerId: "charlie", // Forged
       })
     );
   });
 
-  it("should prevent comment creation with correct artifactOwnerId", async () => {
+  it("should allow comment creation with correct payload", async () => {
     await setupArtifact("art1", { userId: "bob" });
+    await setupUser("alice", { anonymousId: "anon1" });
     await setupEngagement("alice", "art1", { isCommentUnlocked: true });
 
     const alice = testEnv.authenticatedContext("alice");
     await assertSucceeds(
-      alice.firestore().collection("comments").doc("com1").set({
-        authorId: "alice",
+      alice.firestore().collection("artifacts").doc("art1").collection("comments").doc("com1").set({
         artifactId: "art1",
-        artifactOwnerId: "bob",
+        creatorId: "alice",
+        author: { anonymousId: "anon1", name: "Alice", sigil: "A" },
         text: "Hello",
+        status: "ACTIVE",
       })
     );
   });
