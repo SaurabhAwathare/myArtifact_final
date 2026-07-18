@@ -32,6 +32,7 @@ class ArtifactRepositoryTest {
     private val personalizationEngine = mockk<PersonalizationEngine>(relaxed = true)
     private val settingsRepository = mockk<SettingsRepository>(relaxed = true)
     private val artifactDao = mockk<ArtifactDao>(relaxed = true)
+    private val reportedArtifactDao = mockk<ReportedArtifactDao>(relaxed = true)
     private val database = mockk<AppDatabase>(relaxed = true)
     private val pendingInteractionDao = mockk<PendingInteractionDao>(relaxed = true)
     private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
@@ -56,6 +57,7 @@ class ArtifactRepositoryTest {
             personalizationEngine = { personalizationEngine },
             settingsRepository = { settingsRepository },
             artifactDao = { artifactDao },
+            reportedArtifactDao = { reportedArtifactDao },
             database = { database },
             pendingInteractionDao = { pendingInteractionDao },
             diagnosticLogger = diagnosticLogger
@@ -256,6 +258,48 @@ class ArtifactRepositoryTest {
         coVerify { artifactDao.deleteById(artifactId) }
         coVerify { database.engagementDao().deleteEngagement(artifactId) }
         coVerify { userRepository.decrementArtifactsCount(userId) }
+    }
+
+    @Test
+    fun `submitReport should create deterministic document and update local ReportedArtifactDao`() = runBlocking {
+        val artifactId = "art123"
+        val userId = "user123"
+        val reason = ReportReason.HARASSMENT
+        val details = "Some description"
+        val deviceId = 456
+        
+        every { auth.currentUser?.uid } returns userId
+        
+        val reportRef = mockk<DocumentReference>(relaxed = true)
+        val expectedReportId = "${userId}_${artifactId}"
+        every { firestore.collection("reports").document(expectedReportId) } returns reportRef
+        
+        val setTask = mockk<com.google.android.gms.tasks.Task<Void>>(relaxed = true)
+        every { reportRef.set(any()) } returns setTask
+        
+        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        coEvery { setTask.await() } returns mockk(relaxed = true)
+
+        val result = repository.submitReport(artifactId, reason, details, deviceId)
+
+        assert(result.isSuccess)
+        
+        // Verify Firestore write
+        verify { reportRef.set(match { data ->
+            val dataMap = data as Map<String, Any?>
+            dataMap["artifactId"] as? String == artifactId &&
+            dataMap["reporterId"] as? String == userId &&
+            dataMap["reason"] as? String == reason.name &&
+            dataMap["optionalDescription"] as? String == details &&
+            dataMap["deviceIdHash"] as? Int == deviceId &&
+            dataMap["status"] as? String == ReportStatus.PENDING.name
+        }) }
+        
+        // Verify local Room update
+        coVerify { reportedArtifactDao.insert(match { 
+            it.userId == userId && it.artifactId == artifactId 
+        }) }
+        coVerify { artifactDao.deleteById(artifactId) }
     }
 
     @Test

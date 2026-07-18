@@ -6,7 +6,18 @@ import kotlinx.serialization.Serializable
 @Serializable
 enum class ModerationStatus {
     SAFE,           // Content is visible to all
-    HIDDEN          // Content is hidden from all users except the author
+    HIDDEN,         // Content is hidden from all users except the author
+    REMOVED         // Content is removed from the platform
+}
+
+/**
+ * Authoritative recommendation states for an artifact.
+ * SUPPRESSED indicates the artifact is hidden from recommendation feeds due to moderation.
+ */
+@Serializable
+enum class RecommendationState {
+    ACTIVE,
+    SUPPRESSED
 }
 
 enum class ReportReason {
@@ -30,11 +41,12 @@ data class ModerationMetadata(
 data class UserReport(
     var id: String = "",
     var artifactId: String = "",
-    var reporterDeviceId: Int = 0, // Hashed device ID for privacy
+    var deviceIdHash: Int = 0,
     var reason: ReportReason = ReportReason.OTHER,
-    var details: String = "",
+    var optionalDescription: String = "",
     var createdAt: Timestamp = Timestamp.now(),
-    var status: ReportStatus = ReportStatus.PENDING
+    var status: ReportStatus = ReportStatus.PENDING,
+    var reporterId: String = ""
 )
 
 enum class ReportStatus {

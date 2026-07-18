@@ -19,6 +19,7 @@ import androidx.core.os.ConfigurationCompat
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.ui.components.AmbientWaveform
 import com.saurabh.artifact.ui.components.WaveformContext
+import com.saurabh.artifact.ui.player.components.ModerationBanner
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.theme.Spacing
 import java.text.SimpleDateFormat
@@ -63,6 +64,13 @@ fun ProfileArtifactCard(
         onClick = onPlayClick
     ) {
         Column(modifier = Modifier.padding(Spacing.Large)) {
+            if (isOwner) {
+                ModerationBanner(
+                    recommendationState = artifact.recommendationState,
+                    modifier = Modifier.padding(bottom = Spacing.Large)
+                )
+            }
+
             // ... Top row
             // Top: Title, Date and Menu
             Row(

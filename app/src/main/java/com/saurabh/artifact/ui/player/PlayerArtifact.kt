@@ -3,6 +3,7 @@ package com.saurabh.artifact.ui.player
 import androidx.compose.runtime.Immutable
 import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.model.TranscriptSegment
+import com.saurabh.artifact.model.RecommendationState
 import com.google.firebase.Timestamp
 
 /**
@@ -21,5 +22,6 @@ data class PlayerArtifact(
     val emotion: String,
     val createdAt: Timestamp,
     val transcript: List<TranscriptSegment>,
+    val recommendationState: RecommendationState = RecommendationState.ACTIVE,
     val isDraft: Boolean
 )

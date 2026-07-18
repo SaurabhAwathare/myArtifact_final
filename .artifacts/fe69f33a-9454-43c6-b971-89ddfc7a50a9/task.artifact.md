@@ -1,0 +1,5 @@
+- `[ ]` Implement `RecommendationConfig.kt`
+- `[ ]` Implement `RecommendationService.kt` with pipeline stages
+- `[ ]` Update `FeedRepository.kt` to integrate `RecommendationService`
+- `[ ]` Add unit tests in `RecommendationServiceTest.kt`
+- `[ ]` Verify recommendation logic and diversity filtering

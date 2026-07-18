@@ -16,6 +16,7 @@ fun Artifact.toPlayerArtifact(): PlayerArtifact {
         emotion = emotion,
         createdAt = createdAt,
         transcript = transcript,
+        recommendationState = recommendationState,
         isDraft = isDraft
     )
 }

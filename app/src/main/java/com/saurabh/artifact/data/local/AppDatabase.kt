@@ -15,8 +15,9 @@ import androidx.room.TypeConverters
         PendingInteractionEntity::class,
         UserLocalEntity::class,
         DeadLetterInteractionEntity::class,
+        ReportedArtifactEntity::class,
     ],
-    version = 56,
+    version = 57,
     autoMigrations = [
         // Auto-migrations can be added here for simple schema changes
     ],
@@ -33,6 +34,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun pendingInteractionDao(): PendingInteractionDao
     abstract fun deadLetterInteractionDao(): DeadLetterInteractionDao
     abstract fun userDao(): UserDao
+    abstract fun reportedArtifactDao(): ReportedArtifactDao
 
     companion object {
         // Migrations have been moved to DatabaseMigrations.kt

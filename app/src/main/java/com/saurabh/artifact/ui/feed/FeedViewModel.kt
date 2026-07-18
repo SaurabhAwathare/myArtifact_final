@@ -449,16 +449,16 @@ class FeedViewModel @Inject constructor(
         }
     }
 
-    fun reportArtifact(artifactId: String, reason: ReportReason, details: String) {
+    fun reportArtifact(artifactId: String, reason: ReportReason, optionalDescription: String) {
         viewModelScope.launch {
-            val deviceId = uploadGuard.getDeviceFingerprint().hashCode()
-            artifactRepository.submitReport(artifactId, reason, details, deviceId)
+            val deviceIdHash = uploadGuard.getDeviceFingerprint().hashCode()
+            artifactRepository.submitReport(artifactId, reason, optionalDescription, deviceIdHash)
                 .onSuccess {
                     _uiState.update { it.copy(error = UiError(UiText.DynamicString("Report submitted anonymously. Thank you for keeping Artifact safe."))) }
                     _refreshTrigger.value += 1
                 }
                 .onFailure { e ->
-                    _uiState.update { it.copy(error = ErrorMessageMapper.mapToUiError(e, onRetry = { reportArtifact(artifactId, reason, details) })) }
+                    _uiState.update { it.copy(error = ErrorMessageMapper.mapToUiError(e, onRetry = { reportArtifact(artifactId, reason, optionalDescription) })) }
                 }
         }
     }

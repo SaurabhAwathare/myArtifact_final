@@ -79,4 +79,9 @@ object DatabaseModule {
     fun provideUserDao(database: AppDatabase): com.saurabh.artifact.data.local.UserDao {
         return database.userDao()
     }
+
+    @Provides
+    fun provideReportedArtifactDao(database: AppDatabase): com.saurabh.artifact.data.local.ReportedArtifactDao {
+        return database.reportedArtifactDao()
+    }
 }

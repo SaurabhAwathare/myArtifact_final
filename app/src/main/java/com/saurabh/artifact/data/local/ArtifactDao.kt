@@ -16,14 +16,14 @@ interface ArtifactDao {
     @Query("""
         SELECT *, (
             SELECT COUNT(*) FROM artifacts a2 
-            WHERE (a2.reportCount < 3 AND a2.safetyConcernCount < 3 AND a2.reporterIds NOT LIKE :userIdPattern)
+            WHERE (a2.reportCount < 3 AND a2.safetyConcernCount < 3 AND a2.id NOT IN (SELECT artifactId FROM reported_artifacts WHERE userId = :currentUserId))
             AND (a2.createdAt > a1.createdAt OR (a2.createdAt = a1.createdAt AND a2.id >= a1.id))
         ) - 1 as absoluteIndex
         FROM artifacts a1
-        WHERE (reportCount < 3 AND safetyConcernCount < 3 AND reporterIds NOT LIKE :userIdPattern)
+        WHERE (reportCount < 3 AND safetyConcernCount < 3 AND id NOT IN (SELECT artifactId FROM reported_artifacts WHERE userId = :currentUserId))
         ORDER BY createdAt DESC, id DESC
     """)
-    fun getArtifactsPaged(userIdPattern: String): PagingSource<Int, ArtifactEntityWithIndex>
+    fun getArtifactsPaged(currentUserId: String): PagingSource<Int, ArtifactEntityWithIndex>
 
     @Query("SELECT EXISTS(SELECT 1 FROM artifacts LIMIT 1)")
     suspend fun hasCachedArtifacts(): Boolean

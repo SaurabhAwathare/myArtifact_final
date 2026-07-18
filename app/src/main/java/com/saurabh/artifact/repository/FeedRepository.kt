@@ -8,6 +8,7 @@ import com.google.firebase.firestore.Query
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.model.*
+import com.saurabh.artifact.service.RecommendationService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -22,6 +23,7 @@ data class PaginatedArtifacts(
 @Singleton
 class FeedRepository @Inject constructor(
     private val firestore: FirebaseFirestore,
+    private val recommendationService: RecommendationService,
     private val diagnosticLogger: DiagnosticLogger
 ) {
 
@@ -92,6 +94,7 @@ class FeedRepository @Inject constructor(
 
     /**
      * Fetches discovery candidates based on emotional compatibility with pagination.
+     * Integrated with RecommendationService for ranking and diversity.
      */
     suspend fun getDiscoveryCandidates(
         userId: String? = null,
@@ -99,21 +102,24 @@ class FeedRepository @Inject constructor(
         lastVisible: DocumentSnapshot? = null
     ): Result<PaginatedArtifacts> = withContext(Dispatchers.IO) {
         return@withContext try {
+            val poolSize = 50 // Fetch a larger pool for better ranking variety
+            
             var query = firestore.collection("artifacts")
                 .whereEqualTo("isPublic", true)
                 .whereEqualTo("status", ArtifactStatus.ACTIVE.name)
                 .orderBy("createdAt", Query.Direction.DESCENDING)
-                .limit(limit.toLong())
+                .limit(poolSize.toLong())
 
             if (lastVisible != null) {
                 query = query.startAfter(lastVisible)
             }
 
             val snapshot = query.get().await()
-            val artifacts = snapshot.documents.mapNotNull { doc ->
+            val rawArtifacts = snapshot.documents.mapNotNull { doc ->
                 val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
                 if ((artifact == null) || artifact.audioUrl.isEmpty()) return@mapNotNull null
 
+                // Secondary safety check (redundant but safe)
                 val reportCount = doc.getLong("reportCount") ?: 0L
                 val reporterIds = doc["reporterIds"] as? List<*> ?: emptyList<String>()
 
@@ -123,8 +129,14 @@ class FeedRepository @Inject constructor(
                     artifact.slimForFeed()
                 }
             }
+
+            // Apply Recommendation Pipeline
+            val rankedArtifacts = recommendationService.rank(rawArtifacts)
             
-            Result.success(PaginatedArtifacts(artifacts, snapshot.documents.lastOrNull()))
+            // Take the requested limit
+            val finalArtifacts = rankedArtifacts.take(limit)
+            
+            Result.success(PaginatedArtifacts(finalArtifacts, snapshot.documents.lastOrNull()))
         } catch (e: Exception) {
             diagnosticLogger.error(DiagnosticCategory.FEED, "FEED_DISCOVERY_FETCH_FAILED", throwable = e)
             Result.failure(AppError.from(e))

@@ -1,0 +1,9 @@
+- [x] Create `functions/src/util/moderation/config.ts`
+- [x] Implement `onReportCreated` Cloud Function in `functions/src/index.ts`
+    - [x] Add `REPORT_AGGREGATION_V1` idempotency prefix
+    - [x] Implement `aggregateReports` helper
+    - [x] Implement `evaluateModerationState` helper
+    - [x] Implement main logic with idempotency and batching
+- [x] Update `firestore.rules` to protect moderation metadata
+- [ ] Verify changes with available tests or manual simulation
+- [ ] Update `walkthrough.artifact.md`

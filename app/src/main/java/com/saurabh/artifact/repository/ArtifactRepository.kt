@@ -88,6 +88,7 @@ class ArtifactRepository @Inject constructor(
     private val personalizationEngine: dagger.Lazy<PersonalizationEngine>,
     private val settingsRepository: dagger.Lazy<SettingsRepository>,
     private val artifactDao: dagger.Lazy<ArtifactDao>,
+    private val reportedArtifactDao: dagger.Lazy<com.saurabh.artifact.data.local.ReportedArtifactDao>,
     private val database: dagger.Lazy<AppDatabase>,
     private val pendingInteractionDao: dagger.Lazy<PendingInteractionDao>,
     private val diagnosticLogger: DiagnosticLogger
@@ -469,55 +470,38 @@ class ArtifactRepository @Inject constructor(
     suspend fun submitReport(
         artifactId: String,
         reason: ReportReason,
-        details: String,
-        deviceId: Int
+        optionalDescription: String,
+        deviceIdHash: Int
     ): Result<Unit> = withContext(Dispatchers.IO) {
         return@withContext try {
             val userId = auth.currentUser?.uid 
                 ?: return@withContext Result.failure(AppError.Unauthenticated())
 
-            val reportId = UUID.randomUUID().toString()
-            val reportData = mutableMapOf<String, Any?>(
+            // 1. Deterministic Report ID: {userId}_{artifactId}
+            val reportId = "${userId}_${artifactId}"
+            val reportData = mapOf(
                 "artifactId" to artifactId,
-                "reporterDeviceId" to deviceId,
+                "reporterId" to userId,
                 "reason" to reason.name,
-                "details" to details,
-                "createdAt" to Timestamp.now(),
-                "status" to ReportStatus.PENDING.name,
-                "reporterId" to userId
+                "optionalDescription" to optionalDescription,
+                "deviceIdHash" to deviceIdHash,
+                "createdAt" to FieldValue.serverTimestamp(),
+                "status" to ReportStatus.PENDING.name
             )
             
-            // 2. Submit the report document
+            // 2. Submit the report document (Overwrite if exists)
             firestore.collection("reports").document(reportId).set(reportData).await()
             
-            // 3. Increment report count and record reporter ID
+            // 3. Update local Room DB for immediate hiding
             try {
-                firestore.collection("artifacts").document(artifactId)
-                    .update(
-                        "reportCount", FieldValue.increment(1),
-                        "safetyConcernCount", FieldValue.increment(1),
-                        "reporterIds", FieldValue.arrayUnion(userId)
+                reportedArtifactDao.get().insert(
+                    com.saurabh.artifact.data.local.ReportedArtifactEntity(
+                        userId = userId,
+                        artifactId = artifactId
                     )
-                    .await()
-            } catch (e: Exception) {
-                diagnosticLogger.error(
-                    DiagnosticCategory.FIRESTORE, 
-                    "REPORT_METADATA_UPDATE_FAILED", 
-                    mapOf(LogKeys.ARTIFACT_ID to artifactId), 
-                    e
                 )
-            }
-
-            // 4. Update local Room DB for immediate hiding
-            try {
-                val localArtifact = artifactDao.get().getArtifactById(artifactId)
-                if (localArtifact != null) {
-                    val updatedArtifact = localArtifact.copy(
-                        reportCount = localArtifact.reportCount + 1,
-                        reporterIds = localArtifact.reporterIds + userId
-                    )
-                    artifactDao.get().insertAll(listOf(updatedArtifact))
-                }
+                // Force a delete from local cache as well to be sure
+                artifactDao.get().deleteById(artifactId)
             } catch (e: Exception) {
                 diagnosticLogger.error(
                     DiagnosticCategory.DATABASE, 
@@ -542,7 +526,6 @@ class ArtifactRepository @Inject constructor(
     @OptIn(androidx.paging.ExperimentalPagingApi::class)
     fun getArtifactsPager(emotion: String?): Flow<PagingData<Pair<Artifact, Int>>> {
         val currentUserId = auth.currentUser?.uid ?: ""
-        val userIdPattern = "%\"$currentUserId\"%"
         
         return Pager(
             config = PagingConfig(
@@ -553,7 +536,7 @@ class ArtifactRepository @Inject constructor(
                 maxSize = 30
             ),
             remoteMediator = ArtifactRemoteMediator(firestore, database.get(), currentUserId, emotion),
-            pagingSourceFactory = { artifactDao.get().getArtifactsPaged(userIdPattern) }
+            pagingSourceFactory = { artifactDao.get().getArtifactsPaged(currentUserId) }
         ).flow.map { pagingData: PagingData<ArtifactEntityWithIndex> ->
             pagingData.map { wrapper -> 
                 mapArtifactEntityToArtifact(wrapper.entity) to wrapper.absoluteIndex

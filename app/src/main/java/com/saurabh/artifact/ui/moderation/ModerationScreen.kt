@@ -126,10 +126,10 @@ fun ReportCard(
                 fontWeight = FontWeight.Bold
             )
             
-            if (item.report.details.isNotEmpty()) {
+            if (item.report.optionalDescription.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(Spacing.Small))
                 Text(
-                    text = "Details: ${item.report.details}",
+                    text = "Details: ${item.report.optionalDescription}",
                     style = MaterialTheme.typography.bodyMedium
                 )
             }

@@ -202,7 +202,7 @@ service cloud.firestore {
                      request.auth != null &&
                      request.auth.uid == resource.data.get('userId', '') &&
                      !(request.resource.data.diff(resource == null ? {} : resource.data).affectedKeys()
-                       .hasAny(['reactionCount', 'commentCount'])));
+                       .hasAny(['reactionCount', 'commentCount', 'reportCount', 'recommendationState'])));
 
       // Prevent users from hard-deleting the Artifact document to ensure Cloud Function trigger
       allow delete: if isGlobalAdmin();
@@ -276,9 +276,12 @@ service cloud.firestore {
       allow create: if false;
     }
 
-    match /reports/{id} {
-      allow create: if isAuth() && request.resource.data.reporterId == request.auth.uid;
-      allow read, write: if isGlobalAdmin();
+    match /reports/{reportId} {
+      allow create: if isAuth() &&
+                    request.resource.data.reporterId == request.auth.uid &&
+                    reportId == request.auth.uid + "_" + request.resource.data.artifactId;
+      allow read: if isGlobalAdmin() || (isAuth() && reportId.startsWith(request.auth.uid + "_"));
+      allow write: if isGlobalAdmin();
     }
 
     match /listening_sessions/{sessionId} {
@@ -288,6 +291,12 @@ service cloud.firestore {
 
     match /recommendation_profiles/{uid} {
       allow read: if isOwner(uid);
+    }
+
+    // --- MODERATION ---
+    match /moderation_queue/{artifactId} {
+      allow read: if isGlobalAdmin();
+      allow write: if false;
     }
   }
 }

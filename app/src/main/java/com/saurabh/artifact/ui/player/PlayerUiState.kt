@@ -30,6 +30,7 @@ data class PlayerUiState(
     val isSaved: Boolean = false,
     val saveSyncStatus: InteractionSyncStatus = InteractionSyncStatus.SYNCED,
     val isOwner: Boolean = false,
+    val recommendationState: RecommendationState = RecommendationState.ACTIVE,
     val resonanceSummary: String = "",
     
     // Advanced Controls State

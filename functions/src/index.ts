@@ -5,6 +5,7 @@ import {withIdempotency} from "./util/idempotency";
 import {logger} from "./util/logger";
 import {validateCoverage} from "./util/validation/coverage";
 import {POLICY_VERSION, VALIDATION_VERSION, UnlockReason} from "./util/validation/constants";
+import {ModerationConfig} from "./util/moderation/config";
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -699,4 +700,107 @@ export const onEngagementUpdated = functions.firestore
       logger.error(`[UNLOCK] FATAL ERROR | ArtifactID=${artifactId} | UserID=${uid}:`, error);
       throw error; // Retry
     }
+  });
+
+/**
+ * Aggregates unique reports for an artifact to ensure reportCount is derived from truth.
+ */
+async function aggregateReports(db: admin.firestore.Firestore, artifactId: string) {
+  const reportsSnapshot = await db.collection("reports")
+    .where("artifactId", "==", artifactId)
+    .get();
+
+  const uniqueReporters = new Set<string>();
+  let lastReportedAt: admin.firestore.Timestamp | null = null;
+
+  reportsSnapshot.docs.forEach((doc) => {
+    const data = doc.data();
+    uniqueReporters.add(data.reporterId);
+    const createdAt = data.createdAt as admin.firestore.Timestamp;
+    if (!lastReportedAt || (createdAt && createdAt.toMillis() > lastReportedAt.toMillis())) {
+      lastReportedAt = createdAt;
+    }
+  });
+
+  return {
+    reportCount: uniqueReporters.size,
+    lastReportedAt: lastReportedAt || FieldValue.serverTimestamp(),
+  };
+}
+
+/**
+ * Evaluates the moderation state of an artifact based on report count.
+ */
+function evaluateModerationState(reportCount: number) {
+  if (reportCount >= ModerationConfig.REPORT_SUPPRESSION_THRESHOLD) {
+    return ModerationConfig.RecommendationState.SUPPRESSED;
+  }
+  return ModerationConfig.RecommendationState.ACTIVE;
+}
+
+/**
+ * Triggered when a community report is created.
+ * Aggregates reports, evaluates moderation threshold, and updates artifact metadata.
+ */
+export const onReportCreated = functions.firestore
+  .document("reports/{reportId}")
+  .onCreate(async (snapshot, context) => {
+    const data = snapshot.data();
+    if (!data) return null;
+
+    const artifactId = data.artifactId;
+    if (!artifactId) {
+      logger.error("[MODERATION] Report missing artifactId", {reportId: context.params.reportId});
+      return null;
+    }
+
+    const idempotencyKey = `report_agg_v1_${context.params.reportId}`;
+
+    return withIdempotency(idempotencyKey, async () => {
+      const db = admin.firestore();
+      const artifactRef = db.collection("artifacts").doc(artifactId);
+      const queueRef = db.collection("moderation_queue").doc(artifactId);
+
+      // 1. Verify Artifact exists
+      const artifactDoc = await artifactRef.get();
+      if (!artifactDoc.exists) {
+        logger.warn(`[MODERATION] Artifact not found | ID=${artifactId}`);
+        return;
+      }
+
+      // 2. Aggregate derived data from the source of truth (reports collection)
+      const {reportCount, lastReportedAt} = await aggregateReports(db, artifactId);
+
+      // 3. Evaluate moderation state
+      const newState = evaluateModerationState(reportCount);
+      const currentData = artifactDoc.data()!;
+
+      const batch = db.batch();
+
+      // 4. Update Artifact Metadata (Derived)
+      const updates: any = {
+        reportCount: reportCount,
+        lastReportedAt: lastReportedAt,
+      };
+
+      if (newState === ModerationConfig.RecommendationState.SUPPRESSED &&
+          currentData.recommendationState !== ModerationConfig.RecommendationState.SUPPRESSED) {
+        updates.recommendationState = ModerationConfig.RecommendationState.SUPPRESSED;
+        logger.info(`[MODERATION] Suppression triggered | ArtifactID=${artifactId} | Count=${reportCount}`);
+      }
+
+      batch.update(artifactRef, updates);
+
+      // 5. Update Moderation Queue
+      batch.set(queueRef, {
+        artifactId: artifactId,
+        reportCount: reportCount,
+        status: ModerationConfig.ModerationStatus.PENDING_REVIEW,
+        createdAt: currentData.createdAt || FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      }, {merge: true});
+
+      await batch.commit();
+      logger.info(`[MODERATION] Aggregation success | ArtifactID=${artifactId} | Count=${reportCount}`);
+    });
   });

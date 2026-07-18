@@ -206,6 +206,14 @@ fun ImmersivePlayerScreen(
                 }
             }
 
+            // 2.5 Moderation Transparency (Creator Only)
+            if (uiState.isOwner) {
+                ModerationBanner(
+                    recommendationState = uiState.recommendationState,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
 
             // 3. Presence Area

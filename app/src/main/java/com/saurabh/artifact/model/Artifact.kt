@@ -50,6 +50,7 @@ data class Artifact(
     val amplitudeData: List<Float> = emptyList(),
     val flaggedSegments: List<FlaggedSegment> = emptyList(),
     val moderation: ModerationMetadata = ModerationMetadata(),
+    val recommendationState: RecommendationState = RecommendationState.ACTIVE,
     val conversationMetadata: ArtifactConversationMetadata = ArtifactConversationMetadata(),
     val reactionVisibility: ReactionVisibilityMode = ReactionVisibilityMode.APPROXIMATE,
     val titleHistory: List<String> = emptyList(),
