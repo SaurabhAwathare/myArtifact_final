@@ -1,0 +1,6 @@
+- [x] Implement type-aware parsing for `engagementState` in `FirestoreEngagementRepository.kt`
+- [x] Add diagnostic logging for field type, value, and `isCommentUnlocked`
+- [x] Ensure `callbackFlow` resilience (wrap parsing in try-catch)
+- [x] Verify `callbackFlow` stays active on parsing errors
+- [x] Confirm UI unlocks when `isCommentUnlocked` is true
+- [x] Create walkthrough and summary of changes

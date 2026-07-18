@@ -1,12 +1,15 @@
 package com.saurabh.artifact.ui.comment
 
 import androidx.lifecycle.SavedStateHandle
+import com.saurabh.artifact.domain.artifact.ArtifactOwnershipAuthority
 import com.saurabh.artifact.domain.comment.AddCommentUseCase
 import com.saurabh.artifact.domain.comment.DeleteCommentUseCase
 import com.saurabh.artifact.domain.comment.GetCommentsUseCase
 import com.saurabh.artifact.model.Comment
+import com.saurabh.artifact.repository.EngagementRepository
 import com.saurabh.artifact.repository.PaginatedComments
 import io.mockk.coEvery
+import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -26,6 +29,8 @@ class CommentViewModelTest {
     private val getCommentsUseCase: GetCommentsUseCase = mockk()
     private val addCommentUseCase: AddCommentUseCase = mockk()
     private val deleteCommentUseCase: DeleteCommentUseCase = mockk()
+    private val engagementRepository: EngagementRepository = mockk(relaxed = true)
+    private val ownershipAuthority: ArtifactOwnershipAuthority = mockk()
     private val savedStateHandle: SavedStateHandle = SavedStateHandle(mapOf("artifactId" to "test-artifact"))
 
     @Before
@@ -36,12 +41,15 @@ class CommentViewModelTest {
         coEvery { getCommentsUseCase("test-artifact", any(), any()) } returns Result.success(
             PaginatedComments(emptyList(), null)
         )
+        coEvery { ownershipAuthority.isCurrentUserOwner("test-artifact") } returns false
         
         viewModel = CommentViewModel(
             savedStateHandle,
             getCommentsUseCase,
             addCommentUseCase,
-            deleteCommentUseCase
+            deleteCommentUseCase,
+            engagementRepository,
+            ownershipAuthority
         )
     }
 
@@ -111,5 +119,34 @@ class CommentViewModelTest {
         
         // Currently it would be [1, 2, 2, 3]
         assertEquals("Should have 3 unique comment IDs", 3, commentIds.size)
+    }
+
+    @Test
+    fun `owner should have UNLOCKED state immediately`() = runTest {
+        val artifactId = "owner-artifact"
+        coEvery { ownershipAuthority.isCurrentUserOwner(artifactId) } returns true
+        coEvery { getCommentsUseCase(artifactId, any(), any()) } returns Result.success(
+            PaginatedComments(emptyList(), null)
+        )
+        
+        viewModel.initialize(artifactId)
+        testDispatcher.scheduler.advanceUntilIdle()
+        
+        assertEquals(CommentUnlockState.UNLOCKED, viewModel.uiState.value.unlockState)
+    }
+
+    @Test
+    fun `non-owner without engagement should have LOCKED state`() = runTest {
+        val artifactId = "other-artifact"
+        coEvery { ownershipAuthority.isCurrentUserOwner(artifactId) } returns false
+        coEvery { getCommentsUseCase(artifactId, any(), any()) } returns Result.success(
+            PaginatedComments(emptyList(), null)
+        )
+        // engagementRepository mock is relaxed, so it returns an empty flow or nulls
+        
+        viewModel.initialize(artifactId)
+        testDispatcher.scheduler.advanceUntilIdle()
+        
+        assertEquals(CommentUnlockState.LOCKED, viewModel.uiState.value.unlockState)
     }
 }

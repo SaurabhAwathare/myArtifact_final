@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.firestore.DocumentSnapshot
+import com.saurabh.artifact.domain.artifact.ArtifactOwnershipAuthority
 import com.saurabh.artifact.domain.comment.AddCommentUseCase
 import com.saurabh.artifact.domain.comment.DeleteCommentUseCase
 import com.saurabh.artifact.domain.comment.GetCommentsUseCase
@@ -19,6 +20,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -37,10 +39,12 @@ class CommentViewModel @Inject constructor(
     private val getCommentsUseCase: GetCommentsUseCase,
     private val addCommentUseCase: AddCommentUseCase,
     private val deleteCommentUseCase: DeleteCommentUseCase,
-    private val engagementRepository: EngagementRepository
+    private val engagementRepository: EngagementRepository,
+    private val ownershipAuthority: ArtifactOwnershipAuthority
 ) : ViewModel() {
 
     private var artifactId: String = savedStateHandle.get<String>("artifactId") ?: ""
+    private var isOwner: Boolean = false
 
     private val _uiState = MutableStateFlow(CommentUiState())
     val uiState: StateFlow<CommentUiState> = _uiState.asStateFlow()
@@ -50,10 +54,11 @@ class CommentViewModel @Inject constructor(
 
     private var lastVisibleCursor: DocumentSnapshot? = null
 
+    private var unlockObservationJob: Job? = null
+
     init {
         if (artifactId.isNotEmpty()) {
-            loadInitialComments()
-            observeUnlockStatus()
+            checkOwnershipAndInitialize()
         }
     }
 
@@ -70,8 +75,17 @@ class CommentViewModel @Inject constructor(
         }
         
         artifactId = id
-        loadInitialComments()
-        observeUnlockStatus()
+        checkOwnershipAndInitialize()
+    }
+
+    private fun checkOwnershipAndInitialize() {
+        viewModelScope.launch {
+            isOwner = ownershipAuthority.isCurrentUserOwner(artifactId)
+            android.util.Log.d("COMMENT_TRACE", "Ownership check: artifactId=$artifactId, isOwner=$isOwner")
+            
+            loadInitialComments()
+            observeUnlockStatus()
+        }
     }
 
     /**
@@ -80,10 +94,15 @@ class CommentViewModel @Inject constructor(
     private fun observeUnlockStatus() {
         if (artifactId.isEmpty()) return
 
-        viewModelScope.launch {
+        android.util.Log.d("COMMENT_TRACE", "Cancelling unlock observation for artifactId=$artifactId")
+        unlockObservationJob?.cancel()
+
+        android.util.Log.d("COMMENT_TRACE", "Starting unlock observation for artifactId=$artifactId")
+        unlockObservationJob = viewModelScope.launch {
             engagementRepository.observeEngagementEvidence(artifactId)
                 .collectLatest { evidence ->
                     val newState = deriveUnlockState(evidence)
+                    android.util.Log.d("COMMENT_TRACE", "Unlock state update: artifactId=$artifactId, newState=$newState")
                     _uiState.update { it.copy(unlockState = newState) }
                 }
         }
@@ -93,6 +112,11 @@ class CommentViewModel @Inject constructor(
      * Derives the UI presentation state for comment unlocking.
      */
     private fun deriveUnlockState(evidence: EngagementEvidence?): CommentUnlockState {
+        // 0. Owner Bypass: Owners are always unlocked
+        if (isOwner) {
+            return CommentUnlockState.UNLOCKED
+        }
+
         if (evidence == null) return CommentUnlockState.LOCKED
 
         // 1. Authoritative Unlock (Backend Says YES)

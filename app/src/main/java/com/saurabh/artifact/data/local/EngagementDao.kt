@@ -30,7 +30,7 @@ interface EngagementDao {
     @Query("UPDATE artifact_engagement SET lastPositionMs = :positionMs, lastUpdated = :timestamp, syncState = 'PENDING' WHERE artifactId = :artifactId")
     suspend fun updateLastPosition(artifactId: String, positionMs: Long, timestamp: Long = System.currentTimeMillis()): Int
 
-    @Query("UPDATE artifact_engagement SET isCommentUnlocked = :isUnlocked, unlockTimestamp = :timestamp, engagementState = :state, unlockReason = :reason, remoteUpdatedAt = :remoteUpdated WHERE artifactId = :artifactId")
+    @Query("UPDATE artifact_engagement SET isCommentUnlocked = :isUnlocked, unlockTimestamp = :timestamp, engagementState = :state, unlockReason = :reason, remoteUpdatedAt = :remoteUpdated WHERE artifactId = :artifactId AND (remoteUpdatedAt IS NULL OR remoteUpdatedAt < :remoteUpdated)")
     suspend fun updateUnlockStatus(artifactId: String, isUnlocked: Boolean, timestamp: Long?, state: String, reason: String?, remoteUpdated: Long?)
 
     @Query("DELETE FROM artifact_engagement WHERE lastUpdated < :timestamp")

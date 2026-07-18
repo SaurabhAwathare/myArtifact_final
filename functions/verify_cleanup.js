@@ -67,7 +67,7 @@ async function verify() {
   process.exit(0);
 }
 
-verify().catch(err => {
+verify().catch((err) => {
   console.error(err);
   process.exit(1);
 });

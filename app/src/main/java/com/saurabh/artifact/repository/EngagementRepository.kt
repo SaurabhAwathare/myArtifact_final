@@ -3,6 +3,7 @@ package com.saurabh.artifact.repository
 import com.google.firebase.auth.FirebaseAuth
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.di.ApplicationScope
 import com.saurabh.artifact.data.local.ArtifactEngagement
 import com.saurabh.artifact.data.local.EngagementDao
 import com.saurabh.artifact.domain.review.EngagementEvidence
@@ -11,10 +12,13 @@ import com.saurabh.artifact.domain.review.UnlockStatus
 import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.SyncState
 import com.saurabh.artifact.worker.EngagementSyncScheduler
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import java.util.BitSet
@@ -26,7 +30,8 @@ class EngagementRepository @Inject constructor(
     private val engagementDao: EngagementDao,
     private val firestoreRepository: FirestoreEngagementRepository,
     private val syncScheduler: EngagementSyncScheduler,
-    private val diagnosticLogger: DiagnosticLogger
+    private val diagnosticLogger: DiagnosticLogger,
+    @ApplicationScope private val externalScope: CoroutineScope
 ) {
 
     suspend fun getEngagement(artifactId: String): Result<EngagementEvidence> = withContext(Dispatchers.IO) {
@@ -61,18 +66,18 @@ class EngagementRepository @Inject constructor(
         val currentUserId = FirebaseAuth.getInstance().currentUser?.uid
             ?: return engagementDao.observeEngagement(artifactId).map { it?.toDomain() }
 
-        val localFlow = engagementDao.observeEngagement(artifactId)
+        val localFlow = engagementDao.observeEngagement(artifactId).distinctUntilChanged()
         val remoteFlow = firestoreRepository.observeRemoteUnlockStatus(currentUserId, artifactId)
+            .onEach { remote ->
+                if (remote != null) {
+                    externalScope.launch {
+                        updateLocalUnlockCache(artifactId, remote)
+                    }
+                }
+            }
 
         return combine(localFlow, remoteFlow) { local, remote ->
             if (local == null) return@combine null
-
-            // If we have remote data, update local cache (side effect in flow is risky but here it ensures persistence)
-            // However, better to just merge them into the domain model returned.
-            // We also update the local DB so that if we go offline, the last known unlock state is preserved.
-            if (remote != null) {
-                updateLocalUnlockCache(artifactId, remote)
-            }
 
             local.toDomain().copy(
                 unlockStatus = remote ?: UnlockStatus(

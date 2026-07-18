@@ -683,12 +683,12 @@ export const onEngagementUpdated = functions.firestore
       // 5. Authoritative Unlock
       if (result.isValid) {
         await change.after.ref.update({
-          isCommentUnlocked: true,
+          "isCommentUnlocked": true,
           "engagementState.unlocked": true,
-          unlockReason: UnlockReason.LISTENING_THRESHOLD,
-          unlockTimestamp: FieldValue.serverTimestamp(),
-          validationVersion: VALIDATION_VERSION,
-          policyVersion: POLICY_VERSION,
+          "unlockReason": UnlockReason.LISTENING_THRESHOLD,
+          "unlockTimestamp": FieldValue.serverTimestamp(),
+          "validationVersion": VALIDATION_VERSION,
+          "policyVersion": POLICY_VERSION,
         });
 
         logger.info(`[UNLOCK] SUCCESS | UserID=${uid} | ArtifactID=${artifactId}`);

@@ -94,10 +94,47 @@ class FirestoreEngagementRepository @Inject constructor(
             }
 
             if (snapshot != null && snapshot.exists()) {
+                // Defensive parsing for engagementState which can be String or Map
+                val rawEngagement = snapshot.get("engagementState")
+                val parsedState = try {
+                    when (rawEngagement) {
+                        is String -> EngagementState.fromString(rawEngagement)
+                        is Map<*, *> -> {
+                            if (rawEngagement["unlocked"] == true) EngagementState.UNLOCKED 
+                            else EngagementState.LOCKED
+                        }
+                        else -> EngagementState.UNKNOWN
+                    }
+                } catch (e: Exception) {
+                    diagnosticLogger.error(
+                        DiagnosticCategory.FIRESTORE,
+                        "ENGAGEMENT_PARSE_ERROR",
+                        mapOf("artifactId" to artifactId, "rawType" to (rawEngagement?.javaClass?.simpleName ?: "null")),
+                        e
+                    )
+                    EngagementState.UNKNOWN
+                }
+
+                // Authority: isCommentUnlocked boolean takes precedence for UI, 
+                // but we still want to log the relationship for schema debugging.
+                val isUnlocked = snapshot.getBoolean("isCommentUnlocked") ?: false
+
+                diagnosticLogger.info(
+                    DiagnosticCategory.FIRESTORE,
+                    "ENGAGEMENT_SCHEMA_INSPECTION",
+                    mapOf(
+                        "artifactId" to artifactId,
+                        "rawType" to (rawEngagement?.javaClass?.simpleName ?: "null"),
+                        "parsedState" to parsedState.name,
+                        "isCommentUnlocked" to isUnlocked,
+                        "traceId" to traceId
+                    )
+                )
+
                 val status = UnlockStatus(
-                    isCommentUnlocked = snapshot.getBoolean("isCommentUnlocked") ?: false,
+                    isCommentUnlocked = isUnlocked,
                     unlockTimestamp = snapshot.getTimestamp("unlockTimestamp")?.toDate()?.time,
-                    engagementState = EngagementState.fromString(snapshot.getString("engagementState")),
+                    engagementState = parsedState,
                     unlockReason = snapshot.getString("unlockReason"),
                     updatedAt = snapshot.getTimestamp("updatedAt")?.toDate()?.time
                 )

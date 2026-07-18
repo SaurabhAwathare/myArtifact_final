@@ -70,6 +70,11 @@ service cloud.firestore {
       return request.auth != null && request.auth.uid == userId;
     }
 
+    function isArtifactOwner(artifactId) {
+      return isAuth() &&
+             get(/databases/$(database)/documents/artifacts/$(artifactId)).data.userId == request.auth.uid;
+    }
+
     // Business Purpose: Verify if the user has unlocked comments for a specific artifact.
     // Security Purpose: Authoritative check against backend-verified engagement document.
     function isCommentUnlocked(uid, artifactId) {
@@ -218,7 +223,8 @@ service cloud.firestore {
                       request.resource.data.creatorId == request.auth.uid &&
                       request.resource.data.artifactId == artifactId &&
                       // Authoritative Unlock Enforcement (Phase 3)
-                      isCommentUnlocked(request.auth.uid, artifactId) &&
+                      // Owners are exempt from the unlock requirement.
+                      (isArtifactOwner(artifactId) || isCommentUnlocked(request.auth.uid, artifactId)) &&
                       // Ensure author.anonymousId matches user's anonymousId
                       request.resource.data.author.anonymousId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.anonymousId;
 
