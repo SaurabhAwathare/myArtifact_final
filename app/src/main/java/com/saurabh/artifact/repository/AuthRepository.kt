@@ -130,21 +130,7 @@ class AuthRepository @Inject constructor(
             )
         )
 
-        val tokenTask = firebaseAuth.currentUser?.getIdToken(false)
-        val tokenReadyImmediate = tokenTask?.isSuccessful ?: false
-
-        diagnosticLogger.info(
-            DiagnosticCategory.AUTH,
-            "RESEARCH_LISTENER_REGISTERED",
-            mapOf(
-                "listenerId" to id,
-                "path" to "users/$userId",
-                "uid" to (firebaseAuth.currentUser?.uid ?: "null"),
-                "tokenReadyImmediate" to tokenReadyImmediate,
-                "thread" to Thread.currentThread().name,
-                "timestamp" to System.currentTimeMillis()
-            )
-        )
+        firebaseAuth.currentUser?.getIdToken(false)
 
         userDataListener = firestore.collection("users").document(userId)
             .addSnapshotListener { snapshot, error ->
@@ -231,20 +217,7 @@ class AuthRepository @Inject constructor(
             diagnosticLogger.info(DiagnosticCategory.AUTH, "LISTENER_TERMINATED", mapOf("path" to "users/$userId/private/settings"))
         }
 
-        val tokenTask = firebaseAuth.currentUser?.getIdToken(false)
-        val tokenReadyImmediate = tokenTask?.isSuccessful ?: false
-
-        diagnosticLogger.info(
-            DiagnosticCategory.AUTH,
-            "FIRESTORE_LISTENER_REGISTERED",
-            mapOf(
-                "path" to "users/$userId/private/settings",
-                "uid" to (firebaseAuth.currentUser?.uid ?: "null"),
-                "tokenReadyImmediate" to tokenReadyImmediate,
-                "thread" to Thread.currentThread().name,
-                "timestamp" to System.currentTimeMillis()
-            )
-        )
+        firebaseAuth.currentUser?.getIdToken(false)
 
         privateSettingsListener = firestore.collection("users").document(userId)
             .collection("private").document("settings")

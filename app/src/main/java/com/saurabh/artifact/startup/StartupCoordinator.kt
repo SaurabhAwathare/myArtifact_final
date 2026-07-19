@@ -201,20 +201,16 @@ class StartupCoordinator @Inject constructor(
     }
 
     private fun initializeCore() {
-        Log.d("Startup", "Initializing Core Services (App Check)")
-        
         Log.i("Startup", "Current Environment: ${environmentProvider.environment}")
         Log.i("Startup", "Firebase Project ID: ${environmentProvider.firebaseProjectId}")
 
         val appCheck = FirebaseAppCheck.getInstance()
         if (environmentProvider.isDebug) {
-            Log.d("Startup", "Installing Debug App Check provider")
             appCheck.installAppCheckProviderFactory(
                 DebugAppCheckProviderFactory.getInstance()
             )
             Log.i("Startup", "App Check: DEBUG MODE active.")
         } else {
-            Log.d("Startup", "Installing Play Integrity App Check provider")
             appCheck.installAppCheckProviderFactory(
                 PlayIntegrityAppCheckProviderFactory.getInstance()
             )
