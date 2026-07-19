@@ -1,72 +1,69 @@
-# Implementation Plan - Artifact Recommendation Engine (Phase 4) - Redesign
+# Implementation Plan - Firestore Security Model Refactoring (Phase 1)
 
-This plan outlines the design and implementation of a **pipeline-based** recommendation engine for Artifact. This redesign avoids premature optimization of complex engagement metrics and focuses on simplicity, explainability, and the "Listen Before You Respond" philosophy.
+Refactor the `users/{uid}` collection to separate public profile information from sensitive account data. This plan follows a phased approach to minimize regression risk and ensures data integrity through atomic transactions and a staged rollout.
+
+## Phase 1: Core Privacy & Security Refactoring
+
+### Goal
+Move clearly sensitive data (`email`, `realName`, `fcmToken`, `isAdmin`, `accountStatus`) to `users/{uid}/private/settings` and prepare for simplified Firestore rules.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> The recommendation engine is now structured as a **stateless pipeline**. It utilizes existing Firestore fields to avoid backend overhead.
-
-> [!TIP]
-> We are introducing an **Exploration Stage** that explicitly reserves space for new creators and "under-heard" Artifacts, directly supporting the mission of discovering authentic human voices.
+> - **Atomic Migration**: Migration will be handled within a single Firestore transaction to ensure data consistency.
+> - **Release A (Migration Logic)**: Deploy the logic to move fields naturally as users log in. Rules will be updated to *allow* deletion of sensitive fields from the root by the owner.
+> - **Release B (Rule Simplification)**: Once production verification confirms migration progress, simplify `users/{uid}` rules to be globally readable by authenticated users.
+> - **Idempotency**: The migration logic will check for the existence of fields before attempting move, ensuring it only runs once per user.
 
 ## Proposed Changes
 
-### [Component] Services
+### [Data Model]
 
-#### [NEW] [RecommendationService.kt](file:///F:/Android Project/01/app/src/main/java/com/saurabh/artifact/service/RecommendationService.kt)
-Implement a stateless service that processes a list of artifacts through the following pipeline stages:
-
-1.  **Eligibility Stage**: Filters artifacts based on:
-    - `isPublic == true`
-    - `status == ACTIVE`
-    - `recommendationState == ACTIVE`
-    - `moderation.status != HIDDEN`
-2.  **Freshness Stage**: Tiers artifacts based on `createdAt`:
-    - **Tier 1 (New)**: < 24 hours.
-    - **Tier 2 (Recent)**: 24 hours - 7 days.
-    - **Tier 3 (Classic)**: > 7 days.
-3.  **Quality Stage**: Adjusts priority within tiers using:
-    - `reactionCount`: Favoring artifacts that have resonated with others.
-    - `playCount`: Identifying "under-heard" content vs "established" content.
-4.  **Exploration Stage**:
-    - Ensures 15% (configurable) of the feed is reserved for artifacts with `playCount < 5` or from creators who haven't been heard much yet.
-5.  **Diversity Stage**:
-    - Ensures no consecutive artifacts from the same `userId` appear in the final feed.
-
-```kotlin
-class RecommendationService @Inject constructor() {
-    fun rank(
-        candidates: List<Artifact>,
-        config: RecommendationConfig = RecommendationConfig.DEFAULT
-    ): List<Artifact> {
-        // Implementation of the pipeline
-    }
-}
-```
-
-#### [NEW] [RecommendationConfig.kt](file:///F:/Android Project/01/app/src/main/java/com/saurabh/artifact/service/RecommendationConfig.kt)
-- Define thresholds and percentages (e.g., `explorationRatio = 0.15f`).
+#### [MODIFY] [User.kt](file:///F:/Android Project/01/app/src/main/java/com/saurabh/artifact/model/User.kt)
+- Ensure `User` class documentation reflects that `email`, `realName`, `fcmToken`, `isAdmin`, and `accountStatus` are deprecated at the root and moved to `private/settings`.
 
 ---
 
-### [Component] Repositories
+### [Firestore Security Rules]
 
-#### [MODIFY] [FeedRepository.kt](file:///F:/Android Project/01/app/src/main/java/com/saurabh/artifact/repository/FeedRepository.kt)
-- Update `getDiscoveryCandidates` to fetch a larger batch of candidates (e.g., 50-100) and delegate the ranking and filtering to `RecommendationService`.
-- This ensures the client-side service has enough variety to apply the pipeline effectively.
+#### [MODIFY] [firestore.rules](file:///F:/Android Project/01/firestore.rules)
+- **Release A Update**:
+    - Modify `users/{uid}` update rules to allow the owner to `delete` sensitive fields (`email`, `realName`, `fcmToken`, `isAdmin`, `accountStatus`) from the root document.
+    - This is required for the migration transaction to succeed.
+
+---
+
+### [Repositories & Services]
+
+#### [MODIFY] [UserRepository.kt](file:///F:/Android Project/01/app/src/main/java/com/saurabh/artifact/repository/UserRepository.kt)
+- **Atomic Lazy Migration in `getOrCreateProfile`**:
+    - Within the existing `runTransaction` block:
+        1. Check if `email`, `realName`, `fcmToken`, `isAdmin`, or `accountStatus` exist in the root `userRef`.
+        2. If any exist:
+            - Write them into the `privateRef` (`private/settings`).
+            - Use `FieldValue.delete()` on those fields in the `userRef`.
+    - This ensures the move is atomic and idempotent.
+
+#### [MODIFY] [FCMService.kt](file:///F:/Android Project/01/app/src/main/java/com/saurabh/artifact/service/FCMService.kt)
+- Update `updateTokenInFirestore` to write `fcmToken` to `users/{uid}/private/settings` using `merge: true`.
+
+#### [MODIFY] [SettingsRepository.kt](file:///F:/Android Project/01/app/src/main/java/com/saurabh/artifact/repository/SettingsRepository.kt)
+- Verify `syncToRemote` usage to ensure `UserSettings` (local preferences) and `UserPrivateSettings` (account data) co-exist safely in `private/settings`.
+
+---
 
 ## Verification Plan
 
 ### Automated Tests
-- `RecommendationServiceTest.kt`:
-    - Verify **Eligibility**: Suppressed or private artifacts never leak into the feed.
-    - Verify **Freshness**: Newer artifacts generally appear higher.
-    - Verify **Diversity**: No consecutive creator IDs.
-    - Verify **Exploration**: Under-heard artifacts are correctly injected into the feed.
+- Update `admin_rules.test.js` to verify that owners can now delete sensitive fields from root (Release A requirement).
+- Add integration tests for `UserRepository.getOrCreateProfile` covering:
+    - Migration of all 5 fields.
+    - Idempotency (running twice does nothing the second time).
+    - Failure safety (if transaction fails, root data remains).
 
 ### Manual Verification
-- Observe the Discovery Feed in the app.
-- Verify that "new" artifacts (recorded recently) are prioritized.
-- Verify that reporting an artifact (which increases `reportCount` and triggers suppression) removes it from the feed immediately.
-- Ensure the feed feels diverse and doesn't just show the same creators.
+1.  **Legacy User Test**:
+    - Manually inject `email`, `realName`, and `fcmToken` into a root user document in Emulator.
+    - Log in and verify they move to `private/settings` and are removed from root.
+    - Log in again and verify no further changes/logs occur.
+2.  **FCM Update**: Trigger token refresh and verify it lands in `private/settings`.

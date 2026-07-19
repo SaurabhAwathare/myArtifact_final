@@ -6,6 +6,13 @@ import com.google.firebase.firestore.PropertyName
 import com.google.firebase.firestore.ServerTimestamp
 import com.saurabh.artifact.util.SecureString
 
+/**
+ * Represents the public profile of a user.
+ * 
+ * NOTE: Sensitive account fields (email, realName, fcmToken, isAdmin, accountStatus) 
+ * have been migrated to [UserPrivateSettings] under the users/{uid}/private/settings 
+ * sub-collection to ensure strict privacy and simplified security rules.
+ */
 data class User(
     val id: String = "",
     val anonymousId: String = "", // Short ID like usr_9F3A2

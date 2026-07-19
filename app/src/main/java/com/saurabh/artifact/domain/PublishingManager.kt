@@ -77,11 +77,29 @@ class PublishingManager @Inject constructor(
             // 3. Upload Transcript
             diagnosticLogger.debug(DiagnosticCategory.PUBLISH, "PUBLISH_STEP_3_TRANSCRIPT", mapOf(LogKeys.DRAFT_ID to draftId))
             val transcriptUrl = if (draft.frozenTranscriptJson != null) {
-                artifactRepository.uploadTranscript(
+                val uploadResult = artifactRepository.uploadTranscript(
                     userId = firebaseUser.uid,
                     draftId = draft.id,
                     transcriptJson = draft.frozenTranscriptJson.toUnsecureString()
-                ).getOrNull()
+                )
+                
+                if (uploadResult.isFailure) {
+                    val error = uploadResult.exceptionOrNull() ?: Exception("Transcript upload failed")
+                    diagnosticLogger.error(
+                        DiagnosticCategory.PUBLISH, 
+                        "TRANSCRIPT_UPLOAD_STEP_FAILED", 
+                        mapOf(
+                            LogKeys.DRAFT_ID to draftId,
+                            "lifecycle" to draft.lifecycle.name,
+                            "publicationStatus" to draft.status.publication.toString()
+                        ), 
+                        error
+                    )
+                    
+                    // Propagate as a failure to stop the workflow
+                    return@withContext Result.failure(error)
+                }
+                uploadResult.getOrNull()
             } else null
 
             // 4. Fetch User Profile (Offline-First)
@@ -151,6 +169,14 @@ class PublishingManager @Inject constructor(
             Result.success(Unit)
         } catch (e: Exception) {
             diagnosticLogger.error(DiagnosticCategory.PUBLISH, "UPLOAD_FAILED", mapOf(LogKeys.DRAFT_ID to draftId, "stage" to getFailureStage(e)), e)
+            
+            // HARDENING: Ensure draft status is updated to Failed so UI reflects the error
+            try {
+                draftRepository.updateUploadStatus(draftId, SyncStatus.Failed(e.message ?: "Unknown error"))
+            } catch (inner: Exception) {
+                diagnosticLogger.warn(DiagnosticCategory.PUBLISH, "FAILED_TO_UPDATE_DRAFT_STATUS", mapOf(LogKeys.DRAFT_ID to draftId), inner)
+            }
+            
             Result.failure(e)
         }
     }

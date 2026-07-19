@@ -137,10 +137,10 @@ service cloud.firestore {
                    (request.auth != null && resource != null && !resource.data.keys().hasAny(['email', 'displayName', 'realName', 'fcmToken']));
 
       allow update: if resource != null &&
-                   request.auth != null &&
-                   request.auth.uid == uid &&
-                   !(request.resource.data.diff(resource == null ? {} : resource.data).affectedKeys()
-                     .hasAny(['isAdmin', 'admin', 'accountStatus', 'email', 'realName'])) &&
+                   isOwner(uid) &&
+                   // Release A: Allow owner to delete sensitive fields from root, but block setting/changing them.
+                   !(request.resource.data.diff(resource.data).affectedKeys().hasAny(['isAdmin', 'admin', 'accountStatus', 'email', 'realName', 'fcmToken']) &&
+                     request.resource.data.keys().hasAny(['isAdmin', 'admin', 'accountStatus', 'email', 'realName', 'fcmToken'])) &&
                    isValidIdentityUpdate(resource == null ? {} : resource.data, request.resource.data);
 
       allow create: if isOwner(uid) &&

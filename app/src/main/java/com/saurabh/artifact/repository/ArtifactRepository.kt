@@ -1062,11 +1062,90 @@ class ArtifactRepository @Inject constructor(
                 .setCustomMetadata("draftId", draftId)
                 .build()
 
+            // --- RUNTIME INVESTIGATION INSTRUMENTATION START ---
+            
+            // Capture Auth State
+            val user = auth.currentUser
+            val authState = mapOf(
+                "uid" to (user?.uid ?: "null"),
+                "isAnonymous" to (user?.isAnonymous ?: false),
+                "providerData" to (user?.providerData?.map { it.providerId } ?: emptyList<String>()),
+                "creationTimestamp" to (user?.metadata?.creationTimestamp ?: 0L),
+                "lastSignInTimestamp" to (user?.metadata?.lastSignInTimestamp ?: 0L),
+                "isNull" to (user == null)
+            )
+            diagnosticLogger.debug(DiagnosticCategory.STORAGE, "INVESTIGATION_AUTH_STATE", authState)
+
+            // Token Refresh and Verification
+            try {
+                user?.let { u ->
+                    val tokenResult = u.getIdToken(true).await()
+                    diagnosticLogger.debug(DiagnosticCategory.STORAGE, "INVESTIGATION_TOKEN_REFRESH_SUCCESS", mapOf(
+                        "expirationTimestamp" to tokenResult.expirationTimestamp,
+                        "issuedAtTimestamp" to tokenResult.issuedAtTimestamp
+                    ))
+                } ?: diagnosticLogger.debug(DiagnosticCategory.STORAGE, "INVESTIGATION_TOKEN_REFRESH_SKIPPED", mapOf("reason" to "currentUser is null"))
+            } catch (tokenEx: Exception) {
+                diagnosticLogger.error(DiagnosticCategory.STORAGE, "INVESTIGATION_TOKEN_REFRESH_FAILED", emptyMap(), tokenEx)
+            }
+
+            // Storage Context
+            val storageContext = mapOf(
+                "bucket" to storage.reference.bucket,
+                "path" to fileRef.path,
+                "name" to fileRef.name,
+                "parentPath" to (fileRef.parent?.path ?: "root")
+            )
+            diagnosticLogger.debug(DiagnosticCategory.STORAGE, "INVESTIGATION_STORAGE_CONTEXT", storageContext)
+
+            // Upload Metadata
+            val uploadMetadata = mapOf(
+                "contentType" to (metadata.contentType ?: "null"),
+                "customMetadata" to metadata.customMetadataKeys.associateWith { metadata.getCustomMetadata(it) },
+                "fileSize" to transcriptJson.toByteArray().size,
+                "uploadPath" to fileName
+            )
+            diagnosticLogger.debug(DiagnosticCategory.STORAGE, "INVESTIGATION_UPLOAD_METADATA", uploadMetadata)
+            
+            // --- RUNTIME INVESTIGATION INSTRUMENTATION END ---
+
+            diagnosticLogger.debug(DiagnosticCategory.STORAGE, "TRANSCRIPT_UPLOAD_STARTING", mapOf(LogKeys.DRAFT_ID to draftId, "path" to fileName))
+            
             fileRef.putBytes(transcriptJson.toByteArray(), metadata).await()
-            val downloadUrl = fileRef.downloadUrl.await().toString()
+            
+            val downloadUrl = retryDownloadUrlFetch(fileRef)
+                ?: return@withContext Result.failure(Exception("Transcript uploaded but download URL fetch failed."))
+                
             Result.success(downloadUrl)
         } catch (e: Exception) {
-            diagnosticLogger.error(DiagnosticCategory.STORAGE, "TRANSCRIPT_UPLOAD_FAILED", mapOf(LogKeys.DRAFT_ID to draftId), e)
+            val extraParams = mutableMapOf<String, Any>(
+                LogKeys.DRAFT_ID to draftId,
+                "userId" to userId,
+                "path" to "transcripts/${userId}_${draftId}.json",
+                "exceptionType" to e.javaClass.name
+            )
+
+            if (e is com.google.firebase.storage.StorageException) {
+                extraParams["errorCode"] = e.errorCode
+                extraParams["httpCode"] = e.httpResultCode
+                extraParams["message"] = e.message ?: "null"
+                extraParams["localizedMessage"] = e.localizedMessage ?: "null"
+            }
+
+            // Capture complete exception chain
+            val exceptionChain = mutableListOf<Map<String, String>>()
+            var currentCause: Throwable? = e
+            while (currentCause != null) {
+                exceptionChain.add(mapOf(
+                    "class" to currentCause.javaClass.name,
+                    "message" to (currentCause.message ?: "null"),
+                    "stackTrace" to currentCause.stackTraceToString()
+                ))
+                currentCause = currentCause.cause
+            }
+            extraParams["exceptionChain"] = exceptionChain
+            
+            diagnosticLogger.error(DiagnosticCategory.STORAGE, "TRANSCRIPT_UPLOAD_FAILED_INVESTIGATION", extraParams, e)
             Result.failure(e)
         }
     }

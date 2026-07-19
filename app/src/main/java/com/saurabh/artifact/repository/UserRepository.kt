@@ -189,10 +189,33 @@ class UserRepository @Inject constructor(
                         val privateSnapshot = transaction[privateRef]
                         val privateMissing = !privateSnapshot.exists()
 
-                        if (needsRepair || privateMissing) {
-                            if (needsRepair) transaction.set(userRef, user, com.google.firebase.firestore.SetOptions.merge())
-                            
-                            if (privateMissing) {
+                        // PHASE 1: Sensitive Data Migration (Atomic & Idempotent)
+                        val sensitiveFields = listOf("email", "realName", "fcmToken", "isAdmin", "accountStatus", "admin")
+                        val fieldsToMove = mutableMapOf<String, Any>()
+                        sensitiveFields.forEach { field ->
+                            snapshot.get(field)?.let { value ->
+                                fieldsToMove[field] = value
+                            }
+                        }
+
+                        if (fieldsToMove.isNotEmpty() || needsRepair || privateMissing) {
+                            if (needsRepair) {
+                                transaction.set(userRef, user, com.google.firebase.firestore.SetOptions.merge())
+                            }
+
+                            if (fieldsToMove.isNotEmpty()) {
+                                // 1. Move fields to private settings (Merge to preserve existing data)
+                                transaction.set(privateRef, fieldsToMove, com.google.firebase.firestore.SetOptions.merge())
+                                
+                                // 2. Remove from root document
+                                val deletions = fieldsToMove.keys.associateWith { FieldValue.delete() }
+                                transaction.update(userRef, deletions)
+                                
+                                diagnosticLogger.info(DiagnosticCategory.AUTH, "SENSITIVE_DATA_MIGRATED", mapOf(LogKeys.USER_ID to currentUser.uid, "fields" to fieldsToMove.keys.toList()))
+                            }
+
+                            if (privateMissing && fieldsToMove.isEmpty()) {
+                                // Standard initialization for new users or missing private doc
                                 val defaultPrivate = UserPrivateSettings(
                                     secureEmail = SecureString.fromString(currentUser.email ?: ""),
                                     secureRealName = SecureString.fromString(currentUser.displayName ?: ""),
@@ -316,6 +339,17 @@ class UserRepository @Inject constructor(
             return@callbackFlow
         }
 
+        diagnosticLogger.info(
+            DiagnosticCategory.FIRESTORE,
+            "FIRESTORE_LISTENER_REGISTERED",
+            mapOf(
+                "path" to "users/$userId",
+                "uid" to (auth.currentUser?.uid ?: "null"),
+                "thread" to Thread.currentThread().name,
+                "timestamp" to System.currentTimeMillis()
+            )
+        )
+
         // 2. Resource Reference Validation
         val docRef = try {
             usersCollection.document(userId.trim())
@@ -329,6 +363,20 @@ class UserRepository @Inject constructor(
         // 3. Listener Implementation
         val registration = docRef.addSnapshotListener { snapshot, error ->
             if (error != null) {
+                diagnosticLogger.error(
+                    DiagnosticCategory.FIRESTORE,
+                    "SNAPSHOT_CALLBACK",
+                    mapOf(
+                        "path" to "users/$userId",
+                        "type" to "ERROR",
+                        "code" to error.code.name,
+                        "message" to (error.message ?: ""),
+                        "cause" to (error.cause?.toString() ?: "null"),
+                        "timestamp" to System.currentTimeMillis()
+                    ),
+                    error
+                )
+
                 diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "USER_PROFILE_STREAM_FAILED", mapOf(LogKeys.USER_ID to userId), error)
                 // HARDENING: If it's a permanent error (Permission Denied), we emit null and close.
                 // However, we MUST trySend(null) first to unblock any 'combine' operators.
@@ -338,6 +386,17 @@ class UserRepository @Inject constructor(
                 }
                 return@addSnapshotListener
             }
+
+            diagnosticLogger.info(
+                DiagnosticCategory.FIRESTORE,
+                "SNAPSHOT_CALLBACK",
+                mapOf(
+                    "path" to "users/$userId",
+                    "type" to "SUCCESS",
+                    "exists" to (snapshot?.exists() ?: false),
+                    "timestamp" to System.currentTimeMillis()
+                )
+            )
 
             if ((snapshot != null) && snapshot.exists()) {
                 try {
@@ -370,6 +429,7 @@ class UserRepository @Inject constructor(
 
         // 4. Graceful Cleanup
         awaitClose {
+            diagnosticLogger.info(DiagnosticCategory.FIRESTORE, "LISTENER_TERMINATED", mapOf("path" to "users/$userId", "timestamp" to System.currentTimeMillis()))
             diagnosticLogger.debug(DiagnosticCategory.FIRESTORE, "USER_PROFILE_STREAM_CLOSED", mapOf(LogKeys.USER_ID to userId))
             registration.remove()
         }
@@ -508,16 +568,55 @@ class UserRepository @Inject constructor(
     }
 
     private fun observeDocumentExists(docRef: DocumentReference): Flow<Boolean> = callbackFlow {
+        diagnosticLogger.info(
+            DiagnosticCategory.FIRESTORE,
+            "FIRESTORE_LISTENER_REGISTERED",
+            mapOf(
+                "path" to docRef.path,
+                "uid" to (auth.currentUser?.uid ?: "null"),
+                "thread" to Thread.currentThread().name,
+                "timestamp" to System.currentTimeMillis()
+            )
+        )
+
         val registration = docRef.addSnapshotListener { snapshot, error ->
             if (error != null) {
+                diagnosticLogger.error(
+                    DiagnosticCategory.FIRESTORE,
+                    "SNAPSHOT_CALLBACK",
+                    mapOf(
+                        "path" to docRef.path,
+                        "type" to "ERROR",
+                        "code" to error.code.name,
+                        "message" to (error.message ?: ""),
+                        "cause" to (error.cause?.toString() ?: "null"),
+                        "timestamp" to System.currentTimeMillis()
+                    ),
+                    error
+                )
                 // HARDENING: Do not crash or hang on error (e.g. Permission Denied)
                 // Just assume document doesn't exist/isn't accessible
                 trySend(element = false)
                 return@addSnapshotListener
             }
+
+            diagnosticLogger.info(
+                DiagnosticCategory.FIRESTORE,
+                "SNAPSHOT_CALLBACK",
+                mapOf(
+                    "path" to docRef.path,
+                    "type" to "SUCCESS",
+                    "exists" to (snapshot?.exists() ?: false),
+                    "timestamp" to System.currentTimeMillis()
+                )
+            )
+
             trySend(element = snapshot?.exists() ?: false)
         }
-        awaitClose { registration.remove() }
+        awaitClose { 
+            diagnosticLogger.info(DiagnosticCategory.FIRESTORE, "LISTENER_TERMINATED", mapOf("path" to docRef.path, "timestamp" to System.currentTimeMillis()))
+            registration.remove() 
+        }
     }
 
     /**

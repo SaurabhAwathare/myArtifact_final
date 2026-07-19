@@ -44,10 +44,16 @@ class GetProfileDataUseCase @Inject constructor(
             if (currentUserId.isNotEmpty()) userRepository.observeIsResonating(currentUserId, finalId) else flowOf(false)
         ) { profile, allArtifacts, saved, localDrafts, isResonating ->
             val statusPublished = com.saurabh.artifact.model.ArtifactStatus.ACTIVE
+            val localDraftIds = localDrafts.map { it.id }.toSet()
+
             ProfileData(
                 userProfile = profile,
                 publishedArtifacts = allArtifacts.filter { it.status == statusPublished },
-                cloudDrafts = allArtifacts.filter { it.status != statusPublished && it.status != com.saurabh.artifact.model.ArtifactStatus.DELETED },
+                cloudDrafts = allArtifacts.filter { 
+                    it.status != statusPublished && 
+                    it.status != com.saurabh.artifact.model.ArtifactStatus.DELETED &&
+                    it.id !in localDraftIds // FIX: Suppress cloud artifacts that exist as local drafts to prevent key collision
+                },
                 savedArtifacts = saved,
                 localDrafts = localDrafts,
                 isResonating = isResonating,

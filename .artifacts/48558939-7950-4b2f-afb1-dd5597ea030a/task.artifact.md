@@ -1,0 +1,10 @@
+- `[x]` Research the upload pipeline in `ArtifactRepository.kt`
+- `[x]` Create implementation plan for runtime instrumentation
+- `[x]` Instrument `uploadTranscript` with comprehensive logging
+    - `[x]` Capture Auth state
+    - `[x]` Capture Token refresh details
+    - `[x]` Capture Storage context
+    - `[x]` Capture Upload metadata
+    - `[x]` Capture full Exception chain and properties
+- `[ ]` Wait for user to trigger failure and capture logs
+- `[ ]` Produce final investigation report

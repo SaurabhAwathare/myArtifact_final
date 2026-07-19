@@ -58,9 +58,11 @@ class FCMService : FirebaseMessagingService() {
 
     private fun updateTokenInFirestore(token: String) {
         val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return
-        val userRef = FirebaseFirestore.getInstance().collection("users").document(userId)
+        val privateSettingsRef = FirebaseFirestore.getInstance()
+            .collection("users").document(userId)
+            .collection("private").document("settings")
         
-        userRef.set(mapOf("fcmToken" to token), SetOptions.merge())
+        privateSettingsRef.set(mapOf("fcmToken" to token), SetOptions.merge())
             .addOnSuccessListener { Log.d("FCM", "Token updated for user: $userId") }
             .addOnFailureListener { e -> Log.e("FCM", "Failed to update token", e) }
     }
