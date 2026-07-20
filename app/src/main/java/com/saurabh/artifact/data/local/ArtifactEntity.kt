@@ -2,6 +2,7 @@ package com.saurabh.artifact.data.local
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import com.saurabh.artifact.model.ArtifactStatus
 import com.saurabh.artifact.model.ConversationStyle
 import com.saurabh.artifact.model.Emotion
 
@@ -30,5 +31,7 @@ data class ArtifactEntity(
     val reporterIds: List<String> = emptyList(),
     val amplitudeData: List<Float>,
     val transcriptUrl: String? = null,
+    val status: ArtifactStatus = ArtifactStatus.ACTIVE,
+    val isDraft: Boolean = false,
     val lastUpdated: Long = System.currentTimeMillis()
 )

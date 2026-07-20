@@ -137,12 +137,14 @@ fun ArtifactPlayerView(
         ) {
             val artifact = uiState.currentArtifact
             val playable = uiState.currentPlayableArtifact
+            val reviewInteractionState by viewModel.reviewInteractionState.collectAsStateWithLifecycle()
             
             if (artifact != null || playable != null) {
                 ImmersivePlayerScreen(
                     artifact = artifact,
                     playableArtifact = playable,
                     uiState = uiState,
+                    reviewInteractionState = reviewInteractionState,
                     onCollapse = { viewModel.setExpanded(expanded = false) },
                     onTogglePlayback = { viewModel.togglePlayPause() },
                     onRewind = { viewModel.rewind() },

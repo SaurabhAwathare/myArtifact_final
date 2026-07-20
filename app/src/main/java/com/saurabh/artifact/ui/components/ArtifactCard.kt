@@ -378,7 +378,7 @@ fun ArtifactCard(
 
                         val effectiveReactionCounts = artifactDetail?.reactionCounts ?: com.saurabh.artifact.model.ArtifactReactionCounts(
                             artifactId = artifact.id,
-                            totalCount = artifact.reactionCount.toInt(),
+                            totalCount = artifact.reactionCount,
                             visibility = artifact.reactionVisibility
                         )
 

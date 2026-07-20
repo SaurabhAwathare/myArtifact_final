@@ -1,5 +1,7 @@
 package com.saurabh.artifact.model
 
+import com.google.firebase.firestore.IgnoreExtraProperties
+import com.google.firebase.firestore.PropertyName
 import kotlinx.serialization.Serializable
 
 /**
@@ -62,11 +64,14 @@ enum class EnergyLevel {
  * Metadata specifically related to conversation styles for an Artifact.
  */
 @Serializable
+@IgnoreExtraProperties
 data class ArtifactConversationMetadata(
     var primaryStyle: ConversationStyle? = null,
     var secondaryStyles: List<ConversationStyle> = emptyList(),
     var aiSuggestions: List<StyleSuggestion> = emptyList(),
     var moderationState: StyleModerationState = StyleModerationState.SAFE,
+    @get:PropertyName("isAIGenerated")
+    @set:PropertyName("isAIGenerated")
     var isAIGenerated: Boolean = false
 )
 

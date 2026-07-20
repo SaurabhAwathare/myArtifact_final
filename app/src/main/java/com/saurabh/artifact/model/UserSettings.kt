@@ -1,10 +1,15 @@
 package com.saurabh.artifact.model
 
 import androidx.annotation.Keep
+import com.google.firebase.firestore.IgnoreExtraProperties
+import com.google.firebase.firestore.PropertyName
 
 @Keep
+@IgnoreExtraProperties
 data class UserSettings(
-    val isAnonymousMode: Boolean = true,
+    @get:PropertyName("anonymousMode")
+    @set:PropertyName("anonymousMode")
+    var isAnonymousMode: Boolean = true,
     val notificationsEnabled: Boolean = true,
     val smartRemindersEnabled: Boolean = true,
     val emotionalSafetyEnabled: Boolean = true,

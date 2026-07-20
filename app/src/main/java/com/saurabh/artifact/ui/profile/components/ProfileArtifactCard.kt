@@ -183,7 +183,7 @@ fun ProfileArtifactCard(
                             com.saurabh.artifact.ui.components.ResonanceDisplay(
                                 counts = com.saurabh.artifact.model.ArtifactReactionCounts(
                                     artifactId = artifact.id,
-                                    totalCount = artifact.reactionCount.toInt(),
+                                    totalCount = artifact.reactionCount,
                                     visibility = artifact.reactionVisibility
                                 ),
                                 isOwner = isOwner

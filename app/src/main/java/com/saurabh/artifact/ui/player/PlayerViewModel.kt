@@ -93,17 +93,6 @@ class PlayerViewModel @Inject constructor(
             playbackCoordinator.currentArtifact.collect { artifact ->
                 val currentPlayable = _currentPlayableArtifact.value
                 
-                diagnosticLogger.debug(
-                    DiagnosticCategory.SYNC, 
-                    "PLAYER_SYNC_UPDATE", 
-                    mapOf(
-                        LogKeys.ARTIFACT_ID to (artifact?.id ?: "null"),
-                        "isDraft" to (artifact?.isDraft ?: false),
-                        "playableId" to (currentPlayable?.id ?: "null"),
-                        "loadState" to _loadState.value.name
-                    )
-                )
-
                 if (artifact != null && currentPlayable != null && artifact.id != currentPlayable.id) {
                     diagnosticLogger.info(DiagnosticCategory.SYNC, "PLAYER_ID_MISMATCH_PURGE", mapOf("staleId" to currentPlayable.id, "newId" to artifact.id))
                     _currentPlayableArtifact.value = null
@@ -244,18 +233,6 @@ class PlayerViewModel @Inject constructor(
         val isReviewMatching = artifact != null && review.artifactId == artifact.id
         val isListenerReviewMatching = artifact != null && listenerReview?.artifactId == artifact.id
         
-        if (artifact != null) {
-            diagnosticLogger.trace(
-                DiagnosticCategory.PLAYER, 
-                "UI_STATE_RECOMPUTE", 
-                mapOf(
-                    LogKeys.ARTIFACT_ID to artifact.id, 
-                    "isDraft" to artifact.isDraft, 
-                    "isReviewMatching" to isReviewMatching
-                )
-            )
-        }
-
         PlayerUiState(
             currentArtifact = artifact,
             internalOwnerId = static.internalOwnerId,
@@ -311,7 +288,53 @@ class PlayerViewModel @Inject constructor(
         initialValue = PlayerUiState()
     )
 
+    /**
+     * Derived state for review interactions. Narrowed to prevent unnecessary recompositions 
+     * in the ReviewInteractionLayer during playback position updates.
+     */
+    val reviewInteractionState: StateFlow<ReviewInteractionUiState> = uiState
+        .map { state ->
+            ReviewInteractionUiState(
+                coveragePercent = state.coveragePercent,
+                isThresholdMet = state.isThresholdMet,
+                isPlaybackEnded = state.isPlaybackEnded,
+                requiredCoverage = state.requiredCoverage,
+                isReachedEndRequired = state.isReachedEndRequired
+            )
+        }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ReviewInteractionUiState())
+
     init {
+        // Structural Diagnostic Logging (Phase 1 Refinement)
+        viewModelScope.launch {
+            uiState.map { state ->
+                PlayerDiagnosticState(
+                    artifactId = state.currentArtifact?.id,
+                    isExpanded = state.isExpanded,
+                    playerMode = state.playerMode,
+                    isOwner = state.isOwner,
+                    isThresholdMet = state.isThresholdMet,
+                    loadState = state.loadState
+                )
+            }
+            .distinctUntilChanged()
+            .collect { diagnosticState ->
+                diagnosticLogger.debug(
+                    DiagnosticCategory.PLAYER,
+                    "PLAYER_UI_STRUCTURE_CHANGED",
+                    mapOf(
+                        LogKeys.ARTIFACT_ID to (diagnosticState.artifactId ?: "null"),
+                        "isExpanded" to diagnosticState.isExpanded,
+                        "playerMode" to diagnosticState.playerMode.name,
+                        "isOwner" to diagnosticState.isOwner,
+                        "isThresholdMet" to diagnosticState.isThresholdMet,
+                        "loadState" to diagnosticState.loadState.name
+                    )
+                )
+            }
+        }
+
         viewModelScope.launch {
             reviewSessionManager.reviewProgress
                 .map { it.artifactId to it.isThresholdMet }
@@ -420,6 +443,19 @@ class PlayerViewModel @Inject constructor(
                 },
                 onFailure = { error ->
                     _loadState.value = PlayerLoadState.ERROR
+                    
+                    diagnosticLogger.error(
+                        category = DiagnosticCategory.PLAYER,
+                        eventName = "PLAYER_LOAD_FAILED",
+                        metadata = mapOf(
+                            LogKeys.ARTIFACT_ID to artifactId,
+                            "currentlyPlayingArtifactId" to (playbackCoordinator.currentArtifact.value?.id ?: "none"),
+                            "loadState_before" to "LOADING",
+                            "loadState_after" to "ERROR",
+                            "error" to error.toString()
+                        )
+                    )
+
                     val userMessage = when (error) {
                         is com.saurabh.artifact.model.AppError.NotFound -> "This artifact is no longer available."
                         is com.saurabh.artifact.model.AppError.PermissionDenied -> "This artifact isn't available to you."
@@ -566,6 +602,15 @@ class PlayerViewModel @Inject constructor(
         playbackCoordinator.startSleepTimer(minutes.minutes)
     }
 }
+
+private data class PlayerDiagnosticState(
+    val artifactId: String?,
+    val isExpanded: Boolean,
+    val playerMode: PlayerMode,
+    val isOwner: Boolean,
+    val isThresholdMet: Boolean,
+    val loadState: PlayerLoadState
+)
 
 private data class PlaybackSubState(
     val artifact: Artifact?,

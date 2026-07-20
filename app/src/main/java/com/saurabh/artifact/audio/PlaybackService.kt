@@ -17,7 +17,10 @@ import com.google.common.collect.ImmutableList
 import androidx.media3.session.DefaultMediaNotificationProvider
 import com.saurabh.artifact.MainActivity
 import com.saurabh.artifact.util.NotificationHelper
+import android.os.Handler
+import android.os.Looper
 import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.upstream.BandwidthMeter
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -89,7 +92,7 @@ class PlaybackService : MediaLibraryService() {
     private fun initializeSession() {
         diagnosticLogger.debug(DiagnosticCategory.PLAYER, "SESSION_INIT_STARTED")
         
-        val dataSourceFactory = SmartDataSourceFactory(attributionContext)
+        val dataSourceFactory = SmartDataSourceFactory(attributionContext, diagnosticLogger)
         
         // Optimized buffering for network resilience
         val loadControl = DefaultLoadControl.Builder()
@@ -102,6 +105,15 @@ class PlaybackService : MediaLibraryService() {
             .build()
 
         val bandwidthMeter = DefaultBandwidthMeter.getSingletonInstance(this)
+        bandwidthMeter.addEventListener(Handler(Looper.getMainLooper()), object : BandwidthMeter.EventListener {
+            override fun onBandwidthSample(elapsedMs: Int, bytesTransferred: Long, bitrateEstimate: Long) {
+                diagnosticLogger.trace(DiagnosticCategory.NETWORK, "BANDWIDTH_SAMPLE", mapOf(
+                    "elapsedMs" to elapsedMs,
+                    "bytes" to bytesTransferred,
+                    "bitrate" to bitrateEstimate
+                ))
+            }
+        })
 
         val player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(
@@ -125,8 +137,47 @@ class PlaybackService : MediaLibraryService() {
 
             override fun onPlaybackStateChanged(playbackState: Int) {
                 val artifact = player.currentMediaItem?.mediaId ?: "unknown"
+                val pos = player.currentPosition
+                val buffered = player.bufferedPosition
+                val loading = player.isLoading
+                
+                val bufferedDuration = player.totalBufferedDuration
+                val bufferedPercentage = player.bufferedPercentage
+                
+                val stateName = when (playbackState) {
+                    Player.STATE_IDLE -> "IDLE"
+                    Player.STATE_BUFFERING -> "BUFFERING"
+                    Player.STATE_READY -> "READY"
+                    Player.STATE_ENDED -> "ENDED"
+                    else -> "UNKNOWN"
+                }
+
+                val bitrateEstimate = bandwidthMeter.bitrateEstimate
+                val audioFormat = player.audioFormat
+                
+                diagnosticLogger.info(DiagnosticCategory.PLAYER, "PLAYER_BUFFER_STATE", mapOf(
+                    "state" to stateName,
+                    "artifactId" to artifact,
+                    "pos" to pos,
+                    "buffered" to buffered,
+                    "bufferedDuration" to bufferedDuration,
+                    "bufferedPercentage" to bufferedPercentage,
+                    "playWhenReady" to player.playWhenReady,
+                    "isLoading" to loading,
+                    "bitrateEstimate" to bitrateEstimate,
+                    "audioBitrate" to (audioFormat?.bitrate ?: -1),
+                    "audioCodec" to (audioFormat?.sampleMimeType ?: "unknown")
+                ))
+
                 when (playbackState) {
                     Player.STATE_READY -> {
+                        diagnosticLogger.info(DiagnosticCategory.PLAYER, "STATE_READY", mapOf(
+                            "artifactId" to artifact,
+                            "pos" to pos,
+                            "buffered" to buffered,
+                            "loading" to loading,
+                            "playWhenReady" to player.playWhenReady
+                        ))
                         if (player.playWhenReady) {
                             diagnosticLogger.info(DiagnosticCategory.PLAYER, "PLAYBACK_STARTED", mapOf("artifactId" to artifact))
                         }
@@ -135,12 +186,25 @@ class PlaybackService : MediaLibraryService() {
                         diagnosticLogger.info(DiagnosticCategory.PLAYER, "PLAYBACK_COMPLETED", mapOf("artifactId" to artifact))
                     }
                     Player.STATE_IDLE -> {
-                        // Could be stopped or failed
+                        diagnosticLogger.info(DiagnosticCategory.PLAYER, "STATE_IDLE", mapOf("artifactId" to artifact))
                     }
                     Player.STATE_BUFFERING -> {
-                        diagnosticLogger.debug(DiagnosticCategory.PLAYER, "PLAYBACK_BUFFERING", mapOf("artifactId" to artifact))
+                        diagnosticLogger.debug(DiagnosticCategory.PLAYER, "PLAYBACK_BUFFERING", mapOf(
+                            "artifactId" to artifact,
+                            "pos" to pos,
+                            "buffered" to buffered,
+                            "loading" to loading
+                        ))
                     }
                 }
+            }
+
+            override fun onIsLoadingChanged(isLoading: Boolean) {
+                diagnosticLogger.trace(DiagnosticCategory.PLAYER, "LOADING_CHANGED", mapOf(
+                    "isLoading" to isLoading,
+                    "buffered" to player.bufferedPosition,
+                    "pos" to player.currentPosition
+                ))
             }
 
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
@@ -329,6 +393,11 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private fun createMediaItem(artifact: com.saurabh.artifact.model.Artifact): MediaItem {
+        val uri = android.net.Uri.parse(artifact.audioUrl)
+            .buildUpon()
+            .appendQueryParameter("artifact_id", artifact.id)
+            .build()
+
         val metadata = MediaMetadata.Builder()
             .setTitle(artifact.title)
             .setArtist(artifact.author.name)
@@ -346,7 +415,7 @@ class PlaybackService : MediaLibraryService() {
             .build()
 
         return MediaItem.Builder()
-            .setUri(artifact.audioUrl)
+            .setUri(uri)
             .setMediaId(artifact.id)
             .setMediaMetadata(metadata)
             .build()

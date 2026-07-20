@@ -2,6 +2,7 @@ package com.saurabh.artifact.model
 
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.Exclude
+import com.google.firebase.firestore.IgnoreExtraProperties
 import com.google.firebase.firestore.PropertyName
 import com.google.firebase.firestore.ServerTimestamp
 import com.saurabh.artifact.util.SecureString
@@ -78,6 +79,7 @@ data class IdentityMetadata(
  * Sensitive data stored in users/{uid}/private/settings
  * This is NEVER exposed to other users via Firestore rules.
  */
+@IgnoreExtraProperties
 data class UserPrivateSettings(
     @get:Exclude @set:Exclude
     var secureEmail: SecureString = SecureString.empty(),

@@ -322,6 +322,11 @@ class PlaybackSessionManager @Inject constructor(
         initialPosition: Long = 0L,
         playbackType: PlaybackType = PlaybackType.ARTIFACT
     ) {
+        diagnosticLogger.debug(DiagnosticCategory.PLAYER, "PLAY_INVOKED", mapOf(
+            "artifactId" to artifact.id,
+            "type" to playbackType.name,
+            "initialPos" to initialPosition
+        ))
         scope.launch {
             val player = getController() ?: return@launch
             
@@ -382,8 +387,13 @@ class PlaybackSessionManager @Inject constructor(
     }
 
     private fun createMediaItem(artifact: Artifact): MediaItem {
+        val uri = android.net.Uri.parse(artifact.audioUrl)
+            .buildUpon()
+            .appendQueryParameter("artifact_id", artifact.id)
+            .build()
+            
         return MediaItem.Builder()
-            .setUri(artifact.audioUrl)
+            .setUri(uri)
             .setMediaId(artifact.id)
             .setMediaMetadata(
                 androidx.media3.common.MediaMetadata.Builder()

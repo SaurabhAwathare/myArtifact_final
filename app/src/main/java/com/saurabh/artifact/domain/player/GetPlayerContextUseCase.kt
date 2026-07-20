@@ -50,7 +50,7 @@ class GetPlayerContextUseCase @Inject constructor(
                 counts?.getFuzzySummary(isOwner) 
                     ?: ArtifactReactionCounts(
                         artifactId = artifact.id,
-                        totalCount = artifact.reactionCount.toInt(),
+                        totalCount = artifact.reactionCount,
                         visibility = artifact.reactionVisibility
                     ).getFuzzySummary(isOwner)
             }

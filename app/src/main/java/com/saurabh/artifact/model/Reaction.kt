@@ -4,6 +4,7 @@ package com.saurabh.artifact.model
 
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.Exclude
+import com.google.firebase.firestore.IgnoreExtraProperties
 import com.google.firebase.firestore.PropertyName
 import com.saurabh.artifact.util.TimestampSerializer
 import kotlinx.serialization.Serializable
@@ -61,12 +62,11 @@ data class ArtifactReaction(
 }
 
 @Serializable
+@IgnoreExtraProperties
 data class ArtifactReactionCounts(
     var artifactId: String = "",
-    var totalCount: Int = 0,
-    @get:PropertyName("breakdown")
-    @set:PropertyName("breakdown")
-    var breakdown: Map<String, Int> = mutableMapOf(),
+    var totalCount: Long = 0L,
+    var breakdown: Map<String, Long> = mutableMapOf(),
     var visibility: ReactionVisibilityMode = ReactionVisibilityMode.APPROXIMATE,
     var aiSummary: String? = null,
     var lastUpdated: Timestamp? = null,
@@ -79,17 +79,17 @@ data class ArtifactReactionCounts(
         return when (visibility) {
             ReactionVisibilityMode.VISIBLE -> {
                 when {
-                    totalCount <= 0 -> ""
-                    totalCount == 1 -> "Another soul felt this"
+                    totalCount <= 0L -> ""
+                    totalCount == 1L -> "Another soul felt this"
                     else -> "$totalCount souls felt this too"
                 }
             }
             else -> { // APPROXIMATE or CREATOR_ONLY (if owner)
                 when {
-                    totalCount <= 0 -> ""
-                    totalCount == 1 -> "Another soul felt this"
-                    totalCount in 2..5 -> "A few people are holding space here"
-                    totalCount in 6..20 -> "Many have found resonance in your words"
+                    totalCount <= 0L -> ""
+                    totalCount == 1L -> "Another soul felt this"
+                    totalCount in 2L..5L -> "A few people are holding space here"
+                    totalCount in 6L..20L -> "Many have found resonance in your words"
                     else -> "A vast echo is returning to you"
                 }
             }

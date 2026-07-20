@@ -2,6 +2,7 @@ package com.saurabh.artifact.data.local
 
 import androidx.room.TypeConverter
 import com.saurabh.artifact.model.ArtifactLifecycle
+import com.saurabh.artifact.model.ArtifactStatus
 import com.saurabh.artifact.model.DraftStatus
 import com.saurabh.artifact.model.Emotion
 import com.saurabh.artifact.model.EmotionResult
@@ -106,6 +107,16 @@ class Converters {
         Json.decodeFromString(value)
     } catch (_: Exception) {
         emptyList()
+    }
+
+    @TypeConverter
+    fun fromArtifactStatus(status: ArtifactStatus): String = status.name
+
+    @TypeConverter
+    fun toArtifactStatus(value: String): ArtifactStatus = try {
+        ArtifactStatus.valueOf(value)
+    } catch (_: Exception) {
+        ArtifactStatus.ACTIVE
     }
 
     @TypeConverter

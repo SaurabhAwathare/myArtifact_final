@@ -145,6 +145,8 @@ class ArtifactRemoteMediator(
             reporterIds = artifact.reporterIds,
             amplitudeData = artifact.amplitudeData,
             transcriptUrl = artifact.transcriptUrl,
+            status = artifact.status,
+            isDraft = artifact.isDraft,
             lastUpdated = System.currentTimeMillis()
         )
     }

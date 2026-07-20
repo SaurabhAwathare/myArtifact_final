@@ -219,13 +219,53 @@ class ArtifactRepository @Inject constructor(
                     artifactDao.get().insertAll(listOf(mapArtifactToEntity(artifact)))
                     Result.success(artifact)
                 } else {
-                    Result.failure(AppError.NotFound("Artifact", artifactId))
+                    val error = AppError.NotFound("Artifact", artifactId)
+                    diagnosticLogger.error(
+                        category = DiagnosticCategory.FIRESTORE,
+                        eventName = "ARTIFACT_FETCH_FAILED",
+                        metadata = mapOf(
+                            LogKeys.ARTIFACT_ID to artifactId,
+                            "source" to "Firestore",
+                            "reason" to "Deserialization failed",
+                            "exceptionClass" to "NullArtifact"
+                        )
+                    )
+                    Result.failure(error)
                 }
             } else {
-                Result.failure(AppError.NotFound("Artifact", artifactId))
+                val error = AppError.NotFound("Artifact", artifactId)
+                diagnosticLogger.error(
+                    category = DiagnosticCategory.FIRESTORE,
+                    eventName = "ARTIFACT_FETCH_FAILED",
+                    metadata = mapOf(
+                        LogKeys.ARTIFACT_ID to artifactId,
+                        "source" to "Firestore",
+                        "reason" to "Document does not exist",
+                        "exceptionClass" to "NotFound"
+                    )
+                )
+                Result.failure(error)
             }
         } catch (e: Exception) {
-            Result.failure(AppError.from(e))
+            val error = AppError.from(e)
+            diagnosticLogger.error(
+                category = DiagnosticCategory.FIRESTORE,
+                eventName = "ARTIFACT_FETCH_FAILED",
+                metadata = mutableMapOf(
+                    LogKeys.ARTIFACT_ID to artifactId,
+                    "source" to "Firestore",
+                    "exceptionClass" to e.javaClass.simpleName,
+                    "message" to (e.message ?: "No message"),
+                    "stackTrace" to e.stackTraceToString(),
+                    "causeClass" to (e.cause?.javaClass?.simpleName ?: "None"),
+                    "causeMessage" to (e.cause?.message ?: "None")
+                ).apply {
+                    if (e is FirebaseFirestoreException) {
+                        put("errorCode", e.code.name)
+                    }
+                }
+            )
+            Result.failure(error)
         }
     }
 
@@ -574,6 +614,8 @@ class ArtifactRepository @Inject constructor(
             reporterIds = entity.reporterIds,
             amplitudeData = entity.amplitudeData,
             transcriptUrl = entity.transcriptUrl,
+            status = entity.status,
+            isDraftField = entity.isDraft,
             conversationMetadata = ArtifactConversationMetadata(
                 primaryStyle = entity.primaryStyle
             )
@@ -608,6 +650,8 @@ class ArtifactRepository @Inject constructor(
             reporterIds = artifact.reporterIds,
             amplitudeData = artifact.amplitudeData,
             transcriptUrl = artifact.transcriptUrl,
+            status = artifact.status,
+            isDraft = artifact.isDraft,
             lastUpdated = System.currentTimeMillis()
         )
     }
@@ -1034,6 +1078,7 @@ class ArtifactRepository @Inject constructor(
             val updates = mutableMapOf<String, Any>(
                 "audioUrl" to audioUrl,
                 "status" to status.name,
+                "isDraft" to (status == ArtifactStatus.DRAFT || status == ArtifactStatus.PENDING_UPLOAD),
                 "isPublic" to isPublic,
                 "visibility" to if (isPublic) Visibility.PUBLIC.name else Visibility.PRIVATE.name
             )

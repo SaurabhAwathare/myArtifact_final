@@ -14,13 +14,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.saurabh.artifact.ui.player.PlayerUiState
+import com.saurabh.artifact.ui.player.ReviewInteractionUiState
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.theme.Spacing
 
 @Composable
 fun ReviewInteractionLayer(
-    uiState: PlayerUiState,
+    state: ReviewInteractionUiState,
     onEditClick: () -> Unit,
     onPublishClick: () -> Unit,
     onDeleteClick: () -> Unit,
@@ -50,7 +50,7 @@ fun ReviewInteractionLayer(
             // Coverage
             ProgressRow(
                 label = "Review Progress",
-                percent = uiState.coveragePercent,
+                percent = state.coveragePercent,
                 color = Color(0xFFFFB74D) // Ember Gold
             )
 
@@ -68,10 +68,10 @@ fun ReviewInteractionLayer(
                     color = Color.White.copy(alpha = 0.4f)
                 )
                 Icon(
-                    imageVector = if (uiState.isPlaybackEnded) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
+                    imageVector = if (state.isPlaybackEnded) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
                     contentDescription = null,
                     modifier = Modifier.size(16.dp),
-                    tint = if (uiState.isPlaybackEnded) Color(0xFFFFB74D) else Color.White.copy(alpha = 0.1f)
+                    tint = if (state.isPlaybackEnded) Color(0xFFFFB74D) else Color.White.copy(alpha = 0.1f)
                 )
             }
         }
@@ -91,9 +91,9 @@ fun ReviewInteractionLayer(
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Button(
                     onClick = onPublishClick,
-                    enabled = uiState.isThresholdMet,
+                    enabled = state.isThresholdMet,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (uiState.isThresholdMet) ArtifactTheme.colors.waveformActive else Color.White.copy(alpha = 0.1f),
+                        containerColor = if (state.isThresholdMet) ArtifactTheme.colors.waveformActive else Color.White.copy(alpha = 0.1f),
                         contentColor = Color.White,
                         disabledContainerColor = Color.White.copy(alpha = 0.05f),
                         disabledContentColor = Color.White.copy(alpha = 0.3f)
@@ -104,8 +104,8 @@ fun ReviewInteractionLayer(
                     Text("Publish")
                 }
                 
-                if (!uiState.isThresholdMet) {
-                    val requiredPercent = (uiState.requiredCoverage * 100).toInt()
+                if (!state.isThresholdMet) {
+                    val requiredPercent = (state.requiredCoverage * 100).toInt()
                     Text(
                         text = "$requiredPercent% review required",
                         style = MaterialTheme.typography.labelSmall,

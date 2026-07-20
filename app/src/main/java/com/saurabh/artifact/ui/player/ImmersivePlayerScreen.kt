@@ -43,6 +43,7 @@ fun ImmersivePlayerScreen(
     artifact: PlayerArtifact?,
     playableArtifact: PlayableArtifact?,
     uiState: PlayerUiState,
+    reviewInteractionState: ReviewInteractionUiState,
     onCollapse: () -> Unit,
     onTogglePlayback: () -> Unit,
     onRewind: () -> Unit,
@@ -146,65 +147,15 @@ fun ImmersivePlayerScreen(
                 .padding(horizontal = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // 2. Header
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp, bottom = 16.dp)
-                    .clip(RoundedCornerShape(28.dp))
-                    .background(Color.White.copy(alpha = 0.05f))
-                    .padding(horizontal = 4.dp, vertical = 4.dp)
-                    .zIndex(10f),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(
-                    onClick = onCollapse,
-                    modifier = Modifier.size(48.dp)
-                ) {
-                    Icon(
-                        Icons.Rounded.KeyboardArrowDown, 
-                        contentDescription = "Collapse", 
-                        tint = Color.White.copy(alpha = 0.8f),
-                        modifier = Modifier.size(32.dp)
-                    )
-                }
-                
-                Text(
-                    text = if (showTranscript) "Transcript" else "Now Playing",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Color.White.copy(alpha = 0.4f),
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp
-                )
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(
-                        onClick = { showTranscript = !showTranscript },
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        Icon(
-                            if (showTranscript) Icons.Rounded.Audiotrack else Icons.Rounded.Description,
-                            contentDescription = "Toggle Transcript",
-                            tint = if (showTranscript) GoldAura400 else Color.White.copy(alpha = 0.8f)
-                        )
-                    }
-
-                    if (!isVerifiedDraft) {
-                        // showDelete is false for published artifacts in Player per product goal
-                        IconButton(
-                            onClick = onMoreClick,
-                            modifier = Modifier.size(48.dp)
-                        ) {
-                            Icon(
-                                Icons.Rounded.MoreVert,
-                                contentDescription = "More Options",
-                                tint = Color.White.copy(alpha = 0.8f)
-                            )
-                        }
-                    }
-                }
-            }
+            // 2. Header (Phase 1 Refinement: Extracted for isolation)
+            PlayerHeader(
+                showTranscript = showTranscript,
+                isVerifiedDraft = isVerifiedDraft,
+                onCollapse = onCollapse,
+                onToggleTranscript = { showTranscript = !showTranscript },
+                onMoreClick = onMoreClick,
+                modifier = Modifier.padding(top = 8.dp, bottom = 16.dp)
+            )
 
             // 2.5 Moderation Transparency (Creator Only)
             if (uiState.isOwner) {
@@ -409,7 +360,7 @@ fun ImmersivePlayerScreen(
             // 6. Interaction Layer (Phase 5: Protect Draft Actions)
             if (isVerifiedDraft) {
                 ReviewInteractionLayer(
-                    uiState = uiState,
+                    state = reviewInteractionState,
                     onEditClick = onEditClick,
                     onPublishClick = onPublishClick,
                     onDeleteClick = { showDeleteConfirm = true }
@@ -449,6 +400,77 @@ fun ImmersivePlayerScreen(
     }
 }
 
+/**
+ * Isolated Header component for the player.
+ * Extracted to prevent recomposition when playback state changes.
+ */
+@Composable
+private fun PlayerHeader(
+    showTranscript: Boolean,
+    isVerifiedDraft: Boolean,
+    onCollapse: () -> Unit,
+    onToggleTranscript: () -> Unit,
+    onMoreClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(28.dp))
+            .background(Color.White.copy(alpha = 0.05f))
+            .padding(horizontal = 4.dp, vertical = 4.dp)
+            .zIndex(10f),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        IconButton(
+            onClick = onCollapse,
+            modifier = Modifier.size(48.dp)
+        ) {
+            Icon(
+                Icons.Rounded.KeyboardArrowDown, 
+                contentDescription = "Collapse", 
+                tint = Color.White.copy(alpha = 0.8f),
+                modifier = Modifier.size(32.dp)
+            )
+        }
+        
+        Text(
+            text = if (showTranscript) "Transcript" else "Now Playing",
+            style = MaterialTheme.typography.labelMedium,
+            color = Color.White.copy(alpha = 0.4f),
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.sp
+        )
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(
+                onClick = onToggleTranscript,
+                modifier = Modifier.size(48.dp)
+            ) {
+                Icon(
+                    if (showTranscript) Icons.Rounded.Audiotrack else Icons.Rounded.Description,
+                    contentDescription = "Toggle Transcript",
+                    tint = if (showTranscript) GoldAura400 else Color.White.copy(alpha = 0.8f)
+                )
+            }
+
+            if (!isVerifiedDraft) {
+                IconButton(
+                    onClick = onMoreClick,
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(
+                        Icons.Rounded.MoreVert,
+                        contentDescription = "More Options",
+                        tint = Color.White.copy(alpha = 0.8f)
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Preview
 @Composable
 fun ImmersiveDraftPlayerPreview() {
@@ -474,6 +496,7 @@ fun ImmersiveDraftPlayerPreview() {
                 isSaved = true,
                 isOwner = true
             ),
+            reviewInteractionState = ReviewInteractionUiState(),
             onCollapse = {},
             onTogglePlayback = {},
             onRewind = {},

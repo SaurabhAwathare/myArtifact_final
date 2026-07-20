@@ -2,6 +2,7 @@ package com.saurabh.artifact.model
 
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.Exclude
+import com.google.firebase.firestore.IgnoreExtraProperties
 import com.google.firebase.firestore.PropertyName
 import androidx.compose.runtime.Immutable
 import kotlinx.serialization.Serializable
@@ -19,6 +20,7 @@ enum class ArtifactStatus {
 }
 
 @Immutable
+@IgnoreExtraProperties
 data class Artifact(
     val id: String = "",
     val userId: String = "", // Internal UID - Required for security rules ownership check
@@ -73,6 +75,8 @@ data class Artifact(
     val isDraftField: Boolean = false,
 
     // Missing fields causing warnings
+    val commentCount: Long = 0L,
+    val lastReportedAt: Timestamp? = null,
     val authorAnonymousName: String = "",
     val authorId: String = "",
     val username: String = "",
@@ -193,5 +197,7 @@ data class NotificationItem(
     val artifactId: String = "",
     val type: NotificationType = NotificationType.RESONANCE,
     val createdAt: Timestamp = Timestamp.now(),
-    val isRead: Boolean = false,
+    @get:PropertyName("isRead")
+    @set:PropertyName("isRead")
+    var isRead: Boolean = false,
 )

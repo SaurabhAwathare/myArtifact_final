@@ -2,6 +2,7 @@ package com.saurabh.artifact.repository
 
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.data.local.DraftDao
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.ArtifactStatus
@@ -17,11 +18,12 @@ import org.junit.Test
 class PlayableArtifactRepositoryTest {
     private val draftDao = mockk<DraftDao>(relaxed = true)
     private val artifactRepository = mockk<ArtifactRepository>(relaxed = true)
+    private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
     private lateinit var repository: PlayableArtifactRepository
 
     @Before
     fun setup() {
-        repository = PlayableArtifactRepository(draftDao, artifactRepository)
+        repository = PlayableArtifactRepository(draftDao, artifactRepository, diagnosticLogger)
     }
 
     @Test

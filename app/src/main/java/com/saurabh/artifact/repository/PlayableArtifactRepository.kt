@@ -1,6 +1,9 @@
 package com.saurabh.artifact.repository
 
 import com.saurabh.artifact.data.local.DraftDao
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.PlayableArtifact
@@ -13,7 +16,8 @@ import javax.inject.Singleton
 @Singleton
 class PlayableArtifactRepository @Inject constructor(
     private val draftDao: DraftDao,
-    private val artifactRepository: ArtifactRepository
+    private val artifactRepository: ArtifactRepository,
+    private val diagnosticLogger: DiagnosticLogger
 ) {
     /**
      * Resolves an artifact ID into a PlayableArtifact by checking local drafts first,
@@ -63,11 +67,30 @@ class PlayableArtifactRepository @Inject constructor(
                     )
                 },
                 onFailure = { error ->
+                    diagnosticLogger.error(
+                        category = DiagnosticCategory.PLAYER,
+                        eventName = "ARTIFACT_RESOLVE_FAILED",
+                        metadata = mapOf(
+                            LogKeys.ARTIFACT_ID to id,
+                            "errorType" to error.javaClass.simpleName,
+                            "errorMessage" to (error.message ?: "No message")
+                        )
+                    )
                     Result.failure(error)
                 }
             )
         } catch (e: Exception) {
-            Result.failure(AppError.from(e))
+            val error = AppError.from(e)
+            diagnosticLogger.error(
+                category = DiagnosticCategory.PLAYER,
+                eventName = "ARTIFACT_RESOLVE_FAILED_WRAPPER",
+                metadata = mapOf(
+                    LogKeys.ARTIFACT_ID to id,
+                    "errorType" to e.javaClass.simpleName,
+                    "errorMessage" to (e.message ?: "No message")
+                )
+            )
+            Result.failure(error)
         }
     }
 }
