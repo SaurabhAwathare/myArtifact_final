@@ -134,4 +134,20 @@ class RecordingRepositoryTest {
         val result = repository.recoverInterruptedDrafts().getOrThrow()
         assert(result.size == 1)
     }
+
+    @Test
+    fun `recoverInterruptedDrafts should resume DELETING drafts`() = runTest {
+        val deletingDraft = mockk<ArtifactDraftEntity>(relaxed = true) {
+            every { id } returns "deleting_1"
+            every { lifecycle } returns ArtifactLifecycle.DELETING
+        }
+
+        coEvery { draftDao.getDraftsByLifecycle(ArtifactLifecycle.DELETING) } returns listOf(deletingDraft)
+        coEvery { draftDao.getActiveRecordings() } returns emptyList()
+        coEvery { draftDao.getDraftsByLifecycle(ArtifactLifecycle.PROCESSING) } returns emptyList()
+
+        repository.recoverInterruptedDrafts()
+
+        coVerify(exactly = 1) { deletionManager.deleteDraft("deleting_1") }
+    }
 }

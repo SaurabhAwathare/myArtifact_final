@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.LogKeys
+import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.model.Emotion
 import com.saurabh.artifact.ui.components.EmotionSelector
 import com.saurabh.artifact.ui.player.components.PlaybackControls
@@ -45,6 +46,7 @@ fun PublishingStudioScreen(
 ) {
     val logger = ArtifactTheme.logger
     val sessionState by viewModel.sessionState.collectAsState()
+    var showDeleteConfirm by remember { mutableStateOf(false) }
 
     LaunchedEffect(draftId) {
         logger.trace(DiagnosticCategory.STUDIO, "STUDIO_SCREEN_LAUNCHED", mapOf(LogKeys.DRAFT_ID to draftId))
@@ -55,6 +57,13 @@ fun PublishingStudioScreen(
         if (sessionState.isSuccess && !sessionState.isQueuedOffline) {
             logger.info(DiagnosticCategory.PUBLISH, "STUDIO_SUCCESS_NAVIGATE")
             onFinish()
+        }
+    }
+
+    LaunchedEffect(sessionState.lifecycle) {
+        if (sessionState.lifecycle == ArtifactLifecycle.DELETING) {
+            logger.info(DiagnosticCategory.STUDIO, "STUDIO_DRAFT_DELETING_NAVIGATE")
+            onCancel()
         }
     }
 
@@ -75,6 +84,30 @@ fun PublishingStudioScreen(
         )
     }
 
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Delete Draft") },
+            text = { Text("Are you sure you want to delete this draft? This action cannot be undone.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.deleteDraft()
+                        showDeleteConfirm = false
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             StudioTopBar(
@@ -83,7 +116,8 @@ fun PublishingStudioScreen(
                     if (sessionState.currentStep == StudioStep.REVIEW || sessionState.currentStep == StudioStep.PROCESSING) onCancel()
                     else viewModel.previousStep()
                 },
-                onClose = onCancel
+                onClose = onCancel,
+                onDelete = { showDeleteConfirm = true }
             )
         },
         bottomBar = {
@@ -125,6 +159,7 @@ fun PublishingStudioScreen(
                         StudioStep.DETAILS -> StudioDetailsStep(sessionState, viewModel)
                         StudioStep.APPROVAL -> StudioApprovalStep(sessionState, viewModel)
                         StudioStep.PUBLISHING -> StudioPublishingStep(sessionState, onFinish)
+                        StudioStep.DELETING -> { /* Placeholder while LaunchedEffect handles exit */ }
                     }
                 }
             }
@@ -137,7 +172,8 @@ fun PublishingStudioScreen(
 fun StudioTopBar(
     currentStep: StudioStep,
     onBack: () -> Unit,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    onDelete: () -> Unit
 ) {
     TopAppBar(
         title = {
@@ -148,19 +184,29 @@ fun StudioTopBar(
                     StudioStep.DETAILS -> "Add Details"
                     StudioStep.APPROVAL -> "Ready to Publish?"
                     StudioStep.PUBLISHING -> "Publishing..."
+                    StudioStep.DELETING -> "Deleting..."
                 },
                 style = ArtifactTheme.typography.titleMedium
             )
         },
         navigationIcon = {
-            if (currentStep != StudioStep.PUBLISHING) {
+            if (currentStep != StudioStep.PUBLISHING && currentStep != StudioStep.DELETING) {
                 IconButton(onClick = onBack) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
                 }
             }
         },
         actions = {
-            if (currentStep != StudioStep.PUBLISHING) {
+            if (currentStep != StudioStep.PUBLISHING && currentStep != StudioStep.DELETING) {
+                if (currentStep == StudioStep.REVIEW || currentStep == StudioStep.DETAILS || currentStep == StudioStep.APPROVAL) {
+                    IconButton(onClick = onDelete) {
+                        Icon(
+                            imageVector = Icons.Rounded.Delete,
+                            contentDescription = "Delete Draft",
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
                 IconButton(onClick = onClose) {
                     Icon(Icons.Default.Close, "Save & Exit")
                 }
@@ -239,7 +285,10 @@ fun StudioBottomBar(
                     enabled = when (state.currentStep) {
                         StudioStep.REVIEW -> state.reviewCompleted
                         StudioStep.DETAILS -> state.titleCompleted && state.emotionCompleted
-                        else -> true
+                        StudioStep.PROCESSING, 
+                        StudioStep.PUBLISHING, 
+                        StudioStep.DELETING -> true
+                        StudioStep.APPROVAL -> true // Technically unreachable due to outer if, but kept for exhaustiveness
                     },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = ArtifactTheme.colors.waveformActive

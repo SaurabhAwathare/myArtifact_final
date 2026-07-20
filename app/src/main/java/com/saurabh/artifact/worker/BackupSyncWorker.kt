@@ -43,9 +43,11 @@ class BackupSyncWorker @AssistedInject constructor(
             return Result.retry()
         }
 
-        // 1. Get drafts that are not published and not yet backed up
+        // 1. Get drafts that are not published, not deleting, and not yet backed up
         val pendingDrafts = draftDao.getAllDrafts().filter { 
             (it.lifecycle != ArtifactLifecycle.PUBLISHED) &&
+            (it.lifecycle != ArtifactLifecycle.DELETING) &&
+            (it.lifecycle != ArtifactLifecycle.DELETED) &&
             (it.status.backup !is SyncStatus.Synced)
         }
 

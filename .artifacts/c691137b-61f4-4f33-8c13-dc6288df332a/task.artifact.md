@@ -1,0 +1,21 @@
+# Tasks - Enable Resilient Draft Deletion
+
+- [x] **Phase 1: Lifecycle Transition Update**
+    - [x] Update `ArtifactLifecycle.kt` transition matrix.
+    - [x] Verify `REVIEW_REQUIRED.canTransitionTo(DELETING)` returns true.
+- [x] **Phase 2: Backup Worker Protection**
+    - [x] Inspect `BackupSyncWorker` lifecycle filtering.
+    - [x] Ensure `DELETING` and `DELETED` drafts are ignored.
+- [x] **Phase 3: ReviewSessionManager Validation**
+    - [x] Replace lifecycle ordinal comparisons with explicit checks.
+- [x] **Phase 4: Publishing Studio Handling**
+    - [x] Inspect `StudioStep.fromLifecycle()`.
+    - [x] Add explicit handling for `DELETING`.
+- [x] **Phase 5: Recovery Validation**
+    - [x] Update `RecoveryWorker` to resume interrupted deletions (Lifecycle == `DELETING`).
+- [x] **Phase 6: Unit Tests**
+    - [x] Add tests for `REVIEW_REQUIRED` -> `DELETING` transition.
+    - [x] Add tests for `RecoveryWorker` resumption.
+    - [x] Add tests for `BackupSyncWorker` skipping.
+- [x] **Phase 7: Documentation**
+    - [x] Update ADR-0002.

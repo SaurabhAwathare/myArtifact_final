@@ -1,0 +1,5 @@
+- [x] Update `ArtifactLifecycle.kt` to allow `METADATA_REQUIRED -> DELETING` transition.
+- [x] Update `LifecycleTransitionTest.kt` to verify the new transition.
+- [x] Verify code via static analysis (`analyze_file`).
+- [x] Logic trace verification of `DraftDeletionManager` -> `DraftDao` path.
+- [x] Create a walkthrough artifact.

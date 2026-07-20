@@ -16,6 +16,12 @@ class LifecycleTransitionTest {
         
         // REVIEW_REQUIRED -> METADATA_REQUIRED
         assertTrue(ArtifactLifecycle.REVIEW_REQUIRED.canTransitionTo(ArtifactLifecycle.METADATA_REQUIRED))
+
+        // REVIEW_REQUIRED -> DELETING
+        assertTrue(ArtifactLifecycle.REVIEW_REQUIRED.canTransitionTo(ArtifactLifecycle.DELETING))
+
+        // METADATA_REQUIRED -> DELETING
+        assertTrue(ArtifactLifecycle.METADATA_REQUIRED.canTransitionTo(ArtifactLifecycle.DELETING))
         
         // PUBLISHED -> DELETING
         assertTrue(ArtifactLifecycle.PUBLISHED.canTransitionTo(ArtifactLifecycle.DELETING))

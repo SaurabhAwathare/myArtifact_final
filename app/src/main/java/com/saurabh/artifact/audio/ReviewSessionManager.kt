@@ -115,8 +115,19 @@ class ReviewSessionManager @Inject constructor(
         withContext(Dispatchers.IO) {
             val draft = draftDao.getDraftById(artifactId) ?: return@withContext
             
-            // Idempotency guard: If already marked complete or beyond metadata required, skip
-            if (draft.reviewCompleted && draft.lifecycle >= ArtifactLifecycle.METADATA_REQUIRED) {
+            // Idempotency guard: If already marked complete or in a post-review state, skip
+            val isPostReview = when (draft.lifecycle) {
+                ArtifactLifecycle.METADATA_REQUIRED,
+                ArtifactLifecycle.READY_TO_PUBLISH,
+                ArtifactLifecycle.PUBLISHED,
+                ArtifactLifecycle.DELETING,
+                ArtifactLifecycle.DELETED -> true
+                ArtifactLifecycle.RECORDING,
+                ArtifactLifecycle.PROCESSING,
+                ArtifactLifecycle.REVIEW_REQUIRED -> false
+            }
+
+            if (draft.reviewCompleted && isPostReview) {
                 android.util.Log.d("STUDIO_TRACE", "markReviewComplete: Already complete. Skipping redundant write. (DB_TRACE)")
                 return@withContext
             }

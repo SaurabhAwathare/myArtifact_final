@@ -27,7 +27,8 @@ enum class StudioStep(val index: Int) {
     REVIEW(0),
     DETAILS(1),
     APPROVAL(2),
-    PUBLISHING(3);
+    PUBLISHING(3),
+    DELETING(4);
 
     companion object {
         fun fromLifecycle(lifecycle: ArtifactLifecycle): StudioStep = when (lifecycle) {
@@ -36,7 +37,9 @@ enum class StudioStep(val index: Int) {
             ArtifactLifecycle.METADATA_REQUIRED -> DETAILS
             ArtifactLifecycle.READY_TO_PUBLISH -> APPROVAL
             ArtifactLifecycle.PUBLISHED -> PUBLISHING
-            else -> REVIEW
+            ArtifactLifecycle.DELETING -> DELETING
+            ArtifactLifecycle.RECORDING,
+            ArtifactLifecycle.DELETED -> REVIEW // Fallback for states not valid in Studio
         }
     }
 }
@@ -76,6 +79,7 @@ data class StudioSessionState(
 @HiltViewModel
 class PublishingStudioViewModel @Inject constructor(
     private val recordingRepository: RecordingRepository,
+    private val cleanupManager: com.saurabh.artifact.audio.ArtifactCleanupManager,
     private val playbackCoordinator: PlaybackCoordinator,
     private val publishArtifactUseCase: PublishArtifactUseCase,
     private val identityScout: IdentityScout,
@@ -176,6 +180,14 @@ class PublishingStudioViewModel @Inject constructor(
         }
     }
 
+    fun deleteDraft() {
+        val draftId = _draftId.value ?: return
+        diagnosticLogger.info(DiagnosticCategory.STUDIO, "DRAFT_DELETE_REQUESTED", mapOf(LogKeys.DRAFT_ID to draftId))
+        viewModelScope.launch {
+            cleanupManager.deleteDraft(draftId)
+        }
+    }
+
     /**
      * Updates the draft title using a temporary UI buffer for responsiveness,
      * maintaining the [Publishing Flow Invariants](file:///docs/architecture/PublishingFlowInvariants.md).
@@ -230,7 +242,11 @@ class PublishingStudioViewModel @Inject constructor(
             ArtifactLifecycle.REVIEW_REQUIRED -> ArtifactLifecycle.METADATA_REQUIRED
             ArtifactLifecycle.METADATA_REQUIRED -> ArtifactLifecycle.READY_TO_PUBLISH
             ArtifactLifecycle.READY_TO_PUBLISH -> ArtifactLifecycle.READY_TO_PUBLISH // Handled by performPublish
-            else -> currentLifecycle
+            ArtifactLifecycle.PROCESSING,
+            ArtifactLifecycle.PUBLISHED,
+            ArtifactLifecycle.DELETING,
+            ArtifactLifecycle.DELETED,
+            ArtifactLifecycle.RECORDING -> currentLifecycle
         }
 
         diagnosticLogger.info(DiagnosticCategory.STUDIO, "NEXT_STEP_REQUESTED", mapOf(LogKeys.DRAFT_ID to draftId, "nextStep" to StudioStep.fromLifecycle(nextLifecycle).name))
@@ -251,7 +267,12 @@ class PublishingStudioViewModel @Inject constructor(
         val prevLifecycle = when (currentLifecycle) {
             ArtifactLifecycle.METADATA_REQUIRED -> ArtifactLifecycle.REVIEW_REQUIRED
             ArtifactLifecycle.READY_TO_PUBLISH -> ArtifactLifecycle.METADATA_REQUIRED
-            else -> currentLifecycle
+            ArtifactLifecycle.REVIEW_REQUIRED,
+            ArtifactLifecycle.PROCESSING,
+            ArtifactLifecycle.PUBLISHED,
+            ArtifactLifecycle.DELETING,
+            ArtifactLifecycle.DELETED,
+            ArtifactLifecycle.RECORDING -> currentLifecycle
         }
         
         diagnosticLogger.info(DiagnosticCategory.STUDIO, "PREVIOUS_STEP_REQUESTED", mapOf(LogKeys.DRAFT_ID to draftId, "prevStep" to StudioStep.fromLifecycle(prevLifecycle).name))
