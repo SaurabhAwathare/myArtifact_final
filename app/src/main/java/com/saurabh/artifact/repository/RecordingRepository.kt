@@ -18,6 +18,7 @@ import com.saurabh.artifact.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.withContext
 import java.io.File
 import javax.inject.Inject
@@ -95,21 +96,27 @@ class RecordingRepository @Inject constructor(
 
     fun observeDrafts(): Flow<List<ArtifactDraftEntity>> = draftDao.get().observeDrafts()
 
-    fun observeDraft(id: String): Flow<ArtifactDraftEntity?> = draftDao.get().observeDraftById(id).onEach { draft ->
-        if (draft != null) {
-            diagnosticLogger.trace(
-                DiagnosticCategory.DATABASE,
-                "DRAFT_OBSERVE_EMISSION",
-                mapOf(
-                    LogKeys.DRAFT_ID to draft.id,
-                    "lifecycle" to draft.lifecycle.name,
-                    "reviewProgress" to draft.reviewProgress
-                )
-            )
-        } else {
-            diagnosticLogger.trace(DiagnosticCategory.DATABASE, "DRAFT_OBSERVE_NULL", mapOf(LogKeys.DRAFT_ID to id))
+    fun observeDraft(id: String): Flow<ArtifactDraftEntity?> = draftDao.get().observeDraftById(id)
+        .distinctUntilChanged { old, new ->
+            old?.id == new?.id &&
+            old?.lifecycle == new?.lifecycle &&
+            old?.reviewProgress == new?.reviewProgress
         }
-    }
+        .onEach { draft ->
+            if (draft != null) {
+                diagnosticLogger.trace(
+                    DiagnosticCategory.DATABASE,
+                    "DRAFT_OBSERVE_EMISSION",
+                    mapOf(
+                        LogKeys.DRAFT_ID to draft.id,
+                        "lifecycle" to draft.lifecycle.name,
+                        "reviewProgress" to draft.reviewProgress
+                    )
+                )
+            } else {
+                diagnosticLogger.trace(DiagnosticCategory.DATABASE, "DRAFT_OBSERVE_NULL", mapOf(LogKeys.DRAFT_ID to id))
+            }
+        }
 
     suspend fun getDraft(id: String): Result<ArtifactDraftEntity> = withContext(Dispatchers.IO) {
         try {
@@ -196,11 +203,38 @@ class RecordingRepository @Inject constructor(
         }
     }
 
-    suspend fun updateTranscriptionResult(id: String, localTranscriptPath: String, emotionalTone: EmotionalTone?, primaryStyle: ConversationStyle?): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun updateTranscriptionResult(
+        id: String,
+        localTranscriptPath: String,
+        transcriptJson: String?,
+        emotionalTone: EmotionalTone?,
+        primaryStyle: ConversationStyle?
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        diagnosticLogger.info(DiagnosticCategory.DATABASE, "TRANSCRIPT_UPDATE_RECEIVED", mapOf(LogKeys.DRAFT_ID to id))
         try {
-            draftDao.get().updateTranscriptionResult(id, localTranscriptPath, emotionalTone, primaryStyle)
+            val secureTranscript = transcriptJson?.let { com.saurabh.artifact.util.SecureString.fromString(it) }
+            
+            diagnosticLogger.debug(DiagnosticCategory.DATABASE, "TRANSCRIPT_UPDATE_FORWARDED", mapOf(LogKeys.DRAFT_ID to id))
+            draftDao.get().updateTranscriptionResult(
+                id = id,
+                localTranscriptPath = localTranscriptPath,
+                transcriptSegmentsJson = secureTranscript,
+                emotionalTone = emotionalTone,
+                primaryStyle = primaryStyle
+            )
+            diagnosticLogger.info(DiagnosticCategory.DATABASE, "TRANSCRIPT_DATABASE_UPDATED", mapOf(LogKeys.DRAFT_ID to id))
             Result.success(Unit)
         } catch (e: Exception) {
+            diagnosticLogger.error(
+                DiagnosticCategory.DATABASE, 
+                "TRANSCRIPT_DATABASE_UPDATE_FAILED", 
+                mapOf(
+                    LogKeys.DRAFT_ID to id,
+                    LogKeys.EXCEPTION_CLASS to e.javaClass.simpleName,
+                    LogKeys.EXCEPTION_MESSAGE to (e.message ?: "No message")
+                ),
+                e
+            )
             Result.failure(AppError.from(e))
         }
     }

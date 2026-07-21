@@ -90,18 +90,31 @@ class PlayerViewModel @Inject constructor(
 
         // Phase 1 & 7: State Synchronization and Debug Logging
         viewModelScope.launch {
-            playbackCoordinator.currentArtifact.collect { artifact ->
-                val currentPlayable = _currentPlayableArtifact.value
-                
-                if (artifact != null && currentPlayable != null && artifact.id != currentPlayable.id) {
-                    diagnosticLogger.info(DiagnosticCategory.SYNC, "PLAYER_ID_MISMATCH_PURGE", mapOf("staleId" to currentPlayable.id, "newId" to artifact.id))
-                    _currentPlayableArtifact.value = null
-                    _loadState.value = PlayerLoadState.IDLE
-                } else if (artifact == null) {
-                    _currentPlayableArtifact.value = null
-                    _loadState.value = PlayerLoadState.IDLE
+            playbackCoordinator.currentArtifact
+                .distinctUntilChanged { old, new -> old?.id == new?.id }
+                .collect { artifact ->
+                    if (artifact != null && artifact.transcript.isNotEmpty()) {
+                        diagnosticLogger.info(
+                            DiagnosticCategory.PLAYER,
+                            "TRANSCRIPT_LOADED",
+                            mapOf(
+                                LogKeys.ARTIFACT_ID to artifact.id,
+                                "segmentCount" to artifact.transcript.size
+                            )
+                        )
+                    }
+
+                    val currentPlayable = _currentPlayableArtifact.value
+                    
+                    if (artifact != null && currentPlayable != null && artifact.id != currentPlayable.id) {
+                        diagnosticLogger.info(DiagnosticCategory.SYNC, "PLAYER_ID_MISMATCH_PURGE", mapOf("staleId" to currentPlayable.id, "newId" to artifact.id))
+                        _currentPlayableArtifact.value = null
+                        _loadState.value = PlayerLoadState.IDLE
+                    } else if (artifact == null) {
+                        _currentPlayableArtifact.value = null
+                        _loadState.value = PlayerLoadState.IDLE
+                    }
                 }
-            }
         }
     }
 

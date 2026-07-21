@@ -46,10 +46,9 @@ class GetPlayerContextUseCase @Inject constructor(
     }
 
     private fun observeDraftMetadata(artifact: Artifact): Flow<PlayerMetadata> {
-        // For drafts, we observe the local draft for title/waveform updates
-        // but provide empty/default values for all social metadata.
+        // For drafts, we observe the local draft primarily to handle lifecycle changes
+        // (like deletion) while providing empty/default values for all social metadata.
         return draftRepository.observeDraftAsArtifact(artifact.id)
-            .onStart { emit(artifact) }
             .map { updatedArtifact ->
                 if (updatedArtifact == null) {
                     PlayerMetadata()

@@ -21,6 +21,12 @@ Welcome to the architectural documentation for Artifact. This directory contains
 
 ---
 
+## Subsystem Design Notes
+
+- **Draft Playback Architecture (July 2026)**: Local drafts are observed exclusively through Room via `DraftRepository`. Firestore observation is reserved for published artifacts only. This separation is intentional to reduce network usage, eliminate permission errors for local content, and preserves reactive updates through local observation.
+
+---
+
 ## Governance & Guidelines
 
 - **[Architecture Decision Records (ADRs)](../adr/)**: History of architectural decisions.

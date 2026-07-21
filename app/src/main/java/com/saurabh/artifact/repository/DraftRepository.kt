@@ -3,10 +3,14 @@ package com.saurabh.artifact.repository
 import androidx.room.withTransaction
 import com.saurabh.artifact.data.local.*
 import com.saurabh.artifact.data.mapper.DraftToArtifactMapper
+import com.saurabh.artifact.diagnostics.ArtifactLogger
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
@@ -44,18 +48,34 @@ class DraftRepository @Inject constructor(
     fun observeDraftAsArtifact(id: String): Flow<Artifact?> {
         val currentUserId = userRepository.getCurrentUserId() ?: return flowOf(null)
 
+        val optimizedDraftFlow = draftDao.observeDraftById(id)
+            .distinctUntilChanged { old, new ->
+                PlaybackKey.from(old) == PlaybackKey.from(new)
+            }
+
         return combine(
-            draftDao.observeDraftById(id),
+            optimizedDraftFlow,
             userRepository.streamUserProfile(currentUserId)
         ) { draft, user ->
             if (draft == null || user == null) {
                 null
             } else {
-                draftToArtifactMapper.map(
+                val artifact = draftToArtifactMapper.map(
                     draft = draft,
                     author = AuthorSnapshot.fromUser(user),
                     fallbackTitle = "Untitled"
                 )
+                
+                ArtifactLogger.d(
+                    DiagnosticCategory.DATABASE, 
+                    "TRANSCRIPT_DRAFT_EMITTED", 
+                    mapOf(
+                        LogKeys.DRAFT_ID to draft.id,
+                        "segmentCount" to artifact.transcript.size
+                    )
+                )
+                
+                artifact
             }
         }
     }
@@ -246,3 +266,34 @@ data class DraftWithUpload(
     val draft: ArtifactDraftEntity,
     val uploadTask: UploadTaskEntity?
 )
+
+/**
+ * Internal key used to detect structural changes relevant to playback.
+ * Filtering based on this key prevents redundant transcript decoding during
+ * high-frequency progress updates.
+ */
+private data class PlaybackKey(
+    val id: String?,
+    val title: String?,
+    val transcriptContent: String?,
+    val emotion: Emotion?,
+    val durationMs: Long,
+    val amplitudeData: List<Float>,
+    val lifecycle: ArtifactLifecycle?
+) {
+    companion object {
+        fun from(entity: ArtifactDraftEntity?): PlaybackKey? {
+            if (entity == null) return null
+            return PlaybackKey(
+                id = entity.id,
+                title = entity.title,
+                // We use the unsecure string for comparison as SecureString doesn't override equals
+                transcriptContent = entity.transcriptSegmentsJson?.toUnsecureString(),
+                emotion = entity.emotion,
+                durationMs = entity.durationMs,
+                amplitudeData = entity.amplitudeData,
+                lifecycle = entity.lifecycle
+            )
+        }
+    }
+}

@@ -87,8 +87,8 @@ interface DraftDao {
     @Query("UPDATE artifact_drafts SET localAudioPath = :localAudioPath, checksum = :checksum, isEncrypted = :isEncrypted, updatedAt = :timestamp WHERE id = :id")
     suspend fun updateTranscodingResult(id: String, localAudioPath: String, checksum: String?, isEncrypted: Boolean, timestamp: Long = System.currentTimeMillis())
 
-    @Query("UPDATE artifact_drafts SET localTranscriptPath = :localTranscriptPath, emotionalTone = :emotionalTone, primaryStyle = :primaryStyle, updatedAt = :timestamp WHERE id = :id")
-    suspend fun updateTranscriptionResult(id: String, localTranscriptPath: String, emotionalTone: EmotionalTone?, primaryStyle: ConversationStyle?, timestamp: Long = System.currentTimeMillis())
+    @Query("UPDATE artifact_drafts SET localTranscriptPath = :localTranscriptPath, transcriptSegmentsJson = :transcriptSegmentsJson, emotionalTone = :emotionalTone, primaryStyle = :primaryStyle, updatedAt = :timestamp WHERE id = :id")
+    suspend fun updateTranscriptionResult(id: String, localTranscriptPath: String, transcriptSegmentsJson: SecureString?, emotionalTone: EmotionalTone?, primaryStyle: ConversationStyle?, timestamp: Long = System.currentTimeMillis())
 
     @Query("UPDATE artifact_drafts SET amplitudeData = :amplitudeData, updatedAt = :timestamp WHERE id = :id")
     suspend fun _updateAmplitudeDataInternal(id: String, amplitudeData: List<Float>, timestamp: Long)

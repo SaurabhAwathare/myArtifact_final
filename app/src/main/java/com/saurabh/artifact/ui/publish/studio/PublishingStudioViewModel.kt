@@ -13,6 +13,7 @@ import com.saurabh.artifact.domain.PublishArtifactUseCase
 import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.model.Emotion
 import com.saurabh.artifact.model.PublishingResult
+import com.saurabh.artifact.model.TranscriptSegment
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.RecordingRepository
 import com.saurabh.artifact.util.SecureString
@@ -65,6 +66,8 @@ data class StudioSessionState(
     val currentPosition: Long = 0L,
     val durationMs: Long = 0L,
     val coveragePercent: Float = 0f,
+    val transcript: List<TranscriptSegment> = emptyList(),
+    val isTranscriptExpanded: Boolean = false,
     
     // Publication State (Local UI)
     val isPublishing: Boolean = false,
@@ -104,16 +107,24 @@ class PublishingStudioViewModel @Inject constructor(
             val draftFlow = recordingRepository.observeDraft(id).filterNotNull()
             val reviewFlow = playbackCoordinator.reviewProgress
             val recoveryFlow = recordingRepository.observeRecoveryState(id, workManager)
+            val artifactFlow = playbackCoordinator.currentArtifact
             
+            var lastTranscript: List<TranscriptSegment> = emptyList()
+
             combine(
                 draftFlow,
                 reviewFlow,
                 recoveryFlow,
-                _titleInput,
-                _uiState
-            ) { draft, review, isRecovering, titleBuffer, ui ->
+                artifactFlow,
+                combine(_titleInput, _uiState) { title, ui -> title to ui }
+            ) { draft, review, isRecovering, artifact, localUi ->
+                val (titleBuffer, ui) = localUi
                 val step = StudioStep.fromLifecycle(draft.lifecycle)
                 val displayTitle = titleBuffer ?: draft.title ?: ""
+
+                if (artifact?.id == id && artifact.transcript.isNotEmpty()) {
+                    lastTranscript = artifact.transcript
+                }
 
                 StudioSessionState(
                     draftId = draft.id,
@@ -130,6 +141,8 @@ class PublishingStudioViewModel @Inject constructor(
                     currentPosition = if (draft.lifecycle == ArtifactLifecycle.REVIEW_REQUIRED) review.furthestPositionMs else 0L,
                     durationMs = draft.durationMs,
                     coveragePercent = if (draft.lifecycle == ArtifactLifecycle.REVIEW_REQUIRED) review.coveragePercent else draft.reviewProgress,
+                    transcript = lastTranscript,
+                    isTranscriptExpanded = ui.isTranscriptExpanded,
                     isPublishing = ui.isPublishing,
                     isSuccess = ui.isSuccess || draft.lifecycle == ArtifactLifecycle.PUBLISHED,
                     isQueuedOffline = ui.isQueuedOffline,
@@ -362,6 +375,10 @@ class PublishingStudioViewModel @Inject constructor(
         playbackCoordinator.togglePlayPause()
     }
 
+    fun toggleTranscript() {
+        _uiState.update { it.copy(isTranscriptExpanded = !it.isTranscriptExpanded) }
+    }
+
     fun seekTo(progress: Float) {
         viewModelScope.launch {
             val dur = playbackCoordinator.duration.first()
@@ -385,6 +402,7 @@ data class StudioUiState(
     val isSuccess: Boolean = false,
     val isQueuedOffline: Boolean = false,
     val isRecovering: Boolean = false,
+    val isTranscriptExpanded: Boolean = false,
     val error: String? = null,
     val showPrivacyNudge: Boolean = false,
     val privacyWarnings: List<String> = emptyList()

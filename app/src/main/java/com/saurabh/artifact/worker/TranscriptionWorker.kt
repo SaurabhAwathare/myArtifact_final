@@ -37,7 +37,7 @@ class TranscriptionWorker @AssistedInject constructor(
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val draftId = inputData.getString(KEY_DRAFT_ID) ?: return@withContext Result.failure()
-        diagnosticLogger.info(DiagnosticCategory.RECORDING, "TRANSCRIPTION_STARTED", mapOf(LogKeys.DRAFT_ID to draftId))
+        diagnosticLogger.info(DiagnosticCategory.RECORDING, "TRANSCRIPT_GENERATION_STARTED", mapOf(LogKeys.DRAFT_ID to draftId))
         
         val draft = recordingRepository.getDraft(draftId).getOrNull() ?: return@withContext Result.failure()
         val file = File(draft.localAudioPath)
@@ -65,6 +65,19 @@ class TranscriptionWorker @AssistedInject constructor(
                 performTranscription(file, draftId)
             }
 
+            val segmentCount = runCatching {
+                Json.decodeFromString<List<TranscriptSegment>>(transcriptText).size
+            }.getOrDefault(0)
+
+            diagnosticLogger.info(
+                DiagnosticCategory.RECORDING,
+                "TRANSCRIPT_GENERATION_COMPLETED",
+                mapOf(
+                    LogKeys.DRAFT_ID to draftId,
+                    "segment_count" to segmentCount
+                )
+            )
+
             // Save transcript to file
             val transcriptFile = localDraftManager.createTranscriptFile(draftId)
             transcriptFile.writeText(transcriptText)
@@ -77,9 +90,11 @@ class TranscriptionWorker @AssistedInject constructor(
             val conversationStyle = analyzeConversationStyle()
 
             // 5. Update Repository with targeted update
+            diagnosticLogger.info(DiagnosticCategory.RECORDING, "TRANSCRIPT_PERSIST_REQUESTED", mapOf(LogKeys.DRAFT_ID to draftId))
             recordingRepository.updateTranscriptionResult(
                 id = draftId,
                 localTranscriptPath = transcriptPath,
+                transcriptJson = transcriptText,
                 emotionalTone = emotionalTone,
                 primaryStyle = conversationStyle
             )

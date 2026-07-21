@@ -150,4 +150,23 @@ class RecordingRepositoryTest {
 
         coVerify(exactly = 1) { deletionManager.deleteDraft("deleting_1") }
     }
+
+    @Test
+    fun `updateTranscriptionResult should propagate data to DAO`() = runTest {
+        val id = "draft_1"
+        val path = "/path/to/transcript.json"
+        val json = """[{"text":"test"}]"""
+        
+        repository.updateTranscriptionResult(id, path, json, null, null)
+
+        coVerify {
+            draftDao.updateTranscriptionResult(
+                id = id,
+                localTranscriptPath = path,
+                transcriptSegmentsJson = any(),
+                emotionalTone = null,
+                primaryStyle = null
+            )
+        }
+    }
 }

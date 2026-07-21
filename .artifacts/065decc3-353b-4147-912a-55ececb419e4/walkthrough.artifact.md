@@ -14,7 +14,7 @@ I have successfully implemented Phase 2 of the Artifact metadata observation ref
 
 #### [GetPlayerContextUseCase.kt](file:///F:/Android Project/01/app/src/main/java/com/saurabh/artifact/domain/player/GetPlayerContextUseCase.kt)
 - **Branching Metadata Pipeline**: Refactored the core observation logic to branch based on the `isDraft` discriminator.
-- **Zero-Firestore Draft Path**: Implemented `observeDraftMetadata()` which uses the local `DraftRepository`. It provides real-time title and waveform updates via Room without ever creating a Firestore `SnapshotListener`.
+- **Zero-Firestore Draft Path**: Implemented `observeDraftMetadata()` which uses the local `DraftRepository`. It handles draft lifecycle (like deletion) without ever creating a Firestore `SnapshotListener`.
 - **Symmetrical Design**: The `observePublishedMetadata()` method preserves the existing Firestore-backed behavior for published artifacts, ensuring zero regressions for the public feed.
 
 ## Verification Results
@@ -23,6 +23,7 @@ I have successfully implemented Phase 2 of the Artifact metadata observation ref
 - **Layering**: Confirmed that `GetPlayerContextUseCase` only depends on repository interfaces and domain models. No Data-layer classes (entities/DAOs) leak into the Domain layer.
 - **Reactivity & Lifecycle**: Verified that the `flatMapLatest` implementation in `execute()` correctly manages the lifecycle of metadata observers. Switching artifacts or types (Draft → Published) automatically cancels stale observers and initializes new ones, preventing memory leaks and duplicate triggers.
 - **Resilience**: Verified that deletion of a draft results in a safe fallback to default `PlayerMetadata`, preventing UI stalls.
+- **Initialization**: Removed redundant `onStart` emissions in the player context flow, relying on Room's immediate emission for zero-latency UI state.
 
 ### Resource Efficiency
 - **Firestore Savings**: For drafts, the number of active Firestore listeners is reduced from **3+** (artifact, reactions, follow status) to **0**.

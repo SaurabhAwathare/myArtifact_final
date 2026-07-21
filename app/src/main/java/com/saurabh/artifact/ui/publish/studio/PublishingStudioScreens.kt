@@ -28,6 +28,7 @@ import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.model.Emotion
+import com.saurabh.artifact.model.TranscriptSegment
 import com.saurabh.artifact.ui.components.EmotionSelector
 import com.saurabh.artifact.ui.player.components.PlaybackControls
 import com.saurabh.artifact.ui.player.components.PlaybackSpeedSelector
@@ -335,10 +336,12 @@ fun StudioReviewStep(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+            .padding(horizontal = 32.dp)
+            .verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        Spacer(modifier = Modifier.height(48.dp))
+
         // Time and Percentage UI
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
@@ -401,6 +404,81 @@ fun StudioReviewStep(
             currentSpeed = state.playbackSpeed,
             onSpeedSelected = { viewModel.setPlaybackSpeed(it) }
         )
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        TranscriptSection(
+            segments = state.transcript,
+            isExpanded = state.isTranscriptExpanded,
+            onToggle = { viewModel.toggleTranscript() }
+        )
+
+        Spacer(modifier = Modifier.height(48.dp))
+    }
+}
+
+@Composable
+fun TranscriptSection(
+    segments: List<TranscriptSegment>,
+    isExpanded: Boolean,
+    onToggle: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        TextButton(
+            onClick = onToggle,
+            modifier = Modifier.align(Alignment.CenterHorizontally)
+        ) {
+            Icon(
+                imageVector = if (isExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(Modifier.width(Spacing.Small))
+            Text(
+                text = if (isExpanded) "Hide Transcript" else "Show Transcript",
+                style = ArtifactTheme.typography.labelMedium,
+                color = ArtifactTheme.colors.onSurfaceMuted
+            )
+        }
+
+        AnimatedVisibility(
+            visible = isExpanded,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut()
+        ) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = Spacing.Medium),
+                colors = CardDefaults.cardColors(
+                    containerColor = ArtifactTheme.colors.surfaceHearth.copy(alpha = 0.5f)
+                ),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                if (segments.isEmpty()) {
+                    Text(
+                        text = "Transcript not available.",
+                        modifier = Modifier
+                            .padding(Spacing.Large)
+                            .fillMaxWidth(),
+                        style = ArtifactTheme.typography.bodySmall,
+                        color = ArtifactTheme.colors.onSurfaceMuted,
+                        textAlign = TextAlign.Center
+                    )
+                } else {
+                    Column(modifier = Modifier.padding(Spacing.Large)) {
+                        segments.forEach { segment ->
+                            Text(
+                                text = segment.text,
+                                style = ArtifactTheme.typography.bodyMedium,
+                                color = ArtifactTheme.colors.onSurfaceMain,
+                                modifier = Modifier.padding(vertical = 4.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

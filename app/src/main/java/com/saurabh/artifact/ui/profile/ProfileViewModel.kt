@@ -55,6 +55,29 @@ data class ProfileUiState(
     val durationMs: Long = 0,
 )
 
+private data class ProfileContent(
+    val data: ProfileData?,
+    val avatarConfig: AvatarConfig,
+    val selectedTab: ProfileTab,
+    val logoutState: LogoutState,
+    val message: UiText?,
+    val isActionLoading: Boolean,
+    val isRefreshing: Boolean,
+    val mappedLocalDrafts: List<DraftUiModel>,
+    val mappedPublishedArtifacts: List<Artifact>,
+    val mappedCloudDrafts: List<Artifact>,
+    val mappedSavedArtifacts: List<Artifact>,
+)
+
+private data class PlaybackState(
+    val currentlyPlaying: Artifact?,
+    val isPlaying: Boolean,
+    val isBuffering: Boolean,
+    val position: Duration,
+    val duration: Duration
+)
+
+@androidx.media3.common.util.UnstableApi
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class ProfileViewModel @Inject constructor(
@@ -80,14 +103,19 @@ class ProfileViewModel @Inject constructor(
     private val _isRefreshing = MutableStateFlow(value = false)
     private val _refreshTrigger = MutableStateFlow(0)
 
+    // Phase 4: Temporary memory buffers for input fields (Invariant 8)
+    private val _editingId = MutableStateFlow<String?>(null)
+    private val _titleInput = MutableStateFlow<String?>(null)
+    private var renameDebounceJob: kotlinx.coroutines.Job? = null
+
     private val profileDataFlow = _refreshTrigger.flatMapLatest {
         getProfileDataUseCase(_targetUserId.value)
     }
 
-    val uiState: StateFlow<ProfileUiState> = combine(
+    private val profileContentFlow = combine(
         profileDataFlow.onEach { data ->
-            if (data != null) {
-                diagnosticLogger.info(DiagnosticCategory.PROFILE, "PROFILE_LOADED", mapOf("isSelf" to data.isSelf, "publishedCount" to data.publishedArtifacts.size))
+            data?.let {
+                diagnosticLogger.info(DiagnosticCategory.PROFILE, "PROFILE_LOADED", mapOf("isSelf" to it.isSelf, "publishedCount" to it.publishedArtifacts.size))
             }
         },
         userProfileManager.activeAvatarConfig,
@@ -96,12 +124,9 @@ class ProfileViewModel @Inject constructor(
         _message,
         _isActionLoading,
         _isRefreshing,
-        playbackCoordinator.currentArtifact,
-        playbackCoordinator.isPlaying,
-        playbackCoordinator.isBuffering,
-        playbackCoordinator.currentPosition,
-        playbackCoordinator.duration,
-    ) { params: Array<Any?> ->
+        _editingId,
+        _titleInput
+    ) { params ->
         val data = params[0] as ProfileData?
         val avatarConfig = params[1] as AvatarConfig
         val selectedTab = params[2] as ProfileTab
@@ -109,48 +134,94 @@ class ProfileViewModel @Inject constructor(
         val message = params[4] as UiText?
         val isActionLoading = params[5] as Boolean
         val isRefreshing = params[6] as Boolean
-        
-        val currentlyPlaying = params[7] as Artifact?
-        val isPlaying = params[8] as Boolean
-        val isBuffering = params[9] as Boolean
-        val position = params[10] as Duration
-        val duration = params[11] as Duration
+        val editingId = params[7] as String?
+        val titleInput = params[8] as String?
+
+        fun mapArtifact(artifact: Artifact): Artifact {
+            return if (artifact.id == editingId && (titleInput != null)) {
+                artifact.copy(title = titleInput)
+            } else {
+                artifact
+            }
+        }
 
         val mappedLocalDrafts = data?.localDrafts?.map { draft ->
             val author = data.userProfile?.let { AuthorSnapshot.fromUser(it) } 
                 ?: AuthorSnapshot(name = "Private Draft")
             
+            val artifact = draftMapper.map(
+                draft = draft,
+                author = author,
+                fallbackTitle = "Unfinished Recording"
+            )
+            
             DraftUiModel(
-                artifact = draftMapper.map(
-                    draft = draft,
-                    author = author,
-                    fallbackTitle = "Unfinished Recording"
-                ),
+                artifact = mapArtifact(artifact),
                 reviewProgress = draft.reviewProgress,
                 isListened = draft.lifecycle == com.saurabh.artifact.model.ArtifactLifecycle.READY_TO_PUBLISH
             )
         } ?: emptyList()
 
-        val state = ProfileUiState(
-            userProfile = data?.userProfile,
+        val mappedPublished = data?.publishedArtifacts?.map { mapArtifact(it) } ?: emptyList()
+        val mappedCloudDrafts = data?.cloudDrafts?.map { mapArtifact(it) } ?: emptyList()
+        val mappedSaved = data?.savedArtifacts?.map { mapArtifact(it) } ?: emptyList()
+
+        ProfileContent(
+            data = data,
             avatarConfig = avatarConfig,
-            isSelf = data?.isSelf ?: true,
-            isResonating = data?.isResonating ?: false,
             selectedTab = selectedTab,
-            publishedArtifacts = data?.publishedArtifacts ?: emptyList(),
-            cloudDrafts = data?.cloudDrafts ?: emptyList(),
-            savedArtifacts = data?.savedArtifacts ?: emptyList(),
-            localDrafts = mappedLocalDrafts,
             logoutState = logoutState,
             message = message,
-            isLoading = data == null,
             isActionLoading = isActionLoading,
             isRefreshing = isRefreshing,
-            currentlyPlayingArtifact = currentlyPlaying,
+            mappedLocalDrafts = mappedLocalDrafts,
+            mappedPublishedArtifacts = mappedPublished,
+            mappedCloudDrafts = mappedCloudDrafts,
+            mappedSavedArtifacts = mappedSaved
+        )
+    }
+
+    private val playbackStateFlow = combine(
+        playbackCoordinator.currentArtifact,
+        playbackCoordinator.isPlaying,
+        playbackCoordinator.isBuffering,
+        playbackCoordinator.currentPosition,
+        playbackCoordinator.duration,
+    ) { currentlyPlaying, isPlaying, isBuffering, currentPosition, duration ->
+        PlaybackState(
+            currentlyPlaying = currentlyPlaying,
             isPlaying = isPlaying,
             isBuffering = isBuffering,
-            currentPosition = position.inWholeMilliseconds,
-            durationMs = duration.inWholeMilliseconds,
+            position = currentPosition,
+            duration = duration
+        )
+    }
+
+    val uiState: StateFlow<ProfileUiState> = combine(
+        profileContentFlow,
+        playbackStateFlow
+    ) { content, playback ->
+        val data = content.data
+        val state = ProfileUiState(
+            userProfile = data?.userProfile,
+            avatarConfig = content.avatarConfig,
+            isSelf = data?.isSelf ?: true,
+            isResonating = data?.isResonating ?: false,
+            selectedTab = content.selectedTab,
+            publishedArtifacts = content.mappedPublishedArtifacts,
+            cloudDrafts = content.mappedCloudDrafts,
+            savedArtifacts = content.mappedSavedArtifacts,
+            localDrafts = content.mappedLocalDrafts,
+            logoutState = content.logoutState,
+            message = content.message,
+            isLoading = data == null,
+            isActionLoading = content.isActionLoading,
+            isRefreshing = content.isRefreshing,
+            currentlyPlayingArtifact = playback.currentlyPlaying,
+            isPlaying = playback.isPlaying,
+            isBuffering = playback.isBuffering,
+            currentPosition = playback.position.inWholeMilliseconds,
+            durationMs = playback.duration.inWholeMilliseconds,
         )
 
         // Investigation Instrumentation: PROFILE_UI_UPDATED
@@ -231,12 +302,6 @@ class ProfileViewModel @Inject constructor(
             _message.value = UiText.StringResource(R.string.no_voice_yet)
             return
         }
-        
-        // If it's a draft, handle review logic
-        if (artifact.isDraft) {
-             // Redundant since playAudio is for published list, 
-             // but keeping it robust for the union lists
-        }
 
         playbackCoordinator.playArtifact(artifact)
     }
@@ -256,16 +321,32 @@ class ProfileViewModel @Inject constructor(
     }
 
     fun renameDraft(draftId: String, newTitle: String) {
-        viewModelScope.launch {
-            _isActionLoading.value = true
+        // Update local buffer immediately for zero-latency UI
+        _editingId.value = draftId
+        _titleInput.value = newTitle
+
+        renameDebounceJob?.cancel()
+        renameDebounceJob = viewModelScope.launch {
+            delay(500.milliseconds)
+            
+            diagnosticLogger.info(DiagnosticCategory.PROFILE, "DRAFT_RENAME_STARTED", mapOf(LogKeys.DRAFT_ID to draftId, "newTitle" to newTitle))
             profileInteractionUseCase.renameDraft(draftId, newTitle)
                 .onSuccess {
                     _message.value = UiText.StringResource(R.string.draft_renamed)
+                    // Clear buffer ONLY after successful persistence to let Room take authority back
+                    if (_editingId.value == draftId) {
+                        _editingId.value = null
+                        _titleInput.value = null
+                    }
                 }
                 .onFailure { e ->
                     _message.value = ErrorMessageMapper.map(e)
+                    // Also clear on failure to revert to Room truth
+                    if (_editingId.value == draftId) {
+                        _editingId.value = null
+                        _titleInput.value = null
+                    }
                 }
-            _isActionLoading.value = false
         }
     }
 
@@ -287,16 +368,32 @@ class ProfileViewModel @Inject constructor(
     }
 
     fun renamePublishedArtifact(artifactId: String, newTitle: String) {
-        viewModelScope.launch {
-            _isActionLoading.value = true
+        // Update local buffer immediately for zero-latency UI
+        _editingId.value = artifactId
+        _titleInput.value = newTitle
+
+        renameDebounceJob?.cancel()
+        renameDebounceJob = viewModelScope.launch {
+            delay(500.milliseconds)
+            
+            diagnosticLogger.info(DiagnosticCategory.PROFILE, "ARTIFACT_RENAME_STARTED", mapOf(LogKeys.ARTIFACT_ID to artifactId, "newTitle" to newTitle))
             profileInteractionUseCase.renamePublishedArtifact(artifactId, newTitle)
                 .onSuccess {
                     _message.value = UiText.StringResource(R.string.reflection_renamed)
+                    // Clear buffer ONLY after successful persistence to let Room take authority back
+                    if (_editingId.value == artifactId) {
+                        _editingId.value = null
+                        _titleInput.value = null
+                    }
                 }
                 .onFailure { e ->
                     _message.value = ErrorMessageMapper.map(e)
+                    // Also clear on failure to revert to Room truth
+                    if (_editingId.value == artifactId) {
+                        _editingId.value = null
+                        _titleInput.value = null
+                    }
                 }
-            _isActionLoading.value = false
         }
     }
 
