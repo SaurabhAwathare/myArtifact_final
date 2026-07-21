@@ -1,10 +1,11 @@
 package com.saurabh.artifact.audio
 
-import android.util.Log
 import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
+import com.saurabh.artifact.diagnostics.ArtifactLogger
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.worker.CleanupWorker
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,10 +39,10 @@ class ArtifactCleanupManager @Inject constructor(
             val result = artifactRepository.deletePublishedArtifact(artifactId)
             
             if (result.isSuccess) {
-                Log.d("CleanupManager", "Remote deletion successful. Scheduling local cleanup.")
+                ArtifactLogger.i(DiagnosticCategory.PUBLISH, "ARTIFACT_REMOTE_DELETION_SUCCESS", mapOf("artifactId" to artifactId))
                 scheduleLocalCleanup(artifactId)
             } else {
-                Log.e("CleanupManager", "Remote deletion failed.")
+                ArtifactLogger.e(DiagnosticCategory.PUBLISH, "ARTIFACT_REMOTE_DELETION_FAILED", mapOf("artifactId" to artifactId))
             }
             result
         } finally {
@@ -57,10 +58,10 @@ class ArtifactCleanupManager @Inject constructor(
         _deletingArtifactIds.value += draftId
         return try {
             draftDeletionManager.deleteDraft(draftId)
-            Log.d("CleanupManager", "Local draft deletion successful.")
+            ArtifactLogger.i(DiagnosticCategory.DRAFT, "DRAFT_LOCAL_DELETION_SUCCESS", mapOf("draftId" to draftId))
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("CleanupManager", "Local draft deletion failed.")
+            ArtifactLogger.e(DiagnosticCategory.DRAFT, "DRAFT_LOCAL_DELETION_FAILED", mapOf("draftId" to draftId), e)
             Result.failure(e)
         } finally {
             _deletingArtifactIds.value -= draftId

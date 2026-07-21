@@ -9,8 +9,8 @@ import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.TransferListener
 import androidx.media3.datasource.cache.CacheDataSource
+import com.saurabh.artifact.diagnostics.ArtifactLogger
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
-import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import android.os.SystemClock
 
 /**
@@ -19,8 +19,7 @@ import android.os.SystemClock
  */
 @UnstableApi
 class SmartDataSourceFactory(
-    private val context: Context,
-    private val diagnosticLogger: DiagnosticLogger
+    private val context: Context
 ) : DataSource.Factory {
 
     private val baseHttpFactory = DefaultHttpDataSource.Factory()
@@ -30,7 +29,7 @@ class SmartDataSourceFactory(
     private val defaultDataSourceFactory = DefaultDataSource.Factory(context, instrumentedHttpFactory)
     private val encryptedDataSourceFactory = EncryptedFileDataSource.Factory(context)
 
-    private inner class DiagnosticDataSource(
+    private class DiagnosticDataSource(
         private val delegate: DataSource,
         private val tag: String
     ) : DataSource {
@@ -41,16 +40,16 @@ class SmartDataSourceFactory(
         }
 
         override fun open(dataSpec: DataSpec): Long {
-            diagnosticLogger.info(DiagnosticCategory.NETWORK, "${tag}_OPEN_START", mapOf("uri" to dataSpec.uri.toString()))
+            ArtifactLogger.v(DiagnosticCategory.NETWORK, "${tag}_OPEN_START", mapOf("uri" to dataSpec.uri.toString()))
             val startTime = SystemClock.elapsedRealtime()
             try {
                 val result = delegate.open(dataSpec)
                 val elapsed = SystemClock.elapsedRealtime() - startTime
-                diagnosticLogger.info(DiagnosticCategory.NETWORK, "${tag}_OPEN_END", mapOf("elapsed" to elapsed))
+                ArtifactLogger.v(DiagnosticCategory.NETWORK, "${tag}_OPEN_END", mapOf("elapsed" to elapsed))
                 return result
             } catch (e: Exception) {
                 val elapsed = SystemClock.elapsedRealtime() - startTime
-                diagnosticLogger.error(DiagnosticCategory.NETWORK, "${tag}_OPEN_FAILED", mapOf("elapsed" to elapsed), e)
+                ArtifactLogger.e(DiagnosticCategory.NETWORK, "${tag}_OPEN_FAILED", mapOf("elapsed" to elapsed), e)
                 throw e
             }
         }
@@ -60,7 +59,7 @@ class SmartDataSourceFactory(
                 val startTime = SystemClock.elapsedRealtime()
                 val result = delegate.read(buffer, offset, length)
                 val elapsed = SystemClock.elapsedRealtime() - startTime
-                diagnosticLogger.info(DiagnosticCategory.NETWORK, "${tag}_FIRST_READ", mapOf("elapsed" to elapsed, "result" to result))
+                ArtifactLogger.v(DiagnosticCategory.NETWORK, "${tag}_FIRST_READ", mapOf("elapsed" to elapsed, "result" to result))
                 isFirstRead = false
                 return result
             }
@@ -128,7 +127,7 @@ class SmartDataSourceFactory(
                 val selectionStartTime = SystemClock.elapsedRealtime()
                 val path = dataSpec.uri.path ?: ""
                 
-                diagnosticLogger.info(DiagnosticCategory.NETWORK, "SMART_OPEN_START", mapOf("uri" to dataSpec.uri.toString()))
+                ArtifactLogger.d(DiagnosticCategory.NETWORK, "SMART_OPEN_START", mapOf("uri" to dataSpec.uri.toString()))
                 
                 val isEncrypted = path.contains("encrypted_drafts") || 
                                  dataSpec.uri.getQueryParameter("encrypted") == "true" ||
@@ -141,10 +140,10 @@ class SmartDataSourceFactory(
                 }
                 
                 val selectionElapsed = SystemClock.elapsedRealtime() - selectionStartTime
-                diagnosticLogger.info(DiagnosticCategory.NETWORK, "SMART_SELECTION", mapOf("elapsed" to selectionElapsed))
+                ArtifactLogger.d(DiagnosticCategory.NETWORK, "SMART_SELECTION", mapOf("elapsed" to selectionElapsed))
 
                 val artifactId = dataSpec.uri.getQueryParameter("artifact_id") ?: dataSpec.uri.lastPathSegment ?: "unknown"
-                diagnosticLogger.info(
+                ArtifactLogger.d(
                     DiagnosticCategory.NETWORK,
                     "CURRENT_DATASOURCE",
                     mapOf(
@@ -161,10 +160,9 @@ class SmartDataSourceFactory(
                     val result = currentDataSource!!.open(dataSpec)
                     val elapsed = SystemClock.elapsedRealtime() - startTime
                     
-                    val artifactId = dataSpec.uri.getQueryParameter("artifact_id") ?: dataSpec.uri.lastPathSegment ?: "unknown"
                     val range = "bytes=${dataSpec.position}-${if (dataSpec.length != -1L) dataSpec.position + dataSpec.length - 1 else ""}"
                     
-                    diagnosticLogger.info(
+                    ArtifactLogger.i(
                         DiagnosticCategory.NETWORK,
                         "SMART_OPEN_END",
                         mapOf(
@@ -178,7 +176,7 @@ class SmartDataSourceFactory(
                     return result
                 } catch (e: Exception) {
                     val elapsed = SystemClock.elapsedRealtime() - startTime
-                    diagnosticLogger.error(
+                    ArtifactLogger.e(
                         DiagnosticCategory.NETWORK,
                         "DATASOURCE_OPEN_FAILED",
                         mapOf(
@@ -206,7 +204,7 @@ class SmartDataSourceFactory(
             override fun close() {
                 try {
                     if (totalBytesRead > 0) {
-                        diagnosticLogger.info(
+                        ArtifactLogger.i(
                             DiagnosticCategory.NETWORK,
                             "CACHE_EFFECTIVENESS",
                             mapOf(

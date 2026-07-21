@@ -9,8 +9,8 @@ import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
+import com.saurabh.artifact.diagnostics.ArtifactLogger
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
-import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.User
@@ -25,8 +25,7 @@ class AuthRepository @Inject constructor(
     private val firebaseAuth: FirebaseAuth,
     private val firestore: FirebaseFirestore,
     private val credentialManager: CredentialManager,
-    private val profileRepairService: com.saurabh.artifact.domain.auth.ProfileRepairService,
-    private val diagnosticLogger: DiagnosticLogger
+    private val profileRepairService: com.saurabh.artifact.domain.auth.ProfileRepairService
 ) {
     private val _currentUser = MutableStateFlow(firebaseAuth.currentUser)
     val currentUser: StateFlow<FirebaseUser?> = _currentUser
@@ -52,7 +51,7 @@ class AuthRepository @Inject constructor(
     init {
         firebaseAuth.addAuthStateListener { auth ->
             val user = auth.currentUser
-            diagnosticLogger.info(
+            ArtifactLogger.i(
                 DiagnosticCategory.AUTH, 
                 "AUTH_STATE_CHANGED", 
                 mapOf("uid" to (user?.uid ?: "null"), "timestamp" to System.currentTimeMillis())
@@ -76,7 +75,7 @@ class AuthRepository @Inject constructor(
                     val tokenChanged = token != lastToken
                     lastToken = token
 
-                    diagnosticLogger.info(
+                    ArtifactLogger.i(
                         DiagnosticCategory.AUTH,
                         "ID_TOKEN_METADATA",
                         mapOf(
@@ -90,7 +89,7 @@ class AuthRepository @Inject constructor(
                         )
                     )
                 } ?: run {
-                    diagnosticLogger.info(DiagnosticCategory.AUTH, "ID_TOKEN_NULL", mapOf("timestamp" to System.currentTimeMillis()))
+                    ArtifactLogger.i(DiagnosticCategory.AUTH, "ID_TOKEN_NULL", mapOf("timestamp" to System.currentTimeMillis()))
                 }
             }
         })
@@ -100,7 +99,7 @@ class AuthRepository @Inject constructor(
         // Prevent duplicate listeners
         if (userDataListener != null) {
             val lifetime = System.currentTimeMillis() - userDataListenerCreatedAt
-            diagnosticLogger.info(
+            ArtifactLogger.i(
                 DiagnosticCategory.AUTH,
                 "LISTENER_REMOVED",
                 mapOf(
@@ -111,7 +110,7 @@ class AuthRepository @Inject constructor(
                 )
             )
             userDataListener?.remove()
-            diagnosticLogger.info(DiagnosticCategory.AUTH, "LISTENER_TERMINATED", mapOf("path" to "users/$userId"))
+            ArtifactLogger.i(DiagnosticCategory.AUTH, "LISTENER_TERMINATED", mapOf("path" to "users/$userId"))
         }
 
         val id = listenerIdGenerator.incrementAndGet()
@@ -119,7 +118,7 @@ class AuthRepository @Inject constructor(
         userDataListenerId = id
         userDataListenerCreatedAt = createdAt
 
-        diagnosticLogger.info(
+        ArtifactLogger.i(
             DiagnosticCategory.AUTH,
             "LISTENER_CREATED",
             mapOf(
@@ -135,13 +134,12 @@ class AuthRepository @Inject constructor(
         userDataListener = firestore.collection("users").document(userId)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    diagnosticLogger.error(
+                    ArtifactLogger.e(
                         DiagnosticCategory.AUTH,
-                        "SNAPSHOT_CALLBACK",
+                        "SNAPSHOT_CALLBACK_ERROR",
                         mapOf(
                             "listenerId" to id,
                             "path" to "users/$userId",
-                            "type" to "ERROR",
                             "code" to error.code.name,
                             "message" to (error.message ?: ""),
                             "cause" to (error.cause?.toString() ?: "null"),
@@ -151,7 +149,7 @@ class AuthRepository @Inject constructor(
                     )
                     
                     if (error.code == com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED) {
-                        diagnosticLogger.debug(
+                        ArtifactLogger.d(
                             DiagnosticCategory.AUTH,
                             "LISTENER_CALLBACK_END",
                             mapOf(
@@ -161,7 +159,7 @@ class AuthRepository @Inject constructor(
                                 "timestamp" to System.currentTimeMillis()
                             )
                         )
-                        diagnosticLogger.debug(
+                        ArtifactLogger.d(
                             DiagnosticCategory.AUTH,
                             "AUTH_REPOSITORY_STATE",
                             mapOf(
@@ -172,29 +170,16 @@ class AuthRepository @Inject constructor(
                                 "timestamp" to System.currentTimeMillis()
                             )
                         )
-                        diagnosticLogger.debug(
-                            DiagnosticCategory.AUTH,
-                            "USER_DATA_OBSERVE_PENDING",
-                            mapOf("reason" to "Permission Denied (Profile not yet created)")
-                        )
-                    } else {
-                        diagnosticLogger.error(
-                            DiagnosticCategory.AUTH,
-                            "USER_DATA_OBSERVE_FAILED",
-                            mapOf(LogKeys.ERROR_CODE to error.code.name),
-                            error
-                        )
                     }
                     return@addSnapshotListener
                 }
 
-                diagnosticLogger.info(
+                ArtifactLogger.i(
                     DiagnosticCategory.AUTH,
-                    "SNAPSHOT_CALLBACK",
+                    "SNAPSHOT_CALLBACK_SUCCESS",
                     mapOf(
                         "listenerId" to id,
                         "path" to "users/$userId",
-                        "type" to "SUCCESS",
                         "exists" to (snapshot?.exists() ?: false),
                         "fromCache" to (snapshot?.metadata?.isFromCache ?: false),
                         "hasPendingWrites" to (snapshot?.metadata?.hasPendingWrites() ?: false),
@@ -214,7 +199,7 @@ class AuthRepository @Inject constructor(
     private fun observePrivateSettings(userId: String) {
         if (privateSettingsListener != null) {
             privateSettingsListener?.remove()
-            diagnosticLogger.info(DiagnosticCategory.AUTH, "LISTENER_TERMINATED", mapOf("path" to "users/$userId/private/settings"))
+            ArtifactLogger.i(DiagnosticCategory.AUTH, "LISTENER_TERMINATED", mapOf("path" to "users/$userId/private/settings"))
         }
 
         firebaseAuth.currentUser?.getIdToken(false)
@@ -223,35 +208,25 @@ class AuthRepository @Inject constructor(
             .collection("private").document("settings")
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    diagnosticLogger.error(
+                    ArtifactLogger.e(
                         DiagnosticCategory.AUTH,
-                        "SNAPSHOT_CALLBACK",
+                        "PRIVATE_SETTINGS_CALLBACK_ERROR",
                         mapOf(
                             "path" to "users/$userId/private/settings",
-                            "type" to "ERROR",
                             "code" to error.code.name,
                             "message" to (error.message ?: ""),
-                            "cause" to (error.cause?.toString() ?: "null"),
                             "timestamp" to System.currentTimeMillis()
                         ),
-                        error
-                    )
-                    
-                    diagnosticLogger.error(
-                        DiagnosticCategory.AUTH,
-                        "PRIVATE_SETTINGS_OBSERVE_FAILED",
-                        mapOf(LogKeys.ERROR_CODE to error.code.name),
                         error
                     )
                     return@addSnapshotListener
                 }
 
-                diagnosticLogger.info(
+                ArtifactLogger.i(
                     DiagnosticCategory.AUTH,
-                    "SNAPSHOT_CALLBACK",
+                    "PRIVATE_SETTINGS_CALLBACK_SUCCESS",
                     mapOf(
                         "path" to "users/$userId/private/settings",
-                        "type" to "SUCCESS",
                         "exists" to (snapshot?.exists() ?: false),
                         "timestamp" to System.currentTimeMillis()
                     )
@@ -268,7 +243,7 @@ class AuthRepository @Inject constructor(
     private fun cleanupListeners() {
         if (userDataListener != null) {
             val lifetime = System.currentTimeMillis() - userDataListenerCreatedAt
-            diagnosticLogger.info(
+            ArtifactLogger.i(
                 DiagnosticCategory.AUTH,
                 "LISTENER_REMOVED",
                 mapOf(
@@ -279,13 +254,13 @@ class AuthRepository @Inject constructor(
                 )
             )
             userDataListener?.remove()
-            diagnosticLogger.info(DiagnosticCategory.AUTH, "LISTENER_TERMINATED", mapOf("path" to "userData"))
+            ArtifactLogger.i(DiagnosticCategory.AUTH, "LISTENER_TERMINATED", mapOf("path" to "userData"))
         }
         userDataListener = null
         
         if (privateSettingsListener != null) {
             privateSettingsListener?.remove()
-            diagnosticLogger.info(DiagnosticCategory.AUTH, "LISTENER_TERMINATED", mapOf("path" to "privateSettings"))
+            ArtifactLogger.i(DiagnosticCategory.AUTH, "LISTENER_TERMINATED", mapOf("path" to "privateSettings"))
         }
         privateSettingsListener = null
     }
@@ -357,7 +332,7 @@ class AuthRepository @Inject constructor(
             // Handle failures gracefully as per requirement.
             // Failure to remove the token must NOT leave the application in an inconsistent logout state.
             // No identifiers (UID) are logged for privacy.
-            diagnosticLogger.error(DiagnosticCategory.AUTH, "FCM_TOKEN_CLEAR_FAILED", throwable = e)
+            ArtifactLogger.e(DiagnosticCategory.AUTH, "FCM_TOKEN_CLEAR_FAILED", throwable = e)
         }
     }
 

@@ -11,6 +11,8 @@ import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.saurabh.artifact.R
 import com.saurabh.artifact.ui.util.ErrorMessageMapper
 import com.saurabh.artifact.ui.util.UiText
+import com.saurabh.artifact.diagnostics.ArtifactLogger
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import java.security.MessageDigest
 import java.util.UUID
 import javax.inject.Inject
@@ -35,6 +37,7 @@ class CredentialHelper @Inject constructor(
         nonce: String? = null,
         filterByAuthorizedAccounts: Boolean = false
     ): CredentialResult {
+        ArtifactLogger.i(DiagnosticCategory.AUTH, "GOOGLE_SIGN_IN_STARTED", mapOf("filterByAuthorizedAccounts" to filterByAuthorizedAccounts))
         return try {
             val finalNonce = nonce ?: generateNonce()
             
@@ -60,15 +63,20 @@ class CredentialHelper @Inject constructor(
                 credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
             ) {
                 val googleCredential = GoogleIdTokenCredential.createFrom(credential.data)
+                ArtifactLogger.i(DiagnosticCategory.AUTH, "GOOGLE_SIGN_IN_SUCCESS")
                 CredentialResult.Success(googleCredential.idToken)
             } else {
+                ArtifactLogger.e(DiagnosticCategory.AUTH, "GOOGLE_SIGN_IN_INVALID_CREDENTIAL", mapOf("type" to credential.type))
                 CredentialResult.Failure(UiText.StringResource(R.string.generic_error))
             }
         } catch (e: GetCredentialCancellationException) {
+            ArtifactLogger.i(DiagnosticCategory.AUTH, "GOOGLE_SIGN_IN_CANCELED")
             CredentialResult.Canceled
         } catch (e: NoCredentialException) {
+            ArtifactLogger.w(DiagnosticCategory.AUTH, "GOOGLE_SIGN_IN_NO_CREDENTIAL")
             CredentialResult.Failure(UiText.StringResource(R.string.unauthenticated_presence))
         } catch (e: Exception) {
+            ArtifactLogger.e(DiagnosticCategory.AUTH, "GOOGLE_SIGN_IN_FAILURE", throwable = e)
             CredentialResult.Failure(ErrorMessageMapper.map(e), e)
         }
     }

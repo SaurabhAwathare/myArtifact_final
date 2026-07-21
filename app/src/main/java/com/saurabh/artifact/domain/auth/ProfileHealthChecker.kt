@@ -1,6 +1,7 @@
 package com.saurabh.artifact.domain.auth
 
-import android.util.Log
+import com.saurabh.artifact.diagnostics.ArtifactLogger
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.saurabh.artifact.model.User
@@ -33,43 +34,43 @@ class ProfileHealthChecker @Inject constructor(
             val userRef = firestore.collection("users").document(userId)
             val privateRef = userRef.collection("private").document("settings")
 
-            Log.d("APP_FLOW", "PROFILE_CHECK_FETCH_USER")
+            ArtifactLogger.d(DiagnosticCategory.AUTH, "PROFILE_CHECK_FETCH_USER")
             val userSnapshot = withTimeout(10.seconds) {
                 userRef.get().await()
             }
             if (!userSnapshot.exists()) {
-                Log.w("ProfileHealth", "User document missing.")
+                ArtifactLogger.w(DiagnosticCategory.AUTH, "PROFILE_CHECK_USER_MISSING")
                 return HealthStatus.Missing
             }
 
             // Verify basic fields using the repair service's validation logic
             val (user, needsRepair) = profileRepairService.loadAndRepair(userSnapshot)
             if (needsRepair) {
-                Log.w("ProfileHealth", "User document requires repair.")
+                ArtifactLogger.w(DiagnosticCategory.AUTH, "PROFILE_CHECK_REPAIR_REQUIRED")
                 return HealthStatus.RepairRequired
             }
 
             if (user.anonymousId.isBlank() || user.anonymousName.isBlank()) {
-                Log.w("ProfileHealth", "User document missing core identity.")
+                ArtifactLogger.w(DiagnosticCategory.AUTH, "PROFILE_CHECK_IDENTITY_MISSING")
                 return HealthStatus.RepairRequired
             }
 
-            Log.d("APP_FLOW", "PROFILE_CHECK_FETCH_PRIVATE")
+            ArtifactLogger.d(DiagnosticCategory.AUTH, "PROFILE_CHECK_FETCH_PRIVATE")
             val privateSnapshot = withTimeout(10.seconds) {
                 privateRef.get().await()
             }
             if (!privateSnapshot.exists()) {
-                Log.w("ProfileHealth", "Private settings missing.")
+                ArtifactLogger.w(DiagnosticCategory.AUTH, "PROFILE_CHECK_PRIVATE_MISSING")
                 return HealthStatus.RepairRequired
             }
 
-            Log.d("APP_FLOW", "PROFILE_CHECK_SUCCESS")
+            ArtifactLogger.i(DiagnosticCategory.AUTH, "PROFILE_CHECK_SUCCESS")
             HealthStatus.Healthy
         } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
-            Log.e("APP_FLOW", "PROFILE_CHECK_TIMEOUT")
+            ArtifactLogger.e(DiagnosticCategory.AUTH, "PROFILE_CHECK_TIMEOUT")
             HealthStatus.Missing
         } catch (e: Exception) {
-            Log.e("APP_FLOW", "PROFILE_CHECK_FAILED")
+            ArtifactLogger.e(DiagnosticCategory.AUTH, "PROFILE_CHECK_FAILED", throwable = e)
             HealthStatus.Missing // Treat as missing to trigger recovery
         }
     }

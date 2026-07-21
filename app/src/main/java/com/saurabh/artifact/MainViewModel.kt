@@ -290,11 +290,11 @@ class MainViewModel @Inject constructor(
 
         if (_startupState.value is AppStartupState.Ready && authRepository.currentUser.value != null) {
             // Immediate delivery if already ready and authenticated
-            diagnosticLogger.info(DiagnosticCategory.NAVIGATION, "DEEP_LINK_OPENED", mapOf("event" to event.javaClass.simpleName))
+            diagnosticLogger.info(DiagnosticCategory.NAV, "DEEP_LINK_OPENED", mapOf("event" to event.javaClass.simpleName))
             emitNavigationEvent(event)
         } else {
             // Buffer for delivery after initialization and authentication completes
-            diagnosticLogger.info(DiagnosticCategory.NAVIGATION, "DEEP_LINK_BUFFERED", mapOf("event" to event.javaClass.simpleName))
+            diagnosticLogger.info(DiagnosticCategory.NAV, "DEEP_LINK_BUFFERED", mapOf("event" to event.javaClass.simpleName))
             pendingStartupEvent = event
             
             // Persist pending event if it's an IncomingArtifact (lightweight enough for SavedState)
@@ -303,7 +303,7 @@ class MainViewModel @Inject constructor(
                     val json = Json.encodeToString(event)
                     savedStateHandle[KEY_PENDING_EVENT_JSON] = json
                 } catch (e: Exception) {
-                    diagnosticLogger.warn(DiagnosticCategory.NAVIGATION, "PENDING_EVENT_PERSIST_FAILED")
+                    diagnosticLogger.warn(DiagnosticCategory.NAV, "PENDING_EVENT_PERSIST_FAILED")
                 }
             }
             
@@ -326,7 +326,7 @@ class MainViewModel @Inject constructor(
 
             // 2. Deliver exactly once if event exists
             pendingStartupEvent?.let { event ->
-                diagnosticLogger.info(DiagnosticCategory.NAVIGATION, "DEEP_LINK_DELIVERED", mapOf("event" to event.javaClass.simpleName))
+                diagnosticLogger.info(DiagnosticCategory.NAV, "DEEP_LINK_DELIVERED", mapOf("event" to event.javaClass.simpleName))
                 emitNavigationEvent(event)
                 pendingStartupEvent = null
                 savedStateHandle.remove<String>(KEY_PENDING_EVENT_JSON)
@@ -387,7 +387,7 @@ class MainViewModel @Inject constructor(
      * Sensitive screens automatically trigger FLAG_SECURE regardless of global stealth mode.
      */
     fun updateSecurityStatus(route: String?) {
-        diagnosticLogger.debug(DiagnosticCategory.NAVIGATION, "SCREEN_ENTERED", mapOf("route" to (route ?: "null")))
+        diagnosticLogger.debug(DiagnosticCategory.NAV, "SCREEN_ENTERED", mapOf("route" to (route ?: "null")))
         val sensitiveRoutes = listOf(
             "com.saurabh.artifact.navigation.Settings",
             "com.saurabh.artifact.navigation.DraftList",

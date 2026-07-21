@@ -3,7 +3,8 @@ package com.saurabh.artifact.audio
 import android.content.Context
 import android.media.MediaRecorder
 import android.os.Build
-import android.util.Log
+import com.saurabh.artifact.diagnostics.ArtifactLogger
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import java.io.File
 
 enum class RecordingMode {
@@ -40,7 +41,7 @@ class AudioRecorder(private val context: Context) {
         onDurableSync: ((Long) -> Unit)? = null
     ) {
         if (isRecording && mode == currentMode) {
-            Log.w("AudioRecorder", "Start called while already recording in same mode. Ignoring.")
+            ArtifactLogger.w(DiagnosticCategory.RECORDER, "RECORDING_START_IGNORED", mapOf("reason" to "ALREADY_RECORDING"))
             return
         }
 
@@ -53,9 +54,9 @@ class AudioRecorder(private val context: Context) {
                 RecordingMode.WAV_LOSSLESS -> startWAV(outputFile, onDurableSync)
             }
             isRecording = true
-            Log.d("AudioRecorder", "Recording started ($mode): ${outputFile.name}")
+            ArtifactLogger.d(DiagnosticCategory.RECORDER, "RECORDING_STARTED", mapOf("mode" to mode.name, "file" to outputFile.name))
         } catch (e: Exception) {
-            Log.e("AudioRecorder", "Critical failure in start ($mode): ${e.message}", e)
+            ArtifactLogger.e(DiagnosticCategory.RECORDER, "RECORDING_CRITICAL_FAILURE", mapOf("mode" to mode.name), e)
             stop()
             if (outputFile.exists() && mode == RecordingMode.AAC_HIGH_BITRATE) outputFile.delete()
             throw e
@@ -79,11 +80,11 @@ class AudioRecorder(private val context: Context) {
         mediaRecorder = recorder
         recorder.apply {
             setOnErrorListener { _, what, extra ->
-                Log.e("AudioRecorder", "MediaRecorder error: what=$what, extra=$extra")
+                ArtifactLogger.e(DiagnosticCategory.RECORDER, "MEDIA_RECORDER_ERROR", mapOf("what" to what, "extra" to extra))
                 onError?.invoke(what, extra)
             }
             setOnInfoListener { _, what, extra ->
-                Log.d("AudioRecorder", "MediaRecorder info: what=$what, extra=$extra")
+                ArtifactLogger.d(DiagnosticCategory.RECORDER, "MEDIA_RECORDER_INFO", mapOf("what" to what, "extra" to extra))
                 onInfo?.invoke(what, extra)
             }
             setAudioSource(MediaRecorder.AudioSource.MIC)
@@ -125,7 +126,7 @@ class AudioRecorder(private val context: Context) {
                 wavRecorder?.pause()
             }
         } catch (e: Exception) {
-            Log.e("AudioRecorder", "Failed to pause: ${e.message}")
+            ArtifactLogger.e(DiagnosticCategory.RECORDER, "RECORDING_PAUSE_FAILED", throwable = e)
         }
     }
 
@@ -138,7 +139,7 @@ class AudioRecorder(private val context: Context) {
                 wavRecorder?.start(isResume = true)
             }
         } catch (e: Exception) {
-            Log.e("AudioRecorder", "Failed to resume: ${e.message}")
+            ArtifactLogger.e(DiagnosticCategory.RECORDER, "RECORDING_RESUME_FAILED", throwable = e)
         }
     }
 
@@ -164,7 +165,7 @@ class AudioRecorder(private val context: Context) {
                 }
             }
         } catch (e: Exception) {
-            Log.e("AudioRecorder", "Error during stop: ${e.message}")
+            ArtifactLogger.e(DiagnosticCategory.RECORDER, "RECORDING_STOP_FAILED", throwable = e)
         } finally {
             isRecording = false
         }

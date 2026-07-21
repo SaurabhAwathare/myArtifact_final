@@ -12,8 +12,8 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import kotlin.Result as KResult
 import com.google.firebase.auth.FirebaseAuth
+import com.saurabh.artifact.diagnostics.ArtifactLogger
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
-import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.data.local.*
 import com.saurabh.artifact.model.ReactionType
 import com.saurabh.artifact.model.SyncState
@@ -22,7 +22,6 @@ import com.saurabh.artifact.repository.EngagementRepository
 import com.saurabh.artifact.repository.FirestoreEngagementRepository
 import com.saurabh.artifact.repository.ReactionRepository
 import com.saurabh.artifact.repository.UserRepository
-import com.saurabh.artifact.diagnostics.logInteraction
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
@@ -39,13 +38,12 @@ class InteractionSyncWorker @AssistedInject constructor(
     private val artifactRepository: ArtifactRepository,
     private val engagementRepository: EngagementRepository,
     private val firestoreEngagementRepository: FirestoreEngagementRepository,
-    private val userRepository: UserRepository,
-    private val diagnosticLogger: DiagnosticLogger
+    private val userRepository: UserRepository
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val currentUserId = FirebaseAuth.getInstance().currentUser?.uid ?: return@withContext Result.failure()
-        diagnosticLogger.info(DiagnosticCategory.WORKMANAGER, "SYNC_STARTED", mapOf("worker" to "InteractionSyncWorker"))
+        ArtifactLogger.i(DiagnosticCategory.WORKER, "SYNC_STARTED", mapOf("worker" to "InteractionSyncWorker"))
         
         var isRetryRequired = false
 
@@ -69,11 +67,11 @@ class InteractionSyncWorker @AssistedInject constructor(
                 retryCount = interaction.retryCount + 1
             )
             
-            diagnosticLogger.logInteraction(processingInteraction, "PROCESSING")
+            ArtifactLogger.logInteraction(processingInteraction, "PROCESSING")
 
             val result = processInteraction(processingInteraction, currentUserId)
             if (result.isSuccess) {
-                diagnosticLogger.logInteraction(processingInteraction, "SUCCESS")
+                ArtifactLogger.logInteraction(processingInteraction, "SUCCESS")
                 pendingInteractionDao.delete(interaction)
             } else {
                 val error = result.exceptionOrNull() ?: Exception("Unknown error")
@@ -86,11 +84,11 @@ class InteractionSyncWorker @AssistedInject constructor(
                 
                 if (isTransient) {
                     if (errorInteraction.retryCount >= MAX_RETRIES) {
-                        diagnosticLogger.logInteraction(errorInteraction, "RETRY_LIMIT_EXCEEDED", mapOf("error" to error.message, "exception" to error.javaClass.simpleName))
+                        ArtifactLogger.logInteraction(errorInteraction, "RETRY_LIMIT_EXCEEDED", mapOf("error" to error.message, "exception" to error.javaClass.simpleName))
                         moveToDeadLetterQueue(errorInteraction, "RETRY_LIMIT_EXCEEDED", error.message)
                         pendingInteractionDao.delete(interaction)
                     } else {
-                        diagnosticLogger.logInteraction(errorInteraction, "TRANSIENT_FAILURE", mapOf("error" to error.message, "exception" to error.javaClass.simpleName))
+                        ArtifactLogger.logInteraction(errorInteraction, "TRANSIENT_FAILURE", mapOf("error" to error.message, "exception" to error.javaClass.simpleName))
                         // Update retry count and error in DB for the next run
                         pendingInteractionDao.insert(errorInteraction)
                         hasInteractionTransientFailure = true
@@ -100,7 +98,7 @@ class InteractionSyncWorker @AssistedInject constructor(
                     }
                 } else {
                     // Permanent error (e.g. 404, 403)
-                    diagnosticLogger.logInteraction(errorInteraction, "PERMANENT_FAILURE", mapOf("error" to error.message, "exception" to error.javaClass.simpleName))
+                    ArtifactLogger.logInteraction(errorInteraction, "PERMANENT_FAILURE", mapOf("error" to error.message, "exception" to error.javaClass.simpleName))
                     moveToDeadLetterQueue(errorInteraction, "PERMANENT", error.message)
                     pendingInteractionDao.delete(interaction)
                 }
@@ -109,11 +107,11 @@ class InteractionSyncWorker @AssistedInject constructor(
 
         when {
             isRetryRequired || hasInteractionTransientFailure -> {
-                diagnosticLogger.warn(DiagnosticCategory.WORKMANAGER, "SYNC_RETRY", mapOf("worker" to "InteractionSyncWorker"))
+                ArtifactLogger.w(DiagnosticCategory.WORKER, "SYNC_RETRY", mapOf("worker" to "InteractionSyncWorker"))
                 Result.retry()
             }
             else -> {
-                diagnosticLogger.info(DiagnosticCategory.WORKMANAGER, "SYNC_COMPLETED", mapOf("worker" to "InteractionSyncWorker"))
+                ArtifactLogger.i(DiagnosticCategory.WORKER, "SYNC_COMPLETED", mapOf("worker" to "InteractionSyncWorker"))
                 Result.success() // Succeed even with terminal/DLQ failures to drain the queue
             }
         }
@@ -127,7 +125,7 @@ class InteractionSyncWorker @AssistedInject constructor(
     private suspend fun syncEngagement(userId: String): Boolean {
         val pending = engagementRepository.getEngagementsRequiringSync()
         
-        diagnosticLogger.info(
+        ArtifactLogger.i(
             DiagnosticCategory.SYNC,
             "INVESTIGATION_LOG",
             mapOf(
@@ -143,7 +141,7 @@ class InteractionSyncWorker @AssistedInject constructor(
 
         for (evidence in pending) {
             val traceId = evidence.artifactId
-            diagnosticLogger.info(
+            ArtifactLogger.i(
                 DiagnosticCategory.SYNC,
                 "INVESTIGATION_LOG",
                 mapOf(
@@ -156,25 +154,25 @@ class InteractionSyncWorker @AssistedInject constructor(
                 )
             )
 
-            diagnosticLogger.info(DiagnosticCategory.SYNC, "ENGAGEMENT_SYNC_START", mapOf("artifactId" to evidence.artifactId))
+            ArtifactLogger.i(DiagnosticCategory.SYNC, "ENGAGEMENT_SYNC_START", mapOf("artifactId" to evidence.artifactId))
             
             engagementRepository.updateSyncStatus(evidence.artifactId, SyncState.SYNCING)
             
             val result = firestoreEngagementRepository.uploadEngagement(userId, evidence)
             
             if (result.isSuccess) {
-                diagnosticLogger.info(DiagnosticCategory.SYNC, "ENGAGEMENT_SYNC_SUCCESS", mapOf<String, Any>("artifactId" to evidence.artifactId))
+                ArtifactLogger.i(DiagnosticCategory.SYNC, "ENGAGEMENT_SYNC_SUCCESS", mapOf<String, Any>("artifactId" to evidence.artifactId))
                 engagementRepository.markEngagementSynced(evidence.artifactId)
             } else {
                 val error = result.exceptionOrNull() ?: Exception("Unknown sync error")
                 val isTransient = ArtifactRepository.isTransientError(error)
                 
                 if (isTransient) {
-                    diagnosticLogger.warn(DiagnosticCategory.SYNC, "ENGAGEMENT_SYNC_TRANSIENT", mapOf<String, Any>("artifactId" to evidence.artifactId, "error" to (error.message ?: "unknown")))
+                    ArtifactLogger.w(DiagnosticCategory.SYNC, "ENGAGEMENT_SYNC_TRANSIENT", mapOf<String, Any>("artifactId" to evidence.artifactId, "error" to (error.message ?: "unknown")))
                     engagementRepository.updateSyncStatus(evidence.artifactId, SyncState.PENDING, error.message)
                     hasTransientFailure = true
                 } else {
-                    diagnosticLogger.error(DiagnosticCategory.SYNC, "ENGAGEMENT_SYNC_PERMANENT", mapOf<String, Any>("artifactId" to evidence.artifactId, "error" to (error.message ?: "unknown")))
+                    ArtifactLogger.e(DiagnosticCategory.SYNC, "ENGAGEMENT_SYNC_PERMANENT", mapOf<String, Any>("artifactId" to evidence.artifactId, "error" to (error.message ?: "unknown")))
                     engagementRepository.updateSyncStatus(evidence.artifactId, SyncState.FAILED, error.message)
                 }
             }
@@ -202,7 +200,7 @@ class InteractionSyncWorker @AssistedInject constructor(
             retryCount = interaction.retryCount
         )
         deadLetterInteractionDao.insert(dlqEntry)
-        diagnosticLogger.warn(DiagnosticCategory.SYNC, "DLQ_MOVE", mapOf("interactionId" to interaction.id, "failureType" to failureType, "reason" to (reason ?: "unknown")))
+        ArtifactLogger.w(DiagnosticCategory.SYNC, "DLQ_MOVE", mapOf("interactionId" to interaction.id, "failureType" to failureType, "reason" to (reason ?: "unknown")))
     }
 
     /**
@@ -221,7 +219,7 @@ class InteractionSyncWorker @AssistedInject constructor(
             // Check if this type is collapsible
             val type = events.first().interactionType
             if (!isCollapsible(type)) {
-                diagnosticLogger.debug(DiagnosticCategory.SYNC, "COLLAPSE_SKIPPED_NOT_COLLAPSIBLE", mapOf("type" to type, "key" to key))
+                ArtifactLogger.d(DiagnosticCategory.SYNC, "COLLAPSE_SKIPPED_NOT_COLLAPSIBLE", mapOf("type" to type, "key" to key))
                 return@forEach
             }
 
@@ -236,11 +234,11 @@ class InteractionSyncWorker @AssistedInject constructor(
             if (isRedundantCycle) {
                 // Perfect net-zero cycle [ADD, REMOVE]
                 events.forEach { pendingInteractionDao.delete(it) }
-                diagnosticLogger.info(DiagnosticCategory.SYNC, "COLLAPSE_CYCLE_CANCELLED", mapOf("key" to key))
+                ArtifactLogger.i(DiagnosticCategory.SYNC, "COLLAPSE_CYCLE_CANCELLED", mapOf("key" to key))
             } else {
                 // Collapse to the latest intent
                 toDelete.forEach { pendingInteractionDao.delete(it) }
-                diagnosticLogger.info(DiagnosticCategory.SYNC, "COLLAPSE_COMPLETED", mapOf("key" to key, "count" to events.size, "latestAction" to latest.action))
+                ArtifactLogger.i(DiagnosticCategory.SYNC, "COLLAPSE_COMPLETED", mapOf("key" to key, "count" to events.size, "latestAction" to latest.action))
             }
         }
     }

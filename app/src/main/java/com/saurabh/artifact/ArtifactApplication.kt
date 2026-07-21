@@ -54,10 +54,13 @@ class ArtifactApplication : Application(), ImageLoaderFactory, Configuration.Pro
     override fun onCreate() {
         super.onCreate()
         
+        // Initialize Logger
+        com.saurabh.artifact.diagnostics.ArtifactLogger.init(diagnosticLogger.get())
+        
         setupRescueTracker()
         
         // Log App Startup
-        diagnosticLogger.get().info(DiagnosticCategory.APP, "APP_LAUNCHED")
+        com.saurabh.artifact.diagnostics.ArtifactLogger.i(DiagnosticCategory.APP, "APP_LAUNCHED")
         
         // Initialize Notification Channels
         com.saurabh.artifact.util.NotificationHelper.initNotificationChannels(this)

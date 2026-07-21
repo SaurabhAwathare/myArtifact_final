@@ -1,9 +1,10 @@
 package com.saurabh.artifact.repository
 
-import android.util.Log
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import com.saurabh.artifact.diagnostics.ArtifactLogger
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.model.NotificationItem
 import com.saurabh.artifact.model.NotificationType
 import kotlinx.coroutines.Dispatchers
@@ -27,7 +28,7 @@ class NotificationRepository @Inject constructor(
 
     fun listenNotifications(userId: String): Flow<List<NotificationItem>> = callbackFlow {
         if (userId.isEmpty()) {
-            Log.w("NotificationRepository", "listenNotifications called with empty userId")
+            ArtifactLogger.w(DiagnosticCategory.APP, "NOTIF_LISTEN_EMPTY_USER")
             trySend(emptyList())
             awaitClose { }
             return@callbackFlow
@@ -41,7 +42,7 @@ class NotificationRepository @Inject constructor(
                 if (error != null) {
                     val now = System.currentTimeMillis()
                     if (now - lastErrorTime > 5000) { // 5s throttle for errors
-                        Log.e("NotificationRepository", "Notification listener error: ${error.code}", error)
+                        ArtifactLogger.e(DiagnosticCategory.APP, "NOTIF_LISTENER_ERROR", mapOf("code" to error.code.name), error)
                         lastErrorTime = now
                     }
                     trySend(emptyList())
@@ -53,20 +54,19 @@ class NotificationRepository @Inject constructor(
                         val typeStr = doc.getString("type")
 
                         if (typeStr == null) {
-                            Log.w("NotificationRepository", "Skipping notification ${doc.id}: Missing type field")
+                            ArtifactLogger.w(DiagnosticCategory.APP, "NOTIF_SKIP_MISSING_TYPE", mapOf("notifId" to doc.id))
                             return@mapNotNull null
                         }
 
                         if (typeStr !in validNotificationTypes) {
-                            val uid = doc.getString("userId") ?: "unknown"
-                            Log.w("NotificationRepository", "Skipping notification ${doc.id}: Unknown type '$typeStr', userId=$uid")
+                            ArtifactLogger.w(DiagnosticCategory.APP, "NOTIF_SKIP_UNKNOWN_TYPE", mapOf("notifId" to doc.id, "type" to typeStr))
                             return@mapNotNull null
                         }
 
                         try {
                             doc.toObject(NotificationItem::class.java)?.copy(id = doc.id)
                         } catch (e: RuntimeException) {
-                            Log.e("NotificationRepository", "Failed to deserialize notification ${doc.id}", e)
+                            ArtifactLogger.e(DiagnosticCategory.APP, "NOTIF_DESERIALIZATION_FAILED", mapOf("notifId" to doc.id), e)
                             null
                         }
                     } ?: emptyList()
@@ -108,7 +108,7 @@ class NotificationRepository @Inject constructor(
             }.await()
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("NotificationRepository", "Failed to mark all as read", e)
+            ArtifactLogger.e(DiagnosticCategory.APP, "NOTIF_MARK_ALL_READ_FAILED", throwable = e)
             Result.failure(e)
         }
     }
@@ -133,7 +133,7 @@ class NotificationRepository @Inject constructor(
             notificationRef.set(notification).await()
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("NotificationRepository", "Failed to create in-app notification", e)
+            ArtifactLogger.e(DiagnosticCategory.APP, "NOTIF_CREATE_FAILED", throwable = e)
             Result.failure(e)
         }
     }

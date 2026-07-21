@@ -2,10 +2,12 @@ package com.saurabh.artifact.repository
 
 import androidx.room.withTransaction
 import com.saurabh.artifact.data.local.*
+import com.saurabh.artifact.data.mapper.DraftToArtifactMapper
 import com.saurabh.artifact.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -16,7 +18,9 @@ import javax.inject.Singleton
 class DraftRepository @Inject constructor(
     private val draftDao: DraftDao,
     private val uploadTaskDao: UploadTaskDao,
-    private val draftsDatabase: AppDatabase
+    private val draftsDatabase: AppDatabase,
+    private val draftToArtifactMapper: DraftToArtifactMapper,
+    private val userRepository: UserRepository
 ) {
     suspend fun getDraft(id: String): Result<ArtifactDraftEntity> = withContext(Dispatchers.IO) {
         try {
@@ -32,6 +36,29 @@ class DraftRepository @Inject constructor(
     }
 
     fun observeDrafts(): Flow<List<ArtifactDraftEntity>> = draftDao.observeDrafts()
+
+    /**
+     * Observes a single draft and maps it to a domain Artifact.
+     * Combines with the user profile to ensure correct author identity.
+     */
+    fun observeDraftAsArtifact(id: String): Flow<Artifact?> {
+        val currentUserId = userRepository.getCurrentUserId() ?: return flowOf(null)
+
+        return combine(
+            draftDao.observeDraftById(id),
+            userRepository.streamUserProfile(currentUserId)
+        ) { draft, user ->
+            if (draft == null || user == null) {
+                null
+            } else {
+                draftToArtifactMapper.map(
+                    draft = draft,
+                    author = AuthorSnapshot.fromUser(user),
+                    fallbackTitle = "Untitled"
+                )
+            }
+        }
+    }
 
     /**
      * Observes local drafts that are actively in progress (not yet published).

@@ -3,8 +3,6 @@ package com.saurabh.artifact.diagnostics
 import android.util.Log
 import com.google.firebase.crashlytics.FirebaseCrashlytics
 import com.saurabh.artifact.BuildConfig
-import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -16,8 +14,6 @@ import javax.inject.Singleton
 class LogcatDiagnosticLogger @Inject constructor(
     private val sessionManager: SessionManager
 ) : DiagnosticLogger {
-
-    private val dateFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
 
     override fun log(
         category: DiagnosticCategory,
@@ -88,21 +84,16 @@ class LogcatDiagnosticLogger @Inject constructor(
     }
 
     private fun formatLog(event: DiagnosticEvent, throwable: Throwable?): String {
-        val time = dateFormat.format(Date(event.timestamp))
-        val thread = event.threadName
-        val session = event.sessionId ?: "NO_SESSION"
+        val session = event.sessionId ?: "---"
         
         val metaString = if (event.metadata.isNotEmpty()) {
-            "\n${event.metadata.entries.joinToString("\n") { "  ${it.key}=${it.value}" }}"
+            " | ${event.metadata.entries.joinToString(", ") { "${it.key}=${it.value}" }}"
         } else ""
 
         val errorString = throwable?.let { 
-            "\n  Exception: ${it.javaClass.simpleName}: ${it.message}"
+            " | ERROR: ${it.javaClass.simpleName}: ${it.message}"
         } ?: ""
 
-        return """
-            [$time] [$thread] [Session:$session]
-            ${event.eventName}$metaString$errorString
-        """.trimIndent()
+        return "[$session] ${event.eventName}$metaString$errorString"
     }
 }

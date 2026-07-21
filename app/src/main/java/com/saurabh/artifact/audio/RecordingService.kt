@@ -66,21 +66,21 @@ class RecordingService : Service() {
     private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
         when (focusChange) {
             AudioManager.AUDIOFOCUS_LOSS -> {
-                diagnosticLogger.info(DiagnosticCategory.RECORDING, "AUDIO_FOCUS_LOSS_PERMANENT")
+                diagnosticLogger.info(DiagnosticCategory.RECORDER, "AUDIO_FOCUS_LOSS_PERMANENT")
                 wasPausedByFocusLoss = false
                 pauseRecording()
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
                 if (_recordingState.value.status == RecordingStatus.RECORDING) {
-                    diagnosticLogger.info(DiagnosticCategory.RECORDING, "AUDIO_FOCUS_LOSS_TRANSIENT", mapOf("focusChange" to focusChange))
+                    diagnosticLogger.info(DiagnosticCategory.RECORDER, "AUDIO_FOCUS_LOSS_TRANSIENT", mapOf("focusChange" to focusChange))
                     wasPausedByFocusLoss = true
                     pauseRecording()
                 }
             }
             AudioManager.AUDIOFOCUS_GAIN -> {
                 if (wasPausedByFocusLoss && _recordingState.value.status == RecordingStatus.PAUSED) {
-                    diagnosticLogger.info(DiagnosticCategory.RECORDING, "AUDIO_FOCUS_REGAINED")
+                    diagnosticLogger.info(DiagnosticCategory.RECORDER, "AUDIO_FOCUS_REGAINED")
                     wasPausedByFocusLoss = false
                     resumeRecording()
                 }
@@ -121,7 +121,7 @@ class RecordingService : Service() {
         super.onCreate()
         audioRecorder = AudioRecorder(applicationContext).apply {
             onError = { what, extra ->
-                diagnosticLogger.error(DiagnosticCategory.RECORDING, "HARDWARE_ERROR", mapOf("what" to what, "extra" to extra))
+                diagnosticLogger.error(DiagnosticCategory.RECORDER, "HARDWARE_ERROR", mapOf("what" to what, "extra" to extra))
                 _recordingState.value = _recordingState.value.copy(
                     status = RecordingStatus.FAILED,
                     errorCode = "HARDWARE_ERROR_$what"
@@ -129,7 +129,7 @@ class RecordingService : Service() {
                 stopRecording()
             }
             onInfo = { what, extra ->
-                diagnosticLogger.info(DiagnosticCategory.RECORDING, "HARDWARE_INFO", mapOf("what" to what, "extra" to extra))
+                diagnosticLogger.info(DiagnosticCategory.RECORDER, "HARDWARE_INFO", mapOf("what" to what, "extra" to extra))
                 if (what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_DURATION_REACHED || 
                     what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_FILESIZE_REACHED) {
                     if (what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_FILESIZE_REACHED) {
@@ -139,7 +139,7 @@ class RecordingService : Service() {
                 }
             }
             onStorageError = { e ->
-                diagnosticLogger.error(DiagnosticCategory.RECORDING, "STORAGE_ERROR", throwable = e)
+                diagnosticLogger.error(DiagnosticCategory.RECORDER, "STORAGE_ERROR", throwable = e)
                 _recordingState.value = _recordingState.value.copy(errorCode = "STORAGE_FULL")
                 stopRecording()
             }
@@ -188,10 +188,10 @@ class RecordingService : Service() {
 
                 originalRingerMode = am.ringerMode
                 am.ringerMode = AudioManager.RINGER_MODE_SILENT
-                diagnosticLogger.debug(DiagnosticCategory.RECORDING, "SILENT_MODE_ENABLED", mapOf("originalMode" to originalRingerMode))
+                diagnosticLogger.debug(DiagnosticCategory.RECORDER, "SILENT_MODE_ENABLED", mapOf("originalMode" to originalRingerMode))
             }
         } catch (e: Exception) {
-            diagnosticLogger.error(DiagnosticCategory.RECORDING, "SILENT_MODE_FAILED", throwable = e)
+            diagnosticLogger.error(DiagnosticCategory.RECORDER, "SILENT_MODE_FAILED", throwable = e)
         }
     }
 
@@ -200,12 +200,12 @@ class RecordingService : Service() {
             audioManager?.let { am ->
                 if (originalRingerMode != -1) {
                     am.ringerMode = originalRingerMode
-                    diagnosticLogger.debug(DiagnosticCategory.RECORDING, "RINGER_MODE_RESTORED", mapOf("mode" to originalRingerMode))
+                    diagnosticLogger.debug(DiagnosticCategory.RECORDER, "RINGER_MODE_RESTORED", mapOf("mode" to originalRingerMode))
                     originalRingerMode = -1
                 }
             }
         } catch (e: Exception) {
-            diagnosticLogger.error(DiagnosticCategory.RECORDING, "RINGER_MODE_RESTORE_FAILED", throwable = e)
+            diagnosticLogger.error(DiagnosticCategory.RECORDER, "RINGER_MODE_RESTORE_FAILED", throwable = e)
         }
     }
 
@@ -228,7 +228,7 @@ class RecordingService : Service() {
                     pacingJob?.cancel()
                     // Psychological Pacing: Intentional Delay before capture starts
                     pacingJob = serviceScope.launch {
-                        diagnosticLogger.debug(DiagnosticCategory.RECORDING, "RECORDING_PACING_STARTED")
+                        diagnosticLogger.debug(DiagnosticCategory.RECORDER, "RECORDING_PACING_STARTED")
                         _recordingState.value = RecordingState(status = RecordingStatus.PREPARING)
                         delay(1500.milliseconds)
                         startRecording(draftId)
@@ -264,7 +264,7 @@ class RecordingService : Service() {
                 startForeground(NOTIFICATION_ID, notification)
             }
         } catch (e: Exception) {
-            diagnosticLogger.error(DiagnosticCategory.RECORDING, "SERVICE_FOREGROUND_FAILED", throwable = e)
+            diagnosticLogger.error(DiagnosticCategory.RECORDER, "SERVICE_FOREGROUND_FAILED", throwable = e)
             _recordingState.value = RecordingState(status = RecordingStatus.FAILED)
             stopSelf()
             return START_NOT_STICKY
@@ -306,7 +306,7 @@ class RecordingService : Service() {
 
         // Audio Focus Management: Ensure we have the microphone path cleared
         if (!requestAudioFocus()) {
-            diagnosticLogger.error(DiagnosticCategory.RECORDING, "RECORDING_FAILED", mapOf("reason" to "AUDIO_FOCUS_DENIED"))
+            diagnosticLogger.error(DiagnosticCategory.RECORDER, "RECORDING_FAILED", mapOf("reason" to "AUDIO_FOCUS_DENIED"))
             _recordingState.value = RecordingState(status = RecordingStatus.FAILED, errorCode = "HARDWARE_IN_USE")
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
@@ -380,7 +380,7 @@ class RecordingService : Service() {
 
                 startTimer()
                 updateNotification(0, RecordingStatus.RECORDING)
-                diagnosticLogger.info(DiagnosticCategory.RECORDING, "RECORDING_STARTED", mapOf(LogKeys.DRAFT_ID to finalDraftId))
+                diagnosticLogger.info(DiagnosticCategory.RECORDER, "RECORDING_STARTED", mapOf(LogKeys.DRAFT_ID to finalDraftId))
             } catch (e: Exception) {
                 diagnosticLogger.error(DiagnosticCategory.RECORDING, "RECORDING_START_FAILED", mapOf(LogKeys.DRAFT_ID to finalDraftId), e)
                 _recordingState.value = _recordingState.value.copy(status = RecordingStatus.FAILED)
@@ -455,12 +455,12 @@ class RecordingService : Service() {
             stopMutex.withLock {
                 // Re-check status inside lock to prevent race conditions
                 if (_recordingState.value.status == RecordingStatus.COMPLETED) {
-                    diagnosticLogger.debug(DiagnosticCategory.RECORDING, "RECORDING_STOP_RACE_PREVENTED")
+                    diagnosticLogger.debug(DiagnosticCategory.RECORDER, "RECORDING_STOP_RACE_PREVENTED")
                     return@withLock
                 }
 
                 try {
-                    diagnosticLogger.debug(DiagnosticCategory.RECORDING, "RECORDING_FINALIZING")
+                    diagnosticLogger.debug(DiagnosticCategory.RECORDER, "RECORDING_FINALIZING")
                     _recordingState.value = _recordingState.value.copy(status = RecordingStatus.PREPARING) 
 
                     pacingJob?.cancel()
@@ -525,10 +525,10 @@ class RecordingService : Service() {
                         }
                     }
                 } catch (e: Exception) {
-                    diagnosticLogger.error(DiagnosticCategory.RECORDING, "RECORDING_STOP_FAILED", throwable = e)
+                    diagnosticLogger.error(DiagnosticCategory.RECORDER, "RECORDING_STOP_FAILED", throwable = e)
                     _recordingState.value = _recordingState.value.copy(status = RecordingStatus.FAILED)
                 } finally {
-                    diagnosticLogger.info(DiagnosticCategory.RECORDING, "SERVICE_STOPPING")
+                    diagnosticLogger.info(DiagnosticCategory.RECORDER, "SERVICE_STOPPING")
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
                 }
@@ -680,7 +680,7 @@ class RecordingService : Service() {
         // Android 13+ requires POST_NOTIFICATIONS permission
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ActivityCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                diagnosticLogger.warn(DiagnosticCategory.NOTIFICATIONS, "NOTIFICATION_PERMISSION_MISSING")
+                diagnosticLogger.warn(DiagnosticCategory.APP, "NOTIFICATION_PERMISSION_MISSING")
                 return
             }
         }
@@ -688,7 +688,7 @@ class RecordingService : Service() {
         try {
             notificationManager.notify(NOTIFICATION_ID, createNotification(seconds, status))
         } catch (e: SecurityException) {
-            diagnosticLogger.error(DiagnosticCategory.NOTIFICATIONS, "NOTIFICATION_UPDATE_FAILED", throwable = e)
+            diagnosticLogger.error(DiagnosticCategory.APP, "NOTIFICATION_UPDATE_FAILED", throwable = e)
         }
     }
 
@@ -705,7 +705,7 @@ class RecordingService : Service() {
     }
 
     override fun onDestroy() {
-        diagnosticLogger.debug(DiagnosticCategory.RECORDING, "SERVICE_DESTROY_INVOKED")
+        diagnosticLogger.debug(DiagnosticCategory.RECORDER, "SERVICE_DESTROY_INVOKED")
         
         // 1. Stop hardware and release resources synchronously first
         cleanup()

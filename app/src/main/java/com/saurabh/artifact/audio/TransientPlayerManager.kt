@@ -12,7 +12,6 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,8 +30,7 @@ import javax.inject.Singleton
 @Singleton
 class TransientPlayerManager @Inject constructor(
     @param:ApplicationContext private val context: Context,
-    private val playbackSessionManager: PlaybackSessionManager,
-    private val diagnosticLogger: DiagnosticLogger
+    private val playbackSessionManager: PlaybackSessionManager
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var player: ExoPlayer? = null
@@ -98,7 +96,7 @@ class TransientPlayerManager @Inject constructor(
     @androidx.annotation.OptIn(UnstableApi::class)
     private fun initializePlayer(): ExoPlayer {
         releaseJob?.cancel()
-        val dataSourceFactory = SmartDataSourceFactory(context, diagnosticLogger)
+        val dataSourceFactory = SmartDataSourceFactory(context)
         return player ?: ExoPlayer.Builder(context)
             .setMediaSourceFactory(DefaultMediaSourceFactory(context).setDataSourceFactory(dataSourceFactory))
             .setAudioAttributes(

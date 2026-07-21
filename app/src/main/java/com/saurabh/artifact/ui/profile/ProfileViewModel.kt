@@ -6,11 +6,13 @@ import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.audio.PlaybackCoordinator
-import com.saurabh.artifact.data.local.ArtifactDraftEntity
+import com.saurabh.artifact.data.mapper.DraftToArtifactMapper
 import com.saurabh.artifact.model.Artifact
+import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.model.AvatarConfig
 import com.saurabh.artifact.model.User
 import com.saurabh.artifact.repository.*
+import com.saurabh.artifact.ui.profile.models.DraftUiModel
 import com.saurabh.artifact.ui.util.UiText
 import com.saurabh.artifact.ui.util.ErrorMessageMapper
 import com.saurabh.artifact.R
@@ -40,7 +42,7 @@ data class ProfileUiState(
     val publishedArtifacts: List<Artifact> = emptyList(),
     val cloudDrafts: List<Artifact> = emptyList(),
     val savedArtifacts: List<Artifact> = emptyList(),
-    val localDrafts: List<ArtifactDraftEntity> = emptyList(),
+    val localDrafts: List<DraftUiModel> = emptyList(),
     val logoutState: LogoutState = LogoutState.Idle,
     val message: UiText? = null,
     val isLoading: Boolean = true,
@@ -63,7 +65,8 @@ class ProfileViewModel @Inject constructor(
     getProfileDataUseCase: com.saurabh.artifact.domain.profile.GetProfileDataUseCase,
     private val profileInteractionUseCase: com.saurabh.artifact.domain.profile.ProfileInteractionUseCase,
     private val logoutCoordinator: com.saurabh.artifact.domain.auth.LogoutCoordinator,
-    private val diagnosticLogger: DiagnosticLogger
+    private val diagnosticLogger: DiagnosticLogger,
+    private val draftMapper: DraftToArtifactMapper
 ) : ViewModel() {
 
     val currentUserId: String? get() = authRepository.currentUser.value?.uid
@@ -113,6 +116,21 @@ class ProfileViewModel @Inject constructor(
         val position = params[10] as Duration
         val duration = params[11] as Duration
 
+        val mappedLocalDrafts = data?.localDrafts?.map { draft ->
+            val author = data.userProfile?.let { AuthorSnapshot.fromUser(it) } 
+                ?: AuthorSnapshot(name = "Private Draft")
+            
+            DraftUiModel(
+                artifact = draftMapper.map(
+                    draft = draft,
+                    author = author,
+                    fallbackTitle = "Unfinished Recording"
+                ),
+                reviewProgress = draft.reviewProgress,
+                isListened = draft.lifecycle == com.saurabh.artifact.model.ArtifactLifecycle.READY_TO_PUBLISH
+            )
+        } ?: emptyList()
+
         val state = ProfileUiState(
             userProfile = data?.userProfile,
             avatarConfig = avatarConfig,
@@ -122,7 +140,7 @@ class ProfileViewModel @Inject constructor(
             publishedArtifacts = data?.publishedArtifacts ?: emptyList(),
             cloudDrafts = data?.cloudDrafts ?: emptyList(),
             savedArtifacts = data?.savedArtifacts ?: emptyList(),
-            localDrafts = data?.localDrafts ?: emptyList(),
+            localDrafts = mappedLocalDrafts,
             logoutState = logoutState,
             message = message,
             isLoading = data == null,

@@ -2,9 +2,13 @@ package com.saurabh.artifact.audio
 
 import com.saurabh.artifact.audio.validation.ReviewResult
 import com.saurabh.artifact.data.local.DraftDao
+import com.saurabh.artifact.data.mapper.DraftToArtifactMapper
+import com.saurabh.artifact.diagnostics.ArtifactLogger
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.domain.review.publishing.PublishingReviewPolicy
 import com.saurabh.artifact.domain.review.publishing.PublishingReviewValidator
 import com.saurabh.artifact.model.*
+import com.saurabh.artifact.repository.UserRepository
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import javax.inject.Inject
@@ -22,7 +26,9 @@ class ReviewSessionManager @Inject constructor(
     reviewAuthorityService: ReviewAuthorityService,
     private val draftDao: DraftDao,
     private val publishingValidator: PublishingReviewValidator,
-    private val publishingPolicy: PublishingReviewPolicy
+    private val publishingPolicy: PublishingReviewPolicy,
+    private val draftMapper: DraftToArtifactMapper,
+    private val userRepository: UserRepository
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     // @Inject lateinit var analytics: com.google.firebase.analytics.FirebaseAnalytics
@@ -70,7 +76,7 @@ class ReviewSessionManager @Inject constructor(
                 .distinctUntilChanged()
                 .collect { (artifactId, isThresholdMet) ->
                     if (isThresholdMet && artifactId != null) {
-                        android.util.Log.d("STUDIO_TRACE", "Threshold met. Triggering completion. (DB_TRACE)")
+                        ArtifactLogger.i(DiagnosticCategory.REVIEW, "REVIEW_THRESHOLD_MET", mapOf("artifactId" to artifactId))
                         trackReviewCompleted(artifactId)
                         markReviewComplete(artifactId)
                     }
@@ -79,7 +85,7 @@ class ReviewSessionManager @Inject constructor(
     }
 
     private fun trackReviewCompleted(artifactId: String) {
-        android.util.Log.d("STUDIO_TRACE", "trackReviewCompleted (DB_TRACE)")
+        ArtifactLogger.d(DiagnosticCategory.REVIEW, "REVIEW_TRACK_COMPLETED", mapOf("artifactId" to artifactId))
     }
 
     private fun updatePersistedProgress(artifactId: String, progress: Float) {
@@ -91,16 +97,22 @@ class ReviewSessionManager @Inject constructor(
     fun startReview(draftId: String) {
         if (reviewProgress.value.artifactId == draftId && playbackSessionManager.isPlaying.value) return
 
-        android.util.Log.d("STUDIO_TRACE", "startReview (LIFECYCLE_TRACE)")
+        ArtifactLogger.i(DiagnosticCategory.REVIEW, "REVIEW_STARTED", mapOf("draftId" to draftId))
         scope.launch {
             val draft = draftDao.getDraftById(draftId) ?: return@launch
             
-            val artifact = Artifact(
-                id = draft.id,
-                audioUrl = "file://${draft.localAudioPath}",
-                title = draft.title ?: "Your Draft",
-                durationMs = draft.durationMs,
-                status = ArtifactStatus.DRAFT
+            // Build author snapshot for the draft playback
+            val currentUser = userRepository.getCachedProfile()
+            val author = if (currentUser != null) {
+                AuthorSnapshot.fromUser(currentUser)
+            } else {
+                AuthorSnapshot(name = "Your Draft")
+            }
+
+            val artifact = draftMapper.map(
+                draft = draft,
+                author = author,
+                fallbackTitle = "Your Draft"
             )
 
             playbackSessionManager.play(
@@ -128,12 +140,14 @@ class ReviewSessionManager @Inject constructor(
             }
 
             if (draft.reviewCompleted && isPostReview) {
-                android.util.Log.d("STUDIO_TRACE", "markReviewComplete: Already complete. Skipping redundant write. (DB_TRACE)")
+                ArtifactLogger.d(DiagnosticCategory.REVIEW, "REVIEW_ALREADY_COMPLETE_SKIPPING", mapOf("artifactId" to artifactId))
                 return@withContext
             }
 
-            android.util.Log.d("LIFECYCLE_TRACE", "markReviewComplete. Transitioning ${draft.lifecycle} -> METADATA_REQUIRED (DB_TRACE)")
-            android.util.Log.d("StudioLoop", "markReviewCompletePartial")
+            ArtifactLogger.i(DiagnosticCategory.REVIEW, "REVIEW_MARKING_COMPLETE", mapOf(
+                "artifactId" to artifactId,
+                "fromLifecycle" to draft.lifecycle.name
+            ))
             draftDao.markReviewCompletePartial(artifactId)
         }
     }

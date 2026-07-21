@@ -31,8 +31,8 @@ import androidx.media3.session.SessionError
 import androidx.media3.session.SessionResult
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.saurabh.artifact.diagnostics.ArtifactLogger
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
-import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.EngagementRepository
@@ -50,7 +50,6 @@ class PlaybackService : MediaLibraryService() {
     @Inject lateinit var artifactRepository: ArtifactRepository
     @Inject lateinit var engagementRepository: EngagementRepository
     @Inject lateinit var settingsDataStore: PlaybackSettingsDataStore
-    @Inject lateinit var diagnosticLogger: DiagnosticLogger
 
     private var mediaSession: MediaLibrarySession? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -68,7 +67,7 @@ class PlaybackService : MediaLibraryService() {
     @androidx.annotation.OptIn(UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
-        diagnosticLogger.info(DiagnosticCategory.PLAYER, "SERVICE_CREATE_STARTED")
+        ArtifactLogger.start(DiagnosticCategory.PLAYER, "SERVICE_CREATE")
         
         attributionContext = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
             createAttributionContext("media_playback")
@@ -90,9 +89,9 @@ class PlaybackService : MediaLibraryService() {
 
     @androidx.annotation.OptIn(UnstableApi::class)
     private fun initializeSession() {
-        diagnosticLogger.debug(DiagnosticCategory.PLAYER, "SESSION_INIT_STARTED")
+        ArtifactLogger.d(DiagnosticCategory.PLAYER, "SESSION_INIT_STARTED")
         
-        val dataSourceFactory = SmartDataSourceFactory(attributionContext, diagnosticLogger)
+        val dataSourceFactory = SmartDataSourceFactory(attributionContext)
         
         // Optimized buffering for network resilience
         val loadControl = DefaultLoadControl.Builder()
@@ -107,7 +106,7 @@ class PlaybackService : MediaLibraryService() {
         val bandwidthMeter = DefaultBandwidthMeter.getSingletonInstance(this)
         bandwidthMeter.addEventListener(Handler(Looper.getMainLooper()), object : BandwidthMeter.EventListener {
             override fun onBandwidthSample(elapsedMs: Int, bytesTransferred: Long, bitrateEstimate: Long) {
-                diagnosticLogger.trace(DiagnosticCategory.NETWORK, "BANDWIDTH_SAMPLE", mapOf(
+                ArtifactLogger.v(DiagnosticCategory.NETWORK, "BANDWIDTH_SAMPLE", mapOf(
                     "elapsedMs" to elapsedMs,
                     "bytes" to bytesTransferred,
                     "bitrate" to bitrateEstimate
@@ -132,17 +131,12 @@ class PlaybackService : MediaLibraryService() {
         // Wait for basic metadata to be ready before attaching to session
         player.addListener(object : Player.Listener {
             override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
-                diagnosticLogger.trace(DiagnosticCategory.PLAYER, "METADATA_UPDATED", mapOf("title" to (mediaMetadata.title ?: "null")))
+                ArtifactLogger.v(DiagnosticCategory.PLAYER, "METADATA_UPDATED", mapOf("title" to (mediaMetadata.title ?: "null")))
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
                 val artifact = player.currentMediaItem?.mediaId ?: "unknown"
                 val pos = player.currentPosition
-                val buffered = player.bufferedPosition
-                val loading = player.isLoading
-                
-                val bufferedDuration = player.totalBufferedDuration
-                val bufferedPercentage = player.bufferedPercentage
                 
                 val stateName = when (playbackState) {
                     Player.STATE_IDLE -> "IDLE"
@@ -152,57 +146,35 @@ class PlaybackService : MediaLibraryService() {
                     else -> "UNKNOWN"
                 }
 
-                val bitrateEstimate = bandwidthMeter.bitrateEstimate
-                val audioFormat = player.audioFormat
-                
-                diagnosticLogger.info(DiagnosticCategory.PLAYER, "PLAYER_BUFFER_STATE", mapOf(
-                    "state" to stateName,
-                    "artifactId" to artifact,
-                    "pos" to pos,
-                    "buffered" to buffered,
-                    "bufferedDuration" to bufferedDuration,
-                    "bufferedPercentage" to bufferedPercentage,
-                    "playWhenReady" to player.playWhenReady,
-                    "isLoading" to loading,
-                    "bitrateEstimate" to bitrateEstimate,
-                    "audioBitrate" to (audioFormat?.bitrate ?: -1),
-                    "audioCodec" to (audioFormat?.sampleMimeType ?: "unknown")
-                ))
-
                 when (playbackState) {
                     Player.STATE_READY -> {
-                        diagnosticLogger.info(DiagnosticCategory.PLAYER, "STATE_READY", mapOf(
+                        ArtifactLogger.i(DiagnosticCategory.PLAYER, "STATE_READY", mapOf(
                             "artifactId" to artifact,
                             "pos" to pos,
-                            "buffered" to buffered,
-                            "loading" to loading,
                             "playWhenReady" to player.playWhenReady
                         ))
                         if (player.playWhenReady) {
-                            diagnosticLogger.info(DiagnosticCategory.PLAYER, "PLAYBACK_STARTED", mapOf("artifactId" to artifact))
+                            ArtifactLogger.i(DiagnosticCategory.PLAYER, "PLAYBACK_STARTED", mapOf("artifactId" to artifact))
                         }
                     }
                     Player.STATE_ENDED -> {
-                        diagnosticLogger.info(DiagnosticCategory.PLAYER, "PLAYBACK_COMPLETED", mapOf("artifactId" to artifact))
+                        ArtifactLogger.i(DiagnosticCategory.PLAYER, "PLAYBACK_COMPLETED", mapOf("artifactId" to artifact))
                     }
                     Player.STATE_IDLE -> {
-                        diagnosticLogger.info(DiagnosticCategory.PLAYER, "STATE_IDLE", mapOf("artifactId" to artifact))
+                        ArtifactLogger.i(DiagnosticCategory.PLAYER, "STATE_IDLE", mapOf("artifactId" to artifact))
                     }
                     Player.STATE_BUFFERING -> {
-                        diagnosticLogger.debug(DiagnosticCategory.PLAYER, "PLAYBACK_BUFFERING", mapOf(
+                        ArtifactLogger.d(DiagnosticCategory.PLAYER, "PLAYBACK_BUFFERING", mapOf(
                             "artifactId" to artifact,
-                            "pos" to pos,
-                            "buffered" to buffered,
-                            "loading" to loading
+                            "pos" to pos
                         ))
                     }
                 }
             }
 
             override fun onIsLoadingChanged(isLoading: Boolean) {
-                diagnosticLogger.trace(DiagnosticCategory.PLAYER, "LOADING_CHANGED", mapOf(
+                ArtifactLogger.v(DiagnosticCategory.PLAYER, "LOADING_CHANGED", mapOf(
                     "isLoading" to isLoading,
-                    "buffered" to player.bufferedPosition,
                     "pos" to player.currentPosition
                 ))
             }
@@ -210,19 +182,19 @@ class PlaybackService : MediaLibraryService() {
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
                 val artifact = player.currentMediaItem?.mediaId ?: "unknown"
                 if (!playWhenReady) {
-                    diagnosticLogger.info(DiagnosticCategory.PLAYER, "PLAYBACK_PAUSED", mapOf("artifactId" to artifact))
+                    ArtifactLogger.i(DiagnosticCategory.PLAYER, "PLAYBACK_PAUSED", mapOf("artifactId" to artifact))
                 } else if (player.playbackState == Player.STATE_READY) {
-                    diagnosticLogger.info(DiagnosticCategory.PLAYER, "PLAYBACK_STARTED", mapOf("artifactId" to artifact))
+                    ArtifactLogger.i(DiagnosticCategory.PLAYER, "PLAYBACK_STARTED", mapOf("artifactId" to artifact))
                 }
             }
 
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                 val artifact = player.currentMediaItem?.mediaId ?: "unknown"
-                diagnosticLogger.error(DiagnosticCategory.PLAYER, "PLAYBACK_FAILED", mapOf("artifactId" to artifact), error)
+                ArtifactLogger.e(DiagnosticCategory.PLAYER, "PLAYBACK_FAILED", mapOf("artifactId" to artifact), error)
             }
             
             override fun onPlaybackParametersChanged(playbackParameters: androidx.media3.common.PlaybackParameters) {
-                diagnosticLogger.info(DiagnosticCategory.PLAYER, "PLAYBACK_SPEED_CHANGED", mapOf("speed" to playbackParameters.speed))
+                ArtifactLogger.i(DiagnosticCategory.PLAYER, "PLAYBACK_SPEED_CHANGED", mapOf("speed" to playbackParameters.speed))
             }
         })
 
@@ -323,14 +295,14 @@ class PlaybackService : MediaLibraryService() {
                                 pos,
                             )
                             val duration = android.os.SystemClock.elapsedRealtime() - startTime
-                            diagnosticLogger.info(DiagnosticCategory.PLAYER, "RESUMPTION_SUCCESS", mapOf(LogKeys.DURATION_MS to duration, "count" to artifacts.size))
+                            ArtifactLogger.i(DiagnosticCategory.PLAYER, "RESUMPTION_SUCCESS", mapOf(LogKeys.DURATION_MS to duration, "count" to artifacts.size))
                             completer.set(result)
                         } else {
-                            diagnosticLogger.warn(DiagnosticCategory.PLAYER, "RESUMPTION_NO_ITEMS")
+                            ArtifactLogger.w(DiagnosticCategory.PLAYER, "RESUMPTION_NO_ITEMS")
                             completer.setException(Exception("No items to resume"))
                         }
                     } catch (e: Exception) {
-                        diagnosticLogger.error(DiagnosticCategory.PLAYER, "RESUMPTION_FAILED", throwable = e)
+                        ArtifactLogger.e(DiagnosticCategory.PLAYER, "RESUMPTION_FAILED", throwable = e)
                         completer.setException(e)
                     }
                 }
@@ -383,7 +355,7 @@ class PlaybackService : MediaLibraryService() {
             
             override fun onPostConnect(session: MediaSession, controller: MediaSession.ControllerInfo) {
                 super.onPostConnect(session, controller)
-                diagnosticLogger.debug(DiagnosticCategory.PLAYER, "CONTROLLER_CONNECTED", mapOf("packageName" to controller.packageName))
+                ArtifactLogger.d(DiagnosticCategory.PLAYER, "CONTROLLER_CONNECTED", mapOf("packageName" to controller.packageName))
             }
         }
 
@@ -443,7 +415,7 @@ class PlaybackService : MediaLibraryService() {
     }
 
     override fun onDestroy() {
-        diagnosticLogger.info(DiagnosticCategory.PLAYER, "SERVICE_DESTROY_INVOKED")
+        ArtifactLogger.i(DiagnosticCategory.PLAYER, "SERVICE_DESTROY_INVOKED")
         serviceScope.cancel()
         mediaSession?.run {
             player.release()

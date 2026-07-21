@@ -201,13 +201,13 @@ fun ProfileScreen(
                                     currentlyPlayingId = uiState.currentlyPlayingArtifact?.id,
                                     isPlaying = uiState.isPlaying,
                                     isBuffering = uiState.isBuffering,
-                                    onPlayClick = { draft -> onNavigateToReview(draft.id) },
-                                    onRename = { draft, newTitle -> 
-                                        viewModel.renameDraft(draft.id, newTitle)
+                                    onPlayClick = { id -> onNavigateToReview(id) },
+                                    onRename = { id, newTitle -> 
+                                        viewModel.renameDraft(id, newTitle)
                                     },
-                                    onPublishClick = { draft -> onNavigateToPublish(draft.id) },
-                                    onDelete = { draft -> 
-                                        viewModel.deleteDraft(draft.id)
+                                    onPublishClick = { id -> onNavigateToPublish(id) },
+                                    onDelete = { id -> 
+                                        viewModel.deleteDraft(id)
                                     }
                                 )
 

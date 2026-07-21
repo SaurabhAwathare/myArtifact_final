@@ -18,7 +18,8 @@ class GetPlayerContextUseCase @Inject constructor(
     private val userRepository: UserRepository,
     private val savedArtifactManager: SavedArtifactManager,
     private val authRepository: AuthRepository,
-    private val pendingInteractionDao: com.saurabh.artifact.data.local.PendingInteractionDao
+    private val pendingInteractionDao: com.saurabh.artifact.data.local.PendingInteractionDao,
+    private val draftRepository: DraftRepository
 ) {
     @OptIn(ExperimentalCoroutinesApi::class)
     fun execute(
@@ -35,6 +36,31 @@ class GetPlayerContextUseCase @Inject constructor(
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private fun observeMetadata(
+        artifact: Artifact
+    ): Flow<PlayerMetadata> {
+        return if (artifact.isDraft) {
+            observeDraftMetadata(artifact)
+        } else {
+            observePublishedMetadata(artifact)
+        }
+    }
+
+    private fun observeDraftMetadata(artifact: Artifact): Flow<PlayerMetadata> {
+        // For drafts, we observe the local draft for title/waveform updates
+        // but provide empty/default values for all social metadata.
+        return draftRepository.observeDraftAsArtifact(artifact.id)
+            .onStart { emit(artifact) }
+            .map { updatedArtifact ->
+                if (updatedArtifact == null) {
+                    PlayerMetadata()
+                } else {
+                    PlayerMetadata(artifactId = updatedArtifact.id)
+                }
+            }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private fun observePublishedMetadata(
         artifact: Artifact
     ): Flow<PlayerMetadata> {
         val userIdFlow = authRepository.currentUser.map { it?.uid }

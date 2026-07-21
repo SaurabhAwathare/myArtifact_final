@@ -1,6 +1,7 @@
 package com.saurabh.artifact.domain.auth
 
-import android.util.Log
+import com.saurabh.artifact.diagnostics.ArtifactLogger
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.repository.UserRepository
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -21,48 +22,48 @@ class RegistrationCoordinator @Inject constructor(
      * @return [RegistrationResult] indicating the outcome.
      */
     suspend fun ensureProfileExists(): RegistrationResult = mutex.withLock {
-        Log.i("APP_FLOW", "PROFILE_CREATE_STARTED")
+        ArtifactLogger.i(DiagnosticCategory.AUTH, "PROFILE_CREATE_STARTED")
         
         return try {
             when (val status = profileHealthChecker.checkHealth()) {
                 HealthStatus.Healthy -> {
-                    Log.i("APP_FLOW", "REGISTRATION_EXISTING_USER")
+                    ArtifactLogger.i(DiagnosticCategory.AUTH, "REGISTRATION_EXISTING_USER")
                     RegistrationResult.SuccessExistingUser
                 }
                 HealthStatus.RepairRequired, is HealthStatus.Corrupted, HealthStatus.Missing -> {
                     if (status == HealthStatus.Missing) {
-                        Log.i("APP_FLOW", "PROFILE_CREATE_STARTED") // Explicitly for new profile case
+                        ArtifactLogger.i(DiagnosticCategory.AUTH, "PROFILE_CREATE_STARTED") // Explicitly for new profile case
                     } else {
-                        Log.i("APP_FLOW", "PROFILE_REPAIR_STARTED")
+                        ArtifactLogger.i(DiagnosticCategory.AUTH, "PROFILE_REPAIR_STARTED")
                     }
 
                     userRepository.getOrCreateProfile()
                         .fold(
                             onSuccess = { profileResult ->
                                 if (profileResult.isNewUser) {
-                                    Log.i("APP_FLOW", "REGISTRATION_NEW_USER")
+                                    ArtifactLogger.i(DiagnosticCategory.AUTH, "REGISTRATION_NEW_USER")
                                     RegistrationResult.SuccessNewUser
                                 } else {
                                     if (status is HealthStatus.RepairRequired || status is HealthStatus.Corrupted) {
-                                        Log.i("APP_FLOW", "PROFILE_REPAIR_COMPLETED")
+                                        ArtifactLogger.i(DiagnosticCategory.AUTH, "PROFILE_REPAIR_COMPLETED")
                                     }
-                                    Log.i("APP_FLOW", "REGISTRATION_EXISTING_USER")
+                                    ArtifactLogger.i(DiagnosticCategory.AUTH, "REGISTRATION_EXISTING_USER")
                                     RegistrationResult.SuccessExistingUser
                                 }
                             },
                             onFailure = { e ->
-                                Log.e("APP_FLOW", "REGISTRATION_FAILURE", e)
+                                ArtifactLogger.e(DiagnosticCategory.AUTH, "REGISTRATION_FAILURE", throwable = e)
                                 RegistrationResult.Failure(e)
                             }
                         )
                 }
                 HealthStatus.Unrecoverable -> {
-                    Log.e("APP_FLOW", "REGISTRATION_FAILURE: Unrecoverable")
+                    ArtifactLogger.e(DiagnosticCategory.AUTH, "REGISTRATION_FAILURE_UNRECOVERABLE")
                     RegistrationResult.Failure(Exception("Profile is unrecoverable"))
                 }
             }
         } catch (e: Exception) {
-            Log.e("APP_FLOW", "REGISTRATION_FAILURE", e)
+            ArtifactLogger.e(DiagnosticCategory.AUTH, "REGISTRATION_FAILURE", throwable = e)
             RegistrationResult.Failure(e)
         }
     }

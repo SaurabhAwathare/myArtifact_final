@@ -5,46 +5,36 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.saurabh.artifact.data.local.ArtifactDraftEntity
-import com.saurabh.artifact.model.Artifact
+import com.saurabh.artifact.ui.profile.models.DraftUiModel
 
 fun LazyListScope.draftSection(
-    drafts: List<ArtifactDraftEntity>,
+    drafts: List<DraftUiModel>,
     currentlyPlayingId: String?,
     isPlaying: Boolean,
     isBuffering: Boolean,
-    onPlayClick: (ArtifactDraftEntity) -> Unit,
-    onRename: (ArtifactDraftEntity, String) -> Unit,
-    onPublishClick: (ArtifactDraftEntity) -> Unit = {},
-    onDelete: (ArtifactDraftEntity) -> Unit
+    onPlayClick: (String) -> Unit,
+    onRename: (String, String) -> Unit,
+    onPublishClick: (String) -> Unit = {},
+    onDelete: (String) -> Unit
 ) {
     if (drafts.isNotEmpty()) {
-        items(drafts, key = { it.id }) { draft ->
+        items(drafts, key = { it.artifact.id }) { draftUiModel ->
+            val draft = draftUiModel.artifact
             val isCurrent = currentlyPlayingId == draft.id
             
-            val tempArtifact = Artifact(
-                id = draft.id,
-                title = draft.title ?: "Unfinished Recording",
-                author = com.saurabh.artifact.model.AuthorSnapshot(name = "Private Draft"),
-                durationMs = draft.durationMs,
-                status = com.saurabh.artifact.model.ArtifactStatus.DRAFT,
-                amplitudeData = draft.amplitudeData,
-                createdAt = com.google.firebase.Timestamp(java.util.Date(draft.createdAt))
-            )
-
             Box(modifier = Modifier.padding(horizontal = 20.dp)) {
                 ProfileArtifactCard(
-                    artifact = tempArtifact,
+                    artifact = draft,
                     isDraft = true,
                     isOwner = true,
                     isPlaying = isCurrent && isPlaying,
                     isBuffering = isCurrent && isBuffering,
-                    isListened = draft.lifecycle == com.saurabh.artifact.model.ArtifactLifecycle.READY_TO_PUBLISH,
-                    reviewProgress = draft.reviewProgress,
-                    onPlayClick = { onPlayClick(draft) },
-                    onRename = { newTitle -> onRename(draft, newTitle) },
-                    onPublishClick = { onPublishClick(draft) },
-                    onDelete = { onDelete(draft) }
+                    isListened = draftUiModel.isListened,
+                    reviewProgress = draftUiModel.reviewProgress,
+                    onPlayClick = { onPlayClick(draft.id) },
+                    onRename = { newTitle -> onRename(draft.id, newTitle) },
+                    onPublishClick = { onPublishClick(draft.id) },
+                    onDelete = { onDelete(draft.id) }
                 )
             }
         }
