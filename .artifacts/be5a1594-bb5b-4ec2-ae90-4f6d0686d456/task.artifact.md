@@ -1,0 +1,5 @@
+- [ ] Update `AuthRepositoryTest.kt` with targeted cleanup
+- [ ] Update `UserRepositoryMigrationTest.kt` with setup and targeted cleanup
+- [ ] Verify `AuthRepositoryTest` passes
+- [ ] Verify `UserRepositoryMigrationTest` passes
+- [ ] Verify the `com.saurabh.artifact.domain.auth.*` suite behavior

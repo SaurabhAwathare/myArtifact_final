@@ -4,13 +4,14 @@ import android.content.Context
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.*
-import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.diagnostics.FakeDiagnosticLogger
 import com.saurabh.artifact.domain.auth.ProfileRepairService
 import com.saurabh.artifact.domain.auth.RegistrationCoordinator
 import com.saurabh.artifact.model.User
 import io.mockk.*
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.tasks.await
+import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import java.util.UUID
@@ -24,7 +25,7 @@ class UserRepositoryMigrationTest {
     private val profileRepairService = mockk<ProfileRepairService>(relaxed = true)
     private val registrationCoordinator = mockk<RegistrationCoordinator>(relaxed = true)
     private val pendingInteractionDao = mockk<com.saurabh.artifact.data.local.PendingInteractionDao>(relaxed = true)
-    private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
+    private val diagnosticLogger = FakeDiagnosticLogger()
 
     private lateinit var userRepository: UserRepository
 
@@ -43,6 +44,11 @@ class UserRepositoryMigrationTest {
         )
     }
 
+    @After
+    fun tearDown() {
+        diagnosticLogger.clear()
+    }
+
     @Test
     fun `getOrCreateProfile triggers migration when sensitive fields exist at root`() = runBlocking {
         val uid = "test-uid"
@@ -51,9 +57,13 @@ class UserRepositoryMigrationTest {
         every { mockUser.email } returns "test@example.com"
         every { mockUser.displayName } returns "Test User"
         every { auth.currentUser } returns mockUser
+
+        // Mock reload()
+        val reloadTask = mockk<com.google.android.gms.tasks.Task<Void>>()
+        every { mockUser.reload() } returns reloadTask
         
         // Task mocks for tasks.await()
-        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        coEvery { reloadTask.await() } returns mockk()
         
         val userRef = mockk<DocumentReference>(relaxed = true)
         val privateRef = mockk<DocumentReference>(relaxed = true)
@@ -97,7 +107,7 @@ class UserRepositoryMigrationTest {
             })
         }
         
-        verify { diagnosticLogger.info(any(), "SENSITIVE_DATA_MIGRATED", any()) }
+        diagnosticLogger.assertEventExists(eventName = "SENSITIVE_DATA_MIGRATED")
     }
 
     @Test
@@ -107,7 +117,11 @@ class UserRepositoryMigrationTest {
         every { mockUser.uid } returns uid
         every { auth.currentUser } returns mockUser
         
-        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        // Mock reload()
+        val reloadTask = mockk<com.google.android.gms.tasks.Task<Void>>()
+        every { mockUser.reload() } returns reloadTask
+
+        coEvery { reloadTask.await() } returns mockk()
 
         val userRef = mockk<DocumentReference>(relaxed = true)
         val privateRef = mockk<DocumentReference>(relaxed = true)
@@ -142,5 +156,7 @@ class UserRepositoryMigrationTest {
             transaction.set(privateRef, any<Map<String, Any>>(), SetOptions.merge())
             transaction.update(userRef, any<Map<String, Any>>())
         }
+        
+        diagnosticLogger.assertNoEvent(eventName = "SENSITIVE_DATA_MIGRATED")
     }
 }

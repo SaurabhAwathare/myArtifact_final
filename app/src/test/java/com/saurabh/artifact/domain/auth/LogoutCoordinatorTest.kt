@@ -8,7 +8,8 @@ import com.saurabh.artifact.data.local.AppDatabase
 import com.saurabh.artifact.data.local.UserSessionManager
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.SettingsRepository
-import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.diagnostics.FakeDiagnosticLogger
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.util.NotificationHelper
 import com.saurabh.artifact.util.StorageManager
 import com.google.common.util.concurrent.ListenableFuture
@@ -40,7 +41,7 @@ class LogoutCoordinatorTest {
     private val workManager = mockk<WorkManager>(relaxed = true)
     private val database = mockk<AppDatabase>(relaxed = true)
     private val storageManager = mockk<StorageManager>(relaxed = true)
-    private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
+    private val fakeLogger = FakeDiagnosticLogger()
     
     private val testDispatcher = UnconfinedTestDispatcher()
 
@@ -73,7 +74,7 @@ class LogoutCoordinatorTest {
             workManager,
             database,
             storageManager,
-            diagnosticLogger
+            fakeLogger
         ).apply {
             ioDispatcher = testDispatcher
             mainDispatcher = testDispatcher
@@ -118,6 +119,9 @@ class LogoutCoordinatorTest {
 
         // Verify Phase E: Sign Out
         coVerify { authRepository.signOut() }
+        
+        fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "LOGOUT_FIREBASE_SUCCESS")
+        fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "LOGOUT_CLEANUP_COMPLETED")
     }
 
     @Test
@@ -150,5 +154,9 @@ class LogoutCoordinatorTest {
         
         // Verify sign out was still called (Final Phase)
         coVerify { authRepository.signOut() }
+
+        fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_SESSION_FAILED")
+        fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_DB_FAILED")
+        fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_STORAGE_FAILED")
     }
 }

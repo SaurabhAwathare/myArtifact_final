@@ -1,6 +1,5 @@
 package com.saurabh.artifact.repository
 
-import android.util.Log
 import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.CredentialManager
 import com.google.android.gms.tasks.Task
@@ -11,11 +10,16 @@ import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
-import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.diagnostics.ArtifactLogger
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.FakeDiagnosticLogger
+import com.saurabh.artifact.diagnostics.TestNoOpDiagnosticLogger
 import com.saurabh.artifact.domain.auth.ProfileRepairService
 import io.mockk.*
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.tasks.await
+import org.junit.After
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -24,25 +28,25 @@ class AuthRepositoryTest {
     private val firestore = mockk<FirebaseFirestore>(relaxed = true)
     private val credentialManager = mockk<CredentialManager>(relaxed = true)
     private val profileRepairService = mockk<ProfileRepairService>(relaxed = true)
-    private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
+    private val fakeLogger = FakeDiagnosticLogger()
 
     private lateinit var repository: AuthRepository
 
     @Before
     fun setup() {
-        mockkStatic(Log::class)
-        every { Log.d(any<String>(), any<String>()) } returns 0
-        every { Log.w(any<String>(), any<String>()) } returns 0
-        every { Log.e(any<String>(), any<String>()) } returns 0
-        every { Log.e(any<String>(), any<String>(), any<Throwable>()) } returns 0
+        ArtifactLogger.init(fakeLogger)
 
         repository = AuthRepository(
             firebaseAuth = firebaseAuth,
             firestore = firestore,
             credentialManager = credentialManager,
-            profileRepairService = profileRepairService,
-            diagnosticLogger = diagnosticLogger
+            profileRepairService = profileRepairService
         )
+    }
+
+    @After
+    fun tearDown() {
+        ArtifactLogger.init(TestNoOpDiagnosticLogger)
     }
 
     @Test
@@ -71,7 +75,7 @@ class AuthRepositoryTest {
 
         val result = repository.signOut()
 
-        assert(result.isSuccess)
+        assertTrue(result.isSuccess)
         
         // Verify individual calls since coVerifyOrder is more robust for suspend functions
         coVerifyOrder {
@@ -105,10 +109,10 @@ class AuthRepositoryTest {
         val result = repository.signOut()
 
         // Should still succeed because clearFcmToken failure is handled gracefully
-        assert(result.isSuccess)
+        assertTrue(result.isSuccess)
         
         verify { firebaseAuth.signOut() }
-        verify { diagnosticLogger.error(any(), "FCM_TOKEN_CLEAR_FAILED", any(), any()) }
+        fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "FCM_TOKEN_CLEAR_FAILED")
     }
 
     @Test
@@ -137,9 +141,9 @@ class AuthRepositoryTest {
 
         val result = repository.signOut()
 
-        assert(result.isSuccess)
+        assertTrue(result.isSuccess)
         verify { firebaseAuth.signOut() }
-        verify { diagnosticLogger.error(any(), any(), any(), permissionDeniedException) }
+        fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "FCM_TOKEN_CLEAR_FAILED")
     }
 
     @Test
@@ -148,7 +152,7 @@ class AuthRepositoryTest {
 
         val result = repository.signOut()
 
-        assert(result.isSuccess)
+        assertTrue(result.isSuccess)
         verify(exactly = 0) { firestore.collection(any()) }
         verify { firebaseAuth.signOut() }
     }

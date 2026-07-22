@@ -30,6 +30,8 @@ class TitleBufferTest {
     private val publishArtifactUseCase = mockk<PublishArtifactUseCase>(relaxed = true)
     private val identityScout = mockk<IdentityScout>(relaxed = true)
     private val authRepository = mockk<AuthRepository>(relaxed = true)
+    private val cleanupManager = mockk<com.saurabh.artifact.audio.ArtifactCleanupManager>(relaxed = true)
+    private val debugRepository = mockk<com.saurabh.artifact.repository.DebugRepository>(relaxed = true)
     private val workManager = mockk<androidx.work.WorkManager>(relaxed = true)
     private val diagnosticLogger = mockk<com.saurabh.artifact.diagnostics.DiagnosticLogger>(relaxed = true)
 
@@ -74,10 +76,12 @@ class TitleBufferTest {
     fun `updateTitle should update local buffer immediately and Room after debounce`() = runTest {
         val viewModel = PublishingStudioViewModel(
             recordingRepository,
+            cleanupManager,
             playbackCoordinator,
             publishArtifactUseCase,
             identityScout,
             authRepository,
+            debugRepository,
             workManager,
             diagnosticLogger
         )

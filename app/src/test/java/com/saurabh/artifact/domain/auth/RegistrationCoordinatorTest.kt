@@ -1,11 +1,15 @@
 package com.saurabh.artifact.domain.auth
 
-import android.util.Log
+import com.saurabh.artifact.diagnostics.ArtifactLogger
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.FakeDiagnosticLogger
+import com.saurabh.artifact.diagnostics.TestNoOpDiagnosticLogger
 import com.saurabh.artifact.repository.UserRepository
 import com.saurabh.artifact.repository.ProfileResult
 import com.saurabh.artifact.model.User
 import io.mockk.*
 import kotlinx.coroutines.runBlocking
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -15,16 +19,18 @@ class RegistrationCoordinatorTest {
 
     private val profileHealthChecker = mockk<ProfileHealthChecker>()
     private val userRepository = mockk<UserRepository>()
+    private val fakeLogger = FakeDiagnosticLogger()
     private lateinit var coordinator: RegistrationCoordinator
 
     @Before
     fun setup() {
-        mockkStatic(Log::class)
-        every { Log.i(any(), any()) } returns 0
-        every { Log.e(any(), any()) } returns 0
-        every { Log.e(any(), any(), any()) } returns 0
-        
+        ArtifactLogger.init(fakeLogger)
         coordinator = RegistrationCoordinator(profileHealthChecker, userRepository)
+    }
+
+    @After
+    fun tearDown() {
+        ArtifactLogger.init(TestNoOpDiagnosticLogger)
     }
 
     @Test
@@ -34,7 +40,7 @@ class RegistrationCoordinatorTest {
         val result = coordinator.ensureProfileExists()
 
         assertEquals(RegistrationResult.SuccessExistingUser, result)
-        verify { Log.i("APP_FLOW", "REGISTRATION_EXISTING_USER") }
+        fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "REGISTRATION_EXISTING_USER")
     }
 
     @Test
@@ -46,7 +52,7 @@ class RegistrationCoordinatorTest {
         val result = coordinator.ensureProfileExists()
 
         assertEquals(RegistrationResult.SuccessNewUser, result)
-        verify { Log.i("APP_FLOW", "REGISTRATION_NEW_USER") }
+        fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "REGISTRATION_NEW_USER")
     }
 
     @Test
@@ -58,7 +64,7 @@ class RegistrationCoordinatorTest {
         val result = coordinator.ensureProfileExists()
 
         assertEquals(RegistrationResult.SuccessExistingUser, result)
-        verify { Log.i("APP_FLOW", "REGISTRATION_EXISTING_USER") }
+        fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "REGISTRATION_EXISTING_USER")
     }
 
     @Test
@@ -70,9 +76,8 @@ class RegistrationCoordinatorTest {
         val result = coordinator.ensureProfileExists()
 
         assertEquals(RegistrationResult.SuccessExistingUser, result)
-        // Check for specific repair start log
-        verify { Log.i("APP_FLOW", match { it.startsWith("PROFILE_REPAIR_STARTED") }) }
-        verify { Log.i("APP_FLOW", "PROFILE_REPAIR_COMPLETED") }
+        fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "PROFILE_REPAIR_STARTED")
+        fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "PROFILE_REPAIR_COMPLETED")
     }
 
     @Test
@@ -83,6 +88,7 @@ class RegistrationCoordinatorTest {
 
         assertTrue(result is RegistrationResult.Failure)
         assertEquals("Profile is unrecoverable", (result as RegistrationResult.Failure).exception.message)
+        fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "REGISTRATION_FAILURE_UNRECOVERABLE")
     }
 
     @Test
@@ -95,6 +101,6 @@ class RegistrationCoordinatorTest {
 
         assertTrue(result is RegistrationResult.Failure)
         assertEquals(exception, (result as RegistrationResult.Failure).exception)
-        verify { Log.e("APP_FLOW", "REGISTRATION_FAILURE", exception) }
+        fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "REGISTRATION_FAILURE", predicate = { it.throwable == exception })
     }
 }
