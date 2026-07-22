@@ -1,0 +1,9 @@
+- [ ] Fix `DraftRepositoryOptimizationTest`
+    - [ ] Apply `testScheduler` to `UnconfinedTestDispatcher` in `DraftRepositoryOptimizationTest.kt`
+    - [ ] Verify fix with `./gradlew :app:testDebugUnitTest --tests "com.saurabh.artifact.repository.DraftRepositoryOptimizationTest.observeDraftAsArtifact should suppress emissions when only progress changes"`
+- [ ] Run complete unit test suite and identify next failure
+    - [ ] Run `./gradlew :app:testDebugUnitTest`
+    - [ ] Select first remaining failing test for investigation
+- [ ] Investigate next failure
+    - [ ] Gather evidence and root cause analysis
+    - [ ] Produce investigation report

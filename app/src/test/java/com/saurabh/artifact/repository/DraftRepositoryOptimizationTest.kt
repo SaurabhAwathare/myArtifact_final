@@ -33,7 +33,12 @@ class DraftRepositoryOptimizationTest {
     fun `observeDraftAsArtifact should suppress emissions when only progress changes`() = runTest {
         val draftId = "test_draft"
         val userId = "test_user"
-        val user = mockk<User>(relaxed = true) { every { id } returns userId }
+        val user = mockk<User>(relaxed = true) {
+            every { id } returns userId
+            every { anonymousId } returns "usr_test"
+            every { anonymousName } returns "Test User"
+            every { anonymousSigil } returns "T"
+        }
         
         val baseDraft = ArtifactDraftEntity(
             id = draftId,
@@ -62,7 +67,7 @@ class DraftRepositoryOptimizationTest {
         every { draftToArtifactMapper.map(any(), any(), any()) } returns mockk<Artifact>(relaxed = true)
 
         val emissions = mutableListOf<Artifact?>()
-        val job = launch(UnconfinedTestDispatcher()) {
+        val job = launch(UnconfinedTestDispatcher(testScheduler)) {
             repository.observeDraftAsArtifact(draftId).toList(emissions)
         }
 

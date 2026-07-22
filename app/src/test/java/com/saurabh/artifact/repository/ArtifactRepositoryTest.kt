@@ -245,6 +245,16 @@ class ArtifactRepositoryTest {
             Unit
         }
 
+        // Mock Admin Check (isCurrentUserAdmin) - Root cause of the hang
+        val adminSettingsRef = mockk<com.google.firebase.firestore.DocumentReference>(relaxed = true)
+        every { firestore.collection("users").document(userId).collection("private").document("settings") } returns adminSettingsRef
+        val adminSettingsTask = mockk<com.google.android.gms.tasks.Task<com.google.firebase.firestore.DocumentSnapshot>>(relaxed = true)
+        every { adminSettingsRef.get() } returns adminSettingsTask
+        val adminSettingsSnapshot = mockk<com.google.firebase.firestore.DocumentSnapshot>(relaxed = true)
+        every { adminSettingsSnapshot.exists() } returns true
+        every { adminSettingsSnapshot.getBoolean("isAdmin") } returns false
+        coEvery { adminSettingsTask.await() } returns adminSettingsSnapshot
+
         val result = repository.deletePublishedArtifact(artifactId)
 
         assert(result.isSuccess)
@@ -343,7 +353,7 @@ class ArtifactRepositoryTest {
         assertEquals(artifactId, detail.id)
         assert(detail.reactionCounts != null)
         assertEquals(artifactId, detail.reactionCounts?.artifactId)
-        assertEquals(0, detail.reactionCounts?.totalCount)
+        assertEquals(0L, detail.reactionCounts?.totalCount)
         
         verify { diagnosticLogger.warn(DiagnosticCategory.FIRESTORE, "DETAIL_REACTION_COUNTS_CACHE_MISS", any()) }
     }

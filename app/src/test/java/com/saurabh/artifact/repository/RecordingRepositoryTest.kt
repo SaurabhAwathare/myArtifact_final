@@ -165,7 +165,8 @@ class RecordingRepositoryTest {
                 localTranscriptPath = path,
                 transcriptSegmentsJson = any(),
                 emotionalTone = null,
-                primaryStyle = null
+                primaryStyle = null,
+                timestamp = any()
             )
         }
     }

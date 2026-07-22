@@ -1,0 +1,3 @@
+- [ ] Update `DraftRepositoryOptimizationTest` mock User fixture
+- [ ] Run verification test
+- [ ] Verify test results

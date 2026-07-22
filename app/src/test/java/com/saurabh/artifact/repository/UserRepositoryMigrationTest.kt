@@ -1,6 +1,7 @@
 package com.saurabh.artifact.repository
 
 import android.content.Context
+import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.*
@@ -31,6 +32,14 @@ class UserRepositoryMigrationTest {
 
     @Before
     fun setup() {
+        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        mockkStatic(Log::class)
+        every { Log.d(any<String>(), any<String>()) } returns 0
+        every { Log.i(any<String>(), any<String>()) } returns 0
+        every { Log.w(any<String>(), any<String>()) } returns 0
+        every { Log.e(any<String>(), any<String>()) } returns 0
+        every { Log.e(any<String>(), any<String>(), any<Throwable>()) } returns 0
+
         userRepository = UserRepository(
             context = context,
             auth = auth,
@@ -47,6 +56,8 @@ class UserRepositoryMigrationTest {
     @After
     fun tearDown() {
         diagnosticLogger.clear()
+        unmockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        unmockkStatic(Log::class)
     }
 
     @Test

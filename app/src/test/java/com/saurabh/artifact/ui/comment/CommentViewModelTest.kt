@@ -1,5 +1,6 @@
 package com.saurabh.artifact.ui.comment
 
+import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import com.saurabh.artifact.domain.artifact.ArtifactOwnershipAuthority
 import com.saurabh.artifact.domain.comment.AddCommentUseCase
@@ -11,9 +12,11 @@ import com.saurabh.artifact.repository.PaginatedComments
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkStatic
+import io.mockk.unmockkStatic
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.*
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -35,13 +38,20 @@ class CommentViewModelTest {
 
     @Before
     fun setup() {
+        mockkStatic(Log::class)
+        every { Log.d(any(), any()) } returns 0
+        every { Log.i(any(), any()) } returns 0
+        every { Log.e(any(), any(), any()) } returns 0
+        every { Log.e(any(), any()) } returns 0
+
         Dispatchers.setMain(testDispatcher)
         
         // Default mock for initial load
         coEvery { getCommentsUseCase("test-artifact", any(), any()) } returns Result.success(
-            PaginatedComments(emptyList(), null)
+            PaginatedComments(emptyList(), null),
         )
         coEvery { ownershipAuthority.isCurrentUserOwner("test-artifact") } returns false
+        every { engagementRepository.observeEngagementEvidence(any()) } returns flowOf(null)
         
         viewModel = CommentViewModel(
             savedStateHandle,
@@ -56,6 +66,7 @@ class CommentViewModelTest {
     @After
     fun tearDown() {
         Dispatchers.resetMain()
+        unmockkStatic(Log::class)
     }
 
     @Test

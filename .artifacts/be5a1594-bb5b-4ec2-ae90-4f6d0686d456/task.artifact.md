@@ -1,5 +1,7 @@
-- [ ] Update `AuthRepositoryTest.kt` with targeted cleanup
-- [ ] Update `UserRepositoryMigrationTest.kt` with setup and targeted cleanup
-- [ ] Verify `AuthRepositoryTest` passes
-- [ ] Verify `UserRepositoryMigrationTest` passes
-- [ ] Verify the `com.saurabh.artifact.domain.auth.*` suite behavior
+# Tasks - Fix hanging UserRepositoryMigrationTest
+
+- [x] Apply test-only fix to `UserRepositoryMigrationTest.kt`
+- [x] Run isolated test: `./gradlew :app:testDebugUnitTest --tests "com.saurabh.artifact.repository.UserRepositoryMigrationTest.getOrCreateProfile*"` (Verified via full suite)
+- [x] Verify results and update confidence level
+- [x] Run full test suite: `./gradlew :app:testDebugUnitTest`
+- [x] Create walkthrough artifact

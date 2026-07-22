@@ -8,6 +8,7 @@ import com.saurabh.artifact.domain.PublishArtifactUseCase
 import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.model.DraftStatus
 import com.saurabh.artifact.repository.AuthRepository
+import com.saurabh.artifact.repository.DebugSettings
 import com.saurabh.artifact.repository.RecordingRepository
 import com.saurabh.artifact.util.ArtifactLogger
 import io.mockk.*
@@ -63,7 +64,9 @@ class TitleBufferTest {
         every { playbackCoordinator.playbackSpeed } returns MutableStateFlow(1.0f)
         every { playbackCoordinator.playbackCompletedEvent } returns MutableSharedFlow<String>()
         every { playbackCoordinator.duration } returns flowOf(0.milliseconds)
+        every { playbackCoordinator.currentArtifact } returns MutableStateFlow(null)
         every { recordingRepository.observeRecoveryState(any(), any()) } returns flowOf(false)
+        every { debugRepository.debugSettings } returns flowOf(DebugSettings())
     }
 
     @After

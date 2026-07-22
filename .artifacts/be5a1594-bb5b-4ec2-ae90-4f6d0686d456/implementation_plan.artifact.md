@@ -1,33 +1,33 @@
-# Investigation Phase – Identify the Last Executing Test Before Suite Stall
+# Implementation Plan - Fix hanging UserRepositoryMigrationTest
 
-## Objective
-Determine which specific test is the last one to begin execution before the suite stops making progress.
+The `UserRepositoryMigrationTest` is hanging because it uses `Task.await()` extension functions on mocked `Task` objects without initializing `mockkStatic("kotlinx.coroutines.tasks.TasksKt")`. This causes the real `await()` implementation to run, which suspends indefinitely on a mocked task that never "completes".
 
-## Requirements
-- Do not modify production code.
-- Do not modify test code.
-- Do not change Gradle configuration permanently.
-- Do not attempt any fixes.
+## Proposed Changes
 
-## Proposed Investigation Steps
+### [Component: App Tests]
 
-### 1. Execute Full Test Suite with Detailed Logging
-Execute the following command to track individual test progress:
-```bash
-./gradlew :app:testDebugUnitTest --info
-```
-The `--info` flag in Gradle logs test execution events (started/finished) for every test method.
-
-### 2. Identify the Stall Point
-- Monitor the output to find the **last test method that STARTED**.
-- Identify the **last test method that FINISHED**.
-- If execution stops, record the exact test name and the last few lines of Gradle output.
-
-### 3. Capture Process Evidence
-If the suite stalls:
-- Check if the **Gradle Test Executor** process is still alive.
-- Capture the PID of the executor for future thread dump analysis.
+#### [MODIFY] [UserRepositoryMigrationTest.kt](file:///F:/Android Project/01/app/src/test/java/com/saurabh/artifact/repository/UserRepositoryMigrationTest.kt)
+- Add `mockkStatic("kotlinx.coroutines.tasks.TasksKt")` to the `@Before setup()` method.
+- Add `mockkStatic("android.util.Log")` and mock it (relaxed) to avoid potential `Method d in android.util.Log not mocked` errors during unit tests.
+- Add targeted `unmockkStatic` calls for the above in the `@After tearDown()` method to clean up static mocks between tests without affecting other mocks.
 
 ## Verification Plan
-- Successful identification of a specific test class/method that hangs.
-- Confirmation of whether progress stops *within* a test or *between* tests.
+
+### Automated Tests
+1. Run the specific hanging tests:
+   ```bash
+   ./gradlew :app:testDebugUnitTest --tests "com.saurabh.artifact.repository.UserRepositoryMigrationTest.getOrCreateProfile*"
+   ```
+2. If they pass, run all unit tests in the module to ensure no regressions:
+   ```bash
+   ./gradlew :app:testDebugUnitTest
+   ```
+
+### Manual Verification
+- Confirm the test execution time is reasonable and does not hang.
+
+## Confidence Level
+- **Level 2: Code Evidence** (Root cause identified via static analysis and reproduction of hang, fix pending verification).
+
+---
+**Plan approved by user with adjustments.**

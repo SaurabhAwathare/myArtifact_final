@@ -48,11 +48,11 @@ enum class ArtifactLifecycle {
 
     companion object {
         private val transitions: Map<ArtifactLifecycle, Set<ArtifactLifecycle>> = mapOf(
-            RECORDING to setOf(PROCESSING),
-            PROCESSING to setOf(REVIEW_REQUIRED),
+            RECORDING to setOf(PROCESSING, DELETING),
+            PROCESSING to setOf(REVIEW_REQUIRED, DELETING),
             REVIEW_REQUIRED to setOf(METADATA_REQUIRED, DELETING),
             METADATA_REQUIRED to setOf(READY_TO_PUBLISH, DELETING),
-            READY_TO_PUBLISH to setOf(PUBLISHED),
+            READY_TO_PUBLISH to setOf(PUBLISHED, DELETING),
             PUBLISHED to setOf(DELETING),
             DELETING to setOf(DELETED),
             DELETED to emptySet()
