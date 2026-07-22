@@ -57,6 +57,12 @@ class DebugViewModel @Inject constructor(
         }
     }
 
+    fun toggleBypassReview(enabled: Boolean) {
+        viewModelScope.launch {
+            debugRepository.updateBypassReview(enabled)
+        }
+    }
+
     fun prepareHealthyAudit() {
         viewModelScope.launch {
             profileAuditTool.setupHealthyProfile()

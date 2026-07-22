@@ -70,7 +70,7 @@ fun PublishingStudioScreen(
 
     BackHandler {
         logger.debug(DiagnosticCategory.NAVIGATION, "STUDIO_BACK_TRIGGERED", mapOf("step" to sessionState.currentStep.name))
-        if (sessionState.currentStep == StudioStep.REVIEW) {
+        if (sessionState.currentStep == StudioStep.REVIEW || (sessionState.bypassReview && sessionState.currentStep == StudioStep.DETAILS)) {
             onCancel()
         } else {
             viewModel.previousStep()
@@ -114,7 +114,7 @@ fun PublishingStudioScreen(
             StudioTopBar(
                 currentStep = sessionState.currentStep,
                 onBack = {
-                    if (sessionState.currentStep == StudioStep.REVIEW || sessionState.currentStep == StudioStep.PROCESSING) onCancel()
+                    if (sessionState.currentStep == StudioStep.REVIEW || sessionState.currentStep == StudioStep.PROCESSING || (sessionState.bypassReview && sessionState.currentStep == StudioStep.DETAILS)) onCancel()
                     else viewModel.previousStep()
                 },
                 onClose = onCancel,
@@ -138,7 +138,10 @@ fun PublishingStudioScreen(
                 .padding(padding)
         ) {
             // Step Indicator
-            StudioProgressIndicator(currentStep = sessionState.currentStep)
+            StudioProgressIndicator(
+                currentStep = sessionState.currentStep,
+                bypassReview = sessionState.bypassReview
+            )
 
             Box(modifier = Modifier.weight(1f)) {
                 AnimatedContent(
@@ -221,26 +224,32 @@ fun StudioTopBar(
 }
 
 @Composable
-fun StudioProgressIndicator(currentStep: StudioStep) {
+fun StudioProgressIndicator(
+    currentStep: StudioStep,
+    bypassReview: Boolean
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = Spacing.Large, vertical = Spacing.Medium),
         horizontalArrangement = Arrangement.spacedBy(Spacing.Small)
     ) {
-        StudioStep.entries.filter { it != StudioStep.PUBLISHING && it != StudioStep.PROCESSING }.forEach { step ->
-            val isActive = step.index <= currentStep.index
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(4.dp)
-                    .clip(CircleShape)
-                    .background(
-                        if (isActive) ArtifactTheme.colors.waveformActive 
-                        else ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.1f)
-                    )
-            )
-        }
+        StudioStep.entries
+            .filter { it != StudioStep.PUBLISHING && it != StudioStep.PROCESSING }
+            .filter { !bypassReview || it != StudioStep.REVIEW }
+            .forEach { step ->
+                val isActive = step.index <= currentStep.index
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(4.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (isActive) ArtifactTheme.colors.waveformActive 
+                            else ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.1f)
+                        )
+                )
+            }
     }
 }
 
@@ -550,7 +559,7 @@ fun StudioApprovalStep(
             }
         }
 
-        if (!state.reviewCompleted) {
+        if (!state.reviewSatisfied) {
             Surface(
                 color = Color.Yellow.copy(alpha = 0.1f),
                 shape = RoundedCornerShape(12.dp)

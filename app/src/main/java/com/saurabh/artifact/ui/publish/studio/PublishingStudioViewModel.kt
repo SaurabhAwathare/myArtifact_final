@@ -15,7 +15,9 @@ import com.saurabh.artifact.model.Emotion
 import com.saurabh.artifact.model.PublishingResult
 import com.saurabh.artifact.model.TranscriptSegment
 import com.saurabh.artifact.repository.AuthRepository
+import com.saurabh.artifact.repository.DebugRepository
 import com.saurabh.artifact.repository.RecordingRepository
+import com.saurabh.artifact.util.FeatureFlags
 import com.saurabh.artifact.util.SecureString
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -49,6 +51,10 @@ data class StudioSessionState(
     val draftId: String? = null,
     val currentStep: StudioStep = StudioStep.REVIEW,
     val lifecycle: ArtifactLifecycle = ArtifactLifecycle.REVIEW_REQUIRED,
+    
+    // Feature Flags & Derived State
+    val bypassReview: Boolean = false,
+    val reviewSatisfied: Boolean = false,
     
     // DB-backed Completion Flags
     val reviewCompleted: Boolean = false,
@@ -87,6 +93,7 @@ class PublishingStudioViewModel @Inject constructor(
     private val publishArtifactUseCase: PublishArtifactUseCase,
     private val identityScout: IdentityScout,
     private val authRepository: AuthRepository,
+    private val debugRepository: DebugRepository,
     private val workManager: WorkManager,
     private val diagnosticLogger: DiagnosticLogger
 ) : ViewModel() {
@@ -109,6 +116,13 @@ class PublishingStudioViewModel @Inject constructor(
             val recoveryFlow = recordingRepository.observeRecoveryState(id, workManager)
             val artifactFlow = playbackCoordinator.currentArtifact
             
+            // Combine debug and local UI state to stay within the 5-flow limit of the non-vararg combine
+            val localContextFlow = combine(
+                debugRepository.debugSettings,
+                _titleInput,
+                _uiState
+            ) { debug, title, ui -> Triple(debug, title, ui) }
+            
             var lastTranscript: List<TranscriptSegment> = emptyList()
 
             combine(
@@ -116,10 +130,19 @@ class PublishingStudioViewModel @Inject constructor(
                 reviewFlow,
                 recoveryFlow,
                 artifactFlow,
-                combine(_titleInput, _uiState) { title, ui -> title to ui }
-            ) { draft, review, isRecovering, artifact, localUi ->
-                val (titleBuffer, ui) = localUi
-                val step = StudioStep.fromLifecycle(draft.lifecycle)
+                localContextFlow
+            ) { draft, review, isRecovering, artifact, localContext ->
+                val (debug, titleBuffer, ui) = localContext
+                val isBypassActive = !FeatureFlags.REVIEW_ENABLED || debug.bypassReview
+                
+                // Session-Level Bypass: Compute effective lifecycle for UI routing
+                val effectiveLifecycle = if (isBypassActive && draft.lifecycle == ArtifactLifecycle.REVIEW_REQUIRED) {
+                    ArtifactLifecycle.METADATA_REQUIRED
+                } else {
+                    draft.lifecycle
+                }
+
+                val step = StudioStep.fromLifecycle(effectiveLifecycle)
                 val displayTitle = titleBuffer ?: draft.title ?: ""
 
                 if (artifact?.id == id && artifact.transcript.isNotEmpty()) {
@@ -130,6 +153,8 @@ class PublishingStudioViewModel @Inject constructor(
                     draftId = draft.id,
                     currentStep = step,
                     lifecycle = draft.lifecycle,
+                    bypassReview = isBypassActive,
+                    reviewSatisfied = draft.reviewCompleted || isBypassActive,
                     reviewCompleted = draft.reviewCompleted,
                     titleCompleted = draft.titleCompleted,
                     emotionCompleted = draft.emotionCompleted,
@@ -189,7 +214,12 @@ class PublishingStudioViewModel @Inject constructor(
         _titleInput.value = null
 
         viewModelScope.launch {
-            playbackCoordinator.playDraftPreview(draftId)
+            // Only initialize review playback if the feature is enabled
+            if (!sessionState.value.bypassReview) {
+                playbackCoordinator.playDraftPreview(draftId)
+            } else {
+                diagnosticLogger.info(DiagnosticCategory.STUDIO, "REVIEW_BYPASS_ACTIVE", mapOf(LogKeys.DRAFT_ID to draftId))
+            }
         }
     }
 
@@ -333,7 +363,16 @@ class PublishingStudioViewModel @Inject constructor(
     private fun performPublish() {
         val state = sessionState.value
         val draftId = state.draftId ?: return
-        if (state.title.isBlank() || state.emotion == null || !state.reviewCompleted) return
+        
+        // Use reviewSatisfied to allow publishing when bypass is active
+        if (state.title.isBlank() || state.emotion == null || !state.reviewSatisfied) {
+            diagnosticLogger.warn(DiagnosticCategory.PUBLISH, "PUBLISH_PRECONDITION_FAILED", mapOf(
+                "titleEmpty" to state.title.isBlank(),
+                "emotionMissing" to (state.emotion == null),
+                "reviewNotSatisfied" to !state.reviewSatisfied
+            ))
+            return
+        }
 
         diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISH_PERFORM_STARTED", mapOf(LogKeys.DRAFT_ID to draftId))
         viewModelScope.launch {

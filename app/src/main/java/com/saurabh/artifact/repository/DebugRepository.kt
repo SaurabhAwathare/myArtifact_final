@@ -15,7 +15,8 @@ import javax.inject.Singleton
 
 data class DebugSettings(
     val useMockTopics: Boolean = false,
-    val showDebugOverlays: Boolean = false
+    val showDebugOverlays: Boolean = false,
+    val bypassReview: Boolean = false
 )
 
 @Singleton
@@ -24,6 +25,7 @@ class DebugRepository @Inject constructor(
 ) {
     private val useMockTopicsKey = booleanPreferencesKey("use_mock_topics")
     private val showDebugOverlaysKey = booleanPreferencesKey("show_debug_overlays")
+    private val bypassReviewKey = booleanPreferencesKey("bypass_review")
 
     val debugSettings: Flow<DebugSettings> = dataStore.data
         .catch { exception ->
@@ -32,7 +34,8 @@ class DebugRepository @Inject constructor(
         .map { preferences ->
             DebugSettings(
                 useMockTopics = preferences[useMockTopicsKey] ?: false,
-                showDebugOverlays = preferences[showDebugOverlaysKey] ?: false
+                showDebugOverlays = preferences[showDebugOverlaysKey] ?: false,
+                bypassReview = preferences[bypassReviewKey] ?: false
             )
         }
 
@@ -45,6 +48,12 @@ class DebugRepository @Inject constructor(
     suspend fun updateShowDebugOverlays(enabled: Boolean) {
         dataStore.edit { preferences ->
             preferences[showDebugOverlaysKey] = enabled
+        }
+    }
+
+    suspend fun updateBypassReview(enabled: Boolean) {
+        dataStore.edit { preferences ->
+            preferences[bypassReviewKey] = enabled
         }
     }
 }
