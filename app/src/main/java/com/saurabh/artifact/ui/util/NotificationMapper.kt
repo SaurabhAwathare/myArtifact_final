@@ -25,7 +25,7 @@ object NotificationMapper {
                 UiText.StringResource(R.string.notification_username_updated, username)
             }
             "PRESENCE_RESONATED" -> UiText.StringResource(R.string.notification_presence_resonated)
-            "AVATAR_UPDATED" -> UiText.StringResource(R.string.notification_avatar_updated)
+            "AVATAR_UPDATED", "SIGIL_UPDATED" -> UiText.StringResource(R.string.notification_sigil_updated)
             "RESONANCE" -> {
                 val typeId = parts.getOrNull(1) ?: ""
                 val type = ReactionType.fromId(typeId)

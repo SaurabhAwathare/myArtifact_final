@@ -48,7 +48,7 @@ import androidx.compose.ui.unit.dp
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.model.ReactionType
-import com.saurabh.artifact.ui.components.ArtifactAvatar
+import com.saurabh.artifact.ui.components.ArtifactSigil
 import com.saurabh.artifact.ui.theme.GoldAura500
 import com.saurabh.artifact.ui.theme.Obsidian900
 import com.saurabh.artifact.ui.util.FeedbackUtils
@@ -87,8 +87,8 @@ fun ArtifactCard(
             Row(
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                ArtifactAvatar(
-                    config = artifact.author.avatarConfig,
+                ArtifactSigil(
+                    config = artifact.author.sigilConfig,
                     modifier = Modifier.size(40.dp),
                     isStatic = false // Keep it breathing if AURIC
                 )

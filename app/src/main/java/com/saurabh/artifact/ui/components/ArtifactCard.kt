@@ -199,8 +199,8 @@ fun ArtifactCard(
                             }
                         } else {
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                                ArtifactAvatar(
-                                    config = artifact.authorAvatarConfig,
+                                ArtifactSigil(
+                                    config = artifact.authorSigilConfig,
                                     size = 32.dp,
                                     isStatic = true,
                                     modifier = Modifier.clickable { onAuthorClick(artifact.userId) }

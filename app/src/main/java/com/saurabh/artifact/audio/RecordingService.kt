@@ -110,6 +110,8 @@ class RecordingService : Service() {
 
     @Inject
     lateinit var localDraftManager: LocalDraftManager
+
+    private var lastKnownAvailableStorageMb: Long = 1024L // Default to 1GB until first check
     
     class RecordingBinder : Binder() {
         // No-op - preserved for standard service binding pattern
@@ -276,7 +278,7 @@ class RecordingService : Service() {
         return START_NOT_STICKY
     }
 
-    fun startRecording(draftId: String = "") {
+    suspend fun startRecording(draftId: String = "") {
         // Permission Check inside Service (Defense in Depth)
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             diagnosticLogger.error(DiagnosticCategory.RECORDING, "RECORDING_FAILED", mapOf("reason" to "PERMISSION_DENIED"))
@@ -287,7 +289,11 @@ class RecordingService : Service() {
         }
 
         // Storage Check
-        if (!storageManager.isStorageAvailable()) {
+        val isStorageAvailable = withContext(Dispatchers.IO) {
+            lastKnownAvailableStorageMb = storageManager.availableStorageMb
+            storageManager.isStorageAvailable()
+        }
+        if (!isStorageAvailable) {
             diagnosticLogger.error(DiagnosticCategory.RECORDING, "RECORDING_FAILED", mapOf("reason" to "STORAGE_FULL"))
             _recordingState.value = RecordingState(status = RecordingStatus.FAILED, errorCode = "STORAGE_FULL")
             // Trigger emergency cleanup in background
@@ -322,8 +328,8 @@ class RecordingService : Service() {
             val finalDraftId = draftId.ifEmpty { UUID.randomUUID().toString() }
             
             val draft = draftDao.getDraftById(finalDraftId)
-            val file = draft?.let { File(it.localAudioPath) } ?: run {
-                localDraftManager.createDraftFile(finalDraftId, "wav")
+            val file = withContext(Dispatchers.IO) {
+                draft?.let { File(it.localAudioPath) } ?: localDraftManager.createDraftFile(finalDraftId, "wav")
             }
 
             if (draft == null) {
@@ -474,14 +480,18 @@ class RecordingService : Service() {
                     }
                     
                     // CRITICAL: Allow file buffers to flush and OS to sync file descriptors.
+                    // Capture identifiers BEFORE delay and BEFORE possible state changes
+                    val capturedFile = _recordingState.value.outputFile
+                    val capturedDraftId = _recordingState.value.draftId
+
                     delay(500.milliseconds)
                     
-                    val finalFile = _recordingState.value.outputFile
-                    val draftId = _recordingState.value.draftId
-                    
                     // 1. HARD VALIDATION: Does the file exist and have data?
-                    if (finalFile != null && finalFile.exists() && finalFile.length() > 0) {
-                        val audioDataLength = finalFile.length() - WavHeaderUtils.HEADER_SIZE
+                    val fileExists = withContext(Dispatchers.IO) { capturedFile?.exists() == true }
+                    val fileLength = if (fileExists) withContext(Dispatchers.IO) { capturedFile?.length() ?: 0L } else 0L
+
+                    if (capturedFile != null && fileExists && fileLength > 0) {
+                        val audioDataLength = fileLength - WavHeaderUtils.HEADER_SIZE
                         val durationMs = WavHeaderUtils.calculateDurationMs(
                             audioDataLength = audioDataLength.coerceAtLeast(0),
                             sampleRate = 44100,
@@ -489,36 +499,45 @@ class RecordingService : Service() {
                             bitsPerSample = 16
                         )
 
-                        diagnosticLogger.debug(DiagnosticCategory.RECORDING, "RECORDING_FILE_VALIDATED", mapOf("durationMs" to durationMs, "bytes" to finalFile.length()))
+                        diagnosticLogger.debug(DiagnosticCategory.RECORDING, "RECORDING_FILE_VALIDATED", mapOf("durationMs" to durationMs, "bytes" to fileLength))
 
                         val result = recordingRepository.finalizeRecording(
-                            id = draftId,
+                            id = capturedDraftId,
                             durationMs = durationMs,
                             durableBytes = audioDataLength.coerceAtLeast(0)
                         )
 
                         if (result.isSuccess) {
-                            diagnosticLogger.info(DiagnosticCategory.RECORDING, "RECORDING_FINISHED", mapOf(LogKeys.DRAFT_ID to draftId, LogKeys.DURATION_MS to durationMs))
+                            diagnosticLogger.info(DiagnosticCategory.RECORDING, "RECORDING_FINISHED", mapOf(LogKeys.DRAFT_ID to capturedDraftId, LogKeys.DURATION_MS to durationMs))
                             
                             // hand off to the enhancement pipeline (which now starts with Transcoding)
-                            publishingOrchestrator.startProcessing(draftId)
+                            publishingOrchestrator.startProcessing(capturedDraftId)
 
                             // CENTRALIZED CLEANUP: Clear the active session
                             userSessionManager.setActiveDraftId(null)
                             
                             // Emit final session state to UI - ONLY AFTER SUCCESSFUL PERSISTENCE
-                            _recordingState.value = _recordingState.value.copy(
-                                status = RecordingStatus.COMPLETED
-                            )
+                            // Double check if we haven't been hijacked by a new recording
+                            if (_recordingState.value.draftId == capturedDraftId) {
+                                _recordingState.value = _recordingState.value.copy(
+                                    status = RecordingStatus.COMPLETED
+                                )
+                            }
                         } else {
-                            diagnosticLogger.error(DiagnosticCategory.RECORDING, "RECORDING_FINALIZATION_FAILED", mapOf(LogKeys.DRAFT_ID to draftId), result.exceptionOrNull())
-                            _recordingState.value = _recordingState.value.copy(status = RecordingStatus.FAILED)
+                            diagnosticLogger.error(DiagnosticCategory.RECORDING, "RECORDING_FINALIZATION_FAILED", mapOf(LogKeys.DRAFT_ID to capturedDraftId), result.exceptionOrNull())
+                            if (_recordingState.value.draftId == capturedDraftId) {
+                                _recordingState.value = _recordingState.value.copy(status = RecordingStatus.FAILED)
+                            }
                         }
                     } else {
-                        diagnosticLogger.error(DiagnosticCategory.RECORDING, "RECORDING_FILE_INVALID", mapOf(LogKeys.DRAFT_ID to draftId, "exists" to (finalFile?.exists() ?: false), "length" to (finalFile?.length() ?: 0L)))
-                        _recordingState.value = _recordingState.value.copy(status = RecordingStatus.FAILED)
-                        if (finalFile?.exists() == true) finalFile.delete()
-                        draftDao.getDraftById(draftId)?.let {
+                        diagnosticLogger.error(DiagnosticCategory.RECORDING, "RECORDING_FILE_INVALID", mapOf(LogKeys.DRAFT_ID to capturedDraftId, "exists" to fileExists, "length" to fileLength))
+                        if (_recordingState.value.draftId == capturedDraftId) {
+                            _recordingState.value = _recordingState.value.copy(status = RecordingStatus.FAILED)
+                        }
+                        if (fileExists) {
+                            withContext(Dispatchers.IO) { capturedFile?.delete() }
+                        }
+                        draftDao.getDraftById(capturedDraftId)?.let {
                             draftDao.update(it.copy(
                                 status = it.status.copy(processing = ProcessingStatus.Failed)
                             ))
@@ -537,24 +556,35 @@ class RecordingService : Service() {
     }
 
     fun cancelRecording() {
-        diagnosticLogger.info(DiagnosticCategory.RECORDING, "RECORDING_CANCELLED", mapOf("draftId" to _recordingState.value.draftId))
-        cleanup()
-        
-        val file = _recordingState.value.outputFile
-        val draftId = _recordingState.value.draftId
-
-        if (file?.exists() == true) {
-            file.delete()
-        }
-
         serviceScope.launch {
-            draftDao.getDraftById(draftId)?.let { draftDao.delete(it) }
-            userSessionManager.setActiveDraftId(null)
-            
-            // Ensure service stops after cleanup
-            withContext(Dispatchers.Main) {
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
+            stopMutex.withLock {
+                val currentState = _recordingState.value
+                if (currentState.status == RecordingStatus.IDLE || currentState.status == RecordingStatus.COMPLETED) {
+                    diagnosticLogger.debug(DiagnosticCategory.RECORDING, "RECORDING_CANCEL_IGNORED", mapOf("status" to currentState.status.name))
+                    return@withLock
+                }
+
+                val draftId = currentState.draftId
+                val file = currentState.outputFile
+
+                diagnosticLogger.info(DiagnosticCategory.RECORDING, "RECORDING_CANCELLED", mapOf("draftId" to draftId))
+                
+                cleanup()
+                
+                withContext(Dispatchers.IO) {
+                    if (file?.exists() == true) {
+                        file.delete()
+                    }
+                }
+
+                draftDao.getDraftById(draftId)?.let { draftDao.delete(it) }
+                userSessionManager.setActiveDraftId(null)
+                
+                // Ensure service stops after cleanup
+                withContext(Dispatchers.Main) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }
             }
         }
     }
@@ -580,8 +610,14 @@ class RecordingService : Service() {
                 if (_recordingState.value.status == RecordingStatus.RECORDING) {
                     internalAmplitudes.add(normalizedAmplitude)
 
-                    // Storage Monitoring
-                    val availableMb = storageManager.availableStorageMb
+                    // Storage Monitoring: Refresh cache every 5 seconds (100 ticks)
+                    if (tick == 1 || tick % 100 == 0) {
+                        serviceScope.launch(Dispatchers.IO) {
+                            lastKnownAvailableStorageMb = storageManager.availableStorageMb
+                        }
+                    }
+
+                    val availableMb = lastKnownAvailableStorageMb
                     
                     // Update storage low flag
                     if (_recordingState.value.isStorageLow != (availableMb < 200)) {
@@ -592,9 +628,7 @@ class RecordingService : Service() {
                     if (tick % 40 == 0 && availableMb < 50) { 
                         diagnosticLogger.error(DiagnosticCategory.RECORDING, "EMERGENCY_STOP_STORAGE_LOW", mapOf("availableMb" to availableMb))
                         _recordingState.value = _recordingState.value.copy(errorCode = "STORAGE_FULL")
-                        withContext(Dispatchers.Main) {
-                            stopRecording()
-                        }
+                        stopRecording()
                         return@launch
                     }
 

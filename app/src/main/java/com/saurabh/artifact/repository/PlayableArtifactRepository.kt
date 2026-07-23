@@ -35,7 +35,7 @@ class PlayableArtifactRepository @Inject constructor(
                         audioUrl = if (draft.localAudioPath.startsWith("http")) draft.localAudioPath else "file://${draft.localAudioPath}",
                         authorName = "You", // Drafts are always by the current user
                         authorSigil = "", // Sigils are generated during publish
-                        avatarSeed = "", // Will use current user's default or draft metadata
+                        sigilSeed = "", // Will use current user's default or draft metadata
                         durationMs = draft.durationMs,
                         sourceType = source,
                         emotion = draft.emotion?.label ?: "",
@@ -58,7 +58,7 @@ class PlayableArtifactRepository @Inject constructor(
                             audioUrl = artifact.audioUrl,
                             authorName = artifact.author.name,
                             authorSigil = artifact.author.sigil,
-                            avatarSeed = artifact.author.avatarSeed,
+                            sigilSeed = artifact.author.sigilSeed,
                             durationMs = artifact.durationMs,
                             sourceType = source,
                             emotion = artifact.emotion,

@@ -21,8 +21,8 @@ interface EngagementDao {
     @Query("UPDATE artifact_engagement SET syncState = :state, lastSyncAttempt = :timestamp, lastSyncError = :error, syncRetryCount = syncRetryCount + 1 WHERE artifactId = :artifactId")
     suspend fun updateSyncStatus(artifactId: String, state: SyncState, timestamp: Long, error: String?)
 
-    @Query("UPDATE artifact_engagement SET syncState = 'SYNCED', lastSyncSuccess = :timestamp, syncRetryCount = 0, lastSyncError = null WHERE artifactId = :artifactId")
-    suspend fun markAsSynced(artifactId: String, timestamp: Long)
+    @Query("UPDATE artifact_engagement SET syncState = 'SYNCED', lastSyncSuccess = :timestamp, syncRetryCount = 0, lastSyncError = null WHERE artifactId = :artifactId AND syncState = 'SYNCING'")
+    suspend fun markAsSynced(artifactId: String, timestamp: Long): Int
 
     @Query("DELETE FROM artifact_engagement WHERE artifactId = :artifactId")
     suspend fun deleteEngagement(artifactId: String)

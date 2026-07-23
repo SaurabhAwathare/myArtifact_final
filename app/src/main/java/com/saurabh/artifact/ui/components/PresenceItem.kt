@@ -32,8 +32,8 @@ fun PresenceItem(
             .padding(horizontal = 20.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        ArtifactAvatar(
-            config = user.avatarConfig,
+        ArtifactSigil(
+            config = user.sigilConfig,
             size = 48.dp,
             isStatic = true
         )

@@ -52,7 +52,7 @@ object Moderation : Route
 object IdentitySelection : Route
 
 @Serializable
-object AvatarEditor : Route
+object SigilRitual : Route
 
 // --- Recording Routes ---
 

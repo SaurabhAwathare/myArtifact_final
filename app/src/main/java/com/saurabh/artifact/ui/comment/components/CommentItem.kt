@@ -14,7 +14,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.model.Comment
-import com.saurabh.artifact.ui.components.ArtifactAvatar
+import com.saurabh.artifact.ui.components.ArtifactSigil
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.theme.Spacing
 import com.saurabh.artifact.util.TimeUtils
@@ -39,8 +39,8 @@ fun CommentItem(
             .padding(vertical = Spacing.Small, horizontal = Spacing.Large),
         horizontalArrangement = Arrangement.spacedBy(Spacing.Medium)
     ) {
-        ArtifactAvatar(
-            config = comment.author.avatarConfig,
+        ArtifactSigil(
+            config = comment.author.sigilConfig,
             size = 36.dp,
             isStatic = true
         )

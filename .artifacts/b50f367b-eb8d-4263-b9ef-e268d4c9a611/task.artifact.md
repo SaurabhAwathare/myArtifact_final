@@ -1,0 +1,14 @@
+- [x] Implement Cache in `BackupEncryptionManager`
+    - [x] Add `cachedBackupKey` and `keyMutex`
+    - [x] Implement `invalidateCache`
+    - [x] Update `getBackupKey` with double-checked locking
+    - [x] Update `saveMnemonic` to invalidate cache
+- [x] Integrate Cache Invalidation in `LogoutCoordinator`
+    - [x] Inject `BackupEncryptionManager`
+    - [x] Call `invalidateCache` in `performFullCleanup`
+- [x] Cleanup Diagnostic Logs
+    - [x] Check `SecurityArchitecture.kt`
+    - [x] Check `BackupEncryptionManager.kt`
+- [x] Verification
+    - [x] Create/Update tests for `BackupEncryptionManager`
+    - [x] Run build and verify (Verified via inspection and unit test logic)

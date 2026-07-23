@@ -12,6 +12,7 @@ import com.saurabh.artifact.diagnostics.FakeDiagnosticLogger
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.util.NotificationHelper
 import com.saurabh.artifact.util.StorageManager
+import com.saurabh.artifact.security.BackupEncryptionManager
 import com.google.common.util.concurrent.ListenableFuture
 import io.mockk.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -41,6 +42,7 @@ class LogoutCoordinatorTest {
     private val workManager = mockk<WorkManager>(relaxed = true)
     private val database = mockk<AppDatabase>(relaxed = true)
     private val storageManager = mockk<StorageManager>(relaxed = true)
+    private val backupEncryptionManager = mockk<BackupEncryptionManager>(relaxed = true)
     private val fakeLogger = FakeDiagnosticLogger()
     
     private val testDispatcher = UnconfinedTestDispatcher()
@@ -74,6 +76,7 @@ class LogoutCoordinatorTest {
             workManager,
             database,
             storageManager,
+            backupEncryptionManager,
             fakeLogger
         ).apply {
             ioDispatcher = testDispatcher
@@ -116,6 +119,9 @@ class LogoutCoordinatorTest {
 
         // Verify Phase C.5: Storage
         verify { storageManager.clearUserStorage() }
+
+        // Verify backup cache invalidation
+        verify { backupEncryptionManager.invalidateCache() }
 
         // Verify Phase E: Sign Out
         coVerify { authRepository.signOut() }

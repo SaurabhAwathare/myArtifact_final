@@ -404,7 +404,7 @@ class PlaybackSessionManager @Inject constructor(
                     .setExtras(
                         android.os.Bundle().apply {
                             putString("author_sigil", artifact.author.sigil)
-                            putString("avatar_seed", artifact.author.avatarSeed)
+                            putString("avatar_seed", artifact.author.sigilSeed)
                         }
                     )
                     .build()

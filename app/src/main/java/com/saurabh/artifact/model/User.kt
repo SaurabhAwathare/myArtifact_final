@@ -19,9 +19,9 @@ data class User(
     val anonymousId: String = "", // Short ID like usr_9F3A2
     val anonymousName: String = "",
     val anonymousSigil: String = "", // Added for soft uniqueness
-    val avatarSeed: String = "",
-    val avatarColor: String = "#FFD700",
-    val avatarConfig: AvatarConfig = AvatarConfig(),
+    val sigilSeed: String = "",
+    val sigilColor: String = "#FFD700",
+    val sigilConfig: SigilConfig = SigilConfig(),
     val emotionalProfile: String = "Quiet Observer",
     @get:PropertyName("isAnonymous")
     val isAnonymous: Boolean = true,

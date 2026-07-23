@@ -17,7 +17,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.saurabh.artifact.ui.components.ArtifactAvatar
+import com.saurabh.artifact.ui.components.ArtifactSigil
 import com.saurabh.artifact.ui.player.PlayerUiState
 import com.saurabh.artifact.ui.theme.EmberGlow
 
@@ -45,12 +45,12 @@ fun MiniPlayer(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            val avatarConfig = artifact.author.avatarConfig.copy(
-                seed = artifact.author.avatarConfig.seed.ifEmpty { artifact.id }
+            val sigilConfig = artifact.author.sigilConfig.copy(
+                seed = artifact.author.sigilConfig.seed.ifEmpty { artifact.id }
             )
 
-            ArtifactAvatar(
-                config = avatarConfig,
+            ArtifactSigil(
+                config = sigilConfig,
                 modifier = Modifier
                     .size(48.dp)
                     .clip(RoundedCornerShape(14.dp))

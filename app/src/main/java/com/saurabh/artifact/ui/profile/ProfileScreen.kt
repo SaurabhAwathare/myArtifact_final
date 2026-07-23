@@ -120,7 +120,7 @@ fun ProfileScreen(
                     item {
                         ProfileHeader(
                             user = uiState.userProfile,
-                            avatarConfig = uiState.avatarConfig,
+                            sigilConfig = uiState.sigilConfig,
                             isSelf = uiState.isSelf,
                             isResonating = uiState.isResonating,
                             onResonateClick = { viewModel.toggleResonance() },

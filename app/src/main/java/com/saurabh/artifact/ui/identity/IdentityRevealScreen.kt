@@ -17,9 +17,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.saurabh.artifact.model.AvatarConfig
+import com.saurabh.artifact.model.SigilConfig
 import com.saurabh.artifact.model.User
-import com.saurabh.artifact.ui.components.ArtifactAvatar
+import com.saurabh.artifact.ui.components.ArtifactSigil
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.theme.GoldAura500
 import com.saurabh.artifact.ui.theme.Obsidian950
@@ -71,7 +71,7 @@ fun IdentityRevealScreenPreview() {
             userProfile = User(
                 anonymousName = "Silent Phoenix",
                 anonymousSigil = "PHX-77",
-                avatarConfig = AvatarConfig(seed = "preview")
+                sigilConfig = SigilConfig(seed = "preview")
             ),
             alpha = 1f,
             scale = 1f,
@@ -110,8 +110,8 @@ private fun IdentityRevealScreenContent(
                     contentAlignment = Alignment.Center
                 ) {
                     userProfile?.let { user ->
-                        ArtifactAvatar(
-                            config = user.avatarConfig,
+                        ArtifactSigil(
+                            config = user.sigilConfig,
                             size = 200.dp
                         )
                     }

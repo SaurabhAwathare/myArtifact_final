@@ -43,13 +43,21 @@ object SecurityArchitecture {
     /**
      * Derives a high-entropy key from a user passphrase using PBKDF2WithHmacSHA256.
      * We use a high iteration count (600,000) to ensure brute-force resistance.
-     * This is used for Tier 2 Secure Backup.
+     * This is used for both Tier 2 Secure Backup and Secure Export with distinct salts.
      */
-    fun deriveBackupKey(passphrase: String, salt: ByteArray): ByteArray {
+    fun deriveKey(passphrase: String, salt: ByteArray): ByteArray {
         val iterations = 600000
         val keyLength = 256
         val spec = PBEKeySpec(passphrase.toCharArray(), salt, iterations, keyLength)
         val skf = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
         return skf.generateSecret(spec).encoded
+    }
+
+    /**
+     * Legacy wrapper for backup key derivation.
+     */
+    @Deprecated("Use deriveKey directly with specific salts", ReplaceWith("deriveKey(passphrase, salt)"))
+    fun deriveBackupKey(passphrase: String, salt: ByteArray): ByteArray {
+        return deriveKey(passphrase, salt)
     }
 }

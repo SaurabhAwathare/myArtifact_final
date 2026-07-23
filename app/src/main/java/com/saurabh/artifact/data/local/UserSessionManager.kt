@@ -20,9 +20,9 @@ class UserSessionManager @Inject constructor(
 ) {
     private object PreferencesKeys {
         val ANONYMOUS_ID = stringPreferencesKey("anonymous_id")
-        val AVATAR_SEED = stringPreferencesKey("avatar_seed")
-        val AVATAR_CONFIG_JSON = stringPreferencesKey("avatar_config_json")
-        val AVATAR_COLOR = stringPreferencesKey("avatar_color")
+        val SIGIL_SEED = stringPreferencesKey("sigil_seed")
+        val SIGIL_CONFIG_JSON = stringPreferencesKey("sigil_config_json")
+        val SIGIL_COLOR = stringPreferencesKey("sigil_color")
         val USERNAME = stringPreferencesKey("username")
         val SIGIL = stringPreferencesKey("sigil")
         val IS_ANONYMOUS = booleanPreferencesKey("is_anonymous")
@@ -32,6 +32,9 @@ class UserSessionManager @Inject constructor(
         val ACTIVE_PROMPT_ID = stringPreferencesKey("active_prompt_id")
         
         // Legacy/Migration keys
+        val AVATAR_SEED = stringPreferencesKey("avatar_seed")
+        val AVATAR_CONFIG_JSON = stringPreferencesKey("avatar_config_json")
+        val AVATAR_COLOR = stringPreferencesKey("avatar_color")
         val IDENTITY_EMOJI = stringPreferencesKey("identity_emoji")
     }
 
@@ -49,33 +52,39 @@ class UserSessionManager @Inject constructor(
         .map { preferences ->
             val id = preferences[PreferencesKeys.ANONYMOUS_ID] ?: ("gen_" + UUID.randomUUID().toString().take(8))
             
-            val seed = preferences[PreferencesKeys.AVATAR_SEED] 
+            val seed = preferences[PreferencesKeys.SIGIL_SEED] 
+                ?: preferences[PreferencesKeys.AVATAR_SEED]
                 ?: preferences[PreferencesKeys.IDENTITY_EMOJI] 
                 ?: UUID.randomUUID().toString()
                 
             val username = preferences[PreferencesKeys.USERNAME] ?: com.saurabh.artifact.util.UsernameGenerator.generate()
             val sigil = preferences[PreferencesKeys.SIGIL] ?: com.saurabh.artifact.util.UsernameGenerator.deriveSigil(id)
-            val avatarColor = preferences[PreferencesKeys.AVATAR_COLOR] ?: "#FFD700"
+            val sigilColor = preferences[PreferencesKeys.SIGIL_COLOR] ?: preferences[PreferencesKeys.AVATAR_COLOR] ?: "#FFD700"
             val isAnonymous = preferences[PreferencesKeys.IS_ANONYMOUS] ?: true
             val resonanceIn = preferences[PreferencesKeys.RESONANCE_IN] ?: 0L
             val resonanceOut = preferences[PreferencesKeys.RESONANCE_OUT] ?: 0L
             
-            val configJson = preferences[PreferencesKeys.AVATAR_CONFIG_JSON]
+            val configJson = preferences[PreferencesKeys.SIGIL_CONFIG_JSON] ?: preferences[PreferencesKeys.AVATAR_CONFIG_JSON]
             val config = configJson?.let { 
                 try {
-                    Json.decodeFromString<com.saurabh.artifact.model.AvatarConfig>(it).copy(seed = seed)
+                    val decoded = Json.decodeFromString<com.saurabh.artifact.model.SigilConfig>(it)
+                    if (decoded.version < 3) {
+                        com.saurabh.artifact.model.SigilConfig(seed = seed)
+                    } else {
+                        decoded.copy(seed = seed)
+                    }
                 } catch (_: Exception) {
-                    com.saurabh.artifact.model.AvatarConfig(seed = seed, theme = "CARTOON")
+                    com.saurabh.artifact.model.SigilConfig(seed = seed)
                 }
-            } ?: com.saurabh.artifact.model.AvatarConfig(seed = seed, theme = "CARTOON")
+            } ?: com.saurabh.artifact.model.SigilConfig(seed = seed)
             
             UserProfile(
                 anonymousId = id, 
                 username = username, 
                 sigil = sigil,
-                avatarSeed = seed,
-                avatarColor = avatarColor,
-                avatarConfig = config,
+                sigilSeed = seed,
+                sigilColor = sigilColor,
+                sigilConfig = config,
                 isAnonymous = isAnonymous,
                 resonanceInCount = resonanceIn,
                 resonanceOutCount = resonanceOut
@@ -106,12 +115,12 @@ class UserSessionManager @Inject constructor(
     }
 
     /**
-     * Updates the user's avatar configuration.
+     * Updates the user's sigil configuration.
      */
-    suspend fun updateAvatarConfig(config: com.saurabh.artifact.model.AvatarConfig) {
+    suspend fun updateSigilConfig(config: com.saurabh.artifact.model.SigilConfig) {
         dataStore.edit { preferences ->
-            preferences[PreferencesKeys.AVATAR_CONFIG_JSON] = Json.encodeToString(config)
-            preferences[PreferencesKeys.AVATAR_SEED] = config.seed
+            preferences[PreferencesKeys.SIGIL_CONFIG_JSON] = Json.encodeToString(config)
+            preferences[PreferencesKeys.SIGIL_SEED] = config.seed
         }
     }
 
@@ -132,9 +141,9 @@ class UserSessionManager @Inject constructor(
             preferences[PreferencesKeys.ANONYMOUS_ID] = user.anonymousId
             preferences[PreferencesKeys.USERNAME] = user.anonymousName
             preferences[PreferencesKeys.SIGIL] = user.anonymousSigil
-            preferences[PreferencesKeys.AVATAR_SEED] = user.avatarSeed
-            preferences[PreferencesKeys.AVATAR_COLOR] = user.avatarColor
-            preferences[PreferencesKeys.AVATAR_CONFIG_JSON] = Json.encodeToString(user.avatarConfig)
+            preferences[PreferencesKeys.SIGIL_SEED] = user.sigilSeed
+            preferences[PreferencesKeys.SIGIL_COLOR] = user.sigilColor
+            preferences[PreferencesKeys.SIGIL_CONFIG_JSON] = Json.encodeToString(user.sigilConfig)
             preferences[PreferencesKeys.IS_ANONYMOUS] = user.isAnonymous
             preferences[PreferencesKeys.RESONANCE_IN] = user.resonanceInCount
             preferences[PreferencesKeys.RESONANCE_OUT] = user.resonanceOutCount

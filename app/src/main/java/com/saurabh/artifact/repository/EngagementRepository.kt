@@ -55,7 +55,7 @@ class EngagementRepository @Inject constructor(
         engagementDao.updateSyncStatus(artifactId, state, System.currentTimeMillis(), error)
     }
 
-    suspend fun markEngagementSynced(artifactId: String) = withContext(Dispatchers.IO) {
+    suspend fun markEngagementSynced(artifactId: String): Int = withContext(Dispatchers.IO) {
         engagementDao.markAsSynced(artifactId, System.currentTimeMillis())
     }
 

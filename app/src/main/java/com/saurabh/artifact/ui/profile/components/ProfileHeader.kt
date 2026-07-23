@@ -13,8 +13,8 @@ import androidx.compose.ui.unit.dp
 import com.saurabh.artifact.model.User
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 
-import com.saurabh.artifact.ui.components.ArtifactAvatar
-import com.saurabh.artifact.model.AvatarConfig
+import com.saurabh.artifact.ui.components.ArtifactSigil
+import com.saurabh.artifact.model.SigilConfig
 
 /**
  * Redesigned ProfileHeader: Compact, Dense, Instagram-style hierarchy.
@@ -24,7 +24,7 @@ import com.saurabh.artifact.model.AvatarConfig
 @Composable
 fun ProfileHeader(
     user: User?,
-    avatarConfig: AvatarConfig,
+    sigilConfig: SigilConfig,
     isSelf: Boolean,
     isResonating: Boolean,
     onResonateClick: () -> Unit,
@@ -46,12 +46,12 @@ fun ProfileHeader(
             contentAlignment = Alignment.Center
         ) {
             val displayConfig = when {
-                isSelf -> avatarConfig
-                user != null -> user.avatarConfig
-                else -> AvatarConfig(seed = "fallback")
+                isSelf -> sigilConfig
+                user != null -> user.sigilConfig
+                else -> SigilConfig(seed = "fallback")
             }
 
-            ArtifactAvatar(
+            ArtifactSigil(
                 config = displayConfig,
                 size = 110.dp
             )

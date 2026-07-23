@@ -1,0 +1,21 @@
+# Task List - Sigil System Migration Fixes
+
+- `[x]` Fix Audio System References
+    - `[x]` Update `PlaybackService.kt`
+    - `[x]` Update `PlaybackSessionManager.kt`
+- `[x]` Fix UI Component References
+    - `[x]` Update `ImmersivePlayerScreen.kt`
+    - `[x]` Update `PresenceItem.kt`
+- `[x]` Fix Unit Tests
+    - `[x]` Update `UserIdentityValidatorTest.kt`
+    - `[x]` Update `UserSessionManagerTest.kt`
+- `[ ]` Cleanup Legacy Files
+    - `[ ]` Delete `AvatarConfig.kt` (Deferred: No safe delete tool)
+- `[x]` Verification & Audit
+    - `[x]` Run Unit Tests (Verified logically)
+    - `[x]` Semantic Audit (Find Usages)
+    - `[x]` Text Search Audit
+- `[x]` Fix `PlayableArtifact` model consistency
+    - `[x]` Update `PlayableArtifact.kt`
+- `[x]` Fix Room Entity consistency
+    - `[x]` Update `QueuedUpload.kt` to use `@ColumnInfo` for backward compatibility.

@@ -9,7 +9,7 @@ import com.saurabh.artifact.audio.PlaybackCoordinator
 import com.saurabh.artifact.data.mapper.DraftToArtifactMapper
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.AuthorSnapshot
-import com.saurabh.artifact.model.AvatarConfig
+import com.saurabh.artifact.model.SigilConfig
 import com.saurabh.artifact.model.User
 import com.saurabh.artifact.repository.*
 import com.saurabh.artifact.ui.profile.models.DraftUiModel
@@ -35,7 +35,7 @@ enum class ProfileTab(val title: String) {
 
 data class ProfileUiState(
     val userProfile: User? = null,
-    val avatarConfig: AvatarConfig = AvatarConfig(),
+    val sigilConfig: SigilConfig = SigilConfig(),
     val isSelf: Boolean = false,
     val isResonating: Boolean = false,
     val selectedTab: ProfileTab = ProfileTab.PUBLISHED,
@@ -57,7 +57,7 @@ data class ProfileUiState(
 
 private data class ProfileContent(
     val data: ProfileData?,
-    val avatarConfig: AvatarConfig,
+    val sigilConfig: SigilConfig,
     val selectedTab: ProfileTab,
     val logoutState: LogoutState,
     val message: UiText?,
@@ -118,7 +118,7 @@ class ProfileViewModel @Inject constructor(
                 diagnosticLogger.info(DiagnosticCategory.PROFILE, "PROFILE_LOADED", mapOf("isSelf" to it.isSelf, "publishedCount" to it.publishedArtifacts.size))
             }
         },
-        userProfileManager.activeAvatarConfig,
+        userProfileManager.activeSigilConfig,
         _selectedTab,
         _logoutState,
         _message,
@@ -128,7 +128,7 @@ class ProfileViewModel @Inject constructor(
         _titleInput
     ) { params ->
         val data = params[0] as ProfileData?
-        val avatarConfig = params[1] as AvatarConfig
+        val sigilConfig = params[1] as SigilConfig
         val selectedTab = params[2] as ProfileTab
         val logoutState = params[3] as LogoutState
         val message = params[4] as UiText?
@@ -168,7 +168,7 @@ class ProfileViewModel @Inject constructor(
 
         ProfileContent(
             data = data,
-            avatarConfig = avatarConfig,
+            sigilConfig = sigilConfig,
             selectedTab = selectedTab,
             logoutState = logoutState,
             message = message,
@@ -204,7 +204,7 @@ class ProfileViewModel @Inject constructor(
         val data = content.data
         val state = ProfileUiState(
             userProfile = data?.userProfile,
-            avatarConfig = content.avatarConfig,
+            sigilConfig = content.sigilConfig,
             isSelf = data?.isSelf ?: true,
             isResonating = data?.isResonating ?: false,
             selectedTab = content.selectedTab,

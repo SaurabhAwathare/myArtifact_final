@@ -51,7 +51,7 @@ import com.saurabh.artifact.startup.StartupStage
 import com.saurabh.artifact.startup.StartupMetrics
 import com.saurabh.artifact.ui.components.PetalChip
 import com.saurabh.artifact.ui.components.QuietTab
-import com.saurabh.artifact.ui.components.ArtifactAvatar
+import com.saurabh.artifact.ui.components.ArtifactSigil
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.util.StartupTracer
 import com.saurabh.artifact.ui.components.BrandTitle
@@ -263,8 +263,8 @@ private fun FeedTopBar(
             }
             IconButton(onClick = onNavigateToProfile) {
                 if (currentUser != null) {
-                    ArtifactAvatar(
-                        config = currentUser.avatarConfig,
+                    ArtifactSigil(
+                        config = currentUser.sigilConfig,
                         size = 32.dp,
                         isStatic = true
                     )

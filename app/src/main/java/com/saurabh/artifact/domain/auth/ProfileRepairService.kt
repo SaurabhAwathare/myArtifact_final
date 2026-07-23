@@ -76,9 +76,9 @@ class ProfileRepairService @Inject constructor() {
             anonymousId = anonymousId,
             anonymousName = anonymousName,
             anonymousSigil = safeString(map["anonymousSigil"], com.saurabh.artifact.util.UsernameGenerator.deriveSigil(anonymousId), "anonymousSigil", reasons),
-            avatarSeed = safeString(map["avatarSeed"], uid, "avatarSeed", reasons),
-            avatarColor = safeString(map["avatarColor"], "#FFD700", "avatarColor", reasons),
-            avatarConfig = sanitizeAvatarConfig(map["avatarConfig"] as? Map<*, *>, reasons),
+            sigilSeed = safeString(map["sigilSeed"] ?: map["avatarSeed"], uid, "sigilSeed", reasons),
+            sigilColor = safeString(map["sigilColor"] ?: map["avatarColor"], "#FFD700", "sigilColor", reasons),
+            sigilConfig = sanitizeSigilConfig(map["sigilConfig"] ?: map["avatarConfig"] as? Map<*, *>, reasons),
             emotionalProfile = safeString(map["emotionalProfile"], "Quiet Observer", "emotionalProfile", reasons),
             isAnonymous = safeBoolean(map["isAnonymous"], true, "isAnonymous", reasons),
             dominantEmotion = map["dominantEmotion"] as? String,
@@ -102,24 +102,32 @@ class ProfileRepairService @Inject constructor() {
         )
     }
 
-    private fun sanitizeAvatarConfig(map: Map<*, *>?, reasons: MutableList<String>): AvatarConfig {
+    private fun sanitizeSigilConfig(value: Any?, reasons: MutableList<String>): SigilConfig {
+        val map = value as? Map<*, *>
         if (map == null) {
-            reasons.add("MISSING_AVATAR_CONFIG")
-            return AvatarConfig()
+            reasons.add("MISSING_SIGIL_CONFIG")
+            return SigilConfig()
         }
         
-        return AvatarConfig(
-            seed = safeString(map["seed"], "", "avatarConfig.seed", reasons),
-            version = (map["version"] as? Number)?.toInt() ?: 2,
-            theme = safeString(map["theme"], "CARTOON", "avatarConfig.theme", reasons),
-            faceShape = safeEnum(map["faceShape"], FaceShape.ROUND, "faceShape", reasons),
-            hairType = safeEnum(map["hairType"], HairType.NONE, "hairType", reasons),
-            eyeType = safeEnum(map["eyeType"], EyeType.NEUTRAL, "eyeType", reasons),
-            mouthType = safeEnum(map["mouthType"], MouthType.SMILE, "mouthType", reasons),
-            accessoryType = safeEnum(map["accessoryType"], AccessoryType.NONE, "accessoryType", reasons),
-            skinColor = safeString(map["skinColor"], "#FFDBAC", "avatarConfig.skinColor", reasons),
-            hairColor = safeString(map["hairColor"], "#4A2C2C", "avatarConfig.hairColor", reasons),
-            outfitColor = safeString(map["outfitColor"], "#4A90E2", "avatarConfig.outfitColor", reasons)
+        val version = (map["version"] as? Number)?.toInt() ?: 0
+        
+        // Migration logic: If legacy AvatarConfig (v1 or v2), reset to SigilConfig (v3) 
+        // but preserve the seed.
+        if (version < 3) {
+            reasons.add("MIGRATED_LEGACY_AVATAR_CONFIG_V$version")
+            return SigilConfig(
+                seed = safeString(map["seed"], "", "sigilConfig.seed", reasons),
+                version = 3
+            )
+        }
+
+        return SigilConfig(
+            seed = safeString(map["seed"], "", "sigilConfig.seed", reasons),
+            version = version,
+            palette = safeEnum(map["palette"], SigilPalette.AURORA, "sigilConfig.palette", reasons),
+            variant = safeEnum(map["variant"], SigilVariant.LIGHT, "sigilConfig.variant", reasons),
+            style = safeEnum(map["style"], SigilStyle.OUTLINE, "sigilConfig.style", reasons),
+            weight = (map["weight"] as? Number)?.toFloat() ?: 2.0f
         )
     }
 

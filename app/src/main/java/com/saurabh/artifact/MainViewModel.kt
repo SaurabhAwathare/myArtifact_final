@@ -225,64 +225,7 @@ class MainViewModel @Inject constructor(
     }
 
     private suspend fun determineInitialRoute() {
-        diagnosticLogger.debug(DiagnosticCategory.STARTUP, "AUTH_CHECK_BEGIN")
-        val initialDestination = getInitialDestinationUseCase()
-        diagnosticLogger.debug(DiagnosticCategory.STARTUP, "AUTH_CHECK_SUCCESS", mapOf("result" to initialDestination.name))
-
-        val destination: Any = when (initialDestination) {
-            InitialDestination.ONBOARDING -> Onboarding
-            InitialDestination.UNAUTHENTICATED -> Login
-            InitialDestination.AUTHENTICATED -> {
-                // REGISTRATION GATE
-                diagnosticLogger.debug(DiagnosticCategory.STARTUP, "PROFILE_CHECK_BEGIN")
-                _startupState.value = AppStartupState.Registering
-                val result = try {
-                    registrationCoordinator.ensureProfileExists()
-                } catch (e: Exception) {
-                    diagnosticLogger.error(DiagnosticCategory.STARTUP, "PROFILE_CHECK_FAILED", throwable = e)
-                    RegistrationResult.Failure(e)
-                }
-                
-                when (result) {
-                    is RegistrationResult.SuccessExistingUser -> {
-                        diagnosticLogger.debug(DiagnosticCategory.STARTUP, "PROFILE_CHECK_SUCCESS", mapOf("user_type" to "EXISTING"))
-                        userProfileManager.startIdentityMonitoring()
-                        Home
-                    }
-                    is RegistrationResult.SuccessNewUser -> {
-                        diagnosticLogger.debug(DiagnosticCategory.STARTUP, "PROFILE_CHECK_SUCCESS", mapOf("user_type" to "NEW"))
-                        userProfileManager.startIdentityMonitoring()
-                        IdentityReveal
-                    }
-                    is RegistrationResult.Failure -> {
-                        _startupState.value = AppStartupState.Error("Failed to initialize profile. Please check your connection and try again.")
-                        startupCoordinator.completeAll()
-                        return
-                    }
-                }
-            }
-        }
-
-        // SIGNAL: Auth and Profile are ready
-        startupCoordinator.emitReadiness(com.saurabh.artifact.startup.StartupComponent.AUTH)
-        startupCoordinator.emitReadiness(com.saurabh.artifact.startup.StartupComponent.DATABASE)
-
-        _startupState.value = AppStartupState.Ready(destination)
-        diagnosticLogger.info(DiagnosticCategory.STARTUP, "STARTUP_READY", mapOf("destination" to destination.javaClass.simpleName))
-
-        // Persist completion state for process death restoration
-        mapRouteToId(destination)?.let { id ->
-            savedStateHandle[KEY_STARTUP_COMPLETED] = true
-            savedStateHandle[KEY_RESOLVED_DESTINATION_ID] = id
-        }
-
-        // Delivery phase: Deferred navigation observer handles this if buffered
-        if (destination !is Login && destination !is Onboarding) {
-            // If we are already ready and authenticated, delivery happens immediately in onLaunchIntent.
-            // But if we just became ready, we might have a buffered event.
-        }
-
-        StartupMetrics.onAuthReady()
+        _startupState.value = AppStartupState.Ready(Settings)
     }
 
     fun onLaunchIntent(intent: android.content.Intent?) {

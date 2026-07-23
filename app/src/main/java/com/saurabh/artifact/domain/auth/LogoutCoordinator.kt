@@ -18,6 +18,7 @@ import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.SettingsRepository
+import com.saurabh.artifact.security.BackupEncryptionManager
 import com.saurabh.artifact.util.NotificationHelper
 import com.saurabh.artifact.util.StorageManager
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -44,6 +45,7 @@ class LogoutCoordinator @Inject constructor(
     private val workManager: WorkManager,
     private val database: AppDatabase,
     private val storageManager: StorageManager,
+    private val backupEncryptionManager: BackupEncryptionManager,
     private val diagnosticLogger: DiagnosticLogger
 ) {
 
@@ -187,6 +189,13 @@ class LogoutCoordinator @Inject constructor(
                 } catch (e: Exception) {
                     diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_PLAYBACK_DS_FAILED", throwable = e)
                     settingsDSSuccess = settingsDSSuccess && false 
+                }
+
+                // 8.5 Invalidate Backup Encryption Cache
+                try {
+                    backupEncryptionManager.invalidateCache()
+                } catch (e: Exception) {
+                    diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_BACKUP_CACHE_FAILED", throwable = e)
                 }
 
                 // PHASE C: Database Cleanup

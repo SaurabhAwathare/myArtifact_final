@@ -89,9 +89,9 @@ data class Artifact(
         get() = (status == ArtifactStatus.DRAFT) || (status == ArtifactStatus.PENDING_UPLOAD)
 
     @get:Exclude
-    val authorAvatarConfig: AvatarConfig
-        get() = author.avatarConfig
-            .copy(seed = author.avatarConfig.seed.ifEmpty { author.avatarSeed.ifEmpty { userId } })
+    val authorSigilConfig: SigilConfig
+        get() = author.sigilConfig
+            .copy(seed = author.sigilConfig.seed.ifEmpty { author.sigilSeed.ifEmpty { userId } })
 
     /**
      * Returns a lightweight version of the artifact suitable for large lists (feed).

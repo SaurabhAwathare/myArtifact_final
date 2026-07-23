@@ -1,7 +1,8 @@
 package com.saurabh.artifact.data.local
 
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
-import com.saurabh.artifact.model.AvatarConfig
+import com.saurabh.artifact.model.SigilConfig
+import com.saurabh.artifact.model.avatar.SigilVariant
 import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -59,14 +60,14 @@ class UserSessionManagerTest {
     }
 
     @Test
-    fun `updateAvatarConfig updates config and seed`() = runTest {
+    fun `updateSigilConfig updates config and seed`() = runTest {
         val (manager, _) = createManager("test4.preferences_pb")
-        val config = AvatarConfig(seed = "new_seed", theme = "CARTOON")
-        manager.updateAvatarConfig(config)
+        val config = SigilConfig(seed = "new_seed", variant = SigilVariant.DARK)
+        manager.updateSigilConfig(config)
         
         val profile = manager.userProfile.first()
-        assertEquals("new_seed", profile.avatarSeed)
-        assertEquals("CARTOON", profile.avatarConfig.theme)
+        assertEquals("new_seed", profile.sigilSeed)
+        assertEquals(SigilVariant.DARK, profile.sigilConfig.variant)
     }
 
     @Test

@@ -214,23 +214,23 @@ fun ImmersivePlayerScreen(
                                         modifier = Modifier.fillMaxSize().alpha(0.3f)
                                     )
                                     
-                                    val avatarConfig = artifact?.author?.avatarConfig 
-                                        ?: com.saurabh.artifact.model.AvatarConfig(seed = playableArtifact?.avatarSeed ?: "")
+                                    val sigilConfig = artifact?.author?.sigilConfig 
+                                        ?: com.saurabh.artifact.model.SigilConfig(seed = playableArtifact?.sigilSeed ?: "")
                                         
-                                    // Use Player-safe avatar seed if author.avatarSeed is empty
-                                    val safeAvatarConfig = avatarConfig.copy(
-                                        seed = avatarConfig.seed.ifEmpty { 
-                                            playableArtifact?.avatarSeed?.ifEmpty { artifact?.id } ?: artifact?.id ?: "" 
+                                    // Use Player-safe sigil seed if author.sigilSeed is empty
+                                    val safeSigilConfig = sigilConfig.copy(
+                                        seed = sigilConfig.seed.ifEmpty { 
+                                            playableArtifact?.sigilSeed?.ifEmpty { artifact?.id } ?: artifact?.id ?: "" 
                                         }
                                     )
 
-                                    com.saurabh.artifact.ui.components.ArtifactAvatar(
-                                        config = safeAvatarConfig,
+                                    com.saurabh.artifact.ui.components.ArtifactSigil(
+                                        config = safeSigilConfig,
                                         size = 180.dp,
                                         modifier = Modifier.clickable { 
-                                            android.util.Log.d("ImmersivePlayerScreen", "PLAYER_AUTHOR_CLICK: avatar click, userId=${uiState.internalOwnerId}")
+                                            android.util.Log.d("ImmersivePlayerScreen", "PLAYER_AUTHOR_CLICK: sigil click, userId=${uiState.internalOwnerId}")
                                             if (uiState.internalOwnerId.isEmpty()) {
-                                                android.util.Log.e("ImmersivePlayerScreen", "PLAYER_AUTHOR_ID_EMPTY: avatar click")
+                                                android.util.Log.e("ImmersivePlayerScreen", "PLAYER_AUTHOR_ID_EMPTY: sigil click")
                                             }
                                             onAuthorClick(uiState.internalOwnerId) 
                                         }

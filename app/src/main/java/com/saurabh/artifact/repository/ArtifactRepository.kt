@@ -29,7 +29,7 @@ import com.saurabh.artifact.model.ArtifactDetail
 import com.saurabh.artifact.model.ArtifactReactionCounts
 import com.saurabh.artifact.model.ArtifactStatus
 import com.saurabh.artifact.model.AuthorSnapshot
-import com.saurabh.artifact.model.AvatarConfig
+import com.saurabh.artifact.model.SigilConfig
 import com.saurabh.artifact.model.Emotion
 import com.saurabh.artifact.model.FeedbackType
 import com.saurabh.artifact.model.ModerationMetadata
@@ -592,12 +592,12 @@ class ArtifactRepository @Inject constructor(
                 anonymousId = entity.authorAnonymousId,
                 name = entity.authorName,
                 sigil = entity.authorSigil,
-                avatarSeed = entity.authorAvatarSeed,
-                avatarColor = entity.authorAvatarColor,
-                avatarConfig = try {
-                    kotlinx.serialization.json.Json.decodeFromString(entity.authorAvatarConfigJson)
+                sigilSeed = entity.authorSigilSeed,
+                sigilColor = entity.authorSigilColor,
+                sigilConfig = try {
+                    kotlinx.serialization.json.Json.decodeFromString(entity.authorSigilConfigJson)
                 } catch (_: Exception) {
-                    AvatarConfig(seed = entity.authorAvatarSeed)
+                    SigilConfig(seed = entity.authorSigilSeed)
                 }
             ),
             audioUrl = entity.audioUrl,
@@ -629,9 +629,9 @@ class ArtifactRepository @Inject constructor(
             authorAnonymousId = artifact.author.anonymousId,
             authorName = artifact.author.name,
             authorSigil = artifact.author.sigil,
-            authorAvatarSeed = artifact.author.avatarSeed,
-            authorAvatarColor = artifact.author.avatarColor,
-            authorAvatarConfigJson = kotlinx.serialization.json.Json.encodeToString(artifact.author.avatarConfig),
+            authorSigilSeed = artifact.author.sigilSeed,
+            authorSigilColor = artifact.author.sigilColor,
+            authorSigilConfigJson = kotlinx.serialization.json.Json.encodeToString(artifact.author.sigilConfig),
             audioUrl = artifact.audioUrl,
             createdAt = artifact.createdAt.toDate().time,
             durationMs = artifact.durationMs,
@@ -1282,9 +1282,9 @@ class ArtifactRepository @Inject constructor(
                 "anonymousId" to artifact.author.anonymousId,
                 "name" to artifact.author.name,
                 "sigil" to artifact.author.sigil,
-                "avatarSeed" to artifact.author.avatarSeed,
-                "avatarColor" to artifact.author.avatarColor,
-                "avatarConfig" to artifact.author.avatarConfig
+                "sigilSeed" to artifact.author.sigilSeed,
+                "sigilColor" to artifact.author.sigilColor,
+                "sigilConfig" to artifact.author.sigilConfig
             ),
             "audioUrl" to artifact.audioUrl,
             "createdAt" to artifact.createdAt,
@@ -1333,9 +1333,9 @@ class ArtifactRepository @Inject constructor(
                 userId = userId,
                 name = snapshot.name,
                 sigil = snapshot.sigil,
-                seed = snapshot.avatarSeed,
-                color = snapshot.avatarColor,
-                configJson = kotlinx.serialization.json.Json.encodeToString(snapshot.avatarConfig)
+                seed = snapshot.sigilSeed,
+                color = snapshot.sigilColor,
+                configJson = kotlinx.serialization.json.Json.encodeToString(snapshot.sigilConfig)
             )
             diagnosticLogger.debug(DiagnosticCategory.DATABASE, "AUTHOR_SNAPSHOT_UPDATED", mapOf(LogKeys.USER_ID to userId))
         } catch (e: Exception) {

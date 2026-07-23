@@ -52,14 +52,14 @@ object UserIdentityValidator {
             }
         }
 
-        // 5. Avatar Invariants
-        if (user.avatarSeed.isBlank()) {
-            reasons.add("MISSING_AVATAR_SEED")
+        // 5. Sigil Config Invariants
+        if (user.sigilSeed.isBlank()) {
+            reasons.add("MISSING_SIGIL_SEED")
         }
         
-        // Basic AvatarConfig version check (Defense in Depth)
-        if (user.avatarConfig.version < 2) {
-            reasons.add("LEGACY_AVATAR_CONFIG_V${user.avatarConfig.version}")
+        // Basic SigilConfig version check (Defense in Depth)
+        if (user.sigilConfig.version < 3) {
+            reasons.add("LEGACY_SIGIL_CONFIG_V${user.sigilConfig.version}")
         }
 
         return IdentityValidationResult(

@@ -9,7 +9,7 @@ import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.FieldPath
 import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.User
-import com.saurabh.artifact.model.AvatarConfig
+import com.saurabh.artifact.model.SigilConfig
 import com.saurabh.artifact.model.avatar.*
 import com.saurabh.artifact.model.UserPrivateSettings
 import com.saurabh.artifact.util.SecureString
@@ -238,15 +238,10 @@ class UserRepository @Inject constructor(
                             anonymousId = anonymousId,
                             anonymousName = anonymousName,
                             anonymousSigil = anonymousSigil,
-                            avatarSeed = seed,
-                            avatarConfig = AvatarConfig(
-                                seed = seed, 
-                                theme = "CARTOON",
-                                faceShape = FaceShape.entries.random(),
-                                eyeType = EyeType.entries.random(),
-                                mouthType = MouthType.entries.random(),
-                                hairType = HairType.entries.random(),
-                                accessoryType = AccessoryType.entries.random()
+                            sigilSeed = seed,
+                            sigilConfig = SigilConfig(
+                                seed = seed,
+                                version = 3
                             ),
                             isAnonymous = true,
                             emotionalProfile = "New Soul"
@@ -304,9 +299,9 @@ class UserRepository @Inject constructor(
             anonymousId = user.anonymousId,
             anonymousName = user.anonymousName,
             anonymousSigil = user.anonymousSigil,
-            avatarSeed = user.avatarSeed,
-            avatarColor = user.avatarColor,
-            avatarConfigJson = kotlinx.serialization.json.Json.encodeToString(user.avatarConfig)
+            sigilSeed = user.sigilSeed,
+            sigilColor = user.sigilColor,
+            sigilConfigJson = kotlinx.serialization.json.Json.encodeToString(user.sigilConfig)
         )
     }
 
@@ -316,12 +311,12 @@ class UserRepository @Inject constructor(
             anonymousId = local.anonymousId,
             anonymousName = local.anonymousName,
             anonymousSigil = local.anonymousSigil,
-            avatarSeed = local.avatarSeed,
-            avatarColor = local.avatarColor,
-            avatarConfig = try {
-                kotlinx.serialization.json.Json.decodeFromString(local.avatarConfigJson)
+            sigilSeed = local.sigilSeed,
+            sigilColor = local.sigilColor,
+            sigilConfig = try {
+                kotlinx.serialization.json.Json.decodeFromString(local.sigilConfigJson)
             } catch (_: Exception) {
-                AvatarConfig(seed = local.avatarSeed)
+                SigilConfig(seed = local.sigilSeed)
             }
         )
     }
@@ -639,7 +634,7 @@ class UserRepository @Inject constructor(
         }
     }
 
-    suspend fun updateAvatarConfig(userId: String, config: AvatarConfig): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun updateSigilConfig(userId: String, config: SigilConfig): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             // SELF-HEALING: Ensure profile exists before update
             registrationCoordinator.get().ensureProfileExists()
@@ -653,22 +648,17 @@ class UserRepository @Inject constructor(
 
             userRef.update(
                 mapOf(
-                    "avatarConfig" to config,
+                    "sigilConfig" to config,
                     "usernameUpdatedAt" to FieldValue.serverTimestamp(),
                     "identityMetadata.lastIdentityChangeAt" to FieldValue.serverTimestamp(),
                     "identityMetadata.identityChangeCount30Days" to newCount
                 )
             ).await()
 
-            // Zero-Trust: Notification handled by backend (optional/future)
-            // notificationRepository.createNotification(
-                // userId = userId,
-                // message = "AVATAR_UPDATED"
-            // )
-            diagnosticLogger.info(DiagnosticCategory.AUTH, "AVATAR_CONFIG_UPDATED", mapOf(LogKeys.USER_ID to userId))
+            diagnosticLogger.info(DiagnosticCategory.AUTH, "SIGIL_CONFIG_UPDATED", mapOf(LogKeys.USER_ID to userId))
             Result.success(Unit)
         } catch (e: Exception) {
-            diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "AVATAR_CONFIG_UPDATE_FAILED", mapOf(LogKeys.USER_ID to userId), e)
+            diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "SIGIL_CONFIG_UPDATE_FAILED", mapOf(LogKeys.USER_ID to userId), e)
             Result.failure(AppError.from(e))
         }
     }
@@ -711,8 +701,8 @@ class UserRepository @Inject constructor(
                 val updateMap = mapOf(
                     "anonymousName" to generatedName,
                     "anonymousSigil" to UsernameGenerator.deriveSigil(user.anonymousId),
-                    "avatarSeed" to newSeed,
-                    "avatarConfig" to user.avatarConfig.copy(seed = newSeed),
+                    "sigilSeed" to newSeed,
+                    "sigilConfig" to user.sigilConfig.copy(seed = newSeed),
                     "usernameUpdatedAt" to FieldValue.serverTimestamp(),
                     "identityMetadata.lastIdentityChangeAt" to FieldValue.serverTimestamp(),
                     "identityMetadata.emergencyResetCount" to FieldValue.increment(1),
@@ -730,8 +720,8 @@ class UserRepository @Inject constructor(
                     val newSeed = java.util.UUID.randomUUID().toString()
                     val updatedUser = user.copy(
                         anonymousName = newName,
-                        avatarSeed = newSeed,
-                        avatarConfig = user.avatarConfig.copy(seed = newSeed),
+                        sigilSeed = newSeed,
+                        sigilConfig = user.sigilConfig.copy(seed = newSeed),
                         identityMetadata = user.identityMetadata.copy(
                             emergencyResetCount = user.identityMetadata.emergencyResetCount + 1,
                             identityResetVersion = newVersion,

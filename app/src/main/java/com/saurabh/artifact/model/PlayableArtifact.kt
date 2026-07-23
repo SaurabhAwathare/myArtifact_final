@@ -12,7 +12,7 @@ data class PlayableArtifact(
     val audioUrl: String,
     val authorName: String,
     val authorSigil: String,
-    val avatarSeed: String,
+    val sigilSeed: String,
     val durationMs: Long,
     val sourceType: PlaybackSource,
     val emotion: String = "",

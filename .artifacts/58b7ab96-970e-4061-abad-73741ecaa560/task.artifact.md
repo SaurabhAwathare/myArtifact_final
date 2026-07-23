@@ -1,0 +1,5 @@
+- [x] Document the environment variable fix in the project documentation
+- [x] Verify build environment with `./gradlew help`
+- [x] Run `LifecycleTransitionTest`
+- [x] Run the full unit test suite
+- [x] Summarize findings and verify logic

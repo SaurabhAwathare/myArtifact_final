@@ -2,7 +2,7 @@ package com.saurabh.artifact.domain.auth
 
 import com.google.firebase.firestore.DocumentSnapshot
 import com.saurabh.artifact.model.CURRENT_SCHEMA_VERSION
-import com.saurabh.artifact.model.avatar.FaceShape
+import com.saurabh.artifact.model.avatar.SigilVariant
 import android.util.Log
 import io.mockk.every
 import io.mockk.mockk
@@ -50,8 +50,8 @@ class ProfileRepairServiceTest {
         every { snapshot.id } returns "user456"
         every { snapshot.data } returns mapOf(
             "schemaVersion" to CURRENT_SCHEMA_VERSION,
-            "avatarConfig" to mapOf(
-                "faceShape" to "TRIANGLE" // Invalid enum
+            "sigilConfig" to mapOf(
+                "variant" to "GLOW" // Invalid enum
             )
         )
         every { snapshot.toObject(any<Class<*>>()) } throws RuntimeException("Enum mismatch")
@@ -59,7 +59,7 @@ class ProfileRepairServiceTest {
         val (user, needsRepair) = service.loadAndRepair(snapshot)
 
         assertTrue(needsRepair)
-        assertEquals(FaceShape.ROUND, user.avatarConfig.faceShape)
+        assertEquals(SigilVariant.LIGHT, user.sigilConfig.variant)
     }
 
     @Test

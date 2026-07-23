@@ -8,9 +8,9 @@ data class UserProfile(
     val anonymousId: String,
     val username: String = "Quiet Presence",
     val sigil: String = "",
-    val avatarSeed: String = "",
-    val avatarColor: String = "#FFD700",
-    val avatarConfig: AvatarConfig = AvatarConfig(),
+    val sigilSeed: String = "",
+    val sigilColor: String = "#FFD700",
+    val sigilConfig: SigilConfig = SigilConfig(),
     val isAnonymous: Boolean = true,
     val resonanceInCount: Long = 0,
     val resonanceOutCount: Long = 0

@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.work.WorkManager
 import com.saurabh.artifact.data.local.*
 import com.saurabh.artifact.model.*
+import com.saurabh.artifact.model.avatar.SigilVariant
 import com.saurabh.artifact.worker.IdentitySyncWorker
 import io.mockk.*
 import kotlinx.coroutines.CoroutineScope
@@ -67,9 +68,9 @@ class IdentitySyncTest {
             anonymousId = "anon1",
             username = "OldName",
             sigil = "sigil1",
-            avatarSeed = "seed1",
-            avatarColor = "color1",
-            avatarConfig = AvatarConfig(seed = "seed1")
+            sigilSeed = "seed1",
+            sigilColor = "color1",
+            sigilConfig = SigilConfig(seed = "seed1")
         )
 
         val profileFlow = kotlinx.coroutines.flow.MutableStateFlow(profile)
@@ -94,7 +95,7 @@ class IdentitySyncTest {
     }
 
     @Test
-    fun `updateAvatarConfig should trigger local snapshot update and enqueue worker`() = testScope.runTest {
+    fun `updateSigilConfig should trigger local snapshot update and enqueue worker`() = testScope.runTest {
         userProfileManager = UserProfileManager(
             context = context,
             sessionManager = sessionManager,
@@ -105,30 +106,30 @@ class IdentitySyncTest {
         )
 
         val userId = "user123"
-        val newConfig = AvatarConfig(seed = "newSeed", theme = "CARTOON")
+        val newConfig = SigilConfig(seed = "newSeed", variant = SigilVariant.DARK)
         val profile = UserProfile(
             anonymousId = "anon1",
             username = "UserName",
             sigil = "sigil1",
-            avatarSeed = "oldSeed",
-            avatarColor = "color1",
-            avatarConfig = AvatarConfig(seed = "oldSeed")
+            sigilSeed = "oldSeed",
+            sigilColor = "color1",
+            sigilConfig = SigilConfig(seed = "oldSeed")
         )
 
         val profileFlow = kotlinx.coroutines.flow.MutableStateFlow(profile)
 
         every { authRepository.currentUserId } returns userId
         every { sessionManager.userProfile } returns profileFlow
-        coEvery { userRepository.updateAvatarConfig(userId, newConfig) } returns Result.success(Unit)
+        coEvery { userRepository.updateSigilConfig(userId, newConfig) } returns Result.success(Unit)
 
-        userProfileManager.updateAvatarConfig(newConfig)
+        userProfileManager.updateSigilConfig(newConfig)
         
         // Wait for the async launch
         runCurrent()
 
         coVerify {
             artifactRepository.updateLocalAuthorSnapshot(userId, match {
-                it.avatarConfig == newConfig && it.avatarSeed == "newSeed"
+                it.sigilConfig == newConfig && it.sigilSeed == "newSeed"
             })
         }
         verify {

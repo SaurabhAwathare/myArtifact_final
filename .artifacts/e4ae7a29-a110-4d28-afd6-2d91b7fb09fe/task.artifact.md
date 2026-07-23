@@ -1,0 +1,31 @@
+# Task: Create Artifact Project Reference Document
+
+- [x] **Research & Synthesis**
+    - [x] Read project documentation (`docs/`)
+    - [x] Read architecture invariants and ADRs
+    - [x] Extract investigation methodology from previous reports
+    - [x] Identify terminology and philosophy (Sanctuary, Calm UI, Resonance)
+- [x] **Document Creation (Draft 1)**
+    - [x] Draft initial structure (20 sections)
+    - [x] Finalize content for all sections
+    - [x] Write `artifact_project_reference.artifact.md`
+- [x] **Philosophy Restoration (Revision 1)**
+    - [x] Restore canonical Mission: "Connect people through authentic human experiences, not identities."
+    - [x] Restore Vision: "Building a Human Library of authentic human experiences."
+    - [x] Restore 7 Core Values (Thoughts over appearance, etc.)
+    - [x] Restore 8-question Product Decision Framework
+    - [x] Integrate mission-first Feature Evaluation Criteria
+    - [x] Restore UX Principles (Voice over vanity, No addictive design)
+    - [x] Align Communication Style (Analytical, Mission aligned)
+- [x] **Final Review & Verification**
+    - [x] Verify section ordering matches user requirement
+    - [x] Verify terminology matches existing standards
+    - [x] Verify no invented principles
+    - [x] **Final Enhancements (Revision 2)**:
+        - [x] Add Long-Term Product Philosophy statement
+        - [x] Expand Responsible Anonymity principles
+        - [x] Add Firebase cost sensitivity
+        - [x] Add Reliability over Feature Velocity
+        - [x] Add Solo-Founder constraints
+    - [x] **Editorial Polish**:
+        - [x] Promote Long-Term Product Philosophy to subsection 1.1

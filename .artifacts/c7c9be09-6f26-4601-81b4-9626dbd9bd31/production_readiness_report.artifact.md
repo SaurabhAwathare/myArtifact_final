@@ -9,29 +9,19 @@ The Artifact application demonstrates a high level of production readiness. Its 
 
 ## Verified Risks (Risk Register)
 
-### 1. Stuck Drafts: Missing Lifecycle Transitions
-- **Problem Statement**: The `ArtifactLifecycle` state machine does not allow transitions to `DELETING` from `PROCESSING` or `READY_TO_PUBLISH` states.
-- **Execution Path**: Recording -> Processing -> User hits Delete. The transition is blocked by `DraftDao.update`, leaving the draft permanently in the DB and UI.
+### 1. Stuck Drafts: Missing Lifecycle Transitions — ✅ CLOSED
+- **Status**: CLOSED (Level 4 – Reproduced & Verified)
+- **Problem Statement**: The `ArtifactLifecycle` state machine did not allow transitions to `DELETING` from `PROCESSING` or `READY_TO_PUBLISH` states.
 - **Evidence**: [ArtifactLifecycle.kt:L46](file:///F:/Android Project/01/app/src/main/java/com/saurabh/artifact/model/ArtifactLifecycle.kt#L46)
-- **Confidence Level**: Level 2 (Code Evidence)
-- **Likelihood**: High
-- **Impact**: **Data clutter / Broken UX** (User cannot delete unwanted drafts)
-- **Recommended Fix**: Add `PROCESSING to setOf(DELETING)` and `READY_TO_PUBLISH to setOf(DELETING)` to the `transitions` map.
-- **Regression Risk**: Low. `DraftDeletionManager` handles all cleanup safely from any state.
-- **Engineering Effort**: Small
-- **Runtime Verification Required**: No
-
-### 2. Lost Engagement Updates during Sync
-- **Problem Statement**: `markAsSynced` unconditionally marks an artifact's engagement as synced. If a user continues playing and generates new progress *during* a sync upload, that progress is lost and will not be synced in the next run.
-- **Execution Path**: `updateLastPosition` (Sets PENDING) -> `InteractionSyncWorker` starts upload -> `updateLastPosition` (Updates row, remains PENDING) -> Upload finish -> `markAsSynced` (Sets SYNCED, overwriting the new PENDING state).
-- **Evidence**: [EngagementDao.kt:L20](file:///F:/Android Project/01/app/src/main/java/com/saurabh/artifact/data/local/EngagementDao.kt#L20)
-- **Confidence Level**: Level 2 (Code Evidence)
-- **Likelihood**: Medium (Common for long audio/active users)
-- **Impact**: **State corruption** (Out-of-sync playback positions across devices)
-- **Recommended Fix**: Modify `markAsSynced` to accept a `maxTimestamp` and only update rows where `lastUpdated <= maxTimestamp`.
+- **Fix**: Added missing transitions to the lifecycle matrix and verified with `LifecycleTransitionTest`.
 - **Regression Risk**: Low.
-- **Engineering Effort**: Small
-- **Runtime Verification Required**: No
+
+### 2. Lost Engagement Updates during Sync — ✅ CLOSED
+- **Status**: CLOSED (Level 4 – Reproduced & Verified)
+- **Problem Statement**: `markAsSynced` unconditionally marked an artifact's engagement as synced, potentially overwriting newer `PENDING` updates.
+- **Evidence**: [EngagementDao.kt:L20](file:///F:/Android Project/01/app/src/main/java/com/saurabh/artifact/data/local/EngagementDao.kt#L20)
+- **Fix**: Implemented optimistic concurrency in `EngagementDao.markAsSynced()` using a `SYNCING` state guard. Verified with `EngagementSyncRaceTest`.
+- **Regression Risk**: Low.
 
 ### 3. Main Thread Disk I/O in Recording Timer
 - **Problem Statement**: `RecordingService` invokes `StatFs` (via `StorageManager.availableStorageMb`) every 50ms on the Main thread.
@@ -82,5 +72,17 @@ The Artifact application demonstrates a high level of production readiness. Its 
 
 ---
 
+## Risk Register & Priority
+
+| Priority | Finding                                  | Status    |
+| -------- | ---------------------------------------- | --------- |
+| HIGH     | Finding #1 – Lifecycle Transition        | ✅ CLOSED  |
+| HIGH     | Finding #2 – Lost Sync Updates           | ✅ CLOSED  |
+| **HIGH** | **Finding #4 – Stop vs. Cancel Race**    | **OPEN**  |
+| MEDIUM   | Finding #3 – Main Thread Disk I/O        | OPEN      |
+| LOW      | Finding #5 – MediaCache Lifecycle        | OPEN      |
+
+---
+
 ## Conclusion
-The application appears **Production-Ready** once Findings #1 (Stuck Drafts) and #2 (Sync Corruption) are resolved. These two issues impact user-perceived reliability and data consistency. All other findings are secondary performance or edge-case stability improvements.
+The application's critical data integrity issues (Findings #1 and #2) have been resolved and verified via regression testing. The highest remaining production risk is **Finding #4 (Stop vs. Cancel Race Condition)**, which could potentially lead to crashes or unstable recording states during rapid user interactions.

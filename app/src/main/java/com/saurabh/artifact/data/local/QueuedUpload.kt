@@ -1,5 +1,6 @@
 package com.saurabh.artifact.data.local
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
@@ -15,7 +16,7 @@ data class QueuedUpload(
     val isPublic: Boolean,
     val duration: Long,
     val emotionResult: EmotionResult,
-    val avatarSeed: String = "",
+    @ColumnInfo(name = "avatarSeed") val sigilSeed: String = "",
     val prompt: String = "",
     val redactionFilter: String = "",
     val amplitudeDataJson: String, // Store as JSON string or use TypeConverter

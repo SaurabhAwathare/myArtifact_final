@@ -49,7 +49,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.saurabh.artifact.ui.components.ArtifactAvatar
+import com.saurabh.artifact.ui.components.ArtifactSigil
 import com.saurabh.artifact.ui.identity.components.UsernameInput
 import com.saurabh.artifact.ui.identity.components.UsernameSuggestions
 
@@ -58,10 +58,10 @@ import com.saurabh.artifact.ui.identity.components.UsernameSuggestions
 fun IdentitySelectionScreen(
     onComplete: () -> Unit,
     onBack: () -> Unit,
-    onEditAvatar: () -> Unit,
+    onEditSigil: () -> Unit,
     viewModel: IdentityViewModel = hiltViewModel()
 ) {
-    val avatarConfig by viewModel.avatarConfig.collectAsStateWithLifecycle()
+    val sigilConfig by viewModel.sigilConfig.collectAsStateWithLifecycle()
     val usernameUiState by viewModel.usernameUiState.collectAsStateWithLifecycle()
     val suggestions by viewModel.suggestions.collectAsStateWithLifecycle()
     val isUsernameValid by viewModel.isUsernameValid.collectAsStateWithLifecycle()
@@ -120,11 +120,11 @@ fun IdentitySelectionScreen(
                 Box(
                     modifier = Modifier
                         .size(160.dp)
-                        .clickable { onEditAvatar() },
+                        .clickable { onEditSigil() },
                     contentAlignment = Alignment.Center
                 ) {
-                    ArtifactAvatar(
-                        config = avatarConfig,
+                    ArtifactSigil(
+                        config = sigilConfig,
                         size = 140.dp
                     )
                 }
@@ -170,7 +170,7 @@ fun IdentitySelectionScreen(
             Spacer(modifier = Modifier.height(8.dp))
             
             Text(
-                text = "Choose an avatar and anonymous name while keeping your real identity private.",
+                text = "Choose a sigil and anonymous name while keeping your real identity private.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
@@ -292,7 +292,7 @@ fun IdentitySelectionScreen(
             icon = { Icon(Icons.Filled.Shield, contentDescription = null) },
             title = { Text("Protect My Identity") },
             text = {
-                Text("This will immediately randomize your name and avatar to protect your anonymity. This action is recommended if you believe your identity has been exposed.")
+                Text("This will immediately randomize your name and sigil to protect your anonymity. This action is recommended if you believe your identity has been exposed.")
             },
             confirmButton = {
                 Button(

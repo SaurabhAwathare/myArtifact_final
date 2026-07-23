@@ -50,8 +50,8 @@ class ArtifactStatusRoundTripTest {
                 anonymousId = entity.authorAnonymousId,
                 name = entity.authorName,
                 sigil = entity.authorSigil,
-                avatarSeed = entity.authorAvatarSeed,
-                avatarColor = entity.authorAvatarColor
+                sigilSeed = entity.authorSigilSeed,
+                sigilColor = entity.authorSigilColor
             ),
             audioUrl = entity.audioUrl,
             createdAt = Timestamp(Date(entity.createdAt)),
@@ -79,9 +79,9 @@ class ArtifactStatusRoundTripTest {
             authorAnonymousId = artifact.author.anonymousId,
             authorName = artifact.author.name,
             authorSigil = artifact.author.sigil,
-            authorAvatarSeed = artifact.author.avatarSeed,
-            authorAvatarColor = artifact.author.avatarColor,
-            authorAvatarConfigJson = "", // Not needed for this test
+            authorSigilSeed = artifact.author.sigilSeed,
+            authorSigilColor = artifact.author.sigilColor,
+            authorSigilConfigJson = "", // Not needed for this test
             audioUrl = artifact.audioUrl,
             createdAt = artifact.createdAt.toDate().time,
             durationMs = artifact.durationMs,

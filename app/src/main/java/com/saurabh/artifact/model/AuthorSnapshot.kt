@@ -15,9 +15,9 @@ data class AuthorSnapshot(
     val anonymousId: String = "",
     val name: String = "",
     val sigil: String = "", // Added for soft uniqueness
-    val avatarSeed: String = "",
-    val avatarColor: String = "#FFD700",
-    val avatarConfig: AvatarConfig = AvatarConfig()
+    val sigilSeed: String = "",
+    val sigilColor: String = "#FFD700",
+    val sigilConfig: SigilConfig = SigilConfig()
 ) {
     companion object {
         /**
@@ -43,9 +43,9 @@ data class AuthorSnapshot(
                 anonymousId = user.anonymousId,
                 name = user.anonymousName,
                 sigil = user.anonymousSigil,
-                avatarSeed = user.avatarSeed,
-                avatarColor = user.avatarColor,
-                avatarConfig = user.avatarConfig
+                sigilSeed = user.sigilSeed,
+                sigilColor = user.sigilColor,
+                sigilConfig = user.sigilConfig
             )
         }
     }

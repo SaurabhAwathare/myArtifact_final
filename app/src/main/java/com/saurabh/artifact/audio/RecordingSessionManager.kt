@@ -15,6 +15,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -138,7 +139,9 @@ class RecordingSessionManager @Inject constructor(
         // Ensure draft exists in DB if we're starting fresh
         var draft = draftDao.getDraftById(draftId)
         if (draft == null) {
-            val file = localDraftManager.createDraftFile(draftId, "wav")
+            val file = withContext(Dispatchers.IO) {
+                localDraftManager.createDraftFile(draftId, "wav")
+            }
             recordingRepository.createDraft(draftId, file.absolutePath, 0).getOrThrow()
             draft = draftDao.getDraftById(draftId)
         }

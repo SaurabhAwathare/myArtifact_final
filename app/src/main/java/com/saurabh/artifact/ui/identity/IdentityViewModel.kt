@@ -36,8 +36,8 @@ class IdentityViewModel @Inject constructor(
     private val diagnosticLogger: DiagnosticLogger
 ) : ViewModel() {
 
-    private val _avatarConfig = MutableStateFlow(AvatarConfig())
-    val avatarConfig: StateFlow<AvatarConfig> = _avatarConfig.asStateFlow()
+    private val _sigilConfig = MutableStateFlow(SigilConfig())
+    val sigilConfig: StateFlow<SigilConfig> = _sigilConfig.asStateFlow()
 
     private val _username = MutableStateFlow("")
 
@@ -78,8 +78,8 @@ class IdentityViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            userProfileManager.activeAvatarConfig.collectLatest { config ->
-                _avatarConfig.value = config
+            userProfileManager.activeSigilConfig.collectLatest { config ->
+                _sigilConfig.value = config
             }
         }
         viewModelScope.launch {
@@ -227,7 +227,7 @@ class IdentityViewModel @Inject constructor(
             if (userId != null) {
                 userRepository.createUsername(userId, name)
                     .onSuccess {
-                        userProfileManager.updateAvatarConfig(_avatarConfig.value)
+                        userProfileManager.updateSigilConfig(_sigilConfig.value)
                         onSuccess()
                     }
                     .onFailure { e ->
@@ -236,7 +236,7 @@ class IdentityViewModel @Inject constructor(
                     }
             } else {
                 // Anonymous fallback
-                userProfileManager.updateAvatarConfig(_avatarConfig.value)
+                userProfileManager.updateSigilConfig(_sigilConfig.value)
                 userProfileManager.updateUsername(name)
                 onSuccess()
             }

@@ -63,9 +63,9 @@ class UserProfileManager @Inject constructor(
     val userProfile: Flow<com.saurabh.artifact.model.UserProfile> = sessionManager.userProfile
 
     /**
-     * SSOT flow for Avatar Config.
+     * SSOT flow for Sigil Config.
      */
-    val activeAvatarConfig: Flow<com.saurabh.artifact.model.AvatarConfig> = sessionManager.userProfile.map { it.avatarConfig }
+    val activeSigilConfig: Flow<com.saurabh.artifact.model.SigilConfig> = sessionManager.userProfile.map { it.sigilConfig }
 
     /**
      * SSOT flow for the active username.
@@ -108,11 +108,11 @@ class UserProfileManager @Inject constructor(
     }
 
     /**
-     * Updates the user's avatar configuration.
+     * Updates the user's sigil configuration.
      */
-    suspend fun updateAvatarConfig(config: com.saurabh.artifact.model.AvatarConfig): Result<Unit> {
+    suspend fun updateSigilConfig(config: com.saurabh.artifact.model.SigilConfig): Result<Unit> {
         // 1. Update SSOT immediately
-        sessionManager.updateAvatarConfig(config)
+        sessionManager.updateSigilConfig(config)
         
         val userId = authRepository.currentUserId
 
@@ -128,9 +128,9 @@ class UserProfileManager @Inject constructor(
                         anonymousId = currentProfile.anonymousId,
                         name = currentProfile.username,
                         sigil = currentProfile.sigil,
-                        avatarSeed = config.seed,
-                        avatarColor = currentProfile.avatarColor,
-                        avatarConfig = config
+                        sigilSeed = config.seed,
+                        sigilColor = currentProfile.sigilColor,
+                        sigilConfig = config
                     )
                 )
             }
@@ -138,7 +138,7 @@ class UserProfileManager @Inject constructor(
 
         // 3. Sync to Firestore if authenticated (Eventual Consistency)
         if (userId.isNotEmpty()) {
-            val result = userRepository.updateAvatarConfig(userId, config)
+            val result = userRepository.updateSigilConfig(userId, config)
             if (result.isSuccess) {
                 // For regular updates, we don't strictly track version but still sync
                 IdentitySyncWorker.enqueue(context, userId)
@@ -170,9 +170,9 @@ class UserProfileManager @Inject constructor(
                         anonymousId = currentProfile.anonymousId,
                         name = username,
                         sigil = currentProfile.sigil,
-                        avatarSeed = currentProfile.avatarSeed,
-                        avatarColor = currentProfile.avatarColor,
-                        avatarConfig = currentProfile.avatarConfig
+                        sigilSeed = currentProfile.sigilSeed,
+                        sigilColor = currentProfile.sigilColor,
+                        sigilConfig = currentProfile.sigilConfig
                     )
                 )
             }
@@ -216,9 +216,9 @@ class UserProfileManager @Inject constructor(
                             anonymousId = updatedProfile.anonymousId,
                             name = updatedProfile.username,
                             sigil = updatedProfile.sigil,
-                            avatarSeed = updatedProfile.avatarSeed,
-                            avatarColor = updatedProfile.avatarColor,
-                            avatarConfig = updatedProfile.avatarConfig
+                            sigilSeed = updatedProfile.sigilSeed,
+                            sigilColor = updatedProfile.sigilColor,
+                            sigilConfig = updatedProfile.sigilConfig
                         )
                     )
                     Log.i("UserProfileManager", "Local identity synchronization completed for $userId")

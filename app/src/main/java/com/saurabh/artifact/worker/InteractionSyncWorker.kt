@@ -162,7 +162,20 @@ class InteractionSyncWorker @AssistedInject constructor(
             
             if (result.isSuccess) {
                 ArtifactLogger.i(DiagnosticCategory.SYNC, "ENGAGEMENT_SYNC_SUCCESS", mapOf<String, Any>("artifactId" to evidence.artifactId))
-                engagementRepository.markEngagementSynced(evidence.artifactId)
+                val rows = engagementRepository.markEngagementSynced(evidence.artifactId)
+                if (rows == 0) {
+                    ArtifactLogger.i(
+                        DiagnosticCategory.SYNC,
+                        "ENGAGEMENT_SYNC_SKIPPED_STALE",
+                        mapOf(
+                            "artifactId" to evidence.artifactId,
+                            "operation" to "uploadEngagement",
+                            "workerId" to id.toString(),
+                            "rowsAffected" to 0,
+                            "reason" to "State guard triggered: Local record no longer in SYNCING state (likely preempted by newer PENDING update)"
+                        )
+                    )
+                }
             } else {
                 val error = result.exceptionOrNull() ?: Exception("Unknown sync error")
                 val isTransient = ArtifactRepository.isTransientError(error)
