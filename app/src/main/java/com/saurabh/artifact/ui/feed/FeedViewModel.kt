@@ -17,6 +17,7 @@ import com.saurabh.artifact.domain.feed.GetPersonalizedFeedFlowUseCase
 import com.saurabh.artifact.domain.prompt.GetReflectionPromptUseCase
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.ArtifactRepository
+import com.saurabh.artifact.repository.ArtifactEngagementRepository
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.NotificationRepository
 import com.saurabh.artifact.repository.SavedArtifactManager
@@ -76,6 +77,7 @@ data class FeedUiState(
 class FeedViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle,
     private val artifactRepository: ArtifactRepository,
+    private val artifactEngagementRepository: ArtifactEngagementRepository,
     private val authRepository: AuthRepository,
     private val notificationRepository: NotificationRepository,
     private val personalizationEngine: PersonalizationEngine,
@@ -437,7 +439,7 @@ class FeedViewModel @Inject constructor(
             } else {
                 audioPlayer.playArtifact(artifact)
                 viewModelScope.launch {
-                    artifactRepository.recordPlay(
+                    artifactEngagementRepository.recordPlay(
                         authRepository.currentUser.value?.uid,
                         artifact.emotion
                     )
@@ -469,7 +471,7 @@ class FeedViewModel @Inject constructor(
             return
         }
         viewModelScope.launch {
-            artifactRepository.submitPrivateFeedback(artifactId, userId, type).onSuccess {
+            artifactEngagementRepository.submitPrivateFeedback(artifactId, userId, type).onSuccess {
                 if (type == FeedbackType.SAFETY_CONCERN) {
                     _uiState.update { it.copy(error = UiError(UiText.DynamicString("Thanks for your concern. We'll look into this immediately."))) }
                 } else {

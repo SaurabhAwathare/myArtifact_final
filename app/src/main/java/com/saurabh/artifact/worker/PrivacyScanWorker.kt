@@ -19,6 +19,12 @@ import kotlinx.serialization.json.Json
 import java.io.File
 import kotlin.time.Duration.Companion.seconds
 
+/**
+ * DEPRECATED/INACTIVE: This worker was originally used for transcript-based privacy scanning.
+ * It is currently removed from the active processing pipeline as automatic transcription is disabled.
+ * 
+ * Reserved for future use: Potential audio-based PII detection or other safety analysis.
+ */
 @HiltWorker
 class PrivacyScanWorker @AssistedInject constructor(
     @Assisted appContext: Context,
@@ -43,6 +49,7 @@ class PrivacyScanWorker @AssistedInject constructor(
             val transcriptPath = draft.localTranscriptPath
             diagnosticLogger.debug(DiagnosticCategory.SECURITY, "PRIVACY_SCAN_TRANSCRIPT", mapOf(LogKeys.DRAFT_ID to draftId))
             
+            // Phase 1: Gracefully handle missing transcript as transcription is now optional.
             val flaggedSegments = if (transcriptPath != null) {
                 val file = File(transcriptPath)
                 if (file.exists()) {

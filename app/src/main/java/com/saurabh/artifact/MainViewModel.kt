@@ -225,7 +225,46 @@ class MainViewModel @Inject constructor(
     }
 
     private suspend fun determineInitialRoute() {
-        _startupState.value = AppStartupState.Ready(Settings)
+        val destination = getInitialDestinationUseCase()
+        diagnosticLogger.info(DiagnosticCategory.STARTUP, "STARTUP_DESTINATION_RESOLVED", mapOf("destination" to destination.name))
+
+        when (destination) {
+            InitialDestination.ONBOARDING -> {
+                updateStartupState(AppStartupState.Ready(Onboarding))
+            }
+            InitialDestination.UNAUTHENTICATED -> {
+                updateStartupState(AppStartupState.Ready(Login))
+            }
+            InitialDestination.AUTHENTICATED -> {
+                _startupState.value = AppStartupState.Registering
+                
+                when (val result = registrationCoordinator.ensureProfileExists()) {
+                    RegistrationResult.SuccessExistingUser -> {
+                        updateStartupState(AppStartupState.Ready(Home))
+                    }
+                    RegistrationResult.SuccessNewUser -> {
+                        updateStartupState(AppStartupState.Ready(IdentityReveal))
+                    }
+                    is RegistrationResult.Failure -> {
+                        diagnosticLogger.error(DiagnosticCategory.STARTUP, "STARTUP_REGISTRATION_FAILED", throwable = result.exception)
+                        _startupState.value = AppStartupState.Error("Profile verification failed.")
+                        startupCoordinator.completeAll()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun updateStartupState(state: AppStartupState.Ready) {
+        _startupState.value = state
+        
+        // Persist for Process Death Recovery
+        val destination = state.startDestination
+        val destinationId = mapRouteToId(destination)
+        if (destinationId != null) {
+            savedStateHandle[KEY_STARTUP_COMPLETED] = true
+            savedStateHandle[KEY_RESOLVED_DESTINATION_ID] = destinationId
+        }
     }
 
     fun onLaunchIntent(intent: android.content.Intent?) {

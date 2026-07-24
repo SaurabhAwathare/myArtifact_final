@@ -59,20 +59,9 @@ class PublishingOrchestrator @Inject constructor(
             .addTag(SessionConstants.TAG_USER_SESSION_WORK)
             .build()
 
-        val transcriptionWork = OneTimeWorkRequestBuilder<com.saurabh.artifact.worker.TranscriptionWorker>()
-            .setInputData(inputData)
-            .addTag(SessionConstants.TAG_USER_SESSION_WORK)
-            .build()
-
-        val privacyWork = OneTimeWorkRequestBuilder<com.saurabh.artifact.worker.PrivacyScanWorker>()
-            .setInputData(inputData)
-            .addTag(SessionConstants.TAG_USER_SESSION_WORK)
-            .build()
-
-        val safetyWork = OneTimeWorkRequestBuilder<com.saurabh.artifact.worker.SafetyAnalysisWorker>()
-            .setInputData(inputData)
-            .addTag(SessionConstants.TAG_USER_SESSION_WORK)
-            .build()
+        // Phase 4 Cleanup: Automatic transcription and transcript-based analysis are now optional/skipped.
+        // These workers (TranscriptionWorker, PrivacyScanWorker, SafetyAnalysisWorker) are preserved 
+        // in the codebase for future audio-based analysis but removed from the active pipeline.
 
         val finalStateWork = OneTimeWorkRequestBuilder<com.saurabh.artifact.worker.ProcessingFinalizerWorker>()
             .setInputData(inputData)
@@ -86,9 +75,6 @@ class PublishingOrchestrator @Inject constructor(
         )
         .then(normalizationWork)
         .then(waveformWork)
-        .then(transcriptionWork)
-        .then(privacyWork)
-        .then(safetyWork)
         .then(finalStateWork)
         .enqueue()
     }

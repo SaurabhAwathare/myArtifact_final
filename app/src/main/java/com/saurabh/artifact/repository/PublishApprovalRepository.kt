@@ -94,7 +94,7 @@ class PublishApprovalRepository @Inject constructor(
             val draft = draftDao.getDraftById(draftId) ?: return@withContext Result.failure(Exception("Draft not found"))
             
             // 1. Generate Immutable Snapshot
-            val transcriptJson = Json.encodeToString(transcript)
+            val transcriptJson = if (transcript.isEmpty()) null else Json.encodeToString(transcript)
             val frozenAudioFile = File(context.filesDir, "frozen_audio/${draftId}_approved.m4a").apply {
                 parentFile?.mkdirs()
             }
@@ -113,7 +113,9 @@ class PublishApprovalRepository @Inject constructor(
                 .digest(frozenAudioFile.readBytes())
                 .joinToString("") { "%02x".format(it) }
 
-            val contentToHash = transcriptJson + frozenAudioFile.length() + metadataJson
+            // Support for transcript-free integrity hashing
+            val hashTranscript = if (transcript.isEmpty()) "[]" else Json.encodeToString(transcript)
+            val contentToHash = hashTranscript + frozenAudioFile.length() + metadataJson
             val hash = MessageDigest.getInstance("SHA-256")
                 .digest(contentToHash.toByteArray())
                 .joinToString("") { "%02x".format(it) }
@@ -130,7 +132,7 @@ class PublishApprovalRepository @Inject constructor(
 
             Log.d("PublishApprovalRepo", "Approval token generation success.")
 
-            // 3. Persist Snapshot
+            // 3. Persist Snapshot (transcriptJson is null for new transcript-free drafts)
             draftDao.freezeSnapshot(
                 id = draftId,
                 transcriptJson = transcriptJson,

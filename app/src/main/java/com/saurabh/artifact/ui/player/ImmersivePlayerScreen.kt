@@ -149,6 +149,7 @@ fun ImmersivePlayerScreen(
         ) {
             // 2. Header (Phase 1 Refinement: Extracted for isolation)
             PlayerHeader(
+                artifact = artifact,
                 showTranscript = showTranscript,
                 isVerifiedDraft = isVerifiedDraft,
                 onCollapse = onCollapse,
@@ -406,6 +407,7 @@ fun ImmersivePlayerScreen(
  */
 @Composable
 private fun PlayerHeader(
+    artifact: PlayerArtifact?,
     showTranscript: Boolean,
     isVerifiedDraft: Boolean,
     onCollapse: () -> Unit,
@@ -413,6 +415,8 @@ private fun PlayerHeader(
     onMoreClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val hasTranscript = artifact?.transcript?.isNotEmpty() == true
+
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -444,15 +448,17 @@ private fun PlayerHeader(
         )
 
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(
-                onClick = onToggleTranscript,
-                modifier = Modifier.size(48.dp)
-            ) {
-                Icon(
-                    if (showTranscript) Icons.Rounded.Audiotrack else Icons.Rounded.Description,
-                    contentDescription = "Toggle Transcript",
-                    tint = if (showTranscript) GoldAura400 else Color.White.copy(alpha = 0.8f)
-                )
+            if (hasTranscript) {
+                IconButton(
+                    onClick = onToggleTranscript,
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(
+                        if (showTranscript) Icons.Rounded.Audiotrack else Icons.Rounded.Description,
+                        contentDescription = "Toggle Transcript",
+                        tint = if (showTranscript) GoldAura400 else Color.White.copy(alpha = 0.8f)
+                    )
+                }
             }
 
             if (!isVerifiedDraft) {

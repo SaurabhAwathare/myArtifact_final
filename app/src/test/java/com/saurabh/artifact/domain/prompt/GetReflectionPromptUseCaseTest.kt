@@ -2,7 +2,6 @@ package com.saurabh.artifact.domain.prompt
 
 import com.saurabh.artifact.model.PromptCategory
 import com.saurabh.artifact.model.ReflectionPrompt
-import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.service.AdManager
 import com.saurabh.artifact.service.SafetyEvaluator
 import com.saurabh.artifact.service.SafetyLevel
@@ -16,7 +15,7 @@ import org.junit.Test
 
 class GetReflectionPromptUseCaseTest {
 
-    private val artifactRepository = mockk<ArtifactRepository>()
+    private val reflectionPromptManager = mockk<ReflectionPromptManager>()
     private val safetyEvaluator = mockk<SafetyEvaluator>()
     private val adManager = mockk<AdManager>(relaxed = true)
     
@@ -24,7 +23,7 @@ class GetReflectionPromptUseCaseTest {
 
     @Before
     fun setup() {
-        useCase = GetReflectionPromptUseCase(artifactRepository, safetyEvaluator, adManager)
+        useCase = GetReflectionPromptUseCase(reflectionPromptManager, safetyEvaluator, adManager)
     }
 
     @Test
@@ -50,7 +49,7 @@ class GetReflectionPromptUseCaseTest {
         assertTrue(result.isCrisis)
         
         // Verify AI service was NEVER called
-        coVerify(exactly = 0) { artifactRepository.getSmartReflectionPrompt(any(), any(), any()) }
+        coVerify(exactly = 0) { reflectionPromptManager.getSmartReflectionPrompt(any(), any(), any()) }
     }
 
     @Test
@@ -63,7 +62,7 @@ class GetReflectionPromptUseCaseTest {
         
         // Mock combined input: "Joy I had a great day at the park"
         every { safetyEvaluator.evaluate("Joy I had a great day at the park") } returns safetyResult
-        coEvery { artifactRepository.getSmartReflectionPrompt(any(), eq(context), any()) } returns aiPrompt
+        coEvery { reflectionPromptManager.getSmartReflectionPrompt(any(), eq(context), any()) } returns aiPrompt
         
         // Act
         val result = useCase.invoke(emotion, context)
@@ -74,7 +73,7 @@ class GetReflectionPromptUseCaseTest {
         assertEquals(false, result.isCrisis)
         
         // Verify AI service WAS called
-        coVerify(exactly = 1) { artifactRepository.getSmartReflectionPrompt("Joy", context, any()) }
+        coVerify(exactly = 1) { reflectionPromptManager.getSmartReflectionPrompt("Joy", context, any()) }
     }
 
     @Test
@@ -101,7 +100,7 @@ class GetReflectionPromptUseCaseTest {
         assertTrue(result.isCrisis)
         
         // Verify AI service was NEVER called
-        coVerify(exactly = 0) { artifactRepository.getSmartReflectionPrompt(any(), any(), any()) }
+        coVerify(exactly = 0) { reflectionPromptManager.getSmartReflectionPrompt(any(), any(), any()) }
     }
 
     @Test
@@ -126,6 +125,6 @@ class GetReflectionPromptUseCaseTest {
         assertEquals(SafetyLevel.MEDIUM, result.safetyLevel)
         
         // Verify AI service was NEVER called because we had a suggestion
-        coVerify(exactly = 0) { artifactRepository.getSmartReflectionPrompt(any(), any(), any()) }
+        coVerify(exactly = 0) { reflectionPromptManager.getSmartReflectionPrompt(any(), any(), any()) }
     }
 }

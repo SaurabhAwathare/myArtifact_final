@@ -17,6 +17,7 @@ import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.data.local.*
 import com.saurabh.artifact.model.ReactionType
 import com.saurabh.artifact.model.SyncState
+import com.saurabh.artifact.repository.ArtifactLibraryRepository
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.EngagementRepository
 import com.saurabh.artifact.repository.FirestoreEngagementRepository
@@ -35,7 +36,7 @@ class InteractionSyncWorker @AssistedInject constructor(
     private val pendingInteractionDao: PendingInteractionDao,
     private val deadLetterInteractionDao: DeadLetterInteractionDao,
     private val reactionRepository: ReactionRepository,
-    private val artifactRepository: ArtifactRepository,
+    private val artifactLibraryRepository: ArtifactLibraryRepository,
     private val engagementRepository: EngagementRepository,
     private val firestoreEngagementRepository: FirestoreEngagementRepository,
     private val userRepository: UserRepository
@@ -279,13 +280,13 @@ class InteractionSyncWorker @AssistedInject constructor(
                 }
                 InteractionType.SAVE -> {
                     if (interaction.action == InteractionAction.ADD) {
-                        artifactRepository.saveArtifactToFirestore(
+                        artifactLibraryRepository.syncSave(
                             userId = userId,
                             artifactId = interaction.artifactId,
                             shelf = interaction.metadata ?: "Stayed With Me",
                         )
                     } else {
-                        artifactRepository.unsaveArtifactFromFirestore(userId, interaction.artifactId)
+                        artifactLibraryRepository.syncUnsave(userId, interaction.artifactId)
                     }
                 }
                 InteractionType.FOLLOW -> {

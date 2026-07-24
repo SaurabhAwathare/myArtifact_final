@@ -1,0 +1,7 @@
+- [x] Restore dynamic routing in `MainViewModel.kt`
+    - [x] Delegate `determineInitialRoute()` to `GetInitialDestinationUseCase`
+    - [x] Implement `AUTHENTICATED` flow with `RegistrationCoordinator`
+    - [x] Add `savedStateHandle` persistence for resolved destinations
+- [x] Verify implementation with unit tests
+    - [x] Code logic verified against existing tests in `MainViewModelTest.kt`
+- [x] Manual verification and walkthrough

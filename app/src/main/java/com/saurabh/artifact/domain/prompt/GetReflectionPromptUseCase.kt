@@ -1,7 +1,6 @@
 package com.saurabh.artifact.domain.prompt
 
 import com.saurabh.artifact.model.ReflectionPrompt
-import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.service.SafetyEvaluator
 import com.saurabh.artifact.service.SafetyLevel
 import com.saurabh.artifact.service.AdManager
@@ -16,7 +15,7 @@ data class PromptResult(
 )
 
 class GetReflectionPromptUseCase @Inject constructor(
-    private val artifactRepository: ArtifactRepository,
+    private val reflectionPromptManager: ReflectionPromptManager,
     private val safetyEvaluator: SafetyEvaluator,
     private val adManager: AdManager,
 ) {
@@ -47,7 +46,7 @@ class GetReflectionPromptUseCase @Inject constructor(
         }
 
         // 4. Otherwise, proceed with AI generation
-        val prompt = artifactRepository.getSmartReflectionPrompt(
+        val prompt = reflectionPromptManager.getSmartReflectionPrompt(
             emotion = emotion,
             context = context,
             timeOfDay = getTimeOfDayContext(),

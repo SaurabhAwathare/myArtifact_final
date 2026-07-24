@@ -1,0 +1,23 @@
+# Tasks - Phase 4: Transcript System Removal & Dead Code Cleanup
+
+- `[x]` Background Workers & Pipeline
+    - `[x]` Delete `TranscriptionWorker.kt`
+    - `[x]` Update `PrivacyScanWorker.kt` with legacy/inactive status comments
+    - `[x]` Update `SafetyAnalysisWorker.kt` with legacy/inactive status comments
+    - `[x]` Modify `PublishingOrchestrator.kt` to remove workers from the pipeline
+- `[x]` Repositories & DAOs
+    - `[x]` Add legacy comments to `DraftDao.kt` transcript methods
+    - `[x]` Add legacy comments to `RecordingRepository.kt` transcript methods
+    - `[x]` Update `ArtifactRepository.kt#createArtifactDocument` for null transcripts
+    - `[x]` Simplify `PublishApprovalRepository.kt` transcript loading
+- `[x]` Services & UI Components
+    - `[x]` Delete `TranscriptSyncView.kt`
+    - `[x]` Delete `PrivacyAnalysisEngine.kt`
+- `[x]` Testing Cleanup
+    - `[x]` Delete `SensitiveInfoScannerTest.kt`
+    - `[x]` Delete `PrivacyAnalysisEngineTest.kt`
+    - `[x]` Cleanup `IdentityScoutTest.kt`
+- `[x]` Verification & Report
+    - `[x]` Build project and verify no errors
+    - `[x]` Manual verification of recording flow
+    - `[x]` Generate `Transcript Removal Report`

@@ -16,6 +16,12 @@ import kotlinx.coroutines.withContext
 import kotlin.time.Duration.Companion.milliseconds
 import java.io.File
 
+/**
+ * DEPRECATED/INACTIVE: This worker was originally used for transcript-based safety evaluation.
+ * It is currently removed from the active processing pipeline as automatic transcription is disabled.
+ * 
+ * Reserved for future use: Potential audio-based safety evaluation or moderation.
+ */
 @HiltWorker
 class SafetyAnalysisWorker @AssistedInject constructor(
     @Assisted appContext: Context,
@@ -32,6 +38,7 @@ class SafetyAnalysisWorker @AssistedInject constructor(
             
             val draft = draftDao.getDraftById(draftId) ?: return@withContext Result.failure()
             
+            // Phase 1: Gracefully handle missing transcript as transcription is now optional.
             // Perform real safety evaluation on transcript
             val transcriptPath = draft.localTranscriptPath
             val safetyResult = if (transcriptPath != null) {

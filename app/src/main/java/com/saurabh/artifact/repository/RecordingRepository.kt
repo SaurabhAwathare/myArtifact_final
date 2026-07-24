@@ -203,6 +203,10 @@ class RecordingRepository @Inject constructor(
         }
     }
 
+    /**
+     * Legacy: Updates the draft with transcription results. 
+     * Not used in the current voice-first publishing flow.
+     */
     suspend fun updateTranscriptionResult(
         id: String,
         localTranscriptPath: String,
@@ -257,6 +261,10 @@ class RecordingRepository @Inject constructor(
         }
     }
 
+    /**
+     * Legacy: Updates the draft with safety results.
+     * Not used in the current voice-first publishing flow.
+     */
     suspend fun updateSafetyResult(id: String, safetyAnalysis: String?, emotionalRiskScore: Float): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             draftDao.get().updateSafetyResult(id, safetyAnalysis, emotionalRiskScore)

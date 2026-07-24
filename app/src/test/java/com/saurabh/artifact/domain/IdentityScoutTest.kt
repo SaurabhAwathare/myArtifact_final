@@ -65,18 +65,18 @@ class IdentityScoutTest {
     }
 
     @Test
-    fun `detect introduction pattern in transcript`() {
-        val transcript = "Hi, my name is Alex and I wanted to share my story."
-        val warnings = scout.detectLeaks(transcript, null, null)
+    fun `detect introduction pattern`() {
+        val input = "Hi, my name is Alex and I wanted to share my story."
+        val warnings = scout.detectLeaks(input, null, null)
         
         assertTrue("Should detect introduction pattern", 
             warnings.any { it.reason == ValidationReason.INTRODUCTION_PATTERN })
     }
 
     @Test
-    fun `detect contact pivot in transcript`() {
-        val transcript = "You can follow me on Instagram @alex_stories for more."
-        val warnings = scout.detectLeaks(transcript, null, null)
+    fun `detect contact pivot`() {
+        val input = "You can follow me on Instagram @alex_stories for more."
+        val warnings = scout.detectLeaks(input, null, null)
         
         assertTrue("Should detect contact pivot pattern", 
             warnings.any { it.reason == ValidationReason.CONTACT_PIVOT })

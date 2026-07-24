@@ -66,7 +66,7 @@ fun DebugMenuScreen(
                 )
                 SettingsSwitch(
                     title = "Bypass Review Screen",
-                    subtitle = "Skip transcript review and auto-advance to details",
+                    subtitle = "Skip recording review and auto-advance to details",
                     checked = uiState.settings.bypassReview,
                     onCheckedChange = { viewModel.toggleBypassReview(it) },
                     icon = Icons.Default.FastForward

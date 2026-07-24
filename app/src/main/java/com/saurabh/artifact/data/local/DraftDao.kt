@@ -87,6 +87,7 @@ interface DraftDao {
     @Query("UPDATE artifact_drafts SET localAudioPath = :localAudioPath, checksum = :checksum, isEncrypted = :isEncrypted, updatedAt = :timestamp WHERE id = :id")
     suspend fun updateTranscodingResult(id: String, localAudioPath: String, checksum: String?, isEncrypted: Boolean, timestamp: Long = System.currentTimeMillis())
 
+    /** Legacy: Used for transcript-based analysis. Not used in current voice-first flow. */
     @Query("UPDATE artifact_drafts SET localTranscriptPath = :localTranscriptPath, transcriptSegmentsJson = :transcriptSegmentsJson, emotionalTone = :emotionalTone, primaryStyle = :primaryStyle, updatedAt = :timestamp WHERE id = :id")
     suspend fun updateTranscriptionResult(id: String, localTranscriptPath: String, transcriptSegmentsJson: SecureString?, emotionalTone: EmotionalTone?, primaryStyle: ConversationStyle?, timestamp: Long = System.currentTimeMillis())
 
@@ -99,9 +100,11 @@ interface DraftDao {
         updateProcessingStatus(id, ProcessingStatus.Idle, timestamp)
     }
 
+    /** Legacy: Used for transcript-based privacy scanning. Not used in current voice-first flow. */
     @Query("UPDATE artifact_drafts SET sensitiveEntitiesJson = :sensitiveEntitiesJson, updatedAt = :timestamp WHERE id = :id")
     suspend fun updatePrivacyResult(id: String, sensitiveEntitiesJson: SecureString?, timestamp: Long = System.currentTimeMillis())
 
+    /** Legacy: Used for transcript-based safety analysis. Not used in current voice-first flow. */
     @Query("UPDATE artifact_drafts SET safetyAnalysis = :safetyAnalysis, emotionalRiskScore = :emotionalRiskScore, updatedAt = :timestamp WHERE id = :id")
     suspend fun updateSafetyResult(id: String, safetyAnalysis: String?, emotionalRiskScore: Float, timestamp: Long = System.currentTimeMillis())
 
@@ -197,7 +200,7 @@ interface DraftDao {
     }
 
     @Query("UPDATE artifact_drafts SET frozenTranscriptJson = :transcriptJson, frozenAudioPath = :audioPath, frozenMetadataJson = :metadataJson, snapshotHash = :hash, approvalToken = :token, deviceFingerprint = :fingerprint, publishApprovalTimestamp = :timestamp, updatedAt = :timestamp WHERE id = :id")
-    suspend fun freezeSnapshot(id: String, transcriptJson: String, audioPath: String, metadataJson: String, hash: String, token: String, fingerprint: String, timestamp: Long = System.currentTimeMillis())
+    suspend fun freezeSnapshot(id: String, transcriptJson: String?, audioPath: String, metadataJson: String, hash: String, token: String, fingerprint: String, timestamp: Long = System.currentTimeMillis())
 
     @Query("UPDATE artifact_drafts SET status = :status, updatedAt = :timestamp WHERE id = :id")
     suspend fun updateSyncStatus(id: String, status: DraftStatus, timestamp: Long = System.currentTimeMillis())

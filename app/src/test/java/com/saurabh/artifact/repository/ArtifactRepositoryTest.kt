@@ -7,6 +7,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.storage.FirebaseStorage
+import com.saurabh.artifact.domain.prompt.ReflectionPromptManager
 import com.saurabh.artifact.data.local.*
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.service.PersonalizationEngine
@@ -28,12 +29,14 @@ class ArtifactRepositoryTest {
     private val storage = mockk<FirebaseStorage>(relaxed = true)
     private val draftDao = mockk<DraftDao>(relaxed = true)
     private val userRepository = mockk<UserRepository>(relaxed = true)
-    private val aiService = mockk<ReflectionAIService>(relaxed = true)
-    private val personalizationEngine = mockk<PersonalizationEngine>(relaxed = true)
-    private val settingsRepository = mockk<SettingsRepository>(relaxed = true)
     private val artifactDao = mockk<ArtifactDao>(relaxed = true)
     private val reportedArtifactDao = mockk<ReportedArtifactDao>(relaxed = true)
     private val database = mockk<AppDatabase>(relaxed = true)
+    private val artifactLibraryRepository = mockk<ArtifactLibraryRepository>(relaxed = true)
+    private val moderationRepository = mockk<ArtifactModerationRepository>(relaxed = true)
+    private val publishingRepository = mockk<ArtifactPublishingRepository>(relaxed = true)
+    private val artifactEngagementRepository = mockk<ArtifactEngagementRepository>(relaxed = true)
+    private val reflectionPromptManager = mockk<ReflectionPromptManager>(relaxed = true)
     private val pendingInteractionDao = mockk<PendingInteractionDao>(relaxed = true)
     private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
 
@@ -47,21 +50,49 @@ class ArtifactRepositoryTest {
         every { Log.e(any<String>(), any<String>()) } returns 0
         
         repository = ArtifactRepository(
-            context = context,
             auth = auth,
             firestore = firestore,
             storage = storage,
             draftDao = { draftDao },
             userRepository = { userRepository },
-            aiService = { aiService },
-            personalizationEngine = { personalizationEngine },
-            settingsRepository = { settingsRepository },
             artifactDao = { artifactDao },
-            reportedArtifactDao = { reportedArtifactDao },
             database = { database },
-            pendingInteractionDao = { pendingInteractionDao },
+            artifactLibraryRepository = { artifactLibraryRepository },
+            moderationRepository = { moderationRepository },
+            publishingRepository = { publishingRepository },
+            artifactEngagementRepository = { artifactEngagementRepository },
+            reflectionPromptManager = { reflectionPromptManager },
             diagnosticLogger = diagnosticLogger
         )
+    }
+
+    @Test
+    fun `uploadArtifactResumable should delegate to PublishingRepository`() = runBlocking {
+        val userId = "user123"
+        val draft = ArtifactDraftEntity(id = "draft123", localAudioPath = "/path")
+        
+        coEvery { publishingRepository.uploadArtifactResumable(userId, draft, any()) } returns Result.success("url123")
+        
+        val result = repository.uploadArtifactResumable(userId, draft)
+        
+        assert(result.isSuccess)
+        assertEquals("url123", result.getOrThrow())
+        coVerify { publishingRepository.uploadArtifactResumable(userId, draft, any()) }
+    }
+
+    @Test
+    fun `createArtifactDocument should delegate to PublishingRepository`() = runBlocking {
+        val userId = "user123"
+        val draft = ArtifactDraftEntity(id = "draft123", localAudioPath = "/path")
+        val author = AuthorSnapshot(name = "Author")
+        
+        coEvery { publishingRepository.createArtifactDocument(userId, author, "url", draft) } returns Result.success("id123")
+        
+        val result = repository.createArtifactDocument(userId, author, "url", draft)
+        
+        assert(result.isSuccess)
+        assertEquals("id123", result.getOrThrow())
+        coVerify { publishingRepository.createArtifactDocument(userId, author, "url", draft) }
     }
 
     @Test
@@ -127,47 +158,30 @@ class ArtifactRepositoryTest {
     }
 
     @Test
-    fun `saveArtifact should enqueue interaction and trigger worker`() = runBlocking {
+    fun `saveArtifact should delegate to LibraryRepository`() = runBlocking {
         val artifact = Artifact(id = "art123", title = "Test Artifact")
         val userId = "user123"
         val shelf = "Favorites"
 
-        mockkObject(InteractionSyncWorker.Companion)
-        every { InteractionSyncWorker.enqueue(any()) } just Runs
+        coEvery { artifactLibraryRepository.saveArtifact(userId, artifact, shelf) } returns Result.success(Unit)
 
         val result = repository.saveArtifact(userId, artifact, shelf)
 
         assert(result.isSuccess)
-        coVerify { pendingInteractionDao.deleteByType("art123", userId, InteractionType.SAVE) }
-        coVerify { pendingInteractionDao.insert(match { 
-            it.userId == userId && 
-            it.artifactId == "art123" && 
-            it.interactionType == InteractionType.SAVE &&
-            it.action == InteractionAction.ADD &&
-            it.metadata == shelf
-        }) }
-        verify { InteractionSyncWorker.enqueue(context) }
+        coVerify { artifactLibraryRepository.saveArtifact(userId, artifact, shelf) }
     }
 
     @Test
-    fun `unsaveArtifact should enqueue interaction and trigger worker`() = runBlocking {
+    fun `unsaveArtifact should delegate to LibraryRepository`() = runBlocking {
         val artifactId = "art123"
         val userId = "user123"
 
-        mockkObject(InteractionSyncWorker.Companion)
-        every { InteractionSyncWorker.enqueue(any()) } just Runs
+        coEvery { artifactLibraryRepository.unsaveArtifact(userId, artifactId) } returns Result.success(Unit)
 
         val result = repository.unsaveArtifact(userId, artifactId)
 
         assert(result.isSuccess)
-        coVerify { pendingInteractionDao.deleteByType(artifactId, userId, InteractionType.SAVE) }
-        coVerify { pendingInteractionDao.insert(match { 
-            it.userId == userId && 
-            it.artifactId == artifactId && 
-            it.interactionType == InteractionType.SAVE &&
-            it.action == InteractionAction.REMOVE
-        }) }
-        verify { InteractionSyncWorker.enqueue(context) }
+        coVerify { artifactLibraryRepository.unsaveArtifact(userId, artifactId) }
     }
 
     @Test
@@ -233,36 +247,16 @@ class ArtifactRepositoryTest {
         mockkStatic("kotlinx.coroutines.tasks.TasksKt")
         coEvery { getTask.await() } returns snapshot
 
-        // Mock Transaction
-        val transaction = mockk<com.google.firebase.firestore.Transaction>(relaxed = true)
-        val transactionTask = mockk<com.google.android.gms.tasks.Task<Unit>>(relaxed = true)
-        
-        // Properly capture and execute the transaction lambda
-        val transactionSlot = slot<com.google.firebase.firestore.Transaction.Function<Unit>>()
-        every { firestore.runTransaction(capture(transactionSlot)) } returns transactionTask
-        coEvery { transactionTask.await() } answers {
-            transactionSlot.captured.apply(transaction)
-            Unit
-        }
-
-        // Mock Admin Check (isCurrentUserAdmin) - Root cause of the hang
-        val adminSettingsRef = mockk<com.google.firebase.firestore.DocumentReference>(relaxed = true)
-        every { firestore.collection("users").document(userId).collection("private").document("settings") } returns adminSettingsRef
-        val adminSettingsTask = mockk<com.google.android.gms.tasks.Task<com.google.firebase.firestore.DocumentSnapshot>>(relaxed = true)
-        every { adminSettingsRef.get() } returns adminSettingsTask
-        val adminSettingsSnapshot = mockk<com.google.firebase.firestore.DocumentSnapshot>(relaxed = true)
-        every { adminSettingsSnapshot.exists() } returns true
-        every { adminSettingsSnapshot.getBoolean("isAdmin") } returns false
-        coEvery { adminSettingsTask.await() } returns adminSettingsSnapshot
+        // Mock Bridge
+        coEvery { moderationRepository.isCurrentUserAdmin() } returns false
+        coEvery { moderationRepository.softDeleteArtifact(artifactId) } returns Result.success(Unit)
 
         val result = repository.deletePublishedArtifact(artifactId)
 
         assert(result.isSuccess)
         
-        // Verify soft delete updates
-        verify { transaction.update(docRef, "status", ArtifactStatus.DELETED.name) }
-        verify { transaction.update(docRef, "isPublic", false) }
-        verify { transaction.update(docRef, "deletedAt", any()) }
+        // Verify bridge calls
+        coVerify { moderationRepository.softDeleteArtifact(artifactId) }
         
         // Verify cascading local cleanup
         coVerify { artifactDao.deleteById(artifactId) }
@@ -271,53 +265,39 @@ class ArtifactRepositoryTest {
     }
 
     @Test
-    fun `submitReport should create deterministic document and update local ReportedArtifactDao`() = runBlocking {
+    fun `submitReport should bridge to ModerationRepository and update local cache`() = runBlocking {
         val artifactId = "art123"
-        val userId = "user123"
         val reason = ReportReason.HARASSMENT
         val details = "Some description"
         val deviceId = 456
         
-        every { auth.currentUser?.uid } returns userId
-        
-        val reportRef = mockk<DocumentReference>(relaxed = true)
-        val expectedReportId = "${userId}_${artifactId}"
-        every { firestore.collection("reports").document(expectedReportId) } returns reportRef
-        
-        val setTask = mockk<com.google.android.gms.tasks.Task<Void>>(relaxed = true)
-        every { reportRef.set(any()) } returns setTask
-        
-        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
-        coEvery { setTask.await() } returns mockk(relaxed = true)
+        coEvery { moderationRepository.submitReport(artifactId, reason, details, deviceId) } returns Result.success(Unit)
 
         val result = repository.submitReport(artifactId, reason, details, deviceId)
 
         assert(result.isSuccess)
         
-        // Verify Firestore write
-        verify { reportRef.set(match { data ->
-            val dataMap = data as Map<String, Any?>
-            dataMap["artifactId"] as? String == artifactId &&
-            dataMap["reporterId"] as? String == userId &&
-            dataMap["reason"] as? String == reason.name &&
-            dataMap["optionalDescription"] as? String == details &&
-            dataMap["deviceIdHash"] as? Int == deviceId &&
-            dataMap["status"] as? String == ReportStatus.PENDING.name
-        }) }
+        // Verify Bridge
+        coVerify { moderationRepository.submitReport(artifactId, reason, details, deviceId) }
         
-        // Verify local Room update
-        coVerify { reportedArtifactDao.insert(match { 
-            it.userId == userId && it.artifactId == artifactId 
-        }) }
+        // Verify local Room update (Orchestration)
         coVerify { artifactDao.deleteById(artifactId) }
     }
 
     @Test
-    fun `isTransientError should return true for network errors`() {
-        assert(ArtifactRepository.isTransientError(AppError.NetworkFailure()))
-        
-        val otherError = Exception("Permanent error")
-        assert(!ArtifactRepository.isTransientError(otherError))
+    fun `recordPlay should delegate to EngagementRepository`() = runBlocking {
+        coEvery { artifactEngagementRepository.recordPlay(any(), any()) } returns Result.success(Unit)
+        repository.recordPlay("user1", "Joy")
+        coVerify { artifactEngagementRepository.recordPlay("user1", "Joy") }
+    }
+
+    @Test
+    fun `getSmartReflectionPrompt should delegate to ReflectionPromptManager`() = runBlocking {
+        val prompt = ReflectionPrompt(id = "1", question = "Q", category = PromptCategory.GENERAL)
+        coEvery { reflectionPromptManager.getSmartReflectionPrompt(any(), any(), any()) } returns prompt
+        val result = repository.getSmartReflectionPrompt("Joy", "Ctx", "Time")
+        assertEquals(prompt, result)
+        coVerify { reflectionPromptManager.getSmartReflectionPrompt("Joy", "Ctx", "Time") }
     }
 
     @Test

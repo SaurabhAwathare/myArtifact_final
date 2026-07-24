@@ -93,17 +93,6 @@ class PlayerViewModel @Inject constructor(
             playbackCoordinator.currentArtifact
                 .distinctUntilChanged { old, new -> old?.id == new?.id }
                 .collect { artifact ->
-                    if (artifact != null && artifact.transcript.isNotEmpty()) {
-                        diagnosticLogger.info(
-                            DiagnosticCategory.PLAYER,
-                            "TRANSCRIPT_LOADED",
-                            mapOf(
-                                LogKeys.ARTIFACT_ID to artifact.id,
-                                "segmentCount" to artifact.transcript.size
-                            )
-                        )
-                    }
-
                     val currentPlayable = _currentPlayableArtifact.value
                     
                     if (artifact != null && currentPlayable != null && artifact.id != currentPlayable.id) {
