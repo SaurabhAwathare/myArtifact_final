@@ -17,6 +17,8 @@ data class EngagementEvidence(
     val furthestPositionMs: Long = 0L, // Max position reached through valid playback
     val hasReachedEnd: Boolean = false,
     val lastUpdated: Long = System.currentTimeMillis(),
+    val reviewTrackingVersion: ReviewTrackingVersion = ReviewTrackingVersion.LEGACY_BUCKETED,
+    val segmentSizeMs: Long = 0L, // Diagnostic only, derived from ReviewPolicy
     val unlockStatus: UnlockStatus = UnlockStatus(),
     val syncState: SyncState = SyncState.SYNCED
 )

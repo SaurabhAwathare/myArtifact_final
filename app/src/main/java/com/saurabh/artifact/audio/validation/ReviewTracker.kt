@@ -1,6 +1,7 @@
 package com.saurabh.artifact.audio.validation
 
 import com.saurabh.artifact.domain.review.EngagementEvidence
+import com.saurabh.artifact.domain.review.ReviewTrackingVersion
 import java.util.BitSet
 
 interface ReviewTracker {
@@ -23,7 +24,7 @@ interface ReviewTracker {
  */
 class DefaultReviewTracker(
     initialEvidence: EngagementEvidence,
-    private val segmentSizer: (Long) -> Long,
+    private val segmentSizer: (Long, ReviewTrackingVersion) -> Long,
     private val validator: (EngagementEvidence) -> ReviewResult,
 ) : ReviewTracker {
 
@@ -45,7 +46,7 @@ class DefaultReviewTracker(
 
         // Mark coverage only if advancing normally to prevent "painting" via seeks.
         if (isAdvancingNormally) {
-            val segmentSize = segmentSizer(currentEvidence.durationMs)
+            val segmentSize = segmentSizer(currentEvidence.durationMs, currentEvidence.reviewTrackingVersion)
             val segmentIndex = (currentPosMs / segmentSize).toInt()
             val totalSegments = (currentEvidence.durationMs / segmentSize).toInt().coerceAtLeast(1)
             

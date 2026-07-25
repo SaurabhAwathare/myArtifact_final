@@ -2,6 +2,7 @@ package com.saurabh.artifact.audio.validation
 
 import com.saurabh.artifact.domain.review.EngagementEvidence
 import com.saurabh.artifact.domain.review.ReviewPolicy
+import com.saurabh.artifact.domain.review.ReviewTrackingVersion
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -10,13 +11,13 @@ class ReviewTrackerTest {
     private val ruleEngine = DefaultReviewValidator()
 
     @Test
-    fun `test normal playback completion`() {
+    fun `test normal playback completion legacy`() {
         val duration = 10000L // 10s
-        val evidence = EngagementEvidence("art1", "v1", duration)
+        val evidence = EngagementEvidence("art1", "v1", duration, reviewTrackingVersion = ReviewTrackingVersion.LEGACY_BUCKETED)
         val policy = ReviewPolicy()
         val tracker = DefaultReviewTracker(
             initialEvidence = evidence,
-            segmentSizer = { policy.getSegmentSizeMs(it) },
+            segmentSizer = { dur, ver -> policy.getSegmentSizeMs(dur, ver) },
             validator = { ruleEngine.validate(it, policy) }
         )
         
@@ -32,13 +33,36 @@ class ReviewTrackerTest {
     }
 
     @Test
-    fun `test coverage at high playback speed`() {
+    fun `test normal playback completion version 2`() {
         val duration = 10000L // 10s
-        val evidence = EngagementEvidence("art1", "v1", duration)
+        val evidence = EngagementEvidence("art1", "v1", duration, reviewTrackingVersion = ReviewTrackingVersion.FIXED_ONE_SECOND)
         val policy = ReviewPolicy()
         val tracker = DefaultReviewTracker(
             initialEvidence = evidence,
-            segmentSizer = { policy.getSegmentSizeMs(it) },
+            segmentSizer = { dur, ver -> policy.getSegmentSizeMs(dur, ver) },
+            validator = { ruleEngine.validate(it, policy) }
+        )
+        
+        // Simulating ticks every 100ms
+        for (i in 0..100) {
+            tracker.onPlaybackTick(i * 100L, 100L, 1.0f)
+        }
+        tracker.onPlaybackEnded()
+        
+        val progress = tracker.progress
+        assertTrue("Should be validated in Version 2. Coverage: ${progress.coveragePercent}", progress.isValidationMet)
+        // In version 2, 10s / 1s = 10 segments. 100 ticks at 100ms cover all 10s.
+        assertTrue("Coverage should be high: ${progress.coveragePercent}", progress.coveragePercent >= 0.95f)
+    }
+
+    @Test
+    fun `test coverage at high playback speed`() {
+        val duration = 10000L // 10s
+        val evidence = EngagementEvidence("art1", "v1", duration, reviewTrackingVersion = ReviewTrackingVersion.FIXED_ONE_SECOND)
+        val policy = ReviewPolicy()
+        val tracker = DefaultReviewTracker(
+            initialEvidence = evidence,
+            segmentSizer = { dur, ver -> policy.getSegmentSizeMs(dur, ver) },
             validator = { ruleEngine.validate(it, policy) }
         )
         
@@ -57,11 +81,11 @@ class ReviewTrackerTest {
     @Test
     fun `test seek-to-end bypass failure`() {
         val duration = 60000L // 60s
-        val evidence = EngagementEvidence("art1", "v1", duration)
+        val evidence = EngagementEvidence("art1", "v1", duration, reviewTrackingVersion = ReviewTrackingVersion.FIXED_ONE_SECOND)
         val policy = ReviewPolicy()
         val tracker = DefaultReviewTracker(
             initialEvidence = evidence,
-            segmentSizer = { policy.getSegmentSizeMs(it) },
+            segmentSizer = { dur, ver -> policy.getSegmentSizeMs(dur, ver) },
             validator = { ruleEngine.validate(it, policy) }
         )
         

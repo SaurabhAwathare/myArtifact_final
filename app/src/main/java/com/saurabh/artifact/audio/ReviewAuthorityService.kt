@@ -6,6 +6,7 @@ import com.saurabh.artifact.audio.validation.DefaultReviewTracker
 import com.saurabh.artifact.audio.validation.ReviewProgress
 import com.saurabh.artifact.audio.validation.ReviewTracker
 import com.saurabh.artifact.domain.review.EngagementEvidence
+import com.saurabh.artifact.domain.review.ReviewTrackingVersion
 import com.saurabh.artifact.domain.review.publishing.PublishingReviewPolicy
 import com.saurabh.artifact.domain.review.publishing.PublishingReviewValidator
 import com.saurabh.artifact.model.Artifact
@@ -100,12 +101,30 @@ class ReviewAuthorityService @Inject constructor(
         scope.launch {
             playbackSessionManager.playbackState.collect { state ->
                 if (state == Player.STATE_ENDED) {
-                    activeTracker?.onPlaybackEnded()
-                    val progress = activeTracker?.progress
-                    _currentProgress.value = progress
-                    progress?.let { 
-                        engagementRepository.saveEngagement(it.evidence)
-                        if (it.isValidationMet && !completionTriggered) handleCompletion(it) 
+                    activeTracker?.let { tracker ->
+                        // Phase 12: Terminal Coverage Tracking Fix
+                        // 1. Obtain the final playback position.
+                        val finalPos = playbackSessionManager.currentPosition.value
+                        val speed = playbackSessionManager.playbackSpeed.value
+                        val now = SystemClock.elapsedRealtime()
+                        
+                        // Process one final tracker.onPlaybackTick(...)
+                        // We use the delta since last tick to ensure terminal coverage.
+                        val delta = if (lastTickTime == 0L) 0L else now - lastTickTime
+                        lastTickTime = now
+
+                        tracker.onPlaybackTick(finalPos, delta, speed)
+                        
+                        // 2. Then invoke tracker.onPlaybackEnded()
+                        tracker.onPlaybackEnded()
+
+                        // 3. Then continue the normal validation flow.
+                        val progress = tracker.progress
+                        _currentProgress.value = progress
+                        engagementRepository.saveEngagement(progress.evidence)
+                        if (progress.isValidationMet && !completionTriggered) {
+                            handleCompletion(progress)
+                        }
                     }
                 }
             }
@@ -133,11 +152,13 @@ class ReviewAuthorityService @Inject constructor(
                 versionTag = "v1",
                 durationMs = artifact.durationMs,
                 audioChecksum = artifact.checksum,
+                reviewTrackingVersion = ReviewTrackingVersion.CURRENT,
+                segmentSizeMs = policy.getSegmentSizeMs(artifact.durationMs, ReviewTrackingVersion.CURRENT)
             )
 
         activeTracker = DefaultReviewTracker(
             initialEvidence = evidence,
-            segmentSizer = { policy.getSegmentSizeMs(it) },
+            segmentSizer = { dur, ver -> policy.getSegmentSizeMs(dur, ver) },
             validator = { validator.validate(it, policy) }
         )
         _currentProgress.value = activeTracker?.progress

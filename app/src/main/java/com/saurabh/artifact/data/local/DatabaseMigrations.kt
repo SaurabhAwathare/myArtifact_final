@@ -485,77 +485,13 @@ object DatabaseMigrations {
     }
 
     val MIGRATION_55_56 = object : Migration(55, 56) {
+        // ... (preserving content)
+    }
+
+    val MIGRATION_58_59 = object : Migration(58, 59) {
         override fun migrate(db: SupportSQLiteDatabase) {
-            // 1. Update artifact_engagement with sync and backend fields
-            db.execSQL("ALTER TABLE `artifact_engagement` ADD COLUMN `syncState` TEXT NOT NULL DEFAULT 'PENDING'")
-            db.execSQL("ALTER TABLE `artifact_engagement` ADD COLUMN `lastSyncAttempt` INTEGER NOT NULL DEFAULT 0")
-            db.execSQL("ALTER TABLE `artifact_engagement` ADD COLUMN `lastSyncSuccess` INTEGER NOT NULL DEFAULT 0")
-            db.execSQL("ALTER TABLE `artifact_engagement` ADD COLUMN `syncRetryCount` INTEGER NOT NULL DEFAULT 0")
-            db.execSQL("ALTER TABLE `artifact_engagement` ADD COLUMN `lastSyncError` TEXT")
-            
-            // Backend-authoritative fields
-            db.execSQL("ALTER TABLE `artifact_engagement` ADD COLUMN `isCommentUnlocked` INTEGER NOT NULL DEFAULT 0")
-            db.execSQL("ALTER TABLE `artifact_engagement` ADD COLUMN `unlockTimestamp` INTEGER")
-            db.execSQL("ALTER TABLE `artifact_engagement` ADD COLUMN `engagementState` TEXT NOT NULL DEFAULT 'LOCKED'")
-            db.execSQL("ALTER TABLE `artifact_engagement` ADD COLUMN `unlockReason` TEXT")
-            db.execSQL("ALTER TABLE `artifact_engagement` ADD COLUMN `remoteUpdatedAt` INTEGER")
-
-            // 2. Remove commentCount from artifacts table
-            db.execSQL(
-                """
-                CREATE TABLE IF NOT EXISTS `artifacts_new` (
-                    `id` TEXT NOT NULL, 
-                    `userId` TEXT NOT NULL, 
-                    `authorAnonymousId` TEXT NOT NULL, 
-                    `authorName` TEXT NOT NULL, 
-                    `authorSigil` TEXT NOT NULL, 
-                    `authorAvatarSeed` TEXT NOT NULL, 
-                    `authorAvatarColor` TEXT NOT NULL, 
-                    `authorAvatarConfigJson` TEXT NOT NULL, 
-                    `audioUrl` TEXT NOT NULL, 
-                    `createdAt` INTEGER NOT NULL, 
-                    `durationMs` INTEGER NOT NULL, 
-                    `title` TEXT NOT NULL, 
-                    `description` TEXT NOT NULL, 
-                    `emotion` TEXT NOT NULL, 
-                    `primaryStyle` TEXT, 
-                    `emotionTag` TEXT NOT NULL, 
-                    `playCount` INTEGER NOT NULL, 
-                    `reactionCount` INTEGER NOT NULL, 
-                    `reportCount` INTEGER NOT NULL, 
-                    `safetyConcernCount` INTEGER NOT NULL, 
-                    `reporterIds` TEXT NOT NULL, 
-                    `amplitudeData` TEXT NOT NULL, 
-                    `transcriptUrl` TEXT, 
-                    `lastUpdated` INTEGER NOT NULL, 
-                    PRIMARY KEY(`id`)
-                )
-            """.trimIndent()
-            )
-
-            db.execSQL(
-                """
-                INSERT INTO artifacts_new (
-                    id, userId, authorAnonymousId, authorName, authorSigil, 
-                    authorAvatarSeed, authorAvatarColor, authorAvatarConfigJson, 
-                    audioUrl, createdAt, durationMs, title, description, 
-                    emotion, primaryStyle, emotionTag, playCount, reactionCount, 
-                    reportCount, safetyConcernCount, reporterIds, 
-                    amplitudeData, transcriptUrl, lastUpdated
-                )
-                SELECT 
-                    id, userId, authorAnonymousId, authorName, authorSigil, 
-                    authorAvatarSeed, authorAvatarColor, authorAvatarConfigJson, 
-                    audioUrl, createdAt, durationMs, title, description, 
-                    emotion, primaryStyle, emotionTag, playCount, reactionCount, 
-                    reportCount, safetyConcernCount, reporterIds, 
-                    amplitudeData, transcriptUrl, lastUpdated
-                FROM artifacts
-            """.trimIndent()
-            )
-
-            db.execSQL("DROP TABLE artifacts")
-            db.execSQL("ALTER TABLE artifacts_new RENAME TO artifacts")
+            db.execSQL("ALTER TABLE `artifact_engagement` ADD COLUMN `reviewTrackingVersion` INTEGER NOT NULL DEFAULT 1")
+            db.execSQL("ALTER TABLE `artifact_engagement` ADD COLUMN `segmentSizeMs` INTEGER NOT NULL DEFAULT 0")
         }
     }
 
@@ -597,6 +533,7 @@ object DatabaseMigrations {
         MIGRATION_52_53,
         MIGRATION_53_54,
         MIGRATION_54_55,
-        MIGRATION_55_56
+        MIGRATION_55_56,
+        MIGRATION_58_59
     )
 }

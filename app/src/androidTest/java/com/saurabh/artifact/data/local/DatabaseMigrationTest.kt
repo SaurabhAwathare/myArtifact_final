@@ -48,4 +48,30 @@ class DatabaseMigrationTest {
         assert(dlqCursor.getString(dlqCursor.getColumnIndexOrThrow("artifactId")) == "art2")
         dlqCursor.close()
     }
+
+    @Test
+    @Throws(IOException::class)
+    fun migrate58To59() {
+        helper.createDatabase(TEST_DB, 58).apply {
+            execSQL(
+                """
+                INSERT INTO artifact_engagement (
+                    artifactId, versionTag, durationMs, audioChecksum, coverage, 
+                    lastPositionMs, furthestPositionMs, hasReachedEnd, lastUpdated
+                ) VALUES (
+                    'art1', 'v1', 10000, 'abc', x'00', 0, 0, 0, 123456789
+                )
+            """.trimIndent()
+            )
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 59, true, DatabaseMigrations.MIGRATION_58_59)
+
+        val cursor = db.query("SELECT * FROM artifact_engagement WHERE artifactId = 'art1'")
+        assert(cursor.moveToFirst())
+        assert(cursor.getInt(cursor.getColumnIndexOrThrow("reviewTrackingVersion")) == 1)
+        assert(cursor.getInt(cursor.getColumnIndexOrThrow("segmentSizeMs")) == 0)
+        cursor.close()
+    }
 }

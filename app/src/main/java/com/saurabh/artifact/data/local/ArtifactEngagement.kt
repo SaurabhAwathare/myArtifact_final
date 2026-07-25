@@ -30,7 +30,11 @@ data class ArtifactEngagement(
     val unlockTimestamp: Long? = null,
     val engagementState: String = "LOCKED",
     val unlockReason: String? = null,
-    val remoteUpdatedAt: Long? = null
+    val remoteUpdatedAt: Long? = null,
+
+    // Versioning
+    val reviewTrackingVersion: Int = 1,
+    val segmentSizeMs: Long = 0L
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -53,6 +57,9 @@ data class ArtifactEngagement(
         if (unlockTimestamp != other.unlockTimestamp) return false
         if (engagementState != other.engagementState) return false
         if (unlockReason != other.unlockReason) return false
+        if (remoteUpdatedAt != other.remoteUpdatedAt) return false
+        if (reviewTrackingVersion != other.reviewTrackingVersion) return false
+        if (segmentSizeMs != other.segmentSizeMs) return false
         return lastSyncError == other.lastSyncError
     }
 
@@ -75,6 +82,9 @@ data class ArtifactEngagement(
         result = (31 * result) + (unlockTimestamp?.hashCode() ?: 0)
         result = (31 * result) + engagementState.hashCode()
         result = (31 * result) + (unlockReason?.hashCode() ?: 0)
+        result = (31 * result) + (remoteUpdatedAt?.hashCode() ?: 0)
+        result = (31 * result) + reviewTrackingVersion.hashCode()
+        result = (31 * result) + segmentSizeMs.hashCode()
         return result
     }
 }

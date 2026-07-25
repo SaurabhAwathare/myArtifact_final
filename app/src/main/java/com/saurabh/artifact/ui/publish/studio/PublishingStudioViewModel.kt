@@ -101,6 +101,9 @@ class PublishingStudioViewModel @Inject constructor(
     private val _titleInput = MutableStateFlow<String?>(null)
     private var titleDebounceJob: kotlinx.coroutines.Job? = null
 
+    // Phase 7: Transient UI navigation override
+    private val _currentStepOverride = MutableStateFlow<StudioStep?>(null)
+
     // Local-only UI state
     private val _uiState = MutableStateFlow(StudioUiState())
 
@@ -123,8 +126,9 @@ class PublishingStudioViewModel @Inject constructor(
                 draftFlow,
                 reviewFlow,
                 recoveryFlow,
-                localContextFlow
-            ) { draft, review, isRecovering, localContext ->
+                localContextFlow,
+                _currentStepOverride
+            ) { draft, review, isRecovering, localContext, overrideStep ->
                 val (debug, titleBuffer, ui) = localContext
                 val isBypassActive = !FeatureFlags.REVIEW_ENABLED || debug.bypassReview
                 
@@ -135,12 +139,13 @@ class PublishingStudioViewModel @Inject constructor(
                     draft.lifecycle
                 }
 
-                val step = StudioStep.fromLifecycle(effectiveLifecycle)
+                val persistentStep = StudioStep.fromLifecycle(effectiveLifecycle)
+                val currentStep = overrideStep ?: persistentStep
                 val displayTitle = titleBuffer ?: draft.title ?: ""
 
                 StudioSessionState(
                     draftId = draft.id,
-                    currentStep = step,
+                    currentStep = currentStep,
                     lifecycle = draft.lifecycle,
                     bypassReview = isBypassActive,
                     reviewSatisfied = draft.reviewCompleted || isBypassActive,
@@ -175,21 +180,7 @@ class PublishingStudioViewModel @Inject constructor(
         diagnosticLogger.info(DiagnosticCategory.STUDIO, "VM_CREATED", mapOf("instanceId" to this.hashCode()))
         playbackCoordinator.stop()
 
-        // Handle playback completion for automatic state persistence
-        viewModelScope.launch {
-            playbackCoordinator.playbackCompletedEvent.collect { completedId ->
-                if (completedId == _draftId.value) {
-                    diagnosticLogger.info(DiagnosticCategory.STUDIO, "PLAYBACK_COMPLETED", mapOf(LogKeys.DRAFT_ID to completedId))
-                    recordingRepository.updateStudioState(
-                        id = completedId,
-                        review = true,
-                        title = sessionState.value.titleCompleted,
-                        emotion = sessionState.value.emotionCompleted,
-                        approval = sessionState.value.approvalCompleted
-                    )
-                }
-            }
-        }
+        // Handle playback completion for automatic state persistence (Removed in Phase 6 - Authority belongs to ReviewSessionManager)
     }
 
     fun loadDraft(draftId: String) {
@@ -199,6 +190,7 @@ class PublishingStudioViewModel @Inject constructor(
         
         // Reset buffers when loading new draft
         _titleInput.value = null
+        _currentStepOverride.value = null
 
         viewModelScope.launch {
             // Only initialize review playback if the feature is enabled
@@ -238,7 +230,6 @@ class PublishingStudioViewModel @Inject constructor(
             if (result.isSuccess) {
                 recordingRepository.updateStudioState(
                     id = draftId,
-                    review = sessionState.value.reviewCompleted,
                     title = title.isNotBlank(),
                     emotion = sessionState.value.emotionCompleted,
                     approval = sessionState.value.approvalCompleted
@@ -256,7 +247,6 @@ class PublishingStudioViewModel @Inject constructor(
             recordingRepository.updateDraftMetadata(draftId, sessionState.value.title, emotion)
             recordingRepository.updateStudioState(
                 id = draftId,
-                review = sessionState.value.reviewCompleted,
                 title = sessionState.value.titleCompleted,
                 emotion = true,
                 approval = sessionState.value.approvalCompleted
@@ -266,50 +256,80 @@ class PublishingStudioViewModel @Inject constructor(
 
     fun nextStep() {
         val draftId = _draftId.value ?: return
-        val currentLifecycle = sessionState.value.lifecycle
+        val currentState = sessionState.value
+        val currentStep = currentState.currentStep
+        val currentLifecycle = currentState.lifecycle
         
-        val nextLifecycle = when (currentLifecycle) {
-            ArtifactLifecycle.REVIEW_REQUIRED -> ArtifactLifecycle.METADATA_REQUIRED
-            ArtifactLifecycle.METADATA_REQUIRED -> ArtifactLifecycle.READY_TO_PUBLISH
-            ArtifactLifecycle.READY_TO_PUBLISH -> ArtifactLifecycle.READY_TO_PUBLISH // Handled by performPublish
-            ArtifactLifecycle.PROCESSING,
-            ArtifactLifecycle.PUBLISHED,
-            ArtifactLifecycle.DELETING,
-            ArtifactLifecycle.DELETED,
-            ArtifactLifecycle.RECORDING -> currentLifecycle
+        // Determine the logically next step from UI perspective
+        val nextStep = when (currentStep) {
+            StudioStep.REVIEW -> StudioStep.DETAILS
+            StudioStep.DETAILS -> StudioStep.APPROVAL
+            StudioStep.APPROVAL -> StudioStep.APPROVAL // Handled by onPublishClick
+            else -> currentStep
         }
 
-        diagnosticLogger.info(DiagnosticCategory.STUDIO, "NEXT_STEP_REQUESTED", mapOf(LogKeys.DRAFT_ID to draftId, "nextStep" to StudioStep.fromLifecycle(nextLifecycle).name))
-        
-        if (currentLifecycle == ArtifactLifecycle.REVIEW_REQUIRED && playbackCoordinator.isPlaying.value) {
+        // Determine persistent step derived from DB
+        val isBypassActive = currentState.bypassReview
+        val effectiveLifecycle = if (isBypassActive && currentLifecycle == ArtifactLifecycle.REVIEW_REQUIRED) {
+            ArtifactLifecycle.METADATA_REQUIRED
+        } else {
+            currentLifecycle
+        }
+        val persistentStep = StudioStep.fromLifecycle(effectiveLifecycle)
+
+        diagnosticLogger.info(DiagnosticCategory.STUDIO, "NEXT_STEP_REQUESTED", mapOf(
+            LogKeys.DRAFT_ID to draftId,
+            "fromStep" to currentStep.name,
+            "toStep" to nextStep.name,
+            "persistentStep" to persistentStep.name
+        ))
+
+        if (currentStep == StudioStep.REVIEW && playbackCoordinator.isPlaying.value) {
             playbackCoordinator.togglePlayPause()
         }
 
-        viewModelScope.launch {
-            recordingRepository.updateLifecycle(draftId, nextLifecycle)
+        if (nextStep.index <= persistentStep.index) {
+            // Pure UI navigation to a step we've already reached or bypassed
+            _currentStepOverride.value = if (nextStep == persistentStep) null else nextStep
+        } else {
+            // Advancing persistent state
+            val nextLifecycle = when (currentLifecycle) {
+                ArtifactLifecycle.REVIEW_REQUIRED -> ArtifactLifecycle.METADATA_REQUIRED
+                ArtifactLifecycle.METADATA_REQUIRED -> ArtifactLifecycle.READY_TO_PUBLISH
+                else -> currentLifecycle
+            }
+
+            viewModelScope.launch {
+                val result = recordingRepository.updateLifecycle(draftId, nextLifecycle)
+                if (result.isSuccess) {
+                    // Once persistent state catches up, we can clear the override
+                    _currentStepOverride.value = null
+                } else {
+                    // Fallback to UI override if DB update fails for some reason (e.g. offline validation)
+                    _currentStepOverride.value = nextStep
+                }
+            }
         }
     }
 
     fun previousStep() {
         val draftId = _draftId.value ?: return
-        val currentLifecycle = sessionState.value.lifecycle
+        val currentStep = sessionState.value.currentStep
         
-        val prevLifecycle = when (currentLifecycle) {
-            ArtifactLifecycle.METADATA_REQUIRED -> ArtifactLifecycle.REVIEW_REQUIRED
-            ArtifactLifecycle.READY_TO_PUBLISH -> ArtifactLifecycle.METADATA_REQUIRED
-            ArtifactLifecycle.REVIEW_REQUIRED,
-            ArtifactLifecycle.PROCESSING,
-            ArtifactLifecycle.PUBLISHED,
-            ArtifactLifecycle.DELETING,
-            ArtifactLifecycle.DELETED,
-            ArtifactLifecycle.RECORDING -> currentLifecycle
+        val prevStep = when (currentStep) {
+            StudioStep.DETAILS -> StudioStep.REVIEW
+            StudioStep.APPROVAL -> StudioStep.DETAILS
+            else -> currentStep
         }
         
-        diagnosticLogger.info(DiagnosticCategory.STUDIO, "PREVIOUS_STEP_REQUESTED", mapOf(LogKeys.DRAFT_ID to draftId, "prevStep" to StudioStep.fromLifecycle(prevLifecycle).name))
+        diagnosticLogger.info(DiagnosticCategory.STUDIO, "PREVIOUS_STEP_REQUESTED", mapOf(
+            LogKeys.DRAFT_ID to draftId, 
+            "fromStep" to currentStep.name,
+            "toStep" to prevStep.name
+        ))
 
-        viewModelScope.launch {
-            recordingRepository.updateLifecycle(draftId, prevLifecycle)
-        }
+        // Pure UI override - NEVER persist backward transitions
+        _currentStepOverride.value = prevStep
     }
 
     fun onPublishClick() {

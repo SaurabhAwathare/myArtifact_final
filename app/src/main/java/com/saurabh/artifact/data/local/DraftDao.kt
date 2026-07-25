@@ -216,10 +216,9 @@ interface DraftDao {
     suspend fun getDraftsByLifecycle(lifecycle: ArtifactLifecycle): List<ArtifactDraftEntity>
 
 
-    @Query("UPDATE artifact_drafts SET reviewCompleted = :review, titleCompleted = :title, emotionCompleted = :emotion, approvalCompleted = :approval, updatedAt = :timestamp WHERE id = :id")
+    @Query("UPDATE artifact_drafts SET titleCompleted = :title, emotionCompleted = :emotion, approvalCompleted = :approval, updatedAt = :timestamp WHERE id = :id")
     suspend fun updateStudioState(
         id: String, 
-        review: Boolean, 
         title: Boolean, 
         emotion: Boolean, 
         approval: Boolean, 

@@ -97,11 +97,7 @@ class RecordingRepository @Inject constructor(
     fun observeDrafts(): Flow<List<ArtifactDraftEntity>> = draftDao.get().observeDrafts()
 
     fun observeDraft(id: String): Flow<ArtifactDraftEntity?> = draftDao.get().observeDraftById(id)
-        .distinctUntilChanged { old, new ->
-            old?.id == new?.id &&
-            old?.lifecycle == new?.lifecycle &&
-            old?.reviewProgress == new?.reviewProgress
-        }
+        .distinctUntilChanged()
         .onEach { draft ->
             if (draft != null) {
                 diagnosticLogger.trace(
@@ -300,7 +296,6 @@ class RecordingRepository @Inject constructor(
 
     suspend fun updateStudioState(
         id: String,
-        review: Boolean,
         title: Boolean,
         emotion: Boolean,
         approval: Boolean
@@ -308,10 +303,10 @@ class RecordingRepository @Inject constructor(
         diagnosticLogger.debug(
             DiagnosticCategory.DATABASE,
             "DRAFT_STUDIO_STATE_UPDATE",
-            mapOf(LogKeys.DRAFT_ID to id, "review" to review, "title" to title, "emotion" to emotion, "approval" to approval)
+            mapOf(LogKeys.DRAFT_ID to id, "title" to title, "emotion" to emotion, "approval" to approval)
         )
         try {
-            draftDao.get().updateStudioState(id, review, title, emotion, approval)
+            draftDao.get().updateStudioState(id, title, emotion, approval)
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(AppError.from(e))

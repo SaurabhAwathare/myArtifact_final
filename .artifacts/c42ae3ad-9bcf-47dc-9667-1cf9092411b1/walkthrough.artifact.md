@@ -1,29 +1,46 @@
-# Production Architecture Validation – Final Repository Audit
+# Walkthrough - Phase 12: Terminal Coverage Tracking Fix
 
-I have completed a comprehensive static architecture audit of the decomposed repository layer. The new architecture is highly cohesive, stable, and ready for production, with a clear path for resolving remaining technical debt.
+Implemented a robust fix for the terminal race condition where the final playback position could be missed by the coverage tracker when the audio ends.
 
-## Key Findings
+## Changes
 
-### 1. Architecture Rule Compliance
-While the **Infrastructure** is fully decomposed, some **Consumers** (ViewModels and Managers) are still routing requests through legacy bridge methods in `ArtifactRepository`.
-- **Fully Migrated**: `PlayerViewModel`, `ProfileViewModel`.
-- **Pending Migration**: `ModerationViewModel`, `SavedArtifactManager`, `PublishingManager`.
+### [PlaybackSessionManager.kt](file:///F:/Android Project/01/app/src/main/java/com/saurabh/artifact/audio/PlaybackSessionManager.kt)
+- Modified `onPlaybackStateChanged` to ensure `updatePositionSync()` is called **before** updating `_playbackState.value`. This guarantees that observers of the state flow see the most recent position.
+- Updated `updatePositionSync()` to also update the `_currentPosition` StateFlow, providing a unified and up-to-date position source.
 
-### 2. Circular Dependency Discovery
-A circular dependency exists between `ArtifactRepository` and `ArtifactModerationRepository` due to the `ModerationAction` inner enum. I have recommended moving this to a shared domain model.
+### [ReviewAuthorityService.kt](file:///F:/Android Project/01/app/src/main/java/com/saurabh/artifact/audio/ReviewAuthorityService.kt)
+- Enhanced the `STATE_ENDED` collector to perform a final "terminal tick".
+- It now captures the final playback position and invokes `tracker.onPlaybackTick(...)` before calling `tracker.onPlaybackEnded()`.
+- This ensures that the last segment of the audio is correctly marked as covered in the engagement evidence.
 
-### 3. Efficiency & Cleanup
-- **Dead Bridges**: Identified two public bridge methods (`recordPlay`, `submitPrivateFeedback`) that no longer have any callers in the codebase and are safe to remove.
-- **Metrics**: The decomposition has reduced the complexity of `ArtifactRepository` by over **65%**, significantly improving maintainability.
+## Execution Flow Comparison
 
-## Deliverables
+### Before
+1. `Media3` emits `STATE_ENDED`.
+2. `PlaybackSessionManager` updates `playbackState`.
+3. `ReviewAuthorityService` collects `STATE_ENDED`.
+4. `tracker.onPlaybackEnded()` is called immediately.
+5. **Issue:** The last segment (e.g., the last 100ms) might not be marked as covered if the periodic tick hadn't fired yet.
 
-- [Validation Report](file:///F:/Android Project/01/.artifacts/c42ae3ad-9bcf-47dc-9667-1cf9092411b1/validation_report.artifact.md)
-- [Implementation Plan (Audit Only)](file:///F:/Android Project/01/.artifacts/c42ae3ad-9bcf-47dc-9667-1cf9092411b1/implementation_plan.artifact.md)
+### After
+1. `Media3` emits `STATE_ENDED`.
+2. `PlaybackSessionManager` synchronizes the final position, then updates `playbackState`.
+3. `ReviewAuthorityService` collects `STATE_ENDED`.
+4. **Terminal Tick:** It obtains the final position and manually triggers `tracker.onPlaybackTick(...)`.
+5. `tracker.onPlaybackEnded()` is called.
+6. **Result:** Full coverage (100%) is reliably achieved when the audio reaches the end.
 
-## Next Steps Recommendation
+## Verification Results
 
-> [!IMPORTANT]
-> The repository infrastructure is now **finished**. I recommend shifting focus to **Caller Migration** as the next engineering priority, specifically updating `SavedArtifactManager` and `PublishingManager` to use their specialized repositories directly.
+### Static Regression Assessment
+- **Replay:** Fully functional; session initialization resets tracking state.
+- **Pause/Resume:** Unchanged; regular ticks handle mid-playback state changes.
+- **Seek:** Seek events correctly break the "advancing normally" chain in the tracker, preventing illegitimate coverage marking.
+- **Playback Speed:** Terminal tick accounts for current playback speed when calculating expected deltas.
+- **Duplicate Completion:** The `completionTriggered` flag prevents multiple completion events if both coverage threshold and terminal state are reached near-simultaneously.
 
-I have not made any code changes per your instructions. The repository architecture is officially validated.
+### Build Status
+- [x] **Success:** `app:assembleDebug` completed without errors.
+
+## Confidence Level
+**High (5/5)**: The fix directly addresses the race condition by synchronizing state and position updates and ensuring a final tick at the terminal state.

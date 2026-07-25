@@ -72,6 +72,6 @@ class BackupEncryptionManagerCacheTest {
         manager.getBackupKey()
         
         // Verify SecurityArchitecture.deriveBackupKey was called twice
-        verify(exactly = 2) { SecurityArchitecture.deriveBackupKey(any(), any(), any()) }
+        verify(exactly = 2) { SecurityArchitecture.deriveBackupKey(any(), any()) }
     }
 }

@@ -1,13 +1,10 @@
-- [x] Research repository layer and ViewModels
-- [x] Identify circular dependency between ArtifactRepository and ArtifactModerationRepository
-- [x] Analyze bridge method usage and identify dead bridges
-- [x] Compile Repository Validation Report
-    - [x] Repository Independence & Cohesion
-    - [x] Dependency Audit & Circular Risks
-    - [x] Bridge Pattern Audit
-    - [x] Orchestration Review
-    - [x] Legacy Code Audit
-    - [x] Architecture Rule Compliance Audit
-    - [x] Architecture Metrics
-    - [x] Circular Dependency Resolution Recommendation
-- [x] Final Production Readiness Assessment
+# Task List - Phase 7: Defect 2 (UI Navigation Decoupling)
+
+- `[x]` Update `PublishingStudioViewModel`
+    - `[x]` Add `_currentStepOverride` StateFlow
+    - `[x]` Update `sessionState` combine logic to incorporate override
+    - `[x]` Implement UI-only `previousStep()`
+    - `[x]` Implement conditional `nextStep()` (persist only when advancing)
+    - `[x]` Reset override in `loadDraft()`
+- `[x]` Static Verification of Architecture Invariants
+- `[x]` Final Build Check

@@ -9,6 +9,7 @@ import com.saurabh.artifact.domain.feed.GetFeedFlowUseCase
 import com.saurabh.artifact.domain.feed.GetPersonalizedFeedFlowUseCase
 import com.saurabh.artifact.domain.prompt.GetReflectionPromptUseCase
 import com.saurabh.artifact.repository.ArtifactRepository
+import com.saurabh.artifact.repository.ArtifactEngagementRepository
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.NotificationRepository
 import com.saurabh.artifact.repository.SavedArtifactManager
@@ -37,6 +38,7 @@ import org.junit.Test
 class FeedViewModelStateRestorationTest {
 
     private val artifactRepository = mockk<ArtifactRepository>(relaxed = true)
+    private val artifactEngagementRepository = mockk<ArtifactEngagementRepository>(relaxed = true)
     private val authRepository = mockk<AuthRepository>(relaxed = true)
     private val notificationRepository = mockk<NotificationRepository>(relaxed = true)
     private val personalizationEngine = mockk<PersonalizationEngine>(relaxed = true)
@@ -83,6 +85,7 @@ class FeedViewModelStateRestorationTest {
         return FeedViewModel(
             savedStateHandle = savedStateHandle,
             artifactRepository = artifactRepository,
+            artifactEngagementRepository = artifactEngagementRepository,
             authRepository = authRepository,
             notificationRepository = notificationRepository,
             personalizationEngine = personalizationEngine,

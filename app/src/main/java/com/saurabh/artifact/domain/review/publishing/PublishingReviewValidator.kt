@@ -14,7 +14,7 @@ class PublishingReviewValidator @Inject constructor() {
         policy: PublishingReviewPolicy
     ): ReviewResult {
         
-        val segmentSize = policy.getSegmentSizeMs(evidence.durationMs)
+        val segmentSize = policy.getSegmentSizeMs(evidence.durationMs, evidence.reviewTrackingVersion)
         val totalSegments = if (evidence.durationMs > 0) {
             (evidence.durationMs / segmentSize).toInt().coerceAtLeast(1)
         } else 1

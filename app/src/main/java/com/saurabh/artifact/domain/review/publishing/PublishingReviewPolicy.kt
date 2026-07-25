@@ -1,6 +1,7 @@
 package com.saurabh.artifact.domain.review.publishing
 
 import com.saurabh.artifact.domain.review.ReviewPolicy
+import com.saurabh.artifact.domain.review.ReviewTrackingVersion
 import javax.inject.Inject
 
 /**
@@ -14,8 +15,8 @@ class PublishingReviewPolicy @Inject constructor(
     /**
      * Reuse the segment sizing strategy from the base policy or define its own.
      */
-    fun getSegmentSizeMs(durationMs: Long): Long {
+    fun getSegmentSizeMs(durationMs: Long, version: ReviewTrackingVersion): Long {
         // For now, delegating to the existing shared logic to maintain initial behavior
-        return ReviewPolicy().getSegmentSizeMs(durationMs)
+        return ReviewPolicy().getSegmentSizeMs(durationMs, version)
     }
 }

@@ -147,7 +147,6 @@ class PlaybackSessionManager @Inject constructor(
         }
 
         override fun onPlaybackStateChanged(state: Int) {
-            _playbackState.value = state
             _isBuffering.value = state == Player.STATE_BUFFERING
             if (state == Player.STATE_READY) {
                 _durationMs.value = controller?.duration?.coerceAtLeast(0) ?: 0
@@ -167,6 +166,7 @@ class PlaybackSessionManager @Inject constructor(
                     }
                 }
             }
+            _playbackState.value = state
         }
 
         override fun onPositionDiscontinuity(
@@ -493,8 +493,10 @@ class PlaybackSessionManager @Inject constructor(
 
     private fun updatePositionSync() {
         val p = controller ?: return
+        val pos = p.currentPosition
+        _currentPosition.value = pos
         _positionSync.value = PositionSync(
-            positionMs = p.currentPosition,
+            positionMs = pos,
             timestampMs = android.os.SystemClock.elapsedRealtime(),
             speed = _playbackSpeed.value,
             isPlaying = p.isPlaying

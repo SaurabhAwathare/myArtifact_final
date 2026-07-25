@@ -9,5 +9,5 @@ object FeatureFlags {
      * Controls the availability of the transcript review step in the publishing flow.
      * Set to false to bypass the Review screen and associated playback initialization.
      */
-    const val REVIEW_ENABLED = false
+    const val REVIEW_ENABLED = true
 }

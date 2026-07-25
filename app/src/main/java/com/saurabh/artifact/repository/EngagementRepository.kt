@@ -7,6 +7,7 @@ import com.saurabh.artifact.di.ApplicationScope
 import com.saurabh.artifact.data.local.ArtifactEngagement
 import com.saurabh.artifact.data.local.EngagementDao
 import com.saurabh.artifact.domain.review.EngagementEvidence
+import com.saurabh.artifact.domain.review.ReviewTrackingVersion
 import com.saurabh.artifact.domain.review.EngagementState
 import com.saurabh.artifact.domain.review.UnlockStatus
 import com.saurabh.artifact.model.AppError
@@ -149,6 +150,8 @@ class EngagementRepository @Inject constructor(
             furthestPositionMs = furthestPositionMs,
             hasReachedEnd = hasReachedEnd,
             lastUpdated = lastUpdated,
+            reviewTrackingVersion = ReviewTrackingVersion.fromInt(reviewTrackingVersion),
+            segmentSizeMs = segmentSizeMs,
             unlockStatus = UnlockStatus(
                 isCommentUnlocked = isCommentUnlocked,
                 unlockTimestamp = unlockTimestamp,
@@ -171,6 +174,8 @@ class EngagementRepository @Inject constructor(
             furthestPositionMs = furthestPositionMs,
             hasReachedEnd = hasReachedEnd,
             lastUpdated = lastUpdated,
+            reviewTrackingVersion = reviewTrackingVersion.value,
+            segmentSizeMs = segmentSizeMs,
             syncState = syncState,
             isCommentUnlocked = unlockStatus.isCommentUnlocked,
             unlockTimestamp = unlockStatus.unlockTimestamp,

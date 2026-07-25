@@ -1,39 +1,31 @@
-# Production Architecture Validation – Final Repository Audit
+# Implementation Plan - Terminal Coverage Tracking Fix
 
-This plan outlines the final static architecture review of the repository decomposition. It includes a comprehensive audit of repository independence, dependency health, bridge pattern usage, orchestration, and legacy code.
+Fix the terminal race condition in the Review Coverage Tracking pipeline to ensure the final playback position is processed before review completion is evaluated.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> **Read-Only Audit**: This is a static analysis only. No code changes will be performed as part of this task. All findings will be documented in a final validation report.
+> This fix ensures that when `STATE_ENDED` is reached, the coverage tracker is explicitly ticked with the final position. This prevents the case where the periodic ticker stops before the last segment is recorded.
 
-> [!CAUTION]
-> **Circular Dependency Identified**: `ArtifactModerationRepository` depends on `ArtifactRepository.ModerationAction` (an inner enum). This creates a circular dependency between the two repositories. I will recommend a resolution in the final report.
+## Proposed Changes
 
-## Proposed Components
+### Audio Infrastructure
 
-### 1. Repository Independence Analysis
-- [ArtifactRepository](file:///F:/Android Project/01/app/src/main/java/com/saurabh/artifact/repository/ArtifactRepository.kt): Primary data access for Artifacts.
-- [ArtifactLibraryRepository](file:///F:/Android Project/01/app/src/main/java/com/saurabh/artifact/repository/ArtifactLibraryRepository.kt): Private bookmarks and collections.
-- [ArtifactPublishingRepository](file:///F:/Android Project/01/app/src/main/java/com/saurabh/artifact/repository/ArtifactPublishingRepository.kt): Upload and publication lifecycle.
-- [ArtifactModerationRepository](file:///F:/Android Project/01/app/src/main/java/com/saurabh/artifact/repository/ArtifactModerationRepository.kt): Safety, reporting, and admin workflows.
-- [ArtifactEngagementRepository](file:///F:/Android Project/01/app/src/main/java/com/saurabh/artifact/repository/ArtifactEngagementRepository.kt): Signals, plays, and personalization.
+#### [MODIFY] [ReviewAuthorityService.kt](file:///F:/Android Project/01/app/src/main/java/com/saurabh/artifact/audio/ReviewAuthorityService.kt)
+- Update the `playbackState` collector to explicitly process the final playback position when `Player.STATE_ENDED` is received.
+- Ensure the final position is passed to the tracker before `onPlaybackEnded()` is called.
+- This guarantees that the `EngagementEvidence` used for validation includes the terminal position.
 
-### 2. Architecture Rule Compliance Audit
-- Verify if ViewModels and UseCases are correctly migrated to specialized repositories.
-- Identify components still "leaking" through `ArtifactRepository`.
-- **Target Components**: [ModerationViewModel](file:///F:/Android Project/01/app/src/main/java/com/saurabh/artifact/ui/moderation/ModerationViewModel.kt), [FeedViewModel](file:///F:/Android Project/01/app/src/main/java/com/saurabh/artifact/ui/feed/FeedViewModel.kt), [SavedArtifactManager](file:///F:/Android Project/01/app/src/main/java/com/saurabh/artifact/repository/SavedArtifactManager.kt), [PublishingManager](file:///F:/Android Project/01/app/src/main/java/com/saurabh/artifact/domain/PublishingManager.kt).
-
-### 3. Bridge Pattern & Legacy Audit
-- Identify dead bridge methods in `ArtifactRepository`.
-- Assess the necessity of remaining compatibility code (e.g., transcripts).
-
-### 4. Circular Dependency Resolution Recommendation
-- Recommend the best path for `ModerationAction` (e.g., move to domain model or moderation package).
+#### [MODIFY] [ReviewTracker.kt](file:///F:/Android Project/01/app/src/main/java/com/saurabh/artifact/audio/validation/ReviewTracker.kt)
+- Adjust `onPlaybackTick` to handle the case where `currentPosMs` is exactly `durationMs` or slightly beyond it, ensuring the last possible segment is marked.
+- Specifically, ensure that the `segmentIndex < totalSegments` check allows the final segment to be painted when playback finishes.
 
 ## Verification Plan
 
-### Manual Verification
-- Static code analysis using "Find Usages" and "Grep".
-- Visual inspection of constructor dependencies.
-- Mapping of all public API calls to their respective repositories.
+### Static Validation
+- Trace `Media3 STATE_ENDED` -> `ReviewAuthorityService` -> `onPlaybackTick(finalPos)` -> `onPlaybackEnded()` -> `ReviewProgress` update -> `ReviewSessionManager` validation.
+- Verify that `isAdvancingNormally` check in `DefaultReviewTracker` will still pass for the final tick if it was advancing just before the end.
+
+### Automated Tests
+- I will check existing tests for `ReviewAuthorityService` and `ReviewTracker` to ensure no regressions in seek/pause behavior.
+- Run `:app:testDebugUnitTest --tests "com.saurabh.artifact.audio.validation.ReviewTrackerTest"` if available.
