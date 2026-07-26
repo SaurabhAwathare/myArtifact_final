@@ -13,6 +13,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -33,7 +37,7 @@ class ArtifactEngagementRepository @Inject constructor(
      * Records a playback event for an artifact.
      * Updates local personalization state and remote emotion preferences if consent is given.
      */
-    suspend fun recordPlay(userId: String?, emotion: String): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun recordPlay(userId: String?, artifactId: String, emotion: String): Result<Unit> = withContext(Dispatchers.IO) {
         if (emotion.isEmpty()) return@withContext Result.success(Unit)
         
         try {
@@ -47,6 +51,21 @@ class ArtifactEngagementRepository @Inject constructor(
             // 2. Persist to Firestore if authenticated AND consent given
             if (userId == null || !hasConsent) return@withContext Result.success(Unit)
             
+            val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }.format(Date())
+            
+            val playEventId = "play_${userId}_${artifactId}_$today"
+            val playEventRef = firestore.collection("artifact_plays").document(playEventId)
+            
+            // Phase 1: Client logs play event, Cloud Function aggregates
+            playEventRef.set(mapOf(
+                "userId" to userId,
+                "artifactId" to artifactId,
+                "timestamp" to FieldValue.serverTimestamp()
+            )).await()
+
+            // Update user preferences (legacy/internal signal)
             val userRef = firestore.collection("users").document(userId)
             firestore.runTransaction { transaction ->
                 val userDoc = transaction[userRef]
@@ -60,7 +79,7 @@ class ArtifactEngagementRepository @Inject constructor(
             }.await()
             Result.success(Unit)
         } catch (e: Exception) {
-            diagnosticLogger.error(DiagnosticCategory.RESONANCE, "PLAY_RECORD_FAILED", mapOf("emotion" to emotion), e)
+            diagnosticLogger.error(DiagnosticCategory.RESONANCE, "PLAY_RECORD_FAILED", mapOf("emotion" to emotion, LogKeys.ARTIFACT_ID to artifactId), e)
             Result.failure(AppError.from(e))
         }
     }

@@ -35,6 +35,8 @@ import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 
+import androidx.media3.common.util.UnstableApi
+
 /**
  * Defines the technical components that must be ready for the app to function.
  */
@@ -50,11 +52,13 @@ enum class StartupComponent {
  * Centralized orchestrator for the Startup Island Architecture.
  * Manages the transition between startup stages to ensure smooth user perception.
  */
+@UnstableApi
 @Singleton
 class StartupCoordinator @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val workManager: WorkManager,
-    private val environmentProvider: com.saurabh.artifact.util.EnvironmentProvider
+    private val environmentProvider: com.saurabh.artifact.util.EnvironmentProvider,
+    private val cleanupManager: dagger.Lazy<com.saurabh.artifact.audio.ArtifactCleanupManager>
 ) {
     private val scope = CoroutineScope(
         Dispatchers.Main + 
@@ -257,6 +261,10 @@ class StartupCoordinator @Inject constructor(
         scheduleDailyReminder()
         scheduleOrphanCleanup()
         schedulePublishingRecovery()
+        
+        // Phase 2: Resume any interrupted artifact cleanups
+        cleanupManager.get().resumeUnfinishedCleanups()
+        
         StartupTracer.mark("Background Services Ready")
     }
 

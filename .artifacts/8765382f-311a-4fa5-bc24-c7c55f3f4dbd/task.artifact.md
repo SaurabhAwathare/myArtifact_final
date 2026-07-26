@@ -1,0 +1,22 @@
+# Phase 1 Production Readiness Validation Tasks
+
+- `[/]` Task 1: Android Unit Tests
+    - `[/]` Run `./gradlew :app:testDebugUnitTest`
+    - `[ ]` Verify Repository tests
+    - `[ ]` Verify ViewModel tests
+    - `[ ]` Verify UseCase tests
+- `[ ]` Task 2: Firebase Emulator Validation
+    - `[ ]` Start Firestore, Functions, and Auth Emulators
+    - `[ ]` Run Cloud Functions tests
+    - `[ ]` Run Firestore Security Rules tests
+    - `[ ]` Verify aggregations (`commentCount`, `playCount`)
+    - `[ ]` Verify safety initialization and cleanup
+- `[ ]` Task 3: Production Build & Artifact Verification
+    - `[ ]` Run `./gradlew :app:assembleRelease`
+    - `[ ]` Verify APK/AAB generation
+    - `[ ]` Check Version Name/Code
+    - `[ ]` Verify signing and packaging
+- `[ ]` Task 4: Final Assessment & Reporting
+    - `[ ]` Classify remaining issues
+    - `[ ]` Perform Risk Assessment
+    - `[ ]` Generate Final Production Readiness Report

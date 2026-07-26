@@ -111,6 +111,9 @@ class RecordingService : Service() {
     @Inject
     lateinit var localDraftManager: LocalDraftManager
 
+    @Inject
+    lateinit var cleanupManager: ArtifactCleanupManager
+
     private var lastKnownAvailableStorageMb: Long = 1024L // Default to 1GB until first check
     
     class RecordingBinder : Binder() {
@@ -577,7 +580,7 @@ class RecordingService : Service() {
                     }
                 }
 
-                draftDao.getDraftById(draftId)?.let { draftDao.delete(it) }
+                cleanupManager.deleteDraft(draftId)
                 userSessionManager.setActiveDraftId(null)
                 
                 // Ensure service stops after cleanup

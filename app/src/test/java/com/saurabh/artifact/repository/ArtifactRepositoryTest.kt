@@ -228,7 +228,7 @@ class ArtifactRepositoryTest {
     }
 
     @Test
-    fun `deletePublishedArtifact should perform soft delete by setting status to DELETED`() = runBlocking {
+    fun `performRemoteDelete should perform soft delete by setting status to DELETED`() = runBlocking {
         val artifactId = "art123"
         val userId = "user123"
         
@@ -251,21 +251,20 @@ class ArtifactRepositoryTest {
         coEvery { moderationRepository.isCurrentUserAdmin() } returns false
         coEvery { moderationRepository.softDeleteArtifact(artifactId) } returns Result.success(Unit)
 
-        val result = repository.deletePublishedArtifact(artifactId)
+        val result = repository.performRemoteDelete(artifactId)
 
         assert(result.isSuccess)
         
         // Verify bridge calls
         coVerify { moderationRepository.softDeleteArtifact(artifactId) }
         
-        // Verify cascading local cleanup
-        coVerify { artifactDao.deleteById(artifactId) }
-        coVerify { database.engagementDao().deleteEngagement(artifactId) }
+        // Phase 2 Compliance: Verify NO local cleanup occurs in repository
+        coVerify(exactly = 0) { artifactDao.deleteById(any()) }
         coVerify { userRepository.decrementArtifactsCount(userId) }
     }
 
     @Test
-    fun `submitReport should bridge to ModerationRepository and update local cache`() = runBlocking {
+    fun `submitReport should bridge to ModerationRepository and NOT update local cache directly`() = runBlocking {
         val artifactId = "art123"
         val reason = ReportReason.HARASSMENT
         val details = "Some description"
@@ -280,15 +279,15 @@ class ArtifactRepositoryTest {
         // Verify Bridge
         coVerify { moderationRepository.submitReport(artifactId, reason, details, deviceId) }
         
-        // Verify local Room update (Orchestration)
-        coVerify { artifactDao.deleteById(artifactId) }
+        // Phase 2 Compliance: Verify NO direct local cache eviction
+        coVerify(exactly = 0) { artifactDao.deleteById(any()) }
     }
 
     @Test
     fun `recordPlay should delegate to EngagementRepository`() = runBlocking {
-        coEvery { artifactEngagementRepository.recordPlay(any(), any()) } returns Result.success(Unit)
-        repository.recordPlay("user1", "Joy")
-        coVerify { artifactEngagementRepository.recordPlay("user1", "Joy") }
+        coEvery { artifactEngagementRepository.recordPlay(any(), any(), any()) } returns Result.success(Unit)
+        repository.recordPlay("user1", "art1", "Joy")
+        coVerify { artifactEngagementRepository.recordPlay("user1", "art1", "Joy") }
     }
 
     @Test

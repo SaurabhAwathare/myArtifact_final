@@ -250,6 +250,21 @@ interface DraftDao {
     @Query("UPDATE artifact_drafts SET isDismissed = 1, updatedAt = :timestamp WHERE id = :id")
     suspend fun dismissDraft(id: String, timestamp: Long = System.currentTimeMillis())
 
+    @Query("UPDATE artifact_drafts SET localCleanupStatus = :status, updatedAt = :timestamp WHERE id = :id")
+    suspend fun updateLocalCleanupStatus(id: String, status: LocalCleanupStatus, timestamp: Long = System.currentTimeMillis())
+
+    @Query("UPDATE artifact_drafts SET localCleanupStatus = :status, updatedAt = :timestamp WHERE remoteArtifactId = :artifactId")
+    suspend fun updateLocalCleanupStatusByArtifactId(artifactId: String, status: LocalCleanupStatus, timestamp: Long = System.currentTimeMillis())
+
+    @Query("UPDATE artifact_drafts SET cleanupRetryCount = :count, updatedAt = :timestamp WHERE id = :id")
+    suspend fun updateCleanupRetryCount(id: String, count: Int, timestamp: Long = System.currentTimeMillis())
+
+    @Query("UPDATE artifact_drafts SET cleanupRetryCount = :count, updatedAt = :timestamp WHERE remoteArtifactId = :artifactId")
+    suspend fun updateCleanupRetryCountByArtifactId(artifactId: String, count: Int, timestamp: Long = System.currentTimeMillis())
+
+    @Query("SELECT * FROM artifact_drafts WHERE localCleanupStatus IS NOT NULL AND localCleanupStatus != 'COMPLETED'")
+    suspend fun getUnfinishedCleanups(): List<ArtifactDraftEntity>
+
     @Query("DELETE FROM artifact_drafts WHERE id = :id")
     suspend fun deleteById(id: String)
 

@@ -48,7 +48,6 @@ class RecordingRepositoryTest {
             userRepository = userRepository,
             localDraftManager = localDraftManager,
             wavRecoveryManager = wavRecoveryManager,
-            deletionManager = deletionManager,
             cleanupManager = cleanupManager,
             draftsDatabase = Lazy { draftsDatabase },
             diagnosticLogger = diagnosticLogger
@@ -148,7 +147,7 @@ class RecordingRepositoryTest {
 
         repository.recoverInterruptedDrafts()
 
-        coVerify(exactly = 1) { deletionManager.deleteDraft("deleting_1") }
+        coVerify(exactly = 1) { cleanupManager.deleteDraft("deleting_1") }
     }
 
     @Test

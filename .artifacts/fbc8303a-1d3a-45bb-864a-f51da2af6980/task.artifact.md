@@ -1,0 +1,16 @@
+- [x] Task 1: Cloud Functions Test Alignment
+    - [x] Review `index.ts` and `aggregates.test.ts` for Phase 1 scope
+    - [x] Align `aggregates.test.ts` with implemented behavior (including idempotency)
+- [x] Task 2: Firestore Security & Integrity Validation
+    - [x] Create `phase18_regression.test.js`
+    - [x] Verify Zero-Trust for aggregates (`commentCount`, `playCount`, etc.)
+    - [x] Verify cascade cleanup logic via emulator
+- [x] Task 3: Automated Regression Suite Execution
+    - [x] Run Cloud Functions tests (`npm test`)
+    - [x] Run Firestore Rules tests
+    - [x] Run Android Unit/Repository tests (`./gradlew test`)
+- [x] Task 4: Final Reports & Readiness Assessment
+    - [x] Generate Aggregate Integrity Report
+    - [x] Generate Firestore Security Validation Report
+    - [x] Document Known Limitations
+    - [x] Final Production Readiness Assessment

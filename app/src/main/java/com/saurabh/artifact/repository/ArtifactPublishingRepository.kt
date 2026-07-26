@@ -296,8 +296,10 @@ class ArtifactPublishingRepository @Inject constructor(
                 "updatedAt" to artifact.moderation.updatedAt
             ),
             "playCount" to artifact.playCount,
+            "commentCount" to 0L,
             "reactionCount" to artifact.reactionCount,
             "reportCount" to artifact.reportCount,
+            "safetyConcernCount" to 0L,
             "conversationMetadata" to mapOf(
                 "primaryStyle" to artifact.conversationMetadata.primaryStyle?.name,
                 "isAIGenerated" to artifact.conversationMetadata.isAIGenerated

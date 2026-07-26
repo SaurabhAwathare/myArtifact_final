@@ -1,20 +1,8 @@
 package com.saurabh.artifact.audio
 
 import android.util.Log
-import androidx.room.withTransaction
-import androidx.work.BackoffPolicy
-import androidx.work.Constraints
-import androidx.work.ExistingWorkPolicy
-import androidx.work.NetworkType
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.WorkManager
-import androidx.work.WorkRequest
-import androidx.work.workDataOf
-import com.saurabh.artifact.data.local.AppDatabase
-import com.saurabh.artifact.data.local.DraftDao
-import com.saurabh.artifact.data.local.UploadTaskDao
+import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.util.StorageManager
-import com.saurabh.artifact.worker.DeletionWorker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -23,83 +11,35 @@ import javax.inject.Singleton
 
 @Singleton
 class DraftDeletionManager @Inject constructor(
-    private val draftDao: DraftDao,
-    private val userRepository: com.saurabh.artifact.repository.UserRepository,
-    private val uploadTaskDao: UploadTaskDao,
-    private val draftsDatabase: AppDatabase,
-    private val storageManager: StorageManager,
-    private val workManager: WorkManager
+    private val storageManager: StorageManager
 ) {
 
     /**
-     * Authoritative deletion method. 
-     * Orchestrates a state-based deletion: DB state update -> File purge -> DB record removal.
+     * Performs pure physical local resource cleanup.
+     * Does NOT modify database state or schedule workers.
+     * Intended to be called by CleanupWorker as part of the state-driven pipeline.
+     *
+     * NOTE: Legacy deleteDraft() is removed to ensure all deletions flow through 
+     * the ArtifactCleanupManager -> CleanupWorker pipeline.
      */
-    suspend fun deleteDraft(draftId: String) = withContext(Dispatchers.IO) {
-        Log.d("DraftDeletionManager", "Initiating deletion for draft.")
-
-        // 1. Soft Delete: Mark as DELETING in Room. Hides from UI immediately.
-        draftDao.markAsDeleting(draftId)
-        val draft = draftDao.getDraftById(draftId) ?: return@withContext
-
-        // Decrement artifactsCount if the draft was not yet published
-        // Published artifacts are handled by ArtifactRepository.deletePublishedArtifact
-        if (draft.lifecycle != com.saurabh.artifact.model.ArtifactLifecycle.PUBLISHED) {
-            val currentUserId = userRepository.getCurrentUserId()
-            if (currentUserId != null) {
-                userRepository.decrementArtifactsCount(currentUserId)
+    suspend fun performPhysicalPurge(draft: ArtifactDraftEntity) = withContext(Dispatchers.IO) {
+        Log.d("DraftDeletionManager", "Purging physical assets for draft: ${draft.id}")
+        val draftDir = storageManager.getDraftDirectory(draft.id)
+        storageManager.deleteDirectoryRecursively(draftDir)
+        
+        // Cleanup legacy files if they exist outside the new directory structure
+        val legacyFiles = listOfNotNull(
+            draft.localAudioPath,
+            draft.rawPcmPath,
+            draft.localTranscriptPath,
+            draft.waveformPath,
+            draft.frozenAudioPath
+        ).map { File(it) }
+        
+        legacyFiles.forEach { file ->
+            if (file.exists() && !file.absolutePath.startsWith(draftDir.absolutePath)) {
+                storageManager.deleteSecurely(file)
             }
         }
-
-        try {
-            // 2. Physical File Purge
-            val draftDir = storageManager.getDraftDirectory(draftId)
-            val success = storageManager.deleteDirectoryRecursively(draftDir)
-            
-            // Cleanup legacy files if they exist outside the new directory structure
-            val legacyFiles = listOfNotNull(
-                draft.localAudioPath,
-                draft.rawPcmPath,
-                draft.localTranscriptPath,
-                draft.waveformPath,
-                draft.frozenAudioPath
-            ).map { File(it) }
-            
-            legacyFiles.forEach { file ->
-                if (file.exists() && !file.absolutePath.startsWith(draftDir.absolutePath)) {
-                    storageManager.deleteSecurely(file)
-                }
-            }
-
-            if (success) {
-                // 3. Hard Delete: Success! Remove the DB record.
-                draftsDatabase.withTransaction {
-                    uploadTaskDao.deleteByDraftId(draftId)
-                    draftDao.deleteById(draftId)
-                }
-                Log.d("DraftDeletionManager", "Successfully deleted draft and all files.")
-            } else {
-                throw Exception("Failed to delete directory.")
-            }
-        } catch (e: Exception) {
-            Log.e("DraftDeletionManager", "File deletion failed. Scheduling retry.")
-            // 4. Recovery: Schedule background retry if file delete fails
-            enqueueDeletionRetry(draftId)
-        }
-    }
-
-    private fun enqueueDeletionRetry(draftId: String) {
-        val inputData = workDataOf(DeletionWorker.KEY_DRAFT_ID to draftId)
-        val retryWork = OneTimeWorkRequestBuilder<DeletionWorker>()
-            .setInputData(inputData)
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, WorkRequest.MIN_BACKOFF_MILLIS, java.util.concurrent.TimeUnit.MILLISECONDS)
-            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.NOT_REQUIRED).build())
-            .build()
-
-        workManager.enqueueUniqueWork(
-            "delete_$draftId",
-            ExistingWorkPolicy.REPLACE,
-            retryWork
-        )
     }
 }

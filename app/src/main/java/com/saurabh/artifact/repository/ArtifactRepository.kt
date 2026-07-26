@@ -426,20 +426,9 @@ class ArtifactRepository @Inject constructor(
         // Bridge to ArtifactModerationRepository for business logic
         val result = moderationRepository.get().submitReport(artifactId, reason, optionalDescription, deviceIdHash)
         
-        // Orchestration: Handle local cache eviction if the report was successful
-        if (result.isSuccess) {
-            try {
-                // Force a delete from local cache as well to be sure for immediate UI hiding
-                artifactDao.get().deleteById(artifactId)
-            } catch (e: Exception) {
-                diagnosticLogger.error(
-                    DiagnosticCategory.DATABASE, 
-                    "REPORT_LOCAL_CACHE_EVICTION_FAILED", 
-                    mapOf(LogKeys.ARTIFACT_ID to artifactId), 
-                    e
-                )
-            }
-        }
+        // Phase 2 Compliance: No longer performing direct local cache eviction here.
+        // Hiding/Deletion of local cached artifact should be driven by status updates 
+        // or delegated to ArtifactCleanupManager if a full purge is required.
         
         result
     }
@@ -551,8 +540,8 @@ class ArtifactRepository @Inject constructor(
      * Records a playback event for an artifact.
      * Bridge to ArtifactEngagementRepository.
      */
-    suspend fun recordPlay(userId: String?, emotion: String): Result<Unit> = 
-        artifactEngagementRepository.get().recordPlay(userId, emotion)
+    suspend fun recordPlay(userId: String?, artifactId: String, emotion: String): Result<Unit> = 
+        artifactEngagementRepository.get().recordPlay(userId, artifactId, emotion)
 
     /**
      * Persists a private emotional bookmark for an artifact.
@@ -784,11 +773,11 @@ class ArtifactRepository @Inject constructor(
     private suspend fun isCurrentUserAdmin(): Boolean = moderationRepository.get().isCurrentUserAdmin()
 
     /**
-     * Marks a published artifact as DELETED in Firestore.
-     * This is a "Soft Delete" that hides the artifact from all feeds and searches
-     * but preserves the data for a potential "Recently Deleted" or "Undo" period.
+     * Authoritatively performs remote deletion of a published artifact in Firestore.
+     * This method focuses ONLY on the remote state transition to DELETED.
+     * Local cleanup is handled by the ArtifactCleanupManager pipeline.
      */
-    suspend fun deletePublishedArtifact(artifactId: String): Result<Unit> = withContext(Dispatchers.IO) {
+    internal suspend fun performRemoteDelete(artifactId: String): Result<Unit> = withContext(Dispatchers.IO) {
         return@withContext try {
             val currentUserId = auth.currentUser?.uid ?: return@withContext Result.failure(Exception("Unauthenticated"))
             
@@ -808,24 +797,14 @@ class ArtifactRepository @Inject constructor(
                 return@withContext Result.failure(Exception("Unauthorized: You do not own this reflection"))
             }
             
-            // 1. Perform Soft Delete (Authority) - Bridge to ArtifactModerationRepository
+            // Perform Soft Delete (Authority) - Bridge to ArtifactModerationRepository
             val remoteResult = moderationRepository.get().softDeleteArtifact(artifactId)
             if (remoteResult.isFailure) return@withContext remoteResult
             
             diagnosticLogger.info(DiagnosticCategory.FIRESTORE, "ARTIFACT_SOFT_DELETED", mapOf(LogKeys.ARTIFACT_ID to artifactId))
 
-            // 2. Decrement artifactsCount
+            // Decrement artifactsCount
             userRepository.get().decrementArtifactsCount(currentUserId)
-
-            // 3. Synchronize local Room database (Remove from local view)
-            try {
-                artifactDao.get().deleteById(artifactId)
-                database.get().engagementDao().deleteEngagement(artifactId)
-                // Also clear from Drafts if orphaned
-                draftDao.get().getDraftByArtifactId(artifactId)?.let { draftDao.get().deleteById(it.id) }
-            } catch (e: Exception) {
-                diagnosticLogger.error(DiagnosticCategory.DATABASE, "ARTIFACT_DELETE_LOCAL_SYNC_FAILED", mapOf(LogKeys.ARTIFACT_ID to artifactId), e)
-            }
 
             Result.success(Unit)
         } catch (e: Exception) {

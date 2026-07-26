@@ -42,4 +42,19 @@ object MediaCache {
         instance?.release()
         instance = null
     }
+
+    /**
+     * Targeted removal of a specific resource from the cache.
+     * Safe to call even if the resource is not cached.
+     */
+    @Synchronized
+    fun removeResource(url: String?) {
+        if (url.isNullOrBlank()) return
+        try {
+            instance?.removeResource(url)
+            Log.d("MediaCache", "Resource removed from cache: $url")
+        } catch (e: Exception) {
+            Log.w("MediaCache", "Failed to remove resource from cache: $url", e)
+        }
+    }
 }

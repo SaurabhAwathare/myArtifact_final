@@ -155,7 +155,13 @@ export const onArtifactCleanupTrigger = functions.firestore
         "Private Feedback"
       );
 
-      // 11. FINAL: Delete the Artifact document itself
+      // 11. Artifact Plays (Aggregation Source)
+      await deleteQueryBatch(
+        db.collection("artifact_plays").where("artifactId", "==", artifactId),
+        "Artifact Plays"
+      );
+
+      // 12. FINAL: Delete the Artifact document itself
       await change.after.ref.delete();
       logger.info("[CLEANUP] Artifact Document | DELETED");
 
@@ -802,5 +808,87 @@ export const onReportCreated = functions.firestore
 
       await batch.commit();
       logger.info(`[MODERATION] Aggregation success | ArtifactID=${artifactId} | Count=${reportCount}`);
+    });
+  });
+
+/**
+ * Authoritatively handles comment aggregation when a new comment is created.
+ * Wrapped with withIdempotency to prevent duplicate increments on retry.
+ */
+export const onCommentCreated = functions.firestore
+  .document("artifacts/{artifactId}/comments/{commentId}")
+  .onCreate(async (snapshot, context) => {
+    const artifactId = context.params.artifactId;
+    const commentId = context.params.commentId;
+    const data = snapshot.data();
+
+    if (!data || data.status === "DELETED") return null;
+
+    return withIdempotency(`comment_inc_${commentId}`, async () => {
+      const db = admin.firestore();
+      const artifactRef = db.collection("artifacts").doc(artifactId);
+
+      await artifactRef.update({
+        commentCount: FieldValue.increment(1),
+      });
+
+      logger.info(`[AGGREGATE] commentCount incremented | ArtifactID=${artifactId} | CommentID=${commentId}`);
+    });
+  });
+
+/**
+ * Authoritatively handles comment aggregation when a comment is soft-deleted.
+ * Wrapped with withIdempotency to prevent duplicate decrements on retry.
+ */
+export const onCommentUpdated = functions.firestore
+  .document("artifacts/{artifactId}/comments/{commentId}")
+  .onUpdate(async (change, context) => {
+    const newData = change.after.data();
+    const oldData = change.before.data();
+    const artifactId = context.params.artifactId;
+    const commentId = context.params.commentId;
+
+    if (!newData || !oldData) return null;
+
+    // Detect Soft Delete transition (ACTIVE -> DELETED)
+    if (newData.status === "DELETED" && oldData.status !== "DELETED") {
+      return withIdempotency(`comment_dec_${commentId}_${context.eventId}`, async () => {
+        const db = admin.firestore();
+        const artifactRef = db.collection("artifacts").doc(artifactId);
+
+        await artifactRef.update({
+          commentCount: FieldValue.increment(-1),
+        });
+
+        logger.info(`[AGGREGATE] commentCount decremented | ArtifactID=${artifactId} | CommentID=${commentId}`);
+      });
+    }
+
+    return null;
+  });
+
+/**
+ * Authoritatively handles playCount aggregation.
+ * Triggered by client logging a daily unique play event to artifact_plays.
+ * The playId (play_{userId}_{artifactId}_{date}) ensures idempotency.
+ */
+export const onPlayCreated = functions.firestore
+  .document("artifact_plays/{playId}")
+  .onCreate(async (snapshot, context) => {
+    const data = snapshot.data();
+    if (!data) return null;
+
+    const artifactId = data.artifactId;
+    const playId = context.params.playId;
+
+    return withIdempotency(playId, async () => {
+      const db = admin.firestore();
+      const artifactRef = db.collection("artifacts").doc(artifactId);
+
+      await artifactRef.update({
+        playCount: FieldValue.increment(1),
+      });
+
+      logger.info(`[AGGREGATE] playCount incremented | ArtifactID=${artifactId} | PlayID=${playId}`);
     });
   });

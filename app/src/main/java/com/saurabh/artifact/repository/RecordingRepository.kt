@@ -5,7 +5,6 @@ import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.lifecycle.asFlow
 import com.saurabh.artifact.audio.ArtifactCleanupManager
-import com.saurabh.artifact.audio.DraftDeletionManager
 import com.saurabh.artifact.audio.LocalDraftManager
 import com.saurabh.artifact.audio.WavHeaderUtils
 import com.saurabh.artifact.audio.WavRecoveryManager
@@ -30,7 +29,6 @@ class RecordingRepository @Inject constructor(
     private val userRepository: UserRepository,
     private val localDraftManager: LocalDraftManager,
     private val wavRecoveryManager: WavRecoveryManager,
-    private val deletionManager: DraftDeletionManager,
     private val cleanupManager: ArtifactCleanupManager,
     private val draftsDatabase: dagger.Lazy<com.saurabh.artifact.data.local.AppDatabase>,
     private val diagnosticLogger: DiagnosticLogger
@@ -461,7 +459,7 @@ class RecordingRepository @Inject constructor(
                 val deletingDrafts = draftDao.get().getDraftsByLifecycle(ArtifactLifecycle.DELETING)
                 deletingDrafts.forEach { draft ->
                     diagnosticLogger.debug(DiagnosticCategory.RECORDING, "RECOVERY_RESUMING_DELETION", mapOf(LogKeys.DRAFT_ID to draft.id))
-                    deletionManager.deleteDraft(draft.id)
+                    cleanupManager.deleteDraft(draft.id)
                 }
             } catch (e: Exception) {
                 diagnosticLogger.error(DiagnosticCategory.RECORDING, "RECOVERY_CLEANUP_FAILED", throwable = e)
@@ -530,7 +528,7 @@ class RecordingRepository @Inject constructor(
             
             if (isZombieCandidate && isOldEnough) {
                 diagnosticLogger.info(DiagnosticCategory.RECORDING, "PURGING_ZOMBIE_DRAFT", mapOf(LogKeys.DRAFT_ID to draft.id, "lifecycle" to draft.lifecycle.name))
-                deletionManager.deleteDraft(draft.id)
+                cleanupManager.deleteDraft(draft.id)
             }
         }
     }

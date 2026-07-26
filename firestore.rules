@@ -139,9 +139,10 @@ service cloud.firestore {
       allow update: if resource != null &&
                    isOwner(uid) &&
                    // Release A: Allow owner to delete sensitive fields from root, but block setting/changing them.
+                   // A key can be deleted if it is NOT in the new resource keys.
                    !(request.resource.data.diff(resource.data).affectedKeys().hasAny(['isAdmin', 'admin', 'accountStatus', 'email', 'realName', 'fcmToken']) &&
                      request.resource.data.keys().hasAny(['isAdmin', 'admin', 'accountStatus', 'email', 'realName', 'fcmToken'])) &&
-                   isValidIdentityUpdate(resource == null ? {} : resource.data, request.resource.data);
+                   isValidIdentityUpdate(resource.data, request.resource.data);
 
       allow create: if isOwner(uid) &&
                     !("isAdmin" in request.resource.data) &&
@@ -202,7 +203,7 @@ service cloud.firestore {
                      request.auth != null &&
                      request.auth.uid == resource.data.get('userId', '') &&
                      !(request.resource.data.diff(resource == null ? {} : resource.data).affectedKeys()
-                       .hasAny(['reactionCount', 'commentCount', 'reportCount', 'recommendationState'])));
+                       .hasAny(['reactionCount', 'commentCount', 'playCount', 'reportCount', 'recommendationState'])));
 
       // Prevent users from hard-deleting the Artifact document to ensure Cloud Function trigger
       allow delete: if isGlobalAdmin();
@@ -250,6 +251,14 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /artifact_plays/{id} {
+      allow read: if isAuth() && (resource == null || resource.data.userId == request.auth.uid);
+      allow create: if isAuth() &&
+                    request.resource.data.userId == request.auth.uid &&
+                    id.matches("^play_" + request.auth.uid + "_.*");
+      allow write: if false;
+    }
+
     // --- IDENTITY & ANTI-ENUMERATION ---
     match /usernames/{id} {
       allow read: if isAuth();
@@ -280,7 +289,7 @@ service cloud.firestore {
       allow create: if isAuth() &&
                     request.resource.data.reporterId == request.auth.uid &&
                     reportId == request.auth.uid + "_" + request.resource.data.artifactId;
-      allow read: if isGlobalAdmin() || (isAuth() && reportId.startsWith(request.auth.uid + "_"));
+      allow read: if isGlobalAdmin() || (isAuth() && reportId.matches("^" + request.auth.uid + "_.*"));
       allow write: if isGlobalAdmin();
     }
 

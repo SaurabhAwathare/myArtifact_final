@@ -36,10 +36,11 @@ class ArtifactEngagementRepositoryTest {
     fun `recordPlay should record interaction locally if consent is given`() = runBlocking {
         val emotion = "Joy"
         val userId = "user123"
+        val artifactId = "art123"
         
         every { settingsRepository.userSettings } returns flowOf(UserSettings(dataCollectionConsent = true))
         
-        repository.recordPlay(userId, emotion)
+        repository.recordPlay(userId, artifactId, emotion)
         
         verify { personalizationEngine.recordInteraction(emotion) }
     }
@@ -48,10 +49,11 @@ class ArtifactEngagementRepositoryTest {
     fun `recordPlay should not record interaction locally if consent is denied`() = runBlocking {
         val emotion = "Joy"
         val userId = "user123"
+        val artifactId = "art123"
         
         every { settingsRepository.userSettings } returns flowOf(UserSettings(dataCollectionConsent = false))
         
-        repository.recordPlay(userId, emotion)
+        repository.recordPlay(userId, artifactId, emotion)
         
         verify(exactly = 0) { personalizationEngine.recordInteraction(emotion) }
     }

@@ -97,4 +97,8 @@ data class ArtifactDraftEntity(
 
     // Redesign: Persistent Dismissal & Activity Tracking
     val isDismissed: Boolean = false,
+
+    // Phase 2: Local Cleanup Architecture
+    val localCleanupStatus: LocalCleanupStatus? = null,
+    val cleanupRetryCount: Int = 0,
 ) : UploadProgress

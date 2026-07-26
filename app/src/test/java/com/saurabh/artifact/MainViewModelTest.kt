@@ -66,6 +66,10 @@ class MainViewModelTest {
         every { startupCoordinator.stage } returns MutableStateFlow(com.saurabh.artifact.startup.StartupStage.ARRIVAL)
         every { startupCoordinator.isRescueModeActive } returns false
 
+        coEvery {
+            startupCoordinator.awaitComponent(com.saurabh.artifact.startup.StartupComponent.CORE)
+        } returns Unit
+
         viewModel = MainViewModel(
             authRepository,
             getInitialDestinationUseCase,

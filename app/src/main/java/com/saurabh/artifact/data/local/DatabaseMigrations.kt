@@ -495,6 +495,13 @@ object DatabaseMigrations {
         }
     }
 
+    val MIGRATION_59_60 = object : Migration(59, 60) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `artifact_drafts` ADD COLUMN `localCleanupStatus` TEXT")
+            db.execSQL("ALTER TABLE `artifact_drafts` ADD COLUMN `cleanupRetryCount` INTEGER NOT NULL DEFAULT 0")
+        }
+    }
+
     val ALL_MIGRATIONS = arrayOf(
         MIGRATION_1_2,
         MIGRATION_2_3,
@@ -534,6 +541,7 @@ object DatabaseMigrations {
         MIGRATION_53_54,
         MIGRATION_54_55,
         MIGRATION_55_56,
-        MIGRATION_58_59
+        MIGRATION_58_59,
+        MIGRATION_59_60
     )
 }

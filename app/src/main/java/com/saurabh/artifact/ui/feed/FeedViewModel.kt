@@ -441,6 +441,7 @@ class FeedViewModel @Inject constructor(
                 viewModelScope.launch {
                     artifactEngagementRepository.recordPlay(
                         authRepository.currentUser.value?.uid,
+                        artifact.id,
                         artifact.emotion
                     )
                 }

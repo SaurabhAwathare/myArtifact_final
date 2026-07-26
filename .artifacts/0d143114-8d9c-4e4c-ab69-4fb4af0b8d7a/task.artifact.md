@@ -1,0 +1,6 @@
+- [x] [MODIFY] MainViewModelTest.kt to stub awaitComponent(CORE)
+- [x] Run MainViewModel navigation tests and collect evidence
+    - [x] Confirm `awaitComponent(CORE)` invocation
+    - [x] Confirm `GetInitialDestinationUseCase.invoke()` execution
+    - [x] Confirm final `AppStartupState`
+- [x] Determine root cause based on results
