@@ -5,11 +5,17 @@ import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.util.StorageManager
 import io.mockk.*
 import kotlinx.coroutines.runBlocking
+import org.junit.After
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import java.io.File
 
 class DraftDeletionManagerTest {
+    @get:Rule
+    val tempFolder = TemporaryFolder()
+
     private val storageManager = mockk<StorageManager>(relaxed = true)
     private lateinit var deletionManager: DraftDeletionManager
 
@@ -26,26 +32,32 @@ class DraftDeletionManagerTest {
         )
     }
 
+    @After
+    fun tearDown() {
+        unmockkAll()
+    }
+
     @Test
     fun `performPhysicalPurge should delete draft directory and legacy files`() = runBlocking {
         val draftId = "test-draft-id"
-        val draftDir = mockk<File>(relaxed = true) {
-            every { absolutePath } returns "/path/dir"
-        }
+        val draftDir = tempFolder.newFolder("draft_$draftId")
+        
+        // Create a legacy file
+        val legacyDir = tempFolder.newFolder("legacy")
+        val legacyFile = File(legacyDir, "audio.wav").apply { createNewFile() }
+        
         val draft = mockk<ArtifactDraftEntity>(relaxed = true) {
             every { id } returns draftId
-            every { localAudioPath } returns "/legacy/audio.wav"
+            every { localAudioPath } returns legacyFile.absolutePath
         }
 
         every { storageManager.getDraftDirectory(draftId) } returns draftDir
-        mockkConstructor(File::class)
-        every { anyConstructed<File>().exists() } returns true
-        every { anyConstructed<File>().absolutePath } returns "/legacy/audio.wav"
 
         deletionManager.performPhysicalPurge(draft)
 
         verify {
             storageManager.deleteDirectoryRecursively(draftDir)
+            storageManager.deleteSecurely(match { it.absolutePath == legacyFile.absolutePath })
         }
     }
 }
