@@ -20,6 +20,7 @@ import com.saurabh.artifact.util.StorageManager
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import androidx.room.withTransaction
+import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 
 /**
@@ -28,7 +29,7 @@ import androidx.media3.common.util.UnstableApi
  * 
  * Authoritatively owns the localCleanupStatus state machine and physical asset removal.
  */
-@UnstableApi
+@OptIn(UnstableApi::class)
 @HiltWorker
 class CleanupWorker @AssistedInject constructor(
     @Assisted private val context: Context,

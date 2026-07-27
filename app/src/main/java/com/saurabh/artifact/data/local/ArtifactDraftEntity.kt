@@ -42,14 +42,8 @@ data class ArtifactDraftEntity(
     val approvalToken: String? = null,
     val deviceFingerprint: String? = null,
     
-    // Emotional Pacing & Approval
-    val cooldownExpiry: Long? = null,
+    // Approval & Tracking
     val publishApprovalTimestamp: Long? = null,
-    val revocationTimestamp: Long? = null,
-    val emotionalRiskScore: Float = 0f,
-    val publishConfidence: Float = 0f,
-    val isEmotionalReady: Boolean = false,
-    val maxReviewPositionMs: Long = 0,
     val reviewProgress: Float = 0f,
     
     // Metadata & Recovery
@@ -61,7 +55,7 @@ data class ArtifactDraftEntity(
     val safetyAnalysis: String? = null,
     val interruptionReason: String? = null,
     val lastCheckpointTimestamp: Long = System.currentTimeMillis(),
-    val durableBytes: Long = 0, // Option A: Track bytes successfully synced to disk
+    val durableBytes: Long = 0, 
     val isCorrupted: Boolean = false,
     val version: Int = 1,
 
@@ -76,8 +70,6 @@ data class ArtifactDraftEntity(
     // Immutable Snapshot for Publishing
     val frozenTranscriptJson: SecureString? = null,
     val frozenAudioPath: String? = null,
-    val frozenMetadataJson: SecureString? = null,
-    val snapshotHash: String? = null,
 
     // Final Ritual Data
     val transcriptSegmentsJson: SecureString? = null,

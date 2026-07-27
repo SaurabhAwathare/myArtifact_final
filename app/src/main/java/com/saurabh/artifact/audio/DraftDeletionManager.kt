@@ -27,11 +27,9 @@ class DraftDeletionManager @Inject constructor(
         val draftDir = storageManager.getDraftDirectory(draft.id)
         storageManager.deleteDirectoryRecursively(draftDir)
         
-        // Cleanup legacy files if they exist outside the new directory structure
         val legacyFiles = listOfNotNull(
             draft.localAudioPath,
             draft.rawPcmPath,
-            draft.localTranscriptPath,
             draft.waveformPath,
             draft.frozenAudioPath
         ).map { File(it) }

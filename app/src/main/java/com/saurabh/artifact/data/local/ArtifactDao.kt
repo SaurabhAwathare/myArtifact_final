@@ -47,9 +47,9 @@ interface ArtifactDao {
         UPDATE artifacts 
         SET authorName = :name, 
             authorSigil = :sigil, 
-            authorAvatarSeed = :seed, 
-            authorAvatarColor = :color, 
-            authorAvatarConfigJson = :configJson 
+            authorSigilSeed = :seed, 
+            authorSigilColor = :color, 
+            authorSigilConfigJson = :configJson 
         WHERE userId = :userId
     """)
     suspend fun updateAuthorInfo(

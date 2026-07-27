@@ -3,6 +3,7 @@ package com.saurabh.artifact.repository
 import androidx.room.withTransaction
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import com.saurabh.artifact.util.WorkNames
 import androidx.lifecycle.asFlow
 import com.saurabh.artifact.audio.ArtifactCleanupManager
 import com.saurabh.artifact.audio.LocalDraftManager
@@ -197,46 +198,6 @@ class RecordingRepository @Inject constructor(
         }
     }
 
-    /**
-     * Legacy: Updates the draft with transcription results. 
-     * Not used in the current voice-first publishing flow.
-     */
-    suspend fun updateTranscriptionResult(
-        id: String,
-        localTranscriptPath: String,
-        transcriptJson: String?,
-        emotionalTone: EmotionalTone?,
-        primaryStyle: ConversationStyle?
-    ): Result<Unit> = withContext(Dispatchers.IO) {
-        diagnosticLogger.info(DiagnosticCategory.DATABASE, "TRANSCRIPT_UPDATE_RECEIVED", mapOf(LogKeys.DRAFT_ID to id))
-        try {
-            val secureTranscript = transcriptJson?.let { com.saurabh.artifact.util.SecureString.fromString(it) }
-            
-            diagnosticLogger.debug(DiagnosticCategory.DATABASE, "TRANSCRIPT_UPDATE_FORWARDED", mapOf(LogKeys.DRAFT_ID to id))
-            draftDao.get().updateTranscriptionResult(
-                id = id,
-                localTranscriptPath = localTranscriptPath,
-                transcriptSegmentsJson = secureTranscript,
-                emotionalTone = emotionalTone,
-                primaryStyle = primaryStyle
-            )
-            diagnosticLogger.info(DiagnosticCategory.DATABASE, "TRANSCRIPT_DATABASE_UPDATED", mapOf(LogKeys.DRAFT_ID to id))
-            Result.success(Unit)
-        } catch (e: Exception) {
-            diagnosticLogger.error(
-                DiagnosticCategory.DATABASE, 
-                "TRANSCRIPT_DATABASE_UPDATE_FAILED", 
-                mapOf(
-                    LogKeys.DRAFT_ID to id,
-                    LogKeys.EXCEPTION_CLASS to e.javaClass.simpleName,
-                    LogKeys.EXCEPTION_MESSAGE to (e.message ?: "No message")
-                ),
-                e
-            )
-            Result.failure(AppError.from(e))
-        }
-    }
-
     suspend fun updateProcessingStatus(id: String, status: ProcessingStatus): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             draftDao.get().updateProcessingStatus(id, status)
@@ -249,19 +210,6 @@ class RecordingRepository @Inject constructor(
     suspend fun updateWaveform(id: String, amplitudeData: List<Float>): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             draftDao.get().updateWaveformResult(id, amplitudeData)
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Result.failure(AppError.from(e))
-        }
-    }
-
-    /**
-     * Legacy: Updates the draft with safety results.
-     * Not used in the current voice-first publishing flow.
-     */
-    suspend fun updateSafetyResult(id: String, safetyAnalysis: String?, emotionalRiskScore: Float): Result<Unit> = withContext(Dispatchers.IO) {
-        try {
-            draftDao.get().updateSafetyResult(id, safetyAnalysis, emotionalRiskScore)
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(AppError.from(e))
@@ -281,12 +229,6 @@ class RecordingRepository @Inject constructor(
 
     /**
      * Resets the recovery flag. 
-     * Since isRecovering is derived, this technically doesn't need to do anything 
-     * to the DB besides updating updatedAt if we want to be strict, but for now 
-     * it's a placeholder if we ever need explicit cleanup.
-     * 
-     * Wait, in the approved plan I said isRecovering is NOT persisted.
-     * So markRecoveryComplete is just a logical end.
      */
     suspend fun markRecoveryComplete(id: String) {
         // No-op for now as state is derived from WorkManager + lastRecoveryAttemptAt
@@ -487,25 +429,16 @@ class RecordingRepository @Inject constructor(
 
     /**
      * Observes the recovery state of a specific draft.
-     * Derived from persistent recovery metadata and active WorkManager state.
      */
     fun observeRecoveryState(draftId: String, workManager: WorkManager): Flow<Boolean> {
         return observeDraft(draftId).map { draft ->
             if (draft == null) return@map false
-            
-            // Core Logic:
-            // 1. Must be in PROCESSING lifecycle
-            // 2. Must have a recovery attempt recorded
-            // 3. That attempt must be newer than the last modification (updatedAt)
             val hasRecoveryMetadata = draft.lifecycle == ArtifactLifecycle.PROCESSING && 
                                     draft.lastRecoveryAttemptAt > draft.updatedAt
-            
             hasRecoveryMetadata
         }.flatMapLatest { isMarkedRecovering ->
             if (!isMarkedRecovering) return@flatMapLatest flowOf(false)
-            
-            // Check if work is actually running/enqueued
-            workManager.getWorkInfosForUniqueWorkLiveData("process_$draftId").asFlow().map { workInfos ->
+            workManager.getWorkInfosForUniqueWorkLiveData(WorkNames.forProcessing(draftId)).asFlow().map { workInfos ->
                 workInfos.any { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.RUNNING }
             }
         }
@@ -535,22 +468,13 @@ class RecordingRepository @Inject constructor(
 
     /**
      * Authoritative repair for any desynchronized lifecycle fields.
-     * Ensures that the top-level column and embedded JSON status remain consistent.
-     * (Deprecated: with the removal of status.lifecycle, this is now a no-op or sanity check)
      */
     private suspend fun reconcileLifecycleConsistency() {
         // No longer needed as status.lifecycle is removed.
     }
 
     companion object {
-        /**
-         * Threshold to consider a PROCESSING draft as "stalled".
-         */
         private const val STALE_PROCESSING_TIMEOUT_MS = 15 * 60 * 1000L
-
-        /**
-         * Minimum interval between recovery attempts for the same draft.
-         */
         private const val RECOVERY_COOLDOWN_MS = 5 * 60 * 1000L
     }
 }

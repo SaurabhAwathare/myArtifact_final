@@ -5,6 +5,9 @@ import android.content.Context
 import android.content.Intent
 import android.os.IBinder
 import androidx.core.content.ContextCompat
+import androidx.work.WorkManager
+import com.saurabh.artifact.util.WorkNames
+import com.saurabh.artifact.data.local.AcquisitionResult
 import com.saurabh.artifact.data.local.UploadOwner
 import com.saurabh.artifact.data.local.UploadTaskDao
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
@@ -75,12 +78,12 @@ class UploadService : Service() {
         uploadJob = serviceScope.launch {
             // 1. Acquire Ownership (with 10 min timeout threshold)
             val timeoutThreshold = System.currentTimeMillis() - 10 * 60 * 1000L
-            val acquired = withContext(Dispatchers.IO) {
+            val acquisitionResult = withContext(Dispatchers.IO) {
                 uploadTaskDao.tryAcquireOwnership(draftId, UploadOwner.SERVICE, timeoutThreshold)
             }
 
-            if (!acquired) {
-                diagnosticLogger.info(DiagnosticCategory.PUBLISH, "UPLOAD_SERVICE_OWNERSHIP_BLOCKED", mapOf(LogKeys.ARTIFACT_ID to draftId))
+            if (acquisitionResult != AcquisitionResult.ACQUIRED) {
+                diagnosticLogger.info(DiagnosticCategory.PUBLISH, "UPLOAD_SERVICE_OWNERSHIP_BLOCKED", mapOf(LogKeys.ARTIFACT_ID to draftId, "result" to acquisitionResult.name))
                 stopSelf()
                 return@launch
             }
@@ -110,6 +113,9 @@ class UploadService : Service() {
                 ).onSuccess {
                     diagnosticLogger.info(DiagnosticCategory.PUBLISH, "UPLOAD_SERVICE_SUCCESS", mapOf(LogKeys.ARTIFACT_ID to draftId))
                     NotificationHelper.showUploadSuccessNotification(attributionContext, title)
+                    
+                    // Optimization: Cancel redundant fallback worker
+                    WorkManager.getInstance(attributionContext).cancelUniqueWork(WorkNames.forPublishing(draftId))
                 }.onFailure { e ->
                     diagnosticLogger.error(DiagnosticCategory.PUBLISH, "UPLOAD_SERVICE_FAILED", mapOf(LogKeys.ARTIFACT_ID to draftId), e)
                     handleFailure(draftId, e as Exception)

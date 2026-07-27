@@ -29,10 +29,11 @@ import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import androidx.annotation.OptIn
 import javax.inject.Inject
 import javax.inject.Singleton
 
-@UnstableApi
+@OptIn(UnstableApi::class)
 @Singleton
 class LogoutCoordinator @Inject constructor(
     @ApplicationContext private val context: Context,

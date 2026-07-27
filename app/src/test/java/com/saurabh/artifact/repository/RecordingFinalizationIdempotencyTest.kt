@@ -19,7 +19,6 @@ class RecordingFinalizationIdempotencyTest {
         userRepository = mockk(),
         localDraftManager = mockk(),
         wavRecoveryManager = mockk(),
-        deletionManager = mockk(),
         cleanupManager = mockk(),
         draftsDatabase = { appDatabase },
         diagnosticLogger = mockk(relaxed = true)

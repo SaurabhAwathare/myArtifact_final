@@ -16,19 +16,12 @@ import java.security.MessageDigest
 import javax.inject.Inject
 import javax.inject.Singleton
 
-@Serializable
-private data class PublishedMetadata(
-    val title: String,
-    val emotion: String,
-    val tags: List<String>
-)
-
 @Singleton
 class PublishApprovalRepository @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val draftDao: DraftDao,
     private val uploadGuard: UploadGuard,
-    private val authRepository: AuthRepository // Assuming it exists based on other VMs
+    private val authRepository: AuthRepository 
 ) {
 
     suspend fun getDraft(id: String): ArtifactDraftEntity? = withContext(Dispatchers.IO) {
@@ -45,30 +38,10 @@ class PublishApprovalRepository @Inject constructor(
 
             Log.d("PublishApprovalRepo", "Starting auto-approval for draft.")
 
-            // 1. Load Transcript with Fallback
+            // 1. Load Transcript from frozen JSON if available
             val transcript = if (draft.frozenTranscriptJson != null) {
                 val json = draft.frozenTranscriptJson.toUnsecureString()
                 Json.decodeFromString<List<TranscriptSegment>>(json)
-            } else if (draft.localTranscriptPath != null) {
-                val file = File(draft.localTranscriptPath)
-                Log.d("PublishApprovalRepo", "Transcript file located.")
-                
-                if (file.exists()) {
-                    val content = file.readText()
-                    Log.d("PublishApprovalRepo", "Transcript file read successfully.")
-                    
-                    try {
-                        val segments = Json.decodeFromString<List<TranscriptSegment>>(content)
-                        Log.d("PublishApprovalRepo", "Transcript type detected: JSON")
-                        segments
-                    } catch (e: Exception) {
-                        Log.w("PublishApprovalRepo", "Transcript type detected: PLAIN_TEXT (Wrapping content)")
-                        listOf(TranscriptSegment(id = "recovered_plain", text = content, confidence = 0.5f))
-                    }
-                } else {
-                    Log.w("PublishApprovalRepo", "Transcript file missing. Using empty transcript.")
-                    emptyList()
-                }
             } else {
                 emptyList()
             }
@@ -81,7 +54,6 @@ class PublishApprovalRepository @Inject constructor(
     }
 
     suspend fun validateDraft(draft: ArtifactDraftEntity, transcript: List<TranscriptSegment>): ValidationResult = withContext(Dispatchers.Default) {
-        // Automatic safety checks disabled per user request
         ValidationResult(
             hasSensitiveInfo = false,
             isHighRisk = false,
@@ -101,25 +73,11 @@ class PublishApprovalRepository @Inject constructor(
             
             File(draft.localAudioPath).copyTo(frozenAudioFile, overwrite = true)
             
-            val metadata = PublishedMetadata(
-                title = draft.title ?: "Untitled",
-                emotion = draft.emotion?.label ?: "",
-                tags = draft.tags
-            )
-            val metadataJson = Json.encodeToString(metadata)
-            
-            // 2. Generate Hash for Integrity
+            // 2. Generate Approval Token
             val currentChecksum = MessageDigest.getInstance("SHA-256")
                 .digest(frozenAudioFile.readBytes())
                 .joinToString("") { "%02x".format(it) }
 
-            // Support for transcript-free integrity hashing
-            val hashTranscript = if (transcript.isEmpty()) "[]" else Json.encodeToString(transcript)
-            val contentToHash = hashTranscript + frozenAudioFile.length() + metadataJson
-            val hash = MessageDigest.getInstance("SHA-256")
-                .digest(contentToHash.toByteArray())
-                .joinToString("") { "%02x".format(it) }
-            
             val timestamp = System.currentTimeMillis()
             val userId = authRepository.currentUserId
             val fingerprint = uploadGuard.getDeviceFingerprint()
@@ -132,20 +90,16 @@ class PublishApprovalRepository @Inject constructor(
 
             Log.d("PublishApprovalRepo", "Approval token generation success.")
 
-            // 3. Persist Snapshot (transcriptJson is null for new transcript-free drafts)
+            // 3. Persist Snapshot
+            val secureTranscript = transcriptJson?.let { com.saurabh.artifact.util.SecureString.fromString(it) }
             draftDao.freezeSnapshot(
                 id = draftId,
-                transcriptJson = transcriptJson,
+                transcriptJson = secureTranscript,
                 audioPath = frozenAudioFile.absolutePath,
-                metadataJson = metadataJson,
-                hash = hash,
                 token = token,
                 fingerprint = fingerprint,
                 timestamp = timestamp
             )
-            
-            // Note: We don't update lifecycle here anymore, 
-            // the PublishingOrchestrator will do it.
             
             Result.success(Unit)
         } catch (e: Exception) {

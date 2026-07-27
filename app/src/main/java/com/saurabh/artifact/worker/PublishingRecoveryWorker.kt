@@ -3,6 +3,7 @@ package com.saurabh.artifact.worker
 import android.content.Context
 import androidx.hilt.work.HiltWorker
 import androidx.work.*
+import com.saurabh.artifact.util.WorkNames
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
@@ -53,12 +54,12 @@ class PublishingRecoveryWorker @AssistedInject constructor(
                 .setInputData(inputData)
                 .setConstraints(constraints)
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.SECONDS)
-                .addTag("publish_${task.draftId}")
+                .addTag(WorkNames.forPublishing(task.draftId))
                 .addTag(SessionConstants.TAG_USER_SESSION_WORK)
                 .build()
 
             workManager.enqueueUniqueWork(
-                "publish_${task.draftId}",
+                WorkNames.forPublishing(task.draftId),
                 ExistingWorkPolicy.KEEP, // Keep if already running
                 publishingWork
             )

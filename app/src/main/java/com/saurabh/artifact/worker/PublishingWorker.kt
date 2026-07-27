@@ -5,6 +5,7 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
+import com.saurabh.artifact.data.local.AcquisitionResult
 import com.saurabh.artifact.data.local.UploadOwner
 import com.saurabh.artifact.data.local.UploadTaskDao
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
@@ -48,17 +49,30 @@ class PublishingWorker @AssistedInject constructor(
 
         // 0.2 Acquire Ownership (with 10 min timeout threshold)
         val timeoutThreshold = System.currentTimeMillis() - 10 * 60 * 1000L
-        val acquired = withContext(Dispatchers.IO) {
+        val acquisitionResult = withContext(Dispatchers.IO) {
             uploadTaskDao.tryAcquireOwnership(draftId, UploadOwner.WORKER, timeoutThreshold)
         }
 
-        if (!acquired) {
-            diagnosticLogger.info(
-                DiagnosticCategory.PUBLISH, 
-                "PUBLISHING_OWNERSHIP_BLOCKED", 
-                mapOf(LogKeys.DRAFT_ID to draftId, "reason" to "Owned by other component")
-            )
-            return@withContext Result.retry() // Let WorkManager back off and try again if the other component fails
+        when (acquisitionResult) {
+            AcquisitionResult.ACQUIRED -> {
+                // Proceed with publishing
+            }
+            AcquisitionResult.LOCKED -> {
+                diagnosticLogger.info(
+                    DiagnosticCategory.PUBLISH, 
+                    "PUBLISHING_OWNERSHIP_BLOCKED", 
+                    mapOf(LogKeys.DRAFT_ID to draftId, "reason" to "Owned by other component")
+                )
+                return@withContext Result.retry() // Let WorkManager back off and try again if the other component fails
+            }
+            AcquisitionResult.MISSING -> {
+                diagnosticLogger.info(
+                    DiagnosticCategory.PUBLISH, 
+                    "PUBLISHING_WORKER_SKIPPED", 
+                    mapOf(LogKeys.DRAFT_ID to draftId, "reason" to "Task already completed or deleted")
+                )
+                return@withContext Result.success() // Terminal result - no more retries
+            }
         }
 
         try {

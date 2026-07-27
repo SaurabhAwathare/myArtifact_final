@@ -37,8 +37,8 @@ interface UploadTaskDao {
     suspend fun deleteByDraftId(draftId: String)
 
     @Transaction
-    suspend fun tryAcquireOwnership(draftId: String, newOwner: UploadOwner, timeoutThreshold: Long): Boolean {
-        val task = getTaskByDraftId(draftId) ?: return false
+    suspend fun tryAcquireOwnership(draftId: String, newOwner: UploadOwner, timeoutThreshold: Long): AcquisitionResult {
+        val task = getTaskByDraftId(draftId) ?: return AcquisitionResult.MISSING
         val now = System.currentTimeMillis()
         
         // Ownership is available if:
@@ -51,9 +51,9 @@ interface UploadTaskDao {
         
         return if (canAcquire) {
             updateOwnership(draftId, newOwner, now)
-            true
+            AcquisitionResult.ACQUIRED
         } else {
-            false
+            AcquisitionResult.LOCKED
         }
     }
 

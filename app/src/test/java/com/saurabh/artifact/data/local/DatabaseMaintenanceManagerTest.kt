@@ -15,7 +15,6 @@ class DatabaseMaintenanceManagerTest {
     private val engagementDao = mockk<EngagementDao>(relaxed = true)
     private val interactionDao = mockk<PendingInteractionDao>(relaxed = true)
     private val draftDao = mockk<DraftDao>(relaxed = true)
-    private val uploadDao = mockk<QueuedUploadDao>(relaxed = true)
     private val openHelper = mockk<SupportSQLiteOpenHelper>()
     private val writableDb = mockk<SupportSQLiteDatabase>(relaxed = true)
 
@@ -36,8 +35,7 @@ class DatabaseMaintenanceManagerTest {
             { database },
             { engagementDao },
             { interactionDao },
-            { draftDao },
-            { uploadDao }
+            { draftDao }
         )
     }
 
@@ -61,11 +59,6 @@ class DatabaseMaintenanceManagerTest {
         val draftThreshold = slot<Long>()
         coVerify { draftDao.deleteOldPublishedDrafts(capture(draftThreshold)) }
         assertWithinRange(draftThreshold.captured, now - TimeUnit.DAYS.toMillis(30))
-
-        // Verify Upload pruning (7 days)
-        val uploadThreshold = slot<Long>()
-        coVerify { uploadDao.deleteOldQueuedUploads(capture(uploadThreshold)) }
-        assertWithinRange(uploadThreshold.captured, now - TimeUnit.DAYS.toMillis(7))
     }
 
     @Test

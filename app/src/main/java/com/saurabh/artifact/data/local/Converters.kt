@@ -5,7 +5,6 @@ import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.model.ArtifactStatus
 import com.saurabh.artifact.model.DraftStatus
 import com.saurabh.artifact.model.Emotion
-import com.saurabh.artifact.model.EmotionResult
 import com.saurabh.artifact.model.EmotionalTone
 import com.saurabh.artifact.model.PromptCategory
 import com.saurabh.artifact.model.SyncStatus
@@ -81,18 +80,6 @@ class Converters {
             Emotion.valueOf(it)
         } catch (_: Exception) {
             Emotion.NEUTRAL
-        }
-    }
-
-    @TypeConverter
-    fun fromEmotionResult(value: EmotionResult?): String? = value?.let { Json.encodeToString(it) }
-
-    @TypeConverter
-    fun toEmotionResult(value: String?): EmotionResult? = value?.let {
-        try {
-            Json.decodeFromString(it)
-        } catch (_: Exception) {
-            EmotionResult(Emotion.NEUTRAL, 0f)
         }
     }
 

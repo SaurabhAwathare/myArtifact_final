@@ -41,9 +41,6 @@ interface DraftDao {
     @Query("SELECT * FROM artifact_drafts WHERE lifecycle NOT IN ('DELETED', 'DELETING') ORDER BY updatedAt DESC")
     fun observeDrafts(): Flow<List<ArtifactDraftEntity>>
 
-    @Query("SELECT * FROM artifact_drafts WHERE status LIKE '%\"publication\":{\"type\":\"Uploading\"%' OR status LIKE '%\"publication\":\"Queued\"%'")
-    suspend fun getPendingUploadsLegacy(): List<ArtifactDraftEntity>
-
     @Query("SELECT * FROM artifact_drafts WHERE lifecycle = 'RECORDING'")
     suspend fun getActiveRecordings(): List<ArtifactDraftEntity>
 
@@ -87,10 +84,6 @@ interface DraftDao {
     @Query("UPDATE artifact_drafts SET localAudioPath = :localAudioPath, checksum = :checksum, isEncrypted = :isEncrypted, updatedAt = :timestamp WHERE id = :id")
     suspend fun updateTranscodingResult(id: String, localAudioPath: String, checksum: String?, isEncrypted: Boolean, timestamp: Long = System.currentTimeMillis())
 
-    /** Legacy: Used for transcript-based analysis. Not used in current voice-first flow. */
-    @Query("UPDATE artifact_drafts SET localTranscriptPath = :localTranscriptPath, transcriptSegmentsJson = :transcriptSegmentsJson, emotionalTone = :emotionalTone, primaryStyle = :primaryStyle, updatedAt = :timestamp WHERE id = :id")
-    suspend fun updateTranscriptionResult(id: String, localTranscriptPath: String, transcriptSegmentsJson: SecureString?, emotionalTone: EmotionalTone?, primaryStyle: ConversationStyle?, timestamp: Long = System.currentTimeMillis())
-
     @Query("UPDATE artifact_drafts SET amplitudeData = :amplitudeData, updatedAt = :timestamp WHERE id = :id")
     suspend fun _updateAmplitudeDataInternal(id: String, amplitudeData: List<Float>, timestamp: Long)
 
@@ -100,20 +93,10 @@ interface DraftDao {
         updateProcessingStatus(id, ProcessingStatus.Idle, timestamp)
     }
 
-    /** Legacy: Used for transcript-based privacy scanning. Not used in current voice-first flow. */
-    @Query("UPDATE artifact_drafts SET sensitiveEntitiesJson = :sensitiveEntitiesJson, updatedAt = :timestamp WHERE id = :id")
-    suspend fun updatePrivacyResult(id: String, sensitiveEntitiesJson: SecureString?, timestamp: Long = System.currentTimeMillis())
-
-    /** Legacy: Used for transcript-based safety analysis. Not used in current voice-first flow. */
-    @Query("UPDATE artifact_drafts SET safetyAnalysis = :safetyAnalysis, emotionalRiskScore = :emotionalRiskScore, updatedAt = :timestamp WHERE id = :id")
-    suspend fun updateSafetyResult(id: String, safetyAnalysis: String?, emotionalRiskScore: Float, timestamp: Long = System.currentTimeMillis())
-
     @Transaction
     suspend fun finalizeProcessing(id: String, timestamp: Long = System.currentTimeMillis()) {
         val existing = getDraftById(id) ?: return
         android.util.Log.d("FINALIZER_TRACE", "finalizeProcessing: existingLifecycle=${existing.lifecycle}")
-        
-        // This will block regression if already at METADATA_REQUIRED or beyond
         updateStatusAndLifecycle(id, existing.status, ArtifactLifecycle.REVIEW_REQUIRED, timestamp)
     }
 
@@ -157,14 +140,8 @@ interface DraftDao {
     @Query("SELECT * FROM artifact_drafts WHERE lifecycle = 'READY_TO_PUBLISH'")
     suspend fun getDraftsAwaitingApproval(): List<ArtifactDraftEntity>
 
-    @Query("UPDATE artifact_drafts SET isEmotionalReady = :isReady, publishConfidence = :confidence, updatedAt = :timestamp WHERE id = :id")
-    suspend fun updateEmotionalConfirmation(id: String, isReady: Boolean, confidence: Float, timestamp: Long = System.currentTimeMillis())
-
     @Query("UPDATE artifact_drafts SET reviewProgress = :progress, updatedAt = :timestamp WHERE id = :id")
     suspend fun updateReviewProgress(id: String, progress: Float, timestamp: Long = System.currentTimeMillis())
-
-    @Query("UPDATE artifact_drafts SET cooldownExpiry = :expiry, updatedAt = :timestamp WHERE id = :id")
-    suspend fun updateCooldown(id: String, expiry: Long?, timestamp: Long = System.currentTimeMillis())
 
     @Query("UPDATE artifact_drafts SET status = :status, lifecycle = :lifecycle, publishApprovalTimestamp = :timestamp, updatedAt = :timestamp WHERE id = :id")
     suspend fun _markAsApprovedInternal(id: String, status: DraftStatus, lifecycle: ArtifactLifecycle, timestamp: Long)
@@ -199,8 +176,8 @@ interface DraftDao {
         }
     }
 
-    @Query("UPDATE artifact_drafts SET frozenTranscriptJson = :transcriptJson, frozenAudioPath = :audioPath, frozenMetadataJson = :metadataJson, snapshotHash = :hash, approvalToken = :token, deviceFingerprint = :fingerprint, publishApprovalTimestamp = :timestamp, updatedAt = :timestamp WHERE id = :id")
-    suspend fun freezeSnapshot(id: String, transcriptJson: String?, audioPath: String, metadataJson: String, hash: String, token: String, fingerprint: String, timestamp: Long = System.currentTimeMillis())
+    @Query("UPDATE artifact_drafts SET frozenTranscriptJson = :transcriptJson, frozenAudioPath = :audioPath, approvalToken = :token, deviceFingerprint = :fingerprint, publishApprovalTimestamp = :timestamp, updatedAt = :timestamp WHERE id = :id")
+    suspend fun freezeSnapshot(id: String, transcriptJson: SecureString?, audioPath: String, token: String, fingerprint: String, timestamp: Long = System.currentTimeMillis())
 
     @Query("UPDATE artifact_drafts SET status = :status, updatedAt = :timestamp WHERE id = :id")
     suspend fun updateSyncStatus(id: String, status: DraftStatus, timestamp: Long = System.currentTimeMillis())
@@ -241,9 +218,7 @@ interface DraftDao {
     @Transaction
     suspend fun markReviewCompletePartial(id: String) {
         val draft = getDraftById(id) ?: return
-        // Avoid redundant updates if already in correct state
         if (draft.reviewCompleted && draft.isListened && draft.lifecycle == ArtifactLifecycle.METADATA_REQUIRED) return
-        
         _markReviewCompleteInternal(id, draft.status, ArtifactLifecycle.METADATA_REQUIRED)
     }
 

@@ -17,6 +17,7 @@ import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 
 /**
@@ -25,7 +26,7 @@ import androidx.media3.common.util.UnstableApi
  * 
  * Phase 2: Now manages the localCleanupStatus state machine and startup recovery.
  */
-@UnstableApi
+@OptIn(UnstableApi::class)
 @Singleton
 class ArtifactCleanupManager @Inject constructor(
     private val artifactRepository: ArtifactRepository,

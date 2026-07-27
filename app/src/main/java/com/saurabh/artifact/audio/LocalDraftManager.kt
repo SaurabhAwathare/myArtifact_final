@@ -37,7 +37,6 @@ class LocalDraftManager @Inject constructor(
             knownPaths.add(File(draft.localAudioPath).absolutePath)
             draft.rawPcmPath?.let { knownPaths.add(File(it).absolutePath) }
             draft.waveformPath?.let { knownPaths.add(File(it).absolutePath) }
-            draft.localTranscriptPath?.let { knownPaths.add(File(it).absolutePath) }
             draft.frozenAudioPath?.let { knownPaths.add(File(it).absolutePath) }
         }
 

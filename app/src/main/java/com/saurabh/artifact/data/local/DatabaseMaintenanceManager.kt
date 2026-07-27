@@ -12,8 +12,7 @@ class DatabaseMaintenanceManager @Inject constructor(
     private val database: dagger.Lazy<AppDatabase>,
     private val engagementDao: dagger.Lazy<EngagementDao>,
     private val interactionDao: dagger.Lazy<PendingInteractionDao>,
-    private val draftDao: dagger.Lazy<DraftDao>,
-    private val uploadDao: dagger.Lazy<QueuedUploadDao>
+    private val draftDao: dagger.Lazy<DraftDao>
 ) {
     companion object {
         private const val TAG = "DatabaseMaintenance"
@@ -53,11 +52,6 @@ class DatabaseMaintenanceManager @Inject constructor(
         val draftThreshold = now - (RetentionPolicy.DRAFT_RETENTION_DAYS * 24 * 60 * 60 * 1000L)
         draftDao.get().deleteOldPublishedDrafts(draftThreshold)
         Log.d(TAG, "Pruned published draft metadata older than ${RetentionPolicy.DRAFT_RETENTION_DAYS} days")
-
-        // 4. Prune Stale Queued Uploads
-        val uploadThreshold = now - (7 * 24 * 60 * 60 * 1000L) // Hardcoded 1 week for stale uploads
-        uploadDao.get().deleteOldQueuedUploads(uploadThreshold)
-        Log.d(TAG, "Pruned stale queued uploads older than 7 days")
     }
 
     /**

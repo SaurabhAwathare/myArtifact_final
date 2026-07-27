@@ -6,7 +6,6 @@ import com.saurabh.artifact.data.local.AppDatabase
 import com.saurabh.artifact.data.local.DatabaseMigrations
 import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.data.local.PromptDao
-import com.saurabh.artifact.data.local.QueuedUploadDao
 import com.saurabh.artifact.security.DatabaseEncryptionManager
 import dagger.Module
 import dagger.Provides
@@ -33,11 +32,6 @@ object DatabaseModule {
             .addMigrations(*DatabaseMigrations.ALL_MIGRATIONS)
             .fallbackToDestructiveMigration(true)
             .build()
-    }
-
-    @Provides
-    fun provideQueuedUploadDao(database: AppDatabase): QueuedUploadDao {
-        return database.queuedUploadDao()
     }
 
     @Provides

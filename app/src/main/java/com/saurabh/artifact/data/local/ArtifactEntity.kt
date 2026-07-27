@@ -1,6 +1,5 @@
 package com.saurabh.artifact.data.local
 
-import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.saurabh.artifact.model.ArtifactStatus
@@ -14,9 +13,9 @@ data class ArtifactEntity(
     val authorAnonymousId: String,
     val authorName: String,
     val authorSigil: String,
-    @ColumnInfo(name = "authorAvatarSeed") val authorSigilSeed: String,
-    @ColumnInfo(name = "authorAvatarColor") val authorSigilColor: String,
-    @ColumnInfo(name = "authorAvatarConfigJson") val authorSigilConfigJson: String,
+    val authorSigilSeed: String,
+    val authorSigilColor: String,
+    val authorSigilConfigJson: String,
     val audioUrl: String,
     val createdAt: Long,
     val durationMs: Long,
@@ -27,6 +26,7 @@ data class ArtifactEntity(
     val emotionTag: String,
     val playCount: Long,
     val reactionCount: Long,
+    val commentCount: Long = 0,
     val reportCount: Long = 0,
     val safetyConcernCount: Long = 0,
     val reporterIds: List<String> = emptyList(),

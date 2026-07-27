@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.saurabh.artifact.data.local.DraftDao
+import com.saurabh.artifact.util.WorkNames
 import com.saurabh.artifact.repository.DraftRepository
 import com.saurabh.artifact.domain.PublishingOrchestrator
 import com.saurabh.artifact.model.*
@@ -66,8 +67,8 @@ class PublishStateManager @Inject constructor(
                 // 1. Verify Actual Activity
                 val isServiceActive = isServiceRunning && activeServiceDraftId == id
                 val workInfos = try {
-                    workManager.getWorkInfosByTag("process_$id").get() + 
-                    workManager.getWorkInfosByTag("publish_$id").get()
+                    workManager.getWorkInfosByTag(WorkNames.forProcessing(id)).get() + 
+                    workManager.getWorkInfosByTag(WorkNames.forPublishing(id)).get()
                 } catch (e: Exception) {
                     emptyList<WorkInfo>()
                 }

@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.work.*
 import androidx.work.await
 import com.saurabh.artifact.audio.UploadService
+import com.saurabh.artifact.util.WorkNames
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.security.UploadGuard
 import com.saurabh.artifact.repository.AuthRepository
@@ -69,7 +70,7 @@ class PublishingOrchestrator @Inject constructor(
             .build()
 
         workManager.beginUniqueWork(
-            "process_$draftId",
+            WorkNames.forProcessing(draftId),
             ExistingWorkPolicy.REPLACE,
             transcodingWork
         )
@@ -83,7 +84,7 @@ class PublishingOrchestrator @Inject constructor(
      * Checks if a processing chain for the given draft is currently active.
      */
     suspend fun isProcessingActive(draftId: String): Boolean = withContext(Dispatchers.IO) {
-        val workInfos = workManager.getWorkInfosForUniqueWork("process_$draftId").get()
+        val workInfos = workManager.getWorkInfosForUniqueWork(WorkNames.forProcessing(draftId)).get()
         workInfos.any { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.RUNNING }
     }
 
@@ -170,7 +171,11 @@ class PublishingOrchestrator @Inject constructor(
         
         draftRepository.prepareForPublishing(draftId, initialStatus)
         
-        // 3. Trigger Publishing Worker
+        // 3. Trigger Publishing Hybrid Solution
+        // Immediate Start via Service
+        UploadService.start(context, draftId)
+        
+        // Trigger Publishing Worker as fallback
         enqueuePublishingWork(draftId)
 
         if (isOnline) PublishingResult.UPLOAD_STARTED else PublishingResult.QUEUED_OFFLINE
@@ -194,12 +199,12 @@ class PublishingOrchestrator @Inject constructor(
             .setConstraints(constraints)
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.SECONDS)
-            .addTag("publish_$draftId")
+            .addTag(WorkNames.forPublishing(draftId))
             .addTag(SessionConstants.TAG_USER_SESSION_WORK)
             .build()
 
         workManager.enqueueUniqueWork(
-            "publish_$draftId",
+            WorkNames.forPublishing(draftId),
             ExistingWorkPolicy.KEEP,
             publishingWork
         )

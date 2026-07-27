@@ -23,7 +23,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
-import kotlin.OptIn
+import androidx.annotation.OptIn
 
 sealed class AppStartupState {
     object Initializing : AppStartupState()
@@ -35,13 +35,13 @@ sealed class AppStartupState {
     data class Error(val message: String) : AppStartupState()
 }
 
-@UnstableApi
+@OptIn(UnstableApi::class)
 @HiltViewModel
 class MainViewModel @Inject constructor(
     private val authRepository: com.saurabh.artifact.repository.AuthRepository,
     private val getInitialDestinationUseCase: GetInitialDestinationUseCase,
     private val registrationCoordinator: com.saurabh.artifact.domain.auth.RegistrationCoordinator,
-    @get:UnstableApi private val logoutCoordinator: com.saurabh.artifact.domain.auth.LogoutCoordinator,
+    private val logoutCoordinator: com.saurabh.artifact.domain.auth.LogoutCoordinator,
     observeCurrentUserProfileUseCase: ObserveCurrentUserProfileUseCase,
     observeStealthModeUseCase: ObserveStealthModeUseCase,
     private val startupCoordinator: StartupCoordinator,

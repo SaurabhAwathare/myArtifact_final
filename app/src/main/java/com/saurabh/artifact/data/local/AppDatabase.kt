@@ -6,7 +6,6 @@ import androidx.room.TypeConverters
 
 @Database(
     entities = [
-        QueuedUpload::class, 
         PromptEntity::class, 
         ArtifactEngagement::class, 
         ArtifactEntity::class,
@@ -25,7 +24,6 @@ import androidx.room.TypeConverters
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
-    abstract fun queuedUploadDao(): QueuedUploadDao
     abstract fun promptDao(): PromptDao
     abstract fun engagementDao(): EngagementDao
     abstract fun artifactDao(): ArtifactDao
