@@ -4,7 +4,7 @@ import android.content.Context
 import androidx.work.WorkManager
 import com.saurabh.artifact.data.local.*
 import com.saurabh.artifact.model.*
-import com.saurabh.artifact.model.avatar.SigilVariant
+import com.saurabh.artifact.model.sigil.SigilVariant
 import com.saurabh.artifact.worker.IdentitySyncWorker
 import io.mockk.*
 import kotlinx.coroutines.CoroutineScope

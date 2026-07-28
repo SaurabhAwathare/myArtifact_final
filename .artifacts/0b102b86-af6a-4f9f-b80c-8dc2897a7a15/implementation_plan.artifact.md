@@ -1,51 +1,72 @@
-# Firestore Backup & Verification Procedure
+# Phase 1 Cleanup: Terminology & Obsolete Models
 
-Establish a reliable backup of the production Firestore database before executing the Sigil system migration.
+Align the codebase with the "Sigil" terminology and remove clearly obsolete data structures while maintaining production stability and backward compatibility for inactive users.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> **Manual Intervention May Be Required**: If the script fails to assign required IAM roles to the Firestore Service Agent, you may need to grant `Storage Admin` access to the service agent via the Google Cloud Console.
-
-> [!NOTE]
-> **Storage Costs**: The export will reside in `gs://myartifact-555e3.firebasestorage.app/backups/`. Standard Cloud Storage rates apply.
+> **Media3 Bundle Keys**: I am introducing `sigil_seed` as the canonical key for Media3 metadata while retaining `avatar_seed` for backward compatibility with active notifications/external controllers.
 
 ## Proposed Changes
 
-### [Component] Backup Tooling
+### [Component] Domain Models
+*Normalization of the core identity data structures.*
 
-#### [NEW] [firestore_backup_manager.js](file:///F:/Android Project/01/scripts/firestore_backup_manager.js)
-A production-grade utility to manage Firestore exports.
-- **Initialization**: Configures the `FirestoreAdminClient` and verifies project settings.
-- **Pre-flight Checks**:
-    - Verifies the target Cloud Storage bucket exists.
-    - Identifies the Firestore Service Agent.
-    - Checks for potential IAM gaps.
-- **Execution**:
-    - Triggers `exportDocuments` for the entire `(default)` database.
-    - Provides the long-running operation ID.
-- **Monitoring**:
-    - Polls the operation until completion (SUCCESS/FAILURE).
-- **Verification**:
-    - Inspects the destination bucket for `.overall_export_metadata`.
-    - Validates file counts and timestamps.
+#### [MODIFY] [AvatarConfig.kt](file:///F:/Android Project/01/app/src/main/java/com/saurabh/artifact/model/AvatarConfig.kt) -> [SigilConfig.kt](file:///F:/Android Project/01/app/src/main/java/com/saurabh/artifact/model/SigilConfig.kt)
+- **Rename** file to match the class name `SigilConfig`.
+- Update KDoc to explicitly mention that this replaced the legacy Avatar system.
+
+#### [RENAME] `com.saurabh.artifact.model.avatar` -> `com.saurabh.artifact.model.sigil`
+- Rename the package and directory.
+- Affects: `SigilEnums.kt`.
+- Update all imports across the project.
+
+#### [DELETE] [AvatarParts.kt](file:///F:/Android Project/01/app/src/main/java/com/saurabh/artifact/model/avatar/AvatarParts.kt)
+- Remove `HairType`, `EyeType`, `MouthType`, `FaceShape`, and `AccessoryType`.
+- **Reason**: These were verified to have zero production usages following the refactor to geometric sigils.
 
 ---
 
-### [Component] Documentation
+### [Component] UI Architecture
+*Structural alignment of identity-related UI components.*
 
-#### [MODIFY] [MIGRATION_GUIDE.md](file:///F:/Android Project/01/scripts/MIGRATION_GUIDE.md)
-Update the operational guide with specific backup verification steps.
-- Add `node scripts/firestore_backup_manager.js --action=backup` to the workflow.
-- Define the criteria for a "Valid Backup".
+#### [RENAME] `com.saurabh.artifact.ui.avatar` -> `com.saurabh.artifact.ui.sigil`
+- Rename the package and directory.
+- Affects: `SigilRitualScreen.kt`, `SigilViewModel.kt`, and the `renderer/` sub-package.
+- Update all imports across the project (approx. 15 files).
+
+---
+
+### [Component] Audio & Media3
+*Updating metadata keys for external consumers.*
+
+#### [MODIFY] [PlaybackService.kt](file:///F:/Android Project/01/app/src/main/java/com/saurabh/artifact/audio/PlaybackService.kt) and [PlaybackSessionManager.kt](file:///F:/Android Project/01/app/src/main/java/com/saurabh/artifact/audio/PlaybackSessionManager.kt)
+- Update `createMediaItem` metadata extras:
+    ```kotlin
+    android.os.Bundle().apply {
+        putString("author_sigil", artifact.author.sigil)
+        putString("sigil_seed", artifact.author.sigilSeed)  // Canonical
+        putString("avatar_seed", artifact.author.sigilSeed) // Legacy Support
+    }
+    ```
+
+---
+
+### [Component] Compatibility Scaffolding
+*Clarifying the role of migration code.*
+
+#### [MODIFY] [ProfileRepairService.kt](file:///F:/Android Project/01/app/src/main/java/com/saurabh/artifact/domain/auth/ProfileRepairService.kt) and [UserSessionManager.kt](file:///F:/Android Project/01/app/src/main/java/com/saurabh/artifact/data/local/UserSessionManager.kt)
+- Update internal variable names and comments to clearly demarcate "Legacy Avatar" code paths vs "Modern Sigil" paths.
+- Ensure `hasLegacyFields` logic remains untouched for inactive users.
 
 ## Verification Plan
 
 ### Automated Tests
-- Run `node scripts/firestore_backup_manager.js --action=verify` to perform a post-export audit.
-- The script will exit with code `0` only if all export artifacts are present and readable.
+- Run `ProfileRepairServiceTest` to ensure renaming didn't break migration logic.
+- Run `PlaybackServiceTest` (if exists) or verify MediaItem creation logic.
+- `gradle_build("app:assembleDebug")` to verify no broken references.
 
 ### Manual Verification
-1.  **Operation Audit**: Check the "Recent Imports/Exports" tab in the Firebase Console.
-2.  **File Audit**: Browse the `backups/` folder in the Storage tab to see the LevelDB log files.
-3.  **Report Generation**: Review the `Backup Verification Report` generated by the script.
+- Launch the app and navigate to the "Sigil Ritual" (formerly Avatar Editor).
+- Verify that Sigil generation and saving still work perfectly.
+- Play an artifact and verify that the notification (if it uses extras) displays the correct identity.

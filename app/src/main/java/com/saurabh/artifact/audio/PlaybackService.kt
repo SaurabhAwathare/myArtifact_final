@@ -381,7 +381,14 @@ class PlaybackService : MediaLibraryService() {
             .setExtras(
                 android.os.Bundle().apply {
                     putString("author_sigil", artifact.author.sigil)
-                    putString("avatar_seed", artifact.author.sigilSeed)
+                    putString("sigil_seed", artifact.author.sigilSeed) // Canonical identity key
+                    
+                    /**
+                     * TODO: Retire "avatar_seed" once all external controllers (Wear OS, Auto) 
+                     * have been updated to consume "sigil_seed". 
+                     * Status: Deprecated for backward compatibility.
+                     */
+                    putString("avatar_seed", artifact.author.sigilSeed) 
                 }
             )
             .build()

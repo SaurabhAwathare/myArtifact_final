@@ -7,7 +7,7 @@ import androidx.navigation.toRoute
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.navigation.*
-import com.saurabh.artifact.ui.avatar.SigilRitualScreen
+import com.saurabh.artifact.ui.sigil.SigilRitualScreen
 import com.saurabh.artifact.ui.identity.IdentitySelectionScreen
 import com.saurabh.artifact.ui.moderation.ModerationScreen
 import com.saurabh.artifact.ui.profile.ProfileScreen

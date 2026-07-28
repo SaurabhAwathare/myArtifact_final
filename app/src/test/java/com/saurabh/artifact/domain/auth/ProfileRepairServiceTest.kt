@@ -2,7 +2,7 @@ package com.saurabh.artifact.domain.auth
 
 import com.google.firebase.firestore.DocumentSnapshot
 import com.saurabh.artifact.model.CURRENT_SCHEMA_VERSION
-import com.saurabh.artifact.model.avatar.SigilVariant
+import com.saurabh.artifact.model.sigil.SigilVariant
 import android.util.Log
 import com.saurabh.artifact.model.User
 import io.mockk.every

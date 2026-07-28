@@ -208,7 +208,7 @@ fun ImmersivePlayerScreen(
                                     modifier = Modifier.size(280.dp),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    // Keep a subtle emotional glow behind the avatar
+                                    // Keep a subtle emotional glow behind the sigil
                                     EmotionalAudioSurface(
                                         emotion = emotion,
                                         isPlaying = uiState.isPlaying,

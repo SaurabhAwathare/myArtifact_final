@@ -2,7 +2,7 @@ package com.saurabh.artifact.data.local
 
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import com.saurabh.artifact.model.SigilConfig
-import com.saurabh.artifact.model.avatar.SigilVariant
+import com.saurabh.artifact.model.sigil.SigilVariant
 import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi

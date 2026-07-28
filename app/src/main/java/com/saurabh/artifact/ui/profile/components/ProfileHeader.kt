@@ -18,7 +18,7 @@ import com.saurabh.artifact.model.SigilConfig
 
 /**
  * Redesigned ProfileHeader: Compact, Dense, Instagram-style hierarchy.
- * [ Avatar ]   Posts   Resonating   Resonators
+ * [ Sigil ]   Posts   Resonating   Resonators
  * @username
  */
 @Composable

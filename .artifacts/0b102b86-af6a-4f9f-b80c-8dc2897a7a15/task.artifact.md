@@ -5,10 +5,13 @@
 - `[x]` Expand `ProfileRepairServiceTest.kt` with comprehensive test cases.
 - `[x]` Verify User Profile cleanup via unit tests.
 - `[x]` Summarize work in a walkthrough.
-- `[x]` Implement `migrate_sigils.js` with production safeguards.
-- `[x]` Implement `MIGRATION_GUIDE.md` with operational procedures.
-- `[x]` Generate sample outputs (Dry-run, Execute, Failure log).
-- `[x]` Finalize Phase 2 documentation.
+- `[x]` Rename `AvatarConfig.kt` to `SigilConfig.kt`.
+- `[x]` Rename `com.saurabh.artifact.model.avatar` to `com.saurabh.artifact.model.sigil`.
+- `[x]` Delete obsolete `AvatarParts.kt`.
+- `[x]` Rename `com.saurabh.artifact.ui.avatar` to `com.saurabh.artifact.ui.sigil`.
+- `[x]` Update Media3 bundle keys in `PlaybackService` and `PlaybackSessionManager`.
+- `[x]` Update legacy comments in `ImmersivePlayerScreen.kt` and `ProfileHeader.kt`.
+- `[x]` Verify Phase 1 cleanup with a successful build and test pass.
 - `[x]` Execute Dry Run and verify results.
 - `[x]` Execute Production Migration.
 - `[x]` Perform Post-Migration Audit (35 docs).

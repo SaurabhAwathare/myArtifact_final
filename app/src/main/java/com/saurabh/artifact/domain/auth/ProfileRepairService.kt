@@ -4,7 +4,7 @@ import android.util.Log
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentSnapshot
 import com.saurabh.artifact.model.*
-import com.saurabh.artifact.model.avatar.*
+import com.saurabh.artifact.model.sigil.*
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -13,6 +13,8 @@ class ProfileRepairService @Inject constructor() {
 
     /**
      * Attempts to load a User from a snapshot, repairing it if it's corrupted or legacy.
+     * Clarification: Handles the migration from legacy human-like "Avatar" fields 
+     * to abstract geometric "Sigil" fields.
      * @return A pair of (Repaired User, Boolean flag indicating if repair was performed)
      */
     fun loadAndRepair(snapshot: DocumentSnapshot): Pair<User, Boolean> {
@@ -24,15 +26,16 @@ class ProfileRepairService @Inject constructor() {
         val repairReasons = mutableListOf<String>()
 
         // 1. Detect Legacy Fields for Cleanup (Requirement 1: Idempotency & Verification)
-        val hasLegacyFields = snapshot.contains("avatarSeed") || 
-                             snapshot.contains("avatarColor") || 
-                             snapshot.contains("avatarConfig") ||
-                             snapshot.contains("followersCount") ||
-                             snapshot.contains("followingCount")
+        // Note: These fields belong to the retired Avatar system.
+        val hasLegacyAvatarFields = snapshot.contains("avatarSeed") || 
+                                   snapshot.contains("avatarColor") || 
+                                   snapshot.contains("avatarConfig") ||
+                                   snapshot.contains("followersCount") ||
+                                   snapshot.contains("followingCount")
 
-        if (hasLegacyFields) {
+        if (hasLegacyAvatarFields) {
             repairPerformed = true
-            repairReasons.add("LEGACY_FIELDS_PRESENT")
+            repairReasons.add("LEGACY_AVATAR_FIELDS_PRESENT")
         }
 
         // 2. Initial Deserialization Attempt

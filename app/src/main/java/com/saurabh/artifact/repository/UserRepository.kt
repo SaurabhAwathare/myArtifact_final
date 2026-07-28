@@ -10,7 +10,7 @@ import com.google.firebase.firestore.FieldPath
 import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.User
 import com.saurabh.artifact.model.SigilConfig
-import com.saurabh.artifact.model.avatar.*
+import com.saurabh.artifact.model.sigil.*
 import com.saurabh.artifact.model.UserPrivateSettings
 import com.saurabh.artifact.util.SecureString
 import com.saurabh.artifact.util.UsernameGenerator

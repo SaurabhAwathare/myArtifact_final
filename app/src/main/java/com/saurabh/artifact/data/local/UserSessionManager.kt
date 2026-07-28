@@ -31,7 +31,7 @@ class UserSessionManager @Inject constructor(
         val ACTIVE_DRAFT_ID = stringPreferencesKey("active_draft_id")
         val ACTIVE_PROMPT_ID = stringPreferencesKey("active_prompt_id")
         
-        // Legacy/Migration keys
+        // Legacy/Migration keys (Retired Avatar System)
         val AVATAR_SEED = stringPreferencesKey("avatar_seed")
         val AVATAR_CONFIG_JSON = stringPreferencesKey("avatar_config_json")
         val AVATAR_COLOR = stringPreferencesKey("avatar_color")
