@@ -519,57 +519,26 @@ fun ArtifactItem(
             StartupMetrics.onFirstArtifactRendered()
         }
 
-        val displayFeedArtifact = feedArtifact ?: FeedArtifact(
+        val effectiveReason = reason ?: feedArtifact?.reason ?: com.saurabh.artifact.model.FeedRecommendationReason.DISCOVERY
+
+        ArtifactCard(
             artifact = art,
-            reason = reason ?: com.saurabh.artifact.model.FeedRecommendationReason.DISCOVERY
+            isPlaying = isPlaying,
+            isBuffering = isCurrentBuffering,
+            hydrationLevel = hydrationLevel,
+            onPlayClick = { 
+                viewModel.playAudio(art) 
+                viewModel.onArtifactFocused(artifactId)
+            },
+            onReportClick = { onReportClick(artifactId) },
+            onFeedbackClick = { viewModel.submitFeedback(artifactId, FeedbackType.NOT_FOR_ME) },
+            onSettingsClick = { viewModel.showSettingsComingSoon() },
+            onAuthorClick = onAuthorClick,
+            currentUserId = viewModel.currentUserId,
+            artifactDetail = artifactDetail,
+            recommendationReason = effectiveReason,
+            modifier = modifier
         )
-
-        // Show labels ONLY for high-value reasons (Resonance)
-        // Suppress DISCOVERY labels to reduce UI clutter
-        val shouldShowLabel = when {
-            feedArtifact != null -> true
-            reason != null && reason != com.saurabh.artifact.model.FeedRecommendationReason.DISCOVERY -> true
-            else -> false
-        }
-
-        // Use ArtifactFeedCard if we have a specific reason (not default discovery) or it's an unfinished item
-        if (shouldShowLabel) {
-            ArtifactFeedCard(
-                feedArtifact = displayFeedArtifact,
-                isPlaying = isPlaying,
-                isBuffering = isCurrentBuffering,
-                hydrationLevel = hydrationLevel,
-                onPlayClick = { 
-                    viewModel.playAudio(art) 
-                    viewModel.onArtifactFocused(artifactId)
-                },
-                onReportClick = { onReportClick(artifactId) },
-                onFeedbackClick = { viewModel.submitFeedback(artifactId, FeedbackType.NOT_FOR_ME) },
-                onSettingsClick = { viewModel.showSettingsComingSoon() },
-                onAuthorClick = onAuthorClick,
-                currentUserId = viewModel.currentUserId,
-                artifactDetail = artifactDetail,
-                modifier = modifier
-            )
-        } else {
-            ArtifactCard(
-                artifact = art,
-                isPlaying = isPlaying,
-                isBuffering = isCurrentBuffering,
-                hydrationLevel = hydrationLevel,
-                onPlayClick = { 
-                    viewModel.playAudio(art) 
-                    viewModel.onArtifactFocused(artifactId)
-                },
-                onReportClick = { onReportClick(artifactId) },
-                onFeedbackClick = { viewModel.submitFeedback(artifactId, FeedbackType.NOT_FOR_ME) },
-                onSettingsClick = { viewModel.showSettingsComingSoon() },
-                onAuthorClick = onAuthorClick,
-                currentUserId = viewModel.currentUserId,
-                artifactDetail = artifactDetail,
-                modifier = modifier
-            )
-        }
     }
 }
 

@@ -1,0 +1,29 @@
+# Task List - Final Production Readiness Audit (CODE FREEZE)
+
+- `[x]` Technical Claim Verification
+    - `[x]` Run full unit test suite (`testDebugUnitTest`)
+    - `[x]` Verify 100% pass rate (319/319)
+    - `[x]` Run Debug Build (`assembleDebug`)
+    - `[x]` Run Lint Check (`lintDebug`)
+- `[x]` Release Candidate Baseline
+    - `[x]` Document Git SHA (`eed244d35f095ec19b8e9df5048036045745ab75`)
+    - `[x]` Formally lock technical metrics
+- `[x]` Release Build Configuration Verification
+    - `[x]` Run Release Build (`assembleRelease`)
+    - `[x]` Verify R8/ProGuard success and warnings
+- `[x]` Blocker & Regression Audit
+    - `[x]` Verify `stopMutex` in `RecordingService.kt`
+    - `[x]` Verify hybrid publishing path in `PublishingOrchestrator.kt`
+    - `[x]` Verify `RecordingFinalizationIdempotencyTest.kt` fixes
+- `[/]` Release Readiness Blocker Resolution (WAITING)
+    - `[ ]` Detect and authorize physical device
+    - `[ ]` Resolve missing production keystore file
+- `[ ]` Final Physical Smoke Test (RC1 VALIDATION)
+    - `[ ]` Authentication & Launch (Physical)
+    - `[ ]` App Check Production Validation
+    - `[ ]` Recording Lifecycle (Hardware Mic)
+    - `[ ]` Publishing Flow (Background Service)
+    - `[ ]` Consumption & Interactions
+    - `[ ]` Radio Resilience & State Restoration
+- `[ ]` Final Release Gate Decision
+- `[ ]` Generate Final Readiness Report

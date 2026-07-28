@@ -14,10 +14,19 @@ data class FeedArtifact(
 /**
  * Reasons why an artifact was recommended to the user.
  */
-enum class FeedRecommendationReason(val label: String) {
-    RESONATING_PRESENCE("From a presence you resonate with"),
-    EMOTIONAL_RESONANCE("Resonates with your mood"),
-    DISCOVERY("A voice you might connect with")
+enum class FeedRecommendationReason(val label: String, val explanation: String) {
+    RESONATING_PRESENCE(
+        label = "From a presence you resonate with",
+        explanation = "This presence often shares moments that resonate with your journey."
+    ),
+    EMOTIONAL_RESONANCE(
+        label = "Resonates with your mood",
+        explanation = "This artifact aligns with the emotional themes you've been exploring recently."
+    ),
+    DISCOVERY(
+        label = "A voice you might connect with",
+        explanation = "A voice from the community that we thought you might connect with."
+    )
 }
 
 /**

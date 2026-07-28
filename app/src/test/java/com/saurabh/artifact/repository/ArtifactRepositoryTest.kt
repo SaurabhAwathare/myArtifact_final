@@ -190,21 +190,12 @@ class ArtifactRepositoryTest {
         val artifactId = "art123"
         val shelf = "Favorites"
 
-        val docRef = mockk<DocumentReference>(relaxed = true)
-        every { firestore.collection("users").document(userId).collection("savedArtifacts").document(artifactId) } returns docRef
-        
-        val task = mockk<com.google.android.gms.tasks.Task<Void>>(relaxed = true)
-        every { docRef.set(any()) } returns task
-        
-        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
-        // In some environments Task<Void>.await() returns null. 
-        // We use every { ... } returns mockk() to avoid type issues if needed, 
-        // but Task<Void> is often tricky in Kotlin tests.
-        coEvery { task.await() } returns mockk(relaxed = true)
+        coEvery { artifactLibraryRepository.syncSave(userId, artifactId, shelf) } returns Result.success(Unit)
 
         val result = repository.saveArtifactToFirestore(userId, artifactId, shelf)
 
         assert(result.isSuccess)
+        coVerify { artifactLibraryRepository.syncSave(userId, artifactId, shelf) }
     }
 
     @Test
@@ -212,19 +203,13 @@ class ArtifactRepositoryTest {
         val userId = "user123"
         val artifactId = "art123"
         
-        val docRef = mockk<DocumentReference>(relaxed = true)
-        every { firestore.collection("users").document(userId).collection("savedArtifacts").document(artifactId) } returns docRef
-        
-        val task = mockk<com.google.android.gms.tasks.Task<Void>>(relaxed = true)
-        every { docRef.set(any()) } returns task
-        
-        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
-        coEvery { task.await() } throws Exception("Firestore Error")
+        coEvery { artifactLibraryRepository.syncSave(userId, artifactId, any()) } returns Result.failure(Exception("Firestore Error"))
 
         val result = repository.saveArtifactToFirestore(userId, artifactId)
 
         assert(result.isFailure)
         assertEquals("Firestore Error", result.exceptionOrNull()?.message)
+        coVerify { artifactLibraryRepository.syncSave(userId, artifactId, any()) }
     }
 
     @Test

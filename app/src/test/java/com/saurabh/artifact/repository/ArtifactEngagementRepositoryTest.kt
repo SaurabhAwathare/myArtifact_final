@@ -1,7 +1,9 @@
 package com.saurabh.artifact.repository
 
 import androidx.media3.common.util.UnstableApi
+import com.google.android.gms.tasks.Tasks
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Transaction
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.model.FeedbackType
 import com.saurabh.artifact.model.UserSettings
@@ -24,6 +26,11 @@ class ArtifactEngagementRepositoryTest {
 
     @Before
     fun setup() {
+        // Mock Firestore Task operations to prevent stalls during await()
+        // Using fluent chaining to match the pattern used in submitPrivateFeedback
+        every { firestore.collection(any()).document(any()).set(any()) } returns Tasks.forResult(null)
+        every { firestore.runTransaction(any<Transaction.Function<*>>()) } returns Tasks.forResult(null)
+
         repository = ArtifactEngagementRepository(
             firestore = firestore,
             personalizationEngine = { personalizationEngine },

@@ -85,6 +85,7 @@ fun ArtifactCard(
     onAuthorClick: (String) -> Unit = {},
     currentUserId: String? = null,
     artifactDetail: com.saurabh.artifact.model.ArtifactDetail? = null,
+    recommendationReason: com.saurabh.artifact.model.FeedRecommendationReason? = null,
 ) {
     if (hydrationLevel == com.saurabh.artifact.ui.feed.HydrationLevel.SHELL) {
         LightweightArtifactCard(artifact, onPlayClick, modifier)
@@ -95,6 +96,7 @@ fun ArtifactCard(
     val stage = ArtifactTheme.stage
 
     var showOptionsSheet by remember { mutableStateOf(false) }
+    var showWhySheet by remember { mutableStateOf(false) }
     val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
     
@@ -407,6 +409,8 @@ fun ArtifactCard(
             showDelete = false,
             onFeedbackClick = onFeedbackClick,
             onSettingsClick = onSettingsClick,
+            onWhyThisClick = { showWhySheet = true },
+            recommendationReason = recommendationReason,
             onShareClick = {
                 val payload = com.saurabh.artifact.model.SharePayload(
                     artifactId = artifact.id,
@@ -424,6 +428,13 @@ fun ArtifactCard(
                 val shareIntent = android.content.Intent.createChooser(sendIntent, null)
                 context.startActivity(shareIntent)
             }
+        )
+    }
+
+    if (showWhySheet && recommendationReason != null) {
+        RecommendationExplanationSheet(
+            reason = recommendationReason,
+            onDismiss = { showWhySheet = false }
         )
     }
 }

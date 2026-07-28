@@ -31,6 +31,8 @@ fun ArtifactOptionsSheet(
     onFeedbackClick: () -> Unit = {},
     onSettingsClick: () -> Unit = {},
     onShareClick: () -> Unit = {},
+    onWhyThisClick: () -> Unit = {},
+    recommendationReason: com.saurabh.artifact.model.FeedRecommendationReason? = null,
     isPublic: Boolean = true,
     isDraft: Boolean = false,
     showDelete: Boolean = true
@@ -95,6 +97,19 @@ fun ArtifactOptionsSheet(
                         icon = Icons.Rounded.Share,
                         onClick = {
                             onShareClick()
+                            onDismiss()
+                        }
+                    )
+                }
+
+                // Explainability: Why this Artifact?
+                if (recommendationReason != null && recommendationReason != com.saurabh.artifact.model.FeedRecommendationReason.DISCOVERY) {
+                    OptionItem(
+                        label = "Why this Artifact?",
+                        description = "Understand how this voice reached you",
+                        icon = Icons.Rounded.Info,
+                        onClick = {
+                            onWhyThisClick()
                             onDismiss()
                         }
                     )

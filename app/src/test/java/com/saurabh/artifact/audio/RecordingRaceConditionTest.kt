@@ -1,5 +1,7 @@
 package com.saurabh.artifact.audio
 
+import android.os.Looper
+import android.util.Log
 import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.data.local.RecordingStatus
 import com.saurabh.artifact.data.local.UserSessionManager
@@ -31,14 +33,30 @@ class RecordingRaceConditionTest {
     private val publishingOrchestrator = mockk<PublishingOrchestrator>(relaxed = true)
     private val storageManager = mockk<StorageManager>(relaxed = true)
     private val localDraftManager = mockk<LocalDraftManager>(relaxed = true)
+    private val cleanupManager = mockk<ArtifactCleanupManager>(relaxed = true)
 
     private val testDispatcher = StandardTestDispatcher()
     private val testScope = TestScope(testDispatcher)
 
     @Before
     fun setup() {
+        mockkStatic(Log::class)
+        every { Log.d(any(), any()) } returns 0
+        every { Log.i(any(), any()) } returns 0
+        every { Log.w(any(), any(), any()) } returns 0
+        every { Log.e(any(), any(), any()) } returns 0
+        
+        mockkStatic(Looper::class)
+        val looper = mockk<Looper>()
+        every { Looper.getMainLooper() } returns looper
+        
+        mockkStatic(Dispatchers::class)
+        every { Dispatchers.IO } returns testDispatcher
+        every { Dispatchers.Default } returns testDispatcher
+        
         Dispatchers.setMain(testDispatcher)
-        service = RecordingService().apply {
+        
+        service = spyk(RecordingService()).apply {
             this.draftDao = this@RecordingRaceConditionTest.draftDao
             this.artifactRepository = this@RecordingRaceConditionTest.artifactRepository
             this.recordingRepository = this@RecordingRaceConditionTest.recordingRepository
@@ -47,9 +65,14 @@ class RecordingRaceConditionTest {
             this.publishingOrchestrator = this@RecordingRaceConditionTest.publishingOrchestrator
             this.storageManager = this@RecordingRaceConditionTest.storageManager
             this.localDraftManager = this@RecordingRaceConditionTest.localDraftManager
+            this.cleanupManager = this@RecordingRaceConditionTest.cleanupManager
         }
         
-        coEvery { recordingRepository.finalizeRecording(any(), any(), any()) } returns Result.success(Unit)
+        every { service.stopForeground(any<Int>()) } just Runs
+        every { service.stopForeground(any<Boolean>()) } just Runs
+        every { service.stopSelf() } just Runs
+        
+        coEvery { recordingRepository.finalizeRecording(any(), any(), any(), any()) } returns Result.success(Unit)
     }
 
     @After
@@ -96,8 +119,10 @@ class RecordingRaceConditionTest {
         runCurrent()
         assertEquals("Cancel should have ignored as status is COMPLETED", RecordingStatus.COMPLETED, RecordingService.recordingState.value.status)
         
+        unmockkStatic(Dispatchers::class)
+
         // Verify finalizeRecording was called with A's data
-        coVerify(exactly = 1) { recordingRepository.finalizeRecording(draftA, any(), any()) }
+        coVerify(exactly = 1) { recordingRepository.finalizeRecording(draftA, any(), any(), any()) }
     }
 
     @Test
@@ -114,8 +139,8 @@ class RecordingRaceConditionTest {
         advanceTimeBy(100.milliseconds) // Since it's synced now, we might need a tick
         runCurrent()
         
-        // Verify that draftDao.delete was called with the correct draft ID
-        coVerify { draftDao.delete(match { it.id == draftId }) }
+        // Verify that cleanup was initiated via CleanupManager
+        coVerify { cleanupManager.deleteDraft(draftId) }
         // Verify file deletion
         verify { file.delete() }
     }
@@ -127,7 +152,7 @@ class RecordingRaceConditionTest {
     }
 
     private fun setServiceState(status: RecordingStatus, draftId: String, outputFile: File?) {
-        val field = RecordingService.Companion::class.java.getDeclaredField("_recordingState")
+        val field = RecordingService::class.java.getDeclaredField("_recordingState")
         field.isAccessible = true
         @Suppress("UNCHECKED_CAST")
         val stateFlow = field.get(null) as MutableStateFlow<RecordingService.Companion.RecordingState>

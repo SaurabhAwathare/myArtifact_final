@@ -200,7 +200,34 @@ class UserRepository @Inject constructor(
 
                         if (fieldsToMove.isNotEmpty() || needsRepair || privateMissing) {
                             if (needsRepair) {
-                                transaction.set(userRef, user, com.google.firebase.firestore.SetOptions.merge())
+                                diagnosticLogger.info(DiagnosticCategory.AUTH, "USER_PROFILE_REPAIR_STARTED", mapOf(LogKeys.USER_ID to currentUser.uid))
+                                
+                                // Requirement 3: Verify repaired User object contains valid replacement fields before deletion
+                                val isRepairSafe = user.sigilSeed.isNotBlank() && 
+                                                 user.sigilColor.isNotBlank() && 
+                                                 user.sigilConfig.version >= 3
+
+                                if (isRepairSafe) {
+                                    // Requirement 2: Entire repair (update + delete) in a single transaction
+                                    // Requirement 1: Idempotent cleanup
+                                    val sigilCleanup = mapOf(
+                                        "avatarSeed" to FieldValue.delete(),
+                                        "avatarColor" to FieldValue.delete(),
+                                        "avatarConfig" to FieldValue.delete(),
+                                        "followersCount" to FieldValue.delete(),
+                                        "followingCount" to FieldValue.delete()
+                                    )
+                                    transaction.update(userRef, sigilCleanup)
+                                    transaction.set(userRef, user, com.google.firebase.firestore.SetOptions.merge())
+                                    
+                                    diagnosticLogger.info(DiagnosticCategory.AUTH, "USER_PROFILE_REPAIR_COMPLETED", mapOf(LogKeys.USER_ID to currentUser.uid, "cleanup" to "LEGACY_SIGIL_FIELDS_REMOVED"))
+                                } else {
+                                    diagnosticLogger.error(DiagnosticCategory.AUTH, "USER_PROFILE_REPAIR_FAILED_INVARIANTS", mapOf(LogKeys.USER_ID to currentUser.uid))
+                                    // Fallback: Just update what we have without deleting legacy fields to avoid data loss
+                                    transaction.set(userRef, user, com.google.firebase.firestore.SetOptions.merge())
+                                }
+                            } else {
+                                diagnosticLogger.debug(DiagnosticCategory.AUTH, "USER_PROFILE_NORMALIZED", mapOf(LogKeys.USER_ID to currentUser.uid))
                             }
 
                             if (fieldsToMove.isNotEmpty()) {

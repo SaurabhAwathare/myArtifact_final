@@ -23,7 +23,19 @@ class ProfileRepairService @Inject constructor() {
         var repairPerformed = false
         val repairReasons = mutableListOf<String>()
 
-        // 1. Initial Deserialization Attempt
+        // 1. Detect Legacy Fields for Cleanup (Requirement 1: Idempotency & Verification)
+        val hasLegacyFields = snapshot.contains("avatarSeed") || 
+                             snapshot.contains("avatarColor") || 
+                             snapshot.contains("avatarConfig") ||
+                             snapshot.contains("followersCount") ||
+                             snapshot.contains("followingCount")
+
+        if (hasLegacyFields) {
+            repairPerformed = true
+            repairReasons.add("LEGACY_FIELDS_PRESENT")
+        }
+
+        // 2. Initial Deserialization Attempt
         val user = try {
             snapshot.toObject(User::class.java)?.copy(id = uid)
         } catch (e: Exception) {
@@ -31,7 +43,7 @@ class ProfileRepairService @Inject constructor() {
             null
         }
 
-        // 2. Deterministic Integrity Check (Audit Mechanism)
+        // 3. Deterministic Integrity Check (Audit Mechanism)
         val validationResult = if (user != null) {
             UserIdentityValidator.validate(user)
         } else {
@@ -41,7 +53,7 @@ class ProfileRepairService @Inject constructor() {
         val finalUser = if (!validationResult.isValid) {
             repairPerformed = true
             repairReasons.addAll(validationResult.reasons)
-            Log.i("ProfileRepair", "INTEGRITY_VIOLATION_DETECTED | Reasons: ${validationResult.reasons.joinToString(", ")}")
+            Log.i("ProfileRepair", "INTEGRITY_VIOLATION_DETECTED | Reasons: ${validationResult.reasons.distinct().joinToString(", ")}")
             
             // Perform repair (Sanitization)
             val repaired = sanitizeFromMap(uid, rawData, repairReasons)
@@ -52,9 +64,9 @@ class ProfileRepairService @Inject constructor() {
             user!! // Validator confirmed non-null
         }
 
-        // 3. Telemetry & Audit Logging
+        // 4. Telemetry & Audit Logging
         if (repairPerformed) {
-            Log.i("ProfileRepair", "PROFILE_REPAIRED | Reasons: ${repairReasons.joinToString(", ")}")
+            Log.i("ProfileRepair", "PROFILE_REPAIR_IDENTIFIED | Reasons: ${repairReasons.distinct().joinToString(", ")}")
         }
 
         if (com.saurabh.artifact.BuildConfig.DEBUG) {

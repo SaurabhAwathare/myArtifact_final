@@ -7,6 +7,7 @@ import io.mockk.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import javax.crypto.spec.SecretKeySpec
@@ -25,12 +26,17 @@ class BackupEncryptionManagerCacheTest {
         // Mock getRecoveryPhrase to return a fixed phrase
         coEvery { manager.getRecoveryPhrase() } returns "test mnemonic phrase"
         
-        // Mock deriveBackupKey to return a fixed key
-        every { SecurityArchitecture.deriveBackupKey(any(), any()) } returns ByteArray(32) { 1 }
+        // Mock deriveKey to return a fixed key
+        every { SecurityArchitecture.deriveKey(any(), any()) } returns ByteArray(32) { 1 }
+    }
+
+    @After
+    fun teardown() {
+        unmockkObject(SecurityArchitecture)
     }
 
     @Test
-    fun `getBackupKey should cache derived key and only call deriveBackupKey once`() = runTest {
+    fun `getBackupKey should cache derived key and only call deriveKey once`() = runTest {
         // First call
         val key1 = manager.getBackupKey()
         
@@ -40,8 +46,8 @@ class BackupEncryptionManagerCacheTest {
         // Verify same key object (or at least same content)
         assertEquals(key1.encoded.toList(), key2.encoded.toList())
         
-        // Verify SecurityArchitecture.deriveBackupKey was called exactly once
-        verify(exactly = 1) { SecurityArchitecture.deriveBackupKey(any(), any()) }
+        // Verify SecurityArchitecture.deriveKey was called exactly once
+        verify(exactly = 1) { SecurityArchitecture.deriveKey(any(), any()) }
     }
 
     @Test
@@ -55,8 +61,8 @@ class BackupEncryptionManagerCacheTest {
         // Second call
         manager.getBackupKey()
         
-        // Verify SecurityArchitecture.deriveBackupKey was called twice
-        verify(exactly = 2) { SecurityArchitecture.deriveBackupKey(any(), any()) }
+        // Verify SecurityArchitecture.deriveKey was called twice
+        verify(exactly = 2) { SecurityArchitecture.deriveKey(any(), any()) }
     }
 
     @Test
@@ -71,7 +77,7 @@ class BackupEncryptionManagerCacheTest {
         // Second call
         manager.getBackupKey()
         
-        // Verify SecurityArchitecture.deriveBackupKey was called twice
-        verify(exactly = 2) { SecurityArchitecture.deriveBackupKey(any(), any()) }
+        // Verify SecurityArchitecture.deriveKey was called twice
+        verify(exactly = 2) { SecurityArchitecture.deriveKey(any(), any()) }
     }
 }
