@@ -31,10 +31,20 @@ object AudioModule {
         cleanupManager: Lazy<ArtifactCleanupManager>,
         settingsDataStore: PlaybackSettingsDataStore,
         analytics: PlaybackAnalyticsManager,
+        playableArtifactRepository: Lazy<com.saurabh.artifact.repository.PlayableArtifactRepository>,
         artifactRepository: Lazy<com.saurabh.artifact.repository.ArtifactRepository>,
         diagnosticLogger: com.saurabh.artifact.diagnostics.DiagnosticLogger
     ): PlaybackSessionManager = 
-        PlaybackSessionManager(context, engagementRepository, cleanupManager, settingsDataStore, analytics, artifactRepository, diagnosticLogger)
+        PlaybackSessionManager(
+            context, 
+            engagementRepository, 
+            cleanupManager, 
+            settingsDataStore, 
+            analytics, 
+            playableArtifactRepository, 
+            artifactRepository, 
+            diagnosticLogger
+        )
 
     @Provides
     @Singleton

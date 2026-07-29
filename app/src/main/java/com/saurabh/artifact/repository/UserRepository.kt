@@ -47,7 +47,6 @@ class UserRepository @Inject constructor(
     private val firestore: FirebaseFirestore,
     private val userDao: Lazy<UserDao>,
     private val identityProtectionPolicy: com.saurabh.artifact.domain.IdentityProtectionPolicy,
-    private val profileRepairService: com.saurabh.artifact.domain.auth.ProfileRepairService,
     private val registrationCoordinator: Lazy<com.saurabh.artifact.domain.auth.RegistrationCoordinator>,
     private val pendingInteractionDao: Lazy<com.saurabh.artifact.data.local.PendingInteractionDao>,
     private val diagnosticLogger: DiagnosticLogger
@@ -79,7 +78,8 @@ class UserRepository @Inject constructor(
             }
 
             val userSnapshot = userRef.get().await()
-            val (user, _) = profileRepairService.loadAndRepair(userSnapshot)
+            val user = userSnapshot.toObject(User::class.java)?.copy(id = userSnapshot.id)
+                ?: return@withContext Result.failure(AppError.NotFound("User", userId))
             
             val isWithinWindow = identityProtectionPolicy.isWithinWindow(user.identityMetadata.lastIdentityChangeAt)
             val newCount = if (isWithinWindow) user.identityMetadata.identityChangeCount30Days + 1 else 1
@@ -184,7 +184,8 @@ class UserRepository @Inject constructor(
                     if (snapshot.exists()) {
                         diagnosticLogger.debug(DiagnosticCategory.FIRESTORE, "USER_PROFILE_EXISTS", mapOf(LogKeys.USER_ID to currentUser.uid))
                         
-                        val (user, needsRepair) = profileRepairService.loadAndRepair(snapshot)
+                        val user = snapshot.toObject(User::class.java)?.copy(id = snapshot.id)
+                            ?: throw IllegalStateException("Failed to deserialize existing User profile")
                         
                         val privateSnapshot = transaction[privateRef]
                         val privateMissing = !privateSnapshot.exists()
@@ -198,37 +199,8 @@ class UserRepository @Inject constructor(
                             }
                         }
 
-                        if (fieldsToMove.isNotEmpty() || needsRepair || privateMissing) {
-                            if (needsRepair) {
-                                diagnosticLogger.info(DiagnosticCategory.AUTH, "USER_PROFILE_REPAIR_STARTED", mapOf(LogKeys.USER_ID to currentUser.uid))
-                                
-                                // Requirement 3: Verify repaired User object contains valid replacement fields before deletion
-                                val isRepairSafe = user.sigilSeed.isNotBlank() && 
-                                                 user.sigilColor.isNotBlank() && 
-                                                 user.sigilConfig.version >= 3
-
-                                if (isRepairSafe) {
-                                    // Requirement 2: Entire repair (update + delete) in a single transaction
-                                    // Requirement 1: Idempotent cleanup
-                                    val sigilCleanup = mapOf(
-                                        "avatarSeed" to FieldValue.delete(),
-                                        "avatarColor" to FieldValue.delete(),
-                                        "avatarConfig" to FieldValue.delete(),
-                                        "followersCount" to FieldValue.delete(),
-                                        "followingCount" to FieldValue.delete()
-                                    )
-                                    transaction.update(userRef, sigilCleanup)
-                                    transaction.set(userRef, user, com.google.firebase.firestore.SetOptions.merge())
-                                    
-                                    diagnosticLogger.info(DiagnosticCategory.AUTH, "USER_PROFILE_REPAIR_COMPLETED", mapOf(LogKeys.USER_ID to currentUser.uid, "legacyFieldsRemoved" to true))
-                                } else {
-                                    diagnosticLogger.error(DiagnosticCategory.AUTH, "USER_PROFILE_REPAIR_FAILED_INVARIANTS", mapOf(LogKeys.USER_ID to currentUser.uid))
-                                    // Fallback: Just update what we have without deleting legacy fields to avoid data loss
-                                    transaction.set(userRef, user, com.google.firebase.firestore.SetOptions.merge())
-                                }
-                            } else {
-                                diagnosticLogger.info(DiagnosticCategory.AUTH, "USER_PROFILE_NORMALIZED", mapOf(LogKeys.USER_ID to currentUser.uid))
-                            }
+                        if (fieldsToMove.isNotEmpty() || privateMissing) {
+                            diagnosticLogger.info(DiagnosticCategory.AUTH, "USER_PROFILE_NORMALIZED", mapOf(LogKeys.USER_ID to currentUser.uid))
 
                             if (fieldsToMove.isNotEmpty()) {
                                 // 1. Move fields to private settings (Merge to preserve existing data)
@@ -422,21 +394,23 @@ class UserRepository @Inject constructor(
 
             if ((snapshot != null) && snapshot.exists()) {
                 try {
-                    val (user, _) = profileRepairService.loadAndRepair(snapshot)
+                    val user = snapshot.toObject(User::class.java)?.copy(id = snapshot.id)
                     
                     // Investigation Instrumentation: PROFILE_USER_RECEIVED
-                    diagnosticLogger.info(
-                        DiagnosticCategory.FIRESTORE,
-                        "PROFILE_USER_RECEIVED",
-                        mapOf(
-                            LogKeys.USER_ID to userId,
-                            "followersCount" to (user.followersCount),
-                            "followingCount" to (user.followingCount),
-                            "resonanceInCount" to (user.resonanceInCount),
-                            "resonanceOutCount" to (user.resonanceOutCount),
-                            "timestamp" to System.currentTimeMillis()
+                    if (user != null) {
+                        diagnosticLogger.info(
+                            DiagnosticCategory.FIRESTORE,
+                            "PROFILE_USER_RECEIVED",
+                            mapOf(
+                                LogKeys.USER_ID to userId,
+                                "followersCount" to (user.followersCount),
+                                "followingCount" to (user.followingCount),
+                                "resonanceInCount" to (user.resonanceInCount),
+                                "resonanceOutCount" to (user.resonanceOutCount),
+                                "timestamp" to System.currentTimeMillis()
+                            )
                         )
-                    )
+                    }
 
                     trySend(user)
                 } catch (e: Exception) {
@@ -668,7 +642,8 @@ class UserRepository @Inject constructor(
 
             val userRef = usersCollection.document(userId)
             val userSnapshot = userRef.get().await()
-            val (user, _) = profileRepairService.loadAndRepair(userSnapshot)
+            val user = userSnapshot.toObject(User::class.java)?.copy(id = userSnapshot.id)
+                ?: return@withContext Result.failure(AppError.NotFound("User", userId))
             
             val isWithinWindow = identityProtectionPolicy.isWithinWindow(user.identityMetadata.lastIdentityChangeAt)
             val newCount = if (isWithinWindow) user.identityMetadata.identityChangeCount30Days + 1 else 1
@@ -702,7 +677,8 @@ class UserRepository @Inject constructor(
             
             val (newName, newVersion) = firestore.runTransaction { transaction ->
                 val userSnapshot = transaction[userRef]
-                val (user, _) = profileRepairService.loadAndRepair(userSnapshot)
+                val user = userSnapshot.toObject(User::class.java)?.copy(id = userSnapshot.id)
+                    ?: throw IllegalStateException("User profile not found")
 
                 val oldName = user.anonymousName.lowercase().trim()
                 val generatedName = UsernameGenerator.generate()
@@ -873,8 +849,8 @@ class UserRepository @Inject constructor(
                     val userSnapshot =
                         usersCollection.whereIn(FieldPath.documentId(), chunk).get().await()
                     users.addAll(
-                        userSnapshot.documents.map { doc ->
-                            profileRepairService.loadAndRepair(doc).first
+                        userSnapshot.documents.mapNotNull { doc ->
+                            doc.toObject(User::class.java)?.copy(id = doc.id)
                         })
                 }
 

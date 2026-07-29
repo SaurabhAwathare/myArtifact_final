@@ -130,6 +130,25 @@ class StartupCoordinator @Inject constructor(
     }
 
     /**
+     * Early App Check initialization to prevent race conditions with Firebase SDKs.
+     * Must be called synchronously from Application.onCreate().
+     */
+    fun initializeAppCheck() {
+        val appCheck = FirebaseAppCheck.getInstance()
+        if (environmentProvider.isDebug) {
+            appCheck.installAppCheckProviderFactory(
+                DebugAppCheckProviderFactory.getInstance()
+            )
+            Log.i("Startup", "App Check: DEBUG MODE active.")
+        } else {
+            appCheck.installAppCheckProviderFactory(
+                PlayIntegrityAppCheckProviderFactory.getInstance()
+            )
+            Log.i("Startup", "App Check: PRODUCTION MODE active.")
+        }
+    }
+
+    /**
      * Advances the startup sequence through its emotional stages.
      * Uses intentional staggered delays combined with technical readiness signals.
      */
@@ -207,19 +226,6 @@ class StartupCoordinator @Inject constructor(
     private fun initializeCore() {
         Log.i("Startup", "Current Environment: ${environmentProvider.environment}")
         Log.i("Startup", "Firebase Project ID: ${environmentProvider.firebaseProjectId}")
-
-        val appCheck = FirebaseAppCheck.getInstance()
-        if (environmentProvider.isDebug) {
-            appCheck.installAppCheckProviderFactory(
-                DebugAppCheckProviderFactory.getInstance()
-            )
-            Log.i("Startup", "App Check: DEBUG MODE active.")
-        } else {
-            appCheck.installAppCheckProviderFactory(
-                PlayIntegrityAppCheckProviderFactory.getInstance()
-            )
-            Log.i("Startup", "App Check: PRODUCTION MODE active.")
-        }
     }
 
     private suspend fun initializeSecurityProviderSync() {

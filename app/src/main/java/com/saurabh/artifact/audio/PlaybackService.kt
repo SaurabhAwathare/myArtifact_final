@@ -34,7 +34,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.saurabh.artifact.diagnostics.ArtifactLogger
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.LogKeys
-import com.saurabh.artifact.repository.ArtifactRepository
+import com.saurabh.artifact.repository.PlayableArtifactRepository
 import com.saurabh.artifact.repository.EngagementRepository
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
@@ -47,7 +47,7 @@ import kotlinx.coroutines.launch
 @AndroidEntryPoint
 class PlaybackService : MediaLibraryService() {
 
-    @Inject lateinit var artifactRepository: ArtifactRepository
+    @Inject lateinit var playableArtifactRepository: PlayableArtifactRepository
     @Inject lateinit var engagementRepository: EngagementRepository
     @Inject lateinit var settingsDataStore: PlaybackSettingsDataStore
 
@@ -279,7 +279,7 @@ class PlaybackService : MediaLibraryService() {
                         }
 
                         val artifacts = if (idsToFetch.isNotEmpty()) {
-                            artifactRepository.getArtifactsByIds(idsToFetch).getOrDefault(emptyList())
+                            playableArtifactRepository.resolveArtifactsByIds(idsToFetch).getOrDefault(emptyList())
                         } else {
                             emptyList()
                         }

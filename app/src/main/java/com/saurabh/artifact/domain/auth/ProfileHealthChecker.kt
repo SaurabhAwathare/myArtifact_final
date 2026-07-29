@@ -23,8 +23,7 @@ sealed class HealthStatus {
 @Singleton
 class ProfileHealthChecker @Inject constructor(
     private val auth: FirebaseAuth,
-    private val firestore: FirebaseFirestore,
-    private val profileRepairService: ProfileRepairService
+    private val firestore: FirebaseFirestore
 ) {
     suspend fun checkHealth(): HealthStatus {
         val currentUser = auth.currentUser ?: return HealthStatus.Missing
@@ -43,14 +42,9 @@ class ProfileHealthChecker @Inject constructor(
                 return HealthStatus.Missing
             }
 
-            // Verify basic fields using the repair service's validation logic
-            val (user, needsRepair) = profileRepairService.loadAndRepair(userSnapshot)
-            if (needsRepair) {
-                ArtifactLogger.w(DiagnosticCategory.AUTH, "PROFILE_CHECK_REPAIR_REQUIRED")
-                return HealthStatus.RepairRequired
-            }
-
-            if (user.anonymousId.isBlank() || user.anonymousName.isBlank()) {
+            // Verify basic fields
+            val user = userSnapshot.toObject(User::class.java)?.copy(id = userSnapshot.id)
+            if (user == null || user.anonymousId.isBlank() || user.anonymousName.isBlank()) {
                 ArtifactLogger.w(DiagnosticCategory.AUTH, "PROFILE_CHECK_IDENTITY_MISSING")
                 return HealthStatus.RepairRequired
             }

@@ -48,11 +48,7 @@ class IdentitySyncWorker @AssistedInject constructor(
                 "author.sigil" to sigil,
                 "author.sigilSeed" to sigilSeed,
                 "author.sigilColor" to sigilColor,
-                "author.sigilConfig" to sigilConfig,
-                // Lazy Cleanup: Remove legacy avatar fields during sync
-                "author.avatarSeed" to FieldValue.delete(),
-                "author.avatarColor" to FieldValue.delete(),
-                "author.avatarConfig" to FieldValue.delete()
+                "author.sigilConfig" to sigilConfig
             )
 
             // 2. Sync Artifacts

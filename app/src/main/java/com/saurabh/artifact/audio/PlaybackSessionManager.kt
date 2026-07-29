@@ -13,6 +13,7 @@ import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.repository.ArtifactRepository
+import com.saurabh.artifact.repository.PlayableArtifactRepository
 import com.saurabh.artifact.repository.EngagementRepository
 import com.saurabh.artifact.util.CoroutineExceptionHandlerUtils
 import dagger.Lazy
@@ -43,6 +44,7 @@ class PlaybackSessionManager @Inject constructor(
     private val cleanupManager: Lazy<ArtifactCleanupManager>,
     private val settingsDataStore: PlaybackSettingsDataStore,
     private val analytics: PlaybackAnalyticsManager,
+    private val playableArtifactRepository: Lazy<PlayableArtifactRepository>,
     private val artifactRepository: Lazy<ArtifactRepository>,
     private val diagnosticLogger: DiagnosticLogger
 ) {
@@ -295,7 +297,7 @@ class PlaybackSessionManager @Inject constructor(
                 }
 
                 // 2. Perform a single batch fetch for efficiency
-                val artifactsResult = artifactRepository.get().getArtifactsByIds(mediaIds)
+                val artifactsResult = playableArtifactRepository.get().resolveArtifactsByIds(mediaIds)
                 val artifacts = artifactsResult.getOrDefault(emptyList())
 
                 // 3. Reconstruct the queue in the exact order defined by the controller

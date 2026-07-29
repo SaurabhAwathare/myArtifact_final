@@ -1,11 +1,13 @@
 package com.saurabh.artifact.repository
 
 import com.saurabh.artifact.data.local.DraftDao
+import com.saurabh.artifact.data.mapper.DraftToArtifactMapper
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.Artifact
+import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.model.PlayableArtifact
 import com.saurabh.artifact.model.PlaybackSource
 import kotlinx.coroutines.Dispatchers
@@ -17,6 +19,8 @@ import javax.inject.Singleton
 class PlayableArtifactRepository @Inject constructor(
     private val draftDao: DraftDao,
     private val artifactRepository: ArtifactRepository,
+    private val draftToArtifactMapper: DraftToArtifactMapper,
+    private val userRepository: UserRepository,
     private val diagnosticLogger: DiagnosticLogger
 ) {
     /**
@@ -28,17 +32,22 @@ class PlayableArtifactRepository @Inject constructor(
             // 1. Check Local Drafts first (Authoritative for review flow)
             val draft = draftDao.getDraftById(id)
             if (draft != null) {
+                val author = userRepository.getCachedProfile()?.let { AuthorSnapshot.fromUser(it) } 
+                    ?: AuthorSnapshot(name = "You")
+                
+                val artifact = draftToArtifactMapper.map(draft, author, "Untitled Artifact")
+                
                 return@withContext Result.success(
                     PlayableArtifact(
-                        id = draft.id,
-                        title = draft.title ?: "Untitled Artifact",
-                        audioUrl = if (draft.localAudioPath.startsWith("http")) draft.localAudioPath else "file://${draft.localAudioPath}",
-                        authorName = "You", // Drafts are always by the current user
-                        authorSigil = "", // Sigils are generated during publish
-                        sigilSeed = "", // Will use current user's default or draft metadata
-                        durationMs = draft.durationMs,
+                        id = artifact.id,
+                        title = artifact.title,
+                        audioUrl = artifact.audioUrl,
+                        authorName = artifact.author.name,
+                        authorSigil = artifact.author.sigil,
+                        sigilSeed = artifact.author.sigilSeed,
+                        durationMs = artifact.durationMs,
                         sourceType = source,
-                        emotion = draft.emotion?.label ?: "",
+                        emotion = artifact.emotion,
                         originalDraft = draft
                     )
                 )
@@ -91,6 +100,50 @@ class PlayableArtifactRepository @Inject constructor(
                 )
             )
             Result.failure(error)
+        }
+    }
+
+    /**
+     * Resolves multiple artifact IDs into a list of domain Artifacts.
+     * Prioritizes local drafts over remote artifacts for each ID.
+     */
+    suspend fun resolveArtifactsByIds(ids: List<String>): Result<List<Artifact>> = withContext(Dispatchers.IO) {
+        if (ids.isEmpty()) return@withContext Result.success(emptyList())
+
+        try {
+            // 1. Fetch all matching drafts in one go (if possible, otherwise one by one for now)
+            // Note: DraftDao doesn't have getDraftsByIds yet, so we'll fetch them individually
+            // or we could add it to DraftDao. For simplicity and minimum risk, we iterate.
+            val draftsMap = ids.mapNotNull { id -> draftDao.getDraftById(id) }.associateBy { it.id }
+            
+            val author = if (draftsMap.isNotEmpty()) {
+                userRepository.getCachedProfile()?.let { AuthorSnapshot.fromUser(it) } 
+                    ?: AuthorSnapshot(name = "You")
+            } else {
+                null
+            }
+
+            val missingIds = ids.filter { !draftsMap.containsKey(it) }
+            
+            val remoteArtifactsResult = if (missingIds.isNotEmpty()) {
+                artifactRepository.getArtifactsByIds(missingIds)
+            } else {
+                Result.success(emptyList())
+            }
+
+            val remoteArtifactsMap = remoteArtifactsResult.getOrDefault(emptyList()).associateBy { it.id }
+
+            // 2. Reconstruct the list in the original order
+            val resolvedList = ids.mapNotNull { id ->
+                draftsMap[id]?.let { draft ->
+                    draftToArtifactMapper.map(draft, author ?: AuthorSnapshot(name = "You"), "Untitled Artifact")
+                } ?: remoteArtifactsMap[id]
+            }
+
+            Result.success(resolvedList)
+        } catch (e: Exception) {
+            diagnosticLogger.error(DiagnosticCategory.PLAYER, "BATCH_RESOLVE_FAILED", mapOf("count" to ids.size), e)
+            Result.failure(e)
         }
     }
 }
