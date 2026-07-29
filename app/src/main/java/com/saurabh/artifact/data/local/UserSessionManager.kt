@@ -2,6 +2,8 @@ package com.saurabh.artifact.data.local
 
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.model.UserProfile
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -17,6 +19,7 @@ import javax.inject.Singleton
 class UserSessionManager @Inject constructor(
     @Named("sessionDataStore") private val dataStore: DataStore<Preferences>,
     private val blockStoreManager: BlockStoreManager,
+    private val diagnosticLogger: DiagnosticLogger,
 ) {
     private object PreferencesKeys {
         val ANONYMOUS_ID = stringPreferencesKey("anonymous_id")
@@ -52,10 +55,23 @@ class UserSessionManager @Inject constructor(
         .map { preferences ->
             val id = preferences[PreferencesKeys.ANONYMOUS_ID] ?: ("gen_" + UUID.randomUUID().toString().take(8))
             
-            val seed = preferences[PreferencesKeys.SIGIL_SEED] 
-                ?: preferences[PreferencesKeys.AVATAR_SEED]
-                ?: preferences[PreferencesKeys.IDENTITY_EMOJI] 
+            val sigilSeed = preferences[PreferencesKeys.SIGIL_SEED]
+            val legacyAvatarSeed = preferences[PreferencesKeys.AVATAR_SEED]
+            val legacyIdentityEmoji = preferences[PreferencesKeys.IDENTITY_EMOJI]
+
+            val seed = sigilSeed 
+                ?: legacyAvatarSeed
+                ?: legacyIdentityEmoji 
                 ?: UUID.randomUUID().toString()
+
+            if (sigilSeed == null && (legacyAvatarSeed != null || legacyIdentityEmoji != null)) {
+                diagnosticLogger.info(DiagnosticCategory.AUTH, "IDENTITY_COMPATIBILITY_PATH_USED", mapOf(
+                    "source" to "DataStore",
+                    "legacyField" to if (legacyAvatarSeed != null) "avatar_seed" else "identity_emoji",
+                    "fallback" to true,
+                    "anonymousId" to id
+                ))
+            }
                 
             val username = preferences[PreferencesKeys.USERNAME] ?: com.saurabh.artifact.util.UsernameGenerator.generate()
             val sigil = preferences[PreferencesKeys.SIGIL] ?: com.saurabh.artifact.util.UsernameGenerator.deriveSigil(id)
@@ -64,7 +80,19 @@ class UserSessionManager @Inject constructor(
             val resonanceIn = preferences[PreferencesKeys.RESONANCE_IN] ?: 0L
             val resonanceOut = preferences[PreferencesKeys.RESONANCE_OUT] ?: 0L
             
-            val configJson = preferences[PreferencesKeys.SIGIL_CONFIG_JSON] ?: preferences[PreferencesKeys.AVATAR_CONFIG_JSON]
+            val sigilConfigJson = preferences[PreferencesKeys.SIGIL_CONFIG_JSON]
+            val legacyAvatarConfigJson = preferences[PreferencesKeys.AVATAR_CONFIG_JSON]
+            val configJson = sigilConfigJson ?: legacyAvatarConfigJson
+
+            if (sigilConfigJson == null && legacyAvatarConfigJson != null) {
+                diagnosticLogger.info(DiagnosticCategory.AUTH, "IDENTITY_COMPATIBILITY_PATH_USED", mapOf(
+                    "source" to "DataStore",
+                    "legacyField" to "avatar_config_json",
+                    "fallback" to true,
+                    "anonymousId" to id
+                ))
+            }
+
             val config = configJson?.let { 
                 try {
                     val decoded = Json.decodeFromString<com.saurabh.artifact.model.SigilConfig>(it)

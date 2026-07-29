@@ -1,15 +1,19 @@
 package com.saurabh.artifact.domain.auth
 
-import android.util.Log
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentSnapshot
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.model.sigil.*
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class ProfileRepairService @Inject constructor() {
+class ProfileRepairService @Inject constructor(
+    private val diagnosticLogger: DiagnosticLogger
+) {
 
     /**
      * Attempts to load a User from a snapshot, repairing it if it's corrupted or legacy.
@@ -42,7 +46,7 @@ class ProfileRepairService @Inject constructor() {
         val user = try {
             snapshot.toObject(User::class.java)?.copy(id = uid)
         } catch (e: Exception) {
-            Log.e("ProfileRepair", "INITIAL_DESERIALIZATION_CRASH", e)
+            diagnosticLogger.error(DiagnosticCategory.AUTH, "INITIAL_DESERIALIZATION_CRASH", mapOf(LogKeys.USER_ID to uid), e)
             null
         }
 
@@ -56,7 +60,10 @@ class ProfileRepairService @Inject constructor() {
         val finalUser = if (!validationResult.isValid) {
             repairPerformed = true
             repairReasons.addAll(validationResult.reasons)
-            Log.i("ProfileRepair", "INTEGRITY_VIOLATION_DETECTED | Reasons: ${validationResult.reasons.distinct().joinToString(", ")}")
+            diagnosticLogger.info(DiagnosticCategory.AUTH, "INTEGRITY_VIOLATION_DETECTED", mapOf(
+                LogKeys.USER_ID to uid,
+                "reasons" to validationResult.reasons.distinct().joinToString(",")
+            ))
             
             // Perform repair (Sanitization)
             val repaired = sanitizeFromMap(uid, rawData, repairReasons)
@@ -69,19 +76,35 @@ class ProfileRepairService @Inject constructor() {
 
         // 4. Telemetry & Audit Logging
         if (repairPerformed) {
-            Log.i("ProfileRepair", "PROFILE_REPAIR_IDENTIFIED | Reasons: ${repairReasons.distinct().joinToString(", ")}")
+            diagnosticLogger.info(DiagnosticCategory.AUTH, "PROFILE_REPAIR_IDENTIFIED", mapOf(
+                LogKeys.USER_ID to uid,
+                "reasons" to repairReasons.distinct().joinToString(",")
+            ))
+
+            if (hasLegacyAvatarFields || repairReasons.any { it.contains("LEGACY_AVATAR") || it.contains("MIGRATED_LEGACY") }) {
+                diagnosticLogger.info(DiagnosticCategory.AUTH, "IDENTITY_COMPATIBILITY_PATH_USED", mapOf(
+                    "source" to "Firestore",
+                    "legacyField" to "avatarSeed",
+                    "fallback" to true,
+                    "repairRequired" to true,
+                    LogKeys.USER_ID to uid
+                ))
+            }
         }
 
         if (com.saurabh.artifact.BuildConfig.DEBUG) {
             val durationNs = System.nanoTime() - startTime
-            Log.i("ProfileRepair", "LOAD_AND_REPAIR_NS: $durationNs | Repaired: $repairPerformed")
+            diagnosticLogger.debug(DiagnosticCategory.AUTH, "LOAD_AND_REPAIR_PERF", mapOf(
+                "durationNs" to durationNs,
+                "repaired" to repairPerformed
+            ))
         }
 
         return finalUser to repairPerformed
     }
 
     private fun sanitizeFromMap(uid: String, map: Map<String, Any>, reasons: MutableList<String>): User {
-        Log.i("ProfileRepair", "STARTING_MANUAL_SANITIZATION")
+        diagnosticLogger.debug(DiagnosticCategory.AUTH, "STARTING_MANUAL_SANITIZATION", mapOf(LogKeys.USER_ID to uid))
         
         val anonymousId = safeString(map["anonymousId"], "usr_${uid.takeLast(5)}", "anonymousId", reasons)
         val anonymousName = safeString(map["anonymousName"], "Quiet Soul", "anonymousName", reasons)
@@ -214,7 +237,11 @@ class ProfileRepairService @Inject constructor() {
             java.lang.Enum.valueOf(T::class.java, stringValue.uppercase())
         } catch (e: Exception) {
             reasons.add("INVALID_ENUM_$fieldName($stringValue)")
-            Log.w("ProfileRepair", "Invalid enum for $fieldName: $stringValue. Falling back to $default")
+            diagnosticLogger.warn(DiagnosticCategory.AUTH, "INVALID_ENUM_FALLBACK", mapOf(
+                "field" to fieldName,
+                "value" to stringValue,
+                "default" to default.toString()
+            ))
             default
         }
     }

@@ -1,6 +1,7 @@
 package com.saurabh.artifact.model
 
 import androidx.compose.runtime.Immutable
+import com.google.firebase.firestore.IgnoreExtraProperties
 import com.saurabh.artifact.BuildConfig
 import android.util.Log
 import kotlinx.serialization.Serializable
@@ -11,6 +12,7 @@ import kotlinx.serialization.Serializable
  */
 @Immutable
 @Serializable
+@IgnoreExtraProperties
 data class AuthorSnapshot(
     val anonymousId: String = "",
     val name: String = "",

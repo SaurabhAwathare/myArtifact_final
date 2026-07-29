@@ -117,6 +117,14 @@
   ],
   "fieldOverrides": [
     {
+      "collectionGroup": "comments",
+      "fieldPath": "author.avatarSeed",
+      "indexes": [
+        { "queryScope": "COLLECTION_GROUP", "order": "ASCENDING" },
+        { "queryScope": "COLLECTION_GROUP", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "engagement",
       "fieldPath": "artifactId",
       "indexes": [

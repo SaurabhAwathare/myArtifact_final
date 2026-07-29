@@ -1,0 +1,20 @@
+{
+  "name": "artifact-maintenance-scripts",
+  "version": "1.0.0",
+  "description": "Administrative and maintenance utilities for the Artifact project.",
+  "private": true,
+  "main": "index.js",
+  "engines": {
+    "node": "22"
+  },
+  "scripts": {
+    "migrate:sigils": "node migrate_sigils.js",
+    "backup:firestore": "node firestore_backup_manager.js",
+    "cleanup:notifications": "node cleanup_notifications.js"
+  },
+  "dependencies": {
+    "@google-cloud/firestore": "^7.10.0",
+    "firebase-admin": "^13.0.0",
+    "minimist": "^1.2.8"
+  }
+}

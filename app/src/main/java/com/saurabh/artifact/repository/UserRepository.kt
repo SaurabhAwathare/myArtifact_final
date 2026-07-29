@@ -220,14 +220,14 @@ class UserRepository @Inject constructor(
                                     transaction.update(userRef, sigilCleanup)
                                     transaction.set(userRef, user, com.google.firebase.firestore.SetOptions.merge())
                                     
-                                    diagnosticLogger.info(DiagnosticCategory.AUTH, "USER_PROFILE_REPAIR_COMPLETED", mapOf(LogKeys.USER_ID to currentUser.uid, "cleanup" to "LEGACY_SIGIL_FIELDS_REMOVED"))
+                                    diagnosticLogger.info(DiagnosticCategory.AUTH, "USER_PROFILE_REPAIR_COMPLETED", mapOf(LogKeys.USER_ID to currentUser.uid, "legacyFieldsRemoved" to true))
                                 } else {
                                     diagnosticLogger.error(DiagnosticCategory.AUTH, "USER_PROFILE_REPAIR_FAILED_INVARIANTS", mapOf(LogKeys.USER_ID to currentUser.uid))
                                     // Fallback: Just update what we have without deleting legacy fields to avoid data loss
                                     transaction.set(userRef, user, com.google.firebase.firestore.SetOptions.merge())
                                 }
                             } else {
-                                diagnosticLogger.debug(DiagnosticCategory.AUTH, "USER_PROFILE_NORMALIZED", mapOf(LogKeys.USER_ID to currentUser.uid))
+                                diagnosticLogger.info(DiagnosticCategory.AUTH, "USER_PROFILE_NORMALIZED", mapOf(LogKeys.USER_ID to currentUser.uid))
                             }
 
                             if (fieldsToMove.isNotEmpty()) {

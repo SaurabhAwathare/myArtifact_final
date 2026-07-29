@@ -7,6 +7,25 @@ Once legacy `author.avatar*` fields are deleted, they cannot be restored without
 
 ---
 
+## 0. Workspace Setup
+Before running any scripts, initialize the local environment:
+1.  **Change Directory**:
+    ```bash
+    cd scripts
+    ```
+2.  **Install Dependencies**:
+    ```bash
+    npm install
+    ```
+3.  **Authentication**:
+    Set the `GOOGLE_APPLICATION_CREDENTIALS` environment variable to the absolute path of your service account JSON key.
+    - *Windows*: `$env:GOOGLE_APPLICATION_CREDENTIALS="C:\path\to\key.json"`
+    - *macOS/Linux*: `export GOOGLE_APPLICATION_CREDENTIALS="/path/to/key.json"`
+4.  **Project Verification**:
+    Verify that the `projectId` in `migrate_sigils.js` and `firestore_backup_manager.js` matches your active Firebase project.
+
+---
+
 ## 1. Pre-Migration Checklist
 - [ ] **Firestore Backup**: Perform a full database export.
     - Run: `node scripts/firestore_backup_manager.js --action=backup`

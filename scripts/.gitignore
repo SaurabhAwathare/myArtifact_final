@@ -1,0 +1,7 @@
+node_modules/
+*.log
+*.log.json
+*.tmp
+*.backup
+.env
+service-account*.json

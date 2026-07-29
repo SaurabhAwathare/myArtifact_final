@@ -16,12 +16,13 @@
 const { v1 } = require('@google-cloud/firestore');
 const admin = require('firebase-admin');
 const fs = require('fs');
+const path = require('path');
 
 // --- Configuration ---
 const PROJECT_ID = 'myartifact-555e3';
 const BUCKET_NAME = 'myartifact-555e3-backups-asia';
 const EXPORT_PREFIX = 'backups/sigil_migration';
-const VERIFICATION_REPORT_PATH = 'scripts/backup_verification_report.json';
+const VERIFICATION_REPORT_PATH = path.join(__dirname, 'backup_verification_report.json');
 
 // Initialize Clients
 const client = new v1.FirestoreAdminClient();

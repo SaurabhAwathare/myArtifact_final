@@ -1,0 +1,15 @@
+- `[ ]` Manually purge development Firestore collections (User Action Required)
+- `[ ]` Verify Firestore is empty (0 documents in targeted collections)
+- `[ ]` Verify App stability/build against empty database
+- `[ ]` Delete `ProfileRepairService.kt` and its unit tests
+- `[ ]` Simplify `UserRepository.kt` (remove repair logic)
+- `[ ]` Clean up `UserSessionManager.kt` (remove legacy preference keys)
+- `[ ]` Clean up `IdentitySyncWorker.kt` (remove field deletion logic)
+- `[ ]` Repopulate Firestore using `populate_test_data.js`
+- `[ ]` Perform final E2E Validation:
+    - `[ ]` Register brand-new user
+    - `[ ]` Publish new Artifact
+    - `[ ]` Add comment & Resonance
+    - `[ ]` Inspect Firestore (No `avatar*` fields)
+- `[ ]` Delete migration-specific scripts (`migrate_sigils.js`, etc.)
+- `[ ]` Housekeeping: Remove unused imports and dead DI bindings

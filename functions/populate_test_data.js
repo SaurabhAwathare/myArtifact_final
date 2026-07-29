@@ -18,8 +18,16 @@ async function populate() {
   batch.set(userRef, {
     anonymousName: "testuser_verification",
     anonymousSigil: "🕯️",
-    avatarSeed: "seed123",
-    avatarColor: "#FF5733",
+    sigilSeed: "seed123",
+    sigilColor: "#FF5733",
+    sigilConfig: {
+      seed: "seed123",
+      version: 3,
+      palette: "AURORA",
+      variant: "LIGHT",
+      style: "OUTLINE",
+      weight: 2.0
+    },
     isAnonymous: true,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
     resonanceInCount: 0,
@@ -38,6 +46,21 @@ async function populate() {
   const artifactRef = db.collection("artifacts").doc(artifactId);
   batch.set(artifactRef, {
     userId: uid,
+    author: {
+      anonymousId: "usr_TEST123",
+      name: "testuser_verification",
+      sigil: "🕯️",
+      sigilSeed: "seed123",
+      sigilColor: "#FF5733",
+      sigilConfig: {
+        seed: "seed123",
+        version: 3,
+        palette: "AURORA",
+        variant: "LIGHT",
+        style: "OUTLINE",
+        weight: 2.0
+      }
+    },
     title: "Verification Artifact",
     audioUrl: `https://firebasestorage.googleapis.com/v0/b/myartifact-555e3.appspot.com/o/artifacts%2F${uid}_${artifactId}.m4a?alt=media`,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -52,10 +75,25 @@ async function populate() {
   const commentRef = db.collection("comments").doc(commentId);
   batch.set(commentRef, {
     artifactId: artifactId,
-    authorId: uid,
-    authorAnonymousName: "testuser_verification",
+    creatorId: uid,
+    author: {
+      anonymousId: "usr_TEST123",
+      name: "testuser_verification",
+      sigil: "🕯️",
+      sigilSeed: "seed123",
+      sigilColor: "#FF5733",
+      sigilConfig: {
+        seed: "seed123",
+        version: 3,
+        palette: "AURORA",
+        variant: "LIGHT",
+        style: "OUTLINE",
+        weight: 2.0
+      }
+    },
     text: "This is a test reflection for verification.",
-    createdAt: admin.firestore.FieldValue.serverTimestamp()
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    status: "ACTIVE"
   });
 
   // 5. Resonance (Following)
