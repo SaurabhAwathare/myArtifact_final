@@ -4,9 +4,14 @@ import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.*
 import com.saurabh.artifact.data.local.InteractionType
 import com.saurabh.artifact.data.local.InteractionAction
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.diagnostics.LogKeys
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import javax.inject.Inject
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * Use case to aggregate all user-artifact relationship metadata for the player.
@@ -19,29 +24,48 @@ class GetPlayerContextUseCase @Inject constructor(
     private val savedArtifactManager: SavedArtifactManager,
     private val authRepository: AuthRepository,
     private val pendingInteractionDao: com.saurabh.artifact.data.local.PendingInteractionDao,
-    private val draftRepository: DraftRepository
+    private val draftRepository: DraftRepository,
+    private val diagnosticLogger: DiagnosticLogger
 ) {
     @OptIn(ExperimentalCoroutinesApi::class)
     fun execute(
         artifactFlow: Flow<Artifact?>
     ): Flow<PlayerMetadata> {
-        return artifactFlow.flatMapLatest { artifact ->
-            if (artifact == null) {
-                flowOf(PlayerMetadata())
-            } else {
-                observeMetadata(artifact)
+        return artifactFlow
+            .scan(TransitionState()) { state, artifact ->
+                val wasJustPublished = (state.artifact != null && artifact != null) &&
+                        (state.artifact.id == artifact.id) &&
+                        (state.artifact.isDraft && !artifact.isDraft)
+                
+                if (wasJustPublished) {
+                    diagnosticLogger.info(
+                        DiagnosticCategory.SYNC,
+                        "PLAYER_TRANSITION_PUBLISHED",
+                        mapOf(LogKeys.ARTIFACT_ID to artifact.id)
+                    )
+                }
+                
+                TransitionState(artifact, wasJustPublished)
             }
-        }
+            .flatMapLatest { transitionState ->
+                val artifact = transitionState.artifact
+                if (artifact == null) {
+                    flowOf(PlayerMetadata())
+                } else {
+                    observeMetadata(artifact, transitionState.wasJustPublished)
+                }
+            }
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private fun observeMetadata(
-        artifact: Artifact
+        artifact: Artifact,
+        wasJustPublished: Boolean
     ): Flow<PlayerMetadata> {
         return if (artifact.isDraft) {
             observeDraftMetadata(artifact)
         } else {
-            observePublishedMetadata(artifact)
+            observePublishedMetadata(artifact, wasJustPublished)
         }
     }
 
@@ -60,16 +84,49 @@ class GetPlayerContextUseCase @Inject constructor(
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private fun observePublishedMetadata(
-        artifact: Artifact
+        artifact: Artifact,
+        wasJustPublished: Boolean
     ): Flow<PlayerMetadata> {
         val userIdFlow = authRepository.currentUser.map { it?.uid }
         
         // Live observation of the artifact itself for real-time counts
+        // RECOVERY: Implement bounded retry for transient PERMISSION_DENIED during publishing transition
         val artifactUpdateFlow = artifactRepository.observeArtifact(artifact.id)
+            .map { result ->
+                if (result == null && wasJustPublished) {
+                    throw TransientPublishingException()
+                }
+                result
+            }
+            .retryWhen { cause, attempt ->
+                if (cause is TransientPublishingException && attempt < 3) {
+                    diagnosticLogger.warn(
+                        DiagnosticCategory.FIRESTORE,
+                        "ARTIFACT_OBSERVE_RETRYING",
+                        mapOf(
+                            LogKeys.ARTIFACT_ID to artifact.id,
+                            "attempt" to attempt + 1,
+                            "delayMs" to 2000
+                        )
+                    )
+                    delay(2.seconds)
+                    true
+                } else {
+                    false
+                }
+            }
+            .catch { e ->
+                if (e is TransientPublishingException) {
+                    emit(null)
+                } else {
+                    throw e
+                }
+            }
             .onStart { emit(artifact) }
             .filterNotNull()
 
         val resonanceSummaryFlow = userIdFlow.flatMapLatest { currentUserId ->
+// ...
             reactionRepository.getReactionCounts(artifact.id).map { counts ->
                 val isOwner = artifact.userId == currentUserId
                 counts?.getFuzzySummary(isOwner) 
@@ -173,7 +230,6 @@ class GetPlayerContextUseCase @Inject constructor(
             saveSyncStatusFlow,
             artifactUpdateFlow
         ) { params: Array<Any?> ->
-            val updatedArtifact = params[8] as Artifact
             PlayerMetadata(
                 artifactId = artifact.id,
                 resonanceSummary = params[0] as String,
@@ -187,6 +243,13 @@ class GetPlayerContextUseCase @Inject constructor(
             )
         }
     }
+
+    private data class TransitionState(
+        val artifact: Artifact? = null,
+        val wasJustPublished: Boolean = false
+    )
+
+    private class TransientPublishingException : Exception("Transient publishing permission denial")
 }
 
 data class PlayerMetadata(
