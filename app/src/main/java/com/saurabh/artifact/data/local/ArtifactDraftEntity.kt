@@ -7,10 +7,16 @@ import com.saurabh.artifact.util.SecureString
 import kotlinx.serialization.Serializable
 
 @Serializable
-@Entity(tableName = "artifact_drafts")
+@Entity(
+    tableName = "artifact_drafts",
+    indices = [
+        androidx.room.Index(value = ["userId", "updatedAt"])
+    ]
+)
 data class ArtifactDraftEntity(
     @PrimaryKey
     val id: String,
+    val userId: String, // Anchor to creator's Firebase UID
     val localAudioPath: String,
     val rawPcmPath: String? = null, // Durable source for crash resilience
     val localTranscriptPath: String? = null,

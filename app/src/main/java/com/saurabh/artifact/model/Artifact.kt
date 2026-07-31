@@ -33,6 +33,7 @@ data class Artifact(
     val status: ArtifactStatus = ArtifactStatus.DRAFT,
     val durationMs: Long = 0,
     val checksum: String = "", // Added for tamper resistance and deduplication
+    val isEncrypted: Boolean = false, // Added for playback signaling
     val title: String = "",
     val description: String = "",
     val reactions: Map<String, Long> = emptyMap(),

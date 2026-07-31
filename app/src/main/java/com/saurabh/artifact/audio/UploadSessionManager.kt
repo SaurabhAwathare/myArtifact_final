@@ -13,6 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -25,6 +26,7 @@ class PublishStateManager @Inject constructor(
     private val draftRepository: DraftRepository,
     private val draftDao: DraftDao,
     private val publishingOrchestrator: PublishingOrchestrator,
+    private val authRepository: com.saurabh.artifact.repository.AuthRepository,
     private val workManager: WorkManager
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -36,19 +38,26 @@ class PublishStateManager @Inject constructor(
         observeActivity()
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     private fun observeActivity() {
         scope.launch {
-            combine(
-                draftRepository.observeActivePublishingSessionWithUpload(),
-                UploadService.isServiceRunning,
-                UploadService.activeDraftId
-            ) { active, isServiceRunning, activeServiceDraftId ->
-                Triple(active, isServiceRunning, activeServiceDraftId)
-            }.collect { (active, isServiceRunning, activeServiceDraftId) ->
-                if (active == null) {
-                    _currentPublishState.value = null
-                    return@collect
+            authRepository.currentUser
+                .flatMapLatest { user ->
+                    if (user == null) return@flatMapLatest flowOf(Triple(null, false, null))
+                    
+                    combine(
+                        draftRepository.observeActivePublishingSessionWithUpload(),
+                        UploadService.isServiceRunning,
+                        UploadService.activeDraftId
+                    ) { active, isServiceRunning, activeServiceDraftId ->
+                        Triple(active, isServiceRunning, activeServiceDraftId)
+                    }
                 }
+                .collect { (active, isServiceRunning, activeServiceDraftId) ->
+                    if (active == null) {
+                        _currentPublishState.value = null
+                        return@collect
+                    }
 
                 val draft = active.draft
                 val task = active.uploadTask
@@ -161,8 +170,11 @@ class PublishStateManager @Inject constructor(
     fun dismissSession() {
         val current = _currentPublishState.value
         if (current != null) {
+            val userId = authRepository.currentUserId
+            if (userId.isEmpty()) return
+
             scope.launch {
-                draftDao.dismissDraft(current.draftId)
+                draftDao.dismissDraft(current.draftId, userId)
                 _currentPublishState.value = null
             }
         }

@@ -90,7 +90,8 @@ class ReviewSessionManager @Inject constructor(
 
     private fun updatePersistedProgress(artifactId: String, progress: Float) {
         scope.launch(Dispatchers.IO) {
-            draftDao.updateReviewProgress(artifactId, progress)
+            val draft = draftDao.internalGetDraftByIdAgnostic(artifactId) ?: return@launch
+            draftDao.updateReviewProgress(draft.id, draft.userId, progress)
         }
     }
 
@@ -99,7 +100,7 @@ class ReviewSessionManager @Inject constructor(
 
         ArtifactLogger.i(DiagnosticCategory.REVIEW, "REVIEW_STARTED", mapOf("draftId" to draftId))
         scope.launch {
-            val draft = draftDao.getDraftById(draftId) ?: return@launch
+            val draft = draftDao.internalGetDraftByIdAgnostic(draftId) ?: return@launch
             
             // Build author snapshot for the draft playback
             val currentUser = userRepository.getCachedProfile()
@@ -125,7 +126,7 @@ class ReviewSessionManager @Inject constructor(
 
     private suspend fun markReviewComplete(artifactId: String) {
         withContext(Dispatchers.IO) {
-            val draft = draftDao.getDraftById(artifactId) ?: return@withContext
+            val draft = draftDao.internalGetDraftByIdAgnostic(artifactId) ?: return@withContext
             
             // Idempotency guard: If already marked complete or in a post-review state, skip
             val isPostReview = when (draft.lifecycle) {
@@ -148,7 +149,7 @@ class ReviewSessionManager @Inject constructor(
                 "artifactId" to artifactId,
                 "fromLifecycle" to draft.lifecycle.name
             ))
-            draftDao.markReviewCompletePartial(artifactId)
+            draftDao.markReviewCompletePartial(draft.id, draft.userId)
         }
     }
 }

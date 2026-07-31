@@ -240,6 +240,7 @@ class LogoutCoordinator @Inject constructor(
                     mediaCache = mediaCacheSuccess
                 ).also {
                     diagnosticLogger.info(DiagnosticCategory.AUTH, "LOGOUT_CLEANUP_COMPLETED")
+                    diagnosticLogger.debug(DiagnosticCategory.AUTH, "SESSION_CLEANUP_COMPLETED")
                 }
             }
         }

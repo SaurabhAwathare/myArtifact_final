@@ -108,9 +108,13 @@ class PublishingStudioViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(StudioUiState())
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    val sessionState: StateFlow<StudioSessionState> = _draftId
-        .filterNotNull()
-        .flatMapLatest { id -> 
+    val sessionState: StateFlow<StudioSessionState> = combine(
+        _draftId.filterNotNull(),
+        authRepository.currentUser
+    ) { id, user -> id to user }
+        .flatMapLatest { (id, user) -> 
+            if (user == null) return@flatMapLatest flowOf(StudioSessionState())
+
             val draftFlow = recordingRepository.observeDraft(id).filterNotNull()
             val reviewFlow = playbackCoordinator.reviewProgress
             val recoveryFlow = recordingRepository.observeRecoveryState(id, workManager)
@@ -206,6 +210,8 @@ class PublishingStudioViewModel @Inject constructor(
         val draftId = _draftId.value ?: return
         diagnosticLogger.info(DiagnosticCategory.STUDIO, "DRAFT_DELETE_REQUESTED", mapOf(LogKeys.DRAFT_ID to draftId))
         viewModelScope.launch {
+            // CleanupManager is currently user-agnostic for physical purge, 
+            // but the triggering metadata update in deleteDraft uses user-scoped DAO methods internally
             cleanupManager.deleteDraft(draftId)
         }
     }
@@ -216,6 +222,8 @@ class PublishingStudioViewModel @Inject constructor(
      */
     fun updateTitle(title: String) {
         val draftId = _draftId.value ?: return
+        val userId = authRepository.currentUserId
+        if (userId.isEmpty()) return
         
         // Update local buffer immediately for zero-latency UI
         _titleInput.value = title
@@ -242,6 +250,9 @@ class PublishingStudioViewModel @Inject constructor(
 
     fun updateEmotion(emotion: Emotion) {
         val draftId = _draftId.value ?: return
+        val userId = authRepository.currentUserId
+        if (userId.isEmpty()) return
+
         diagnosticLogger.debug(DiagnosticCategory.STUDIO, "EMOTION_UPDATED", mapOf(LogKeys.DRAFT_ID to draftId, "emotion" to emotion.label))
         viewModelScope.launch {
             recordingRepository.updateDraftMetadata(draftId, sessionState.value.title, emotion)
@@ -298,6 +309,9 @@ class PublishingStudioViewModel @Inject constructor(
                 ArtifactLifecycle.METADATA_REQUIRED -> ArtifactLifecycle.READY_TO_PUBLISH
                 else -> currentLifecycle
             }
+
+            val userId = authRepository.currentUserId
+            if (userId.isEmpty()) return
 
             viewModelScope.launch {
                 val result = recordingRepository.updateLifecycle(draftId, nextLifecycle)
@@ -382,6 +396,9 @@ class PublishingStudioViewModel @Inject constructor(
         }
 
         diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISH_PERFORM_STARTED", mapOf(LogKeys.DRAFT_ID to draftId))
+        val userId = authRepository.currentUserId
+        if (userId.isEmpty()) return
+
         viewModelScope.launch {
             _uiState.update { it.copy(isPublishing = true) }
             

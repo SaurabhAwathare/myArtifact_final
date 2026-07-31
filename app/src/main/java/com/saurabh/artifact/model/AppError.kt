@@ -71,6 +71,11 @@ sealed class AppError : Exception() {
         override val recoveryPath: RecoveryPath? = RecoveryPath.Reauthenticate,
     ) : AppError()
 
+    data class OwnershipMismatch(
+        override val technicalMessage: String = "Ownership verification failed: This draft belongs to another account",
+        override val recoveryPath: RecoveryPath? = null,
+    ) : AppError()
+
     companion object {
         fun from(e: Throwable): AppError = when (e) {
             is com.google.firebase.auth.FirebaseAuthRecentLoginRequiredException -> ReauthenticationRequired()

@@ -8,10 +8,14 @@ import javax.inject.Inject
 
 class PublishArtifactUseCase @Inject constructor(
     private val recordingRepository: RecordingRepository,
+    private val authRepository: com.saurabh.artifact.repository.AuthRepository,
     private val publishingOrchestrator: PublishingOrchestrator,
     private val publishingPolicy: PublishingReviewPolicy
 ) {
     suspend operator fun invoke(draftFilePath: String): Result<PublishingResult> {
+        val userId = authRepository.currentUserId
+        if (userId.isEmpty()) return Result.failure(com.saurabh.artifact.model.AppError.Unauthenticated())
+        
         val draftResult = recordingRepository.getDraftByPath(draftFilePath)
         val draft = draftResult.getOrNull() ?: return Result.failure(Exception("Draft not found"))
 

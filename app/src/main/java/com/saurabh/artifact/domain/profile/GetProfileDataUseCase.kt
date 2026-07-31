@@ -17,6 +17,7 @@ data class ProfileData(
     val isSelf: Boolean
 )
 
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class GetProfileDataUseCase @Inject constructor(
     private val userRepository: UserRepository,
     private val artifactRepository: ArtifactRepository,
@@ -24,41 +25,37 @@ class GetProfileDataUseCase @Inject constructor(
     private val authRepository: AuthRepository
 ) {
     operator fun invoke(targetUserId: String?): Flow<ProfileData?> {
-        val currentUserId = authRepository.currentUserId
-        val isSelf = (targetUserId == null) || (targetUserId == currentUserId)
-        val finalId = targetUserId ?: currentUserId
+        return authRepository.currentUser.flatMapLatest { currentUser ->
+            val currentUserId = currentUser?.uid ?: ""
+            val isSelf = (targetUserId == null) || (targetUserId == currentUserId)
+            val finalId = targetUserId ?: currentUserId
 
-        if (finalId.isEmpty()) return flowOf(null)
+            if (finalId.isEmpty()) return@flatMapLatest flowOf(null)
 
-        return combine(
-            userRepository.streamUserProfile(finalId),
-            artifactRepository.getUserArtifacts(finalId, onlyActive = !isSelf),
-            artifactRepository.getSavedArtifacts(finalId),
-            if (isSelf) recordingRepository.observeDrafts().map { drafts ->
-                drafts.filter { 
-                    it.lifecycle != com.saurabh.artifact.model.ArtifactLifecycle.PUBLISHED &&
-                    it.lifecycle != com.saurabh.artifact.model.ArtifactLifecycle.DELETING &&
-                    it.lifecycle != com.saurabh.artifact.model.ArtifactLifecycle.DELETED
-                }
-            } else flowOf(emptyList()),
-            if (currentUserId.isNotEmpty()) userRepository.observeIsResonating(currentUserId, finalId) else flowOf(false)
-        ) { profile, allArtifacts, saved, localDrafts, isResonating ->
-            val statusPublished = com.saurabh.artifact.model.ArtifactStatus.ACTIVE
-            val localDraftIds = localDrafts.map { it.id }.toSet()
+            combine(
+                userRepository.streamUserProfile(finalId),
+                artifactRepository.getUserArtifacts(finalId, onlyActive = !isSelf),
+                artifactRepository.getSavedArtifacts(finalId),
+                if (isSelf) recordingRepository.observeDrafts() else flowOf(emptyList()),
+                if (currentUserId.isNotEmpty()) userRepository.observeIsResonating(currentUserId, finalId) else flowOf(false)
+            ) { profile, allArtifacts, saved, localDrafts, isResonating ->
+                val statusPublished = com.saurabh.artifact.model.ArtifactStatus.ACTIVE
+                val localDraftIds = localDrafts.map { it.id }.toSet()
 
-            ProfileData(
-                userProfile = profile,
-                publishedArtifacts = allArtifacts.filter { it.status == statusPublished },
-                cloudDrafts = allArtifacts.filter { 
-                    it.status != statusPublished && 
-                    it.status != com.saurabh.artifact.model.ArtifactStatus.DELETED &&
-                    it.id !in localDraftIds // FIX: Suppress cloud artifacts that exist as local drafts to prevent key collision
-                },
-                savedArtifacts = saved,
-                localDrafts = localDrafts,
-                isResonating = isResonating,
-                isSelf = isSelf
-            )
+                ProfileData(
+                    userProfile = profile,
+                    publishedArtifacts = allArtifacts.filter { it.status == statusPublished },
+                    cloudDrafts = allArtifacts.filter { 
+                        it.status != statusPublished && 
+                        it.status != com.saurabh.artifact.model.ArtifactStatus.DELETED &&
+                        it.id !in localDraftIds
+                    },
+                    savedArtifacts = saved,
+                    localDrafts = localDrafts,
+                    isResonating = isResonating,
+                    isSelf = isSelf
+                )
+            }
         }
     }
 }

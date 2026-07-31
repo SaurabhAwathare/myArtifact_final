@@ -55,11 +55,10 @@ class CleanupWorker @AssistedInject constructor(
         diagnosticLogger.info(DiagnosticCategory.WORKMANAGER, "CLEANUP_STARTED", mapOf(LogKeys.ARTIFACT_ID to artifactId))
         
         return try {
-            // 1. Find the draft in local database (Robust Lookup)
-            // Try Room PK first, then fall back to remote ID
-            var draft = draftDao.getDraftById(artifactId)
+            // 1. Find the draft in local database (Robust Lookup - System Agnostic for Maintenance)
+            var draft = draftDao.internalGetDraftByIdAgnostic(artifactId)
             if (draft == null) {
-                draft = draftDao.getDraftByArtifactId(artifactId)
+                draft = draftDao.internalGetDraftByArtifactIdAgnostic(artifactId)
             }
             
             if (draft == null) {
@@ -70,7 +69,7 @@ class CleanupWorker @AssistedInject constructor(
             }
 
             // 2. Transition to CLEANING state
-            draftDao.updateLocalCleanupStatus(draft.id, LocalCleanupStatus.CLEANING)
+            draftDao.updateLocalCleanupStatus(draft.id, draft.userId, LocalCleanupStatus.CLEANING)
 
             // 3. Authoritative physical purge
             deletionManager.performPhysicalPurge(draft)
@@ -80,10 +79,10 @@ class CleanupWorker @AssistedInject constructor(
 
             // 5. Hard Delete: Finalize state and remove DB records
             database.withTransaction {
-                draftDao.updateLocalCleanupStatus(draft.id, LocalCleanupStatus.COMPLETED)
+                draftDao.updateLocalCleanupStatus(draft.id, draft.userId, LocalCleanupStatus.COMPLETED)
                 uploadTaskDao.deleteByDraftId(draft.id)
                 artifactDao.deleteById(artifactId) // Clear feed record
-                draftDao.deleteById(draft.id)
+                draftDao.internalDeleteByIdAgnostic(draft.id)
             }
 
             diagnosticLogger.info(DiagnosticCategory.WORKMANAGER, "CLEANUP_SUCCESS", mapOf(LogKeys.ARTIFACT_ID to artifactId))
@@ -92,15 +91,17 @@ class CleanupWorker @AssistedInject constructor(
             diagnosticLogger.error(DiagnosticCategory.WORKMANAGER, "CLEANUP_FAILED", mapOf(LogKeys.ARTIFACT_ID to artifactId), e)
             
             // 6. Handle Retries
-            val draft = draftDao.getDraftById(artifactId) ?: draftDao.getDraftByArtifactId(artifactId)
+            val draft = draftDao.internalGetDraftByIdAgnostic(artifactId) 
+                ?: draftDao.internalGetDraftByArtifactIdAgnostic(artifactId)
+            
             if (draft != null) {
                 val newRetryCount = draft.cleanupRetryCount + 1
                 if (newRetryCount >= MAX_RETRIES) {
-                    draftDao.updateLocalCleanupStatus(draft.id, LocalCleanupStatus.FAILED_TERMINAL)
+                    draftDao.updateLocalCleanupStatus(draft.id, draft.userId, LocalCleanupStatus.FAILED_TERMINAL)
                     return Result.failure()
                 } else {
-                    draftDao.updateCleanupRetryCount(draft.id, newRetryCount)
-                    draftDao.updateLocalCleanupStatus(draft.id, LocalCleanupStatus.FAILED_RETRYABLE)
+                    draftDao.updateCleanupRetryCount(draft.id, draft.userId, newRetryCount)
+                    draftDao.updateLocalCleanupStatus(draft.id, draft.userId, LocalCleanupStatus.FAILED_RETRYABLE)
                     return Result.retry()
                 }
             }
@@ -119,7 +120,7 @@ class CleanupWorker @AssistedInject constructor(
 
         return try {
             // Find all published artifacts that still have local files
-            val publishedDrafts = draftDao.getDraftsByLifecycle(ArtifactLifecycle.PUBLISHED)
+            val publishedDrafts = draftDao.getDraftsByLifecycleAgnostic(ArtifactLifecycle.PUBLISHED)
             diagnosticLogger.info(DiagnosticCategory.STORAGE, "EMERGENCY_CLEANUP_PURGING", mapOf("count" to publishedDrafts.size))
             
             publishedDrafts.forEach { draft ->

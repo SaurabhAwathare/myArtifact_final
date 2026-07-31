@@ -750,8 +750,8 @@ class ArtifactRepository @Inject constructor(
             }.await()
 
             // Sync with local draft if it exists
-            draftDao.get().getDraftByArtifactId(artifactId)?.let { draft ->
-                draftDao.get().updateTitle(draft.id, trimmedTitle)
+            draftDao.get().internalGetDraftByArtifactIdAgnostic(artifactId)?.let { draft ->
+                draftDao.get().updateTitle(draft.id, draft.userId, trimmedTitle)
             }
 
             // Sync with local ArtifactEntity cache

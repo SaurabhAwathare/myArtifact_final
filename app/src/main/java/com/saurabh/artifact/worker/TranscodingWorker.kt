@@ -31,14 +31,19 @@ class TranscodingWorker @AssistedInject constructor(
     private val localDraftManager: LocalDraftManager,
     private val encryptedStorageManager: EncryptedStorageManager,
     private val wavRecoveryManager: WavRecoveryManager,
+    private val authRepository: com.saurabh.artifact.repository.AuthRepository,
     private val diagnosticLogger: DiagnosticLogger
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val draftId = inputData.getString(AudioNormalizationWorker.KEY_DRAFT_ID) ?: return@withContext Result.failure()
+        val userId = authRepository.currentUserId
+        
+        if (userId.isEmpty()) return@withContext Result.failure()
+
         diagnosticLogger.info(DiagnosticCategory.RECORDING, "TRANSCODING_STARTED", mapOf(LogKeys.DRAFT_ID to draftId))
         
-        val draft = draftDao.getDraftById(draftId) ?: return@withContext Result.failure()
+        val draft = draftDao.getDraftById(draftId, userId) ?: return@withContext Result.failure()
 
         val rawFile = draft.rawPcmPath?.let { File(it) } ?: return@withContext Result.failure()
         if (!rawFile.exists()) {
@@ -49,18 +54,18 @@ class TranscodingWorker @AssistedInject constructor(
         try {
             // IDEMPOTENCY CHECK: If the artifact already exists and metadata is correct, skip
             val existingFile = File(draft.localAudioPath)
-            if (existingFile.exists() && existingFile.length() > 0 && !draft.isEncrypted) {
+            if (existingFile.exists() && existingFile.length() > 0 && draft.isEncrypted) {
                 diagnosticLogger.info(DiagnosticCategory.RECORDING, "TRANSCODING_SKIP_IDEMPOTENT", mapOf(LogKeys.DRAFT_ID to draftId))
                 return@withContext Result.success()
             }
 
-            updateDraftStatus(draftId, ProcessingStage.TRANSCODING)
+            updateDraftStatus(draftId, userId, ProcessingStage.TRANSCODING)
             
             // 0. Defense-in-Depth: Validate and repair WAV header before transcoding
             val recoveryResult = wavRecoveryManager.recover(rawFile)
             if (recoveryResult == WavRecoveryManager.RecoveryResult.CORRUPTED) {
                 diagnosticLogger.error(DiagnosticCategory.RECORDING, "TRANSCODING_WAV_CORRUPTED", mapOf(LogKeys.DRAFT_ID to draftId))
-                updateDraftStatus(draftId, null, "Unrecoverable WAV header")
+                updateDraftStatus(draftId, userId, null, "Unrecoverable WAV header")
                 return@withContext Result.failure()
             }
 
@@ -75,30 +80,24 @@ class TranscodingWorker @AssistedInject constructor(
             // 2.1 ATOMICITY FIX: Verify generated file essence before DB commitment
             if (!finalAudioFile.exists() || finalAudioFile.length() == 0L) {
                 diagnosticLogger.error(DiagnosticCategory.RECORDING, "TRANSCODING_OUTPUT_EMPTY", mapOf(LogKeys.DRAFT_ID to draftId))
-                updateDraftStatus(draftId, null, "Transcoding output verification failed")
+                updateDraftStatus(draftId, userId, null, "Transcoding output verification failed")
                 return@withContext Result.failure()
             }
 
             // 3. Finalize paths in DB with targeted update (Commit before cleanup)
             draftDao.updateTranscodingResult(
                 id = draftId,
+                userId = userId,
                 localAudioPath = finalAudioFile.absolutePath,
                 checksum = checksum,
                 isEncrypted = true
             )
 
-            // 4. Securely delete intermediate files (Cleanup only after DB success)
-            if (rawFile.delete()) {
-                diagnosticLogger.debug(DiagnosticCategory.STORAGE, "TRANSCODING_CLEANUP_RAW", mapOf(LogKeys.DRAFT_ID to draftId))
-            } else {
-                diagnosticLogger.warn(DiagnosticCategory.STORAGE, "TRANSCODING_CLEANUP_RAW_FAILED", mapOf(LogKeys.DRAFT_ID to draftId))
-            }
-
             diagnosticLogger.info(DiagnosticCategory.RECORDING, "TRANSCODING_SUCCESS", mapOf(LogKeys.DRAFT_ID to draftId))
             Result.success()
         } catch (e: Exception) {
             diagnosticLogger.error(DiagnosticCategory.RECORDING, "TRANSCODING_FAILED", mapOf(LogKeys.DRAFT_ID to draftId), e)
-            updateDraftStatus(draftId, null, "Transcoding failed: ${e.message}")
+            updateDraftStatus(draftId, userId, null, "Transcoding failed: ${e.message}")
             Result.retry()
         }
     }
@@ -110,12 +109,12 @@ class TranscodingWorker @AssistedInject constructor(
         }
     }
 
-    private suspend fun updateDraftStatus(id: String, stage: ProcessingStage?, error: String? = null) {
+    private suspend fun updateDraftStatus(id: String, userId: String, stage: ProcessingStage?, error: String? = null) {
         val newProcessing = when {
             error != null -> ProcessingStatus.Failed
             stage != null -> ProcessingStatus.Active(stage)
             else -> ProcessingStatus.Idle
         }
-        draftDao.updateProcessingStatus(id, newProcessing)
+        draftDao.updateProcessingStatus(id, userId, newProcessing)
     }
 }

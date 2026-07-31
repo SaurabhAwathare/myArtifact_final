@@ -25,16 +25,21 @@ class PrivacyScanWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted workerParams: WorkerParameters,
     private val draftDao: DraftDao,
+    private val authRepository: com.saurabh.artifact.repository.AuthRepository,
     private val diagnosticLogger: DiagnosticLogger
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val draftId = inputData.getString(KEY_DRAFT_ID) ?: return@withContext Result.failure()
+        val userId = authRepository.currentUserId
+        
+        if (userId.isEmpty()) return@withContext Result.failure()
+
         diagnosticLogger.info(DiagnosticCategory.SECURITY, "PRIVACY_SCAN_INACTIVE", mapOf(LogKeys.DRAFT_ID to draftId))
         
         try {
             // Immediately transition to Idle as the feature is legacy
-            draftDao.updateProcessingStatus(draftId, ProcessingStatus.Idle)
+            draftDao.updateProcessingStatus(draftId, userId, ProcessingStatus.Idle)
             Result.success()
         } catch (e: Exception) {
             diagnosticLogger.error(DiagnosticCategory.SECURITY, "PRIVACY_SCAN_CLEANUP_FAILED", mapOf(LogKeys.DRAFT_ID to draftId), e)

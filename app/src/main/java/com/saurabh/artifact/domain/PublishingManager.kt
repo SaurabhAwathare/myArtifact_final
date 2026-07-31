@@ -6,6 +6,7 @@ import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.audio.ArtifactCleanupManager
+import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.model.ArtifactStatus
 import com.saurabh.artifact.model.SyncStatus
@@ -42,9 +43,27 @@ class PublishingManager @Inject constructor(
                 }
             
             val firebaseUser = FirebaseAuth.getInstance().currentUser 
-                ?: return@withContext Result.failure<Unit>(Exception("User not authenticated")).also {
+                ?: return@withContext Result.failure<Unit>(AppError.Unauthenticated()).also {
                     diagnosticLogger.error(DiagnosticCategory.PUBLISH, "PUBLISH_FAILED", mapOf(LogKeys.DRAFT_ID to draftId, "reason" to "UNAUTHENTICATED"))
                 }
+
+            // Phase 3: Explicit Ownership Verification
+            diagnosticLogger.debug(DiagnosticCategory.PUBLISH, "PUBLISH_OWNERSHIP_CHECK", mapOf(LogKeys.DRAFT_ID to draftId))
+            if (draft.userId != firebaseUser.uid) {
+                val errorMsg = "Ownership verification failed: Draft belongs to another account."
+                diagnosticLogger.error(
+                    DiagnosticCategory.PUBLISH, 
+                    "PUBLISH_OWNERSHIP_MISMATCH", 
+                    mapOf(
+                        LogKeys.DRAFT_ID to draftId, 
+                        "draftOwner" to draft.userId, 
+                        "activeUser" to firebaseUser.uid
+                    )
+                )
+                draftRepository.updateUploadStatus(draftId, SyncStatus.Failed(errorMsg))
+                return@withContext Result.failure(AppError.OwnershipMismatch())
+            }
+            diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISH_OWNERSHIP_VERIFIED", mapOf(LogKeys.DRAFT_ID to draftId))
 
             // 1. Security & Integrity Validation
             diagnosticLogger.debug(DiagnosticCategory.PUBLISH, "PUBLISH_STEP_1_VALIDATION", mapOf(LogKeys.DRAFT_ID to draftId))

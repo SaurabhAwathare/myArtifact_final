@@ -29,7 +29,7 @@ object SecurityArchitecture {
      */
     fun openDecryptingStream(context: Context, file: File): InputStream {
         val streamingAead = getStreamingAead(context)
-        return streamingAead.newDecryptingStream(file.inputStream(), null)
+        return streamingAead.newDecryptingStream(file.inputStream(), ByteArray(0))
     }
 
     /**
@@ -37,7 +37,7 @@ object SecurityArchitecture {
      */
     fun openEncryptingStream(context: Context, file: File): OutputStream {
         val streamingAead = getStreamingAead(context)
-        return streamingAead.newEncryptingStream(file.outputStream(), null)
+        return streamingAead.newEncryptingStream(file.outputStream(), ByteArray(0))
     }
 
     /**

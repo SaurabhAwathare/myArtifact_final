@@ -51,6 +51,8 @@ data class ArtifactReaction(
     @set:PropertyName("type")
     var typeId: String = "i_hear_you",
     var createdAt: Timestamp? = null,
+    @get:PropertyName("isPrivatePulse")
+    @set:PropertyName("isPrivatePulse")
     var isPrivatePulse: Boolean = true // Flag to distinguish from legacy/public reactions
 ) {
     @get:Exclude @set:Exclude

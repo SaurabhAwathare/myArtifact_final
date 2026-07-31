@@ -16,7 +16,7 @@ import androidx.room.TypeConverters
         DeadLetterInteractionEntity::class,
         ReportedArtifactEntity::class,
     ],
-    version = 60,
+    version = 61,
     autoMigrations = [
         // Auto-migrations can be added here for simple schema changes
     ],
@@ -35,6 +35,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun reportedArtifactDao(): ReportedArtifactDao
 
     companion object {
-        // Migrations have been moved to DatabaseMigrations.kt
+        // Migrations are centrally managed in DatabaseMigrations
+        fun getMigrations() = DatabaseMigrations.ALL_MIGRATIONS
     }
 }

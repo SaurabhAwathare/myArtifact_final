@@ -129,9 +129,14 @@ class SmartDataSourceFactory(
                 
                 ArtifactLogger.d(DiagnosticCategory.NETWORK, "SMART_OPEN_START", mapOf("uri" to dataSpec.uri.toString()))
                 
-                val isEncrypted = path.contains("encrypted_drafts") || 
-                                 dataSpec.uri.getQueryParameter("encrypted") == "true" ||
-                                 (path.startsWith(this@SmartDataSourceFactory.context.filesDir.absolutePath) && !path.endsWith(".wav"))
+                // Authoritative encryption signal via query parameter
+                val isEncryptedParam = dataSpec.uri.getQueryParameter("encrypted") == "true"
+                
+                // Legacy path-based heuristic (fallback for older MediaItems or different storage locations)
+                val isEncryptedPath = path.contains("encrypted_drafts") || 
+                                     (path.startsWith(this@SmartDataSourceFactory.context.filesDir.absolutePath) && !path.endsWith(".wav"))
+
+                val isEncrypted = isEncryptedParam || isEncryptedPath
                 
                 currentDataSource = if (isEncrypted) {
                     createEncryptedDataSource()

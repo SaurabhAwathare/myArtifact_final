@@ -52,6 +52,10 @@ class EngagementRepository @Inject constructor(
         engagementDao.getEngagementsRequiringSync().map { it.toDomain() }
     }
 
+    suspend fun reclaimOrphanedSyncs(): Int = withContext(Dispatchers.IO) {
+        engagementDao.reclaimOrphanedSyncs()
+    }
+
     suspend fun updateSyncStatus(artifactId: String, state: SyncState, error: String? = null) = withContext(Dispatchers.IO) {
         engagementDao.updateSyncStatus(artifactId, state, System.currentTimeMillis(), error)
     }

@@ -12,6 +12,7 @@ import com.saurabh.artifact.domain.auth.InitialDestination
 import com.saurabh.artifact.domain.auth.ObserveCurrentUserProfileUseCase
 import com.saurabh.artifact.domain.auth.RegistrationResult
 import com.saurabh.artifact.domain.settings.ObserveStealthModeUseCase
+import com.saurabh.artifact.startup.StartupComponent
 import com.saurabh.artifact.startup.StartupCoordinator
 import com.saurabh.artifact.startup.StartupMetrics
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -158,6 +159,9 @@ class MainViewModel @Inject constructor(
                 diagnosticLogger.info(DiagnosticCategory.STARTUP, "STARTUP_RESTORED", mapOf("destination" to destinationId))
                 _startupState.value = AppStartupState.Ready(restoredDestination)
                 
+                // Process Restoration implies identity stability
+                markAuthReady()
+
                 // If there's a pending event (restored in init), start the observer
                 if (pendingStartupEvent != null) {
                     startDeferredNavigationObserver()
@@ -210,7 +214,7 @@ class MainViewModel @Inject constructor(
                 startupCoordinator.start()
                 
                 // BLOCKING: Wait for Core/Security readiness (including App Check)
-                startupCoordinator.awaitComponent(com.saurabh.artifact.startup.StartupComponent.CORE)
+                startupCoordinator.awaitComponent(StartupComponent.CORE)
                 
                 // Only proceed if no terminal error occurred
                 if (_startupState.value !is AppStartupState.Error) {
@@ -231,9 +235,11 @@ class MainViewModel @Inject constructor(
         when (destination) {
             InitialDestination.ONBOARDING -> {
                 updateStartupState(AppStartupState.Ready(Onboarding))
+                markAuthReady()
             }
             InitialDestination.UNAUTHENTICATED -> {
                 updateStartupState(AppStartupState.Ready(Login))
+                markAuthReady()
             }
             InitialDestination.AUTHENTICATED -> {
                 _startupState.value = AppStartupState.Registering
@@ -241,9 +247,11 @@ class MainViewModel @Inject constructor(
                 when (val result = registrationCoordinator.ensureProfileExists()) {
                     RegistrationResult.SuccessExistingUser -> {
                         updateStartupState(AppStartupState.Ready(Home))
+                        markAuthReady()
                     }
                     RegistrationResult.SuccessNewUser -> {
                         updateStartupState(AppStartupState.Ready(IdentityReveal))
+                        markAuthReady()
                     }
                     is RegistrationResult.Failure -> {
                         diagnosticLogger.error(DiagnosticCategory.STARTUP, "STARTUP_REGISTRATION_FAILED", throwable = result.exception)
@@ -265,6 +273,11 @@ class MainViewModel @Inject constructor(
             savedStateHandle[KEY_STARTUP_COMPLETED] = true
             savedStateHandle[KEY_RESOLVED_DESTINATION_ID] = destinationId
         }
+    }
+
+    private fun markAuthReady() {
+        startupCoordinator.emitReadiness(StartupComponent.AUTH)
+        StartupMetrics.onAuthReady()
     }
 
     fun onLaunchIntent(intent: android.content.Intent?) {

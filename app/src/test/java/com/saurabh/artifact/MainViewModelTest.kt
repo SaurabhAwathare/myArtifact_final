@@ -15,7 +15,9 @@ import com.saurabh.artifact.domain.settings.ObserveStealthModeUseCase
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.UserProfileManager
 import com.saurabh.artifact.diagnostics.FakeDiagnosticLogger
+import com.saurabh.artifact.startup.StartupComponent
 import com.saurabh.artifact.startup.StartupCoordinator
+import com.saurabh.artifact.startup.StartupMetrics
 import com.saurabh.artifact.navigation.*
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
@@ -52,6 +54,7 @@ class MainViewModelTest {
     @Before
     fun setup() {
         mockkStatic(Log::class)
+        mockkObject(StartupMetrics)
         every { Log.d(any(), any()) } returns 0
         every { Log.i(any(), any()) } returns 0
         every { Log.w(any<String>(), any<String>()) } returns 0
@@ -82,6 +85,47 @@ class MainViewModelTest {
             savedStateHandle,
             fakeLogger
         )
+    }
+
+    @Test
+    fun `startup should signal AUTH readiness on successful authenticated startup`() = runTest {
+        val user = mockk<com.google.firebase.auth.FirebaseUser>()
+        testAuthFlow.value = user
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
+        coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
+
+        viewModel.start()
+        testScheduler.runCurrent()
+
+        verify { startupCoordinator.emitReadiness(StartupComponent.AUTH) }
+        verify { StartupMetrics.onAuthReady() }
+    }
+
+    @Test
+    fun `process restoration should signal AUTH readiness`() = runTest {
+        // Setup SavedState for restoration
+        savedStateHandle["startup_completed"] = true
+        savedStateHandle["resolved_destination_id"] = "HOME"
+        val user = mockk<com.google.firebase.auth.FirebaseUser>()
+        testAuthFlow.value = user
+
+        viewModel.start()
+        testScheduler.runCurrent()
+
+        verify { startupCoordinator.emitReadiness(StartupComponent.AUTH) }
+        verify { StartupMetrics.onAuthReady() }
+    }
+
+    @Test
+    fun `guest startup should signal AUTH readiness`() = runTest {
+        testAuthFlow.value = null
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.UNAUTHENTICATED
+
+        viewModel.start()
+        testScheduler.runCurrent()
+
+        verify { startupCoordinator.emitReadiness(StartupComponent.AUTH) }
+        verify { StartupMetrics.onAuthReady() }
     }
 
     @After

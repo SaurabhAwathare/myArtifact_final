@@ -35,6 +35,7 @@ class RecordingSessionManager @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val playbackCoordinator: PlaybackCoordinator,
     private val recordingRepository: RecordingRepository,
+    private val userRepository: com.saurabh.artifact.repository.UserRepository,
     private val localDraftManager: LocalDraftManager,
     private val draftDao: DraftDao,
     private val cleanupManager: ArtifactCleanupManager,
@@ -80,8 +81,11 @@ class RecordingSessionManager @Inject constructor(
         managerScope.launch {
             _rawServiceState.collect { serviceState ->
                 if (serviceState.draftId.isNotEmpty() && _activeDraft.value?.id != serviceState.draftId) {
-                    val draft = draftDao.getDraftById(serviceState.draftId)
-                    _activeDraft.value = draft
+                    val userId = userRepository.getCurrentUserId()
+                    if (userId != null) {
+                        val draft = draftDao.getDraftById(serviceState.draftId, userId)
+                        _activeDraft.value = draft
+                    }
                 } else if (serviceState.status == RecordingStatus.IDLE) {
                     _activeDraft.value = null
                 }
@@ -132,18 +136,23 @@ class RecordingSessionManager @Inject constructor(
             return@withLock
         }
 
+        val userId = userRepository.getCurrentUserId() ?: run {
+            diagnosticLogger.error(DiagnosticCategory.RECORDING, "SESSION_START_FAILED_UNAUTHENTICATED")
+            return@withLock
+        }
+
         prepareForRecording()
 
         val draftId = explicitDraftId ?: UUID.randomUUID().toString()
         
         // Ensure draft exists in DB if we're starting fresh
-        var draft = draftDao.getDraftById(draftId)
+        var draft = draftDao.getDraftById(draftId, userId)
         if (draft == null) {
             val file = withContext(Dispatchers.IO) {
                 localDraftManager.createDraftFile(draftId, "wav")
             }
             recordingRepository.createDraft(draftId, file.absolutePath, 0).getOrThrow()
-            draft = draftDao.getDraftById(draftId)
+            draft = draftDao.getDraftById(draftId, userId)
         }
         
         _activeDraft.value = draft

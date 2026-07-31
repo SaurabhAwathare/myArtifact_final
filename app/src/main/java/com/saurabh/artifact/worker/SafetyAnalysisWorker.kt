@@ -21,15 +21,19 @@ import kotlinx.coroutines.withContext
 class SafetyAnalysisWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted workerParams: WorkerParameters,
-    private val draftDao: DraftDao
+    private val draftDao: DraftDao,
+    private val authRepository: com.saurabh.artifact.repository.AuthRepository
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val draftId = inputData.getString(KEY_DRAFT_ID) ?: return@withContext Result.failure()
+        val userId = authRepository.currentUserId
         
+        if (userId.isEmpty()) return@withContext Result.failure()
+
         try {
             // Immediately transition to Idle as the feature is legacy
-            draftDao.updateProcessingStatus(draftId, ProcessingStatus.Idle)
+            draftDao.updateProcessingStatus(draftId, userId, ProcessingStatus.Idle)
             Result.success()
         } catch (_: Exception) {
             Result.failure()

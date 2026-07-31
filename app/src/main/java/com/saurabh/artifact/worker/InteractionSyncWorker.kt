@@ -46,6 +46,16 @@ class InteractionSyncWorker @AssistedInject constructor(
         val currentUserId = FirebaseAuth.getInstance().currentUser?.uid ?: return@withContext Result.failure()
         ArtifactLogger.i(DiagnosticCategory.WORKER, "SYNC_STARTED", mapOf("worker" to "InteractionSyncWorker"))
         
+        // 0. Reclaim any records stuck in SYNCING state from a previous interrupted process
+        val reclaimedCount = engagementRepository.reclaimOrphanedSyncs()
+        if (reclaimedCount > 0) {
+            ArtifactLogger.w(
+                DiagnosticCategory.SYNC,
+                "SYNC_RECLAMATION_PERFORMED",
+                mapOf("reclaimedCount" to reclaimedCount, "reason" to "Stale SYNCING records detected from previous interrupted run")
+            )
+        }
+
         var isRetryRequired = false
 
         // 1. Sync Engagement Evidence (Phase 1)

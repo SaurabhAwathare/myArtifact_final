@@ -19,45 +19,51 @@ import java.io.File
 class WaveformWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted workerParams: WorkerParameters,
-    private val draftDao: DraftDao
+    private val draftDao: DraftDao,
+    private val authRepository: com.saurabh.artifact.repository.AuthRepository
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val draftId = inputData.getString(KEY_DRAFT_ID) ?: return@withContext Result.failure()
+        val userId = authRepository.currentUserId
         
+        if (userId.isEmpty()) return@withContext Result.failure()
+
         try {
-            val draft = draftDao.getDraftById(draftId) ?: return@withContext Result.failure()
+            val draft = draftDao.getDraftById(draftId, userId) ?: return@withContext Result.failure()
             val rawFile = draft.rawPcmPath?.let { File(it) } ?: File(draft.localAudioPath)
             
             if (!rawFile.exists()) {
-                updateSubState(draftId, null, "Raw audio file missing")
+                val pathStr = draft.rawPcmPath ?: draft.localAudioPath
+                android.util.Log.e("WaveformWorker", "Waveform generation failed: Audio source missing at $pathStr")
+                updateSubState(draftId, userId, null, "Raw audio file missing")
                 return@withContext Result.failure()
             }
 
-            updateSubState(draftId, ProcessingStage.WAVEFORM_GENERATION)
+            updateSubState(draftId, userId, ProcessingStage.WAVEFORM_GENERATION)
             
             // High-fidelity extraction from PCM
             val waveformData = WaveformProcessor.extractFromPcm(rawFile, targetSize = 100)
             
             if (waveformData.isNotEmpty()) {
                 // Targeted update: Save waveform and clear processing state
-                draftDao.updateWaveformResult(draftId, waveformData)
+                draftDao.updateWaveformResult(draftId, userId, waveformData)
             }
             
             Result.success()
         } catch (e: Exception) {
-            updateSubState(draftId, null, "Waveform generation failed: ${e.message}")
+            updateSubState(draftId, userId, null, "Waveform generation failed: ${e.message}")
             Result.retry()
         }
     }
 
-    private suspend fun updateSubState(id: String, stage: ProcessingStage?, error: String? = null) {
+    private suspend fun updateSubState(id: String, userId: String, stage: ProcessingStage?, error: String? = null) {
         val newProcessing = when {
             error != null -> ProcessingStatus.Failed
             stage != null -> ProcessingStatus.Active(stage)
             else -> ProcessingStatus.Idle
         }
-        draftDao.updateProcessingStatus(id, newProcessing)
+        draftDao.updateProcessingStatus(id, userId, newProcessing)
     }
 
     companion object {

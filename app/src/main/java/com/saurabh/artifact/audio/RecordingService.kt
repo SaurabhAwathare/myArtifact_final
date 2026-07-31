@@ -115,6 +115,7 @@ class RecordingService : Service() {
     lateinit var cleanupManager: ArtifactCleanupManager
 
     private var lastKnownAvailableStorageMb: Long = 1024L // Default to 1GB until first check
+    private var hasLoggedNotificationPermissionMissing = false
     
     class RecordingBinder : Binder() {
         // No-op - preserved for standard service binding pattern
@@ -255,6 +256,7 @@ class RecordingService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        hasLoggedNotificationPermissionMissing = false
         val action = intent?.action
         val draftId = intent?.getStringExtra("draft_id") ?: ""
 
@@ -282,6 +284,7 @@ class RecordingService : Service() {
     }
 
     suspend fun startRecording(draftId: String = "") {
+        hasLoggedNotificationPermissionMissing = false
         // Permission Check inside Service (Defense in Depth)
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             diagnosticLogger.error(DiagnosticCategory.RECORDING, "RECORDING_FAILED", mapOf("reason" to "PERMISSION_DENIED"))
@@ -330,7 +333,7 @@ class RecordingService : Service() {
         serviceScope.launch {
             val finalDraftId = draftId.ifEmpty { UUID.randomUUID().toString() }
             
-            val draft = draftDao.getDraftById(finalDraftId)
+            val draft = draftDao.internalGetDraftByIdAgnostic(finalDraftId)
             val file = withContext(Dispatchers.IO) {
                 draft?.let { File(it.localAudioPath) } ?: localDraftManager.createDraftFile(finalDraftId, "wav")
             }
@@ -379,7 +382,7 @@ class RecordingService : Service() {
                     draftId = finalDraftId
                 )
                 
-                draftDao.getDraftById(finalDraftId)?.let {
+                draft?.let {
                     draftDao.update(it.copy(
                         status = it.status.copy(publication = SyncStatus.LocalOnly),
                         lifecycle = ArtifactLifecycle.RECORDING
@@ -417,7 +420,7 @@ class RecordingService : Service() {
         
         _recordingState.value.draftId.let { id ->
             serviceScope.launch {
-                draftDao.getDraftById(id)?.let {
+                draftDao.internalGetDraftByIdAgnostic(id)?.let {
                     draftDao.update(it.copy(
                         status = it.status.copy(publication = SyncStatus.LocalOnly)
                     ))
@@ -441,7 +444,7 @@ class RecordingService : Service() {
         
         _recordingState.value.draftId.let { id ->
             serviceScope.launch {
-                draftDao.getDraftById(id)?.let {
+                draftDao.internalGetDraftByIdAgnostic(id)?.let {
                     draftDao.update(it.copy(
                         status = it.status.copy(publication = SyncStatus.LocalOnly),
                         lifecycle = ArtifactLifecycle.RECORDING
@@ -540,7 +543,7 @@ class RecordingService : Service() {
                         if (fileExists) {
                             withContext(Dispatchers.IO) { capturedFile?.delete() }
                         }
-                        draftDao.getDraftById(capturedDraftId)?.let {
+                        draftDao.internalGetDraftByIdAgnostic(capturedDraftId)?.let {
                             draftDao.update(it.copy(
                                 status = it.status.copy(processing = ProcessingStatus.Failed)
                             ))
@@ -717,7 +720,10 @@ class RecordingService : Service() {
         // Android 13+ requires POST_NOTIFICATIONS permission
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ActivityCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                diagnosticLogger.warn(DiagnosticCategory.APP, "NOTIFICATION_PERMISSION_MISSING")
+                if (!hasLoggedNotificationPermissionMissing) {
+                    diagnosticLogger.warn(DiagnosticCategory.APP, "NOTIFICATION_PERMISSION_MISSING")
+                    hasLoggedNotificationPermissionMissing = true
+                }
                 return
             }
         }

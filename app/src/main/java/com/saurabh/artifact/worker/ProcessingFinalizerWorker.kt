@@ -4,15 +4,18 @@ import android.content.Context
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.model.*
+import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.RecordingRepository
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 
 /**
  * Finalizes the local processing chain and transitions the draft to REVIEW_REQUIRED.
@@ -22,17 +25,34 @@ class ProcessingFinalizerWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted workerParams: WorkerParameters,
     private val recordingRepository: RecordingRepository,
+    private val draftDao: DraftDao,
+    private val authRepository: AuthRepository,
     private val diagnosticLogger: DiagnosticLogger
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val draftId = inputData.getString(KEY_DRAFT_ID) ?: return@withContext Result.failure()
+        val userId = authRepository.currentUserId
+        
+        if (userId.isEmpty()) return@withContext Result.failure()
+
         diagnosticLogger.info(DiagnosticCategory.WORKMANAGER, "PROCESSING_FINALIZATION_STARTED", mapOf(LogKeys.DRAFT_ID to draftId))
         
         try {
-            // Targeted finalization update
+            // 1. Fetch draft before finalization to get file paths
+            val draft = draftDao.getDraftById(draftId, userId)
+
+            // 2. Targeted finalization update
             recordingRepository.finalizeProcessing(draftId)
             
+            // 3. Cleanup raw files only after successful finalization
+            draft?.rawPcmPath?.let { path ->
+                val file = File(path)
+                if (file.exists() && file.delete()) {
+                    diagnosticLogger.info(DiagnosticCategory.STORAGE, "PROCESSING_CLEANUP_RAW_SUCCESS", mapOf(LogKeys.DRAFT_ID to draftId))
+                }
+            }
+
             diagnosticLogger.info(DiagnosticCategory.WORKMANAGER, "PROCESSING_FINALIZATION_SUCCESS", mapOf(LogKeys.DRAFT_ID to draftId))
             Result.success()
         } catch (e: Exception) {

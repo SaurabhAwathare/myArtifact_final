@@ -64,6 +64,7 @@ class DraftToArtifactMapper @Inject constructor() {
         val author: AuthorSnapshot,
         val transcriptHash: Int?,
         val isPublic: Boolean,
+        val isEncrypted: Boolean,
         val lifecycle: ArtifactLifecycle
     )
 
@@ -87,6 +88,7 @@ class DraftToArtifactMapper @Inject constructor() {
             author = author,
             transcriptHash = transcriptHash,
             isPublic = draft.isPublic,
+            isEncrypted = draft.isEncrypted,
             lifecycle = draft.lifecycle
         )
 
@@ -129,7 +131,7 @@ class DraftToArtifactMapper @Inject constructor() {
 
         val artifact = Artifact(
             id = draft.id,
-            userId = author.anonymousId,
+            userId = draft.userId, // RESTORED CONTRACT: Use creator's internal UID
             author = author,
             audioUrl = normalizeAudioUrl(draft.localAudioPath),
             createdAt = Timestamp(Date(draft.createdAt)),
@@ -144,6 +146,7 @@ class DraftToArtifactMapper @Inject constructor() {
             amplitudeData = draft.amplitudeData,
             transcript = transcript,
             isDraftField = true,
+            isEncrypted = draft.isEncrypted,
             visibility = if (draft.isPublic) Visibility.PUBLIC else Visibility.PRIVATE,
             isPublic = draft.isPublic
         )

@@ -9,13 +9,11 @@ import com.saurabh.artifact.repository.DraftRepository
 import com.saurabh.artifact.repository.DraftWithUpload
 import com.saurabh.artifact.repository.RecordingRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import javax.inject.Inject
+import androidx.annotation.OptIn
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 
 sealed class DraftListUiEvent {
     data class NavigateToReview(val draftId: String) : DraftListUiEvent()
@@ -28,14 +26,31 @@ class DraftListViewModel @Inject constructor(
     private val recordingRepository: RecordingRepository,
     private val draftRepository: DraftRepository,
     private val publishingOrchestrator: PublishingOrchestrator,
+    private val authRepository: com.saurabh.artifact.repository.AuthRepository,
     private val cleanupManager: ArtifactCleanupManager,
     audioPlayer: PlaybackCoordinator
 ) : ViewModel() {
 
-    val drafts: StateFlow<List<DraftWithUpload>> = draftRepository.observeActiveDraftsWithUploads()
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val drafts: StateFlow<List<DraftWithUpload>> = authRepository.currentUser
+        .flatMapLatest { user ->
+            if (user != null) {
+                draftRepository.observeActiveDraftsWithUploads()
+            } else {
+                flowOf(emptyList())
+            }
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val publishingDrafts: StateFlow<List<DraftWithUpload>> = draftRepository.observePublishingDraftsWithUploads()
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val publishingDrafts: StateFlow<List<DraftWithUpload>> = authRepository.currentUser
+        .flatMapLatest { user ->
+            if (user != null) {
+                draftRepository.observePublishingDraftsWithUploads()
+            } else {
+                flowOf(emptyList())
+            }
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val isPlaying = audioPlayer.isPlaying

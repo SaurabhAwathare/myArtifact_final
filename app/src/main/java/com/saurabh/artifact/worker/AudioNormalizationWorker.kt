@@ -18,32 +18,36 @@ import kotlinx.coroutines.withContext
 class AudioNormalizationWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted workerParams: WorkerParameters,
-    private val draftDao: DraftDao
+    private val draftDao: DraftDao,
+    private val authRepository: com.saurabh.artifact.repository.AuthRepository
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val draftId = inputData.getString(KEY_DRAFT_ID) ?: return@withContext Result.failure()
+        val userId = authRepository.currentUserId
         
+        if (userId.isEmpty()) return@withContext Result.failure()
+
         try {
-            updateSubState(draftId, ProcessingStage.NORMALIZING)
+            updateSubState(draftId, userId, ProcessingStage.NORMALIZING)
             
             // Simulation of audio normalization
             delay(2.seconds)
             
             Result.success()
         } catch (e: Exception) {
-            updateSubState(draftId, null, "Normalization failed: ${e.message}")
+            updateSubState(draftId, userId, null, "Normalization failed: ${e.message}")
             Result.retry()
         }
     }
 
-    private suspend fun updateSubState(id: String, stage: ProcessingStage?, error: String? = null) {
+    private suspend fun updateSubState(id: String, userId: String, stage: ProcessingStage?, error: String? = null) {
         val newProcessing = when {
             error != null -> ProcessingStatus.Failed
             stage != null -> ProcessingStatus.Active(stage)
             else -> ProcessingStatus.Idle
         }
-        draftDao.updateProcessingStatus(id, newProcessing)
+        draftDao.updateProcessingStatus(id, userId, newProcessing)
     }
 
     companion object {

@@ -368,6 +368,7 @@ class PlaybackService : MediaLibraryService() {
         val uri = android.net.Uri.parse(artifact.audioUrl)
             .buildUpon()
             .appendQueryParameter("artifact_id", artifact.id)
+            .appendQueryParameter("encrypted", artifact.isEncrypted.toString())
             .build()
 
         val metadata = MediaMetadata.Builder()

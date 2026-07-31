@@ -15,12 +15,11 @@ import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.model.SyncStatus
 import com.saurabh.artifact.repository.DraftRepository
+import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.util.NotificationHelper
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.*
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -28,6 +27,7 @@ class UploadService : Service() {
 
     @Inject lateinit var publishingManager: com.saurabh.artifact.domain.PublishingManager
     @Inject lateinit var draftRepository: DraftRepository
+    @Inject lateinit var authRepository: AuthRepository
     @Inject lateinit var uploadTaskDao: UploadTaskDao
     @Inject lateinit var diagnosticLogger: DiagnosticLogger
 
@@ -73,9 +73,27 @@ class UploadService : Service() {
             return
         }
 
+        val startUserId = authRepository.currentUserId
+        if (startUserId.isEmpty()) {
+            diagnosticLogger.error(DiagnosticCategory.PUBLISH, "UPLOAD_SERVICE_ABORT_UNAUTHENTICATED", mapOf(LogKeys.ARTIFACT_ID to draftId))
+            stopSelf()
+            return
+        }
+
         _activeDraftId.value = draftId
         diagnosticLogger.info(DiagnosticCategory.PUBLISH, "UPLOAD_SERVICE_START", mapOf(LogKeys.ARTIFACT_ID to draftId))
+        
         uploadJob = serviceScope.launch {
+            // 0. Ownership & Session Monitoring
+            launch {
+                authRepository.currentUser.collect { user ->
+                    if (user?.uid != startUserId) {
+                        diagnosticLogger.info(DiagnosticCategory.PUBLISH, "UPLOAD_CANCELLED_BY_LOGOUT", mapOf(LogKeys.ARTIFACT_ID to draftId))
+                        cancelUpload(draftId)
+                    }
+                }
+            }
+
             // 1. Acquire Ownership (with 10 min timeout threshold)
             val timeoutThreshold = System.currentTimeMillis() - 10 * 60 * 1000L
             val acquisitionResult = withContext(Dispatchers.IO) {
@@ -101,8 +119,19 @@ class UploadService : Service() {
             }
 
             try {
+                // Phase 4: Explicit Ownership Verification before publishing Manager call
                 val draft = draftRepository.getDraft(draftId).getOrNull()
-                val title = draft?.title ?: "Artifact"
+                if (draft == null || draft.userId != startUserId) {
+                    diagnosticLogger.error(
+                        DiagnosticCategory.PUBLISH, 
+                        "UPLOAD_SERVICE_OWNERSHIP_MISMATCH", 
+                        mapOf(LogKeys.ARTIFACT_ID to draftId, "draftOwner" to (draft?.userId ?: "null"), "activeUser" to startUserId)
+                    )
+                    stopSelf()
+                    return@launch
+                }
+
+                val title = draft.title ?: "Artifact"
 
                 publishingManager.performPublish(
                     draftId = draftId,

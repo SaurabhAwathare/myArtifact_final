@@ -29,8 +29,10 @@ class PlayableArtifactRepository @Inject constructor(
      */
     suspend fun resolveArtifact(id: String, source: PlaybackSource): Result<PlayableArtifact> = withContext(Dispatchers.IO) {
         try {
+            val userId = userRepository.getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
+            
             // 1. Check Local Drafts first (Authoritative for review flow)
-            val draft = draftDao.getDraftById(id)
+            val draft = draftDao.getDraftById(id, userId)
             if (draft != null) {
                 val author = userRepository.getCachedProfile()?.let { AuthorSnapshot.fromUser(it) } 
                     ?: AuthorSnapshot(name = "You")
@@ -111,10 +113,12 @@ class PlayableArtifactRepository @Inject constructor(
         if (ids.isEmpty()) return@withContext Result.success(emptyList())
 
         try {
+            val userId = userRepository.getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
+            
             // 1. Fetch all matching drafts in one go (if possible, otherwise one by one for now)
             // Note: DraftDao doesn't have getDraftsByIds yet, so we'll fetch them individually
             // or we could add it to DraftDao. For simplicity and minimum risk, we iterate.
-            val draftsMap = ids.mapNotNull { id -> draftDao.getDraftById(id) }.associateBy { it.id }
+            val draftsMap = ids.mapNotNull { id -> draftDao.getDraftById(id, userId) }.associateBy { it.id }
             
             val author = if (draftsMap.isNotEmpty()) {
                 userRepository.getCachedProfile()?.let { AuthorSnapshot.fromUser(it) } 

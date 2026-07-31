@@ -13,6 +13,7 @@ import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.model.SyncStatus
 import com.saurabh.artifact.repository.DraftRepository
+import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.util.NotificationHelper
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -26,6 +27,7 @@ class PublishingWorker @AssistedInject constructor(
     @Assisted workerParams: WorkerParameters,
     private val publishingManager: com.saurabh.artifact.domain.PublishingManager,
     private val draftRepository: DraftRepository,
+    private val authRepository: AuthRepository,
     private val uploadTaskDao: UploadTaskDao,
     private val diagnosticLogger: DiagnosticLogger
 ) : CoroutineWorker(appContext, workerParams) {
@@ -55,7 +57,23 @@ class PublishingWorker @AssistedInject constructor(
 
         when (acquisitionResult) {
             AcquisitionResult.ACQUIRED -> {
-                // Proceed with publishing
+                // Phase 4: Explicit Ownership Verification
+                val draft = draftRepository.getDraft(draftId).getOrNull()
+                val currentUserId = authRepository.currentUserId
+
+                if (draft == null || currentUserId.isEmpty() || draft.userId != currentUserId) {
+                    diagnosticLogger.error(
+                        DiagnosticCategory.PUBLISH, 
+                        "PUBLISHING_WORKER_OWNERSHIP_FAILED", 
+                        mapOf(
+                            LogKeys.DRAFT_ID to draftId, 
+                            "draftOwner" to (draft?.userId ?: "null"), 
+                            "activeUser" to currentUserId
+                        )
+                    )
+                    return@withContext Result.failure()
+                }
+                diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISHING_WORKER_OWNERSHIP_VERIFIED", mapOf(LogKeys.DRAFT_ID to draftId))
             }
             AcquisitionResult.LOCKED -> {
                 diagnosticLogger.info(

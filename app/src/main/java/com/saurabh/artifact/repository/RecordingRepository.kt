@@ -44,8 +44,12 @@ class RecordingRepository @Inject constructor(
         mimeType: String = "audio/wav"
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
+            val currentUserId = userRepository.getCurrentUserId() 
+                ?: return@withContext Result.failure(AppError.Unauthenticated())
+
             val draft = ArtifactDraftEntity(
                 id = id,
+                userId = currentUserId,
                 localAudioPath = path,
                 rawPcmPath = path, // Track durable source
                 durationMs = durationMs,
@@ -62,10 +66,7 @@ class RecordingRepository @Inject constructor(
             draftDao.get().insert(draft)
             
             // Increment artifactsCount on the user's Firestore document
-            val currentUserId = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
-            if (currentUserId != null) {
-                userRepository.incrementArtifactsCount(currentUserId)
-            }
+            userRepository.incrementArtifactsCount(currentUserId)
 
             Result.success(id)
         } catch (e: Exception) {
@@ -80,8 +81,10 @@ class RecordingRepository @Inject constructor(
         durableBytes: Long = 0
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
+            val userId = userRepository.getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
             draftDao.get().updateRecordingCheckpoint(
                 id = id,
+                userId = userId,
                 durationMs = durationMs,
                 amplitudes = amplitudes,
                 checkpointTimestamp = System.currentTimeMillis(),
@@ -93,29 +96,36 @@ class RecordingRepository @Inject constructor(
         }
     }
 
-    fun observeDrafts(): Flow<List<ArtifactDraftEntity>> = draftDao.get().observeDrafts()
+    fun observeDrafts(): Flow<List<ArtifactDraftEntity>> {
+        val userId = userRepository.getCurrentUserId() ?: return flowOf(emptyList())
+        return draftDao.get().observeDrafts(userId)
+    }
 
-    fun observeDraft(id: String): Flow<ArtifactDraftEntity?> = draftDao.get().observeDraftById(id)
-        .distinctUntilChanged()
-        .onEach { draft ->
-            if (draft != null) {
-                diagnosticLogger.trace(
-                    DiagnosticCategory.DATABASE,
-                    "DRAFT_OBSERVE_EMISSION",
-                    mapOf(
-                        LogKeys.DRAFT_ID to draft.id,
-                        "lifecycle" to draft.lifecycle.name,
-                        "reviewProgress" to draft.reviewProgress
+    fun observeDraft(id: String): Flow<ArtifactDraftEntity?> {
+        val userId = userRepository.getCurrentUserId() ?: return flowOf(null)
+        return draftDao.get().observeDraftById(id, userId)
+            .distinctUntilChanged()
+            .onEach { draft ->
+                if (draft != null) {
+                    diagnosticLogger.trace(
+                        DiagnosticCategory.DATABASE,
+                        "DRAFT_OBSERVE_EMISSION",
+                        mapOf(
+                            LogKeys.DRAFT_ID to draft.id,
+                            "lifecycle" to draft.lifecycle.name,
+                            "reviewProgress" to draft.reviewProgress
+                        )
                     )
-                )
-            } else {
-                diagnosticLogger.trace(DiagnosticCategory.DATABASE, "DRAFT_OBSERVE_NULL", mapOf(LogKeys.DRAFT_ID to id))
+                } else {
+                    diagnosticLogger.trace(DiagnosticCategory.DATABASE, "DRAFT_OBSERVE_NULL", mapOf(LogKeys.DRAFT_ID to id))
+                }
             }
-        }
+    }
 
     suspend fun getDraft(id: String): Result<ArtifactDraftEntity> = withContext(Dispatchers.IO) {
         try {
-            val draft = draftDao.get().getDraftById(id)
+            val userId = userRepository.getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
+            val draft = draftDao.get().getDraftById(id, userId)
             if (draft != null) {
                 Result.success(draft)
             } else {
@@ -128,7 +138,8 @@ class RecordingRepository @Inject constructor(
 
     suspend fun getDraftByPath(path: String): Result<ArtifactDraftEntity> = withContext(Dispatchers.IO) {
         try {
-            val draft = draftDao.get().getDraftByPath(path)
+            val userId = userRepository.getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
+            val draft = draftDao.get().getDraftByPath(path, userId)
             if (draft != null) {
                 Result.success(draft)
             } else {
@@ -150,11 +161,12 @@ class RecordingRepository @Inject constructor(
 
     suspend fun renameDraft(id: String, newTitle: String?): Result<Unit> = withContext(Dispatchers.IO) {
         try {
+            val userId = userRepository.getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
             val trimmedTitle = newTitle?.trim()
             if ((trimmedTitle != null) && (trimmedTitle.isEmpty() || trimmedTitle.length > 70)) {
                 return@withContext Result.failure(AppError.InvalidInput("Title length must be 1-70 characters"))
             }
-            draftDao.get().updateTitle(id, trimmedTitle)
+            draftDao.get().updateTitle(id, userId, trimmedTitle)
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(AppError.from(e))
@@ -163,7 +175,8 @@ class RecordingRepository @Inject constructor(
 
     suspend fun updateDraftMetadata(id: String, title: String?, emotion: Emotion?): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            draftDao.get().updateMetadata(id, title, emotion)
+            val userId = userRepository.getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
+            draftDao.get().updateMetadata(id, userId, title, emotion)
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(AppError.from(e))
@@ -177,7 +190,8 @@ class RecordingRepository @Inject constructor(
             mapOf(LogKeys.DRAFT_ID to id, "lifecycle" to lifecycle.name, "isRecovery" to isRecovery)
         )
         try {
-            draftDao.get().updateLifecycle(id, lifecycle, isRecovery = isRecovery)
+            val userId = userRepository.getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
+            draftDao.get().updateLifecycle(id, userId, lifecycle, isRecovery = isRecovery)
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(AppError.from(e))
@@ -191,7 +205,8 @@ class RecordingRepository @Inject constructor(
             mapOf(LogKeys.DRAFT_ID to id, "targetLifecycle" to lifecycle.name)
         )
         try {
-            draftDao.get().updateLifecycle(id, lifecycle, isRecovery = true)
+            val userId = userRepository.getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
+            draftDao.get().updateLifecycle(id, userId, lifecycle, isRecovery = true)
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(AppError.from(e))
@@ -200,7 +215,8 @@ class RecordingRepository @Inject constructor(
 
     suspend fun updateProcessingStatus(id: String, status: ProcessingStatus): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            draftDao.get().updateProcessingStatus(id, status)
+            val userId = userRepository.getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
+            draftDao.get().updateProcessingStatus(id, userId, status)
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(AppError.from(e))
@@ -209,7 +225,8 @@ class RecordingRepository @Inject constructor(
 
     suspend fun updateWaveform(id: String, amplitudeData: List<Float>): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            draftDao.get().updateWaveformResult(id, amplitudeData)
+            val userId = userRepository.getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
+            draftDao.get().updateWaveformResult(id, userId, amplitudeData)
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(AppError.from(e))
@@ -218,7 +235,8 @@ class RecordingRepository @Inject constructor(
 
     suspend fun finalizeProcessing(id: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            draftDao.get().finalizeProcessing(id)
+            val userId = userRepository.getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
+            draftDao.get().finalizeProcessing(id, userId)
             // Mark recovery complete when terminal state reached
             markRecoveryComplete(id)
             Result.success(Unit)
@@ -246,7 +264,8 @@ class RecordingRepository @Inject constructor(
             mapOf(LogKeys.DRAFT_ID to id, "title" to title, "emotion" to emotion, "approval" to approval)
         )
         try {
-            draftDao.get().updateStudioState(id, title, emotion, approval)
+            val userId = userRepository.getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
+            draftDao.get().updateStudioState(id, userId, title, emotion, approval)
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(AppError.from(e))
@@ -269,8 +288,9 @@ class RecordingRepository @Inject constructor(
         targetLifecycle: ArtifactLifecycle = ArtifactLifecycle.PROCESSING
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
+            val userId = userRepository.getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
             draftsDatabase.get().withTransaction {
-                val existing = draftDao.get().getDraftById(id) ?: throw Exception("Draft not found")
+                val existing = draftDao.get().getDraftById(id, userId) ?: throw Exception("Draft not found")
 
                 // Idempotency check: Don't regress or duplicate work if data already matches
                 val isSameState = existing.lifecycle == targetLifecycle && 
@@ -301,7 +321,9 @@ class RecordingRepository @Inject constructor(
 
     suspend fun recoverInterruptedDrafts(): Result<List<ArtifactDraftEntity>> = withContext(Dispatchers.IO) {
         try {
-            diagnosticLogger.info(DiagnosticCategory.RECORDING, "INTERRUPTED_DRAFTS_RECOVERY_STARTED")
+            val userId = userRepository.getCurrentUserId() ?: return@withContext Result.success(emptyList())
+            
+            diagnosticLogger.info(DiagnosticCategory.RECORDING, "INTERRUPTED_DRAFTS_RECOVERY_STARTED", mapOf(LogKeys.USER_ID to userId))
             
             // 0. Repair Lifecycle Desynchronization
             reconcileLifecycleConsistency()
@@ -312,7 +334,7 @@ class RecordingRepository @Inject constructor(
             val now = System.currentTimeMillis()
 
             // 1. Recover interrupted recordings (RECORDING lifecycle)
-            val recordings = draftDao.get().getActiveRecordings()
+            val recordings = draftDao.get().getActiveRecordings(userId)
             val interrupted = mutableListOf<ArtifactDraftEntity>()
             
             recordings.forEach { draft ->
@@ -378,7 +400,7 @@ class RecordingRepository @Inject constructor(
             }
 
             // 2. Recover stalled processing (PROCESSING lifecycle)
-            val processingDrafts = draftDao.get().getDraftsByLifecycle(ArtifactLifecycle.PROCESSING)
+            val processingDrafts = draftDao.get().getDraftsByLifecycle(ArtifactLifecycle.PROCESSING, userId)
             processingDrafts.forEach { draft ->
                 val isStale = (now - draft.updatedAt) > STALE_PROCESSING_TIMEOUT_MS
                 val isCooldownOver = (now - draft.lastRecoveryAttemptAt) > RECOVERY_COOLDOWN_MS
@@ -398,7 +420,7 @@ class RecordingRepository @Inject constructor(
                 cleanupManager.triggerEmergencyCleanup()
 
                 // 4. Authoritative cleanup for DELETING drafts
-                val deletingDrafts = draftDao.get().getDraftsByLifecycle(ArtifactLifecycle.DELETING)
+                val deletingDrafts = draftDao.get().getDraftsByLifecycle(ArtifactLifecycle.DELETING, userId)
                 deletingDrafts.forEach { draft ->
                     diagnosticLogger.debug(DiagnosticCategory.RECORDING, "RECOVERY_RESUMING_DELETION", mapOf(LogKeys.DRAFT_ID to draft.id))
                     cleanupManager.deleteDraft(draft.id)
@@ -419,7 +441,8 @@ class RecordingRepository @Inject constructor(
      */
     suspend fun markRecoveryAttempt(id: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            val draft = draftDao.get().getDraftById(id) ?: return@withContext Result.failure(AppError.NotFound("Draft", id))
+            val userId = userRepository.getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
+            val draft = draftDao.get().getDraftById(id, userId) ?: return@withContext Result.failure(AppError.NotFound("Draft", id))
             draftDao.get().update(draft.copy(lastRecoveryAttemptAt = System.currentTimeMillis()))
             Result.success(Unit)
         } catch (e: Exception) {
@@ -451,6 +474,7 @@ class RecordingRepository @Inject constructor(
         val now = System.currentTimeMillis()
         val zombieThreshold = 30 * 60 * 1000 // 30 minutes
         
+        // Purge is system-wide maintenance (unfiltered)
         val activeDrafts = draftDao.get().getAllDrafts().filter {
             it.lifecycle == ArtifactLifecycle.RECORDING || it.lifecycle == ArtifactLifecycle.PROCESSING 
         }

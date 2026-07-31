@@ -30,6 +30,7 @@ import androidx.media3.common.util.UnstableApi
 @Singleton
 class ArtifactCleanupManager @Inject constructor(
     private val artifactRepository: ArtifactRepository,
+    private val authRepository: com.saurabh.artifact.repository.AuthRepository,
     private val draftDao: DraftDao,
     private val workManager: WorkManager,
 ) {
@@ -59,10 +60,13 @@ class ArtifactCleanupManager @Inject constructor(
      * Initiates a resilient deletion flow for a published artifact.
      */
     suspend fun deleteArtifact(artifactId: String): Result<Unit> {
+        val userId = authRepository.currentUserId
+        if (userId.isEmpty()) return Result.failure(com.saurabh.artifact.model.AppError.Unauthenticated())
+        
         _deletingArtifactIds.value += artifactId
         return try {
             // 1. Initialize local cleanup state
-            draftDao.updateLocalCleanupStatusByArtifactId(artifactId, LocalCleanupStatus.PENDING)
+            draftDao.updateLocalCleanupStatusByArtifactId(artifactId, userId, LocalCleanupStatus.PENDING)
             
             // 2. Trigger remote deletion
             val result = artifactRepository.performRemoteDelete(artifactId)
@@ -84,9 +88,12 @@ class ArtifactCleanupManager @Inject constructor(
      * Deletes a local draft and its associated files.
      */
     suspend fun deleteDraft(draftId: String): Result<Unit> {
+        val userId = authRepository.currentUserId
+        if (userId.isEmpty()) return Result.failure(com.saurabh.artifact.model.AppError.Unauthenticated())
+
         _deletingArtifactIds.value += draftId
         return try {
-            draftDao.updateLocalCleanupStatus(draftId, LocalCleanupStatus.PENDING)
+            draftDao.updateLocalCleanupStatus(draftId, userId, LocalCleanupStatus.PENDING)
             scheduleLocalCleanup(draftId)
             ArtifactLogger.i(DiagnosticCategory.DRAFT, "DRAFT_LOCAL_DELETION_QUEUED", mapOf("draftId" to draftId))
             Result.success(Unit)

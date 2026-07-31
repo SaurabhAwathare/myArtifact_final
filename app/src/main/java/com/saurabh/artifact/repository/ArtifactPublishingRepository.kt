@@ -95,7 +95,7 @@ class ArtifactPublishingRepository @Inject constructor(
                             if (draft.uploadSessionUri != null && (httpCode == 404 || httpCode == 410)) {
                                 diagnosticLogger.warn(DiagnosticCategory.STORAGE, "UPLOAD_SESSION_EXPIRED", mapOf(LogKeys.DRAFT_ID to draft.id, "httpCode" to httpCode))
                                 // Clear the invalid session URI in the DB via DAO
-                                draftDao.get().updateSyncProgress(draft.id, 0, draft.totalBytes, null)
+                                draftDao.get().updateSyncProgress(draft.id, draft.userId, 0, draft.totalBytes, null)
                                 
                                 // Restart without the session URI
                                 fileRef.putFile(Uri.fromFile(originalFile), metadata).addOnProgressListener { snapshot ->
