@@ -24,6 +24,7 @@ import javax.inject.Inject
 class RecordingViewModel @Inject constructor(
     private val authRepository: com.saurabh.artifact.repository.AuthRepository,
     private val promptRepository: PromptRepository,
+    private val promptManager: com.saurabh.artifact.domain.prompt.ReflectionPromptManager,
     private val userSessionManager: UserSessionManager,
     private val recordingSessionManager: RecordingSessionManager,
     private val savedStateHandle: SavedStateHandle,
@@ -216,6 +217,48 @@ class RecordingViewModel @Inject constructor(
             }
         }
     }
+
+    fun refreshAIPrompt(context: String? = null) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isPromptLoading = true) }
+            try {
+                // Determine time of day for context
+                val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+                val timeOfDay = when (hour) {
+                    in 5..11 -> "morning"
+                    in 12..16 -> "afternoon"
+                    in 17..21 -> "evening"
+                    else -> "night"
+                }
+
+                val aiPrompt = promptManager.getSmartReflectionPrompt(
+                    emotion = null, // Could be derived from transcription in the future
+                    context = context,
+                    timeOfDay = timeOfDay
+                )
+
+                // Add to list and select it
+                promptList = listOf(aiPrompt) + promptList
+                currentPromptIndex = 0
+                _uiState.update { it.copy(
+                    currentPrompt = aiPrompt,
+                    promptList = promptList,
+                    currentPromptIndex = 0,
+                    isPromptLoading = false
+                ) }
+                userSessionManager.setActivePromptId(aiPrompt.id)
+                
+                diagnosticLogger.info(
+                    DiagnosticCategory.STUDIO, 
+                    "AI_PROMPT_REFRESHED", 
+                    mapOf(LogKeys.PROMPT_ID to aiPrompt.id)
+                )
+            } catch (e: Exception) {
+                diagnosticLogger.error(DiagnosticCategory.STUDIO, "AI_PROMPT_REFRESH_FAILED", throwable = e)
+                _uiState.update { it.copy(isPromptLoading = false) }
+            }
+        }
+    }
 }
 
 data class RecordingUiState(
@@ -230,6 +273,7 @@ data class RecordingUiState(
     val currentPrompt: ReflectionPrompt? = null,
     val promptList: List<ReflectionPrompt> = emptyList(),
     val currentPromptIndex: Int = 0,
+    val isPromptLoading: Boolean = false,
     val amplitudes: List<Float> = emptyList(),
     val currentAmplitude: Float = 0f,
     val isStorageLow: Boolean = false

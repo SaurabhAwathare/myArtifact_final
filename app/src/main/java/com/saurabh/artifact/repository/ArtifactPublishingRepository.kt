@@ -55,6 +55,7 @@ class ArtifactPublishingRepository @Inject constructor(
     ): Result<String> = withContext(Dispatchers.IO) {
         val maxRetries = 3
         var currentRetry = 0
+        var currentSessionUri = draft.uploadSessionUri
 
         val originalFile = File(draft.localAudioPath)
         if (!originalFile.exists()) return@withContext Result.failure(Exception("File missing: ${draft.localAudioPath}"))
@@ -63,84 +64,108 @@ class ArtifactPublishingRepository @Inject constructor(
             return@withContext Result.failure(Exception("File is empty, aborting upload"))
         }
 
-        try {
-            val fileName = "artifacts/${userId}_${draft.id}.m4a"
-            val fileRef = storage.reference.child(fileName)
+        val fileName = "artifacts/${userId}_${draft.id}.m4a"
+        val fileRef = storage.reference.child(fileName)
 
-            val metadata = StorageMetadata.Builder()
-                .setCustomMetadata("draftId", draft.id)
-                .setCustomMetadata("checksum", draft.checksum ?: "")
-                .setContentType("audio/x-m4a")
-                .build()
+        val metadata = StorageMetadata.Builder()
+            .setCustomMetadata("draftId", draft.id)
+            .setCustomMetadata("checksum", draft.checksum ?: "")
+            .setContentType("audio/x-m4a")
+            .build()
 
-            while (true) {
-                diagnosticLogger.info(DiagnosticCategory.STORAGE, "UPLOAD_STARTED", mapOf(LogKeys.DRAFT_ID to draft.id))
-                val loopResult: Result<String> = try {
-                    withTimeout(5.minutes) {
-                        val uploadTask = if (draft.uploadSessionUri != null) {
-                            fileRef.putFile(originalFile.toUri(), metadata, draft.uploadSessionUri.toUri())
-                        } else {
-                            fileRef.putFile(originalFile.toUri(), metadata)
-                        }
+        while (currentRetry <= maxRetries) {
+            diagnosticLogger.info(
+                DiagnosticCategory.STORAGE, 
+                "UPLOAD_ATTEMPT", 
+                mapOf(LogKeys.DRAFT_ID to draft.id, "retry" to currentRetry, "hasSession" to (currentSessionUri != null))
+            )
 
-                        val taskSnapshot = try {
-                            uploadTask.addOnProgressListener { snapshot ->
-                                launch {
-                                    onProgress(snapshot.bytesTransferred, snapshot.totalByteCount, snapshot.uploadSessionUri)
-                                }
-                            }.await()
-                        } catch (e: com.google.firebase.storage.StorageException) {
-                            // Detect expired or invalid resumable session (404/410)
-                            val httpCode = e.httpResultCode
-                            if (draft.uploadSessionUri != null && (httpCode == 404 || httpCode == 410)) {
-                                diagnosticLogger.warn(DiagnosticCategory.STORAGE, "UPLOAD_SESSION_EXPIRED", mapOf(LogKeys.DRAFT_ID to draft.id, "httpCode" to httpCode))
-                                // Clear the invalid session URI in the DB via DAO
-                                draftDao.get().updateSyncProgress(draft.id, draft.userId, 0, draft.totalBytes, null)
-                                
-                                // Restart without the session URI
-                                fileRef.putFile(Uri.fromFile(originalFile), metadata).addOnProgressListener { snapshot ->
-                                    launch {
-                                        onProgress(snapshot.bytesTransferred, snapshot.totalByteCount, snapshot.uploadSessionUri)
-                                    }
-                                }.await()
-                            } else {
-                                throw e
-                            }
-                        }
-
-                        // HARDENING: Retrieve downloadUrl from snapshot storage reference for better reliability
-                        val downloadUrl = retryDownloadUrlFetch(taskSnapshot.storage)
-                            ?: return@withTimeout Result.failure(Exception("Upload succeeded but URL retrieval timed out. Check Firebase Storage rules and App Check status."))
-
-                        Result.success(downloadUrl)
-                    }
-                } catch (e: Exception) {
-                    if (e is CancellationException) throw e
-                    
-                    if (!isTransientError(e)) {
-                        diagnosticLogger.error(DiagnosticCategory.STORAGE, "UPLOAD_FAILED_TERMINAL", mapOf(LogKeys.DRAFT_ID to draft.id), e)
-                        Result.failure(e)
+            try {
+                val downloadUrl = withTimeout(5.minutes) {
+                    val uploadTask = if (currentSessionUri != null) {
+                        fileRef.putFile(originalFile.toUri(), metadata, currentSessionUri.toUri())
                     } else {
-                        currentRetry++
-                        if (currentRetry > maxRetries) {
-                            diagnosticLogger.error(DiagnosticCategory.STORAGE, "UPLOAD_FAILED_MAX_RETRIES", mapOf(LogKeys.DRAFT_ID to draft.id), e)
-                            Result.failure(e)
+                        fileRef.putFile(originalFile.toUri(), metadata)
+                    }
+
+                    val taskSnapshot = try {
+                        uploadTask.addOnProgressListener { snapshot ->
+                            launch {
+                                onProgress(snapshot.bytesTransferred, snapshot.totalByteCount, snapshot.uploadSessionUri)
+                            }
+                        }.await()
+                    } catch (e: com.google.firebase.storage.StorageException) {
+                        val httpCode = e.httpResultCode
+                        // Detect expired or invalid resumable session (404/410)
+                        if (currentSessionUri != null && (httpCode == 404 || httpCode == 410)) {
+                            diagnosticLogger.warn(
+                                DiagnosticCategory.STORAGE, 
+                                "UPLOAD_SESSION_EXPIRED", 
+                                mapOf(LogKeys.DRAFT_ID to draft.id, "httpCode" to httpCode)
+                            )
+                            // Clear session in DB and local state
+                            draftDao.get().updateSyncProgress(draft.id, draft.userId, 0, draft.totalBytes, null)
+                            currentSessionUri = null
+                            
+                            // Throw transient error to trigger restart from scratch in next loop iteration
+                            throw Exception("Resumable session expired, restarting upload")
                         } else {
-                            val delayTime = (2.0.pow(currentRetry.toDouble()).toLong() * 1000L)
-                            diagnosticLogger.warn(DiagnosticCategory.STORAGE, "UPLOAD_RETRYING", mapOf(LogKeys.DRAFT_ID to draft.id, "retry" to currentRetry, "delayMs" to delayTime))
-                            delay(delayTime.milliseconds)
-                            continue // Loop again
+                            throw e
                         }
+                    }
+
+                    // HARDENING: Retrieve downloadUrl from snapshot storage reference for better reliability
+                    retryDownloadUrlFetch(taskSnapshot.storage)
+                        ?: throw Exception("Upload succeeded but URL retrieval timed out.")
+                }
+
+                return@withContext Result.success(downloadUrl)
+
+            } catch (e: Exception) {
+                // Phase 8: Reliability - Ensure cancellation is never swallowed
+                if (e is CancellationException) throw e
+
+                val isSessionExpired = e.message?.contains("Resumable session expired") == true
+                
+                if (!isTransientError(e) && !isSessionExpired) {
+                    diagnosticLogger.error(
+                        DiagnosticCategory.STORAGE, 
+                        "UPLOAD_FAILED_TERMINAL", 
+                        mapOf(LogKeys.DRAFT_ID to draft.id), 
+                        e
+                    )
+                    return@withContext Result.failure(e)
+                } else {
+                    currentRetry++
+                    if (currentRetry > maxRetries) {
+                        diagnosticLogger.error(
+                            DiagnosticCategory.STORAGE, 
+                            "UPLOAD_FAILED_MAX_RETRIES", 
+                            mapOf(LogKeys.DRAFT_ID to draft.id), 
+                            e
+                        )
+                        return@withContext Result.failure(e)
+                    } else {
+                        val delayTime = (2.0.pow(currentRetry.toDouble()).toLong() * 1000L)
+                        diagnosticLogger.warn(
+                            DiagnosticCategory.STORAGE, 
+                            "UPLOAD_RETRYING", 
+                            mapOf(
+                                LogKeys.DRAFT_ID to draft.id, 
+                                "retry" to currentRetry, 
+                                "delayMs" to delayTime,
+                                "reason" to (e.message ?: "Transient error")
+                            )
+                        )
+                        // If session expired, we don't necessarily need a long delay as we are starting fresh
+                        val effectiveDelay = if (isSessionExpired) 500L else delayTime
+                        delay(effectiveDelay.milliseconds)
+                        // Continue to next attempt
                     }
                 }
-                return@withContext loopResult
             }
-            @Suppress("UNREACHABLE_CODE")
-            Result.failure(IllegalStateException("Unreachable"))
-        } catch (e: Exception) {
-            diagnosticLogger.error(DiagnosticCategory.STORAGE, "UPLOAD_FAILED_WRAPPER", mapOf(LogKeys.DRAFT_ID to draft.id), e)
-            Result.failure(e)
         }
+        Result.failure(Exception("Upload failed after $maxRetries retries"))
     }
 
     /**

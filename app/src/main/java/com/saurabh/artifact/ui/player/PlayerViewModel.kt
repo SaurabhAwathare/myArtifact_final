@@ -64,9 +64,11 @@ class PlayerViewModel @Inject constructor(
     private val _shareEvent = MutableSharedFlow<SharePayload>(replay = 0)
     val shareEvent: SharedFlow<SharePayload> = _shareEvent.asSharedFlow()
 
+    private val _playerError = MutableStateFlow<String?>(null)
+    val playerError: StateFlow<String?> = _playerError.asStateFlow()
+
     private val _currentPlayableArtifact = MutableStateFlow<PlayableArtifact?>(null)
     private val _loadState = MutableStateFlow(PlayerLoadState.IDLE)
-    private val _loadError = MutableStateFlow<String?>(null)
 
     // Consolidated metadata from UseCase - Live and Atomic
     private val metadata: StateFlow<PlayerMetadata> = getPlayerContextUseCase.execute(
@@ -84,7 +86,7 @@ class PlayerViewModel @Inject constructor(
 
         viewModelScope.launch {
             playbackCoordinator.error.collect { errorMessage ->
-                _interactionError.emit(errorMessage)
+                reportError(errorMessage, DiagnosticCategory.PLAYER)
             }
         }
 
@@ -113,7 +115,26 @@ class PlayerViewModel @Inject constructor(
         _showAdvancedControls.value = false
         _currentPlayableArtifact.value = null
         _loadState.value = PlayerLoadState.IDLE
+        _playerError.value = null
         playbackCoordinator.stop()
+    }
+
+    private fun reportError(message: String, category: DiagnosticCategory, throwable: Throwable? = null) {
+        diagnosticLogger.error(category, "PLAYER_ERROR_REPORTED", mapOf("message" to message), throwable)
+        _playerError.value = message
+        viewModelScope.launch {
+            _interactionError.emit(message)
+        }
+    }
+
+    private fun mapAppErrorToUserMessage(error: Throwable): String {
+        return when (val appError = AppError.from(error)) {
+            is AppError.NotFound -> "This artifact is no longer available."
+            is AppError.PermissionDenied -> "This artifact isn't available to you."
+            is AppError.NetworkFailure -> "Connection lost. Please check your network."
+            is AppError.Unauthenticated -> "Please sign in to continue."
+            else -> "Something went wrong. Please try again."
+        }
     }
 
     // High-frequency playback state
@@ -215,7 +236,7 @@ class PlayerViewModel @Inject constructor(
         reviewSessionManager.reviewProgress,
         playbackCoordinator.currentProgress,
         _loadState,
-        _loadError,
+        _playerError,
         _currentPlayableArtifact
     ) { params ->
         val static = params[0] as PlayerStaticState
@@ -368,7 +389,7 @@ class PlayerViewModel @Inject constructor(
         // REFACTOR: Optimistic state is now handled by ReactionRepository -> PendingInteractionDao -> UseCase
         viewModelScope.launch {
             reactionUseCase.get().toggleReaction(artifactId, userId, type).onFailure { error ->
-                _interactionError.emit("Could not resonate: ${error.message}")
+                reportError(mapAppErrorToUserMessage(error), DiagnosticCategory.RESONATE, error)
             }
         }
     }
@@ -392,7 +413,7 @@ class PlayerViewModel @Inject constructor(
         viewModelScope.launch {
             playerInteractionUseCase.get().toggleResonanceConnection(currentUserId, ownerId, wasResonating)
                 .onFailure { error ->
-                    _interactionError.emit("Resonance failed: ${error.message}")
+                    reportError(mapAppErrorToUserMessage(error), DiagnosticCategory.RESONANCE, error)
                 }
         }
     }
@@ -426,7 +447,7 @@ class PlayerViewModel @Inject constructor(
             diagnosticLogger.debug(DiagnosticCategory.NAVIGATION, "PLAYER_SCREEN_ENTERED", mapOf("source" to "playArtifactById"))
             setExpanded(true)
             _loadState.value = PlayerLoadState.LOADING
-            _loadError.value = null
+            _playerError.value = null
             
             playableArtifactRepository.get().resolveArtifact(artifactId, source).fold(
                 onSuccess = { playable ->
@@ -445,27 +466,7 @@ class PlayerViewModel @Inject constructor(
                 },
                 onFailure = { error ->
                     _loadState.value = PlayerLoadState.ERROR
-                    
-                    diagnosticLogger.error(
-                        category = DiagnosticCategory.PLAYER,
-                        eventName = "PLAYER_LOAD_FAILED",
-                        metadata = mapOf(
-                            LogKeys.ARTIFACT_ID to artifactId,
-                            "currentlyPlayingArtifactId" to (playbackCoordinator.currentArtifact.value?.id ?: "none"),
-                            "loadState_before" to "LOADING",
-                            "loadState_after" to "ERROR",
-                            "error" to error.toString()
-                        )
-                    )
-
-                    val userMessage = when (error) {
-                        is com.saurabh.artifact.model.AppError.NotFound -> "This artifact is no longer available."
-                        is com.saurabh.artifact.model.AppError.PermissionDenied -> "This artifact isn't available to you."
-                        is com.saurabh.artifact.model.AppError.NetworkFailure -> "Connection lost. Please check your network."
-                        else -> "Failed to load artifact."
-                    }
-                    _loadError.value = userMessage
-                    _interactionError.emit(userMessage)
+                    reportError(mapAppErrorToUserMessage(error), DiagnosticCategory.PLAYER, error)
                 }
             )
         }
@@ -536,7 +537,7 @@ class PlayerViewModel @Inject constructor(
                     playbackCoordinator.stop()
                     setExpanded(false)
                 }.onFailure { e ->
-                    _interactionError.emit("Unable to delete: ${e.message}")
+                    reportError(mapAppErrorToUserMessage(e), DiagnosticCategory.PLAYER, e)
                 }
         }
     }

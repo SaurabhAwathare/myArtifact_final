@@ -38,6 +38,7 @@ fun CommentSheet(
     onDelete: (Comment) -> Unit,
     onLoadNextPage: () -> Unit,
     onRetry: () -> Unit,
+    onRetryUnlock: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val currentUserProfile = LocalUserProfile.current
@@ -122,6 +123,7 @@ fun CommentSheet(
                     unlockState = uiState.unlockState,
                     onTextChanged = { inputText = it },
                     onSubmit = { onSubmit(inputText) },
+                    onRetryUnlock = onRetryUnlock,
                     modifier = Modifier
                         .fillMaxWidth()
                         .navigationBarsPadding()

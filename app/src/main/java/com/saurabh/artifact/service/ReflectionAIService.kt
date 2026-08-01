@@ -1,7 +1,6 @@
 package com.saurabh.artifact.service
 
 import android.content.Context
-import android.util.Log
 import com.google.firebase.Firebase
 import com.google.firebase.ai.ai
 import com.google.firebase.ai.type.GenerativeBackend
@@ -17,6 +16,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.tasks.await
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -35,15 +35,17 @@ class ReflectionAIServiceImpl @Inject constructor(
     private val promptRepository: PromptRepository,
     private val safetyEvaluator: SafetyEvaluator,
     private val moderationService: ModerationService,
+    private val contextScrubber: ContextScrubber,
+    private val diagnosticLogger: com.saurabh.artifact.diagnostics.DiagnosticLogger,
     @param:ApplicationContext private val context: Context
 ) : ReflectionAIService {
 
     companion object {
-        private const val TAG = "ReflectionAIService"
         private val GENERATION_TIMEOUT = 15.seconds
         private const val MODEL_NAME = "gemini-2.5-flash"
     }
 
+    private val appCheck by lazy { com.google.firebase.appcheck.FirebaseAppCheck.getInstance() }
     private val json = Json { ignoreUnknownKeys = true }
 
     // Define the JSON schema for Structured Output
@@ -80,30 +82,68 @@ class ReflectionAIServiceImpl @Inject constructor(
     ): Result<ReflectionPrompt> {
         // 1. Fail-Fast Connectivity Check
         if (!NetworkUtils.isNetworkAvailable(context)) {
-            Log.d(TAG, "Device is offline. Using smart local fallback.")
+            diagnosticLogger.info(
+                com.saurabh.artifact.diagnostics.DiagnosticCategory.STUDIO,
+                "AI_PROMPT_OFFLINE_FALLBACK",
+                mapOf("emotion" to (emotion ?: "null"))
+            )
+            val fallback = promptRepository.getSmartFallback(emotion)
+            return Result.success(fallback ?: getHardcodedFallback())
+        }
+
+        // 2. App Check Attestation (Mandatory Enforcement for v1.1)
+        try {
+            // Retrieve token to verify environment integrity. 
+            // In debug mode, this uses DebugAppCheckProvider.
+            val tokenResult = appCheck.getAppCheckToken(false).await()
+            if (tokenResult.token.isEmpty()) {
+                throw Exception("App Check attestation failed: Empty token")
+            }
+        } catch (e: Exception) {
+            diagnosticLogger.warn(
+                com.saurabh.artifact.diagnostics.DiagnosticCategory.SECURITY,
+                "AI_PROMPT_ATTESTATION_FAILED",
+                mapOf("error" to (e.message ?: "unknown")),
+                e
+            )
             val fallback = promptRepository.getSmartFallback(emotion)
             return Result.success(fallback ?: getHardcodedFallback())
         }
 
         return try {
             withTimeout(GENERATION_TIMEOUT) {
-                val promptText = buildPrompt(emotion, contextSummary, timeOfDay)
+                // 3. Privacy-First Context Scrubbing
+                val scrubbedContext = contextSummary?.let { contextScrubber.scrub(it) }
                 
-                Log.d(TAG, "Generating AI prompt for emotion: $emotion")
+                val promptText = buildPrompt(emotion, scrubbedContext, timeOfDay)
+                
+                diagnosticLogger.info(
+                    com.saurabh.artifact.diagnostics.DiagnosticCategory.STUDIO,
+                    "AI_PROMPT_GENERATION_STARTED",
+                    mapOf("emotion" to (emotion ?: "null"))
+                )
                 
                 val response = generativeModel.generateContent(promptText)
                 val jsonResponse = response.text ?: throw Exception("Empty AI response")
                 
-                Log.v(TAG, "Raw AI JSON: $jsonResponse")
+                diagnosticLogger.debug(
+                    com.saurabh.artifact.diagnostics.DiagnosticCategory.STUDIO,
+                    "AI_PROMPT_RAW_RESPONSE",
+                    mapOf("jsonLength" to jsonResponse.length)
+                )
 
-                // 2. Structured Output Parsing
+                // 4. Structured Output Parsing
                 val aiPrompt = json.decodeFromString<ReflectionPrompt>(jsonResponse)
 
-                // 3. Post-Generation Validation & Local Moderation Guardrails
+                // 5. Post-Generation Validation & Local Moderation Guardrails
                 val moderation = moderationService.analyzeLocal(aiPrompt.question)
                 if (moderation.isSensitive && (moderation.isCritical || moderation.isSpam)) {
-                    Log.w(TAG, "AI generated sensitive or low-quality content: ${moderation.message}")
-                    throw Exception("Unsafe AI content detected: ${moderation.message}")
+                    diagnosticLogger.warn(
+                        com.saurabh.artifact.diagnostics.DiagnosticCategory.STUDIO,
+                        "AI_PROMPT_MODERATION_BLOCKED",
+                        mapOf("reason" to moderation.message)
+                    )
+                    throw Exception("Unsafe AI content detected")
                 }
 
                 val validatedPrompt = aiPrompt.copy(
@@ -112,13 +152,24 @@ class ReflectionAIServiceImpl @Inject constructor(
                     category = PromptCategory.AI_GUIDED // Force AI category for tracking
                 )
 
+                diagnosticLogger.info(
+                    com.saurabh.artifact.diagnostics.DiagnosticCategory.STUDIO,
+                    "AI_PROMPT_GENERATION_SUCCESS",
+                    mapOf(com.saurabh.artifact.diagnostics.LogKeys.PROMPT_ID to validatedPrompt.id)
+                )
+
                 Result.success(validatedPrompt)
             }
         } catch (e: Exception) {
             if (e is CancellationException && e !is TimeoutCancellationException) throw e
             
             val reason = if (e is TimeoutCancellationException) "Timeout" else "Error"
-            Log.e(TAG, "AI generation failed ($reason). Falling back to repository.", e)
+            diagnosticLogger.error(
+                com.saurabh.artifact.diagnostics.DiagnosticCategory.STUDIO,
+                "AI_PROMPT_GENERATION_FAILED",
+                mapOf("reason" to reason),
+                e
+            )
             
             // 4. Fallback Logic: Use smart local fallback if AI fails or times out
             val fallback = promptRepository.getSmartFallback(emotion)

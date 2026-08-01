@@ -64,6 +64,7 @@ fun CommentSheetHost(
         onSubmit = { viewModel.submitComment(it) },
         onDelete = { commentToDelete = it },
         onLoadNextPage = { viewModel.loadNextPage() },
-        onRetry = { viewModel.loadInitialComments() }
+        onRetry = { viewModel.loadInitialComments() },
+        onRetryUnlock = { viewModel.retryUnlock() }
     )
 }

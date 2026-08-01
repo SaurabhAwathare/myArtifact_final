@@ -65,6 +65,15 @@ class EngagementRepository @Inject constructor(
     }
 
     /**
+     * Forces a re-sync of engagement evidence by resetting the local sync state to PENDING.
+     * Use when backend verification times out.
+     */
+    suspend fun forceRetrySync(artifactId: String) = withContext(Dispatchers.IO) {
+        engagementDao.updateSyncStatus(artifactId, SyncState.PENDING, System.currentTimeMillis(), "Retry triggered by timeout")
+        syncScheduler.scheduleSync()
+    }
+
+    /**
      * Observes engagement evidence, combining local sync state with remote authoritative unlock status.
      */
     fun observeEngagementEvidence(artifactId: String): Flow<EngagementEvidence?> {

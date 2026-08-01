@@ -20,6 +20,7 @@ class ReflectionAIServiceTest {
     private lateinit var promptRepository: PromptRepository
     private lateinit var safetyEvaluator: SafetyEvaluator
     private lateinit var moderationService: ModerationService
+    private lateinit var contextScrubber: ContextScrubber
     private lateinit var context: android.content.Context
     private lateinit var service: ReflectionAIServiceImpl
 
@@ -28,6 +29,7 @@ class ReflectionAIServiceTest {
         promptRepository = mockk<PromptRepository>(relaxed = true)
         safetyEvaluator = SafetyEvaluator()
         moderationService = ModerationService()
+        contextScrubber = mockk<ContextScrubber>(relaxed = true)
         context = mockk<android.content.Context>(relaxed = true)
         val cm = mockk<android.net.ConnectivityManager>(relaxed = true)
         every { context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) } returns cm
@@ -36,9 +38,37 @@ class ReflectionAIServiceTest {
         every { Log.d(any<String>(), any<String>()) } returns 0
         every { Log.e(any<String>(), any<String>(), any<Throwable>()) } returns 0
         every { Log.w(any<String>(), any<String>()) } returns 0
+        every { Log.w(any<String>(), any<String>(), any<Throwable>()) } returns 0
         every { Log.v(any<String>(), any<String>()) } returns 0
 
-        service = ReflectionAIServiceImpl(promptRepository, safetyEvaluator, moderationService, context)
+        service = ReflectionAIServiceImpl(promptRepository, safetyEvaluator, moderationService, contextScrubber, context)
+    }
+
+    @Test
+    fun `generatePrompt returns fallback when App Check fails`() = runTest {
+        // Mock App Check to fail
+        mockkStatic(com.google.firebase.appcheck.FirebaseAppCheck::class)
+        val appCheck = mockk<com.google.firebase.appcheck.FirebaseAppCheck>()
+        every { com.google.firebase.appcheck.FirebaseAppCheck.getInstance() } returns appCheck
+        
+        val task = mockk<com.google.android.gms.tasks.Task<com.google.firebase.appcheck.AppCheckToken>>()
+        every { appCheck.getAppCheckToken(false) } returns task
+        every { task.isComplete } returns true
+        every { task.isSuccessful } returns false
+        every { task.exception } returns Exception("App Check Failed")
+        
+        val fallbackPrompt = ReflectionPrompt(
+            id = "app_check_fallback",
+            question = "App Check Fallback",
+            category = PromptCategory.GENERAL,
+            tone = EmotionalTone.REFLECTIVE
+        )
+        coEvery { promptRepository.getSmartFallback(any()) } returns fallbackPrompt
+
+        val result = service.generatePrompt("Happy", null, "morning")
+        
+        assertTrue(result.isSuccess)
+        assertEquals(fallbackPrompt.question, result.getOrThrow().question)
     }
 
     @Test

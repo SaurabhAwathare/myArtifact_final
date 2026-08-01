@@ -18,5 +18,8 @@ enum class CommentUnlockState {
     UNLOCKED,
     
     /** Synchronization or validation failed. */
-    ERROR
+    ERROR,
+
+    /** Backend validation timed out. */
+    TIMEOUT
 }

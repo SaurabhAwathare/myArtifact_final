@@ -2,8 +2,7 @@ package com.saurabh.artifact.ui.comment.components
 
 import android.util.Log
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,7 +32,8 @@ fun CommentComposer(
     unlockState: CommentUnlockState,
     onTextChanged: (String) -> Unit,
     onSubmit: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onRetryUnlock: () -> Unit = {}
 ) {
     val isUnlocked = unlockState == CommentUnlockState.UNLOCKED
     Log.d("COMMENT_FOCUS", "CommentComposer: unlockState=$unlockState isUnlocked=$isUnlocked")
@@ -44,7 +44,7 @@ fun CommentComposer(
             .padding(horizontal = Spacing.Large, vertical = Spacing.Medium)
     ) {
         if (!isUnlocked) {
-            UnlockMessage(state = unlockState)
+            UnlockMessage(state = unlockState, onRetry = onRetryUnlock)
             Spacer(modifier = Modifier.height(Spacing.Medium))
         }
 
@@ -69,22 +69,41 @@ fun CommentComposer(
 }
 
 @Composable
-private fun UnlockMessage(state: CommentUnlockState) {
+private fun UnlockMessage(state: CommentUnlockState, onRetry: () -> Unit) {
     val message = when (state) {
         CommentUnlockState.LOCKED -> "This conversation requires active listening. Finish the artifact to unlock comments."
         CommentUnlockState.SYNCING -> "Syncing your listening progress..."
         CommentUnlockState.VERIFYING -> "Verifying listening completion with server..."
         CommentUnlockState.ERROR -> "Failed to verify listening. Please check your connection."
+        CommentUnlockState.TIMEOUT -> "Verification is taking longer than expected. You can try refreshing the state."
         CommentUnlockState.UNLOCKED -> ""
     }
 
     if (message.isNotEmpty()) {
-        Text(
-            text = message,
-            style = MaterialTheme.typography.bodySmall,
-            color = if (state == CommentUnlockState.ERROR) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-            fontWeight = FontWeight.Medium
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (state == CommentUnlockState.ERROR || state == CommentUnlockState.TIMEOUT) 
+                    MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.weight(1f)
+            )
+
+            if (state == CommentUnlockState.TIMEOUT || state == CommentUnlockState.ERROR) {
+                TextButton(
+                    onClick = onRetry,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                    modifier = Modifier.height(32.dp)
+                ) {
+                    Text("Retry", style = MaterialTheme.typography.labelMedium)
+                }
+            }
+        }
     }
 }
 

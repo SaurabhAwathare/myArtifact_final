@@ -8,6 +8,7 @@ object LogKeys {
     const val USER_ID = "user_id"
     const val ARTIFACT_ID = "artifact_id"
     const val DRAFT_ID = "draft_id"
+    const val PROMPT_ID = "prompt_id"
     
     const val OPERATION_ID = "operation_id"
     const val CORRELATION_ID = "correlation_id"

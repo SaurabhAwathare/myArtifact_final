@@ -13,7 +13,11 @@ import com.saurabh.artifact.repository.EngagementRepository
 import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.Comment
 import com.saurabh.artifact.model.SyncState
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.LogKeys
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -40,7 +44,8 @@ class CommentViewModel @Inject constructor(
     private val addCommentUseCase: AddCommentUseCase,
     private val deleteCommentUseCase: DeleteCommentUseCase,
     private val engagementRepository: EngagementRepository,
-    private val ownershipAuthority: ArtifactOwnershipAuthority
+    private val ownershipAuthority: ArtifactOwnershipAuthority,
+    private val diagnosticLogger: DiagnosticLogger
 ) : ViewModel() {
 
     private var artifactId: String = savedStateHandle.get<String>("artifactId") ?: ""
@@ -104,7 +109,42 @@ class CommentViewModel @Inject constructor(
                     val newState = deriveUnlockState(evidence)
                     android.util.Log.d("COMMENT_TRACE", "Unlock state update: artifactId=$artifactId, newState=$newState")
                     _uiState.update { it.copy(unlockState = newState) }
+
+                    if (newState == CommentUnlockState.VERIFYING) {
+                        // Phase 8: Reliability - Implement timeout for backend verification
+                        delay(30_000) // 30 second timeout
+
+                        if (_uiState.value.unlockState == CommentUnlockState.VERIFYING) {
+                            diagnosticLogger.warn(
+                                DiagnosticCategory.COMMENT,
+                                "COMMENT_UNLOCK_TIMEOUT",
+                                mapOf(
+                                    LogKeys.ARTIFACT_ID to artifactId,
+                                    "timeoutMs" to 30000
+                                )
+                            )
+                            _uiState.update { it.copy(unlockState = CommentUnlockState.TIMEOUT) }
+                        }
+                    }
                 }
+        }
+    }
+
+    /**
+     * Triggers a re-sync of engagement evidence after a timeout.
+     */
+    fun retryUnlock() {
+        if (artifactId.isEmpty()) return
+        
+        viewModelScope.launch {
+            diagnosticLogger.info(
+                DiagnosticCategory.COMMENT,
+                "COMMENT_UNLOCK_RETRY_CLICKED",
+                mapOf(LogKeys.ARTIFACT_ID to artifactId)
+            )
+            // Reset to SYNCING locally to provide immediate feedback
+            _uiState.update { it.copy(unlockState = CommentUnlockState.SYNCING) }
+            engagementRepository.forceRetrySync(artifactId)
         }
     }
 

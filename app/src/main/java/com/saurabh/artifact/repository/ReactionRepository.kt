@@ -21,6 +21,9 @@ class ReactionRepository @Inject constructor(
     private val pendingInteractionDao: com.saurabh.artifact.data.local.PendingInteractionDao
 ) {
 
+    private val debounceMap = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val DEBOUNCE_MS = 500L
+
     /**
      * Submits an emotional reaction to an artifact.
      * PUBLIC API: Used by ViewModels. Enqueues interaction if unified queue is enabled.
@@ -197,6 +200,14 @@ class ReactionRepository @Inject constructor(
      * OFFLINE-FIRST: Writes to local pending queue and triggers sync worker.
      */
     suspend fun toggleReaction(artifactId: String, userId: String, type: ReactionType): Result<Unit> = withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
+        val lastToggle = debounceMap[artifactId] ?: 0L
+        if (now - lastToggle < DEBOUNCE_MS) {
+            ArtifactLogger.d("ReactionRepository", "Reaction toggle debounced for $artifactId")
+            return@withContext Result.success(Unit)
+        }
+        debounceMap[artifactId] = now
+
         try {
             val pulseRef = firestore.collection("users").document(userId)
                 .collection("private").document("interactions")
