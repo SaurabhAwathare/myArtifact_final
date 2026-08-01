@@ -64,6 +64,11 @@ class FirestoreCommentRepository @Inject constructor(
 
     override suspend fun createComment(comment: Comment): Result<Comment> = withContext(Dispatchers.IO) {
         try {
+            diagnosticLogger.info(
+                DiagnosticCategory.COMMENT, 
+                "COMMENT_SUBMIT_STARTED", 
+                mapOf(com.saurabh.artifact.diagnostics.LogKeys.ARTIFACT_ID to comment.artifactId)
+            )
             val dto = comment.toDto()
             val collectionRef = firestore.collection(CommentConstants.getCommentsCollectionPath(comment.artifactId))
             
@@ -76,12 +81,18 @@ class FirestoreCommentRepository @Inject constructor(
 
             docRef.set(dto).await()
             
+            diagnosticLogger.info(
+                DiagnosticCategory.COMMENT, 
+                "COMMENT_SUBMIT_SUCCESS", 
+                mapOf(com.saurabh.artifact.diagnostics.LogKeys.ARTIFACT_ID to comment.artifactId, "commentId" to docRef.id)
+            )
+            
             Result.success(comment.copy(id = docRef.id))
         } catch (e: Exception) {
             diagnosticLogger.error(
-                DiagnosticCategory.FIRESTORE,
-                "COMMENT_CREATE_FAILED",
-                mapOf("artifactId" to comment.artifactId),
+                DiagnosticCategory.COMMENT,
+                "COMMENT_SUBMIT_FAILED",
+                mapOf(com.saurabh.artifact.diagnostics.LogKeys.ARTIFACT_ID to comment.artifactId),
                 e
             )
             Result.failure(AppError.from(e))

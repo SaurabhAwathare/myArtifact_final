@@ -214,7 +214,19 @@ class StartupCoordinator @Inject constructor(
 
                 // PHASE 4: Late Post-UI
                 initializePostUI()
+                
+                val totalDuration = com.saurabh.artifact.util.StartupTracer.getElapsed()
+                com.saurabh.artifact.diagnostics.ArtifactLogger.i(
+                    com.saurabh.artifact.diagnostics.DiagnosticCategory.STARTUP, 
+                    "STARTUP_SUCCESS", 
+                    mapOf("totalDuration" to totalDuration)
+                )
             } catch (e: Exception) {
+                com.saurabh.artifact.diagnostics.ArtifactLogger.e(
+                    com.saurabh.artifact.diagnostics.DiagnosticCategory.STARTUP, 
+                    "STARTUP_FAILED", 
+                    throwable = e
+                )
                 Log.e("Startup", "Terminal failure in startup sequence", e)
                 _terminalError.value = e
                 // Force unblock any awaiters to allow error state to propagate

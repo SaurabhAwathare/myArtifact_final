@@ -184,7 +184,7 @@ class PublishingManager @Inject constructor(
 
             cleanupManager.scheduleRetentionCleanup(draftId)
             
-            diagnosticLogger.info(DiagnosticCategory.PUBLISH, "UPLOAD_SUCCESS", mapOf(LogKeys.DRAFT_ID to draftId))
+            diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISH_SUCCESS", mapOf(LogKeys.ARTIFACT_ID to draftId))
             Result.success(Unit)
         } catch (e: Exception) {
             diagnosticLogger.error(DiagnosticCategory.PUBLISH, "UPLOAD_FAILED", mapOf(LogKeys.DRAFT_ID to draftId, "stage" to getFailureStage(e)), e)

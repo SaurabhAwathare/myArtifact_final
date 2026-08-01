@@ -225,7 +225,47 @@ class UserRepository @Inject constructor(
                             }
                         }
 
-                        ProfileResult(user = user, isNewUser = false)
+                        // PHASE 2: Identity Repair (Atomic & Idempotent)
+                        // Verified Fix for "Zombie Profile" condition where identity fields are missing/blank.
+                        val isIdentityIncomplete = user.anonymousId.isBlank() || 
+                                                  user.anonymousName.isBlank() || 
+                                                  user.anonymousSigil.isBlank() ||
+                                                  user.sigilSeed.isBlank()
+                        
+                        val repairedUser = if (isIdentityIncomplete) {
+                            diagnosticLogger.info(DiagnosticCategory.AUTH, "USER_PROFILE_REPAIR_TRIGGERED", mapOf(LogKeys.USER_ID to currentUser.uid))
+                            
+                            val newAnonId = if (user.anonymousId.isBlank()) "usr_${java.util.UUID.randomUUID().toString().take(5).uppercase()}" else user.anonymousId
+                            val newName = if (user.anonymousName.isBlank()) UsernameGenerator.generate() else user.anonymousName
+                            val newSigil = if (user.anonymousSigil.isBlank()) UsernameGenerator.deriveSigil(newAnonId) else user.anonymousSigil
+                            val newSeed = if (user.sigilSeed.isBlank()) java.util.UUID.randomUUID().toString() else user.sigilSeed
+                            
+                            val updates = mutableMapOf<String, Any>()
+                            if (user.anonymousId.isBlank()) updates["anonymousId"] = newAnonId
+                            if (user.anonymousName.isBlank()) updates["anonymousName"] = newName
+                            if (user.anonymousSigil.isBlank()) updates["anonymousSigil"] = newSigil
+                            if (user.sigilSeed.isBlank()) {
+                                updates["sigilSeed"] = newSeed
+                                updates["sigilConfig.seed"] = newSeed
+                            }
+                            
+                            if (updates.isNotEmpty()) {
+                                transaction.update(userRef, updates)
+                                diagnosticLogger.info(DiagnosticCategory.AUTH, "USER_PROFILE_REPAIRED", mapOf(LogKeys.USER_ID to currentUser.uid, "fields" to updates.keys.toList()))
+                            }
+                            
+                            user.copy(
+                                anonymousId = newAnonId,
+                                anonymousName = newName,
+                                anonymousSigil = newSigil,
+                                sigilSeed = newSeed,
+                                sigilConfig = user.sigilConfig.copy(seed = newSeed)
+                            )
+                        } else {
+                            user
+                        }
+
+                        ProfileResult(user = repairedUser, isNewUser = false)
                     } else {
                         val anonymousId = "usr_${java.util.UUID.randomUUID().toString().take(5).uppercase()}"
                         val anonymousName = UsernameGenerator.generate()

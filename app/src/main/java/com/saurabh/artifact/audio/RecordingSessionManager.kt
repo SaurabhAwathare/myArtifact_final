@@ -153,6 +153,12 @@ class RecordingSessionManager @Inject constructor(
             }
             recordingRepository.createDraft(draftId, file.absolutePath, 0).getOrThrow()
             draft = draftDao.getDraftById(draftId, userId)
+            
+            diagnosticLogger.info(
+                DiagnosticCategory.DRAFT, 
+                "DRAFT_SAVED", 
+                mapOf(com.saurabh.artifact.diagnostics.LogKeys.DRAFT_ID to draftId)
+            )
         }
         
         _activeDraft.value = draft

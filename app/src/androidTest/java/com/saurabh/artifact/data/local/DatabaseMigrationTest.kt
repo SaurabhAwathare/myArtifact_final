@@ -4,6 +4,7 @@ import androidx.room.testing.MigrationTestHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -47,6 +48,42 @@ class DatabaseMigrationTest {
         assert(dlqCursor.getString(dlqCursor.getColumnIndexOrThrow("userId")) == "")
         assert(dlqCursor.getString(dlqCursor.getColumnIndexOrThrow("artifactId")) == "art2")
         dlqCursor.close()
+    }
+
+    @Test
+    @Throws(IOException::class)
+    fun migrate61To62() {
+        // Create database in version 61
+        helper.createDatabase(TEST_DB, 61).apply {
+            execSQL(
+                """
+                INSERT INTO artifacts (
+                    id, userId, authorAnonymousId, authorName, authorSigil, 
+                    authorSigilSeed, authorSigilColor, authorSigilConfigJson, 
+                    audioUrl, createdAt, durationMs, title, description, 
+                    emotion, emotionTag, playCount, reactionCount, 
+                    amplitudeData, isDraft, lastUpdated
+                ) VALUES (
+                    'art1', 'user1', 'anon1', 'Name', 'sigil', 
+                    'seed', 'color', '{}', 
+                    'url', 123456789, 1000, 'Title', 'Desc', 
+                    'NEUTRAL', 'tag', 0, 0, 
+                    '[0.1]', 0, 123456789
+                )
+                """.trimIndent()
+            )
+            close()
+        }
+
+        // Migrate to 62
+        val db = helper.runMigrationsAndValidate(TEST_DB, 62, true, DatabaseMigrations.MIGRATION_61_62)
+
+        // Verify isEncrypted exists and defaults to 0 (false)
+        val cursor = db.query("SELECT * FROM artifacts WHERE id = 'art1'")
+        assert(cursor.moveToFirst())
+        val encryptionIndex = cursor.getColumnIndexOrThrow("isEncrypted")
+        assertEquals(0, cursor.getInt(encryptionIndex))
+        cursor.close()
     }
 
     @Test

@@ -111,7 +111,7 @@ class EngagementRepository @Inject constructor(
     suspend fun saveEngagement(evidence: EngagementEvidence): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val entity = evidence.toEntity().copy(syncState = SyncState.PENDING)
-            engagementDao.insertEngagement(entity)
+            engagementDao.insertEngagementMonotonic(entity)
             syncScheduler.scheduleSync()
             Result.success(Unit)
         } catch (e: Exception) {

@@ -16,7 +16,7 @@ import androidx.room.TypeConverters
         DeadLetterInteractionEntity::class,
         ReportedArtifactEntity::class,
     ],
-    version = 61,
+    version = 62,
     autoMigrations = [
         // Auto-migrations can be added here for simple schema changes
     ],

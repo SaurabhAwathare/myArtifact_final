@@ -181,6 +181,12 @@ class ReviewAuthorityService @Inject constructor(
         if (completionTriggered) return
         completionTriggered = true
 
+        com.saurabh.artifact.diagnostics.ArtifactLogger.i(
+            com.saurabh.artifact.diagnostics.DiagnosticCategory.COMMENT, 
+            "COMMENT_UNLOCK_MET", 
+            mapOf(com.saurabh.artifact.diagnostics.LogKeys.ARTIFACT_ID to progress.artifactId)
+        )
+
         scope.launch(Dispatchers.IO) {
             engagementRepository.saveEngagement(progress.evidence)
         }

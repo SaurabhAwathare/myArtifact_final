@@ -2,7 +2,6 @@ package com.saurabh.artifact.audio
 
 import android.content.Context
 import android.net.Uri
-import android.util.Log
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.BaseDataSource
@@ -70,9 +69,23 @@ class EncryptedFileDataSource(
 
             opened = true
             transferStarted(dataSpec)
+            
+            val draftId = dataSpec.uri.getQueryParameter("artifact_id") ?: "unknown"
+            com.saurabh.artifact.diagnostics.ArtifactLogger.d(
+                com.saurabh.artifact.diagnostics.DiagnosticCategory.SECURITY, 
+                "DECRYPTION_STARTED", 
+                mapOf(com.saurabh.artifact.diagnostics.LogKeys.DRAFT_ID to draftId)
+            )
+
             return bytesRemaining
         } catch (e: Exception) {
-            Log.e("EncryptedDataSource", "Failed to open encrypted file", e)
+            val draftId = dataSpec.uri.getQueryParameter("artifact_id") ?: "unknown"
+            com.saurabh.artifact.diagnostics.ArtifactLogger.e(
+                com.saurabh.artifact.diagnostics.DiagnosticCategory.SECURITY, 
+                "DECRYPTION_FAILED", 
+                mapOf(com.saurabh.artifact.diagnostics.LogKeys.DRAFT_ID to draftId),
+                e
+            )
             throw java.io.IOException("Failed to open encrypted file: ${e.message}", e)
         }
     }
@@ -110,16 +123,27 @@ class EncryptedFileDataSource(
     override fun getUri(): Uri? = uri
 
     override fun close() {
+        val artifactId = uri?.getQueryParameter("artifact_id") ?: "unknown"
         uri = null
         try {
             inputStream?.close()
         } catch (e: java.io.IOException) {
-            Log.e("EncryptedDataSource", "Error closing input stream", e)
+            com.saurabh.artifact.diagnostics.ArtifactLogger.e(
+                com.saurabh.artifact.diagnostics.DiagnosticCategory.SECURITY, 
+                "DECRYPTION_CLOSE_FAILED", 
+                mapOf(com.saurabh.artifact.diagnostics.LogKeys.DRAFT_ID to artifactId),
+                e
+            )
         } finally {
             inputStream = null
             if (opened) {
                 opened = false
                 transferEnded()
+                com.saurabh.artifact.diagnostics.ArtifactLogger.d(
+                    com.saurabh.artifact.diagnostics.DiagnosticCategory.SECURITY, 
+                    "DECRYPTION_COMPLETED", 
+                    mapOf(com.saurabh.artifact.diagnostics.LogKeys.DRAFT_ID to artifactId)
+                )
             }
         }
     }

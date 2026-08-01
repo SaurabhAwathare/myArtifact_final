@@ -1,4 +1,4 @@
-import {POLICY_V1} from "./policy";
+import {getPolicy} from "./policy";
 import {countSetBits} from "./bitset";
 
 /**
@@ -17,17 +17,19 @@ export interface CoverageResult {
 export function validateCoverage(
   durationMs: number,
   coverageBuffer: Buffer,
-  hasReachedEnd: boolean
+  hasReachedEnd: boolean,
+  version?: number
 ): CoverageResult {
-  const segmentSize = POLICY_V1.getSegmentSizeMs(durationMs);
+  const policy = getPolicy(version);
+  const segmentSize = policy.getSegmentSizeMs(durationMs);
   const totalSegments = durationMs > 0 ?
     Math.max(1, Math.floor(durationMs / segmentSize)) : 1;
 
   const cardinality = countSetBits(coverageBuffer);
   const coveragePercent = cardinality / totalSegments;
 
-  const isValid = coveragePercent >= POLICY_V1.minCoverage &&
-    (!POLICY_V1.requireReachedEnd || hasReachedEnd);
+  const isValid = coveragePercent >= policy.minCoverage &&
+    (!policy.requireReachedEnd || hasReachedEnd);
 
   return {
     cardinality,

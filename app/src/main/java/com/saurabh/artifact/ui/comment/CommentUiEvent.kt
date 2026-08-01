@@ -14,4 +14,10 @@ sealed class CommentUiEvent {
      * Emitted when a comment has been successfully deleted.
      */
     object CommentDeleted : CommentUiEvent()
+
+    /**
+     * Emitted when a comment submission fails.
+     * @param error The error describing the failure.
+     */
+    data class SubmissionFailed(val error: String) : CommentUiEvent()
 }

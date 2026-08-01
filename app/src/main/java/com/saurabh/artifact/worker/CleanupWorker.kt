@@ -62,7 +62,16 @@ class CleanupWorker @AssistedInject constructor(
             }
             
             if (draft == null) {
-                diagnosticLogger.warn(DiagnosticCategory.WORKMANAGER, "CLEANUP_DRAFT_NOT_FOUND", mapOf(LogKeys.ARTIFACT_ID to artifactId))
+                // This is an expected idempotent condition. The draft may have been removed already by:
+                // 1. A manual deletion worker (cleanup_$artifactId)
+                // 2. A previously successful retention worker
+                // 3. Periodic DatabaseMaintenanceManager pruning
+                // 4. Recovery at startup
+                diagnosticLogger.info(
+                    DiagnosticCategory.WORKMANAGER, 
+                    "CLEANUP_DRAFT_NOT_FOUND", 
+                    mapOf(LogKeys.ARTIFACT_ID to artifactId, "reason" to "idempotent_skip")
+                )
                 // Also ensure feed record is gone even if draft record is missing
                 artifactDao.deleteById(artifactId)
                 return Result.success()

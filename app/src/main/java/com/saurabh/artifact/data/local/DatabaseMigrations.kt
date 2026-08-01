@@ -26,8 +26,20 @@ object DatabaseMigrations {
             db.execSQL("CREATE INDEX IF NOT EXISTS index_artifact_drafts_userId_updatedAt ON artifact_drafts (userId, updatedAt)")
         }
     }
+
+    /**
+     * Migration 61 -> 62: Encryption Metadata for Cached Artifacts.
+     * Adds 'isEncrypted' column to 'artifacts' table to prevent data loss 
+     * when playing encrypted remote artifacts from local cache.
+     */
+    val MIGRATION_61_62 = object : Migration(61, 62) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE artifacts ADD COLUMN isEncrypted INTEGER NOT NULL DEFAULT 0")
+        }
+    }
     
     val ALL_MIGRATIONS = arrayOf<Migration>(
-        MIGRATION_60_61
+        MIGRATION_60_61,
+        MIGRATION_61_62
     )
 }

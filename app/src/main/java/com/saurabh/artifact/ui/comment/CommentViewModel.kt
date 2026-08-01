@@ -275,12 +275,16 @@ class CommentViewModel @Inject constructor(
                     _events.emit(CommentUiEvent.CommentSubmitted)
                 }
                 .onFailure { error ->
+                    val appError = AppError.from(error)
+                    android.util.Log.e("CommentVM", "submitComment failed: artifactId=$artifactId, error=${appError.technicalMessage}", error)
+                    
                     _uiState.update { 
                         it.copy(
                             isSubmitting = false,
-                            submissionError = AppError.from(error)
+                            submissionError = appError
                         )
                     }
+                    _events.emit(CommentUiEvent.SubmissionFailed(appError.technicalMessage))
                 }
         }
     }

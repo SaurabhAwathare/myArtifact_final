@@ -17,6 +17,7 @@ import io.mockk.unmockkStatic
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.*
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -159,5 +160,25 @@ class CommentViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
         
         assertEquals(CommentUnlockState.LOCKED, viewModel.uiState.value.unlockState)
+    }
+
+    @Test
+    fun `submitComment failure emits SubmissionFailed event`() = runTest {
+        val errorMsg = "Network Error"
+        coEvery { addCommentUseCase("test-artifact", "Test") } returns Result.failure(Exception(errorMsg))
+        
+        val events = mutableListOf<CommentUiEvent>()
+        val job = launch {
+            viewModel.events.collect { events.add(it) }
+        }
+        
+        viewModel.submitComment("Test")
+        testDispatcher.scheduler.advanceUntilIdle()
+        
+        assertEquals(1, events.size)
+        val event = events[0] as CommentUiEvent.SubmissionFailed
+        assertEquals("Invalid input: Network Error", event.error) // AppError.from adds "Invalid input: " prefix for Unknown
+        
+        job.cancel()
     }
 }

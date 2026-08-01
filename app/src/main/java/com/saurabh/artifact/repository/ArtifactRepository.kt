@@ -454,7 +454,8 @@ class ArtifactRepository @Inject constructor(
         }
     }
 
-    private fun mapArtifactEntityToArtifact(entity: ArtifactEntity): Artifact {
+    @androidx.annotation.VisibleForTesting
+    internal fun mapArtifactEntityToArtifact(entity: ArtifactEntity): Artifact {
         return Artifact(
             id = entity.id,
             userId = entity.userId,
@@ -486,13 +487,15 @@ class ArtifactRepository @Inject constructor(
             transcriptUrl = entity.transcriptUrl,
             status = entity.status,
             isDraftField = entity.isDraft,
+            isEncrypted = entity.isEncrypted,
             conversationMetadata = ArtifactConversationMetadata(
                 primaryStyle = entity.primaryStyle
             )
         )
     }
 
-    private fun mapArtifactToEntity(artifact: Artifact): ArtifactEntity {
+    @androidx.annotation.VisibleForTesting
+    internal fun mapArtifactToEntity(artifact: Artifact): ArtifactEntity {
         return ArtifactEntity(
             id = artifact.id,
             userId = artifact.userId,
@@ -522,6 +525,7 @@ class ArtifactRepository @Inject constructor(
             transcriptUrl = artifact.transcriptUrl,
             status = artifact.status,
             isDraft = artifact.isDraft,
+            isEncrypted = artifact.isEncrypted,
             lastUpdated = System.currentTimeMillis()
         )
     }

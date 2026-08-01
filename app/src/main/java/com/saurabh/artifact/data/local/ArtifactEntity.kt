@@ -34,5 +34,6 @@ data class ArtifactEntity(
     val transcriptUrl: String? = null,
     val status: ArtifactStatus = ArtifactStatus.ACTIVE,
     val isDraft: Boolean = false,
+    val isEncrypted: Boolean = false,
     val lastUpdated: Long = System.currentTimeMillis()
 )

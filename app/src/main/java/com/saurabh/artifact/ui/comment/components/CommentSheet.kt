@@ -6,6 +6,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import com.saurabh.artifact.model.Comment
 import com.saurabh.artifact.ui.comment.CommentUiEvent
 import com.saurabh.artifact.ui.comment.CommentUiState
@@ -44,6 +45,7 @@ fun CommentSheet(
     
     var inputText by remember { mutableStateOf("") }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val snackbarHostState = remember { SnackbarHostState() }
 
     // Handle One-Time Events (e.g., successful submission)
     LaunchedEffect(events) {
@@ -51,6 +53,12 @@ fun CommentSheet(
             when (event) {
                 is CommentUiEvent.CommentSubmitted -> {
                     inputText = ""
+                }
+                is CommentUiEvent.SubmissionFailed -> {
+                    snackbarHostState.showSnackbar(
+                        message = event.error,
+                        duration = SnackbarDuration.Short
+                    )
                 }
                 else -> {}
             }
@@ -64,58 +72,68 @@ fun CommentSheet(
         dragHandle = { BottomSheetDefaults.DragHandle() },
         containerColor = MaterialTheme.colorScheme.surface
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxHeight(0.85f)
-                .fillMaxWidth()
-        ) {
-            // Header
-            Text(
-                text = "Comments",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(Spacing.Large)
-            )
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxHeight(0.85f)
+                    .fillMaxWidth()
+            ) {
+                // Header
+                Text(
+                    text = "Comments",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(Spacing.Large)
+                )
 
-            // Content Area (List / Loading / Error)
-            Box(modifier = Modifier.weight(1f)) {
-                if (uiState.error != null && uiState.comments.isEmpty()) {
-                    AppEmptyState(
-                        title = "Couldn't load comments",
-                        description = "A quiet moment of connection was interrupted.",
-                        emoji = "🌑",
-                        action = {
-                            AppButton(
-                                text = "Retry",
-                                onClick = onRetry
-                            )
-                        },
-                        modifier = Modifier.align(Alignment.Center)
-                    )
-                } else {
-                    CommentList(
-                        comments = uiState.comments,
-                        isInitialLoading = uiState.isInitialLoading,
-                        isLoadingNextPage = uiState.isLoadingNextPage,
-                        hasMorePages = uiState.hasMorePages,
-                        currentUserId = currentUserId,
-                        onLoadNextPage = onLoadNextPage,
-                        onDeleteComment = onDelete,
-                        modifier = Modifier.fillMaxSize()
-                    )
+                // Content Area (List / Loading / Error)
+                Box(modifier = Modifier.weight(1f)) {
+                    if (uiState.error != null && uiState.comments.isEmpty()) {
+                        AppEmptyState(
+                            title = "Couldn't load comments",
+                            description = "A quiet moment of connection was interrupted.",
+                            emoji = "🌑",
+                            action = {
+                                AppButton(
+                                    text = "Retry",
+                                    onClick = onRetry
+                                )
+                            },
+                            modifier = Modifier.align(Alignment.Center)
+                        )
+                    } else {
+                        CommentList(
+                            comments = uiState.comments,
+                            isInitialLoading = uiState.isInitialLoading,
+                            isLoadingNextPage = uiState.isLoadingNextPage,
+                            hasMorePages = uiState.hasMorePages,
+                            currentUserId = currentUserId,
+                            onLoadNextPage = onLoadNextPage,
+                            onDeleteComment = onDelete,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
                 }
+
+                // Composer Area
+                CommentComposer(
+                    text = inputText,
+                    isSubmitting = uiState.isSubmitting,
+                    unlockState = uiState.unlockState,
+                    onTextChanged = { inputText = it },
+                    onSubmit = { onSubmit(inputText) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                )
             }
 
-            // Composer Area
-            CommentComposer(
-                text = inputText,
-                isSubmitting = uiState.isSubmitting,
-                unlockState = uiState.unlockState,
-                onTextChanged = { inputText = it },
-                onSubmit = { onSubmit(inputText) },
+            // Error Feedback
+            SnackbarHost(
+                hostState = snackbarHostState,
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 120.dp) // Offset above composer
             )
         }
     }

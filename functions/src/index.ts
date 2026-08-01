@@ -4,7 +4,8 @@ import {FieldValue} from "firebase-admin/firestore";
 import {withIdempotency} from "./util/idempotency";
 import {logger} from "./util/logger";
 import {validateCoverage} from "./util/validation/coverage";
-import {POLICY_VERSION, VALIDATION_VERSION, UnlockReason} from "./util/validation/constants";
+import {getPolicy} from "./util/validation/policy";
+import {VALIDATION_VERSION, UnlockReason} from "./util/validation/constants";
 import {ModerationConfig} from "./util/moderation/config";
 
 if (!admin.apps.length) {
@@ -670,14 +671,20 @@ export const onEngagementUpdated = functions.firestore
       // 3. Extract Evidence
       const coverageBuffer = after.coverage;
       const hasReachedEnd = after.hasReachedEnd === true;
+      const reviewTrackingVersion = after.reviewTrackingVersion;
 
       if (!coverageBuffer) {
         logger.warn(`[UNLOCK] Missing coverage | ArtifactID=${artifactId} | UserID=${uid}`);
         return null;
       }
 
-      // 4. Validate Coverage (Policy V1)
-      const result = validateCoverage(durationMs, coverageBuffer as Buffer, hasReachedEnd);
+      // 4. Validate Coverage (Policy-Aware)
+      const result = validateCoverage(
+        durationMs,
+        coverageBuffer as Buffer,
+        hasReachedEnd,
+        reviewTrackingVersion
+      );
 
       // Sanity Check: Malformed bitset
       if (result.cardinality > result.totalSegments + 8) { // Small buffer for byte alignment
@@ -689,13 +696,15 @@ export const onEngagementUpdated = functions.firestore
 
       // 5. Authoritative Unlock
       if (result.isValid) {
+        const policy = getPolicy(reviewTrackingVersion);
         await change.after.ref.update({
           "isCommentUnlocked": true,
           "engagementState.unlocked": true,
           "unlockReason": UnlockReason.LISTENING_THRESHOLD,
           "unlockTimestamp": FieldValue.serverTimestamp(),
+          "updatedAt": FieldValue.serverTimestamp(),
           "validationVersion": VALIDATION_VERSION,
-          "policyVersion": POLICY_VERSION,
+          "policyVersion": policy.version,
         });
 
         logger.info(`[UNLOCK] SUCCESS | UserID=${uid} | ArtifactID=${artifactId}`);

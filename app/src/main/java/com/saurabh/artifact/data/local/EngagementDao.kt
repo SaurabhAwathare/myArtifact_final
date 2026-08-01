@@ -15,6 +15,26 @@ interface EngagementDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertEngagement(engagement: ArtifactEngagement)
 
+    /**
+     * Inserts or updates engagement evidence while preserving an existing authoritative unlock.
+     * Prevents stale playback evidence from regressing the 'isCommentUnlocked' state.
+     */
+    @Transaction
+    suspend fun insertEngagementMonotonic(engagement: ArtifactEngagement) {
+        val existing = getEngagement(engagement.artifactId)
+        if (existing != null && existing.isCommentUnlocked && !engagement.isCommentUnlocked) {
+            insertEngagement(engagement.copy(
+                isCommentUnlocked = true,
+                unlockTimestamp = existing.unlockTimestamp,
+                engagementState = existing.engagementState,
+                unlockReason = existing.unlockReason,
+                remoteUpdatedAt = existing.remoteUpdatedAt
+            ))
+        } else {
+            insertEngagement(engagement)
+        }
+    }
+
     @Query("SELECT * FROM artifact_engagement WHERE syncState = 'PENDING' OR syncState = 'FAILED'")
     suspend fun getEngagementsRequiringSync(): List<ArtifactEngagement>
 
@@ -37,7 +57,20 @@ interface EngagementDao {
     @Query("UPDATE artifact_engagement SET lastPositionMs = :positionMs, lastUpdated = :timestamp, syncState = 'PENDING' WHERE artifactId = :artifactId")
     suspend fun updateLastPosition(artifactId: String, positionMs: Long, timestamp: Long = System.currentTimeMillis()): Int
 
-    @Query("UPDATE artifact_engagement SET isCommentUnlocked = :isUnlocked, unlockTimestamp = :timestamp, engagementState = :state, unlockReason = :reason, remoteUpdatedAt = :remoteUpdated WHERE artifactId = :artifactId AND (remoteUpdatedAt IS NULL OR remoteUpdatedAt < :remoteUpdated)")
+    @Query("""
+        UPDATE artifact_engagement 
+        SET isCommentUnlocked = :isUnlocked, 
+            unlockTimestamp = :timestamp, 
+            engagementState = :state, 
+            unlockReason = :reason, 
+            remoteUpdatedAt = :remoteUpdated 
+        WHERE artifactId = :artifactId 
+        AND (
+            remoteUpdatedAt IS NULL 
+            OR remoteUpdatedAt < :remoteUpdated 
+            OR (:isUnlocked = 1 AND isCommentUnlocked = 0)
+        )
+    """)
     suspend fun updateUnlockStatus(artifactId: String, isUnlocked: Boolean, timestamp: Long?, state: String, reason: String?, remoteUpdated: Long?)
 
     @Query("DELETE FROM artifact_engagement WHERE lastUpdated < :timestamp")

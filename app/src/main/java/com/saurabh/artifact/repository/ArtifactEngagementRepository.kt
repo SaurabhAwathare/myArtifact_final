@@ -41,6 +41,8 @@ class ArtifactEngagementRepository @Inject constructor(
         if (emotion.isEmpty()) return@withContext Result.success(Unit)
         
         try {
+            com.saurabh.artifact.diagnostics.ArtifactLogger.d(DiagnosticCategory.RESONANCE, "PLAY_RECORD_STARTED", mapOf(LogKeys.ARTIFACT_ID to artifactId))
+            
             val hasConsent = settingsRepository.get().userSettings.first().dataCollectionConsent
 
             // 1. Persist locally for immediate personalization (AppSearch) if consent given
@@ -77,6 +79,8 @@ class ArtifactEngagementRepository @Inject constructor(
                     transaction.update(userRef, "emotionPreferences", newPrefs)
                 }
             }.await()
+            
+            com.saurabh.artifact.diagnostics.ArtifactLogger.i(DiagnosticCategory.RESONANCE, "PLAY_RECORD_SUCCESS", mapOf(LogKeys.ARTIFACT_ID to artifactId))
             Result.success(Unit)
         } catch (e: Exception) {
             diagnosticLogger.error(DiagnosticCategory.RESONANCE, "PLAY_RECORD_FAILED", mapOf("emotion" to emotion, LogKeys.ARTIFACT_ID to artifactId), e)
@@ -94,6 +98,8 @@ class ArtifactEngagementRepository @Inject constructor(
         type: FeedbackType
     ): Result<Unit> = withContext(Dispatchers.IO) {
         return@withContext try {
+            com.saurabh.artifact.diagnostics.ArtifactLogger.i(DiagnosticCategory.FIRESTORE, "PRIVATE_FEEDBACK_STARTED", mapOf(LogKeys.ARTIFACT_ID to artifactId, "type" to type.name))
+            
             val feedbackId = "${userId}_${artifactId}_${type.name}"
             val feedbackRef = firestore.collection("feedback_private").document(feedbackId)
             val artifactRef = firestore.collection("artifacts").document(artifactId)
@@ -113,6 +119,8 @@ class ArtifactEngagementRepository @Inject constructor(
                 }
             }.await()
 
+            com.saurabh.artifact.diagnostics.ArtifactLogger.i(DiagnosticCategory.FIRESTORE, "PRIVATE_FEEDBACK_SUCCESS", mapOf(LogKeys.ARTIFACT_ID to artifactId, "type" to type.name))
+            
             // Trigger local re-ranking if it's "Not for me"
             if (type == FeedbackType.NOT_FOR_ME) {
                 val hasConsent = settingsRepository.get().userSettings.first().dataCollectionConsent
