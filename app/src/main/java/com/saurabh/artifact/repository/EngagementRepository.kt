@@ -1,8 +1,6 @@
 package com.saurabh.artifact.repository
 
 import com.google.firebase.auth.FirebaseAuth
-import com.saurabh.artifact.diagnostics.DiagnosticCategory
-import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.di.ApplicationScope
 import com.saurabh.artifact.data.local.ArtifactEngagement
 import com.saurabh.artifact.data.local.EngagementDao
@@ -31,7 +29,6 @@ class EngagementRepository @Inject constructor(
     private val engagementDao: EngagementDao,
     private val firestoreRepository: FirestoreEngagementRepository,
     private val syncScheduler: EngagementSyncScheduler,
-    private val diagnosticLogger: DiagnosticLogger,
     @ApplicationScope private val externalScope: CoroutineScope
 ) {
 
@@ -130,20 +127,7 @@ class EngagementRepository @Inject constructor(
 
     suspend fun updateLastPosition(artifactId: String, positionMs: Long): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            val exists = engagementDao.getEngagement(artifactId) != null
-            val rowsUpdated = engagementDao.updateLastPosition(artifactId, positionMs)
-
-            diagnosticLogger.info(
-                DiagnosticCategory.DATABASE,
-                "INVESTIGATION_LOG",
-                mapOf(
-                    "TRACE_ID" to artifactId,
-                    "Stage" to "RoomUpdate",
-                    "ExistsBeforeUpdate" to exists,
-                    "RowsUpdated" to rowsUpdated,
-                    "PendingSync" to (rowsUpdated > 0)
-                )
-            )
+            engagementDao.updateLastPosition(artifactId, positionMs)
 
             syncScheduler.scheduleSync()
             Result.success(Unit)

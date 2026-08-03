@@ -32,6 +32,6 @@ class DependencyGraphInitializer : Initializer<Unit> {
     }
 
     override fun dependencies(): List<Class<out Initializer<*>>> {
-        return emptyList()
+        return listOf(SecurityInitializer::class.java)
     }
 }

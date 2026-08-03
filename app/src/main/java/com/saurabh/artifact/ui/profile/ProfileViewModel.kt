@@ -224,20 +224,7 @@ class ProfileViewModel @Inject constructor(
             durationMs = playback.duration.inWholeMilliseconds,
         )
 
-        // Investigation Instrumentation: PROFILE_UI_UPDATED
-        if (data != null) {
-            diagnosticLogger.info(
-                DiagnosticCategory.PROFILE,
-                "PROFILE_UI_UPDATED",
-                mapOf(
-                    "userId" to (data.userProfile?.id ?: "unknown"),
-                    "followers" to (data.userProfile?.followersCount ?: 0),
-                    "following" to (data.userProfile?.followingCount ?: 0),
-                    "isResonating" to state.isResonating,
-                    "timestamp" to System.currentTimeMillis()
-                )
-            )
-        }
+
 
         state
     }.stateIn(
@@ -269,17 +256,7 @@ class ProfileViewModel @Inject constructor(
         val currentId = currentUserId ?: return
         if (targetId == currentId) return
 
-        // Investigation Instrumentation: FOLLOW_BUTTON_CLICKED
-        diagnosticLogger.info(
-            DiagnosticCategory.PROFILE,
-            "FOLLOW_BUTTON_CLICKED",
-            mapOf(
-                LogKeys.USER_ID to currentId,
-                "targetUserId" to targetId,
-                "isResonating" to uiState.value.isResonating,
-                "timestamp" to System.currentTimeMillis()
-            )
-        )
+
 
         viewModelScope.launch {
             _isActionLoading.value = true

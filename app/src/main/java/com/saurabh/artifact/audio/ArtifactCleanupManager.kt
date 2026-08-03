@@ -12,6 +12,7 @@ import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.worker.CleanupWorker
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
@@ -52,6 +53,26 @@ class ArtifactCleanupManager @Inject constructor(
                 }
             } catch (e: Exception) {
                 ArtifactLogger.e(DiagnosticCategory.WORKMANAGER, "CLEANUP_RECOVERY_FAILED", throwable = e)
+            }
+        }
+    }
+
+    /**
+     * Cleans up any stale temporary decrypted files in the cache directory.
+     */
+    fun cleanStaleTempFiles(cacheDir: File) {
+        managerScope.launch {
+            try {
+                cacheDir.listFiles()?.forEach { file ->
+                    if (file.name.startsWith("decrypted_") && file.name.endsWith(".m4a")) {
+                        val deleted = file.delete()
+                        if (deleted) {
+                            ArtifactLogger.d(DiagnosticCategory.STORAGE, "TEMP_FILE_CLEANUP_SUCCESS", mapOf("file_name" to file.name))
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                ArtifactLogger.e(DiagnosticCategory.STORAGE, "TEMP_FILE_CLEANUP_FAILED", throwable = e)
             }
         }
     }

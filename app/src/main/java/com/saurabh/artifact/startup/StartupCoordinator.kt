@@ -6,9 +6,6 @@ import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailability
 import com.google.android.gms.security.ProviderInstaller
 import android.content.Intent
-import com.google.firebase.appcheck.FirebaseAppCheck
-import com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory
-import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
 import com.saurabh.artifact.util.CoroutineExceptionHandlerUtils
 import com.saurabh.artifact.util.StartupTracer
 import com.saurabh.artifact.domain.auth.SessionConstants
@@ -126,25 +123,6 @@ class StartupCoordinator @Inject constructor(
         } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
             Log.e("Startup", "Readiness Timeout: $component. Proceeding with caution.")
             // We proceed anyway to avoid permanent splash screen
-        }
-    }
-
-    /**
-     * Early App Check initialization to prevent race conditions with Firebase SDKs.
-     * Must be called synchronously from Application.onCreate().
-     */
-    fun initializeAppCheck() {
-        val appCheck = FirebaseAppCheck.getInstance()
-        if (environmentProvider.isDebug) {
-            appCheck.installAppCheckProviderFactory(
-                DebugAppCheckProviderFactory.getInstance()
-            )
-            Log.i("Startup", "App Check: DEBUG MODE active.")
-        } else {
-            appCheck.installAppCheckProviderFactory(
-                PlayIntegrityAppCheckProviderFactory.getInstance()
-            )
-            Log.i("Startup", "App Check: PRODUCTION MODE active.")
         }
     }
 
@@ -282,6 +260,9 @@ class StartupCoordinator @Inject constructor(
         
         // Phase 2: Resume any interrupted artifact cleanups
         cleanupManager.get().resumeUnfinishedCleanups()
+        
+        // STABILIZATION: Cleanup any stale temporary decrypted files from cache
+        cleanupManager.get().cleanStaleTempFiles(context.cacheDir)
         
         StartupTracer.mark("Background Services Ready")
     }

@@ -3,7 +3,6 @@ package com.saurabh.artifact.repository
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Blob
 import com.google.firebase.firestore.SetOptions
-import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.saurabh.artifact.domain.review.EngagementEvidence
 import com.saurabh.artifact.domain.review.EngagementState
@@ -29,58 +28,15 @@ class FirestoreEngagementRepository @Inject constructor(
      * Observes the authoritative unlock status from Firestore.
      */
     fun observeRemoteUnlockStatus(userId: String, artifactId: String): Flow<UnlockStatus?> = callbackFlow {
-        val traceId = artifactId
-        diagnosticLogger.info(
-            DiagnosticCategory.FIRESTORE,
-            "INVESTIGATION_LOG",
-            mapOf(
-                "TRACE_ID" to traceId,
-                "Stage" to "RepositoryEntry",
-                "AuthUID" to (FirebaseAuth.getInstance().currentUser?.uid ?: "null"),
-                "PathUID" to userId,
-                "ArtifactId" to artifactId,
-                "Thread" to Thread.currentThread().name,
-                "Timestamp" to System.currentTimeMillis()
-            )
-        )
+
 
         val docRef = firestore.collection("users").document(userId)
             .collection("engagement").document(artifactId)
 
-        diagnosticLogger.info(
-            DiagnosticCategory.FIRESTORE,
-            "INVESTIGATION_LOG",
-            mapOf(
-                "TRACE_ID" to traceId,
-                "Stage" to "ListenerAttach",
-                "AuthUID" to (FirebaseAuth.getInstance().currentUser?.uid ?: "null"),
-                "PathUID" to userId,
-                "ArtifactId" to artifactId,
-                "DocumentPath" to docRef.path,
-                "RuleTarget" to "users/{uid}/engagement/{artifactId}",
-                "Thread" to Thread.currentThread().name,
-                "Timestamp" to System.currentTimeMillis()
-            )
-        )
+
 
         val listener = docRef.addSnapshotListener { snapshot, error ->
-            diagnosticLogger.info(
-                DiagnosticCategory.FIRESTORE,
-                "INVESTIGATION_LOG",
-                mapOf(
-                    "TRACE_ID" to traceId,
-                    "Stage" to "ListenerCallback",
-                    "AuthUID" to (FirebaseAuth.getInstance().currentUser?.uid ?: "null"),
-                    "PathUID" to userId,
-                    "ArtifactId" to artifactId,
-                    "Success" to (error == null),
-                    "ErrorCode" to (error?.code?.name ?: "NONE"),
-                    "ErrorMessage" to (error?.message ?: "NONE"),
-                    "SnapshotExists" to (snapshot?.exists() ?: false),
-                    "Thread" to Thread.currentThread().name,
-                    "Timestamp" to System.currentTimeMillis()
-                )
-            )
+
 
             if (error != null) {
                 diagnosticLogger.error(
@@ -126,8 +82,7 @@ class FirestoreEngagementRepository @Inject constructor(
                         "artifactId" to artifactId,
                         "rawType" to (rawEngagement?.javaClass?.simpleName ?: "null"),
                         "parsedState" to parsedState.name,
-                        "isCommentUnlocked" to isUnlocked,
-                        "traceId" to traceId
+                        "isCommentUnlocked" to isUnlocked
                     )
                 )
 
@@ -155,20 +110,7 @@ class FirestoreEngagementRepository @Inject constructor(
      * or other fields reserved for backend authority.
      */
     suspend fun uploadEngagement(userId: String, evidence: EngagementEvidence): Result<Unit> = withContext(Dispatchers.IO) {
-        val traceId = evidence.artifactId
-        diagnosticLogger.info(
-            DiagnosticCategory.FIRESTORE,
-            "INVESTIGATION_LOG",
-            mapOf(
-                "TRACE_ID" to traceId,
-                "Stage" to "RepositoryEntry",
-                "AuthUID" to (FirebaseAuth.getInstance().currentUser?.uid ?: "null"),
-                "PathUID" to userId,
-                "ArtifactId" to evidence.artifactId,
-                "Thread" to Thread.currentThread().name,
-                "Timestamp" to System.currentTimeMillis()
-            )
-        )
+
 
         try {
             val docRef = firestore.collection("users").document(userId)
@@ -189,60 +131,16 @@ class FirestoreEngagementRepository @Inject constructor(
                 "updatedAt" to com.google.firebase.Timestamp.now()
             )
 
-            diagnosticLogger.info(
-                DiagnosticCategory.FIRESTORE,
-                "INVESTIGATION_LOG",
-                mapOf(
-                    "TRACE_ID" to traceId,
-                    "Stage" to "WriteRequest",
-                    "AuthUID" to (FirebaseAuth.getInstance().currentUser?.uid ?: "null"),
-                    "PathUID" to userId,
-                    "ArtifactId" to evidence.artifactId,
-                    "DocumentPath" to docRef.path,
-                    "RuleTarget" to "users/{uid}/engagement/{artifactId}",
-                    "OperationMode" to "UPSERT_MERGE",
-                    "PayloadKeys" to data.keys.toList(),
-                    "Thread" to Thread.currentThread().name,
-                    "Timestamp" to System.currentTimeMillis()
-                )
-            )
+
 
             // Use merge to avoid overwriting backend-managed fields like isCommentUnlocked
             docRef.set(data, SetOptions.merge()).await()
 
-            diagnosticLogger.info(
-                DiagnosticCategory.FIRESTORE,
-                "INVESTIGATION_LOG",
-                mapOf(
-                    "TRACE_ID" to traceId,
-                    "Stage" to "WriteResult",
-                    "AuthUID" to (FirebaseAuth.getInstance().currentUser?.uid ?: "null"),
-                    "PathUID" to userId,
-                    "ArtifactId" to evidence.artifactId,
-                    "Result" to "SUCCESS",
-                    "Thread" to Thread.currentThread().name,
-                    "Timestamp" to System.currentTimeMillis()
-                )
-            )
+
 
             Result.success(Unit)
         } catch (e: Exception) {
-            diagnosticLogger.info(
-                DiagnosticCategory.FIRESTORE,
-                "INVESTIGATION_LOG",
-                mapOf(
-                    "TRACE_ID" to traceId,
-                    "Stage" to "WriteResult",
-                    "AuthUID" to (FirebaseAuth.getInstance().currentUser?.uid ?: "null"),
-                    "PathUID" to userId,
-                    "ArtifactId" to evidence.artifactId,
-                    "Result" to "FAILURE",
-                    "ErrorCode" to ((e as? FirebaseFirestoreException)?.code?.name ?: "UNKNOWN"),
-                    "ErrorMessage" to (e.message ?: "NONE"),
-                    "Thread" to Thread.currentThread().name,
-                    "Timestamp" to System.currentTimeMillis()
-                )
-            )
+
             diagnosticLogger.error(
                 DiagnosticCategory.FIRESTORE,
                 "ENGAGEMENT_UPLOAD_FAILED",

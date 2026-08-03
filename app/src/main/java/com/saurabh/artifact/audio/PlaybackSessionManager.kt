@@ -275,6 +275,9 @@ class PlaybackSessionManager @Inject constructor(
                 controller?.let { syncWithController(it) }
                 
                 controller
+            } catch (e: CancellationException) {
+                diagnosticLogger.debug(DiagnosticCategory.PLAYER, "CONTROLLER_INIT_CANCELLED")
+                throw e
             } catch (e: Exception) {
                 diagnosticLogger.error(DiagnosticCategory.PLAYER, "CONTROLLER_INIT_FAILED", throwable = e)
                 null

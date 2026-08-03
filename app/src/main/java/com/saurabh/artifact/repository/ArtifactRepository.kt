@@ -705,7 +705,7 @@ class ArtifactRepository @Inject constructor(
             }
             extraParams["exceptionChain"] = exceptionChain
             
-            diagnosticLogger.error(DiagnosticCategory.STORAGE, "TRANSCRIPT_UPLOAD_FAILED_INVESTIGATION", extraParams, e)
+            diagnosticLogger.error(DiagnosticCategory.STORAGE, "TRANSCRIPT_UPLOAD_FAILED", extraParams, e)
             Result.failure(e)
         }
     }

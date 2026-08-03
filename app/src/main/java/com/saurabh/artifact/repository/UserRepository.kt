@@ -436,21 +436,7 @@ class UserRepository @Inject constructor(
                 try {
                     val user = snapshot.toObject(User::class.java)?.copy(id = snapshot.id)
                     
-                    // Investigation Instrumentation: PROFILE_USER_RECEIVED
-                    if (user != null) {
-                        diagnosticLogger.info(
-                            DiagnosticCategory.FIRESTORE,
-                            "PROFILE_USER_RECEIVED",
-                            mapOf(
-                                LogKeys.USER_ID to userId,
-                                "followersCount" to (user.followersCount),
-                                "followingCount" to (user.followingCount),
-                                "resonanceInCount" to (user.resonanceInCount),
-                                "resonanceOutCount" to (user.resonanceOutCount),
-                                "timestamp" to System.currentTimeMillis()
-                            )
-                        )
-                    }
+
 
                     trySend(user)
                 } catch (e: Exception) {

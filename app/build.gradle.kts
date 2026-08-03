@@ -266,30 +266,4 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 }
 
-// --- TEMPORARY DIAGNOSTIC INSTRUMENTATION START ---
-tasks.withType<Test>().configureEach {
-    testLogging {
-        // Log every test event to identify where the executor stops
-        events("started", "passed", "skipped", "failed")
-        showStandardStreams = true
-        exceptionFormat = TestExceptionFormat.FULL
-        showStackTraces = true
-        showCauses = true
-    }
 
-    // Explicit lifecycle markers for the console
-    addTestListener(object : TestListener {
-        override fun beforeSuite(suite: TestDescriptor) {}
-        override fun afterSuite(suite: TestDescriptor, result: TestResult) {}
-        override fun beforeTest(testDescriptor: TestDescriptor) {
-            logger.lifecycle(">>> START: ${testDescriptor.className}.${testDescriptor.name}")
-        }
-        override fun afterTest(testDescriptor: TestDescriptor, result: TestResult) {
-            logger.lifecycle("<<< ${result.resultType}: ${testDescriptor.className}.${testDescriptor.name}")
-        }
-    })
-
-    // Force tests to run even if Gradle thinks they are up-to-date
-    outputs.upToDateWhen { false }
-}
-// --- TEMPORARY DIAGNOSTIC INSTRUMENTATION END ---

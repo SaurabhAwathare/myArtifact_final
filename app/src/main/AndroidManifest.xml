@@ -138,6 +138,9 @@
             android:exported="false"
             tools:node="merge">
             <meta-data
+                android:name="com.saurabh.artifact.startup.SecurityInitializer"
+                android:value="androidx.startup" />
+            <meta-data
                 android:name="com.saurabh.artifact.startup.DependencyGraphInitializer"
                 android:value="androidx.startup" />
             <meta-data

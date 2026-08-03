@@ -35,7 +35,7 @@ class GetProfileDataUseCase @Inject constructor(
             combine(
                 userRepository.streamUserProfile(finalId),
                 artifactRepository.getUserArtifacts(finalId, onlyActive = !isSelf),
-                artifactRepository.getSavedArtifacts(finalId),
+                if (isSelf) artifactRepository.getSavedArtifacts(finalId) else flowOf(emptyList()),
                 if (isSelf) recordingRepository.observeDrafts() else flowOf(emptyList()),
                 if (currentUserId.isNotEmpty()) userRepository.observeIsResonating(currentUserId, finalId) else flowOf(false)
             ) { profile, allArtifacts, saved, localDrafts, isResonating ->

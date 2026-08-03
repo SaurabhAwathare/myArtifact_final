@@ -56,10 +56,6 @@ class ArtifactApplication : Application(), ImageLoaderFactory, Configuration.Pro
         
         // Initialize Logger
         com.saurabh.artifact.diagnostics.ArtifactLogger.init(diagnosticLogger.get())
-
-        // PHASE 0: Synchronous Security Initialization
-        // Must occur before any other Firebase SDK is accessed to prevent race conditions.
-        startupCoordinator.get().initializeAppCheck()
         
         setupRescueTracker()
         
