@@ -64,6 +64,7 @@ data class ArtifactDraftEntity(
     val durableBytes: Long = 0, 
     val isCorrupted: Boolean = false,
     val version: Int = 1,
+    val uploadFormatVersion: Int = 1,
 
     // Recording Session Info
     val mimeType: String = "audio/wav",

@@ -37,7 +37,7 @@
       </SelectionState>
       <SelectionState runConfigName="androidTest">
         <option name="selectionMode" value="DROPDOWN" />
-        <DropdownSelection timestamp="2026-08-01T08:47:53.593612200Z">
+        <DropdownSelection timestamp="2026-08-04T10:43:49.282440200Z">
           <Target type="DEFAULT_BOOT">
             <handle>
               <DeviceId pluginId="LocalEmulator" identifier="path=C:\Users\monua\.android\avd\Pixel_9_Pro.avd" />

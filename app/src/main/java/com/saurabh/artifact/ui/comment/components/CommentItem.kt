@@ -1,5 +1,6 @@
 package com.saurabh.artifact.ui.comment.components
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.DeleteOutline
@@ -31,6 +32,7 @@ fun CommentItem(
     comment: Comment,
     isOwner: Boolean,
     onDeleteClick: () -> Unit,
+    onProfileClick: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -42,7 +44,8 @@ fun CommentItem(
         ArtifactSigil(
             config = comment.author.sigilConfig,
             size = 36.dp,
-            isStatic = true
+            isStatic = true,
+            modifier = Modifier.clickable { onProfileClick(comment.creatorId) }
         )
 
         Column(modifier = Modifier.weight(1f)) {
@@ -54,7 +57,8 @@ fun CommentItem(
                     text = comment.author.name,
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.clickable { onProfileClick(comment.creatorId) }
                 )
                 
                 if (comment.author.sigil.isNotEmpty()) {
@@ -113,7 +117,8 @@ fun CommentItemPreview() {
                 createdAt = com.google.firebase.Timestamp.now()
             ),
             isOwner = false,
-            onDeleteClick = {}
+            onDeleteClick = {},
+            onProfileClick = {}
         )
     }
 }
@@ -129,7 +134,8 @@ fun CommentItemOwnerPreview() {
                 createdAt = com.google.firebase.Timestamp.now()
             ),
             isOwner = true,
-            onDeleteClick = {}
+            onDeleteClick = {},
+            onProfileClick = {}
         )
     }
 }

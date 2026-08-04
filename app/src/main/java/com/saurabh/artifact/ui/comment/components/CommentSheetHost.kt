@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.Color
 fun CommentSheetHost(
     artifactId: String,
     onDismiss: () -> Unit,
+    onNavigateToProfile: (String) -> Unit,
     viewModel: CommentViewModel = hiltViewModel()
 ) {
     // Initialize the ViewModel with the current artifact ID
@@ -64,6 +65,8 @@ fun CommentSheetHost(
         onSubmit = { viewModel.submitComment(it) },
         onDelete = { commentToDelete = it },
         onLoadNextPage = { viewModel.loadNextPage() },
+        onNavigateToProfile = onNavigateToProfile,
+        onProfileClick = { viewModel.onProfileClick(it) },
         onRetry = { viewModel.loadInitialComments() },
         onRetryUnlock = { viewModel.retryUnlock() }
     )

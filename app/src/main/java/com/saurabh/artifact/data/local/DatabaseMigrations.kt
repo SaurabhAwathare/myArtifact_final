@@ -37,9 +37,21 @@ object DatabaseMigrations {
             db.execSQL("ALTER TABLE artifacts ADD COLUMN isEncrypted INTEGER NOT NULL DEFAULT 0")
         }
     }
+
+    /**
+     * Migration 62 -> 63: Upload Session Invalidation.
+     * Adds 'uploadFormatVersion' to 'artifact_drafts' to track the content format
+     * associated with a resumable upload session (Encrypted vs Decrypted).
+     */
+    val MIGRATION_62_63 = object : Migration(62, 63) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE artifact_drafts ADD COLUMN uploadFormatVersion INTEGER NOT NULL DEFAULT 1")
+        }
+    }
     
     val ALL_MIGRATIONS = arrayOf<Migration>(
         MIGRATION_60_61,
-        MIGRATION_61_62
+        MIGRATION_61_62,
+        MIGRATION_62_63
     )
 }

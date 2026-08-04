@@ -176,7 +176,11 @@ fun ArtifactPlayerView(
             Box(modifier = Modifier.zIndex(ZIndexTokens.MODAL_OVERLAYS)) {
                 com.saurabh.artifact.ui.comment.components.CommentSheetHost(
                     artifactId = currentArtifact.id,
-                    onDismiss = { showCommentSheet = false }
+                    onDismiss = { showCommentSheet = false },
+                    onNavigateToProfile = { userId ->
+                        onAuthorClick(userId)
+                        showCommentSheet = false
+                    }
                 )
             }
         }

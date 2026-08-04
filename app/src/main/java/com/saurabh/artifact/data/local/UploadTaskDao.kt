@@ -30,6 +30,10 @@ interface UploadTaskDao {
     @Query("UPDATE upload_tasks SET audioUrl = :audioUrl, lastUpdated = :timestamp WHERE draftId = :draftId")
     suspend fun updateAudioUrl(draftId: String, audioUrl: String, timestamp: Long = System.currentTimeMillis())
 
+    /** User-scoped: Invalidate upload task due to format change. */
+    @Query("UPDATE upload_tasks SET status = :status, uploadedBytes = 0, sessionUri = NULL, audioUrl = NULL, lastUpdated = :timestamp WHERE draftId = :draftId")
+    suspend fun invalidateTask(draftId: String, status: SyncStatus, timestamp: Long = System.currentTimeMillis())
+
     @Query("SELECT * FROM upload_tasks")
     suspend fun getAllTasks(): List<UploadTaskEntity>
 

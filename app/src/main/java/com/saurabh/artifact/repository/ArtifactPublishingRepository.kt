@@ -8,7 +8,6 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.StorageMetadata
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
-import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
@@ -49,7 +48,7 @@ class ArtifactPublishingRepository @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val firestore: FirebaseFirestore,
     private val storage: FirebaseStorage,
-    private val draftDao: dagger.Lazy<DraftDao>,
+    private val draftRepository: dagger.Lazy<DraftRepository>,
     private val diagnosticLogger: DiagnosticLogger
 ) {
 
@@ -60,33 +59,58 @@ class ArtifactPublishingRepository @Inject constructor(
     ): Result<String> = withContext(Dispatchers.IO) {
         val maxRetries = 3
         var currentRetry = 0
-        var currentSessionUri = draft.uploadSessionUri
+        
+        // Phase 9: Session Invalidation for Format Migration (Encrypted -> Decrypted Upload)
+        var workingDraft = draft
+        if (workingDraft.uploadFormatVersion < CURRENT_UPLOAD_FORMAT_VERSION) {
+            val hasActiveSession = workingDraft.uploadSessionUri != null || workingDraft.uploadedAudioUrl != null
+            if (hasActiveSession) {
+                diagnosticLogger.warn(
+                    DiagnosticCategory.STORAGE,
+                    "UPLOAD_SESSION_INVALIDATED",
+                    mapOf(
+                        LogKeys.DRAFT_ID to workingDraft.id,
+                        "reason" to "Incompatible format (v${workingDraft.uploadFormatVersion} -> v$CURRENT_UPLOAD_FORMAT_VERSION)",
+                        "previousSessionUriPresent" to (workingDraft.uploadSessionUri != null)
+                    )
+                )
+                draftRepository.get().invalidateUploadSession(workingDraft.id, CURRENT_UPLOAD_FORMAT_VERSION).getOrThrow()
+                // Refresh draft for the local scope to ensure we start from scratch
+                workingDraft = draftRepository.get().getDraft(workingDraft.id).getOrThrow()
+            } else {
+                // No active session to clear, but mark version as migrated to prevent repeated DB hits
+                draftRepository.get().invalidateUploadSession(workingDraft.id, CURRENT_UPLOAD_FORMAT_VERSION).getOrThrow()
+                workingDraft = workingDraft.copy(uploadFormatVersion = CURRENT_UPLOAD_FORMAT_VERSION)
+            }
+        }
 
-        val originalFile = File(draft.localAudioPath)
-        if (!originalFile.exists()) return@withContext Result.failure(Exception("File missing: ${draft.localAudioPath}"))
+        var currentSessionUri = workingDraft.uploadSessionUri
+
+        val originalFile = File(workingDraft.localAudioPath)
+        if (!originalFile.exists()) return@withContext Result.failure(Exception("File missing: ${workingDraft.localAudioPath}"))
 
         if (originalFile.length() == 0L) {
             return@withContext Result.failure(Exception("File is empty, aborting upload"))
         }
 
         // DECRYPTION: Create a temporary unencrypted file for upload
-        val tempFile = File.createTempFile("decrypted_${draft.id}_", ".m4a", context.cacheDir)
+        val tempFile = File.createTempFile("decrypted_${workingDraft.id}_", ".m4a", context.cacheDir)
         
         try {
-            diagnosticLogger.debug(DiagnosticCategory.STORAGE, "DECRYPTION_FOR_UPLOAD_START", mapOf(LogKeys.DRAFT_ID to draft.id))
+            diagnosticLogger.debug(DiagnosticCategory.STORAGE, "DECRYPTION_FOR_UPLOAD_START", mapOf(LogKeys.DRAFT_ID to workingDraft.id))
             SecurityArchitecture.openDecryptingStream(context, originalFile).use { input ->
                 FileOutputStream(tempFile).use { output ->
                     input.copyTo(output)
                 }
             }
-            diagnosticLogger.debug(DiagnosticCategory.STORAGE, "DECRYPTION_FOR_UPLOAD_SUCCESS", mapOf(LogKeys.DRAFT_ID to draft.id, "size" to tempFile.length()))
+            diagnosticLogger.debug(DiagnosticCategory.STORAGE, "DECRYPTION_FOR_UPLOAD_SUCCESS", mapOf(LogKeys.DRAFT_ID to workingDraft.id, "size" to tempFile.length()))
 
-            val fileName = "artifacts/${userId}_${draft.id}.m4a"
+            val fileName = "artifacts/${userId}_${workingDraft.id}.m4a"
             val fileRef = storage.reference.child(fileName)
 
             val metadata = StorageMetadata.Builder()
-                .setCustomMetadata("draftId", draft.id)
-                .setCustomMetadata("checksum", draft.checksum ?: "")
+                .setCustomMetadata("draftId", workingDraft.id)
+                .setCustomMetadata("checksum", workingDraft.checksum ?: "")
                 .setContentType("audio/x-m4a")
                 .build()
 
@@ -94,7 +118,7 @@ class ArtifactPublishingRepository @Inject constructor(
                 diagnosticLogger.info(
                     DiagnosticCategory.STORAGE, 
                     "UPLOAD_ATTEMPT", 
-                    mapOf(LogKeys.DRAFT_ID to draft.id, "retry" to currentRetry, "hasSession" to (currentSessionUri != null))
+                    mapOf(LogKeys.DRAFT_ID to workingDraft.id, "retry" to currentRetry, "hasSession" to (currentSessionUri != null))
                 )
 
                 try {
@@ -118,10 +142,10 @@ class ArtifactPublishingRepository @Inject constructor(
                                 diagnosticLogger.warn(
                                     DiagnosticCategory.STORAGE, 
                                     "UPLOAD_SESSION_EXPIRED", 
-                                    mapOf(LogKeys.DRAFT_ID to draft.id, "httpCode" to httpCode)
+                                    mapOf(LogKeys.DRAFT_ID to workingDraft.id, "httpCode" to httpCode)
                                 )
                                 // Clear session in DB and local state
-                                draftDao.get().updateSyncProgress(draft.id, draft.userId, 0, draft.totalBytes, null)
+                                draftRepository.get().updateUploadProgress(workingDraft.id, 0, workingDraft.totalBytes, null)
                                 currentSessionUri = null
                                 
                                 // Throw transient error to trigger restart from scratch in next loop iteration
@@ -148,7 +172,7 @@ class ArtifactPublishingRepository @Inject constructor(
                         diagnosticLogger.error(
                             DiagnosticCategory.STORAGE, 
                             "UPLOAD_FAILED_TERMINAL", 
-                            mapOf(LogKeys.DRAFT_ID to draft.id), 
+                            mapOf(LogKeys.DRAFT_ID to workingDraft.id), 
                             e
                         )
                         return@withContext Result.failure(e)
@@ -158,7 +182,7 @@ class ArtifactPublishingRepository @Inject constructor(
                             diagnosticLogger.error(
                                 DiagnosticCategory.STORAGE, 
                                 "UPLOAD_FAILED_MAX_RETRIES", 
-                                mapOf(LogKeys.DRAFT_ID to draft.id), 
+                                mapOf(LogKeys.DRAFT_ID to workingDraft.id), 
                                 e
                             )
                             return@withContext Result.failure(e)
@@ -168,7 +192,7 @@ class ArtifactPublishingRepository @Inject constructor(
                                 DiagnosticCategory.STORAGE, 
                                 "UPLOAD_RETRYING", 
                                 mapOf(
-                                    LogKeys.DRAFT_ID to draft.id, 
+                                    LogKeys.DRAFT_ID to workingDraft.id, 
                                     "retry" to currentRetry, 
                                     "delayMs" to delayTime,
                                     "reason" to (e.message ?: "Transient error")
@@ -184,12 +208,12 @@ class ArtifactPublishingRepository @Inject constructor(
             }
             Result.failure(Exception("Upload failed after $maxRetries retries"))
         } catch (e: Exception) {
-            diagnosticLogger.error(DiagnosticCategory.STORAGE, "DECRYPTION_FAILED_FOR_UPLOAD", mapOf(LogKeys.DRAFT_ID to draft.id), e)
+            diagnosticLogger.error(DiagnosticCategory.STORAGE, "DECRYPTION_FAILED_FOR_UPLOAD", mapOf(LogKeys.DRAFT_ID to workingDraft.id), e)
             Result.failure(e)
         } finally {
             if (tempFile.exists()) {
                 val deleted = tempFile.delete()
-                diagnosticLogger.debug(DiagnosticCategory.STORAGE, "TEMP_FILE_CLEANUP", mapOf(LogKeys.DRAFT_ID to draft.id, "success" to deleted))
+                diagnosticLogger.debug(DiagnosticCategory.STORAGE, "TEMP_FILE_CLEANUP", mapOf(LogKeys.DRAFT_ID to workingDraft.id, "success" to deleted))
             }
         }
     }
@@ -199,6 +223,10 @@ class ArtifactPublishingRepository @Inject constructor(
      */
     fun isTransientError(e: Throwable): Boolean {
         return NetworkUtils.isTransientError(e)
+    }
+
+    companion object {
+        private const val CURRENT_UPLOAD_FORMAT_VERSION = 2
     }
 
     /**

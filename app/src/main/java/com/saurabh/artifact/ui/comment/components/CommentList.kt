@@ -35,6 +35,7 @@ fun CommentList(
     currentUserId: String,
     onLoadNextPage: () -> Unit,
     onDeleteComment: (Comment) -> Unit,
+    onProfileClick: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
@@ -78,7 +79,8 @@ fun CommentList(
                     CommentItem(
                         comment = comment,
                         isOwner = comment.creatorId == currentUserId,
-                        onDeleteClick = { onDeleteComment(comment) }
+                        onDeleteClick = { onDeleteComment(comment) },
+                        onProfileClick = onProfileClick
                     )
                 }
 
@@ -117,7 +119,8 @@ fun CommentListPreview() {
             hasMorePages = true,
             currentUserId = "me",
             onLoadNextPage = {},
-            onDeleteComment = {}
+            onDeleteComment = {},
+            onProfileClick = {}
         )
     }
 }

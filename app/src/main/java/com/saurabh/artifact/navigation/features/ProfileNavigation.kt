@@ -50,7 +50,6 @@ fun NavGraphBuilder.profileNavigation(
         val profile = backStackEntry.toRoute<Profile>()
         diagnosticLogger.debug(DiagnosticCategory.NAVIGATION, "NAVIGATE_TO_PROFILE", mapOf("targetUserId" to (profile.userId ?: "self")))
         ProfileScreen(
-            userId = profile.userId,
             onLogout = onLogout,
             onBack = onBack,
             onEditIdentity = onNavigateToIdentity,

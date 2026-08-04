@@ -259,6 +259,23 @@ class DraftRepository @Inject constructor(
         }
     }
 
+    /**
+     * Invalidate any existing resumable upload session due to a change in the
+     * underlying file format (e.g., from Encrypted to Decrypted).
+     */
+    suspend fun invalidateUploadSession(draftId: String, version: Int): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val userId = userRepository.getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
+            draftsDatabase.withTransaction {
+                draftDao.invalidateUploadSession(draftId, userId, version)
+                uploadTaskDao.invalidateTask(draftId, SyncStatus.Queued)
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(AppError.from(e))
+        }
+    }
+
     suspend fun markAsPublished(draftId: String, remoteId: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val userId = userRepository.getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())

@@ -37,6 +37,8 @@ fun CommentSheet(
     onSubmit: (String) -> Unit,
     onDelete: (Comment) -> Unit,
     onLoadNextPage: () -> Unit,
+    onNavigateToProfile: (String) -> Unit,
+    onProfileClick: (String) -> Unit,
     onRetry: () -> Unit,
     onRetryUnlock: () -> Unit,
     modifier: Modifier = Modifier
@@ -60,6 +62,9 @@ fun CommentSheet(
                         message = event.error,
                         duration = SnackbarDuration.Short
                     )
+                }
+                is CommentUiEvent.NavigateToProfile -> {
+                    onNavigateToProfile(event.userId)
                 }
                 else -> {}
             }
@@ -111,6 +116,7 @@ fun CommentSheet(
                             currentUserId = currentUserId,
                             onLoadNextPage = onLoadNextPage,
                             onDeleteComment = onDelete,
+                            onProfileClick = onProfileClick,
                             modifier = Modifier.fillMaxSize()
                         )
                     }

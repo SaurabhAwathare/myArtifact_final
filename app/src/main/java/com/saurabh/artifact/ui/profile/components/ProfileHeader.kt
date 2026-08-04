@@ -2,6 +2,8 @@ package com.saurabh.artifact.ui.profile.components
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -15,6 +17,7 @@ import com.saurabh.artifact.ui.theme.ArtifactTheme
 
 import com.saurabh.artifact.ui.components.ArtifactSigil
 import com.saurabh.artifact.model.SigilConfig
+import com.saurabh.artifact.ui.components.state.LoadingPlaceholder
 
 /**
  * Redesigned ProfileHeader: Compact, Dense, Instagram-style hierarchy.
@@ -32,6 +35,7 @@ fun ProfileHeader(
     modifier: Modifier = Modifier,
     onResonatorsClick: () -> Unit = {},
     onResonatingClick: () -> Unit = {},
+    isLoading: Boolean = false
 ) {
     Column(
         modifier = modifier
@@ -42,30 +46,46 @@ fun ProfileHeader(
         Box(
             modifier = Modifier
                 .size(120.dp)
-                .clickable(enabled = isSelf) { onEditClick() },
+                .clickable(enabled = isSelf && !isLoading) { onEditClick() },
             contentAlignment = Alignment.Center
         ) {
-            val displayConfig = when {
-                isSelf -> sigilConfig
-                user != null -> user.sigilConfig
-                else -> SigilConfig(seed = "fallback")
-            }
+            if (isLoading) {
+                LoadingPlaceholder(
+                    height = 110.dp,
+                    width = Modifier.size(110.dp),
+                    shape = CircleShape
+                )
+            } else {
+                val displayConfig = when {
+                    isSelf -> sigilConfig
+                    user != null -> user.sigilConfig
+                    else -> SigilConfig(seed = "fallback")
+                }
 
-            ArtifactSigil(
-                config = displayConfig,
-                size = 110.dp
-            )
+                ArtifactSigil(
+                    config = displayConfig,
+                    size = 110.dp
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
         // Username
-        Text(
-            text = user?.anonymousName ?: "quiet presence",
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-            color = Color.White
-        )
+        if (isLoading) {
+            LoadingPlaceholder(
+                height = 24.dp,
+                width = Modifier.width(120.dp),
+                shape = RoundedCornerShape(4.dp)
+            )
+        } else {
+            Text(
+                text = user?.anonymousName ?: "quiet presence",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+        }
 
         Spacer(modifier = Modifier.height(32.dp))
 
@@ -75,31 +95,41 @@ fun ProfileHeader(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            val resonatorsCount = when {
-                user == null -> 0L
-                user.resonanceInCount > 0 -> user.resonanceInCount
-                else -> user.followersCount
-            }
-            val followingCount = when {
-                user == null -> 0L
-                user.resonanceOutCount > 0 -> user.resonanceOutCount
-                else -> user.followingCount
-            }
+            if (isLoading) {
+                repeat(3) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        LoadingPlaceholder(height = 20.dp, width = Modifier.width(30.dp))
+                        Spacer(Modifier.height(4.dp))
+                        LoadingPlaceholder(height = 12.dp, width = Modifier.width(60.dp))
+                    }
+                }
+            } else {
+                val resonatorsCount = when {
+                    user == null -> 0L
+                    user.resonanceInCount > 0 -> user.resonanceInCount
+                    else -> user.followersCount
+                }
+                val followingCount = when {
+                    user == null -> 0L
+                    user.resonanceOutCount > 0 -> user.resonanceOutCount
+                    else -> user.followingCount
+                }
 
-            StatItem(
-                label = "artifacts",
-                count = user?.artifactsCount ?: 0L
-            )
-            StatItem(
-                label = "following", 
-                count = followingCount,
-                onClick = onResonatingClick
-            )
-            StatItem(
-                label = "resonators", 
-                count = resonatorsCount,
-                onClick = onResonatorsClick
-            )
+                StatItem(
+                    label = "artifacts",
+                    count = user?.artifactsCount ?: 0L
+                )
+                StatItem(
+                    label = "following", 
+                    count = followingCount,
+                    onClick = onResonatingClick
+                )
+                StatItem(
+                    label = "resonators", 
+                    count = resonatorsCount,
+                    onClick = onResonatorsClick
+                )
+            }
         }
 
         if (!isSelf) {

@@ -55,6 +55,7 @@ class RecordingRepository @Inject constructor(
                 durationMs = durationMs,
                 checksum = checksum,
                 isEncrypted = isEncrypted,
+                uploadFormatVersion = 2, // Current version for new recordings
                 lifecycle = if (durationMs > 0) ArtifactLifecycle.PROCESSING else ArtifactLifecycle.RECORDING,
                 mimeType = mimeType,
                 status = DraftStatus(

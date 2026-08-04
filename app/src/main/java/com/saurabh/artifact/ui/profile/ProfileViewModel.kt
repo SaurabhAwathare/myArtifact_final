@@ -1,7 +1,9 @@
 package com.saurabh.artifact.ui.profile
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.navigation.toRoute
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
@@ -17,6 +19,7 @@ import com.saurabh.artifact.ui.util.UiText
 import com.saurabh.artifact.ui.util.ErrorMessageMapper
 import com.saurabh.artifact.R
 import com.saurabh.artifact.domain.profile.ProfileData
+import com.saurabh.artifact.navigation.Profile
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
@@ -81,6 +84,7 @@ private data class PlaybackState(
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class ProfileViewModel @Inject constructor(
+    savedStateHandle: SavedStateHandle,
     private val authRepository: AuthRepository,
     userProfileManager: UserProfileManager,
     private val savedArtifactManager: SavedArtifactManager,
@@ -95,7 +99,7 @@ class ProfileViewModel @Inject constructor(
     val currentUserId: String? get() = authRepository.currentUser.value?.uid
     val savedIds = savedArtifactManager.savedIds
 
-    private val _targetUserId = MutableStateFlow<String?>(null)
+    private val _targetUserId = MutableStateFlow<String?>(savedStateHandle.toRoute<Profile>().userId)
     private val _selectedTab = MutableStateFlow(ProfileTab.PUBLISHED)
     private val _logoutState = MutableStateFlow<LogoutState>(LogoutState.Idle)
     private val _message = MutableStateFlow<UiText?>(null)
@@ -199,13 +203,18 @@ class ProfileViewModel @Inject constructor(
 
     val uiState: StateFlow<ProfileUiState> = combine(
         profileContentFlow,
-        playbackStateFlow
-    ) { content, playback ->
+        playbackStateFlow,
+        _targetUserId
+    ) { content, playback, targetId ->
         val data = content.data
+        val currentUid = authRepository.currentUser.value?.uid
+        val isActuallySelf = (targetId == null) || (targetId == currentUid)
+        val isLoading = data == null
+
         val state = ProfileUiState(
             userProfile = data?.userProfile,
             sigilConfig = content.sigilConfig,
-            isSelf = data?.isSelf ?: true,
+            isSelf = isActuallySelf,
             isResonating = data?.isResonating ?: false,
             selectedTab = content.selectedTab,
             publishedArtifacts = content.mappedPublishedArtifacts,
@@ -214,7 +223,7 @@ class ProfileViewModel @Inject constructor(
             localDrafts = content.mappedLocalDrafts,
             logoutState = content.logoutState,
             message = content.message,
-            isLoading = data == null,
+            isLoading = isLoading,
             isActionLoading = content.isActionLoading,
             isRefreshing = content.isRefreshing,
             currentlyPlayingArtifact = playback.currentlyPlaying,
@@ -223,8 +232,6 @@ class ProfileViewModel @Inject constructor(
             currentPosition = playback.position.inWholeMilliseconds,
             durationMs = playback.duration.inWholeMilliseconds,
         )
-
-
 
         state
     }.stateIn(
@@ -244,11 +251,6 @@ class ProfileViewModel @Inject constructor(
 
     fun selectTab(tab: ProfileTab) {
         _selectedTab.value = tab
-    }
-
-    fun setTargetUser(userId: String?) {
-        _targetUserId.value = userId
-        _refreshTrigger.value += 1
     }
 
     fun toggleResonance() {

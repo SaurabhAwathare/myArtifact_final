@@ -148,6 +148,10 @@ interface DraftDao {
     @Query("UPDATE artifact_drafts SET uploadedBytes = :uploadedBytes, totalBytes = :totalBytes, uploadSessionUri = :sessionUri WHERE id = :draftId AND userId = :userId")
     suspend fun updateSyncProgress(draftId: String, userId: String, uploadedBytes: Long, totalBytes: Long, sessionUri: String?)
 
+    /** User-scoped: Invalidate upload session due to format change. */
+    @Query("UPDATE artifact_drafts SET uploadFormatVersion = :version, uploadSessionUri = NULL, uploadedAudioUrl = NULL, uploadedBytes = 0, updatedAt = :timestamp WHERE id = :id AND userId = :userId")
+    suspend fun invalidateUploadSession(id: String, userId: String, version: Int, timestamp: Long = System.currentTimeMillis())
+
     /** User-scoped: Mark draft as published with ownership enforcement. */
     @Transaction
     suspend fun markAsPublished(id: String, userId: String, remoteId: String) {

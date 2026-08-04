@@ -20,4 +20,10 @@ sealed class CommentUiEvent {
      * @param error The error describing the failure.
      */
     data class SubmissionFailed(val error: String) : CommentUiEvent()
+
+    /**
+     * Emitted when a user requests to view a profile from a comment.
+     * @param userId The UID of the user whose profile should be shown.
+     */
+    data class NavigateToProfile(val userId: String) : CommentUiEvent()
 }

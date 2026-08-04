@@ -352,6 +352,19 @@ class CommentViewModel @Inject constructor(
     }
 
     /**
+     * Initiates navigation to a user's profile.
+     * 
+     * @param userId The ID of the user whose profile to navigate to.
+     */
+    fun onProfileClick(userId: String) {
+        if (userId.isEmpty()) return
+        
+        viewModelScope.launch {
+            _events.emit(CommentUiEvent.NavigateToProfile(userId))
+        }
+    }
+
+    /**
      * Clears any active error from the UI state.
      */
     fun clearError() {

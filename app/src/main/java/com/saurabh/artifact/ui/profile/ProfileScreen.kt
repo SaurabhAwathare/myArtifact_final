@@ -24,7 +24,6 @@ import com.saurabh.artifact.ui.components.AppSnackbarHost
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
-    userId: String? = null,
     onLogout: () -> Unit,
     onBack: () -> Unit,
     onEditIdentity: () -> Unit,
@@ -40,10 +39,6 @@ fun ProfileScreen(
     
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
-
-    LaunchedEffect(userId) {
-        viewModel.setTargetUser(userId)
-    }
 
     LaunchedEffect(uiState.message) {
         uiState.message?.let { uiText ->
@@ -71,7 +66,11 @@ fun ProfileScreen(
             CenterAlignedTopAppBar(
                 title = { 
                     Text(
-                        if (uiState.isSelf) "My Journey" else uiState.userProfile?.anonymousName ?: "Profile",
+                        when {
+                            uiState.isLoading -> "Profile"
+                            uiState.isSelf -> "My Journey"
+                            else -> uiState.userProfile?.anonymousName ?: "Profile"
+                        },
                         fontWeight = FontWeight.Bold
                     ) 
                 },
@@ -134,7 +133,8 @@ fun ProfileScreen(
                                 uiState.userProfile?.id?.let { id ->
                                     onNavigateToResonanceList(id, "resonance_out", "Following")
                                 }
-                            }
+                            },
+                            isLoading = uiState.isLoading
                         )
                     }
 
