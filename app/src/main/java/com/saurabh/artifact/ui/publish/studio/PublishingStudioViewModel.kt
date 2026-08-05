@@ -12,6 +12,7 @@ import com.saurabh.artifact.domain.IdentityScout
 import com.saurabh.artifact.domain.PublishArtifactUseCase
 import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.model.Emotion
+import com.saurabh.artifact.model.PlaybackSource
 import com.saurabh.artifact.model.PublishingResult
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.DebugRepository
@@ -199,7 +200,7 @@ class PublishingStudioViewModel @Inject constructor(
         viewModelScope.launch {
             // Only initialize review playback if the feature is enabled
             if (!sessionState.value.bypassReview) {
-                playbackCoordinator.playDraftPreview(draftId)
+                playbackCoordinator.playDraftPreview(draftId, source = PlaybackSource.REVIEW_DRAFT)
             } else {
                 diagnosticLogger.info(DiagnosticCategory.STUDIO, "REVIEW_BYPASS_ACTIVE", mapOf(LogKeys.DRAFT_ID to draftId))
             }

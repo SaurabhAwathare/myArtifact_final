@@ -96,9 +96,13 @@ fun ResonanceListScreen(
                         modifier = Modifier.fillMaxSize()
                     ) {
                         items(uiState.users, key = { it.id }) { user ->
+                            val currentUserId = viewModel.currentUserId
                             PresenceItem(
                                 user = user,
-                                onClick = { onUserClick(user.id) }
+                                onClick = { onUserClick(user.id) },
+                                isResonating = uiState.resonatingWithIds.contains(user.id),
+                                showResonateButton = user.id != currentUserId,
+                                onResonateClick = { viewModel.toggleResonance(user.id) }
                             )
                         }
                         

@@ -185,14 +185,13 @@ class GetPlayerContextUseCase @Inject constructor(
                 ?: ReactionType.I_HEAR_YOU
         }
 
-        val isResonatingFlow = combine(userIdFlow) { uid ->
-            val currentUid = uid.firstOrNull() 
+        val isResonatingFlow = userIdFlow.flatMapLatest { currentUid ->
             if (currentUid != null && artifact.userId != currentUid) {
                 userRepository.observeIsResonating(currentUid, artifact.userId)
             } else {
                 flowOf(false)
             }
-        }.flatMapLatest { it }
+        }
 
         val followSyncStatusFlow = pendingInteractionsFlow.map { pending ->
             if (pending.any { it.interactionType == InteractionType.FOLLOW }) InteractionSyncStatus.PENDING else InteractionSyncStatus.SYNCED

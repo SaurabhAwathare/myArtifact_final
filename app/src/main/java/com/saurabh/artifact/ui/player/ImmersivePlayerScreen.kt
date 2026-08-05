@@ -54,6 +54,7 @@ fun ImmersivePlayerScreen(
     onShowAdvanced: () -> Unit,
     onResonateClick: (com.saurabh.artifact.model.ReactionType) -> Unit = {},
     onResonateConnectionClick: () -> Unit = {},
+    onResonatorsCountClick: (String) -> Unit = {},
     onSaveClick: () -> Unit = {},
     onEditClick: () -> Unit = {},
     onPublishClick: () -> Unit = {},
@@ -74,8 +75,7 @@ fun ImmersivePlayerScreen(
     var offsetY by remember { mutableFloatStateOf(0f) }
 
     // Phase 4: Harden Draft Detection (Unified Logic)
-    // NOTE: For PlayerArtifact, we rely on the ViewModel to have determined ownership/draft state
-    val isVerifiedDraft = uiState.isOwner && artifact != null && playableArtifact?.id == artifact.id
+    val isVerifiedDraft = artifact?.isDraft == true
 
     if (showDeleteConfirm) {
         AlertDialog(
@@ -295,7 +295,10 @@ fun ImmersivePlayerScreen(
                                     // Unified Metadata Display (Matches Feed)
                                     ResonanceDisplay(
                                         summary = uiState.resonanceSummary,
-                                        isOwner = uiState.isOwner
+                                        isOwner = uiState.isOwner,
+                                        onClick = { 
+                                            artifact?.id?.let { id -> onResonatorsCountClick(id) }
+                                        }
                                     )
                                 }
                             }

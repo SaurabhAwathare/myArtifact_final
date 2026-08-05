@@ -9,7 +9,6 @@ import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.navigation.*
 import com.saurabh.artifact.domain.auth.GetInitialDestinationUseCase
 import com.saurabh.artifact.domain.auth.InitialDestination
-import com.saurabh.artifact.domain.auth.ObserveCurrentUserProfileUseCase
 import com.saurabh.artifact.domain.auth.RegistrationResult
 import com.saurabh.artifact.domain.settings.ObserveStealthModeUseCase
 import com.saurabh.artifact.startup.StartupComponent
@@ -20,7 +19,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
@@ -32,7 +30,10 @@ sealed class AppStartupState {
     object Registering : AppStartupState()
     object Recovering : AppStartupState()
     object Rescue : AppStartupState()
-    data class Ready(val startDestination: Any) : AppStartupState()
+    data class Ready(
+        val startDestination: Any,
+        val startupAction: Any? = null
+    ) : AppStartupState()
     data class Error(val message: String) : AppStartupState()
 }
 
@@ -43,10 +44,8 @@ class MainViewModel @Inject constructor(
     private val getInitialDestinationUseCase: GetInitialDestinationUseCase,
     private val registrationCoordinator: com.saurabh.artifact.domain.auth.RegistrationCoordinator,
     private val logoutCoordinator: com.saurabh.artifact.domain.auth.LogoutCoordinator,
-    observeCurrentUserProfileUseCase: ObserveCurrentUserProfileUseCase,
-    observeStealthModeUseCase: ObserveStealthModeUseCase,
+    private val observeStealthModeUseCase: ObserveStealthModeUseCase,
     private val startupCoordinator: StartupCoordinator,
-    private val userProfileManager: com.saurabh.artifact.repository.UserProfileManager,
     private val savedStateHandle: SavedStateHandle,
     private val diagnosticLogger: DiagnosticLogger
 ) : ViewModel() {
@@ -69,8 +68,6 @@ class MainViewModel @Inject constructor(
     val reportingArtifactId = _reportingArtifactId.asStateFlow()
 
     val startupStage = startupCoordinator.stage
-
-    val currentUserProfile = observeCurrentUserProfileUseCase()
 
     val isStealthModeEnabled = observeStealthModeUseCase()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
@@ -232,35 +229,41 @@ class MainViewModel @Inject constructor(
         val destination = getInitialDestinationUseCase()
         diagnosticLogger.info(DiagnosticCategory.STARTUP, "STARTUP_DESTINATION_RESOLVED", mapOf("destination" to destination.name))
 
-        when (destination) {
-            InitialDestination.ONBOARDING -> {
-                updateStartupState(AppStartupState.Ready(Onboarding))
-                markAuthReady()
-            }
-            InitialDestination.UNAUTHENTICATED -> {
-                updateStartupState(AppStartupState.Ready(Login))
-                markAuthReady()
-            }
+        val baseDestination: Any = when (destination) {
+            InitialDestination.ONBOARDING -> Onboarding
+            InitialDestination.UNAUTHENTICATED -> Login
             InitialDestination.AUTHENTICATED -> {
                 _startupState.value = AppStartupState.Registering
                 
                 when (val result = registrationCoordinator.ensureProfileExists()) {
-                    RegistrationResult.SuccessExistingUser -> {
-                        updateStartupState(AppStartupState.Ready(Home))
-                        markAuthReady()
-                    }
-                    RegistrationResult.SuccessNewUser -> {
-                        updateStartupState(AppStartupState.Ready(IdentityReveal))
-                        markAuthReady()
-                    }
+                    RegistrationResult.SuccessExistingUser -> Home
+                    RegistrationResult.SuccessNewUser -> IdentityReveal
                     is RegistrationResult.Failure -> {
                         diagnosticLogger.error(DiagnosticCategory.STARTUP, "STARTUP_REGISTRATION_FAILED", throwable = result.exception)
                         _startupState.value = AppStartupState.Error("Profile verification failed.")
                         startupCoordinator.completeAll()
+                        return
                     }
                 }
             }
         }
+
+        // Integration of Deep Link Intent into the first Ready state
+        val action = pendingStartupEvent
+        pendingStartupEvent = null // Consume exactly once for startup
+
+        // Resolution: If the deep link is a full screen route, it becomes the startDestination
+        // if we are authenticated. Otherwise, it remains a startup action.
+        val finalDestination = if (action is Route && destination == InitialDestination.AUTHENTICATED) {
+            action
+        } else {
+            baseDestination
+        }
+
+        val finalAction = if (finalDestination == action) null else action
+
+        updateStartupState(AppStartupState.Ready(finalDestination, finalAction))
+        markAuthReady()
     }
 
     private fun updateStartupState(state: AppStartupState.Ready) {
@@ -282,17 +285,18 @@ class MainViewModel @Inject constructor(
 
     fun onLaunchIntent(intent: android.content.Intent?) {
         val event = parseIntent(intent) ?: return
-
-        if (_startupState.value is AppStartupState.Ready && authRepository.currentUser.value != null) {
-            // Immediate delivery if already ready and authenticated
-            diagnosticLogger.info(DiagnosticCategory.NAV, "DEEP_LINK_OPENED", mapOf("event" to event.javaClass.simpleName))
+        
+        val currentState = _startupState.value
+        if (currentState is AppStartupState.Ready && authRepository.currentUser.value != null) {
+            // Warm Start: Application is already ready, deliver via standard channel
+            diagnosticLogger.info(DiagnosticCategory.NAV, "WARM_START_INTENT_DELIVERY", mapOf("event" to event.javaClass.simpleName))
             emitNavigationEvent(event)
         } else {
-            // Buffer for delivery after initialization and authentication completes
-            diagnosticLogger.info(DiagnosticCategory.NAV, "DEEP_LINK_BUFFERED", mapOf("event" to event.javaClass.simpleName))
+            // Cold Start / Initializing: Buffer for determineInitialRoute()
+            diagnosticLogger.info(DiagnosticCategory.NAV, "COLD_START_INTENT_BUFFERED", mapOf("event" to event.javaClass.simpleName))
             pendingStartupEvent = event
             
-            // Persist pending event if it's an IncomingArtifact (lightweight enough for SavedState)
+            // Persist pending event for state restoration
             if (event is IncomingArtifact) {
                 try {
                     val json = Json.encodeToString(event)
@@ -302,6 +306,7 @@ class MainViewModel @Inject constructor(
                 }
             }
             
+            // If already Ready (but maybe not authenticated or just entered Ready), the observer will pick it up
             startDeferredNavigationObserver()
         }
     }
@@ -339,10 +344,17 @@ class MainViewModel @Inject constructor(
             return InstantRecord()
         }
 
-        // 2. Resolve Artifact ID from Notification Extras (Higher precedence)
-        val directId = intent.getStringExtra("artifactId")
-        if (directId != null && directId.isNotBlank()) {
-            return IncomingArtifact(directId)
+        // 2. Resolve Navigation Target from Notification Extras (Higher precedence)
+        val type = intent.getStringExtra("notificationType")
+        val artifactId = intent.getStringExtra("artifactId")
+        val userId = intent.getStringExtra("userId")
+
+        if (type == "FOLLOW" && !userId.isNullOrBlank()) {
+            return Profile(userId)
+        }
+
+        if (!artifactId.isNullOrBlank()) {
+            return IncomingArtifact(artifactId)
         }
 
         // 3. Handle Action View (App Links / URIs)

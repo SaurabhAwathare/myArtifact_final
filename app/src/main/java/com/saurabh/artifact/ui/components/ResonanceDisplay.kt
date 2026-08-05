@@ -1,7 +1,12 @@
 package com.saurabh.artifact.ui.components
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -21,14 +26,17 @@ fun ResonanceDisplay(
     modifier: Modifier = Modifier,
     counts: ArtifactReactionCounts? = null,
     summary: String? = null,
-    isOwner: Boolean = false
+    isOwner: Boolean = false,
+    onClick: () -> Unit = {}
 ) {
     val finalSummary = summary ?: counts?.getFuzzySummary(isOwner) ?: ""
 
     if (finalSummary.isNotEmpty()) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = modifier.padding(vertical = 8.dp)
+            modifier = modifier
+                .padding(vertical = 8.dp)
+                .clickable(enabled = true) { onClick() }
         ) {
             Text(
                 text = "🐚",
@@ -39,6 +47,13 @@ fun ResonanceDisplay(
                 text = finalSummary,
                 style = MaterialTheme.typography.labelMedium,
                 color = MistGray.copy(alpha = 0.8f)
+            )
+            
+            Icon(
+                imageVector = Icons.Rounded.ChevronRight,
+                contentDescription = null,
+                tint = MistGray.copy(alpha = 0.4f),
+                modifier = Modifier.size(16.dp).padding(start = 2.dp)
             )
         }
     }

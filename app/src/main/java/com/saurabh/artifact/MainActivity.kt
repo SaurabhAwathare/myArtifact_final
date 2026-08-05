@@ -5,6 +5,8 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
+import android.content.Intent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -47,13 +49,16 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var diagnosticLogger: DiagnosticLogger
 
+    private val mainViewModel: MainViewModel by viewModels()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        mainViewModel.onLaunchIntent(intent)
+
         setContent {
-            val mainViewModel: MainViewModel = hiltViewModel()
             val playerViewModel: PlayerViewModel = hiltViewModel()
             val startupState by mainViewModel.startupState.collectAsStateWithLifecycle()
             val stage by mainViewModel.startupStage.collectAsStateWithLifecycle()
@@ -70,6 +75,11 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        mainViewModel.onLaunchIntent(intent)
     }
 }
 
@@ -104,23 +114,40 @@ fun AppRoot(
             )
         }
         is AppStartupState.Ready -> {
-            val readyState = startupState as AppStartupState.Ready
+            val readyState = startupState
             val startDestination = readyState.startDestination
-
             key(startDestination) {
                 val navController = rememberNavController()
 
-                LaunchedEffect(navController) {
+                LaunchedEffect(navController, readyState.startupAction) {
+                    // 1. Synchronous execution of startup action (if any)
+                    readyState.startupAction?.let { action ->
+                        when (action) {
+                            is IncomingArtifact -> {
+                                playerViewModel.playArtifactById(
+                                    action.artifactId, 
+                                    PlaybackSource.NOTIFICATION
+                                )
+                            }
+                            is com.saurabh.artifact.navigation.Route -> {
+                                navController.navigate(action) {
+                                    launchSingleTop = true
+                                }
+                            }
+                        }
+                    }
+
+                    // 2. Collection of post-startup navigation events (Warm Start)
                     mainViewModel.navigationEvent.collect { event ->
                         when (event) {
                             is IncomingArtifact -> {
                                 playerViewModel.playArtifactById(
                                     event.artifactId, 
-                                    com.saurabh.artifact.model.PlaybackSource.FEED_PLAYBACK
+                                    PlaybackSource.NOTIFICATION
                                 )
                             }
                             else -> {
-                                navController.navigate(event) {
+                                navController.navigate(event as com.saurabh.artifact.navigation.Route) {
                                     launchSingleTop = true
                                 }
                             }
@@ -129,57 +156,46 @@ fun AppRoot(
                 }
 
                 Box(modifier = Modifier.fillMaxSize()) {
-                    if (stage >= StartupStage.RITUAL) {
-                        val reportingArtifactId by mainViewModel.reportingArtifactId.collectAsStateWithLifecycle()
-                        
-                        GlobalOverlayHost(
-                            navController = navController,
-                            recordingSessionManager = recordingSessionManager,
-                            onNavigateToDraftEdit = { draftId ->
-                                navController.navigate(PublishingStudio(draftId)) { launchSingleTop = true }
-                            },
-                            onNavigateToPublish = { draftId ->
-                                navController.navigate(PublishingStudio(draftId)) { launchSingleTop = true }
-                            },
-                            onReportArtifact = { mainViewModel.showReportSheet(it) },
-                            playerViewModel = playerViewModel
-                        ) {
-                            NavGraph(
-                                navController = navController,
-                                startDestination = startDestination,
-                                recordingSessionManager = recordingSessionManager,
-                                onboardingManager = onboardingManager,
-                                onReportArtifact = { mainViewModel.showReportSheet(it) },
-                                onPlayArtifactById = { playerViewModel.playArtifactById(it, PlaybackSource.FEED_PLAYBACK) },
-                                playerViewModel = playerViewModel,
-                                onDestinationChanged = { mainViewModel.updateSecurityStatus(it) },
-                                diagnosticLogger = diagnosticLogger
-                            )
-                        }
+                    val reportingArtifactId by mainViewModel.reportingArtifactId.collectAsStateWithLifecycle()
 
-                        if (reportingArtifactId != null) {
-                            val feedViewModel: FeedViewModel = hiltViewModel()
-                            ReportSheet(
-                                onReportSubmitted = { reason, details ->
-                                    reportingArtifactId?.let { id ->
-                                        feedViewModel.reportArtifact(id, reason, details)
-                                    }
-                                    mainViewModel.dismissReportSheet()
-                                },
-                                onDismiss = { mainViewModel.dismissReportSheet() }
-                            )
-                        }
-                    } else {
+                    GlobalOverlayHost(
+                        navController = navController,
+                        recordingSessionManager = recordingSessionManager,
+                        onNavigateToDraftEdit = { draftId ->
+                            navController.navigate(PublishingStudio(draftId)) { launchSingleTop = true }
+                        },
+                        onNavigateToPublish = { draftId ->
+                            navController.navigate(PublishingStudio(draftId)) { launchSingleTop = true }
+                        },
+                        onReportArtifact = { mainViewModel.showReportSheet(it) },
+                        playerViewModel = playerViewModel,
+                        stage = stage
+                    ) {
                         NavGraph(
                             navController = navController,
                             startDestination = startDestination,
                             recordingSessionManager = recordingSessionManager,
                             onboardingManager = onboardingManager,
                             onReportArtifact = { mainViewModel.showReportSheet(it) },
-                            onPlayArtifactById = { playerViewModel.playArtifactById(it, PlaybackSource.FEED_PLAYBACK) },
+                            onPlayArtifactById = { artifactId ->
+                                playerViewModel.playArtifactById(artifactId, PlaybackSource.FEED_PLAYBACK)
+                            },
                             playerViewModel = playerViewModel,
                             onDestinationChanged = { mainViewModel.updateSecurityStatus(it) },
                             diagnosticLogger = diagnosticLogger
+                        )
+                    }
+
+                    if (reportingArtifactId != null && stage >= StartupStage.RITUAL) {
+                        val feedViewModel: FeedViewModel = hiltViewModel()
+                        ReportSheet(
+                            onReportSubmitted = { reason, details ->
+                                reportingArtifactId?.let { id ->
+                                    feedViewModel.reportArtifact(id, reason, details)
+                                }
+                                mainViewModel.dismissReportSheet()
+                            },
+                            onDismiss = { mainViewModel.dismissReportSheet() }
                         )
                     }
                 }

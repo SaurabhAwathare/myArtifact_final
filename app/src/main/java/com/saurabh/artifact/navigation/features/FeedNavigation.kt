@@ -9,6 +9,7 @@ import com.saurabh.artifact.audio.RecordingSessionManager
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.navigation.*
+import com.saurabh.artifact.model.NotificationType
 import com.saurabh.artifact.ui.feed.FeedScreen
 import com.saurabh.artifact.ui.notifications.NotificationScreen
 
@@ -98,9 +99,27 @@ fun NavGraphBuilder.feedNavigation(
     composable<Notifications> {
         NotificationScreen(
             onBackClick = { navController.popBackStack() },
-            onNotificationClick = { artifactId ->
-                onPlayArtifactById(artifactId)
-                navController.popBackStack() // Return to feed to see the player
+            onNotificationClick = { notification ->
+                when (notification.type) {
+                    NotificationType.FOLLOW -> {
+                        if (notification.followerId.isNotEmpty()) {
+                            navController.navigate(Profile(notification.followerId))
+                        }
+                    }
+                    NotificationType.COMMENT, NotificationType.RESONANCE -> {
+                        if (notification.artifactId.isNotEmpty()) {
+                            onPlayArtifactById(notification.artifactId)
+                            navController.popBackStack() // Return to feed to see the player
+                        }
+                    }
+                    else -> {
+                        // Fallback or other types (SYSTEM, etc.)
+                        if (notification.artifactId.isNotEmpty()) {
+                            onPlayArtifactById(notification.artifactId)
+                            navController.popBackStack()
+                        }
+                    }
+                }
             }
         )
     }

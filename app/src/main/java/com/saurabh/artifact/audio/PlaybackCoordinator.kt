@@ -91,15 +91,18 @@ class PlaybackCoordinator @Inject constructor(
         }
     }
 
-    /**
-     * Start playing a persistent artifact (e.g., from the main feed).
-     */
-    fun playArtifact(artifact: Artifact, collection: List<Artifact> = emptyList(), initialPosition: Duration = Duration.ZERO) {
+    fun playArtifact(
+        artifact: Artifact, 
+        collection: List<Artifact> = emptyList(), 
+        initialPosition: Duration = Duration.ZERO,
+        source: com.saurabh.artifact.model.PlaybackSource = com.saurabh.artifact.model.PlaybackSource.FEED_PLAYBACK
+    ) {
         playbackSessionManager.play(
             artifact = artifact,
             collection = collection,
             playbackType = PlaybackType.ARTIFACT,
-            initialPosition = initialPosition.inWholeMilliseconds
+            initialPosition = initialPosition.inWholeMilliseconds,
+            source = source
         )
     }
 
@@ -107,8 +110,11 @@ class PlaybackCoordinator @Inject constructor(
      * Start a draft preview. These are typically transient and might be stopped 
      * by the coordinator when the user leaves the draft edit screen.
      */
-    fun playDraftPreview(draftId: String) {
-        reviewSessionManager.startReview(draftId)
+    fun playDraftPreview(
+        draftId: String, 
+        source: com.saurabh.artifact.model.PlaybackSource = com.saurabh.artifact.model.PlaybackSource.REVIEW_DRAFT
+    ) {
+        reviewSessionManager.startReview(draftId, source)
     }
 
     fun togglePlayPause() {

@@ -31,6 +31,10 @@ object NotificationMapper {
                 val type = ReactionType.fromId(typeId)
                 UiText.DynamicString("${type.atmosphericLabel} ${type.emoji}")
             }
+            "COMMENT" -> {
+                val title = parts.getOrNull(1) ?: ""
+                UiText.StringResource(R.string.notification_comment_received, title)
+            }
             else -> UiText.DynamicString(notification.message)
         }
     }

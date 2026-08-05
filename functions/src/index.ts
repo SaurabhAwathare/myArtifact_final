@@ -315,8 +315,9 @@ export const onFollowIntentCreated = functions.firestore
       // 3. Create Notification
       await admin.firestore().collection("notifications").add({
         userId: targetId,
+        followerId: uid,
         message: "PRESENCE_RESONATED",
-        type: "RESONANCE",
+        type: "FOLLOW",
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         isRead: false,
       });
@@ -837,9 +838,29 @@ export const onCommentCreated = functions.firestore
       const db = admin.firestore();
       const artifactRef = db.collection("artifacts").doc(artifactId);
 
+      // Fetch Artifact to get ownerId
+      const artifactDoc = await artifactRef.get();
+      if (!artifactDoc.exists) return;
+      const artifactData = artifactDoc.data()!;
+      const ownerId = artifactData.userId;
+
       await artifactRef.update({
         commentCount: FieldValue.increment(1),
       });
+
+      // Create Notification if commenter is not the owner
+      const commenterId = data.creatorId;
+      if (ownerId && ownerId !== commenterId) {
+        await db.collection("notifications").add({
+          userId: ownerId,
+          message: `COMMENT|${artifactData.title || "Unknown Artifact"}`,
+          artifactId: artifactId,
+          type: "COMMENT",
+          createdAt: FieldValue.serverTimestamp(),
+          isRead: false,
+        });
+        logger.info(`[NOTIFICATION] Created for owner ${ownerId} | ArtifactID=${artifactId}`);
+      }
 
       logger.info(`[AGGREGATE] commentCount incremented | ArtifactID=${artifactId} | CommentID=${commentId}`);
     });
@@ -900,4 +921,91 @@ export const onPlayCreated = functions.firestore
 
       logger.info(`[AGGREGATE] playCount incremented | ArtifactID=${artifactId} | PlayID=${playId}`);
     });
+  });
+
+/**
+ * Triggers when a new notification document is created in Firestore.
+ * Responsible for delivering the push notification via Firebase Cloud Messaging (FCM).
+ */
+export const onNotificationCreated = functions.firestore
+  .document("notifications/{notificationId}")
+  .onCreate(async (snapshot, context) => {
+    const data = snapshot.data();
+    if (!data) return null;
+
+    const userId = data.userId;
+    if (!userId) return null;
+
+    const db = admin.firestore();
+
+    try {
+      // 1. Retrieve the recipient's FCM token from their private settings
+      const userSettingsDoc = await db.collection("users").doc(userId)
+        .collection("private").doc("settings")
+        .get();
+
+      const fcmToken = userSettingsDoc.data()?.fcmToken;
+
+      if (!fcmToken) {
+        logger.info(`[FCM] No token found for user ${userId} | NotificationID=${context.params.notificationId}`);
+        return null;
+      }
+
+      // 2. Map notification data to FCM payload
+      const parts = data.message.split("|");
+      const key = parts[0];
+
+      let title = "myArtifact";
+      let body = "New activity on your profile ✨";
+
+      if (key === "RESONANCE") {
+        title = "New Resonance";
+        body = "Someone resonated with your artifact 💬";
+      } else if (key === "COMMENT") {
+        const artifactTitle = parts[1] || "your artifact";
+        title = "New Comment";
+        body = `Someone shared a thought on "${artifactTitle}" 💬`;
+      } else if (key === "PRESENCE_RESONATED") {
+        title = "New Presence";
+        body = "Someone started following your journey ✨";
+      } else if (key === "NEW_ARTIFACT") {
+        title = "Artifact Published";
+        const artifactTitle = parts[1] || "Your artifact";
+        body = `"${artifactTitle}" is now live and resonating.`;
+      }
+
+      const message: admin.messaging.Message = {
+        token: fcmToken,
+        notification: {
+          title: title,
+          body: body,
+        },
+        data: {
+          artifactId: data.artifactId || "",
+          userId: data.followerId || "",
+          notificationType: data.type || "",
+          notificationId: context.params.notificationId,
+        },
+        android: {
+          priority: "high",
+          notification: {
+            channelId: "interactions_channel",
+            sound: "default",
+          }
+        }
+      };
+
+      // 3. Dispatch the message
+      const response = await admin.messaging().send(message);
+      logger.info(`[FCM] Successfully sent message: ${response} | UserID=${userId}`);
+
+      return null;
+    } catch (error: any) {
+      if (error.code === "messaging/registration-token-not-registered") {
+        logger.warn(`[FCM] Token expired or invalid for user ${userId}. Should be cleaned up.`);
+      } else {
+        logger.error(`[FCM] Fatal error sending push for user ${userId}:`, error);
+      }
+      return null;
+    }
   });

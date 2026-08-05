@@ -23,6 +23,7 @@ import com.saurabh.artifact.ui.recording.components.MiniRecorder
 import com.saurabh.artifact.ui.util.BottomOverlayConstants
 import com.saurabh.artifact.ui.util.LocalBottomOverlayOffset
 import com.saurabh.artifact.data.local.RecordingStatus
+import com.saurabh.artifact.startup.StartupStage
 
 private val ScreensWithoutOverlays = listOf(
     InstantRecord::class,
@@ -47,7 +48,11 @@ fun GlobalOverlayHost(
         navController.navigate(PublishingStudio(id)) { launchSingleTop = true } 
     },
     onReportArtifact: (String) -> Unit,
+    onResonatorsCountClick: (String) -> Unit = { artifactId ->
+        navController.navigate(ResonanceList(artifactId = artifactId, title = "Resonators"))
+    },
     playerViewModel: PlayerViewModel = hiltViewModel(),
+    stage: StartupStage = StartupStage.STABLE,
     content: @Composable () -> Unit
 ) {
     val currentDestination = navController.currentBackStackEntryAsState().value?.destination
@@ -88,28 +93,35 @@ fun GlobalOverlayHost(
             content()
 
             // 1. PLAYER SYSTEM (Full Screen & Hidden layers)
-            ArtifactPlayerView(
-                onNavigateToDraftEdit = onNavigateToDraftEdit,
-                onNavigateToPublish = onNavigateToPublish,
-                onReportArtifact = onReportArtifact,
-                onAuthorClick = { userId ->
-                    android.util.Log.d("GlobalOverlayHost", "PROFILE_NAVIGATION_REQUESTED: userId=$userId")
-                    if (userId.isNotEmpty()) {
-                        // Collapse the expanded player before navigation so the destination
-                        // screen is immediately visible while keeping playback active.
-                        playerViewModel.setExpanded(false)
+            // Staggered appearance via Stage, but structural stability is preserved.
+            if (stage >= StartupStage.RITUAL || uiState.playerMode == PlayerMode.FULLSCREEN) {
+                ArtifactPlayerView(
+                    onNavigateToDraftEdit = onNavigateToDraftEdit,
+                    onNavigateToPublish = onNavigateToPublish,
+                    onReportArtifact = onReportArtifact,
+                    onAuthorClick = { userId ->
+                        android.util.Log.d("GlobalOverlayHost", "PROFILE_NAVIGATION_REQUESTED: userId=$userId")
+                        if (userId.isNotEmpty()) {
+                            // Collapse the expanded player before navigation so the destination
+                            // screen is immediately visible while keeping playback active.
+                            playerViewModel.setExpanded(false)
 
-                        android.util.Log.d("GlobalOverlayHost", "PROFILE_NAVIGATION_EXECUTED: destination=Profile($userId)")
-                        navController.navigate(com.saurabh.artifact.navigation.Profile(userId))
-                    } else {
-                        android.util.Log.e("GlobalOverlayHost", "PROFILE_NAVIGATION_ABORTED: userId is empty")
-                    }
-                },
-                viewModel = playerViewModel
-            )
+                            android.util.Log.d("GlobalOverlayHost", "PROFILE_NAVIGATION_EXECUTED: destination=Profile($userId)")
+                            navController.navigate(Profile(userId))
+                        } else {
+                            android.util.Log.e("GlobalOverlayHost", "PROFILE_NAVIGATION_ABORTED: userId is empty")
+                        }
+                    },
+                    onResonatorsCountClick = { artifactId ->
+                        playerViewModel.setExpanded(false)
+                        onResonatorsCountClick(artifactId)
+                    },
+                    viewModel = playerViewModel
+                )
+            }
 
             // 2. BOTTOM STACK (Floating Overlays)
-            if (showOverlays && (uiState.playerMode != PlayerMode.FULLSCREEN)) {
+            if (stage >= StartupStage.RITUAL && showOverlays && (uiState.playerMode != PlayerMode.FULLSCREEN)) {
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)

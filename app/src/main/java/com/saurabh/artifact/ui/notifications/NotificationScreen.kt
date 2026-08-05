@@ -51,7 +51,7 @@ import java.text.SimpleDateFormat
 @Composable
 fun NotificationScreen(
     onBackClick: () -> Unit,
-    onNotificationClick: (String) -> Unit, // artifactId
+    onNotificationClick: (NotificationItem) -> Unit,
     viewModel: NotificationViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -123,7 +123,7 @@ fun NotificationScreen(
                         notification = notification,
                         onClick = {
                             viewModel.markAsRead(notification.id)
-                            onNotificationClick(notification.artifactId)
+                            onNotificationClick(notification)
                         }
                     )
                 }

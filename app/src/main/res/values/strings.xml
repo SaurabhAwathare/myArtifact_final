@@ -39,6 +39,7 @@
     <string name="notification_presence_resonated">Someone has started following your journey ✨</string>
     <string name="notification_sigil_updated">You updated your sigil 🎨</string>
     <string name="notification_username_updated">You updated your username to %s ✨</string>
+    <string name="notification_comment_received">Someone shared a thought on \"%s\" 💬</string>
 
     <!-- Legal -->
     <string name="privacy_policy">Privacy Policy</string>

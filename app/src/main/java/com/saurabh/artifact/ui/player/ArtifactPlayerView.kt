@@ -41,6 +41,7 @@ fun ArtifactPlayerView(
     onNavigateToPublish: (String) -> Unit = {},
     onReportArtifact: (String) -> Unit = {},
     onAuthorClick: (String) -> Unit = {},
+    onResonatorsCountClick: (String) -> Unit = {},
     viewModel: PlayerViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -155,6 +156,7 @@ fun ArtifactPlayerView(
                     onShowAdvanced = { viewModel.setShowAdvancedControls(true) },
                     onResonateClick = { viewModel.toggleResonate(it) },
                     onResonateConnectionClick = { viewModel.toggleResonanceConnection() },
+                    onResonatorsCountClick = onResonatorsCountClick,
                     onSaveClick = { viewModel.toggleSave() },
                     onEditClick = { viewModel.onEditClick(onNavigateToDraftEdit) },
                     onPublishClick = { viewModel.onPublishClick(onNavigateToPublish) },

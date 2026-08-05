@@ -3,6 +3,7 @@ package com.saurabh.artifact.repository
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.Query
@@ -589,6 +590,32 @@ class UserRepository @Inject constructor(
         }.distinctUntilChanged()
     }
 
+    fun observeResonatingWithIds(userId: String): Flow<Set<String>> {
+        if (userId.isBlank()) return flowOf(emptySet())
+        
+        val modernRef = usersCollection.document(userId).collection("resonance_out")
+        val legacyRef = usersCollection.document(userId).collection("following")
+        
+        return combine(
+            observeCollectionIds(modernRef),
+            observeCollectionIds(legacyRef)
+        ) { modern, legacy ->
+            modern + legacy
+        }
+    }
+
+    private fun observeCollectionIds(collectionRef: CollectionReference): Flow<Set<String>> = callbackFlow {
+        val subscription = collectionRef.addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                close(error)
+                return@addSnapshotListener
+            }
+            val ids = snapshot?.documents?.map { it.id }?.toSet() ?: emptySet()
+            trySend(ids)
+        }
+        awaitClose { subscription.remove() }
+    }
+
     private fun observeDocumentExists(docRef: DocumentReference): Flow<Boolean> = callbackFlow {
         diagnosticLogger.info(
             DiagnosticCategory.FIRESTORE,
@@ -866,18 +893,16 @@ class UserRepository @Inject constructor(
                 val userIds = snapshot.documents.map { it.id }
 
                 // Batch fetch User documents
-                // Note: whereIn has a limit of 10-30 depending on Firebase version, but typically 10 for many SDKs.
-                // We'll chunk if needed, but for a 20 limit we might need 2 chunks of 10.
                 val userChunks = userIds.chunked(10)
                 val users = mutableListOf<User>()
 
                 for (chunk in userChunks) {
-                    val userSnapshot =
-                        usersCollection.whereIn(FieldPath.documentId(), chunk).get().await()
+                    val userSnapshot = usersCollection.whereIn(FieldPath.documentId(), chunk).get().await()
                     users.addAll(
                         userSnapshot.documents.mapNotNull { doc ->
                             doc.toObject(User::class.java)?.copy(id = doc.id)
-                        })
+                        }
+                    )
                 }
 
                 // Ensure order matches the resonance timestamp order
@@ -886,6 +911,53 @@ class UserRepository @Inject constructor(
                 Result.success(orderedUsers to snapshot.documents.lastOrNull())
             } catch (e: Exception) {
                 diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "RESONANCE_USERS_FETCH_FAILED", mapOf(LogKeys.USER_ID to userId, "type" to type), e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Fetches a paginated list of users who resonated with a specific artifact.
+     */
+    suspend fun getArtifactResonators(
+        artifactId: String,
+        limit: Int = 20,
+        lastVisible: DocumentSnapshot? = null
+    ): Result<Pair<List<User>, DocumentSnapshot?>> {
+        return withContext(Dispatchers.IO) {
+            try {
+                var query = firestore.collection("artifact_reactions")
+                    .whereEqualTo("artifactId", artifactId)
+                    .orderBy("createdAt", Query.Direction.DESCENDING)
+                    .limit(limit.toLong())
+
+                lastVisible?.let { query = query.startAfter(it) }
+
+                val snapshot = query.get().await()
+                if (snapshot.isEmpty) return@withContext Result.success(emptyList<User>() to null)
+
+                // Extract unique userIds
+                val userIds = snapshot.documents.mapNotNull { it.getString("userId") }.distinct()
+
+                // Batch fetch User documents
+                val userChunks = userIds.chunked(10)
+                val users = mutableListOf<User>()
+
+                for (chunk in userChunks) {
+                    val userSnapshot = usersCollection.whereIn(FieldPath.documentId(), chunk).get().await()
+                    users.addAll(
+                        userSnapshot.documents.mapNotNull { doc ->
+                            doc.toObject(User::class.java)?.copy(id = doc.id)
+                        }
+                    )
+                }
+
+                // Maintain original order
+                val orderedUsers = userIds.mapNotNull { id -> users.find { it.id == id } }
+
+                Result.success(orderedUsers to snapshot.documents.lastOrNull())
+            } catch (e: Exception) {
+                diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "ARTIFACT_RESONATORS_FETCH_FAILED", mapOf(LogKeys.ARTIFACT_ID to artifactId), e)
                 Result.failure(e)
             }
         }

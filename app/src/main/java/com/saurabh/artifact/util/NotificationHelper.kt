@@ -190,6 +190,58 @@ object NotificationHelper {
         }
     }
 
+    /**
+     * Shows a notification for social interactions (resonances, comments).
+     * Includes artifact navigation when clicked.
+     */
+    fun showInteractionNotification(
+        context: Context,
+        title: String,
+        message: String,
+        artifactId: String?,
+        userId: String? = null,
+        notificationType: String? = null,
+        channelId: String = CHANNEL_ID_INTERACTIONS
+    ) {
+        if (ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+            val intent = Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                if (artifactId != null) {
+                    putExtra("artifactId", artifactId)
+                }
+                if (userId != null) {
+                    putExtra("userId", userId)
+                }
+                if (notificationType != null) {
+                    putExtra("notificationType", notificationType)
+                }
+            }
+            
+            // Unique RequestCode to ensure intent data isn't overwritten for multiple notifications
+            // If it's a follow notification, use userId for requestCode uniqueness
+            val requestCode = artifactId?.hashCode() ?: userId?.hashCode() ?: System.currentTimeMillis().toInt()
+            
+            val pendingIntent = PendingIntent.getActivity(
+                context,
+                requestCode,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val notification = NotificationCompat.Builder(context, channelId)
+                .setContentTitle(title)
+                .setContentText(message)
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setCategory(NotificationCompat.CATEGORY_SOCIAL)
+                .build()
+
+            NotificationManagerCompat.from(context).notify(requestCode, notification)
+        }
+    }
+
     fun getUploadForegroundInfo(context: Context, title: String, progress: Int): ForegroundInfo {
         val notification = buildUploadProgressNotification(context, title, progress, "")
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {

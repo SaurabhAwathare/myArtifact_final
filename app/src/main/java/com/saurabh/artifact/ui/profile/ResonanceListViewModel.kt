@@ -15,6 +15,7 @@ import javax.inject.Inject
 
 data class ResonanceListUiState(
     val users: List<User> = emptyList(),
+    val resonatingWithIds: Set<String> = emptySet(),
     val isLoading: Boolean = false,
     val isRefreshing: Boolean = false,
     val error: String? = null,
@@ -24,12 +25,17 @@ data class ResonanceListUiState(
 @HiltViewModel
 class ResonanceListViewModel @Inject constructor(
     private val userRepository: UserRepository,
+    private val authRepository: com.saurabh.artifact.repository.AuthRepository,
+    private val profileInteractionUseCase: com.saurabh.artifact.domain.profile.ProfileInteractionUseCase,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
-    private val userId: String = savedStateHandle.get<String>("userId") ?: ""
-    private val type: String = savedStateHandle.get<String>("type") ?: ""
-    private val title: String = savedStateHandle.get<String>("title") ?: "Resonance"
+    val currentUserId: String? get() = authRepository.currentUser.value?.uid
+
+    private val userId: String? = savedStateHandle.get<String>("userId")
+    private val type: String? = savedStateHandle.get<String>("type")
+    private val artifactId: String? = savedStateHandle.get<String>("artifactId")
+    private val title: String = savedStateHandle.get<String>("title") ?: "Resonators"
 
     private val _uiState = MutableStateFlow(ResonanceListUiState(title = title))
     val uiState: StateFlow<ResonanceListUiState> = _uiState.asStateFlow()
@@ -38,11 +44,32 @@ class ResonanceListViewModel @Inject constructor(
     private var isLastPage = false
 
     init {
+        viewModelScope.launch {
+            authRepository.currentUser.collect { user ->
+                if (user != null) {
+                    userRepository.observeResonatingWithIds(user.uid).collect { ids ->
+                        _uiState.value = _uiState.value.copy(resonatingWithIds = ids)
+                    }
+                }
+            }
+        }
         loadUsers()
     }
 
+    fun toggleResonance(targetUserId: String) {
+        val currentUserId = authRepository.currentUser.value?.uid ?: return
+        if (currentUserId == targetUserId) return
+
+        val wasResonating = _uiState.value.resonatingWithIds.contains(targetUserId)
+
+        viewModelScope.launch {
+            profileInteractionUseCase.toggleResonance(currentUserId, targetUserId, wasResonating)
+        }
+    }
+
     fun loadUsers(refresh: Boolean = false) {
-        if (userId.isBlank() || type.isBlank()) return
+        if (artifactId.isNullOrBlank() && (userId.isNullOrBlank() || type.isNullOrBlank())) return
+        
         if (refresh) {
             lastVisible = null
             isLastPage = false
@@ -58,8 +85,13 @@ class ResonanceListViewModel @Inject constructor(
                 isRefreshing = refresh
             )
 
-            userRepository.getResonanceUsers(userId, type, limit = 20, lastVisible = lastVisible)
-                .onSuccess { (newUsers, nextLastVisible) ->
+            val result = if (!artifactId.isNullOrBlank()) {
+                userRepository.getArtifactResonators(artifactId, limit = 20, lastVisible = lastVisible)
+            } else {
+                userRepository.getResonanceUsers(userId!!, type!!, limit = 20, lastVisible = lastVisible)
+            }
+
+            result.onSuccess { (newUsers, nextLastVisible) ->
                     lastVisible = nextLastVisible
                     isLastPage = newUsers.size < 20
                     

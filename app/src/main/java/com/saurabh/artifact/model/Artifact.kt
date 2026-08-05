@@ -188,16 +188,19 @@ enum class NotificationType {
     RESONANCE,    // General reaction
     @Suppress("unused") SUPPORT,      // Strength/Space
     @Suppress("unused") PRESENCE,     // Witnessed/Viewed (future)
-    @Suppress("unused") SYSTEM        // Upload/Admin
+    @Suppress("unused") SYSTEM,       // Upload/Admin
+    COMMENT,          // New comment on artifact
+    FOLLOW            // Someone started following you
 }
 
 data class NotificationItem(
-    val id: String = "",
-    val userId: String = "",
-    val message: String = "Someone resonated with your artifact 💬",
-    val artifactId: String = "",
-    val type: NotificationType = NotificationType.RESONANCE,
-    val createdAt: Timestamp = Timestamp.now(),
+    var id: String = "",
+    var userId: String = "",
+    var followerId: String = "",
+    var message: String = "Someone resonated with your artifact 💬",
+    var artifactId: String = "",
+    var type: NotificationType = NotificationType.RESONANCE,
+    var createdAt: Timestamp = Timestamp.now(),
     @get:PropertyName("isRead")
     @set:PropertyName("isRead")
     var isRead: Boolean = false,

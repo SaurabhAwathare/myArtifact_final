@@ -37,7 +37,12 @@ object Notifications : Route
 data class Profile(val userId: String? = null) : Route
 
 @Serializable
-data class ResonanceList(val userId: String, val type: String, val title: String? = "Resonators") : Route
+data class ResonanceList(
+    val userId: String? = null, 
+    val type: String? = null, 
+    val artifactId: String? = null,
+    val title: String? = "Resonators"
+) : Route
 
 @Serializable
 object Settings : Route

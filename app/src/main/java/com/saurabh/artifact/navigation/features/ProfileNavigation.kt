@@ -61,7 +61,7 @@ fun NavGraphBuilder.profileNavigation(
                 navController.navigate(PublishingStudio(draftId))
             },
             onNavigateToResonanceList = { id, type, title ->
-                navController.navigate(ResonanceList(id, type, title))
+                navController.navigate(ResonanceList(userId = id, type = type, title = title))
             }
         )
     }

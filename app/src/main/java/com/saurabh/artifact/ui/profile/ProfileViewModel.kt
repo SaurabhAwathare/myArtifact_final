@@ -11,6 +11,7 @@ import com.saurabh.artifact.audio.PlaybackCoordinator
 import com.saurabh.artifact.data.mapper.DraftToArtifactMapper
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.AuthorSnapshot
+import com.saurabh.artifact.model.PlaybackSource
 import com.saurabh.artifact.model.SigilConfig
 import com.saurabh.artifact.model.User
 import com.saurabh.artifact.repository.*
@@ -282,7 +283,7 @@ class ProfileViewModel @Inject constructor(
             return
         }
 
-        playbackCoordinator.playArtifact(artifact)
+        playbackCoordinator.playArtifact(artifact, source = PlaybackSource.PROFILE_PLAYBACK)
     }
 
     fun togglePlayback() {

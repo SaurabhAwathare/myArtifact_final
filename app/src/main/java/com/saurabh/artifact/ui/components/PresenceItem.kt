@@ -23,7 +23,10 @@ import com.saurabh.artifact.ui.theme.ArtifactTheme
 fun PresenceItem(
     user: User,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isResonating: Boolean = false,
+    showResonateButton: Boolean = false,
+    onResonateClick: () -> Unit = {}
 ) {
     Row(
         modifier = modifier
@@ -66,6 +69,26 @@ fun PresenceItem(
                 color = ArtifactTheme.colors.onSurfaceMuted,
                 modifier = Modifier.alpha(0.8f)
             )
+        }
+
+        if (showResonateButton) {
+            Spacer(Modifier.width(16.dp))
+            androidx.compose.material3.Button(
+                onClick = onResonateClick,
+                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                    containerColor = if (isResonating) ArtifactTheme.colors.surfaceHearth else MaterialTheme.colorScheme.primary,
+                    contentColor = if (isResonating) ArtifactTheme.colors.onSurfaceMain else MaterialTheme.colorScheme.onPrimary
+                ),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                modifier = Modifier.height(32.dp),
+                shape = MaterialTheme.shapes.medium
+            ) {
+                Text(
+                    text = if (isResonating) "Following" else "Follow",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
     }
 }

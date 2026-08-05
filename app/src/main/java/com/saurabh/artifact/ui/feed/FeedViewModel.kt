@@ -437,7 +437,7 @@ class FeedViewModel @Inject constructor(
             if (audioPlayer.currentArtifact.value?.id == artifact.id) {
                 audioPlayer.togglePlayPause()
             } else {
-                audioPlayer.playArtifact(artifact)
+                audioPlayer.playArtifact(artifact, source = PlaybackSource.FEED_PLAYBACK)
                 viewModelScope.launch {
                     artifactEngagementRepository.recordPlay(
                         authRepository.currentUser.value?.uid,

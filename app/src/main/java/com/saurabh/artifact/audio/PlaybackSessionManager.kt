@@ -325,17 +325,21 @@ class PlaybackSessionManager @Inject constructor(
         artifact: Artifact, 
         collection: List<Artifact> = emptyList(),
         initialPosition: Long = 0L,
-        playbackType: PlaybackType = PlaybackType.ARTIFACT
+        playbackType: PlaybackType = PlaybackType.ARTIFACT,
+        source: com.saurabh.artifact.model.PlaybackSource = com.saurabh.artifact.model.PlaybackSource.FEED_PLAYBACK
     ) {
         diagnosticLogger.debug(DiagnosticCategory.PLAYER, "PLAY_INVOKED", mapOf(
             "artifactId" to artifact.id,
             "type" to playbackType.name,
+            "source" to source.name,
             "initialPos" to initialPosition
         ))
+        
+        // Update active state immediately to provide synchronous feedback to state-aware guard logic
+        _activePlayback.value = ActivePlayback(artifact.id, playbackType, source)
+
         scope.launch {
             val player = getController() ?: return@launch
-            
-            _activePlayback.value = ActivePlayback(artifact.id, playbackType)
             
             // Check if we are already playing this exact artifact to avoid redundant resets
             if ((player.currentMediaItem?.mediaId == artifact.id) && (player.playbackState != Player.STATE_IDLE)) {
@@ -456,6 +460,18 @@ class PlaybackSessionManager @Inject constructor(
                 ),
                 android.os.Bundle.EMPTY
             )
+        }
+    }
+
+    /**
+     * Updates the metadata for the active playback session without interrupting audio.
+     * Useful for synchronizing navigation context (sources) when audio is already playing.
+     */
+    fun updateActivePlaybackContext(source: com.saurabh.artifact.model.PlaybackSource) {
+        val current = _activePlayback.value ?: return
+        if (current.source != source) {
+            _activePlayback.value = current.copy(source = source)
+            diagnosticLogger.debug(DiagnosticCategory.PLAYER, "PLAYBACK_CONTEXT_UPDATED", mapOf("source" to source.name))
         }
     }
 

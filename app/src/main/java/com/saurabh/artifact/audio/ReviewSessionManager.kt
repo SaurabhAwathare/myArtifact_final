@@ -95,8 +95,14 @@ class ReviewSessionManager @Inject constructor(
         }
     }
 
-    fun startReview(draftId: String) {
-        if (reviewProgress.value.artifactId == draftId && playbackSessionManager.isPlaying.value) return
+    fun startReview(
+        draftId: String, 
+        source: com.saurabh.artifact.model.PlaybackSource = com.saurabh.artifact.model.PlaybackSource.REVIEW_DRAFT
+    ) {
+        if (reviewProgress.value.artifactId == draftId && playbackSessionManager.isPlaying.value) {
+            playbackSessionManager.updateActivePlaybackContext(source)
+            return
+        }
 
         ArtifactLogger.i(DiagnosticCategory.REVIEW, "REVIEW_STARTED", mapOf("draftId" to draftId))
         scope.launch {
@@ -118,7 +124,8 @@ class ReviewSessionManager @Inject constructor(
 
             playbackSessionManager.play(
                 artifact = artifact, 
-                playbackType = PlaybackType.DRAFT_PREVIEW
+                playbackType = PlaybackType.DRAFT_PREVIEW,
+                source = source
             )
         }
     }

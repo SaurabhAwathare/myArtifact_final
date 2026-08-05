@@ -7,5 +7,6 @@ enum class PlaybackType {
 
 data class ActivePlayback(
     val artifactId: String?,
-    val playbackType: PlaybackType
+    val playbackType: PlaybackType,
+    val source: com.saurabh.artifact.model.PlaybackSource = com.saurabh.artifact.model.PlaybackSource.FEED_PLAYBACK
 )

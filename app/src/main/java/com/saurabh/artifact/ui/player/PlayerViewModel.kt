@@ -171,10 +171,11 @@ class PlayerViewModel @Inject constructor(
     private val staticState = combine(
         playbackCoordinator.currentArtifact,
         metadata,
+        authRepository.currentUser.map { it?.uid }.distinctUntilChanged(),
         _isExpanded,
         _showAdvancedControls
-    ) { artifact, md, expanded, advanced ->
-        val isOwner = artifact?.userId == authRepository.currentUserId
+    ) { artifact, md, currentUid, expanded, advanced ->
+        val isOwner = artifact?.userId == currentUid
         val isMetadataSynced = artifact != null && md.artifactId == artifact.id
         val mode = when {
             artifact == null -> PlayerMode.HIDDEN
@@ -374,7 +375,10 @@ class PlayerViewModel @Inject constructor(
                             )
                         )
                         
-                        if (active?.artifactId == artifactId && active.playbackType == com.saurabh.artifact.audio.PlaybackType.DRAFT_PREVIEW) {
+                        if (active?.artifactId == artifactId && 
+                            active.playbackType == com.saurabh.artifact.audio.PlaybackType.DRAFT_PREVIEW &&
+                            active.source != PlaybackSource.NOTIFICATION &&
+                            active.source != PlaybackSource.REVIEW_DRAFT) {
                             _navigateToPublish.emit(artifactId)
                         }
                     }
@@ -395,7 +399,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun toggleResonanceConnection() {
-        val artifact = uiState.value.currentArtifact ?: return
+        if (uiState.value.currentArtifact == null) return
         val currentUserId = authRepository.currentUser.value?.uid ?: run {
             diagnosticLogger.warn(
                 DiagnosticCategory.RESONANCE, 
@@ -431,14 +435,15 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-    fun playArtifact(artifact: Artifact, collection: List<Artifact> = emptyList()) {
+    fun playArtifact(artifact: Artifact, collection: List<Artifact> = emptyList(), source: PlaybackSource = PlaybackSource.FEED_PLAYBACK) {
         diagnosticLogger.debug(DiagnosticCategory.NAVIGATION, "PLAYER_SCREEN_ENTERED", mapOf("source" to "playArtifact"))
         setExpanded(true)
         _loadState.value = PlayerLoadState.LOADED
         _currentPlayableArtifact.value = null // Clear playable as we have a real artifact
         playbackCoordinator.playArtifact(
             artifact = artifact,
-            collection = collection
+            collection = collection,
+            source = source
         )
     }
 
@@ -458,10 +463,10 @@ class PlayerViewModel @Inject constructor(
                     playbackCoordinator.trackPlayableStart(playable)
                     
                     if (playable.originalArtifact != null) {
-                        playArtifact(playable.originalArtifact)
+                        playArtifact(playable.originalArtifact, source = source)
                     } else if (playable.originalDraft != null) {
                         // For drafts, we use the reviewSessionManager to handle progress tracking
-                        reviewSessionManager.startReview(playable.id)
+                        reviewSessionManager.startReview(playable.id, source)
                     }
                 },
                 onFailure = { error ->
@@ -544,7 +549,6 @@ class PlayerViewModel @Inject constructor(
 
     fun onEditClick(onNavigate: (String) -> Unit) {
         val artifact = uiState.value.currentArtifact
-        val isDraft = uiState.value.isOwner // For drafts, ownership implies draft state in this context
         // Actually, we should use the internal state for safety
         val originalArtifact = playbackCoordinator.currentArtifact.value
         if (originalArtifact?.isDraft == true) {
