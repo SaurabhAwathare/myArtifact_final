@@ -8,7 +8,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
@@ -21,7 +23,6 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Gavel
 import androidx.compose.material3.AlertDialog
@@ -60,6 +61,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.saurabh.artifact.R
 import com.saurabh.artifact.auth.CredentialResult
 import com.saurabh.artifact.ui.components.NotificationRationaleDialog
+import com.saurabh.artifact.ui.util.LocalBottomOverlayOffset
 import com.saurabh.artifact.ui.util.UiText
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -88,6 +90,7 @@ fun SettingsScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val serverClientId = stringResource(R.string.default_web_client_id)
+    val bottomOverlayOffset = LocalBottomOverlayOffset.current
     
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -217,33 +220,12 @@ fun SettingsScreen(
                             handleNotificationToggle(enabled) { viewModel.updateSmartReminders(it) }
                         }
                     )
-                    SettingsSwitch(
-                        title = "Biometric Lock",
-                        subtitle = "Secure your private space",
-                        icon = Icons.Default.Security,
-                        checked = uiState.biometricLockEnabled,
-                        onCheckedChange = { viewModel.updateBiometricLock(it) }
-                    )
-                    SettingsSwitch(
-                        title = "Auto-lock",
-                        subtitle = "Lock app when inactive",
-                        icon = Icons.Default.Shield,
-                        checked = uiState.autoLockEnabled,
-                        onCheckedChange = { viewModel.updateAutoLock(it) }
-                    )
-                    SettingsSwitch(
-                        title = "Stealth Mode",
-                        subtitle = "Hide app from recent tasks",
-                        icon = Icons.Default.Security,
-                        checked = uiState.stealthModeEnabled,
-                        onCheckedChange = { viewModel.updateStealthMode(it) }
-                    )
                 }
 
                 SettingsSection(title = "Data") {
                     SettingsClickable(
                         title = "Export Data",
-                        subtitle = "Download your emotional archive",
+                        subtitle = "Export your encrypted Artifact data to your device",
                         icon = Icons.Default.Download,
                         onClick = { showExportConfirmation = true }
                     )
@@ -290,6 +272,8 @@ fun SettingsScreen(
                         }
                     )
                 }
+
+                Spacer(modifier = Modifier.height(bottomOverlayOffset))
             }
             
             if (isDeleting) {
@@ -431,8 +415,8 @@ fun SettingsScreen(
     if (showExportSuccess) {
         AlertDialog(
             onDismissRequest = { showExportSuccess = false },
-            title = { Text("Export Initiated") },
-            text = { Text("We have started collecting all your data and artifacts. This process can take up to 72 hours. A download link will be sent to your registered email address once it's ready.") },
+            title = { Text("Export Complete") },
+            text = { Text("Your data has been successfully collected and encrypted. You can find your export at the location you selected.") },
             confirmButton = {
                 TextButton(onClick = { showExportSuccess = false }) {
                     Text("OK")

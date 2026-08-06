@@ -352,7 +352,11 @@ class ArtifactRepository @Inject constructor(
         }
     }
 
-    fun getUserArtifacts(userId: String, onlyActive: Boolean = false): Flow<List<Artifact>> = callbackFlow {
+    fun getUserArtifacts(
+        userId: String, 
+        onlyActive: Boolean = false, 
+        limit: Int = 20
+    ): Flow<Pair<List<Artifact>, com.google.firebase.firestore.DocumentSnapshot?>> = callbackFlow {
         val currentUserId = auth.currentUser?.uid
         val isPublicOnly = userId != currentUserId
 
@@ -368,6 +372,7 @@ class ArtifactRepository @Inject constructor(
         }
         
         query = query.orderBy("createdAt", Query.Direction.DESCENDING)
+            .limit(limit.toLong())
 
         val subscription = query.addSnapshotListener { snapshot, error ->
             if (error != null) {
@@ -382,23 +387,74 @@ class ArtifactRepository @Inject constructor(
                     ),
                     throwable = error
                 )
-                trySend(emptyList())
+                trySend(emptyList<Artifact>() to null)
                 return@addSnapshotListener
             }
             
             repositoryScope.launch(Dispatchers.Default) {
                 val artifacts = snapshot?.documents?.mapNotNull { doc ->
                     val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
-                    // If onlyActive is false, we still want to filter out truly broken ones (no status, etc.)
-                    // but we allow PENDING_UPLOAD for the author.
                     if (artifact != null && (artifact.status == ArtifactStatus.ACTIVE || !onlyActive)) {
                         artifact
                     } else null
                 } ?: emptyList()
-                trySend(artifacts)
+                
+                trySend(artifacts to snapshot?.documents?.lastOrNull())
             }
         }
         awaitClose { subscription.remove() }
+    }
+
+    /**
+     * Fetches a single page of artifacts for a user.
+     * Used for incremental loading (pagination) in the profile.
+     */
+    suspend fun getUserArtifactsPage(
+        userId: String,
+        limit: Int = 20,
+        lastVisible: com.google.firebase.firestore.DocumentSnapshot? = null,
+        onlyActive: Boolean = false
+    ): Result<Pair<List<Artifact>, com.google.firebase.firestore.DocumentSnapshot?>> = withContext(Dispatchers.IO) {
+        try {
+            val currentUserId = auth.currentUser?.uid
+            val isPublicOnly = userId != currentUserId
+
+            var query = firestore.collection("artifacts")
+                .whereEqualTo("userId", userId)
+            
+            if (isPublicOnly) {
+                query = query.whereEqualTo("isPublic", true)
+            }
+
+            if (onlyActive) {
+                query = query.whereEqualTo("status", ArtifactStatus.ACTIVE.name)
+            }
+            
+            query = query.orderBy("createdAt", Query.Direction.DESCENDING)
+                .limit(limit.toLong())
+
+            if (lastVisible != null) {
+                query = query.startAfter(lastVisible)
+            }
+
+            val snapshot = query.get().await()
+            val artifacts = snapshot.documents.mapNotNull { doc ->
+                val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
+                if (artifact != null && (artifact.status == ArtifactStatus.ACTIVE || !onlyActive)) {
+                    artifact
+                } else null
+            }
+
+            Result.success(artifacts to snapshot.documents.lastOrNull())
+        } catch (e: Exception) {
+            diagnosticLogger.error(
+                DiagnosticCategory.FIRESTORE,
+                "USER_ARTIFACTS_PAGE_FETCH_FAILED",
+                mapOf("userId" to userId),
+                e
+            )
+            Result.failure(e)
+        }
     }
 
     /**

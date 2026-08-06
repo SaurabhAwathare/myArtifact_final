@@ -37,6 +37,9 @@ fun PlayerInteractionBar(
     resonanceSyncStatus: InteractionSyncStatus,
     selectedReactionType: ReactionType,
     onResonateClick: (ReactionType) -> Unit,
+    resonanceCount: Int,
+    canShowResonators: Boolean,
+    onResonatorsCountClick: () -> Unit,
     isResonating: Boolean,
     followSyncStatus: InteractionSyncStatus,
     onResonateConnectionClick: () -> Unit,
@@ -60,16 +63,13 @@ fun PlayerInteractionBar(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            InteractionItem(
-                icon = if (isResonated) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                label = "Resonate",
-                count = null,
-                isActive = isResonated,
+            ResonateInteractionItem(
+                isResonated = isResonated,
+                resonanceCount = resonanceCount,
+                canShowResonators = canShowResonators,
                 syncStatus = resonanceSyncStatus,
-                activeColor = GoldAura400,
-                onClick = { 
-                    onResonateClick(ReactionType.I_HEAR_YOU)
-                }
+                onResonateClick = { onResonateClick(ReactionType.I_HEAR_YOU) },
+                onCountClick = onResonatorsCountClick
             )
 
             if (showResonance) {
@@ -103,6 +103,87 @@ fun PlayerInteractionBar(
                 activeColor = GoldAura400,
                 onClick = onCommentClick
             )
+        }
+    }
+}
+
+@Composable
+private fun ResonateInteractionItem(
+    isResonated: Boolean,
+    resonanceCount: Int,
+    canShowResonators: Boolean,
+    onResonateClick: () -> Unit,
+    onCountClick: () -> Unit,
+    syncStatus: InteractionSyncStatus = InteractionSyncStatus.SYNCED,
+) {
+    val haptic = LocalHapticFeedback.current
+    val showCount = canShowResonators && resonanceCount > 0
+    
+    val activeColor = GoldAura400
+    val contentColor = if (isResonated) {
+        if (syncStatus == InteractionSyncStatus.PENDING) activeColor.copy(alpha = 0.5f) else activeColor
+    } else {
+        if (syncStatus == InteractionSyncStatus.PENDING) Color.White.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.45f)
+    }
+
+    val scale by animateFloatAsState(
+        targetValue = if (isResonated && syncStatus == InteractionSyncStatus.SYNCED) 1.15f else 1.0f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+        label = "ScaleAnimation"
+    )
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+        modifier = Modifier
+            .clip(RoundedCornerShape(16.dp))
+            .padding(horizontal = 4.dp, vertical = 4.dp)
+    ) {
+        // Icon Target (Toggle)
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .clip(RoundedCornerShape(12.dp))
+                .clickable {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onResonateClick()
+                }
+                .padding(8.dp)
+        ) {
+            Icon(
+                imageVector = if (isResonated) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                contentDescription = "Resonate",
+                tint = contentColor,
+                modifier = Modifier
+                    .size(26.dp)
+                    .scale(scale)
+            )
+        }
+        
+        // Count Target (Navigation)
+        if (showCount) {
+            Text(
+                text = resonanceCount.toString(),
+                style = MaterialTheme.typography.labelSmall,
+                color = contentColor,
+                fontSize = 10.sp,
+                fontWeight = if (isResonated) FontWeight.Bold else FontWeight.Normal,
+                letterSpacing = 0.2.sp,
+                modifier = Modifier
+                    .offset(y = (-4).dp) // Bring closer to icon
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { onCountClick() }
+                    .padding(horizontal = 8.dp, vertical = 2.dp)
+            )
+        } else {
+            // Perfectly centered heart if no count:
+            // We just don't add anything here, the heart in the Box above will be centered in the Column.
+            // And since we removed the label "Resonate", it stays centered.
+            // Wait, if I remove the label, the user might not know what the heart is?
+            // But the user said: "Hide the count when resonanceCount == 0... Do not display placeholder text"
+            // "keep the ❤️ icon perfectly centered"
+            
+            // I'll skip the label if no count.
         }
     }
 }

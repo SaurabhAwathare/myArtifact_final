@@ -5,12 +5,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.size
 import com.saurabh.artifact.model.Artifact
 
 fun LazyListScope.userArtifactsList(
@@ -27,10 +29,20 @@ fun LazyListScope.userArtifactsList(
     onDelete: (Artifact) -> Unit,
     onSaveClick: (Artifact) -> Unit = {},
     savedIds: Set<String> = emptySet(),
-    emptyMessage: String? = null
+    emptyMessage: String? = null,
+    onLoadMore: () -> Unit = {},
+    isLoadingMore: Boolean = false,
+    hasMore: Boolean = false
 ) {
     if (artifacts.isNotEmpty()) {
         items(artifacts, key = { it.id }) { artifact ->
+            val index = artifacts.indexOf(artifact)
+            if (index >= artifacts.size - 3 && hasMore && !isLoadingMore) {
+                LaunchedEffect(artifacts.size) {
+                    onLoadMore()
+                }
+            }
+
             val isCurrent = currentlyPlayingArtifact?.id == artifact.id
             val isSaved = savedIds.contains(artifact.id)
             val isOwner = currentUserId != null && artifact.userId == currentUserId
@@ -54,6 +66,22 @@ fun LazyListScope.userArtifactsList(
                     onDelete = { onDelete(artifact) },
                     onUnsave = { onSaveClick(artifact) }
                 )
+            }
+        }
+
+        if (isLoadingMore) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    contentAlignment = androidx.compose.ui.Alignment.Center
+                ) {
+                    androidx.compose.material3.CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        strokeWidth = 2.dp
+                    )
+                }
             }
         }
     } else if (emptyMessage != null) {

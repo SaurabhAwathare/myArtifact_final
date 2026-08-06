@@ -104,7 +104,7 @@ fun ArtifactCard(
                     )
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = "2h ago", // Mock timestamp
+                            text = TimeUtils.getRelativeTime(artifact.createdAt),
                             style = MaterialTheme.typography.labelSmall,
                             color = Color.White.copy(alpha = 0.4f)
                         )

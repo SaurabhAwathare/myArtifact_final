@@ -2,6 +2,7 @@ package com.saurabh.artifact
 
 import android.app.Activity
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -62,6 +63,16 @@ class MainActivity : ComponentActivity() {
             val playerViewModel: PlayerViewModel = hiltViewModel()
             val startupState by mainViewModel.startupState.collectAsStateWithLifecycle()
             val stage by mainViewModel.startupStage.collectAsStateWithLifecycle()
+
+            val isSecureFlagRequired by mainViewModel.isSecureFlagRequired.collectAsStateWithLifecycle()
+
+            LaunchedEffect(isSecureFlagRequired) {
+                if (isSecureFlagRequired) {
+                    window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                } else {
+                    window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                }
+            }
 
             ArtifactTheme(logger = diagnosticLogger) {
                 AppRoot(

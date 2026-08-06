@@ -244,7 +244,7 @@ fun ArtifactCard(
                                         }
                                     }
                                     Text(
-                                        text = "2h ago", // Mock timestamp for now
+                                        text = TimeUtils.getRelativeTime(artifact.createdAt),
                                         style = ArtifactTheme.typography.labelSmall,
                                         color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.6f)
                                     )

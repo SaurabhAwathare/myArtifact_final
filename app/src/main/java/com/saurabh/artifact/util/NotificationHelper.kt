@@ -11,17 +11,45 @@ import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import androidx.core.app.ActivityCompat
+import androidx.annotation.OptIn
+import androidx.media3.common.util.UnstableApi
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.work.ForegroundInfo
 import com.saurabh.artifact.MainActivity
 import com.saurabh.artifact.R
+import com.saurabh.artifact.repository.SettingsRepository
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 
 /**
  * Foundational notification infrastructure for an emotionally intelligent app.
  * Focuses on centralized, reusable, and respectful engagement mechanics.
  */
 object NotificationHelper {
+
+    @UnstableApi
+    @EntryPoint
+    @InstallIn(SingletonComponent::class)
+    interface NotificationHelperEntryPoint {
+        fun settingsRepository(): SettingsRepository
+    }
+
+    @UnstableApi
+    private fun isNotificationEnabled(context: Context): Boolean {
+        return try {
+            val entryPoint = EntryPointAccessors.fromApplication(context, NotificationHelperEntryPoint::class.java)
+            val settingsRepository = entryPoint.settingsRepository()
+            // Preference check - use runBlocking sparingly for this short DataStore read
+            runBlocking { settingsRepository.userSettings.first().notificationsEnabled }
+        } catch (e: Exception) {
+            true // Fallback to enabled if repository access fails
+        }
+    }
 
     const val CHANNEL_ID_INTERACTIONS = "interactions_channel"
     const val CHANNEL_NAME_INTERACTIONS = "Resonances"
@@ -123,19 +151,25 @@ object NotificationHelper {
             .build()
     }
 
+    @OptIn(UnstableApi::class)
     fun updateUploadProgress(
         context: Context,
         title: String,
         progress: Int,
         draftId: String
     ) {
+        if (!isNotificationEnabled(context)) return
+
         if (ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
             val notification = buildUploadProgressNotification(context, title, progress, draftId)
             NotificationManagerCompat.from(context).notify(UPLOAD_NOTIFICATION_ID, notification)
         }
     }
 
+    @OptIn(UnstableApi::class)
     fun showUploadSuccessNotification(context: Context, title: String) {
+        if (!isNotificationEnabled(context)) return
+
         if (ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
             val notification = NotificationCompat.Builder(context, CHANNEL_ID_UPLOADS)
                 .setContentTitle("Upload Complete")
@@ -149,7 +183,10 @@ object NotificationHelper {
         }
     }
 
+    @OptIn(UnstableApi::class)
     fun showUploadErrorNotification(context: Context, message: String) {
+        if (!isNotificationEnabled(context)) return
+
         if (ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
             val notification = NotificationCompat.Builder(context, CHANNEL_ID_UPLOADS)
                 .setContentTitle("Upload Failed")
@@ -167,7 +204,10 @@ object NotificationHelper {
         NotificationManagerCompat.from(context).cancelAll()
     }
 
+    @OptIn(UnstableApi::class)
     fun showReminderNotification(context: Context, title: String, message: String) {
+        if (!isNotificationEnabled(context)) return
+
         if (ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
             val intent = Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
@@ -194,6 +234,7 @@ object NotificationHelper {
      * Shows a notification for social interactions (resonances, comments).
      * Includes artifact navigation when clicked.
      */
+    @OptIn(UnstableApi::class)
     fun showInteractionNotification(
         context: Context,
         title: String,
@@ -203,6 +244,8 @@ object NotificationHelper {
         notificationType: String? = null,
         channelId: String = CHANNEL_ID_INTERACTIONS
     ) {
+        if (!isNotificationEnabled(context)) return
+
         if (ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
             val intent = Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP

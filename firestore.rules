@@ -40,9 +40,9 @@ service cloud.firestore {
     // Security Purpose: Single source of truth for read access.
     function canReadArtifact(artifactId) {
       let artifact = get(/databases/$(database)/documents/artifacts/$(artifactId)).data;
-      return artifact.get('isPublic', false) == true ||
+      return (artifact.get('isPublic', false) == true ||
              (request.auth != null && artifact.get('userId', '') == request.auth.uid) ||
-             isGlobalAdmin();
+             isGlobalAdmin()) && hasValidAppCheck();
     }
 
     // Business Purpose: Determine if the resonators list should be visible based on Artifact policy.
@@ -70,12 +70,16 @@ service cloud.firestore {
     }
 
     // --- HELPER FUNCTIONS ---
+    function hasValidAppCheck() {
+      return request.auth != null && request.auth.token.appcheck == true;
+    }
+
     function isAuth() {
-      return request.auth != null;
+      return request.auth != null && hasValidAppCheck();
     }
 
     function isOwner(userId) {
-      return request.auth != null && request.auth.uid == userId;
+      return hasValidAppCheck() && request.auth.uid == userId;
     }
 
     function isArtifactOwner(artifactId) {
@@ -142,17 +146,16 @@ service cloud.firestore {
     // --- USERS & PROFILES ---
     match /users/{uid} {
       allow read: if isOwner(uid) ||
-                   (request.auth != null && resource != null && !resource.data.keys().hasAny(['email', 'displayName', 'realName', 'fcmToken']));
+                   (isAuth() && resource != null && !resource.data.keys().hasAny(['email', 'displayName', 'realName', 'fcmToken']));
 
       allow update: if resource != null &&
                    isOwner(uid) &&
-                   // Release A: Allow owner to delete sensitive fields from root, but block setting/changing them.
-                   // A key can be deleted if it is NOT in the new resource keys.
-                   !(request.resource.data.diff(resource.data).affectedKeys().hasAny(['isAdmin', 'admin', 'accountStatus', 'email', 'realName', 'fcmToken']) &&
-                     request.resource.data.keys().hasAny(['isAdmin', 'admin', 'accountStatus', 'email', 'realName', 'fcmToken'])) &&
+                   // Release Hardening: Block modification of privileged fields.
+                   !request.resource.data.diff(resource.data).affectedKeys().hasAny(['isAdmin', 'admin', 'accountStatus', 'email', 'realName', 'fcmToken']) &&
                    isValidIdentityUpdate(resource.data, request.resource.data);
 
       allow create: if isOwner(uid) &&
+                    hasValidAppCheck() &&
                     !("isAdmin" in request.resource.data) &&
                     !("admin" in request.resource.data) &&
                     !("accountStatus" in request.resource.data);
@@ -255,7 +258,7 @@ service cloud.firestore {
     }
 
     match /artifact_reaction_counts/{artifactId} {
-      allow read: if true;
+      allow read: if hasValidAppCheck();
       allow write: if false;
     }
 

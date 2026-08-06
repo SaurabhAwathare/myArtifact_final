@@ -191,7 +191,10 @@ fun ProfileScreen(
                                     viewModel.deletePublishedArtifact(artifact.id)
                                 },
                                 onSaveClick = { viewModel.toggleSave(it) },
-                                emptyMessage = if (uiState.isSelf) "You haven't shared any reflections yet." else "This journey is just beginning."
+                                emptyMessage = if (uiState.isSelf) "You haven't shared any reflections yet." else "This journey is just beginning.",
+                                onLoadMore = { viewModel.loadMorePublished() },
+                                isLoadingMore = uiState.isMorePublishedLoading,
+                                hasMore = uiState.hasMorePublished
                             )
                         }
                         ProfileTab.DRAFTS -> {

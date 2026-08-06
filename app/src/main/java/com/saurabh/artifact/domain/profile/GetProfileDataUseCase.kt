@@ -10,6 +10,7 @@ import javax.inject.Inject
 data class ProfileData(
     val userProfile: User?,
     val publishedArtifacts: List<Artifact>,
+    val lastArtifactDocument: com.google.firebase.firestore.DocumentSnapshot?,
     val cloudDrafts: List<Artifact>,
     val savedArtifacts: List<Artifact>,
     val localDrafts: List<ArtifactDraftEntity>,
@@ -38,13 +39,15 @@ class GetProfileDataUseCase @Inject constructor(
                 if (isSelf) artifactRepository.getSavedArtifacts(finalId) else flowOf(emptyList()),
                 if (isSelf) recordingRepository.observeDrafts() else flowOf(emptyList()),
                 if (currentUserId.isNotEmpty()) userRepository.observeIsResonating(currentUserId, finalId) else flowOf(false)
-            ) { profile, allArtifacts, saved, localDrafts, isResonating ->
+            ) { profile, artifactsWithSnapshot, saved, localDrafts, isResonating ->
+                val (allArtifacts, lastDoc) = artifactsWithSnapshot
                 val statusPublished = com.saurabh.artifact.model.ArtifactStatus.ACTIVE
                 val localDraftIds = localDrafts.map { it.id }.toSet()
 
                 ProfileData(
                     userProfile = profile,
                     publishedArtifacts = allArtifacts.filter { it.status == statusPublished },
+                    lastArtifactDocument = lastDoc,
                     cloudDrafts = allArtifacts.filter { 
                         it.status != statusPublished && 
                         it.status != com.saurabh.artifact.model.ArtifactStatus.DELETED &&

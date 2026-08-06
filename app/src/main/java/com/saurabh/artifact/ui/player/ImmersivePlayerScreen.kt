@@ -28,7 +28,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.saurabh.artifact.model.PlayableArtifact
 import com.saurabh.artifact.model.AuthorSnapshot
-import com.saurabh.artifact.ui.components.ResonanceDisplay
 import com.saurabh.artifact.ui.player.components.*
 import com.saurabh.artifact.ui.theme.GoldAura400
 import com.saurabh.artifact.ui.theme.Obsidian950
@@ -298,23 +297,6 @@ fun ImmersivePlayerScreen(
                 }
             }
 
-            // 3.5 Social Resonance Entry Point (Discovery Gateway)
-            if (!isVerifiedDraft && uiState.canShowResonators && uiState.resonanceCount > 0) {
-                ResonanceDisplay(
-                    summary = uiState.resonanceSummary,
-                    isOwner = uiState.isOwner,
-                    onClick = { 
-                        artifact?.id?.let { id -> onResonatorsCountClick(id) }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 8.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color.White.copy(alpha = 0.04f))
-                        .padding(horizontal = 16.dp, vertical = 4.dp)
-                )
-            }
-
             // 4. Waveform Scrubber & Timeline
             Column(
                 modifier = Modifier
@@ -383,6 +365,11 @@ fun ImmersivePlayerScreen(
                     resonanceSyncStatus = uiState.resonanceSyncStatus,
                     selectedReactionType = uiState.selectedReactionType,
                     onResonateClick = onResonateClick,
+                    resonanceCount = uiState.resonanceCount,
+                    canShowResonators = uiState.canShowResonators,
+                    onResonatorsCountClick = {
+                        artifact?.id?.let { id -> onResonatorsCountClick(id) }
+                    },
                     isResonating = uiState.isResonating,
                     followSyncStatus = uiState.followSyncStatus,
                     onResonateConnectionClick = onResonateConnectionClick,

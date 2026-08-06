@@ -26,10 +26,13 @@ class NotificationRepository @Inject constructor(
     // Optimization: Pre-compute valid types for fast lookup
     private val validNotificationTypes = NotificationType.entries.map { it.name }.toSet()
 
-    fun listenNotifications(userId: String): Flow<List<NotificationItem>> = callbackFlow {
+    fun listenNotifications(
+        userId: String,
+        limit: Int = 20
+    ): Flow<Pair<List<NotificationItem>, com.google.firebase.firestore.DocumentSnapshot?>> = callbackFlow {
         if (userId.isEmpty()) {
             ArtifactLogger.w(DiagnosticCategory.APP, "NOTIF_LISTEN_EMPTY_USER")
-            trySend(emptyList())
+            trySend(emptyList<NotificationItem>() to null)
             awaitClose { }
             return@callbackFlow
         }
@@ -38,6 +41,7 @@ class NotificationRepository @Inject constructor(
         val subscription = notificationsCollection
             .whereEqualTo("userId", userId)
             .orderBy("createdAt", Query.Direction.DESCENDING)
+            .limit(limit.toLong())
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     val now = System.currentTimeMillis()
@@ -45,7 +49,7 @@ class NotificationRepository @Inject constructor(
                         ArtifactLogger.e(DiagnosticCategory.APP, "NOTIF_LISTENER_ERROR", mapOf("code" to error.code.name), error)
                         lastErrorTime = now
                     }
-                    trySend(emptyList())
+                    trySend(emptyList<NotificationItem>() to null)
                     return@addSnapshotListener
                 }
                 
@@ -70,10 +74,49 @@ class NotificationRepository @Inject constructor(
                             null
                         }
                     } ?: emptyList()
-                    trySend(notifications)
+                    
+                    trySend(notifications to snapshot?.documents?.lastOrNull())
                 }
             }
         awaitClose { subscription.remove() }
+    }
+
+    /**
+     * Fetches a single page of notifications for a user.
+     * Used for incremental loading (pagination) in the notification center.
+     */
+    suspend fun getNotificationsPage(
+        userId: String,
+        limit: Int = 20,
+        lastVisible: com.google.firebase.firestore.DocumentSnapshot? = null
+    ): Result<Pair<List<NotificationItem>, com.google.firebase.firestore.DocumentSnapshot?>> = withContext(Dispatchers.IO) {
+        try {
+            var query = notificationsCollection
+                .whereEqualTo("userId", userId)
+                .orderBy("createdAt", Query.Direction.DESCENDING)
+                .limit(limit.toLong())
+
+            if (lastVisible != null) {
+                query = query.startAfter(lastVisible)
+            }
+
+            val snapshot = query.get().await()
+            val notifications = snapshot.documents.mapNotNull { doc ->
+                val typeStr = doc.getString("type")
+                if (typeStr == null || typeStr !in validNotificationTypes) return@mapNotNull null
+
+                try {
+                    doc.toObject(NotificationItem::class.java)?.copy(id = doc.id)
+                } catch (e: Exception) {
+                    null
+                }
+            }
+
+            Result.success(notifications to snapshot.documents.lastOrNull())
+        } catch (e: Exception) {
+            ArtifactLogger.e(DiagnosticCategory.APP, "NOTIF_PAGE_FETCH_FAILED", mapOf("userId" to userId), e)
+            Result.failure(e)
+        }
     }
 
     suspend fun markNotificationAsRead(notificationId: String): Result<Unit> = withContext(Dispatchers.IO) {

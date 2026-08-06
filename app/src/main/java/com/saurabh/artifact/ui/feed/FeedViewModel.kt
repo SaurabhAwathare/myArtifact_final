@@ -142,8 +142,9 @@ class FeedViewModel @Inject constructor(
     val unreadCount: StateFlow<Int> = authRepository.currentUser
         .flatMapLatest { user ->
             if (user != null) {
-                notificationRepository.listenNotifications(user.uid)
-                    .map { items -> items.count { !it.isRead } }
+                // Note: Pagination means this only reflects unread items in the live head
+                notificationRepository.listenNotifications(user.uid, limit = 50)
+                    .map { (items, _) -> items.count { !it.isRead } }
             } else {
                 flowOf(0)
             }
@@ -506,6 +507,16 @@ class FeedViewModel @Inject constructor(
 
     fun hydrateArtifact(artifactId: String) {
         _uiState.update { it.copy(hydrationLevels = it.hydrationLevels + (artifactId to HydrationLevel.METADATA)) }
+    }
+
+    /**
+     * Pre-caches the audio for a specific artifact to reduce playback latency.
+     */
+    fun preCacheArtifact(artifactId: String) {
+        val artifact = _uiState.value.artifactCache[artifactId] ?: return
+        if (artifact.audioUrl.isNotEmpty()) {
+            audioPlayer.preCache(artifact)
+        }
     }
 
     fun hydrateFromPaging(artifact: Artifact) {

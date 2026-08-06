@@ -52,6 +52,8 @@ data class ProfileUiState(
     val isLoading: Boolean = true,
     val isActionLoading: Boolean = false,
     val isRefreshing: Boolean = false,
+    val isMorePublishedLoading: Boolean = false,
+    val hasMorePublished: Boolean = true,
     val currentlyPlayingArtifact: Artifact? = null,
     val isPlaying: Boolean = false,
     val isBuffering: Boolean = false,
@@ -67,6 +69,8 @@ private data class ProfileContent(
     val message: UiText?,
     val isActionLoading: Boolean,
     val isRefreshing: Boolean,
+    val isMorePublishedLoading: Boolean,
+    val hasMorePublished: Boolean,
     val mappedLocalDrafts: List<DraftUiModel>,
     val mappedPublishedArtifacts: List<Artifact>,
     val mappedCloudDrafts: List<Artifact>,
@@ -87,6 +91,7 @@ private data class PlaybackState(
 class ProfileViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val authRepository: AuthRepository,
+    private val artifactRepository: ArtifactRepository,
     userProfileManager: UserProfileManager,
     private val savedArtifactManager: SavedArtifactManager,
     private val playbackCoordinator: PlaybackCoordinator,
@@ -107,6 +112,12 @@ class ProfileViewModel @Inject constructor(
     private val _isActionLoading = MutableStateFlow(value = false)
     private val _isRefreshing = MutableStateFlow(value = false)
     private val _refreshTrigger = MutableStateFlow(0)
+
+    // Phase 1: Pagination state
+    private val _additionalPublishedArtifacts = MutableStateFlow<List<Artifact>>(emptyList())
+    private val _lastArtifactDocument = MutableStateFlow<com.google.firebase.firestore.DocumentSnapshot?>(null)
+    private val _isMorePublishedLoading = MutableStateFlow(false)
+    private val _hasMorePublished = MutableStateFlow(true)
 
     // Phase 4: Temporary memory buffers for input fields (Invariant 8)
     private val _editingId = MutableStateFlow<String?>(null)
@@ -129,6 +140,9 @@ class ProfileViewModel @Inject constructor(
         _message,
         _isActionLoading,
         _isRefreshing,
+        _additionalPublishedArtifacts,
+        _isMorePublishedLoading,
+        _hasMorePublished,
         _editingId,
         _titleInput
     ) { params ->
@@ -139,8 +153,16 @@ class ProfileViewModel @Inject constructor(
         val message = params[4] as UiText?
         val isActionLoading = params[5] as Boolean
         val isRefreshing = params[6] as Boolean
-        val editingId = params[7] as String?
-        val titleInput = params[8] as String?
+        val additionalPublished = params[7] as List<Artifact>
+        val isMoreLoading = params[8] as Boolean
+        val hasMore = params[9] as Boolean
+        val editingId = params[10] as String?
+        val titleInput = params[11] as String?
+
+        // Sync the last document from the live head
+        if (data?.lastArtifactDocument != null && _lastArtifactDocument.value == null) {
+            _lastArtifactDocument.value = data.lastArtifactDocument
+        }
 
         fun mapArtifact(artifact: Artifact): Artifact {
             return if (artifact.id == editingId && (titleInput != null)) {
@@ -167,7 +189,11 @@ class ProfileViewModel @Inject constructor(
             )
         } ?: emptyList()
 
-        val mappedPublished = data?.publishedArtifacts?.map { mapArtifact(it) } ?: emptyList()
+        val headPublished = data?.publishedArtifacts ?: emptyList()
+        val mappedPublished = (headPublished + additionalPublished)
+            .distinctBy { it.id } // Prevent duplicates if item moves between pages
+            .map { mapArtifact(it) }
+
         val mappedCloudDrafts = data?.cloudDrafts?.map { mapArtifact(it) } ?: emptyList()
         val mappedSaved = data?.savedArtifacts?.map { mapArtifact(it) } ?: emptyList()
 
@@ -179,6 +205,8 @@ class ProfileViewModel @Inject constructor(
             message = message,
             isActionLoading = isActionLoading,
             isRefreshing = isRefreshing,
+            isMorePublishedLoading = isMoreLoading,
+            hasMorePublished = hasMore,
             mappedLocalDrafts = mappedLocalDrafts,
             mappedPublishedArtifacts = mappedPublished,
             mappedCloudDrafts = mappedCloudDrafts,
@@ -227,6 +255,8 @@ class ProfileViewModel @Inject constructor(
             isLoading = isLoading,
             isActionLoading = content.isActionLoading,
             isRefreshing = content.isRefreshing,
+            isMorePublishedLoading = content.isMorePublishedLoading,
+            hasMorePublished = content.hasMorePublished,
             currentlyPlayingArtifact = playback.currentlyPlaying,
             isPlaying = playback.isPlaying,
             isBuffering = playback.isBuffering,
@@ -244,9 +274,50 @@ class ProfileViewModel @Inject constructor(
     fun refresh() {
         viewModelScope.launch {
             _isRefreshing.value = true
+            
+            // Reset pagination
+            _additionalPublishedArtifacts.value = emptyList()
+            _lastArtifactDocument.value = null
+            _hasMorePublished.value = true
+            
             _refreshTrigger.value += 1
             delay(800.milliseconds)
             _isRefreshing.value = false
+        }
+    }
+
+    fun loadMorePublished() {
+        val userId = _targetUserId.value ?: currentUserId ?: return
+        if (_isMorePublishedLoading.value || !_hasMorePublished.value) return
+
+        val lastDoc = _lastArtifactDocument.value ?: return
+
+        viewModelScope.launch {
+            _isMorePublishedLoading.value = true
+            
+            val result = artifactRepository.getUserArtifactsPage(
+                userId = userId,
+                limit = 20,
+                lastVisible = lastDoc,
+                onlyActive = !uiState.value.isSelf
+            )
+
+            result.onSuccess { (newArtifacts, newLastDoc) ->
+                if (newArtifacts.isEmpty()) {
+                    _hasMorePublished.value = false
+                } else {
+                    _additionalPublishedArtifacts.value += newArtifacts
+                    _lastArtifactDocument.value = newLastDoc
+                    if (newArtifacts.size < 20) {
+                        _hasMorePublished.value = false
+                    }
+                }
+            }.onFailure { e ->
+                diagnosticLogger.error(DiagnosticCategory.PROFILE, "LOAD_MORE_FAILED", throwable = e)
+                _message.value = ErrorMessageMapper.map(e)
+            }
+
+            _isMorePublishedLoading.value = false
         }
     }
 

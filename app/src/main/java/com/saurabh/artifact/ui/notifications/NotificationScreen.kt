@@ -119,6 +119,13 @@ fun NotificationScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(uiState.items, key = { it.id }) { notification ->
+                    val index = uiState.items.indexOf(notification)
+                    if (index >= uiState.items.size - 3 && uiState.hasMore && !uiState.isLoadingMore) {
+                        LaunchedEffect(uiState.items.size) {
+                            viewModel.loadMoreNotifications()
+                        }
+                    }
+
                     NotificationCard(
                         notification = notification,
                         onClick = {
@@ -126,6 +133,23 @@ fun NotificationScreen(
                             onNotificationClick(notification)
                         }
                     )
+                }
+
+                if (uiState.isLoadingMore) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
                 }
             }
         }

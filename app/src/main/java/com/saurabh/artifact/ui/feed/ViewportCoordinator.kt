@@ -63,6 +63,11 @@ fun ViewportCoordinator(
                     val currentLevel = updates[artifactId] ?: HydrationLevel.SHELL
                     if (level > currentLevel) {
                         updates[artifactId] = level
+
+                        // Phase 1: Enable Audio Pre-cache for stationary, visible items
+                        if (level >= HydrationLevel.ENRICHED) {
+                            currentViewModel.preCacheArtifact(artifactId)
+                        }
                     }
                     currentViewModel.hydrateArtifact(artifactId) // Mark as basic hydrated with canonical ID
                 }

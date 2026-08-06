@@ -3,25 +3,36 @@ package com.saurabh.artifact.worker
 import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import androidx.annotation.OptIn
+import androidx.media3.common.util.UnstableApi
+import com.saurabh.artifact.repository.SettingsRepository
 import com.saurabh.artifact.util.NotificationEngine
 import com.saurabh.artifact.util.NotificationHelper
-
 import androidx.hilt.work.HiltWorker
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import kotlinx.coroutines.flow.first
 import kotlin.random.Random
 
 /**
  * A periodic worker that sends gentle, daily reflection reminders.
  * Part of the emotionally intelligent engagement infrastructure.
  */
+@OptIn(UnstableApi::class)
 @HiltWorker
 class ReminderWorker @AssistedInject constructor(
     @Assisted context: Context,
-    @Assisted workerParams: WorkerParameters
+    @Assisted workerParams: WorkerParameters,
+    private val settingsRepository: SettingsRepository
 ) : CoroutineWorker(context, workerParams) {
 
     override suspend fun doWork(): Result {
+        // 0. Check user preferences
+        val settings = settingsRepository.userSettings.first()
+        if (!settings.notificationsEnabled || !settings.smartRemindersEnabled) {
+            return Result.success()
+        }
+
         // 1. Retrieve emotional and safety context (Mocked for now)
         val emotion = getUserDominantEmotion()
         val safetyLevel = getSafetyLevel()

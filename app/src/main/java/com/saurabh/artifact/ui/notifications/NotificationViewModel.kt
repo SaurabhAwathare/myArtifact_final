@@ -13,7 +13,9 @@ import javax.inject.Inject
 
 data class NotificationUiState(
     val items: List<NotificationItem> = emptyList(),
-    val isLoading: Boolean = false
+    val isLoading: Boolean = false,
+    val isLoadingMore: Boolean = false,
+    val hasMore: Boolean = true
 )
 
 @HiltViewModel
@@ -22,19 +24,81 @@ class NotificationViewModel @Inject constructor(
     private val authRepository: AuthRepository
 ) : ViewModel() {
 
-    // Real-time stream of notifications for the current user
+    private val _additionalItems = MutableStateFlow<List<NotificationItem>>(emptyList())
+    private val _lastDocument = MutableStateFlow<com.google.firebase.firestore.DocumentSnapshot?>(null)
+    private val _isLoadingMore = MutableStateFlow(false)
+    private val _hasMore = MutableStateFlow(true)
+
+    // Real-time stream of the first page of notifications
     @OptIn(ExperimentalCoroutinesApi::class)
-    val uiState: StateFlow<NotificationUiState> = authRepository.currentUser
+    private val liveHeadFlow = authRepository.currentUser
         .flatMapLatest { user ->
             if (user != null) {
-                notificationRepository.listenNotifications(user.uid)
-                    .map { items -> NotificationUiState(items = items, isLoading = false) }
-                    .onStart { emit(NotificationUiState(isLoading = true)) }
+                notificationRepository.listenNotifications(user.uid, limit = 20)
+                    .onEach { (_, lastDoc) ->
+                        // Only update the anchor for the second page if we haven't manually loaded more yet
+                        if (_lastDocument.value == null) {
+                            _lastDocument.value = lastDoc
+                        }
+                    }
             } else {
-                flowOf(NotificationUiState(isLoading = false))
+                flowOf(emptyList<NotificationItem>() to null)
             }
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), NotificationUiState(isLoading = true))
+
+    val uiState: StateFlow<NotificationUiState> = combine(
+        liveHeadFlow,
+        _additionalItems,
+        _isLoadingMore,
+        _hasMore
+    ) { (liveItems, _), additional, loadingMore, hasMore ->
+        val allItems = (liveItems + additional).distinctBy { it.id }
+        NotificationUiState(
+            items = allItems,
+            isLoading = false, // Loading is handled by initial state
+            isLoadingMore = loadingMore,
+            hasMore = hasMore
+        )
+    }.onStart {
+        // Initial loading state while waiting for the first snapshot
+        emit(NotificationUiState(isLoading = true))
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), NotificationUiState(isLoading = true))
+
+    /**
+     * Loads the next page of notifications.
+     */
+    fun loadMoreNotifications() {
+        val userId = authRepository.currentUser.value?.uid ?: return
+        if (_isLoadingMore.value || !_hasMore.value) return
+
+        val lastDoc = _lastDocument.value ?: return
+
+        viewModelScope.launch {
+            _isLoadingMore.value = true
+            
+            val result = notificationRepository.getNotificationsPage(
+                userId = userId,
+                limit = 20,
+                lastVisible = lastDoc
+            )
+
+            result.onSuccess { (newItems, newLastDoc) ->
+                if (newItems.isEmpty()) {
+                    _hasMore.value = false
+                } else {
+                    _additionalItems.value += newItems
+                    _lastDocument.value = newLastDoc
+                    if (newItems.size < 20) {
+                        _hasMore.value = false
+                    }
+                }
+            }.onFailure {
+                // UI message handling can be added here if needed
+            }
+
+            _isLoadingMore.value = false
+        }
+    }
 
     /**
      * Mark a notification as read when viewed.
