@@ -41,6 +41,7 @@ data class ResonanceList(
     val userId: String? = null, 
     val type: String? = null, 
     val artifactId: String? = null,
+    val isOwner: Boolean = false,
     val title: String? = "Resonators"
 ) : Route
 

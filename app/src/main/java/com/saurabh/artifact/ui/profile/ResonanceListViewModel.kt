@@ -35,6 +35,7 @@ class ResonanceListViewModel @Inject constructor(
     private val userId: String? = savedStateHandle.get<String>("userId")
     private val type: String? = savedStateHandle.get<String>("type")
     private val artifactId: String? = savedStateHandle.get<String>("artifactId")
+    private val isOwner: Boolean = savedStateHandle.get<Boolean>("isOwner") ?: false
     private val title: String = savedStateHandle.get<String>("title") ?: "Resonators"
 
     private val _uiState = MutableStateFlow(ResonanceListUiState(title = title))
@@ -86,7 +87,7 @@ class ResonanceListViewModel @Inject constructor(
             )
 
             val result = if (!artifactId.isNullOrBlank()) {
-                userRepository.getArtifactResonators(artifactId, limit = 20, lastVisible = lastVisible)
+                userRepository.getArtifactResonators(artifactId, isOwner = isOwner, limit = 20, lastVisible = lastVisible)
             } else {
                 userRepository.getResonanceUsers(userId!!, type!!, limit = 20, lastVisible = lastVisible)
             }

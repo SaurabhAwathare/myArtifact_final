@@ -75,50 +75,83 @@ fun ResonanceListScreen(
                 onRefresh = { viewModel.loadUsers(refresh = true) },
                 modifier = Modifier.fillMaxSize()
             ) {
-                if (uiState.users.isEmpty() && !uiState.isLoading) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Text(
-                            text = "Silence... for now.",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = ArtifactTheme.colors.onSurfaceMuted,
-                            textAlign = TextAlign.Center
-                        )
+                when {
+                    uiState.error != null && uiState.users.isEmpty() -> {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(32.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text(
+                                text = "Unable to load resonators",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.error,
+                                textAlign = TextAlign.Center
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                text = uiState.error ?: "An unexpected error occurred.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = ArtifactTheme.colors.onSurfaceMuted,
+                                textAlign = TextAlign.Center
+                            )
+                            Spacer(Modifier.height(24.dp))
+                            Button(
+                                onClick = { viewModel.loadUsers(refresh = true) },
+                                shape = MaterialTheme.shapes.medium
+                            ) {
+                                Text("Retry")
+                            }
+                        }
                     }
-                } else {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        items(uiState.users, key = { it.id }) { user ->
-                            val currentUserId = viewModel.currentUserId
-                            PresenceItem(
-                                user = user,
-                                onClick = { onUserClick(user.id) },
-                                isResonating = uiState.resonatingWithIds.contains(user.id),
-                                showResonateButton = user.id != currentUserId,
-                                onResonateClick = { viewModel.toggleResonance(user.id) }
+                    uiState.users.isEmpty() && !uiState.isLoading -> {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(32.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text(
+                                text = "Silence... for now.",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = ArtifactTheme.colors.onSurfaceMuted,
+                                textAlign = TextAlign.Center
                             )
                         }
-                        
-                        if (uiState.isLoading) {
-                            item {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(16.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(24.dp),
-                                        strokeWidth = 2.dp,
-                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                                    )
+                    }
+                    else -> {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            items(uiState.users, key = { it.id }) { user ->
+                                val currentUserId = viewModel.currentUserId
+                                PresenceItem(
+                                    user = user,
+                                    onClick = { onUserClick(user.id) },
+                                    isResonating = uiState.resonatingWithIds.contains(user.id),
+                                    showResonateButton = user.id != currentUserId,
+                                    onResonateClick = { viewModel.toggleResonance(user.id) }
+                                )
+                            }
+                            
+                            if (uiState.isLoading) {
+                                item {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(16.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(24.dp),
+                                            strokeWidth = 2.dp,
+                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                                        )
+                                    }
                                 }
                             }
                         }

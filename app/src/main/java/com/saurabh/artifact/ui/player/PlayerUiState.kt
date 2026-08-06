@@ -31,7 +31,9 @@ data class PlayerUiState(
     val saveSyncStatus: InteractionSyncStatus = InteractionSyncStatus.SYNCED,
     val isOwner: Boolean = false,
     val recommendationState: RecommendationState = RecommendationState.ACTIVE,
+    val resonanceCount: Int = 0,
     val resonanceSummary: String = "",
+    val canShowResonators: Boolean = false,
     
     // Advanced Controls State
     val isSilenceSkipEnabled: Boolean = false,

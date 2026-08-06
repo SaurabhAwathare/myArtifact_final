@@ -49,7 +49,8 @@ fun GlobalOverlayHost(
     },
     onReportArtifact: (String) -> Unit,
     onResonatorsCountClick: (String) -> Unit = { artifactId ->
-        navController.navigate(ResonanceList(artifactId = artifactId, title = "Resonators"))
+        val isOwner = playerViewModel.uiState.value.isOwner
+        navController.navigate(ResonanceList(artifactId = artifactId, isOwner = isOwner, title = "Resonators"))
     },
     playerViewModel: PlayerViewModel = hiltViewModel(),
     stage: StartupStage = StartupStage.STABLE,
@@ -77,11 +78,25 @@ fun GlobalOverlayHost(
         }
     }
 
+    // Phase 12: Navigation Guard - Prevent circular loop during Studio transition
+    // Tracks the most recent draft navigation to bridge the gap while NavController updates its state asynchronously.
+    var pendingStudioDraftId by remember { mutableStateOf<String?>(null) }
+
+    // Sync guard with current destination to allow re-entry if the user explicitly leaves and returns
+    LaunchedEffect(currentDestination) {
+        if (currentDestination?.hasRoute(PublishingStudio::class) == false) {
+            pendingStudioDraftId = null
+        }
+    }
+
     // Observe Navigation Events for Review Completion
     LaunchedEffect(Unit) {
         playerViewModel.navigateToPublish.collect { draftId ->
             val isAlreadyInStudio = navController.currentBackStackEntry?.destination?.hasRoute(PublishingStudio::class) == true
-            if (!isAlreadyInStudio) {
+            
+            // Allow navigation only if we aren't already there AND aren't currently transitioning there for this specific draft
+            if (!isAlreadyInStudio && pendingStudioDraftId != draftId) {
+                pendingStudioDraftId = draftId
                 onNavigateToPublish(draftId)
             }
         }
@@ -100,16 +115,11 @@ fun GlobalOverlayHost(
                     onNavigateToPublish = onNavigateToPublish,
                     onReportArtifact = onReportArtifact,
                     onAuthorClick = { userId ->
-                        android.util.Log.d("GlobalOverlayHost", "PROFILE_NAVIGATION_REQUESTED: userId=$userId")
                         if (userId.isNotEmpty()) {
                             // Collapse the expanded player before navigation so the destination
                             // screen is immediately visible while keeping playback active.
                             playerViewModel.setExpanded(false)
-
-                            android.util.Log.d("GlobalOverlayHost", "PROFILE_NAVIGATION_EXECUTED: destination=Profile($userId)")
                             navController.navigate(Profile(userId))
-                        } else {
-                            android.util.Log.e("GlobalOverlayHost", "PROFILE_NAVIGATION_ABORTED: userId is empty")
                         }
                     },
                     onResonatorsCountClick = { artifactId ->

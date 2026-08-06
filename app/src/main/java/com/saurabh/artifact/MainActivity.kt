@@ -178,7 +178,16 @@ fun AppRoot(
                             onboardingManager = onboardingManager,
                             onReportArtifact = { mainViewModel.showReportSheet(it) },
                             onPlayArtifactById = { artifactId ->
-                                playerViewModel.playArtifactById(artifactId, PlaybackSource.FEED_PLAYBACK)
+                                // Phase 12: Context Preservation - Only trigger playback if the artifact isn't already active.
+                                // This prevents overwriting the NOTIFICATION source during transient startup navigation collisions.
+                                val state = playerViewModel.uiState.value
+                                val isAlreadyActive = state.currentArtifact?.id == artifactId || state.currentPlayableArtifact?.id == artifactId
+                                
+                                if (!isAlreadyActive) {
+                                    playerViewModel.playArtifactById(artifactId, PlaybackSource.NOTIFICATION)
+                                } else {
+                                    playerViewModel.setExpanded(true)
+                                }
                             },
                             playerViewModel = playerViewModel,
                             onDestinationChanged = { mainViewModel.updateSecurityStatus(it) },

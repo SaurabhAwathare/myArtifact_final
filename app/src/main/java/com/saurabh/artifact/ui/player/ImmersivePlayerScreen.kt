@@ -291,20 +291,28 @@ fun ImmersivePlayerScreen(
                                             )
                                         }
                                     }
-                                    
-                                    // Unified Metadata Display (Matches Feed)
-                                    ResonanceDisplay(
-                                        summary = uiState.resonanceSummary,
-                                        isOwner = uiState.isOwner,
-                                        onClick = { 
-                                            artifact?.id?.let { id -> onResonatorsCountClick(id) }
-                                        }
-                                    )
                                 }
                             }
                         }
                     }
                 }
+            }
+
+            // 3.5 Social Resonance Entry Point (Discovery Gateway)
+            if (!isVerifiedDraft && uiState.canShowResonators && uiState.resonanceCount > 0) {
+                ResonanceDisplay(
+                    summary = uiState.resonanceSummary,
+                    isOwner = uiState.isOwner,
+                    onClick = { 
+                        artifact?.id?.let { id -> onResonatorsCountClick(id) }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color.White.copy(alpha = 0.04f))
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                )
             }
 
             // 4. Waveform Scrubber & Timeline

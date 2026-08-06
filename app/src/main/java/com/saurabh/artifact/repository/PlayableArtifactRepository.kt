@@ -31,7 +31,19 @@ class PlayableArtifactRepository @Inject constructor(
         try {
             val userId = userRepository.getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
             
-            // 1. Check Local Drafts first (Authoritative for review flow)
+            // Phase 12: Context-Aware Resolution Strategy
+            // Notifications and Deep Links target the "Public Record" by default.
+            // Draft-related sources target the "Local Work-in-Progress".
+            val shouldCheckPublishedFirst = source == PlaybackSource.NOTIFICATION || source == PlaybackSource.DEEP_LINK
+            
+            if (shouldCheckPublishedFirst) {
+                resolveFromPublished(id, source).fold(
+                    onSuccess = { return@withContext Result.success(it) },
+                    onFailure = { /* Fall back to local drafts if not found or error */ }
+                )
+            }
+
+            // Fallback/Standard path: Check Local Drafts
             val draft = draftDao.getDraftById(id, userId)
             if (draft != null) {
                 val author = userRepository.getCachedProfile()?.let { AuthorSnapshot.fromUser(it) } 
@@ -55,13 +67,34 @@ class PlayableArtifactRepository @Inject constructor(
                 )
             }
 
-            // 2. Check Published Artifacts
-            artifactRepository.getArtifactById(id).fold(
-                onSuccess = { artifact ->
-                    if (artifact.status == com.saurabh.artifact.model.ArtifactStatus.DELETED) {
-                        return@withContext Result.failure(AppError.NotFound("Artifact", id))
-                    }
+            // If we didn't check published first (or it failed), check it now
+            if (!shouldCheckPublishedFirst) {
+                return@withContext resolveFromPublished(id, source)
+            } else {
+                // If we reached here, both checks failed
+                Result.failure(AppError.NotFound("Artifact", id))
+            }
+        } catch (e: Exception) {
+            val error = AppError.from(e)
+            diagnosticLogger.error(
+                category = DiagnosticCategory.PLAYER,
+                eventName = "ARTIFACT_RESOLVE_FAILED_WRAPPER",
+                metadata = mapOf(
+                    LogKeys.ARTIFACT_ID to id,
+                    "errorType" to e.javaClass.simpleName,
+                    "errorMessage" to (e.message ?: "No message")
+                )
+            )
+            Result.failure(error)
+        }
+    }
 
+    private suspend fun resolveFromPublished(id: String, source: PlaybackSource): Result<PlayableArtifact> {
+        return artifactRepository.getArtifactById(id).fold(
+            onSuccess = { artifact ->
+                if (artifact.status == com.saurabh.artifact.model.ArtifactStatus.DELETED) {
+                    Result.failure(AppError.NotFound("Artifact", id))
+                } else {
                     Result.success(
                         PlayableArtifact(
                             id = artifact.id,
@@ -76,33 +109,21 @@ class PlayableArtifactRepository @Inject constructor(
                             originalArtifact = artifact
                         )
                     )
-                },
-                onFailure = { error ->
-                    diagnosticLogger.error(
-                        category = DiagnosticCategory.PLAYER,
-                        eventName = "ARTIFACT_RESOLVE_FAILED",
-                        metadata = mapOf(
-                            LogKeys.ARTIFACT_ID to id,
-                            "errorType" to error.javaClass.simpleName,
-                            "errorMessage" to (error.message ?: "No message")
-                        )
-                    )
-                    Result.failure(error)
                 }
-            )
-        } catch (e: Exception) {
-            val error = AppError.from(e)
-            diagnosticLogger.error(
-                category = DiagnosticCategory.PLAYER,
-                eventName = "ARTIFACT_RESOLVE_FAILED_WRAPPER",
-                metadata = mapOf(
-                    LogKeys.ARTIFACT_ID to id,
-                    "errorType" to e.javaClass.simpleName,
-                    "errorMessage" to (e.message ?: "No message")
+            },
+            onFailure = { error ->
+                diagnosticLogger.error(
+                    category = DiagnosticCategory.PLAYER,
+                    eventName = "ARTIFACT_RESOLVE_FAILED",
+                    metadata = mapOf(
+                        LogKeys.ARTIFACT_ID to id,
+                        "errorType" to error.javaClass.simpleName,
+                        "errorMessage" to (error.message ?: "No message")
+                    )
                 )
-            )
-            Result.failure(error)
-        }
+                Result.failure(error)
+            }
+        )
     }
 
     /**

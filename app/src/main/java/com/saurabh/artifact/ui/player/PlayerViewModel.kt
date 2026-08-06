@@ -202,6 +202,8 @@ class PlayerViewModel @Inject constructor(
             isSaved = if (isMetadataSynced) md.isSaved else false,
             saveSyncStatus = if (isMetadataSynced) md.saveSyncStatus else InteractionSyncStatus.SYNCED,
             resonanceSummary = if (isMetadataSynced) md.resonanceSummary else "",
+            resonanceCount = if (isMetadataSynced) md.resonanceCount else 0,
+            canShowResonators = if (isMetadataSynced) md.canShowResonators else false,
             playerMode = mode,
             isExpanded = expanded,
             showAdvancedControls = advanced
@@ -281,7 +283,9 @@ class PlayerViewModel @Inject constructor(
             saveSyncStatus = static.saveSyncStatus,
             isOwner = static.isOwner,
             recommendationState = static.recommendationState,
+            resonanceCount = static.resonanceCount,
             resonanceSummary = static.resonanceSummary,
+            canShowResonators = static.canShowResonators,
             isSilenceSkipEnabled = dynamic.isSilenceSkipEnabled,
             sleepTimerMillisRemaining = dynamic.sleepTimerMillisRemaining,
             currentTranscriptSegment = dynamic.currentTranscriptSegment,
@@ -642,7 +646,9 @@ private data class PlayerStaticState(
     val followSyncStatus: InteractionSyncStatus = InteractionSyncStatus.SYNCED,
     val isSaved: Boolean = false,
     val saveSyncStatus: InteractionSyncStatus = InteractionSyncStatus.SYNCED,
+    val resonanceCount: Int = 0,
     val resonanceSummary: String = "",
+    val canShowResonators: Boolean = false,
     val playerMode: PlayerMode = PlayerMode.HIDDEN,
     val isExpanded: Boolean = false,
     val showAdvancedControls: Boolean = false

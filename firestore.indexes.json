@@ -84,6 +84,15 @@
       ]
     },
     {
+      "collectionGroup": "artifact_reactions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "artifactId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "comments",
       "queryScope": "COLLECTION",
       "fields": [

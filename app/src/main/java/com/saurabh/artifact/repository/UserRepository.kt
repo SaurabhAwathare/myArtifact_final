@@ -921,6 +921,7 @@ class UserRepository @Inject constructor(
      */
     suspend fun getArtifactResonators(
         artifactId: String,
+        isOwner: Boolean = false,
         limit: Int = 20,
         lastVisible: DocumentSnapshot? = null
     ): Result<Pair<List<User>, DocumentSnapshot?>> {
@@ -928,7 +929,17 @@ class UserRepository @Inject constructor(
             try {
                 var query = firestore.collection("artifact_reactions")
                     .whereEqualTo("artifactId", artifactId)
-                    .orderBy("createdAt", Query.Direction.DESCENDING)
+
+                // OWNER PATH: If the user is the owner, add the proving filter to satisfy security rules.
+                // This satisfies the 'artifactOwnerId == request.auth.uid' rule branch.
+                if (isOwner) {
+                    val currentUserId = getCurrentUserId()
+                    if (currentUserId != null) {
+                        query = query.whereEqualTo("artifactOwnerId", currentUserId)
+                    }
+                }
+
+                query = query.orderBy("createdAt", Query.Direction.DESCENDING)
                     .limit(limit.toLong())
 
                 lastVisible?.let { query = query.startAfter(it) }

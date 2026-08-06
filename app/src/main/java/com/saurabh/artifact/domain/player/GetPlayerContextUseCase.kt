@@ -125,16 +125,25 @@ class GetPlayerContextUseCase @Inject constructor(
             .onStart { emit(artifact) }
             .filterNotNull()
 
-        val resonanceSummaryFlow = userIdFlow.flatMapLatest { currentUserId ->
-// ...
+        val resonanceMetadataFlow = userIdFlow.flatMapLatest { currentUserId ->
             reactionRepository.getReactionCounts(artifact.id).map { counts ->
                 val isOwner = artifact.userId == currentUserId
-                counts?.getFuzzySummary(isOwner) 
-                    ?: ArtifactReactionCounts(
-                        artifactId = artifact.id,
-                        totalCount = artifact.reactionCount,
-                        visibility = artifact.reactionVisibility
-                    ).getFuzzySummary(isOwner)
+                val effectiveCounts = counts ?: ArtifactReactionCounts(
+                    artifactId = artifact.id,
+                    totalCount = artifact.reactionCount,
+                    visibility = artifact.reactionVisibility
+                )
+                
+                val summary = effectiveCounts.getFuzzySummary(isOwner)
+                val visibility = effectiveCounts.visibility
+                val canShow = visibility != ReactionVisibilityMode.HIDDEN && 
+                             (visibility != ReactionVisibilityMode.CREATOR_ONLY || isOwner)
+
+                ResonanceMetadata(
+                    count = effectiveCounts.totalCount.toInt(),
+                    summary = summary,
+                    canShow = canShow
+                )
             }
         }
 
@@ -219,7 +228,7 @@ class GetPlayerContextUseCase @Inject constructor(
         }
 
         return combine(
-            resonanceSummaryFlow,
+            resonanceMetadataFlow,
             isResonatedFlow,
             resonanceSyncStatusFlow,
             selectedReactionTypeFlow,
@@ -229,9 +238,12 @@ class GetPlayerContextUseCase @Inject constructor(
             saveSyncStatusFlow,
             artifactUpdateFlow
         ) { params: Array<Any?> ->
+            val res = params[0] as ResonanceMetadata
             PlayerMetadata(
                 artifactId = artifact.id,
-                resonanceSummary = params[0] as String,
+                resonanceCount = res.count,
+                resonanceSummary = res.summary,
+                canShowResonators = res.canShow,
                 isResonated = params[1] as Boolean,
                 resonanceSyncStatus = params[2] as InteractionSyncStatus,
                 selectedReactionType = params[3] as ReactionType,
@@ -243,6 +255,12 @@ class GetPlayerContextUseCase @Inject constructor(
         }
     }
 
+    private data class ResonanceMetadata(
+        val count: Int = 0,
+        val summary: String = "",
+        val canShow: Boolean = false
+    )
+
     private data class TransitionState(
         val artifact: Artifact? = null,
         val wasJustPublished: Boolean = false
@@ -253,7 +271,9 @@ class GetPlayerContextUseCase @Inject constructor(
 
 data class PlayerMetadata(
     val artifactId: String = "",
+    val resonanceCount: Int = 0,
     val resonanceSummary: String = "",
+    val canShowResonators: Boolean = false,
     val isResonated: Boolean = false,
     val resonanceSyncStatus: InteractionSyncStatus = InteractionSyncStatus.SYNCED,
     val selectedReactionType: ReactionType = ReactionType.I_HEAR_YOU,

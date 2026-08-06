@@ -45,6 +45,14 @@ service cloud.firestore {
              isGlobalAdmin();
     }
 
+    // Business Purpose: Determine if the resonators list should be visible based on Artifact policy.
+    // Security Purpose: Derives authorization from the authoritative Artifact document.
+    function canReadResonators(artifactId) {
+      let artifact = get(/databases/$(database)/documents/artifacts/$(artifactId)).data;
+      let mode = artifact.get('reactionVisibility', 'APPROXIMATE');
+      return canReadArtifact(artifactId) && (mode == 'VISIBLE' || mode == 'APPROXIMATE');
+    }
+
     function isValidComment(data) {
       // MAX_COMMENT_LENGTH must sync with CommentConstants.kt (currently 1000)
       let requiredFields = ['artifactId', 'creatorId', 'author', 'text', 'status'];
@@ -269,10 +277,12 @@ service cloud.firestore {
 
     // --- CONSOLIDATED REACTIONS ---
     match /artifact_reactions/{id} {
-      allow read: if isAuth() && (
-        resource.data.userId == request.auth.uid ||
-        resource.data.artifactOwnerId == request.auth.uid
-      );
+      allow read: if isGlobalAdmin() ||
+                   (isAuth() && (
+                     resource.data.userId == request.auth.uid ||
+                     resource.data.artifactOwnerId == request.auth.uid ||
+                     canReadResonators(resource.data.artifactId)
+                   ));
       allow write: if false;
     }
 
