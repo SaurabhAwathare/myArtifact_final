@@ -10,6 +10,8 @@ import android.util.Log
 import androidx.media3.common.util.UnstableApi
 import com.saurabh.artifact.model.UserSettings
 import dagger.hilt.android.qualifiers.ApplicationContext
+import com.saurabh.artifact.startup.StartupCoordinator
+import com.saurabh.artifact.startup.StartupComponent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -31,6 +33,7 @@ class SettingsRepository @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val firestore: FirebaseFirestore,
     private val authRepository: AuthRepository,
+    private val startupCoordinator: StartupCoordinator,
     private val sessionManager: com.saurabh.artifact.data.local.UserSessionManager,
     private val logoutCoordinator: dagger.Lazy<com.saurabh.artifact.domain.auth.LogoutCoordinator>
 ) {
@@ -66,6 +69,9 @@ class SettingsRepository @Inject constructor(
 
     init {
         repositoryScope.launch {
+            // Wait for security (App Check) to be ready before starting any remote sync
+            startupCoordinator.awaitComponent(StartupComponent.CORE)
+            
             authRepository.currentUser.collectLatest { user ->
                 remoteListener?.remove()
                 if (user != null) {

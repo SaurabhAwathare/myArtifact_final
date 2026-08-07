@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.tasks.await
 import kotlin.coroutines.resume
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -148,9 +149,12 @@ class StartupCoordinator @Inject constructor(
 
             try {
                 // PHASE 1: Mandatory Core Security (Critical for UI and Backend)
+                // Note: initializeAppCheck() must be called in Application.onCreate()
+                awaitAppCheckReadiness()
                 initializeSecurityProviderSync()
                 initializeCore() 
                 emitReadiness(StartupComponent.CORE)
+                Log.d("RACE_CHECK", "CORE_READY")
                 
                 // STAGGER 1: Move to Presence after initial frame
                 delay(200.milliseconds) 
@@ -216,6 +220,18 @@ class StartupCoordinator @Inject constructor(
     private fun initializeCore() {
         Log.i("Startup", "Current Environment: ${environmentProvider.environment}")
         Log.i("Startup", "Firebase Project ID: ${environmentProvider.firebaseProjectId}")
+    }
+
+    private suspend fun awaitAppCheckReadiness() {
+        val firebaseAppCheck = com.google.firebase.appcheck.FirebaseAppCheck.getInstance()
+        Log.d("RACE_CHECK", "APP_CHECK_TOKEN_REQUEST_START")
+        try {
+            val result = firebaseAppCheck.getAppCheckToken(false).await()
+            val token = result.token
+            Log.d("RACE_CHECK", "APP_CHECK_TOKEN_RECEIVED: ${token.take(10)}... (length=${token.length})")
+        } catch (e: Exception) {
+            Log.e("RACE_CHECK", "App Check Token initial exchange failed", e)
+        }
     }
 
     private suspend fun initializeSecurityProviderSync() {

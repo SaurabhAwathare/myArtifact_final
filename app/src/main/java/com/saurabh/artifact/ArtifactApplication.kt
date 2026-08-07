@@ -52,13 +52,25 @@ class ArtifactApplication : Application(), ImageLoaderFactory, Configuration.Pro
     private var _imageLoader: ImageLoader? = null
 
     override fun onCreate() {
+        // 1. Install App Check Factory IMMEDIATELY (before any Hilt/Firebase access)
+        val firebaseAppCheck = com.google.firebase.appcheck.FirebaseAppCheck.getInstance()
+        if (BuildConfig.DEBUG) {
+            firebaseAppCheck.installAppCheckProviderFactory(
+                com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory.getInstance()
+            )
+        } else {
+            firebaseAppCheck.installAppCheckProviderFactory(
+                com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory.getInstance()
+            )
+        }
+
         super.onCreate()
         
         // Initialize Logger
         com.saurabh.artifact.diagnostics.ArtifactLogger.init(diagnosticLogger.get())
         
         setupRescueTracker()
-        
+
         // Log App Startup
         com.saurabh.artifact.diagnostics.ArtifactLogger.i(DiagnosticCategory.APP, "APP_LAUNCHED")
         

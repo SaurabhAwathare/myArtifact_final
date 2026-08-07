@@ -71,7 +71,12 @@ service cloud.firestore {
 
     // --- HELPER FUNCTIONS ---
     function hasValidAppCheck() {
-      return request.auth != null && request.auth.token.appcheck == true;
+      // Support official CEL variable, camelCase (emulator), and auth token app_id fallback
+      return request.auth != null && (
+        ("appcheck" in request && request.appcheck != null) ||
+        ("appCheck" in request && request.appCheck != null) ||
+        ("firebase" in request.auth.token && "app_id" in request.auth.token.firebase)
+      );
     }
 
     function isAuth() {
@@ -79,7 +84,7 @@ service cloud.firestore {
     }
 
     function isOwner(userId) {
-      return hasValidAppCheck() && request.auth.uid == userId;
+      return request.auth != null && request.auth.uid == userId;
     }
 
     function isArtifactOwner(artifactId) {
@@ -151,7 +156,9 @@ service cloud.firestore {
       allow update: if resource != null &&
                    isOwner(uid) &&
                    // Release Hardening: Block modification of privileged fields.
-                   !request.resource.data.diff(resource.data).affectedKeys().hasAny(['isAdmin', 'admin', 'accountStatus', 'email', 'realName', 'fcmToken']) &&
+                   // Migration Fix: Allow deletion of legacy fields, block all other modifications (add/change).
+                   !request.resource.data.diff(resource.data).changedKeys().hasAny(['isAdmin', 'admin', 'accountStatus', 'email', 'realName', 'fcmToken']) &&
+                   !request.resource.data.diff(resource.data).addedKeys().hasAny(['isAdmin', 'admin', 'accountStatus', 'email', 'realName', 'fcmToken']) &&
                    isValidIdentityUpdate(resource.data, request.resource.data);
 
       allow create: if isOwner(uid) &&

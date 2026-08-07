@@ -24,6 +24,9 @@ object FirebaseModule {
     @Provides
     @Singleton
     fun provideFirebaseFirestore(): FirebaseFirestore {
+        // Enable verbose logging to see App Check token status
+        FirebaseFirestore.setLoggingEnabled(true)
+        
         val firestore = FirebaseFirestore.getInstance()
         // Modern way to enable offline persistence:
         val settings = com.google.firebase.firestore.firestoreSettings {

@@ -14,18 +14,30 @@ import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.User
+import com.saurabh.artifact.startup.StartupCoordinator
+import com.saurabh.artifact.startup.StartupComponent
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
 
+import androidx.media3.common.util.UnstableApi
+
+@UnstableApi
 @Singleton
 class AuthRepository @Inject constructor(
     private val firebaseAuth: FirebaseAuth,
     private val firestore: FirebaseFirestore,
-    private val credentialManager: CredentialManager
+    private val credentialManager: CredentialManager,
+    private val startupCoordinator: StartupCoordinator
 ) {
+    private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
     private val _currentUser = MutableStateFlow(firebaseAuth.currentUser)
     val currentUser: StateFlow<FirebaseUser?> = _currentUser
 
@@ -57,8 +69,12 @@ class AuthRepository @Inject constructor(
             )
             _currentUser.value = user
             if (user != null) {
-                observeUserData(user.uid)
-                observePrivateSettings(user.uid)
+                repositoryScope.launch {
+                    startupCoordinator.awaitComponent(StartupComponent.CORE)
+                    android.util.Log.d("RACE_CHECK", "AUTH_LISTENERS_STARTED")
+                    observeUserData(user.uid)
+                    observePrivateSettings(user.uid)
+                }
             } else {
                 cleanupListeners()
                 _userData.value = null

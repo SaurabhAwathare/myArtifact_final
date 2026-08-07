@@ -1,0 +1,14 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /appCheck/{id} {
+      allow read: if request.auth != null && ("appCheck" in request.auth.token);
+    }
+    match /appcheck/{id} {
+      allow read: if request.auth != null && ("appcheck" in request.auth.token);
+    }
+    match /firebase_app_id/{id} {
+      allow read: if request.auth != null && ("firebase" in request.auth.token && "app_id" in request.auth.token.firebase);
+    }
+  }
+}

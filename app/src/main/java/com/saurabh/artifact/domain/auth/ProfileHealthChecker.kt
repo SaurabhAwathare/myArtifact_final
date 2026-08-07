@@ -28,12 +28,14 @@ class ProfileHealthChecker @Inject constructor(
     suspend fun checkHealth(): HealthStatus {
         val currentUser = auth.currentUser ?: return HealthStatus.Missing
         val userId = currentUser.uid
+        android.util.Log.d("RACE_CHECK", "Profile Health Check Started: ${System.currentTimeMillis()}")
 
         return try {
             val userRef = firestore.collection("users").document(userId)
             val privateRef = userRef.collection("private").document("settings")
 
             ArtifactLogger.d(DiagnosticCategory.AUTH, "PROFILE_CHECK_FETCH_USER")
+            android.util.Log.d("RACE_CHECK", "FIRST_FIRESTORE_REQUEST")
             val userSnapshot = withTimeout(10.seconds) {
                 userRef.get().await()
             }

@@ -1,0 +1,26 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /diagnostic/{id} {
+      allow read: if evaluateDiagnostic();
+    }
+
+    function evaluateDiagnostic() {
+      let r = request;
+      let authExists = r.auth != null;
+      let token = authExists ? r.auth.token : {};
+      let firebase = token.get('firebase', {});
+
+      // Perform evaluations and wrap in debug() to see them in logs
+      return debug({
+        "auth": authExists,
+        "request_keys": r.keys(),
+        "token_keys": token.keys(),
+        "firebase_keys": firebase.keys(),
+        "app_id_in_firebase": "app_id" in firebase,
+        "app_id_in_token": "app_id" in token,
+        "aud": token.get("aud", "none")
+      }).auth || true;
+    }
+  }
+}

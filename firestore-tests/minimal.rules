@@ -1,0 +1,13 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /test/{id} {
+      allow read: if request.appcheck != null;
+    }
+    match /existence_check/{id} {
+      // This will throw if request.appcheck is undefined
+      // But will return true if it is null (unauthenticated)
+      allow read: if request.appcheck == null;
+    }
+  }
+}
