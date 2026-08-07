@@ -318,6 +318,10 @@ service cloud.firestore {
       allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
     }
 
+    match /isolation_test/repro_doc {
+      allow read: if request.auth != null && request.appcheck != null;
+    }
+
     match /recommendation_profiles/{uid} {
       allow read: if isOwner(uid);
     }

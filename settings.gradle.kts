@@ -21,3 +21,5 @@ dependencyResolutionManagement {
 rootProject.name = "My Artifact"
 include(":app")
 include(":baselineprofile")
+include(":isolation_test")
+project(":isolation_test").projectDir = file("../isolation_test")
