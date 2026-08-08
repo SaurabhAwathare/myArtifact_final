@@ -179,7 +179,7 @@ class ArtifactRepository @Inject constructor(
                 } else {
                     diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "ARTIFACT_OBSERVE_FAILED", mapOf(LogKeys.ARTIFACT_ID to artifactId), error)
                 }
-                trySend(null)
+                close(error)
                 return@addSnapshotListener
             }
             if (snapshot != null && snapshot.exists()) {

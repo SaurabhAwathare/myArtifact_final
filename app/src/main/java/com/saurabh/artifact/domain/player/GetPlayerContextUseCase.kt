@@ -10,6 +10,7 @@ import com.saurabh.artifact.diagnostics.LogKeys
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
+import com.google.firebase.firestore.FirebaseFirestoreException
 import javax.inject.Inject
 import kotlin.time.Duration.Companion.seconds
 
@@ -92,6 +93,18 @@ class GetPlayerContextUseCase @Inject constructor(
         // Live observation of the artifact itself for real-time counts
         // RECOVERY: Implement bounded retry for transient PERMISSION_DENIED during publishing transition
         val artifactUpdateFlow = artifactRepository.observeArtifact(artifact.id)
+            .catch { e ->
+                // NARROW FIX: Recognize PERMISSION_DENIED as a transient race condition during publishing
+                val isTransientPermissionError = e is FirebaseFirestoreException &&
+                        e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED &&
+                        wasJustPublished
+                
+                if (isTransientPermissionError) {
+                    throw TransientPublishingException()
+                } else {
+                    throw e
+                }
+            }
             .map { result ->
                 if (result == null && wasJustPublished) {
                     throw TransientPublishingException()

@@ -10,6 +10,7 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.advanceTimeBy
+import com.google.firebase.firestore.FirebaseFirestoreException
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
@@ -172,6 +173,74 @@ class GetPlayerContextUseCaseTest {
         verify(atLeast = 1) { artifactRepository.observeArtifact(artifactId2) }
         
         job.cancel()
+    }
+
+    @Test
+    fun `should retry when PERMISSION_DENIED occurs during publishing transition`() = runTest {
+        val artifactId = "art_pd"
+        val draftArtifact = Artifact(id = artifactId, status = ArtifactStatus.DRAFT)
+        val publishedArtifact = Artifact(id = artifactId, status = ArtifactStatus.ACTIVE)
+        
+        val artifactFlow = MutableStateFlow<Artifact?>(draftArtifact)
+        
+        // Mock observeArtifact to throw PERMISSION_DENIED then succeed
+        val attemptCount = java.util.concurrent.atomic.AtomicInteger(0)
+        every { artifactRepository.observeArtifact(artifactId) } answers {
+            flow {
+                if (attemptCount.incrementAndGet() == 1) {
+                    throw FirebaseFirestoreException(
+                        "Permission denied",
+                        FirebaseFirestoreException.Code.PERMISSION_DENIED
+                    )
+                } else {
+                    emit(publishedArtifact)
+                }
+            }
+        }
+
+        val metadataFlow = useCase.execute(artifactFlow)
+        
+        // 1. Initial state
+        metadataFlow.first()
+        
+        // 2. Transition
+        artifactFlow.value = publishedArtifact
+        
+        val emissions = mutableListOf<PlayerMetadata>()
+        val job = metadataFlow.onEach { emissions.add(it) }.launchIn(this)
+        
+        advanceTimeBy(5.seconds)
+        
+        // Verify retry occurred (initial attempt + 1 retry)
+        verify(exactly = 2) { artifactRepository.observeArtifact(artifactId) }
+        verify(atLeast = 1) { diagnosticLogger.warn(any(), "ARTIFACT_OBSERVE_RETRYING", any()) }
+        
+        job.cancel()
+    }
+
+    @Test
+    fun `should NOT retry when PERMISSION_DENIED occurs for non-transitioning artifact`() = runTest {
+        val artifactId = "art_pd_existing"
+        val publishedArtifact = Artifact(id = artifactId, status = ArtifactStatus.ACTIVE)
+        
+        // Flow starts already published (no transition)
+        val artifactFlow = MutableStateFlow<Artifact?>(publishedArtifact)
+        
+        // Mock observeArtifact to throw PERMISSION_DENIED
+        every { artifactRepository.observeArtifact(artifactId) } returns flow {
+            throw FirebaseFirestoreException(
+                "Permission denied",
+                FirebaseFirestoreException.Code.PERMISSION_DENIED
+            )
+        }
+
+        val metadataFlow = useCase.execute(artifactFlow)
+        
+        // Verify only 1 attempt (NO retry)
+        metadataFlow.catch { /* ignored */ }.collect()
+        
+        verify(exactly = 1) { artifactRepository.observeArtifact(artifactId) }
+        verify(exactly = 0) { diagnosticLogger.warn(any(), "ARTIFACT_OBSERVE_RETRYING", any()) }
     }
 
     @Test
