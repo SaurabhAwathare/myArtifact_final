@@ -1,0 +1,28 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function hasValidAppCheck() {
+      return request.auth != null && (
+        ("appcheck" in request && request.appcheck != null) ||
+        ("appCheck" in request && request.appCheck != null) ||
+        ("firebase" in request.auth.token && "app_id" in request.auth.token.firebase)
+      );
+    }
+
+    match /test_appCheck/{id} {
+      allow read: if request.appCheck != null;
+    }
+
+    match /test_hasValidAppCheck/{id} {
+      allow read: if hasValidAppCheck();
+    }
+
+    match /test_in_appCheck/{id} {
+       allow read: if "appCheck" in request;
+    }
+
+    match /test_appcheck_lowercase/{id} {
+      allow read: if request.appcheck != null;
+    }
+  }
+}

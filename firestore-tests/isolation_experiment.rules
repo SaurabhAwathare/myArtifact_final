@@ -1,0 +1,26 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function hasValidAppCheck() {
+      return request.auth != null && (
+        ("appcheck" in request && request.appcheck != null) ||
+        ("appCheck" in request && request.appCheck != null) ||
+        ("firebase" in request.auth.token && "app_id" in request.auth.token.firebase)
+      );
+    }
+
+    function isAuth() {
+      return request.auth != null && hasValidAppCheck();
+    }
+
+    match /users/{uid}/resonance_out/{targetId} {
+      // Branch 1: Control (Existing Rule)
+      allow read: if isAuth();
+    }
+
+    match /isolation_no_appcheck/{uid}/resonance_out/{targetId} {
+      // Branch 2: Isolation (App Check removed)
+      allow read: if request.auth != null;
+    }
+  }
+}
