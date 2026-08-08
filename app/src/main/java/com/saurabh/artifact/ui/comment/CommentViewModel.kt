@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -105,6 +106,15 @@ class CommentViewModel @Inject constructor(
         android.util.Log.d("COMMENT_TRACE", "Starting unlock observation for artifactId=$artifactId")
         unlockObservationJob = viewModelScope.launch {
             engagementRepository.observeEngagementEvidence(artifactId)
+                .catch { e ->
+                    diagnosticLogger.error(
+                        DiagnosticCategory.COMMENT,
+                        "UNLOCK_OBSERVATION_CRASH",
+                        mapOf(LogKeys.ARTIFACT_ID to artifactId),
+                        e
+                    )
+                    _uiState.update { it.copy(unlockState = CommentUnlockState.ERROR) }
+                }
                 .collectLatest { evidence ->
                     val newState = deriveUnlockState(evidence)
                     android.util.Log.d("COMMENT_TRACE", "Unlock state update: artifactId=$artifactId, newState=$newState")

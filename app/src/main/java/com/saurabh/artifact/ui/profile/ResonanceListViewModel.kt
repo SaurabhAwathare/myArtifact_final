@@ -1,5 +1,7 @@
 package com.saurabh.artifact.ui.profile
 
+import androidx.annotation.OptIn
+import androidx.media3.common.util.UnstableApi
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -7,9 +9,8 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.saurabh.artifact.model.User
 import com.saurabh.artifact.repository.UserRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -22,6 +23,7 @@ data class ResonanceListUiState(
     val title: String = ""
 )
 
+@OptIn(ExperimentalCoroutinesApi::class, UnstableApi::class)
 @HiltViewModel
 class ResonanceListViewModel @Inject constructor(
     private val userRepository: UserRepository,
@@ -46,13 +48,20 @@ class ResonanceListViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            authRepository.currentUser.collect { user ->
-                if (user != null) {
-                    userRepository.observeResonatingWithIds(user.uid).collect { ids ->
-                        _uiState.value = _uiState.value.copy(resonatingWithIds = ids)
+            authRepository.currentUser
+                .flatMapLatest { user ->
+                    if (user != null) {
+                        userRepository.observeResonatingWithIds(user.uid)
+                            .catch { e ->
+                                _uiState.update { it.copy(error = e.message ?: "Sync error") }
+                            }
+                    } else {
+                        flowOf(emptySet())
                     }
                 }
-            }
+                .collect { ids ->
+                    _uiState.update { it.copy(resonatingWithIds = ids) }
+                }
         }
         loadUsers()
     }

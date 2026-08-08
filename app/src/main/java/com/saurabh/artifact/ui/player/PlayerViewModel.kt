@@ -1,5 +1,6 @@
 package com.saurabh.artifact.ui.player
 
+import androidx.media3.common.util.UnstableApi
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -25,6 +26,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -37,6 +39,7 @@ import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
+@UnstableApi
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle,
@@ -73,7 +76,9 @@ class PlayerViewModel @Inject constructor(
     // Consolidated metadata from UseCase - Live and Atomic
     private val metadata: StateFlow<PlayerMetadata> = getPlayerContextUseCase.execute(
         artifactFlow = playbackCoordinator.currentArtifact
-    ).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PlayerMetadata())
+    ).catch { e ->
+        reportError(e.message ?: "Metadata synchronization error", DiagnosticCategory.PLAYER)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PlayerMetadata())
 
     init {
         viewModelScope.launch {

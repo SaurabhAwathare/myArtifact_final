@@ -265,6 +265,8 @@ class ProfileViewModel @Inject constructor(
         )
 
         state
+    }.catch { e ->
+        _message.value = ErrorMessageMapper.map(e)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5.seconds),

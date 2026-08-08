@@ -42,7 +42,7 @@ service cloud.firestore {
       let artifact = get(/databases/$(database)/documents/artifacts/$(artifactId)).data;
       return (artifact.get('isPublic', false) == true ||
              (request.auth != null && artifact.get('userId', '') == request.auth.uid) ||
-             isGlobalAdmin()) && hasValidAppCheck();
+             isGlobalAdmin());
     }
 
     // Business Purpose: Determine if the resonators list should be visible based on Artifact policy.
@@ -70,17 +70,8 @@ service cloud.firestore {
     }
 
     // --- HELPER FUNCTIONS ---
-    function hasValidAppCheck() {
-      // Support official CEL variable, camelCase (emulator), and auth token app_id fallback
-      return request.auth != null && (
-        ("appcheck" in request && request.appcheck != null) ||
-        ("appCheck" in request && request.appCheck != null) ||
-        ("firebase" in request.auth.token && "app_id" in request.auth.token.firebase)
-      );
-    }
-
     function isAuth() {
-      return request.auth != null && hasValidAppCheck();
+      return request.auth != null;
     }
 
     function isOwner(userId) {
@@ -162,7 +153,6 @@ service cloud.firestore {
                    isValidIdentityUpdate(resource.data, request.resource.data);
 
       allow create: if isOwner(uid) &&
-                    hasValidAppCheck() &&
                     !("isAdmin" in request.resource.data) &&
                     !("admin" in request.resource.data) &&
                     !("accountStatus" in request.resource.data);
@@ -265,7 +255,7 @@ service cloud.firestore {
     }
 
     match /artifact_reaction_counts/{artifactId} {
-      allow read: if hasValidAppCheck();
+      allow read: if true;
       allow write: if false;
     }
 
@@ -319,7 +309,7 @@ service cloud.firestore {
     }
 
     match /isolation_test/repro_doc {
-      allow read: if request.auth != null && request.appcheck != null;
+      allow read: if isAuth();
     }
 
     match /recommendation_profiles/{uid} {

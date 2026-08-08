@@ -1,5 +1,7 @@
 package com.saurabh.artifact.ui.identity
 
+import androidx.annotation.OptIn
+import androidx.media3.common.util.UnstableApi
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
@@ -24,7 +26,7 @@ enum class UsernameAvailability {
     CHECKING, AVAILABLE, TAKEN, ERROR, NONE
 }
 
-@OptIn(ExperimentalCoroutinesApi::class)
+@OptIn(ExperimentalCoroutinesApi::class, UnstableApi::class)
 @HiltViewModel
 class IdentityViewModel @Inject constructor(
     private val userProfileManager: UserProfileManager,
@@ -57,6 +59,9 @@ class IdentityViewModel @Inject constructor(
     val userProfile = authRepository.currentUser.flatMapLatest { user ->
         if (user != null) userRepository.streamUserProfile(user.uid)
         else flowOf(null)
+    }.catch { e ->
+        diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "USER_PROFILE_CRASH", emptyMap(), e)
+        _uiState.value = IdentityUiState.Error(ErrorMessageMapper.map(e))
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     val identityMetadata = userProfile.map { it?.identityMetadata ?: com.saurabh.artifact.model.IdentityMetadata() }
