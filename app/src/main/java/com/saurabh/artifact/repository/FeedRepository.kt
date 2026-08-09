@@ -10,6 +10,7 @@ import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.service.RecommendationService
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -86,6 +87,8 @@ class FeedRepository @Inject constructor(
             
             val sorted = allArtifacts.asSequence().sortedByDescending { it.createdAt }.take(limit).toList()
             Result.success(PaginatedArtifacts(sorted, lastDocInBatch))
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             diagnosticLogger.error(DiagnosticCategory.FEED, "FEED_RESONATING_FETCH_FAILED", throwable = e)
             Result.failure(AppError.from(e))

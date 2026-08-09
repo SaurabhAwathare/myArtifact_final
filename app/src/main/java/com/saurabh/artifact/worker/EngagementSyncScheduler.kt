@@ -32,7 +32,7 @@ class EngagementSyncScheduler @Inject constructor(
 
         WorkManager.getInstance(context).enqueueUniqueWork(
             WORK_NAME,
-            ExistingWorkPolicy.APPEND_OR_REPLACE,
+            ExistingWorkPolicy.KEEP,
             syncRequest
         )
     }

@@ -313,7 +313,7 @@ class InteractionSyncWorker @AssistedInject constructor(
 
             WorkManager.getInstance(context).enqueueUniqueWork(
                 TAG,
-                ExistingWorkPolicy.APPEND_OR_REPLACE,
+                ExistingWorkPolicy.KEEP,
                 request,
             )
         }
