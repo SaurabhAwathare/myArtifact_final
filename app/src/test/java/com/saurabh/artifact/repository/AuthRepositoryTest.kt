@@ -14,6 +14,7 @@ import com.saurabh.artifact.diagnostics.ArtifactLogger
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.FakeDiagnosticLogger
 import com.saurabh.artifact.diagnostics.TestNoOpDiagnosticLogger
+import com.saurabh.artifact.startup.StartupCoordinator
 import io.mockk.*
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.tasks.await
@@ -26,6 +27,7 @@ class AuthRepositoryTest {
     private val firebaseAuth = mockk<FirebaseAuth>(relaxed = true)
     private val firestore = mockk<FirebaseFirestore>(relaxed = true)
     private val credentialManager = mockk<CredentialManager>(relaxed = true)
+    private val startupCoordinator = mockk<StartupCoordinator>(relaxed = true)
     private val fakeLogger = FakeDiagnosticLogger()
 
     private lateinit var repository: AuthRepository
@@ -37,7 +39,8 @@ class AuthRepositoryTest {
         repository = AuthRepository(
             firebaseAuth = firebaseAuth,
             firestore = firestore,
-            credentialManager = credentialManager
+            credentialManager = credentialManager,
+            startupCoordinator = startupCoordinator
         )
     }
 

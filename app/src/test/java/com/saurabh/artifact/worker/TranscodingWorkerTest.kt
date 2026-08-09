@@ -9,6 +9,7 @@ import com.saurabh.artifact.audio.WavRecoveryManager
 import androidx.work.workDataOf
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.data.local.DraftDao
+import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.util.EncryptedStorageManager
 import com.saurabh.artifact.util.FileIntegrity
 import io.mockk.*
@@ -27,10 +28,15 @@ class TranscodingWorkerTest {
     private val localDraftManager = mockk<LocalDraftManager>(relaxed = true)
     private val encryptedStorageManager = mockk<EncryptedStorageManager>(relaxed = true)
     private val wavRecoveryManager = mockk<WavRecoveryManager>(relaxed = true)
+    private val authRepository = mockk<AuthRepository>(relaxed = true)
     private val context = mockk<Context>(relaxed = true)
     private val workerParams = mockk<WorkerParameters>(relaxed = true)
 
     private lateinit var worker: TranscodingWorker
+
+    private companion object {
+        private const val TEST_USER_ID = "test-user-id"
+    }
 
     @Before
     fun setup() {
@@ -44,6 +50,8 @@ class TranscodingWorkerTest {
         
         every { encryptedStorageManager.getEncryptedOutputStream(any()) } answers { FileOutputStream(it.invocation.args[0] as File) }
 
+        every { authRepository.currentUserId } returns TEST_USER_ID
+
         worker = TranscodingWorker(
             appContext = context,
             workerParams = workerParams,
@@ -51,6 +59,7 @@ class TranscodingWorkerTest {
             localDraftManager = localDraftManager,
             encryptedStorageManager = encryptedStorageManager,
             wavRecoveryManager = wavRecoveryManager,
+            authRepository = authRepository,
             diagnosticLogger = mockk(relaxed = true)
         )
     }
@@ -71,11 +80,12 @@ class TranscodingWorkerTest {
         
         val draft = mockk<ArtifactDraftEntity>(relaxed = true) {
             every { id } returns draftId
+            every { userId } returns TEST_USER_ID
             every { rawPcmPath } returns rawPath
             every { localAudioPath } returns finalPath
         }
 
-        coEvery { draftDao.getDraftById(draftId) } returns draft
+        coEvery { draftDao.getDraftById(draftId, TEST_USER_ID) } returns draft
         // The worker will create this file via transcodeAndEncrypt
         val finalFile = File(finalPath)
         every { localDraftManager.createDraftFile(draftId, "m4a") } returns finalFile
@@ -87,7 +97,9 @@ class TranscodingWorkerTest {
         // Wait a bit for file system to sync if needed (shouldn't be needed for unit tests but Windows...)
         Thread.sleep(100)
 
+        // Verify: Original WAV is deleted after success
         assert(!File(rawPath).exists())
+
         tempDir.deleteRecursively()
     }
 
@@ -102,10 +114,11 @@ class TranscodingWorkerTest {
         }
         val draft = mockk<ArtifactDraftEntity>(relaxed = true) {
             every { id } returns draftId
+            every { userId } returns TEST_USER_ID
             every { rawPcmPath } returns "/path/raw.wav"
         }
 
-        coEvery { draftDao.getDraftById(draftId) } returns draft
+        coEvery { draftDao.getDraftById(draftId, TEST_USER_ID) } returns draft
         every { localDraftManager.createDraftFile(draftId, "m4a") } returns finalFile
 
         val result = worker.doWork()

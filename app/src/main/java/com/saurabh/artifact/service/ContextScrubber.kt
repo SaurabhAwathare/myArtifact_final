@@ -24,25 +24,26 @@ class ContextScrubber @Inject constructor(
         val segments = listOf(TranscriptSegment(id = "scrub_target", text = text, startMs = 0, endMs = 0))
         val flagged = scanner.scan(segments)
 
-        if (flagged.isEmpty()) return text
-
         var scrubbedText = text
-        // Sort by start position descending to avoid index shifts during replacement
-        // Note: SensitiveInfoScanner doesn't currently provide character offsets for all types,
-        // so we'll rely on string replacement for now, which is safer given the "Smallest Safe Fix" rule.
-        flagged.forEach { flag ->
-            // Use the original text found by the scanner if available
-            val target = flag.originalText
-            if (target.isNotEmpty() && scrubbedText.contains(target)) {
-                val placeholder = when (flag.type) {
-                    PiiType.NAME -> "[NAME]"
-                    PiiType.EMAIL -> "[EMAIL]"
-                    PiiType.PHONE -> "[PHONE]"
-                    PiiType.LOCATION -> "[LOCATION]"
-                    PiiType.ID_NUMBER -> "[ID]"
-                    PiiType.OTHER -> "[REDACTED]"
+        
+        if (flagged.isNotEmpty()) {
+            // Sort by start position descending to avoid index shifts during replacement
+            // Note: SensitiveInfoScanner doesn't currently provide character offsets for all types,
+            // so we'll rely on string replacement for now, which is safer given the "Smallest Safe Fix" rule.
+            flagged.forEach { flag ->
+                // Use the original text found by the scanner if available
+                val target = flag.originalText
+                if (target.isNotEmpty() && scrubbedText.contains(target)) {
+                    val placeholder = when (flag.type) {
+                        PiiType.NAME -> "[NAME]"
+                        PiiType.EMAIL -> "[EMAIL]"
+                        PiiType.PHONE -> "[PHONE]"
+                        PiiType.LOCATION -> "[LOCATION]"
+                        PiiType.ID_NUMBER -> "[ID]"
+                        PiiType.OTHER -> "[REDACTED]"
+                    }
+                    scrubbedText = scrubbedText.replace(target, placeholder)
                 }
-                scrubbedText = scrubbedText.replace(target, placeholder)
             }
         }
 

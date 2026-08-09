@@ -2,6 +2,7 @@ package com.saurabh.artifact.repository
 
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.data.local.DraftDao
+import com.saurabh.artifact.data.mapper.DraftToArtifactMapper
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.Artifact
@@ -18,19 +19,31 @@ import org.junit.Test
 class PlayableArtifactRepositoryTest {
     private val draftDao = mockk<DraftDao>(relaxed = true)
     private val artifactRepository = mockk<ArtifactRepository>(relaxed = true)
+    private val draftToArtifactMapper = mockk<DraftToArtifactMapper>(relaxed = true)
+    private val userRepository = mockk<UserRepository>(relaxed = true)
     private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
     private lateinit var repository: PlayableArtifactRepository
 
+    private companion object {
+        private const val TEST_USER_ID = "test-user-id"
+    }
+
     @Before
     fun setup() {
-        repository = PlayableArtifactRepository(draftDao, artifactRepository, diagnosticLogger)
+        repository = PlayableArtifactRepository(
+            draftDao,
+            artifactRepository,
+            draftToArtifactMapper,
+            userRepository,
+            diagnosticLogger
+        )
     }
 
     @Test
     fun `resolveArtifact should return draft if it exists`() = runBlocking {
         val id = "draft123"
-        val draft = ArtifactDraftEntity(id = id, localAudioPath = "/path/to/audio")
-        coEvery { draftDao.getDraftById(id) } returns draft
+        val draft = ArtifactDraftEntity(id = id, userId = TEST_USER_ID, localAudioPath = "/path/to/audio")
+        coEvery { draftDao.getDraftById(id, any()) } returns draft
 
         val result = repository.resolveArtifact(id, PlaybackSource.FEED_PLAYBACK)
 
@@ -45,7 +58,7 @@ class PlayableArtifactRepositoryTest {
         val id = "deleted123"
         val artifact = Artifact(id = id, status = ArtifactStatus.DELETED)
         
-        coEvery { draftDao.getDraftById(id) } returns null
+        coEvery { draftDao.getDraftById(id, any()) } returns null
         coEvery { artifactRepository.getArtifactById(id) } returns Result.success(artifact)
 
         val result = repository.resolveArtifact(id, PlaybackSource.FEED_PLAYBACK)
@@ -60,7 +73,7 @@ class PlayableArtifactRepositoryTest {
         val id = "active123"
         val artifact = Artifact(id = id, status = ArtifactStatus.ACTIVE)
         
-        coEvery { draftDao.getDraftById(id) } returns null
+        coEvery { draftDao.getDraftById(id, any()) } returns null
         coEvery { artifactRepository.getArtifactById(id) } returns Result.success(artifact)
 
         val result = repository.resolveArtifact(id, PlaybackSource.FEED_PLAYBACK)

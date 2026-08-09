@@ -93,6 +93,16 @@ class TranscodingWorker @AssistedInject constructor(
                 isEncrypted = true
             )
 
+            // 4. CLEANUP: Delete the redundant raw WAV file now that high-quality M4A is persisted
+            if (rawFile.exists()) {
+                val deleted = rawFile.delete()
+                if (deleted) {
+                    diagnosticLogger.debug(DiagnosticCategory.RECORDING, "TRANSCODING_CLEANUP_SUCCESS", mapOf(LogKeys.DRAFT_ID to draftId))
+                } else {
+                    diagnosticLogger.warn(DiagnosticCategory.RECORDING, "TRANSCODING_CLEANUP_FAILED", mapOf(LogKeys.DRAFT_ID to draftId))
+                }
+            }
+
             diagnosticLogger.info(DiagnosticCategory.RECORDING, "TRANSCODING_SUCCESS", mapOf(LogKeys.DRAFT_ID to draftId))
             Result.success()
         } catch (e: Exception) {

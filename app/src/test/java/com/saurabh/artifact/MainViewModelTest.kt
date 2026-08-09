@@ -8,12 +8,10 @@ import com.saurabh.artifact.domain.auth.CleanupStatus
 import com.saurabh.artifact.domain.auth.LogoutCoordinator
 import com.saurabh.artifact.domain.auth.GetInitialDestinationUseCase
 import com.saurabh.artifact.domain.auth.InitialDestination
-import com.saurabh.artifact.domain.auth.ObserveCurrentUserProfileUseCase
 import com.saurabh.artifact.domain.auth.RegistrationCoordinator
 import com.saurabh.artifact.domain.auth.RegistrationResult
 import com.saurabh.artifact.domain.settings.ObserveStealthModeUseCase
 import com.saurabh.artifact.repository.AuthRepository
-import com.saurabh.artifact.repository.UserProfileManager
 import com.saurabh.artifact.diagnostics.FakeDiagnosticLogger
 import com.saurabh.artifact.startup.StartupComponent
 import com.saurabh.artifact.startup.StartupCoordinator
@@ -40,10 +38,9 @@ class MainViewModelTest {
     private val getInitialDestinationUseCase = mockk<GetInitialDestinationUseCase>()
     private val registrationCoordinator = mockk<RegistrationCoordinator>()
     private val logoutCoordinator = mockk<LogoutCoordinator>(relaxed = true)
-    private val observeCurrentUserProfileUseCase = mockk<ObserveCurrentUserProfileUseCase>(relaxed = true)
     private val observeStealthModeUseCase = mockk<ObserveStealthModeUseCase>(relaxed = true)
     private val startupCoordinator = mockk<StartupCoordinator>(relaxed = true)
-    private val userProfileManager = mockk<UserProfileManager>(relaxed = true)
+    private val intent = mockk<Intent>()
     private val fakeLogger = FakeDiagnosticLogger()
     private val savedStateHandle = SavedStateHandle()
 
@@ -69,6 +66,13 @@ class MainViewModelTest {
         every { startupCoordinator.stage } returns MutableStateFlow(com.saurabh.artifact.startup.StartupStage.ARRIVAL)
         every { startupCoordinator.isRescueModeActive } returns false
 
+        every { intent.getStringExtra("notificationType") } returns null
+        every { intent.getStringExtra("artifactId") } returns null
+        every { intent.getStringExtra("userId") } returns null
+        every { intent.getBooleanExtra(any(), any()) } returns false
+        every { intent.action } returns null
+        every { intent.data } returns null
+
         coEvery {
             startupCoordinator.awaitComponent(com.saurabh.artifact.startup.StartupComponent.CORE)
         } returns Unit
@@ -78,10 +82,8 @@ class MainViewModelTest {
             getInitialDestinationUseCase,
             registrationCoordinator,
             logoutCoordinator,
-            observeCurrentUserProfileUseCase,
             observeStealthModeUseCase,
             startupCoordinator,
-            userProfileManager,
             savedStateHandle,
             fakeLogger
         )
@@ -145,7 +147,6 @@ class MainViewModelTest {
         viewModel.start()
         testScheduler.runCurrent() // Reach Ready state
 
-        val intent = mockk<Intent>()
         every { intent.getBooleanExtra("navigate_to_recording", false) } returns true
         every { intent.getStringExtra("artifactId") } returns null
 
@@ -169,7 +170,6 @@ class MainViewModelTest {
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
 
-        val intent = mockk<Intent>()
         every { intent.getBooleanExtra("navigate_to_recording", false) } returns false
         every { intent.getStringExtra("artifactId") } returns "art123"
         every { intent.action } returns null
@@ -207,7 +207,6 @@ class MainViewModelTest {
         every { uri.scheme } returns "https"
         every { uri.pathSegments } returns listOf("a", "abc456")
 
-        val intent = mockk<Intent>()
         every { intent.action } returns Intent.ACTION_VIEW
         every { intent.data } returns uri
         every { intent.getBooleanExtra(any(), any()) } returns false
@@ -232,7 +231,6 @@ class MainViewModelTest {
         testAuthFlow.value = null
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.UNAUTHENTICATED
 
-        val intent = mockk<Intent>()
         every { intent.getStringExtra("artifactId") } returns "secret"
         every { intent.getBooleanExtra(any(), any()) } returns false
         every { intent.action } returns null
@@ -263,7 +261,6 @@ class MainViewModelTest {
         viewModel.start()
         testScheduler.runCurrent()
 
-        val intent = mockk<Intent>()
         every { intent.getBooleanExtra("navigate_to_recording", false) } returns true
         every { intent.getStringExtra("artifactId") } returns null
         every { intent.action } returns null
@@ -403,7 +400,6 @@ class MainViewModelTest {
         testAuthFlow.value = null
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.UNAUTHENTICATED
 
-        val intent = mockk<Intent>()
         every { intent.getStringExtra("artifactId") } returns "deferred_123"
         every { intent.getBooleanExtra(any(), any()) } returns false
         every { intent.action } returns null
@@ -444,7 +440,6 @@ class MainViewModelTest {
         testAuthFlow.value = null
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.UNAUTHENTICATED
 
-        val intent = mockk<Intent>()
         every { intent.getStringExtra("artifactId") } returns "survivor"
         every { intent.getBooleanExtra(any(), any()) } returns false
         every { intent.action } returns null
@@ -498,7 +493,6 @@ class MainViewModelTest {
         }
 
         // 1. Receive intent while at Login (onNewIntent)
-        val intent = mockk<Intent>()
         every { intent.getStringExtra("artifactId") } returns "warm_123"
         every { intent.getBooleanExtra(any(), any()) } returns false
         every { intent.action } returns null
@@ -527,7 +521,6 @@ class MainViewModelTest {
         testAuthFlow.value = null
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.UNAUTHENTICATED
 
-        val intent = mockk<Intent>()
         every { intent.getStringExtra("artifactId") } returns "once_only"
         every { intent.getBooleanExtra(any(), any()) } returns false
         every { intent.action } returns null
@@ -582,10 +575,8 @@ class MainViewModelTest {
             getInitialDestinationUseCase,
             registrationCoordinator,
             logoutCoordinator,
-            observeCurrentUserProfileUseCase,
             observeStealthModeUseCase,
             startupCoordinator,
-            userProfileManager,
             savedStateHandle,
             fakeLogger
         )
@@ -645,7 +636,6 @@ class MainViewModelTest {
     @Test
     fun `pending startup event should survive process death`() = runTest {
         // 1. Buffer an event
-        val intent = mockk<Intent>()
         every { intent.getStringExtra("artifactId") } returns "survivor_123"
         every { intent.getBooleanExtra(any(), any()) } returns false
         every { intent.action } returns null
@@ -662,10 +652,8 @@ class MainViewModelTest {
             getInitialDestinationUseCase,
             registrationCoordinator,
             logoutCoordinator,
-            observeCurrentUserProfileUseCase,
             observeStealthModeUseCase,
             startupCoordinator,
-            userProfileManager,
             savedStateHandle,
             fakeLogger
         )
@@ -704,17 +692,16 @@ class MainViewModelTest {
         }
 
         // 1. Send two intents while logged out
-        val intent1 = mockk<Intent>()
-        every { intent1.getStringExtra("artifactId") } returns "first"
-        every { intent1.getBooleanExtra(any(), any()) } returns false
-        every { intent1.action } returns null
+        every { intent.getStringExtra("artifactId") } returns "first"
+        every { intent.getBooleanExtra(any(), any()) } returns false
+        every { intent.action } returns null
 
         val intent2 = mockk<Intent>()
         every { intent2.getStringExtra("artifactId") } returns "second"
         every { intent2.getBooleanExtra(any(), any()) } returns false
         every { intent2.action } returns null
 
-        viewModel.onLaunchIntent(intent1)
+        viewModel.onLaunchIntent(intent)
         viewModel.onLaunchIntent(intent2) // Should replace the first and not double deliver
 
         // 2. Login

@@ -13,6 +13,10 @@ import org.junit.Test
 class ReviewLoopRegressionTest {
     private val draftDao = mockk<DraftDao>(relaxed = true)
 
+    private companion object {
+        private const val TEST_USER_ID = "test-user-id"
+    }
+
     @Before
     fun setup() {
         mockkStatic(Log::class)
@@ -35,22 +39,23 @@ class ReviewLoopRegressionTest {
         // 1. Initial State: User has already finished review (METADATA_REQUIRED)
         val advancedDraft = ArtifactDraftEntity(
             id = draftId,
+            userId = TEST_USER_ID,
             localAudioPath = "/path/audio.wav",
             lifecycle = ArtifactLifecycle.METADATA_REQUIRED,
             status = DraftStatus(),
             reviewCompleted = true
         )
 
-        coEvery { draftDao.getDraftById(draftId) } returns advancedDraft
+        coEvery { draftDao.getDraftById(draftId, any()) } returns advancedDraft
         
         // 2. Simulate finalizeProcessing implementation logic
-        val existing = draftDao.getDraftById(draftId)
+        val existing = draftDao.getDraftById(draftId, TEST_USER_ID)
         if (existing != null) {
             val targetLifecycle = ArtifactLifecycle.REVIEW_REQUIRED
             
             // Check transition (AUTHORITATIVE CHECK)
             if (existing.lifecycle.canTransitionTo(targetLifecycle)) {
-                 draftDao._updateStatusAndLifecycleInternal(draftId, existing.status, targetLifecycle, System.currentTimeMillis())
+                 draftDao._updateStatusAndLifecycleInternal(draftId, TEST_USER_ID, existing.status, targetLifecycle, System.currentTimeMillis())
             } else {
                 Log.w("DraftDao", "Blocked backward lifecycle transition for $draftId: ${existing.lifecycle} -> $targetLifecycle")
             }
@@ -58,7 +63,7 @@ class ReviewLoopRegressionTest {
 
         // 3. Verify: Internal update should NOT be called
         coVerify(exactly = 0) { 
-            draftDao._updateStatusAndLifecycleInternal(any(), any(), any(), any()) 
+            draftDao._updateStatusAndLifecycleInternal(any(), any(), any(), any(), any()) 
         }
         
         // 4. Verify: Warning was logged
@@ -74,26 +79,27 @@ class ReviewLoopRegressionTest {
         // 1. Initial State: Processing is active
         val processingDraft = ArtifactDraftEntity(
             id = draftId,
+            userId = TEST_USER_ID,
             localAudioPath = "/path/audio.wav",
             lifecycle = ArtifactLifecycle.PROCESSING,
             status = DraftStatus()
         )
 
-        coEvery { draftDao.getDraftById(draftId) } returns processingDraft
+        coEvery { draftDao.getDraftById(draftId, any()) } returns processingDraft
         
         // 2. Simulate finalizeProcessing implementation logic
-        val existing = draftDao.getDraftById(draftId)
+        val existing = draftDao.getDraftById(draftId, TEST_USER_ID)
         if (existing != null) {
             val targetLifecycle = ArtifactLifecycle.REVIEW_REQUIRED
             
             if (existing.lifecycle.canTransitionTo(targetLifecycle)) {
-                 draftDao._updateStatusAndLifecycleInternal(draftId, existing.status, targetLifecycle, 123L)
+                 draftDao._updateStatusAndLifecycleInternal(draftId, TEST_USER_ID, existing.status, targetLifecycle, 123L)
             }
         }
 
         // 3. Verify: Update SHOULD be called
         coVerify { 
-            draftDao._updateStatusAndLifecycleInternal(draftId, any(), ArtifactLifecycle.REVIEW_REQUIRED, any()) 
+            draftDao._updateStatusAndLifecycleInternal(draftId, TEST_USER_ID, any(), ArtifactLifecycle.REVIEW_REQUIRED, any()) 
         }
     }
 }

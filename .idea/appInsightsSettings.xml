@@ -23,8 +23,8 @@
             <InsightsFilterSettings>
               <option name="connection">
                 <ConnectionSetting>
-                  <option name="appId" value="com.saurabh.artifact.debug" />
-                  <option name="mobileSdkAppId" value="1:1002864539573:android:b496a3b85b74d18b290bfc" />
+                  <option name="appId" value="com.example.appcheck.repro" />
+                  <option name="mobileSdkAppId" value="1:1002864539573:android:7339f47cd98c02ae290bfc" />
                   <option name="projectId" value="myartifact-555e3" />
                   <option name="projectNumber" value="1002864539573" />
                 </ConnectionSetting>

@@ -14,15 +14,20 @@ import androidx.room.withTransaction
 class RecordingFinalizationIdempotencyTest {
     private val draftDao = mockk<DraftDao>(relaxed = true)
     private val appDatabase = mockk<AppDatabase>(relaxed = true)
+    private val userRepository = mockk<UserRepository>(relaxed = true)
     private val recordingRepository = RecordingRepository(
         draftDao = { draftDao },
-        userRepository = mockk(),
+        userRepository = userRepository,
         localDraftManager = mockk(),
         wavRecoveryManager = mockk(),
         cleanupManager = mockk(),
         draftsDatabase = { appDatabase },
         diagnosticLogger = mockk(relaxed = true)
     )
+
+    private companion object {
+        private const val TEST_USER_ID = "test-user-id"
+    }
 
     @Before
     fun setup() {
@@ -32,6 +37,8 @@ class RecordingFinalizationIdempotencyTest {
         coEvery { appDatabase.withTransaction(capture(transactionLambda)) } coAnswers {
             transactionLambda.captured.invoke()
         }
+
+        every { userRepository.getCurrentUserId() } returns TEST_USER_ID
     }
 
     @Test
@@ -42,6 +49,7 @@ class RecordingFinalizationIdempotencyTest {
         
         val existingDraft = ArtifactDraftEntity(
             id = draftId,
+            userId = TEST_USER_ID,
             localAudioPath = "/path/audio.wav",
             lifecycle = ArtifactLifecycle.PROCESSING,
             durationMs = duration,
@@ -49,7 +57,7 @@ class RecordingFinalizationIdempotencyTest {
             status = DraftStatus()
         )
 
-        coEvery { draftDao.getDraftById(draftId) } returns existingDraft
+        coEvery { draftDao.getDraftById(draftId, any()) } returns existingDraft
         
         // Call finalizeRecording again with SAME data
         val result = recordingRepository.finalizeRecording(draftId, duration, bytes)
@@ -68,6 +76,7 @@ class RecordingFinalizationIdempotencyTest {
         // Existing draft is already at METADATA_REQUIRED
         val advancedDraft = ArtifactDraftEntity(
             id = draftId,
+            userId = TEST_USER_ID,
             localAudioPath = "/path/audio.wav",
             lifecycle = ArtifactLifecycle.METADATA_REQUIRED,
             durationMs = 5000L,
@@ -75,7 +84,7 @@ class RecordingFinalizationIdempotencyTest {
             status = DraftStatus()
         )
 
-        coEvery { draftDao.getDraftById(draftId) } returns advancedDraft
+        coEvery { draftDao.getDraftById(draftId, any()) } returns advancedDraft
         
         // Try to "finalize" back to PROCESSING with DIFFERENT data
         val result = recordingRepository.finalizeRecording(draftId, 6000L, 12000L)

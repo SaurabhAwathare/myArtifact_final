@@ -17,10 +17,15 @@ class DraftToArtifactMapperTest {
 
     private val mapper = DraftToArtifactMapper()
 
+    private companion object {
+        private const val TEST_USER_ID = "test-user-id"
+    }
+
     @Test
     fun `map should preserve core draft fields`() {
         val draft = ArtifactDraftEntity(
             id = "draft_123",
+            userId = TEST_USER_ID,
             localAudioPath = "/path/to/audio.wav",
             title = "Sample Title",
             durationMs = 5000L,
@@ -33,7 +38,7 @@ class DraftToArtifactMapperTest {
         val result = mapper.map(draft, author, "Fallback")
 
         assertEquals("draft_123", result.id)
-        assertEquals("user_456", result.userId)
+        assertEquals(TEST_USER_ID, result.userId)
         assertEquals("Sample Title", result.title)
         assertEquals(5000L, result.durationMs)
         assertEquals(ArtifactStatus.DRAFT, result.status)
@@ -47,6 +52,7 @@ class DraftToArtifactMapperTest {
     fun `map should use fallback title when draft title is null`() {
         val draft = ArtifactDraftEntity(
             id = "draft_123",
+            userId = TEST_USER_ID,
             localAudioPath = "/path/to/audio.wav",
             title = null
         )
@@ -61,10 +67,12 @@ class DraftToArtifactMapperTest {
     fun `map should normalize audio URL with file prefix`() {
         val draft1 = ArtifactDraftEntity(
             id = "d1",
+            userId = TEST_USER_ID,
             localAudioPath = "/absolute/path/audio.wav"
         )
         val draft2 = ArtifactDraftEntity(
             id = "d2",
+            userId = TEST_USER_ID,
             localAudioPath = "file:///absolute/path/audio.wav"
         )
         val author = AuthorSnapshot(anonymousId = "u1")
@@ -81,6 +89,7 @@ class DraftToArtifactMapperTest {
         val transcriptJson = """[{"id":"s1","text":"Hello","startMs":0,"endMs":1000}]"""
         val draft = ArtifactDraftEntity(
             id = "draft_123",
+            userId = TEST_USER_ID,
             localAudioPath = "/path/to/audio.wav",
             transcriptSegmentsJson = SecureString.fromString(transcriptJson)
         )
@@ -99,6 +108,7 @@ class DraftToArtifactMapperTest {
     fun `map should return empty transcript on malformed JSON`() {
         val draft = ArtifactDraftEntity(
             id = "draft_123",
+            userId = TEST_USER_ID,
             localAudioPath = "/path/to/audio.wav",
             transcriptSegmentsJson = SecureString.fromString("invalid-json")
         )
@@ -123,6 +133,7 @@ class DraftToArtifactMapperTest {
         val transcriptJson = """[]"""
         val draft = ArtifactDraftEntity(
             id = "d1",
+            userId = TEST_USER_ID,
             localAudioPath = "/path.wav",
             transcriptSegmentsJson = SecureString.fromString(transcriptJson)
         )
@@ -150,7 +161,7 @@ class DraftToArtifactMapperTest {
 
     @Test
     fun `map should reuse Artifact instance when content fields are identical`() {
-        val draft = ArtifactDraftEntity(id = "d1", localAudioPath = "/path.wav")
+        val draft = ArtifactDraftEntity(id = "d1", userId = TEST_USER_ID, localAudioPath = "/path.wav")
         val author = AuthorSnapshot(anonymousId = "u1")
 
         val result1 = mapper.map(draft, author, "T")
@@ -175,6 +186,7 @@ class DraftToArtifactMapperTest {
         // 1. Published draft
         val publishedDraft = ArtifactDraftEntity(
             id = "d1", 
+            userId = TEST_USER_ID,
             localAudioPath = "/p.wav",
             lifecycle = ArtifactLifecycle.PUBLISHED,
             isPublic = true
@@ -187,6 +199,7 @@ class DraftToArtifactMapperTest {
         // 2. Deleted draft
         val deletedDraft = ArtifactDraftEntity(
             id = "d2",
+            userId = TEST_USER_ID,
             localAudioPath = "/p.wav",
             lifecycle = ArtifactLifecycle.DELETED,
             isPublic = false

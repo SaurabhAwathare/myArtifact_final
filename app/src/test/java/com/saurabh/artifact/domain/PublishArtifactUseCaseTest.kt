@@ -2,6 +2,7 @@ package com.saurabh.artifact.domain
 
 import com.saurabh.artifact.domain.review.publishing.PublishingReviewPolicy
 import com.saurabh.artifact.model.PublishingResult
+import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.RecordingRepository
 import io.mockk.*
 import kotlinx.coroutines.runBlocking
@@ -11,6 +12,7 @@ import org.junit.Test
 
 class PublishArtifactUseCaseTest {
     private val recordingRepository = mockk<RecordingRepository>(relaxed = true)
+    private val authRepository = mockk<AuthRepository>(relaxed = true)
     private val publishingOrchestrator = mockk<PublishingOrchestrator>(relaxed = true)
     private val publishingPolicy = mockk<PublishingReviewPolicy>(relaxed = true)
     
@@ -18,7 +20,8 @@ class PublishArtifactUseCaseTest {
 
     @Before
     fun setup() {
-        useCase = PublishArtifactUseCase(recordingRepository, publishingOrchestrator, publishingPolicy)
+        useCase = PublishArtifactUseCase(recordingRepository, authRepository, publishingOrchestrator, publishingPolicy)
+        every { authRepository.currentUserId } returns "user123"
     }
 
     @Test

@@ -31,7 +31,11 @@ class GetProfileDataUseCaseTest {
             authRepository
         )
         
+        val mockUser = mockk<com.google.firebase.auth.FirebaseUser> {
+            every { uid } returns "user123"
+        }
         every { authRepository.currentUserId } returns "user123"
+        every { authRepository.currentUser } returns kotlinx.coroutines.flow.MutableStateFlow(mockUser)
         every { userRepository.streamUserProfile(any()) } returns flowOf(null)
         every { userRepository.observeIsResonating(any(), any()) } returns flowOf(false)
         every { artifactRepository.getSavedArtifacts(any()) } returns flowOf(emptyList())
@@ -53,7 +57,7 @@ class GetProfileDataUseCaseTest {
             every { id } returns artifactId
             every { status } returns ArtifactStatus.PENDING_UPLOAD
         }
-        every { artifactRepository.getUserArtifacts("user123", any()) } returns flowOf(listOf(cloudArtifact))
+        every { artifactRepository.getUserArtifacts("user123", any()) } returns flowOf(listOf(cloudArtifact) to null)
 
         val result = useCase(null).first()
 
@@ -73,7 +77,7 @@ class GetProfileDataUseCaseTest {
             every { id } returns "unique_cloud_id"
             every { status } returns ArtifactStatus.PENDING_UPLOAD
         }
-        every { artifactRepository.getUserArtifacts("user123", any()) } returns flowOf(listOf(cloudArtifact))
+        every { artifactRepository.getUserArtifacts("user123", any()) } returns flowOf(listOf(cloudArtifact) to null)
 
         val result = useCase(null).first()
 

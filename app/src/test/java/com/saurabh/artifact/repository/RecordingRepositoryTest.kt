@@ -34,6 +34,10 @@ class RecordingRepositoryTest {
 
     private lateinit var repository: RecordingRepository
 
+    private companion object {
+        private const val TEST_USER_ID = "test-user-id"
+    }
+
     @Before
     fun setup() {
         mockkStatic(Log::class)
@@ -42,6 +46,8 @@ class RecordingRepositoryTest {
         every { Log.w(any<String>(), any<String>()) } returns 0
         every { Log.e(any<String>(), any<String>()) } returns 0
         every { Log.e(any<String>(), any<String>(), any<Throwable>()) } returns 0
+
+        every { userRepository.getCurrentUserId() } returns TEST_USER_ID
 
         repository = RecordingRepository(
             draftDao = Lazy { draftDao },
@@ -75,8 +81,8 @@ class RecordingRepositoryTest {
             every { lastRecoveryAttemptAt } returns 0L
         }
 
-        coEvery { draftDao.getDraftsByLifecycle(ArtifactLifecycle.PROCESSING) } returns listOf(stalledDraft, recentDraft)
-        coEvery { draftDao.getActiveRecordings() } returns emptyList()
+        coEvery { draftDao.getDraftsByLifecycle(ArtifactLifecycle.PROCESSING, any()) } returns listOf(stalledDraft, recentDraft)
+        coEvery { draftDao.getActiveRecordings(any()) } returns emptyList()
 
         val result = repository.recoverInterruptedDrafts().getOrThrow()
 
@@ -94,8 +100,8 @@ class RecordingRepositoryTest {
             every { lastRecoveryAttemptAt } returns now - (2 * 60 * 1000L) // Recovered 2 mins ago (< 5m cooldown)
         }
 
-        coEvery { draftDao.getDraftsByLifecycle(ArtifactLifecycle.PROCESSING) } returns listOf(coolingDraft)
-        coEvery { draftDao.getActiveRecordings() } returns emptyList()
+        coEvery { draftDao.getDraftsByLifecycle(ArtifactLifecycle.PROCESSING, any()) } returns listOf(coolingDraft)
+        coEvery { draftDao.getActiveRecordings(any()) } returns emptyList()
 
         val result = repository.recoverInterruptedDrafts().getOrThrow()
 
@@ -112,7 +118,8 @@ class RecordingRepositoryTest {
             every { lastRecoveryAttemptAt } returns 0L
         }
 
-        coEvery { draftDao.getDraftsByLifecycle(ArtifactLifecycle.PROCESSING) } returns listOf(draft)
+        coEvery { draftDao.getDraftsByLifecycle(ArtifactLifecycle.PROCESSING, any()) } returns listOf(draft)
+        coEvery { draftDao.getActiveRecordings(any()) } returns emptyList()
         
         val result = repository.recoverInterruptedDrafts().getOrThrow()
         assert(result.isEmpty())
@@ -128,7 +135,8 @@ class RecordingRepositoryTest {
             every { lastRecoveryAttemptAt } returns 0L
         }
 
-        coEvery { draftDao.getDraftsByLifecycle(ArtifactLifecycle.PROCESSING) } returns listOf(draft)
+        coEvery { draftDao.getDraftsByLifecycle(ArtifactLifecycle.PROCESSING, any()) } returns listOf(draft)
+        coEvery { draftDao.getActiveRecordings(any()) } returns emptyList()
         
         val result = repository.recoverInterruptedDrafts().getOrThrow()
         assert(result.size == 1)
@@ -141,9 +149,9 @@ class RecordingRepositoryTest {
             every { lifecycle } returns ArtifactLifecycle.DELETING
         }
 
-        coEvery { draftDao.getDraftsByLifecycle(ArtifactLifecycle.DELETING) } returns listOf(deletingDraft)
-        coEvery { draftDao.getActiveRecordings() } returns emptyList()
-        coEvery { draftDao.getDraftsByLifecycle(ArtifactLifecycle.PROCESSING) } returns emptyList()
+        coEvery { draftDao.getDraftsByLifecycle(ArtifactLifecycle.DELETING, any()) } returns listOf(deletingDraft)
+        coEvery { draftDao.getActiveRecordings(any()) } returns emptyList()
+        coEvery { draftDao.getDraftsByLifecycle(ArtifactLifecycle.PROCESSING, any()) } returns emptyList()
 
         repository.recoverInterruptedDrafts()
 

@@ -29,6 +29,10 @@ class DraftRepositoryOptimizationTest {
         userRepository = userRepository
     )
 
+    private companion object {
+        private const val TEST_USER_ID = "test-user-id"
+    }
+
     @Test
     fun `observeDraftAsArtifact should suppress emissions when only progress changes`() = runTest {
         val draftId = "test_draft"
@@ -42,6 +46,7 @@ class DraftRepositoryOptimizationTest {
         
         val baseDraft = ArtifactDraftEntity(
             id = draftId,
+            userId = TEST_USER_ID,
             localAudioPath = "/audio/path",
             title = "Original Title",
             uploadedBytes = 0,
@@ -61,7 +66,7 @@ class DraftRepositoryOptimizationTest {
 
         every { userRepository.getCurrentUserId() } returns userId
         every { userRepository.streamUserProfile(userId) } returns flowOf(user)
-        every { draftDao.observeDraftById(draftId) } returns flowOf(baseDraft, progressDraft, structuralChangeDraft)
+        every { draftDao.observeDraftById(draftId, any()) } returns flowOf(baseDraft, progressDraft, structuralChangeDraft)
         
         // Return dummy artifact
         every { draftToArtifactMapper.map(any(), any(), any()) } returns mockk<Artifact>(relaxed = true)

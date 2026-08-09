@@ -70,6 +70,7 @@ interface EngagementDao {
             OR remoteUpdatedAt < :remoteUpdated 
             OR (:isUnlocked = 1 AND isCommentUnlocked = 0)
         )
+        AND (:isUnlocked = 1 OR isCommentUnlocked = 0)
     """)
     suspend fun updateUnlockStatus(artifactId: String, isUnlocked: Boolean, timestamp: Long?, state: String, reason: String?, remoteUpdated: Long?)
 

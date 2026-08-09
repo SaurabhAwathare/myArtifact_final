@@ -42,6 +42,10 @@ class ArtifactRepositoryTest {
 
     private lateinit var repository: ArtifactRepository
 
+    private companion object {
+        private const val TEST_USER_ID = "test-user-id"
+    }
+
     @Before
     fun setup() {
         mockkStatic(Log::class)
@@ -69,7 +73,7 @@ class ArtifactRepositoryTest {
     @Test
     fun `uploadArtifactResumable should delegate to PublishingRepository`() = runBlocking {
         val userId = "user123"
-        val draft = ArtifactDraftEntity(id = "draft123", localAudioPath = "/path")
+        val draft = ArtifactDraftEntity(id = "draft123", userId = TEST_USER_ID, localAudioPath = "/path")
         
         coEvery { publishingRepository.uploadArtifactResumable(userId, draft, any()) } returns Result.success("url123")
         
@@ -83,7 +87,7 @@ class ArtifactRepositoryTest {
     @Test
     fun `createArtifactDocument should delegate to PublishingRepository`() = runBlocking {
         val userId = "user123"
-        val draft = ArtifactDraftEntity(id = "draft123", localAudioPath = "/path")
+        val draft = ArtifactDraftEntity(id = "draft123", userId = TEST_USER_ID, localAudioPath = "/path")
         val author = AuthorSnapshot(name = "Author")
         
         coEvery { publishingRepository.createArtifactDocument(userId, author, "url", draft) } returns Result.success("id123")

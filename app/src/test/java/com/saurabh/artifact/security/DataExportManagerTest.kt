@@ -42,6 +42,10 @@ class DataExportManagerTest {
 
     private lateinit var dataExportManager: DataExportManager
 
+    private companion object {
+        private const val TEST_USER_ID = "test-user-id"
+    }
+
     @Before
     fun setup() {
         StreamingAeadConfig.register()
@@ -70,6 +74,7 @@ class DataExportManagerTest {
         
         val draft = ArtifactDraftEntity(
             id = "draft_1",
+            userId = TEST_USER_ID,
             localAudioPath = tempFolder.newFile("audio.wav").absolutePath,
             lifecycle = ArtifactLifecycle.READY_TO_PUBLISH
         )

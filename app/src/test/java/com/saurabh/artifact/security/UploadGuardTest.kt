@@ -48,6 +48,7 @@ class UploadGuardTest {
         
         val draft = ArtifactDraftEntity(
             id = testDraftId,
+            userId = testUserId,
             localAudioPath = audioPath,
             lifecycle = ArtifactLifecycle.READY_TO_PUBLISH,
             checksum = testChecksum,
@@ -70,6 +71,7 @@ class UploadGuardTest {
         
         val draft = ArtifactDraftEntity(
             id = testDraftId,
+            userId = testUserId,
             localAudioPath = audioPath,
             lifecycle = ArtifactLifecycle.READY_TO_PUBLISH,
             checksum = testChecksum,
@@ -91,6 +93,7 @@ class UploadGuardTest {
         
         val draft = ArtifactDraftEntity(
             id = testDraftId,
+            userId = testUserId,
             localAudioPath = audioPath,
             lifecycle = ArtifactLifecycle.READY_TO_PUBLISH,
             checksum = testChecksum,
@@ -114,6 +117,7 @@ class UploadGuardTest {
         
         val draft = ArtifactDraftEntity(
             id = testDraftId,
+            userId = testUserId,
             localAudioPath = audioPath,
             lifecycle = ArtifactLifecycle.READY_TO_PUBLISH,
             checksum = testChecksum,

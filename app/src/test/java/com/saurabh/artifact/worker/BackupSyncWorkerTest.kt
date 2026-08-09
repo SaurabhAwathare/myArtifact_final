@@ -92,10 +92,10 @@ class BackupSyncWorkerTest {
         worker.doWork()
 
         // Verify that updateStatus was NOT called for d1 and d2
-        coVerify(exactly = 0) { draftDao.updateStatus("d1", any(), any()) }
-        coVerify(exactly = 0) { draftDao.updateStatus("d2", any(), any()) }
+        coVerify(exactly = 0) { draftDao.updateStatus("d1", any(), any(), any()) }
+        coVerify(exactly = 0) { draftDao.updateStatus("d2", any(), any(), any()) }
         
         // Verify it was called for d3
-        coVerify(atLeast = 1) { draftDao.updateStatus("d3", any(), any()) }
+        coVerify(atLeast = 1) { draftDao.updateStatus("d3", any(), any(), any()) }
     }
 }

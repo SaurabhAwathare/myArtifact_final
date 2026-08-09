@@ -35,6 +35,7 @@ class CommentViewModelTest {
     private val deleteCommentUseCase: DeleteCommentUseCase = mockk()
     private val engagementRepository: EngagementRepository = mockk(relaxed = true)
     private val ownershipAuthority: ArtifactOwnershipAuthority = mockk()
+    private val diagnosticLogger: com.saurabh.artifact.diagnostics.DiagnosticLogger = mockk(relaxed = true)
     private val savedStateHandle: SavedStateHandle = SavedStateHandle(mapOf("artifactId" to "test-artifact"))
 
     @Before
@@ -60,7 +61,8 @@ class CommentViewModelTest {
             addCommentUseCase,
             deleteCommentUseCase,
             engagementRepository,
-            ownershipAuthority
+            ownershipAuthority,
+            diagnosticLogger
         )
     }
 
@@ -177,7 +179,7 @@ class CommentViewModelTest {
         
         assertEquals(1, events.size)
         val event = events[0] as CommentUiEvent.SubmissionFailed
-        assertEquals("Invalid input: Network Error", event.error) // AppError.from adds "Invalid input: " prefix for Unknown
+        assertEquals("Network Error", event.error) 
         
         job.cancel()
     }

@@ -36,6 +36,10 @@ class TitleBufferTest {
     private val workManager = mockk<androidx.work.WorkManager>(relaxed = true)
     private val diagnosticLogger = mockk<com.saurabh.artifact.diagnostics.DiagnosticLogger>(relaxed = true)
 
+    private companion object {
+        private const val TEST_USER_ID = "test-user-id"
+    }
+
     private val testDispatcher = StandardTestDispatcher()
 
     @Before
@@ -46,11 +50,17 @@ class TitleBufferTest {
         every { ArtifactLogger.i(any(), any()) } just runs
         every { ArtifactLogger.w(any(), any(), any()) } just runs
         every { ArtifactLogger.e(any(), any(), any()) } just runs
+
+        val mockUser = mockk<com.google.firebase.auth.FirebaseUser> {
+            every { uid } returns TEST_USER_ID
+        }
+        every { authRepository.currentUser } returns MutableStateFlow(mockUser)
         
         val draftId = "test-draft"
         val draftFlow = MutableStateFlow<ArtifactDraftEntity?>(
             ArtifactDraftEntity(
                 id = draftId,
+                userId = TEST_USER_ID,
                 localAudioPath = "/path/audio.wav",
                 lifecycle = ArtifactLifecycle.REVIEW_REQUIRED,
                 title = "Initial Title",

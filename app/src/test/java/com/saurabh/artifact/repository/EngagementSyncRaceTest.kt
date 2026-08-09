@@ -18,7 +18,6 @@ class EngagementSyncRaceTest {
     private val engagementDao = mockk<EngagementDao>(relaxed = true)
     private val firestoreRepository = mockk<FirestoreEngagementRepository>(relaxed = true)
     private val syncScheduler = mockk<EngagementSyncScheduler>(relaxed = true)
-    private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
     private val externalScope = mockk<CoroutineScope>(relaxed = true)
 
     private lateinit var repository: EngagementRepository
@@ -29,7 +28,6 @@ class EngagementSyncRaceTest {
             engagementDao = engagementDao,
             firestoreRepository = firestoreRepository,
             syncScheduler = syncScheduler,
-            diagnosticLogger = diagnosticLogger,
             externalScope = externalScope
         )
     }
