@@ -329,9 +329,6 @@ class RecordingRepository @Inject constructor(
             // 0. Repair Lifecycle Desynchronization
             reconcileLifecycleConsistency()
 
-            // 0.1 Purge Zombies: Delete 0-byte drafts older than 30 mins
-            purgeZombieDrafts()
-
             val now = System.currentTimeMillis()
 
             // 1. Recover interrupted recordings (RECORDING lifecycle)
@@ -426,6 +423,10 @@ class RecordingRepository @Inject constructor(
                     diagnosticLogger.debug(DiagnosticCategory.RECORDING, "RECOVERY_RESUMING_DELETION", mapOf(LogKeys.DRAFT_ID to draft.id))
                     cleanupManager.deleteDraft(draft.id)
                 }
+
+                // 5. Purge Genuinely Abandoned Zombies
+                // This runs AFTER recovery attempts to ensure recordings with data are preserved.
+                purgeZombieDrafts()
             } catch (e: Exception) {
                 diagnosticLogger.error(DiagnosticCategory.RECORDING, "RECOVERY_CLEANUP_FAILED", throwable = e)
             }

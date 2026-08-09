@@ -158,4 +158,58 @@ class RecordingRepositoryTest {
         coVerify(exactly = 1) { cleanupManager.deleteDraft("deleting_1") }
     }
 
+    @Test
+    fun `recoverInterruptedDrafts should NOT purge drafts that are recoverable despite 0 durableBytes`() = runTest {
+        val now = System.currentTimeMillis()
+        val draftId = "recoverable_zero_byte"
+        
+        // 1. Setup a "database" list to simulate Room persistence
+        val dbDrafts = mutableListOf<ArtifactDraftEntity>()
+
+        // Create a real temporary file to satisfy the File(path).exists() check
+        val tempFile = File.createTempFile("recoverable", ".wav")
+        tempFile.writeBytes(ByteArray(10044)) // 10000 bytes data + 44 header
+        val tempPath = tempFile.absolutePath
+
+        val zombieLookingDraft = ArtifactDraftEntity(
+            id = draftId,
+            userId = TEST_USER_ID,
+            localAudioPath = tempPath,
+            lifecycle = ArtifactLifecycle.RECORDING,
+            durableBytes = 0L,
+            durationMs = 0L,
+            updatedAt = now - (60 * 60 * 1000L), // 1 hour ago
+            lastCheckpointTimestamp = now - (60 * 60 * 1000L),
+            status = com.saurabh.artifact.model.DraftStatus()
+        )
+        
+        dbDrafts.add(zombieLookingDraft)
+
+        coEvery { draftDao.getActiveRecordings(TEST_USER_ID) } returns listOf(zombieLookingDraft)
+        coEvery { draftDao.getAllDrafts() } answers { dbDrafts.toList() }
+        coEvery { draftDao.getDraftsByLifecycle(any(), any()) } returns emptyList()
+        
+        coEvery { draftDao.update(any(), isRecovery = true) } answers {
+            val updated = it.invocation.args[0] as ArtifactDraftEntity
+            dbDrafts.clear()
+            dbDrafts.add(updated)
+        }
+
+        // 2. Mock recovery success
+        every { wavRecoveryManager.recover(any(), any()) } returns WavRecoveryManager.RecoveryResult.REPAIRED
+        
+        // 3. Execute recovery
+        repository.recoverInterruptedDrafts()
+
+        // 4. VERIFY: cleanupManager.deleteDraft was NOT called for this draft
+        coVerify(exactly = 0) { cleanupManager.deleteDraft(draftId) }
+        
+        // 5. VERIFY: draft in DB was updated to non-zero bytes/duration
+        val finalDraft = dbDrafts.first()
+        assert(finalDraft.id == draftId)
+        assert(finalDraft.lifecycle == ArtifactLifecycle.PROCESSING)
+        assert(finalDraft.durableBytes == 10000L) // 10044 - 44
+        
+        tempFile.delete()
+    }
 }

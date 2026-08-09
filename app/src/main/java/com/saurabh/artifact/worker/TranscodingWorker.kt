@@ -18,11 +18,14 @@ import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import androidx.annotation.OptIn
+import androidx.media3.common.util.UnstableApi
 
 /**
  * TranscodingWorker: The bridge between "Durable Capture" and "Optimized Persistence".
  * Converts raw WAV/PCM data to high-quality AAC/M4A.
  */
+@OptIn(UnstableApi::class)
 @HiltWorker
 class TranscodingWorker @AssistedInject constructor(
     @Assisted appContext: Context,
@@ -32,7 +35,7 @@ class TranscodingWorker @AssistedInject constructor(
     private val encryptedStorageManager: EncryptedStorageManager,
     private val wavRecoveryManager: WavRecoveryManager,
     private val authRepository: com.saurabh.artifact.repository.AuthRepository,
-    private val diagnosticLogger: DiagnosticLogger
+    private val diagnosticLogger: DiagnosticLogger,
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
@@ -54,7 +57,7 @@ class TranscodingWorker @AssistedInject constructor(
         try {
             // IDEMPOTENCY CHECK: If the artifact already exists and metadata is correct, skip
             val existingFile = File(draft.localAudioPath)
-            if (existingFile.exists() && existingFile.length() > 0 && draft.isEncrypted) {
+            if (existingFile.exists() && (existingFile.length() > 0) && draft.isEncrypted) {
                 diagnosticLogger.info(DiagnosticCategory.RECORDING, "TRANSCODING_SKIP_IDEMPOTENT", mapOf(LogKeys.DRAFT_ID to draftId))
                 return@withContext Result.success()
             }
@@ -92,16 +95,6 @@ class TranscodingWorker @AssistedInject constructor(
                 checksum = checksum,
                 isEncrypted = true
             )
-
-            // 4. CLEANUP: Delete the redundant raw WAV file now that high-quality M4A is persisted
-            if (rawFile.exists()) {
-                val deleted = rawFile.delete()
-                if (deleted) {
-                    diagnosticLogger.debug(DiagnosticCategory.RECORDING, "TRANSCODING_CLEANUP_SUCCESS", mapOf(LogKeys.DRAFT_ID to draftId))
-                } else {
-                    diagnosticLogger.warn(DiagnosticCategory.RECORDING, "TRANSCODING_CLEANUP_FAILED", mapOf(LogKeys.DRAFT_ID to draftId))
-                }
-            }
 
             diagnosticLogger.info(DiagnosticCategory.RECORDING, "TRANSCODING_SUCCESS", mapOf(LogKeys.DRAFT_ID to draftId))
             Result.success()

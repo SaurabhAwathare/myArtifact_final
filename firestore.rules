@@ -201,17 +201,52 @@ service cloud.firestore {
                     (request.auth != null && resource.data.userId == request.auth.uid) ||
                     isGlobalAdmin();
 
+      function isCreationStatusValid(data) {
+        let status = data.get('status', 'PENDING_UPLOAD');
+        let audioUrl = data.get('audioUrl', '');
+        // Legitimate creation states:
+        // 1. New artifact starting upload: PENDING_UPLOAD/DRAFT + No audioUrl
+        // 2. Resuming/Checkpoint creation: ACTIVE + audioUrl present
+        return (status in ['PENDING_UPLOAD', 'DRAFT'] && audioUrl == '') ||
+               (status == 'ACTIVE' && audioUrl != '');
+      }
+
+      function isCreationFieldsValid(data) {
+        return data.get('playCount', 0) == 0 &&
+               data.get('reactionCount', 0) == 0 &&
+               data.get('commentCount', 0) == 0 &&
+               data.get('reportCount', 0) == 0 &&
+               data.get('status', '') in ['ACTIVE', 'PENDING_UPLOAD', 'DRAFT'] &&
+               data.get('isDraft', true) == (data.get('status', '') in ['PENDING_UPLOAD', 'DRAFT']);
+      }
+
       allow create: if isAuth() &&
                     request.resource.data.get('userId', '') == request.auth.uid &&
                     request.resource.data.author.anonymousId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.anonymousId &&
-                    request.resource.data.author.keys().hasAll(['anonymousId', 'name']);
+                    request.resource.data.author.keys().hasAll(['anonymousId', 'name']) &&
+                    isCreationStatusValid(request.resource.data) &&
+                    isCreationFieldsValid(request.resource.data);
+
+      function isValidLifecycleTransition(oldData, newData) {
+        let oldStatus = oldData.get('status', 'PENDING_UPLOAD');
+        let newStatus = newData.get('status', 'PENDING_UPLOAD');
+        // Allowed: status unchanged, or PENDING_UPLOAD/DRAFT -> ACTIVE (Publication)
+        return (oldStatus == newStatus) ||
+               (oldStatus in ['PENDING_UPLOAD', 'DRAFT'] && newStatus == 'ACTIVE');
+      }
 
       allow update: if (resource != null && isGlobalAdmin()) ||
                     (resource != null &&
                      request.auth != null &&
                      request.auth.uid == resource.data.get('userId', '') &&
-                     !(request.resource.data.diff(resource == null ? {} : resource.data).affectedKeys()
-                       .hasAny(['reactionCount', 'commentCount', 'playCount', 'reportCount', 'recommendationState'])));
+                     isValidLifecycleTransition(resource.data, request.resource.data) &&
+                     // userId and createdAt are immutable
+                     request.resource.data.get('userId', '') == resource.data.get('userId', '') &&
+                     request.resource.data.get('createdAt', null) == resource.data.get('createdAt', null) &&
+                     // audioUrl is immutable once ACTIVE
+                     (resource.data.status != 'ACTIVE' || resource.data.audioUrl == request.resource.data.audioUrl) &&
+                     !(request.resource.data.diff(resource.data).affectedKeys()
+                       .hasAny(['author', 'reactionCount', 'commentCount', 'playCount', 'reportCount', 'recommendationState'])));
 
       // Prevent users from hard-deleting the Artifact document to ensure Cloud Function trigger
       allow delete: if isGlobalAdmin();

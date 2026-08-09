@@ -60,7 +60,7 @@ class TranscodingWorkerTest {
             encryptedStorageManager = encryptedStorageManager,
             wavRecoveryManager = wavRecoveryManager,
             authRepository = authRepository,
-            diagnosticLogger = mockk(relaxed = true)
+            diagnosticLogger = mockk(relaxed = true),
         )
     }
 
@@ -70,7 +70,7 @@ class TranscodingWorkerTest {
     }
 
     @Test
-    fun `doWork should update DB before deleting WAV`() = runTest {
+    fun `doWork should update DB and preserve WAV for downstream workers`() = runTest {
         val tempDir = Files.createTempDirectory("transcode_test").toFile()
         val rawPath = File(tempDir, "raw.wav").apply { writeText("PCM") }.absolutePath
         val finalPath = File(tempDir, "final.m4a").absolutePath
@@ -94,11 +94,8 @@ class TranscodingWorkerTest {
 
         assert(result is ListenableWorker.Result.Success)
         
-        // Wait a bit for file system to sync if needed (shouldn't be needed for unit tests but Windows...)
-        Thread.sleep(100)
-
-        // Verify: Original WAV is deleted after success
-        assert(!File(rawPath).exists())
+        // Verify: Original WAV is preserved for WaveformWorker
+        assert(File(rawPath).exists())
 
         tempDir.deleteRecursively()
     }
