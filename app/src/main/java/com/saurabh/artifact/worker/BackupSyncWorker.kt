@@ -26,7 +26,7 @@ import java.io.File
 class BackupSyncWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted params: WorkerParameters,
-    private val draftDao: DraftDao,
+    private val draftDao: dagger.Lazy<DraftDao>,
     private val authRepository: AuthRepository,
     private val encryptedStorageManager: EncryptedStorageManager,
     private val backupEncryptionManager: BackupEncryptionManager,
@@ -45,7 +45,7 @@ class BackupSyncWorker @AssistedInject constructor(
 
         // 1. Get drafts that are not published, not deleting, and not yet backed up
         // Backup is system-wide maintenance but filtered by current user for upload
-        val pendingDrafts = draftDao.getAllDrafts().filter { 
+        val pendingDrafts = draftDao.get().getAllDrafts().filter { 
             it.userId == userId &&
             (it.lifecycle != ArtifactLifecycle.PUBLISHED) &&
             (it.lifecycle != ArtifactLifecycle.DELETING) &&
@@ -59,7 +59,7 @@ class BackupSyncWorker @AssistedInject constructor(
         for (draft in pendingDrafts) {
             try {
                 // 2. Update status to Encrypting
-                draftDao.updateStatus(
+                draftDao.get().updateStatus(
                     draft.id, 
                     userId,
                     draft.status.copy(processing = ProcessingStatus.Active(ProcessingStage.ENCRYPTING_BACKUP)),
@@ -82,7 +82,7 @@ class BackupSyncWorker @AssistedInject constructor(
                 backupRef.putBytes(encryptedData).await()
 
                 // 5. Update DB status to Synced
-                draftDao.updateStatus(
+                draftDao.get().updateStatus(
                     draft.id, 
                     userId,
                     draft.status.copy(

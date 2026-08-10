@@ -2,6 +2,7 @@ package com.saurabh.artifact.audio
 
 import android.content.Context
 import android.net.Uri
+import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.BaseDataSource
@@ -15,7 +16,7 @@ import java.io.InputStream
  * A Media3 DataSource that reads from an EncryptedFile.
  * This allows playback of encrypted local drafts without decrypting them to temp files first.
  */
-@UnstableApi
+@OptIn(UnstableApi::class)
 class EncryptedFileDataSource(
     private val context: Context
 ) : BaseDataSource(true) {
@@ -25,7 +26,7 @@ class EncryptedFileDataSource(
     private var bytesRemaining: Long = 0
     private var opened = false
 
-    @UnstableApi
+    @OptIn(UnstableApi::class)
     override fun open(dataSpec: DataSpec): Long {
         uri = dataSpec.uri
         val filePath = dataSpec.uri.path ?: throw java.io.IOException("Missing file path in URI")

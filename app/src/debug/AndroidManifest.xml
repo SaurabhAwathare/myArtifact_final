@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Debug-only Audit Receiver for ADB-triggered state testing -->
+        <receiver
+            android:name=".domain.auth.AuditBroadcastReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.saurabh.artifact.AUDIT_ACTION" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

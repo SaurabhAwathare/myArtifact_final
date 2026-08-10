@@ -7,6 +7,7 @@ import androidx.work.WorkerParameters
 import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.model.ProcessingStage
+import dagger.Lazy
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
@@ -19,7 +20,7 @@ import java.io.File
 class WaveformWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted workerParams: WorkerParameters,
-    private val draftDao: DraftDao,
+    private val draftDao: Lazy<DraftDao>,
     private val authRepository: com.saurabh.artifact.repository.AuthRepository
 ) : CoroutineWorker(appContext, workerParams) {
 
@@ -30,7 +31,7 @@ class WaveformWorker @AssistedInject constructor(
         if (userId.isEmpty()) return@withContext Result.failure()
 
         try {
-            val draft = draftDao.getDraftById(draftId, userId) ?: return@withContext Result.failure()
+            val draft = draftDao.get().getDraftById(draftId, userId) ?: return@withContext Result.failure()
             val rawFile = draft.rawPcmPath?.let { File(it) } ?: File(draft.localAudioPath)
             
             if (!rawFile.exists()) {
@@ -47,7 +48,7 @@ class WaveformWorker @AssistedInject constructor(
             
             if (waveformData.isNotEmpty()) {
                 // Targeted update: Save waveform and clear processing state
-                draftDao.updateWaveformResult(draftId, userId, waveformData)
+                draftDao.get().updateWaveformResult(draftId, userId, waveformData)
             }
             
             Result.success()
@@ -63,7 +64,7 @@ class WaveformWorker @AssistedInject constructor(
             stage != null -> ProcessingStatus.Active(stage)
             else -> ProcessingStatus.Idle
         }
-        draftDao.updateProcessingStatus(id, userId, newProcessing)
+        draftDao.get().updateProcessingStatus(id, userId, newProcessing)
     }
 
     companion object {

@@ -7,6 +7,7 @@ import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.model.TranscriptSegment
 import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.security.UploadGuard
+import dagger.Lazy
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -20,7 +21,7 @@ import javax.inject.Singleton
 @Singleton
 class PublishApprovalRepository @Inject constructor(
     @param:ApplicationContext private val context: Context,
-    private val draftDao: DraftDao,
+    private val draftDao: Lazy<DraftDao>,
     private val uploadGuard: UploadGuard,
     private val authRepository: AuthRepository 
 ) {
@@ -28,12 +29,12 @@ class PublishApprovalRepository @Inject constructor(
     suspend fun getDraft(id: String): ArtifactDraftEntity? = withContext(Dispatchers.IO) {
         val userId = authRepository.currentUserId
         if (userId.isEmpty()) return@withContext null
-        draftDao.getDraftById(id, userId)
+        draftDao.get().getDraftById(id, userId)
     }
 
     suspend fun updateDraft(draft: ArtifactDraftEntity) = withContext(Dispatchers.IO) {
         // userId check is built into draftDao.update
-        draftDao.update(draft)
+        draftDao.get().update(draft)
     }
 
     suspend fun approveAndFreezeAuto(draftId: String): Result<Unit> = withContext(Dispatchers.IO) {
@@ -41,7 +42,7 @@ class PublishApprovalRepository @Inject constructor(
             val userId = authRepository.currentUserId
             if (userId.isEmpty()) return@withContext Result.failure(AppError.Unauthenticated())
 
-            val draft = draftDao.getDraftById(draftId, userId) 
+            val draft = draftDao.get().getDraftById(draftId, userId) 
                 ?: return@withContext Result.failure(AppError.NotFound("Draft", draftId))
 
             Log.d("PublishApprovalRepo", "Starting auto-approval for draft.")
@@ -74,7 +75,7 @@ class PublishApprovalRepository @Inject constructor(
             val userId = authRepository.currentUserId
             if (userId.isEmpty()) return@withContext Result.failure(AppError.Unauthenticated())
 
-            val draft = draftDao.getDraftById(draftId, userId) 
+            val draft = draftDao.get().getDraftById(draftId, userId) 
                 ?: return@withContext Result.failure(AppError.NotFound("Draft", draftId))
             
             // 1. Generate Immutable Snapshot
@@ -103,7 +104,7 @@ class PublishApprovalRepository @Inject constructor(
 
             // 3. Persist Snapshot
             val secureTranscript = transcriptJson?.let { com.saurabh.artifact.util.SecureString.fromString(it) }
-            draftDao.freezeSnapshot(
+            draftDao.get().freezeSnapshot(
                 id = draftId,
                 userId = userId,
                 transcriptJson = secureTranscript,

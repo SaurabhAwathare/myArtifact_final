@@ -7,7 +7,6 @@ import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import androidx.paging.map
-import androidx.media3.common.util.UnstableApi
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
@@ -74,7 +73,6 @@ import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 @Suppress("SameParameterValue")
-@OptIn(UnstableApi::class)
 @Singleton
 class ArtifactRepository @Inject constructor(
     private val auth: FirebaseAuth,
@@ -837,7 +835,7 @@ class ArtifactRepository @Inject constructor(
      * This method focuses ONLY on the remote state transition to DELETED.
      * Local cleanup is handled by the ArtifactCleanupManager pipeline.
      */
-    internal suspend fun performRemoteDelete(artifactId: String): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun performRemoteDelete(artifactId: String): Result<Unit> = withContext(Dispatchers.IO) {
         return@withContext try {
             val currentUserId = auth.currentUser?.uid ?: return@withContext Result.failure(Exception("Unauthenticated"))
             

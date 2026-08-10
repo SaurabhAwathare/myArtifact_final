@@ -230,9 +230,10 @@ service cloud.firestore {
       function isValidLifecycleTransition(oldData, newData) {
         let oldStatus = oldData.get('status', 'PENDING_UPLOAD');
         let newStatus = newData.get('status', 'PENDING_UPLOAD');
-        // Allowed: status unchanged, or PENDING_UPLOAD/DRAFT -> ACTIVE (Publication)
+        // Allowed: status unchanged, or PENDING_UPLOAD/DRAFT -> ACTIVE (Publication), or ANY -> DELETED
         return (oldStatus == newStatus) ||
-               (oldStatus in ['PENDING_UPLOAD', 'DRAFT'] && newStatus == 'ACTIVE');
+               (oldStatus in ['PENDING_UPLOAD', 'DRAFT'] && newStatus == 'ACTIVE') ||
+               (newStatus == 'DELETED');
       }
 
       allow update: if (resource != null && isGlobalAdmin()) ||

@@ -26,7 +26,7 @@ import javax.inject.Singleton
 
 @Singleton
 class EngagementRepository @Inject constructor(
-    private val engagementDao: EngagementDao,
+    private val engagementDao: dagger.Lazy<EngagementDao>,
     private val firestoreRepository: FirestoreEngagementRepository,
     private val syncScheduler: EngagementSyncScheduler,
     @ApplicationScope private val externalScope: CoroutineScope
@@ -34,7 +34,7 @@ class EngagementRepository @Inject constructor(
 
     suspend fun getEngagement(artifactId: String): Result<EngagementEvidence> = withContext(Dispatchers.IO) {
         try {
-            val engagement = engagementDao.getEngagement(artifactId)?.toDomain()
+            val engagement = engagementDao.get().getEngagement(artifactId)?.toDomain()
             if (engagement != null) {
                 Result.success(engagement)
             } else {
@@ -46,19 +46,19 @@ class EngagementRepository @Inject constructor(
     }
 
     suspend fun getEngagementsRequiringSync(): List<EngagementEvidence> = withContext(Dispatchers.IO) {
-        engagementDao.getEngagementsRequiringSync().map { it.toDomain() }
+        engagementDao.get().getEngagementsRequiringSync().map { it.toDomain() }
     }
 
     suspend fun reclaimOrphanedSyncs(): Int = withContext(Dispatchers.IO) {
-        engagementDao.reclaimOrphanedSyncs()
+        engagementDao.get().reclaimOrphanedSyncs()
     }
 
     suspend fun updateSyncStatus(artifactId: String, state: SyncState, error: String? = null) = withContext(Dispatchers.IO) {
-        engagementDao.updateSyncStatus(artifactId, state, System.currentTimeMillis(), error)
+        engagementDao.get().updateSyncStatus(artifactId, state, System.currentTimeMillis(), error)
     }
 
     suspend fun markEngagementSynced(artifactId: String): Int = withContext(Dispatchers.IO) {
-        engagementDao.markAsSynced(artifactId, System.currentTimeMillis())
+        engagementDao.get().markAsSynced(artifactId, System.currentTimeMillis())
     }
 
     /**
@@ -66,7 +66,7 @@ class EngagementRepository @Inject constructor(
      * Use when backend verification times out.
      */
     suspend fun forceRetrySync(artifactId: String) = withContext(Dispatchers.IO) {
-        engagementDao.updateSyncStatus(artifactId, SyncState.PENDING, System.currentTimeMillis(), "Retry triggered by timeout")
+        engagementDao.get().updateSyncStatus(artifactId, SyncState.PENDING, System.currentTimeMillis(), "Retry triggered by timeout")
         syncScheduler.scheduleSync()
     }
 
@@ -75,9 +75,9 @@ class EngagementRepository @Inject constructor(
      */
     fun observeEngagementEvidence(artifactId: String): Flow<EngagementEvidence?> {
         val currentUserId = FirebaseAuth.getInstance().currentUser?.uid
-            ?: return engagementDao.observeEngagement(artifactId).map { it?.toDomain() }
+            ?: return engagementDao.get().observeEngagement(artifactId).map { it?.toDomain() }
 
-        val localFlow = engagementDao.observeEngagement(artifactId).distinctUntilChanged()
+        val localFlow = engagementDao.get().observeEngagement(artifactId).distinctUntilChanged()
         val remoteFlow = firestoreRepository.observeRemoteUnlockStatus(currentUserId, artifactId)
             .onEach { remote ->
                 if (remote != null) {
@@ -103,7 +103,7 @@ class EngagementRepository @Inject constructor(
 
     private suspend fun updateLocalUnlockCache(artifactId: String, remote: UnlockStatus) {
         withContext(Dispatchers.IO) {
-            engagementDao.updateUnlockStatus(
+            engagementDao.get().updateUnlockStatus(
                 artifactId = artifactId,
                 isUnlocked = remote.isCommentUnlocked,
                 timestamp = remote.unlockTimestamp,
@@ -117,7 +117,7 @@ class EngagementRepository @Inject constructor(
     suspend fun saveEngagement(evidence: EngagementEvidence): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val entity = evidence.toEntity().copy(syncState = SyncState.PENDING)
-            engagementDao.insertEngagementMonotonic(entity)
+            engagementDao.get().insertEngagementMonotonic(entity)
             syncScheduler.scheduleSync()
             Result.success(Unit)
         } catch (e: Exception) {
@@ -127,7 +127,7 @@ class EngagementRepository @Inject constructor(
 
     suspend fun updateLastPosition(artifactId: String, positionMs: Long): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            engagementDao.updateLastPosition(artifactId, positionMs)
+            engagementDao.get().updateLastPosition(artifactId, positionMs)
 
             syncScheduler.scheduleSync()
             Result.success(Unit)

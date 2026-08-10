@@ -33,8 +33,8 @@ import java.util.concurrent.TimeUnit
 class InteractionSyncWorker @AssistedInject constructor(
     @Assisted private val appContext: Context,
     @Assisted workerParams: WorkerParameters,
-    private val pendingInteractionDao: PendingInteractionDao,
-    private val deadLetterInteractionDao: DeadLetterInteractionDao,
+    private val pendingInteractionDao: dagger.Lazy<PendingInteractionDao>,
+    private val deadLetterInteractionDao: dagger.Lazy<DeadLetterInteractionDao>,
     private val reactionRepository: ReactionRepository,
     private val artifactLibraryRepository: ArtifactLibraryRepository,
     private val engagementRepository: EngagementRepository,
@@ -66,7 +66,7 @@ class InteractionSyncWorker @AssistedInject constructor(
         // 2. Collapse duplicate/redundant interaction events before processing
         collapseEvents(currentUserId)
 
-        val pending = pendingInteractionDao.getPendingForUser(currentUserId)
+        val pending = pendingInteractionDao.get().getPendingForUser(currentUserId)
         if (pending.isEmpty() && !isRetryRequired) return@withContext Result.success()
 
         val workerId = id.toString()
@@ -83,7 +83,7 @@ class InteractionSyncWorker @AssistedInject constructor(
             val result = processInteraction(processingInteraction, currentUserId)
             if (result.isSuccess) {
                 ArtifactLogger.logInteraction(processingInteraction, "SUCCESS")
-                pendingInteractionDao.delete(interaction)
+                pendingInteractionDao.get().delete(interaction)
             } else {
                 val error = result.exceptionOrNull() ?: Exception("Unknown error")
                 val isTransient = ArtifactRepository.isTransientError(error)
@@ -97,11 +97,11 @@ class InteractionSyncWorker @AssistedInject constructor(
                     if (errorInteraction.retryCount >= MAX_RETRIES) {
                         ArtifactLogger.logInteraction(errorInteraction, "RETRY_LIMIT_EXCEEDED", mapOf("error" to error.message, "exception" to error.javaClass.simpleName))
                         moveToDeadLetterQueue(errorInteraction, "RETRY_LIMIT_EXCEEDED", error.message)
-                        pendingInteractionDao.delete(interaction)
+                        pendingInteractionDao.get().delete(interaction)
                     } else {
                         ArtifactLogger.logInteraction(errorInteraction, "TRANSIENT_FAILURE", mapOf("error" to error.message, "exception" to error.javaClass.simpleName))
                         // Update retry count and error in DB for the next run
-                        pendingInteractionDao.insert(errorInteraction)
+                        pendingInteractionDao.get().insert(errorInteraction)
                         hasInteractionTransientFailure = true
                         
                         // CRITICAL: Break on transient failure to preserve sequential ordering.
@@ -111,7 +111,7 @@ class InteractionSyncWorker @AssistedInject constructor(
                     // Permanent error (e.g. 404, 403)
                     ArtifactLogger.logInteraction(errorInteraction, "PERMANENT_FAILURE", mapOf("error" to error.message, "exception" to error.javaClass.simpleName))
                     moveToDeadLetterQueue(errorInteraction, "PERMANENT", error.message)
-                    pendingInteractionDao.delete(interaction)
+                    pendingInteractionDao.get().delete(interaction)
                 }
             }
         }
@@ -203,7 +203,7 @@ class InteractionSyncWorker @AssistedInject constructor(
             failureType = failureType,
             retryCount = interaction.retryCount
         )
-        deadLetterInteractionDao.insert(dlqEntry)
+        deadLetterInteractionDao.get().insert(dlqEntry)
         ArtifactLogger.w(DiagnosticCategory.SYNC, "DLQ_MOVE", mapOf("interactionId" to interaction.id, "failureType" to failureType, "reason" to (reason ?: "unknown")))
     }
 
@@ -211,7 +211,7 @@ class InteractionSyncWorker @AssistedInject constructor(
      * Collapses redundant toggle events in the local queue to reduce write amplification.
      */
     internal suspend fun collapseEvents(userId: String) {
-        val allPending = pendingInteractionDao.getPendingForUser(userId)
+        val allPending = pendingInteractionDao.get().getPendingForUser(userId)
         if (allPending.isEmpty()) return
 
         // Group by target (artifactId) and interaction type
@@ -237,11 +237,11 @@ class InteractionSyncWorker @AssistedInject constructor(
 
             if (isRedundantCycle) {
                 // Perfect net-zero cycle [ADD, REMOVE]
-                events.forEach { pendingInteractionDao.delete(it) }
+                events.forEach { pendingInteractionDao.get().delete(it) }
                 ArtifactLogger.i(DiagnosticCategory.SYNC, "COLLAPSE_CYCLE_CANCELLED", mapOf("key" to key))
             } else {
                 // Collapse to the latest intent
-                toDelete.forEach { pendingInteractionDao.delete(it) }
+                toDelete.forEach { pendingInteractionDao.get().delete(it) }
                 ArtifactLogger.i(DiagnosticCategory.SYNC, "COLLAPSE_COMPLETED", mapOf("key" to key, "count" to events.size, "latestAction" to latest.action))
             }
         }

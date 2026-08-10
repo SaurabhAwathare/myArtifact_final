@@ -15,6 +15,7 @@ import com.saurabh.artifact.model.SyncStatus
 import com.saurabh.artifact.repository.DraftRepository
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.util.NotificationHelper
+import dagger.Lazy
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
@@ -28,7 +29,7 @@ class PublishingWorker @AssistedInject constructor(
     private val publishingManager: com.saurabh.artifact.domain.PublishingManager,
     private val draftRepository: DraftRepository,
     private val authRepository: AuthRepository,
-    private val uploadTaskDao: UploadTaskDao,
+    private val uploadTaskDao: Lazy<UploadTaskDao>,
     private val diagnosticLogger: DiagnosticLogger
 ) : CoroutineWorker(appContext, workerParams) {
 
@@ -52,7 +53,7 @@ class PublishingWorker @AssistedInject constructor(
         // 0.2 Acquire Ownership (with 10 min timeout threshold)
         val timeoutThreshold = System.currentTimeMillis() - 10 * 60 * 1000L
         val acquisitionResult = withContext(Dispatchers.IO) {
-            uploadTaskDao.tryAcquireOwnership(draftId, UploadOwner.WORKER, timeoutThreshold)
+            uploadTaskDao.get().tryAcquireOwnership(draftId, UploadOwner.WORKER, timeoutThreshold)
         }
 
         when (acquisitionResult) {
@@ -119,7 +120,7 @@ class PublishingWorker @AssistedInject constructor(
             }
         } finally {
             withContext(Dispatchers.IO) {
-                uploadTaskDao.releaseOwnership(draftId)
+                uploadTaskDao.get().releaseOwnership(draftId)
             }
         }
     }

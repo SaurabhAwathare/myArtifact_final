@@ -10,6 +10,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+/**
+ * Broadcast receiver for triggering audit actions via ADB.
+ * Included ONLY in debug builds.
+ *
+ * Usage:
+ * am broadcast -a com.saurabh.artifact.AUDIT_ACTION --es action SETUP_CORRUPTED
+ */
 @AndroidEntryPoint
 class AuditBroadcastReceiver : BroadcastReceiver() {
 

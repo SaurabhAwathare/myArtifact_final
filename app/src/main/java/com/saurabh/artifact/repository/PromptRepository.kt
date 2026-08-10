@@ -5,6 +5,7 @@ import com.saurabh.artifact.data.local.PromptDao
 import com.saurabh.artifact.data.local.toDomainModel
 import com.saurabh.artifact.data.local.toEntity
 import com.saurabh.artifact.model.ReflectionPrompt
+import dagger.Lazy
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -17,7 +18,7 @@ import javax.inject.Singleton
 
 @Singleton
 class PromptRepository @Inject constructor(
-    private val promptDao: PromptDao,
+    private val promptDao: Lazy<PromptDao>,
     @param:ApplicationContext private val context: Context,
 ) {
 
@@ -31,9 +32,9 @@ class PromptRepository @Inject constructor(
         initializeIfEmpty()
 
         val entity = if (mood != null) {
-            promptDao.getOldestPromptByMood(mood) ?: promptDao.getOldestPrompt()
+            promptDao.get().getOldestPromptByMood(mood) ?: promptDao.get().getOldestPrompt()
         } else {
-            promptDao.getOldestPrompt()
+            promptDao.get().getOldestPrompt()
         }
 
         entity?.let {
@@ -57,11 +58,11 @@ class PromptRepository @Inject constructor(
      * Initializes the database with prompts from JSON if it's empty.
      */
     suspend fun initializeIfEmpty() = withContext(Dispatchers.IO) {
-        if (promptDao.getPromptCount() == 0) {
+        if (promptDao.get().getPromptCount() == 0) {
             try {
                 val jsonString = context.assets.open("prompts.json").bufferedReader().use { it.readText() }
                 val prompts = json.decodeFromString<List<ReflectionPrompt>>(jsonString)
-                promptDao.insertPrompts(prompts.map { it.toEntity() })
+                promptDao.get().insertPrompts(prompts.map { it.toEntity() })
             } catch (e: Exception) {
                 android.util.Log.e("PromptRepository", "Failed to preload prompts", e)
             }
@@ -69,12 +70,12 @@ class PromptRepository @Inject constructor(
     }
 
     fun getAllPrompts(): Flow<List<ReflectionPrompt>> = 
-        promptDao.getAllPrompts().map { list -> list.map { it.toDomainModel() } }
+        promptDao.get().getAllPrompts().map { list -> list.map { it.toDomainModel() } }
 
     /**
      * Records that a prompt was used to help track variety in the future.
      */
     suspend fun recordUsage(promptId: String) = withContext(Dispatchers.IO) {
-        promptDao.recordUsage(promptId)
+        promptDao.get().recordUsage(promptId)
     }
 }

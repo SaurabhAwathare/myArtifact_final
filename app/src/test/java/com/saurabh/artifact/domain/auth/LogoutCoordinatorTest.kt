@@ -74,7 +74,7 @@ class LogoutCoordinatorTest {
             playbackSettingsDataStore,
             recordingSessionManager,
             workManager,
-            database,
+            { database },
             storageManager,
             backupEncryptionManager,
             fakeLogger

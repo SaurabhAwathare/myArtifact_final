@@ -6,6 +6,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.model.*
+import dagger.Lazy
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
@@ -21,7 +22,7 @@ import kotlinx.coroutines.withContext
 class SafetyAnalysisWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted workerParams: WorkerParameters,
-    private val draftDao: DraftDao,
+    private val draftDao: Lazy<DraftDao>,
     private val authRepository: com.saurabh.artifact.repository.AuthRepository
 ) : CoroutineWorker(appContext, workerParams) {
 
@@ -33,7 +34,7 @@ class SafetyAnalysisWorker @AssistedInject constructor(
 
         try {
             // Immediately transition to Idle as the feature is legacy
-            draftDao.updateProcessingStatus(draftId, userId, ProcessingStatus.Idle)
+            draftDao.get().updateProcessingStatus(draftId, userId, ProcessingStatus.Idle)
             Result.success()
         } catch (_: Exception) {
             Result.failure()

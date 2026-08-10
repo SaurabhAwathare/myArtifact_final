@@ -85,7 +85,6 @@ private data class PlaybackState(
     val duration: Duration
 )
 
-@androidx.media3.common.util.UnstableApi
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class ProfileViewModel @Inject constructor(

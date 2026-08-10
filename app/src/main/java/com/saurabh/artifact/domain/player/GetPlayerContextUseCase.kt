@@ -11,6 +11,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import com.google.firebase.firestore.FirebaseFirestoreException
+import dagger.Lazy
 import javax.inject.Inject
 import kotlin.time.Duration.Companion.seconds
 
@@ -24,7 +25,7 @@ class GetPlayerContextUseCase @Inject constructor(
     private val userRepository: UserRepository,
     private val savedArtifactManager: SavedArtifactManager,
     private val authRepository: AuthRepository,
-    private val pendingInteractionDao: com.saurabh.artifact.data.local.PendingInteractionDao,
+    private val pendingInteractionDao: Lazy<com.saurabh.artifact.data.local.PendingInteractionDao>,
     private val draftRepository: DraftRepository,
     private val diagnosticLogger: DiagnosticLogger
 ) {
@@ -170,7 +171,7 @@ class GetPlayerContextUseCase @Inject constructor(
 
         val pendingInteractionsFlow = userIdFlow.flatMapLatest { uid ->
             if (uid != null) {
-                pendingInteractionDao.observePendingForArtifact(artifact.id, uid)
+                pendingInteractionDao.get().observePendingForArtifact(artifact.id, uid)
             } else {
                 flowOf(emptyList())
             }

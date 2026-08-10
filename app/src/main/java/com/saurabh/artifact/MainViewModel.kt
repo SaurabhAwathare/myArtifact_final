@@ -212,6 +212,9 @@ class MainViewModel @Inject constructor(
                 
                 // BLOCKING: Wait for Core/Security readiness (including App Check)
                 startupCoordinator.awaitComponent(StartupComponent.CORE)
+
+                // BLOCKING: Wait for Database/Encryption readiness (off main thread)
+                startupCoordinator.awaitComponent(StartupComponent.DATABASE)
                 
                 // Only proceed if no terminal error occurred
                 if (_startupState.value !is AppStartupState.Error) {
@@ -250,17 +253,20 @@ class MainViewModel @Inject constructor(
 
         // Integration of Deep Link Intent into the first Ready state
         val action = pendingStartupEvent
-        pendingStartupEvent = null // Consume exactly once for startup
 
         // Resolution: If the deep link is a full screen route, it becomes the startDestination
-        // if we are authenticated. Otherwise, it remains a startup action.
+        // if we are authenticated. 
         val finalDestination = if (action is Route && destination == InitialDestination.AUTHENTICATED) {
+            pendingStartupEvent = null // Consume Route
             action
         } else {
             baseDestination
         }
 
-        val finalAction = if (finalDestination == action) null else action
+        // Only put in startupAction if NOT a Route (Routes are startDestinations)
+        // AND we are not letting the deferred observer handle it.
+        // Actually, for consistency with tests, we let the deferred observer handle side-effects like IncomingArtifact
+        val finalAction = if (finalDestination == action || action is IncomingArtifact) null else action
 
         updateStartupState(AppStartupState.Ready(finalDestination, finalAction))
         markAuthReady()

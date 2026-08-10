@@ -6,6 +6,16 @@
    See https://developer.android.com/about/versions/12/backup-restore
 -->
 <full-backup-content>
-    <include domain="database" path="drafts_db"/>
-    <include domain="file" path="drafts/"/>
+    <!-- Include the main Room database for same-device recovery -->
+    <include domain="database" path="artifact_db"/>
+
+    <!-- Include DataStore configurations for settings and non-sensitive session data -->
+    <!-- Using specific files to ensure we don't accidentally include future sensitive material -->
+    <include domain="file" path="datastore/settings.preferences_pb"/>
+    <include domain="file" path="datastore/playback_settings.preferences_pb"/>
+    <include domain="file" path="datastore/user_session.preferences_pb"/>
+    <include domain="file" path="datastore/onboarding_prefs.preferences_pb"/>
+    <include domain="file" path="datastore/db_encryption_prefs.preferences_pb"/>
+
+    <!-- Sensitive voice data and metadata are excluded by omission (Whitelist Mode) -->
 </full-backup-content>

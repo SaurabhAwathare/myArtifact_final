@@ -7,7 +7,6 @@ import androidx.datastore.preferences.preferencesDataStore
 import androidx.datastore.preferences.core.emptyPreferences
 import com.google.firebase.firestore.FirebaseFirestore
 import android.util.Log
-import androidx.media3.common.util.UnstableApi
 import com.saurabh.artifact.model.UserSettings
 import dagger.hilt.android.qualifiers.ApplicationContext
 import com.saurabh.artifact.startup.StartupCoordinator
@@ -27,7 +26,6 @@ import javax.inject.Singleton
 
 private val Context.dataStore by preferencesDataStore(name = "settings")
 
-@UnstableApi
 @Singleton
 class SettingsRepository @Inject constructor(
     @param:ApplicationContext private val context: Context,

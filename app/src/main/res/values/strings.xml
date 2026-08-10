@@ -50,4 +50,18 @@
 
     <!-- Disclosures -->
     <string name="audio_collection_disclosure">Voice recordings are uploaded securely so they can be shared within Artifact according to your publishing choices. Drafts and published recordings can be managed or deleted as described in the Privacy Policy.</string>
+
+    <!-- Login -->
+    <string name="login_tagline">Pure expression. Private identity.</string>
+    <string name="login_continue_google">Continue with Google</string>
+    <string name="login_privacy_note">Your identity stays private through generated nicknames.</string>
+
+    <!-- Onboarding -->
+    <string name="onboarding_safe_space_title">A safe space for your authentic self.</string>
+    <string name="onboarding_safe_space_desc">Record feelings and memories in a sanctuary designed for privacy.</string>
+    <string name="onboarding_identity_title">Your identity is protected.</string>
+    <string name="onboarding_identity_desc">We use generated nicknames and secure authentication to ensure a safe, accountable community.</string>
+    <string name="onboarding_voice_title">Your voice carries emotion differently.</string>
+    <string name="onboarding_voice_desc">Speak naturally. Pause. Breathe. Reflect.</string>
+    <string name="onboarding_skip">Skip</string>
 </resources>

@@ -2,6 +2,7 @@ package com.saurabh.artifact.audio
 
 import android.content.Context
 import android.util.Log
+import androidx.annotation.OptIn
 import androidx.core.net.toUri
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
@@ -16,7 +17,7 @@ import java.util.concurrent.ConcurrentHashMap
  * Utility to pre-cache media files in the background using Media3's CacheWriter.
  * This allows downloading content into [MediaCache] without requiring an active ExoPlayer.
  */
-@UnstableApi
+@OptIn(UnstableApi::class)
 object MediaPreCacher {
     private val scope = CoroutineScope(
         SupervisorJob() + 

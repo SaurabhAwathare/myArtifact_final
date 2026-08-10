@@ -34,6 +34,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
+import com.saurabh.artifact.R
 import com.saurabh.artifact.ui.splash.AnimatedWaveform
 import com.saurabh.artifact.ui.theme.GoldAura500
 import com.saurabh.artifact.ui.theme.Obsidian950
@@ -109,7 +111,7 @@ fun OnboardingPage1() {
         Spacer(modifier = Modifier.height(48.dp))
 
         Text(
-            text = "A safe space for your authentic self.",
+            text = stringResource(R.string.onboarding_safe_space_title),
             style = MaterialTheme.typography.displayMedium,
             color = Color.White,
             textAlign = TextAlign.Center
@@ -118,7 +120,7 @@ fun OnboardingPage1() {
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(
-            text = "Record feelings and memories in a sanctuary designed for privacy.",
+            text = stringResource(R.string.onboarding_safe_space_desc),
             style = MaterialTheme.typography.bodyLarge,
             color = Color.White.copy(alpha = 0.7f),
             textAlign = TextAlign.Center
@@ -145,7 +147,7 @@ fun OnboardingPage2() {
         Spacer(modifier = Modifier.height(48.dp))
 
         Text(
-            text = "Your identity is protected.",
+            text = stringResource(R.string.onboarding_identity_title),
             style = MaterialTheme.typography.displayMedium,
             color = Color.White,
             textAlign = TextAlign.Center
@@ -154,7 +156,7 @@ fun OnboardingPage2() {
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(
-            text = "We use generated nicknames and secure authentication to ensure a safe, accountable community.",
+            text = stringResource(R.string.onboarding_identity_desc),
             style = MaterialTheme.typography.bodyLarge,
             color = Color.White.copy(alpha = 0.7f),
             textAlign = TextAlign.Center,
@@ -184,7 +186,7 @@ fun OnboardingPage3() {
         Spacer(modifier = Modifier.height(48.dp))
 
         Text(
-            text = "Your voice carries emotion differently.",
+            text = stringResource(R.string.onboarding_voice_title),
             style = MaterialTheme.typography.displayMedium,
             color = Color.White,
             textAlign = TextAlign.Center
@@ -193,7 +195,7 @@ fun OnboardingPage3() {
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(
-            text = "Speak naturally. Pause. Breathe. Reflect.",
+            text = stringResource(R.string.onboarding_voice_desc),
             style = MaterialTheme.typography.bodyLarge,
             color = Color.White.copy(alpha = 0.7f),
             textAlign = TextAlign.Center
@@ -234,7 +236,7 @@ fun OnboardingFooter(
         if (currentPage < 2) {
             TextButton(onClick = onSkip) {
                 Text(
-                    text = "Skip",
+                    text = stringResource(R.string.onboarding_skip),
                     color = Color.White.copy(alpha = 0.5f),
                     style = MaterialTheme.typography.bodyMedium
                 )

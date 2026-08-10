@@ -28,7 +28,7 @@ class UploadService : Service() {
     @Inject lateinit var publishingManager: com.saurabh.artifact.domain.PublishingManager
     @Inject lateinit var draftRepository: DraftRepository
     @Inject lateinit var authRepository: AuthRepository
-    @Inject lateinit var uploadTaskDao: UploadTaskDao
+    @Inject lateinit var uploadTaskDao: dagger.Lazy<UploadTaskDao>
     @Inject lateinit var diagnosticLogger: DiagnosticLogger
 
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -97,7 +97,7 @@ class UploadService : Service() {
             // 1. Acquire Ownership (with 10 min timeout threshold)
             val timeoutThreshold = System.currentTimeMillis() - 10 * 60 * 1000L
             val acquisitionResult = withContext(Dispatchers.IO) {
-                uploadTaskDao.tryAcquireOwnership(draftId, UploadOwner.SERVICE, timeoutThreshold)
+                uploadTaskDao.get().tryAcquireOwnership(draftId, UploadOwner.SERVICE, timeoutThreshold)
             }
 
             if (acquisitionResult != AcquisitionResult.ACQUIRED) {
@@ -154,7 +154,7 @@ class UploadService : Service() {
                 handleFailure(draftId, e)
             } finally {
                 withContext(Dispatchers.IO) {
-                    uploadTaskDao.releaseOwnership(draftId)
+                    uploadTaskDao.get().releaseOwnership(draftId)
                 }
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
@@ -180,7 +180,7 @@ class UploadService : Service() {
     private fun cancelUpload(draftId: String) {
         uploadJob?.cancel()
         serviceScope.launch(Dispatchers.IO) {
-            uploadTaskDao.releaseOwnership(draftId)
+            uploadTaskDao.get().releaseOwnership(draftId)
             draftRepository.updateUploadStatus(draftId, SyncStatus.Queued)
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()

@@ -503,7 +503,13 @@ export const onUserDeleted = functions.auth.user().onDelete(async (user, context
 
     for (const doc of artifactsSnapshot.docs) {
       try {
-        await doc.ref.delete();
+        if (doc.data().status !== "DELETED") {
+          await doc.ref.update({
+            status: "DELETED",
+            isPublic: false,
+            deletedAt: FieldValue.serverTimestamp(),
+          });
+        }
         artifactsDeletedCount++;
       } catch (e) {
         logger.error(`[DELETE USER] ArtifactID=${doc.id} | ERROR:`, e);

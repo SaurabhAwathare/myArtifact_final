@@ -10,6 +10,7 @@ import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.model.LocalCleanupStatus
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.worker.CleanupWorker
+import dagger.Lazy
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
@@ -32,7 +33,7 @@ import androidx.media3.common.util.UnstableApi
 class ArtifactCleanupManager @Inject constructor(
     private val artifactRepository: ArtifactRepository,
     private val authRepository: com.saurabh.artifact.repository.AuthRepository,
-    private val draftDao: DraftDao,
+    private val draftDao: Lazy<DraftDao>,
     private val workManager: WorkManager,
 ) {
     private val managerScope = CoroutineScope(Dispatchers.IO)
@@ -46,7 +47,7 @@ class ArtifactCleanupManager @Inject constructor(
     fun resumeUnfinishedCleanups() {
         managerScope.launch {
             try {
-                val unfinished = draftDao.getUnfinishedCleanups()
+                val unfinished = draftDao.get().getUnfinishedCleanups()
                 unfinished.forEach { draft ->
                     ArtifactLogger.i(DiagnosticCategory.WORKMANAGER, "CLEANUP_RESUMING", mapOf("draftId" to draft.id))
                     scheduleLocalCleanup(draft.id)
@@ -87,7 +88,7 @@ class ArtifactCleanupManager @Inject constructor(
         _deletingArtifactIds.value += artifactId
         return try {
             // 1. Initialize local cleanup state
-            draftDao.updateLocalCleanupStatusByArtifactId(artifactId, userId, LocalCleanupStatus.PENDING)
+            draftDao.get().updateLocalCleanupStatusByArtifactId(artifactId, userId, LocalCleanupStatus.PENDING)
             
             // 2. Trigger remote deletion
             val result = artifactRepository.performRemoteDelete(artifactId)
@@ -114,7 +115,7 @@ class ArtifactCleanupManager @Inject constructor(
 
         _deletingArtifactIds.value += draftId
         return try {
-            draftDao.updateLocalCleanupStatus(draftId, userId, LocalCleanupStatus.PENDING)
+            draftDao.get().updateLocalCleanupStatus(draftId, userId, LocalCleanupStatus.PENDING)
             scheduleLocalCleanup(draftId)
             ArtifactLogger.i(DiagnosticCategory.DRAFT, "DRAFT_LOCAL_DELETION_QUEUED", mapOf("draftId" to draftId))
             Result.success(Unit)

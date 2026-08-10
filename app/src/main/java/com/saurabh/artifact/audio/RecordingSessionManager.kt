@@ -9,6 +9,7 @@ import com.saurabh.artifact.data.local.RecordingStatus
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.repository.RecordingRepository
+import dagger.Lazy
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -37,7 +38,7 @@ class RecordingSessionManager @Inject constructor(
     private val recordingRepository: RecordingRepository,
     private val userRepository: com.saurabh.artifact.repository.UserRepository,
     private val localDraftManager: LocalDraftManager,
-    private val draftDao: DraftDao,
+    private val draftDao: Lazy<DraftDao>,
     private val cleanupManager: ArtifactCleanupManager,
     private val diagnosticLogger: DiagnosticLogger
 ) {
@@ -83,7 +84,7 @@ class RecordingSessionManager @Inject constructor(
                 if (serviceState.draftId.isNotEmpty() && _activeDraft.value?.id != serviceState.draftId) {
                     val userId = userRepository.getCurrentUserId()
                     if (userId != null) {
-                        val draft = draftDao.getDraftById(serviceState.draftId, userId)
+                        val draft = draftDao.get().getDraftById(serviceState.draftId, userId)
                         _activeDraft.value = draft
                     }
                 } else if (serviceState.status == RecordingStatus.IDLE) {
@@ -146,13 +147,13 @@ class RecordingSessionManager @Inject constructor(
         val draftId = explicitDraftId ?: UUID.randomUUID().toString()
         
         // Ensure draft exists in DB if we're starting fresh
-        var draft = draftDao.getDraftById(draftId, userId)
+        var draft = draftDao.get().getDraftById(draftId, userId)
         if (draft == null) {
             val file = withContext(Dispatchers.IO) {
                 localDraftManager.createDraftFile(draftId, "wav")
             }
             recordingRepository.createDraft(draftId, file.absolutePath, 0).getOrThrow()
-            draft = draftDao.getDraftById(draftId, userId)
+            draft = draftDao.get().getDraftById(draftId, userId)
             
             diagnosticLogger.info(
                 DiagnosticCategory.DRAFT, 

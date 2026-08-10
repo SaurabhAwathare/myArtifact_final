@@ -94,7 +94,7 @@ class RecordingService : Service() {
     private val stopMutex = Mutex()
 
     @Inject
-    lateinit var draftDao: DraftDao
+    lateinit var draftDao: dagger.Lazy<DraftDao>
 
     @Inject
     lateinit var artifactRepository: ArtifactRepository
@@ -304,7 +304,7 @@ class RecordingService : Service() {
             _recordingState.value = RecordingState(status = RecordingStatus.FAILED, errorCode = "STORAGE_FULL")
             // Trigger emergency cleanup in background
             serviceScope.launch(Dispatchers.IO) {
-                val allDrafts = draftDao.getAllDrafts()
+                val allDrafts = draftDao.get().getAllDrafts()
                 // We'll use LocalDraftManager's reconcileStorage here
                 localDraftManager.reconcileStorage(allDrafts)
             }
@@ -333,7 +333,7 @@ class RecordingService : Service() {
         serviceScope.launch {
             val finalDraftId = draftId.ifEmpty { UUID.randomUUID().toString() }
             
-            val draft = draftDao.internalGetDraftByIdAgnostic(finalDraftId)
+            val draft = draftDao.get().internalGetDraftByIdAgnostic(finalDraftId)
             val file = withContext(Dispatchers.IO) {
                 draft?.let { File(it.localAudioPath) } ?: localDraftManager.createDraftFile(finalDraftId, "wav")
             }
@@ -382,10 +382,10 @@ class RecordingService : Service() {
                     draftId = finalDraftId
                 )
                 
-                draft?.let {
-                    draftDao.update(it.copy(
-                        status = it.status.copy(publication = SyncStatus.LocalOnly),
-                        lifecycle = ArtifactLifecycle.RECORDING
+                draft?.let { it ->
+                    draftDao.get().update(it.copy(
+                        status = it.status.copy(publication = com.saurabh.artifact.model.SyncStatus.LocalOnly),
+                        lifecycle = com.saurabh.artifact.model.ArtifactLifecycle.RECORDING
                     ))
                 }
                 userSessionManager.setActiveDraftId(finalDraftId)
@@ -420,8 +420,8 @@ class RecordingService : Service() {
         
         _recordingState.value.draftId.let { id ->
             serviceScope.launch {
-                draftDao.internalGetDraftByIdAgnostic(id)?.let {
-                    draftDao.update(it.copy(
+                draftDao.get().internalGetDraftByIdAgnostic(id)?.let {
+                    draftDao.get().update(it.copy(
                         status = it.status.copy(publication = SyncStatus.LocalOnly)
                     ))
                 }
@@ -444,8 +444,8 @@ class RecordingService : Service() {
         
         _recordingState.value.draftId.let { id ->
             serviceScope.launch {
-                draftDao.internalGetDraftByIdAgnostic(id)?.let {
-                    draftDao.update(it.copy(
+                draftDao.get().internalGetDraftByIdAgnostic(id)?.let {
+                    draftDao.get().update(it.copy(
                         status = it.status.copy(publication = SyncStatus.LocalOnly),
                         lifecycle = ArtifactLifecycle.RECORDING
                     ))
@@ -543,8 +543,8 @@ class RecordingService : Service() {
                         if (fileExists) {
                             withContext(Dispatchers.IO) { capturedFile?.delete() }
                         }
-                        draftDao.internalGetDraftByIdAgnostic(capturedDraftId)?.let {
-                            draftDao.update(it.copy(
+                        draftDao.get().internalGetDraftByIdAgnostic(capturedDraftId)?.let {
+                            draftDao.get().update(it.copy(
                                 status = it.status.copy(processing = ProcessingStatus.Failed)
                             ))
                         }

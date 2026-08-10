@@ -11,6 +11,7 @@ import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.RecordingRepository
+import dagger.Lazy
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
@@ -25,7 +26,7 @@ class ProcessingFinalizerWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted workerParams: WorkerParameters,
     private val recordingRepository: RecordingRepository,
-    private val draftDao: DraftDao,
+    private val draftDao: Lazy<DraftDao>,
     private val authRepository: AuthRepository,
     private val diagnosticLogger: DiagnosticLogger
 ) : CoroutineWorker(appContext, workerParams) {
@@ -40,7 +41,7 @@ class ProcessingFinalizerWorker @AssistedInject constructor(
         
         try {
             // 1. Fetch draft before finalization to get file paths
-            val draft = draftDao.getDraftById(draftId, userId)
+            val draft = draftDao.get().getDraftById(draftId, userId)
 
             // 2. Targeted finalization update
             recordingRepository.finalizeProcessing(draftId)

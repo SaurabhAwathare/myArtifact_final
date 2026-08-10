@@ -13,6 +13,7 @@ import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.util.FileIntegrity
+import dagger.Lazy
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
@@ -30,7 +31,7 @@ import androidx.media3.common.util.UnstableApi
 class TranscodingWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted workerParams: WorkerParameters,
-    private val draftDao: DraftDao,
+    private val draftDao: Lazy<DraftDao>,
     private val localDraftManager: LocalDraftManager,
     private val encryptedStorageManager: EncryptedStorageManager,
     private val wavRecoveryManager: WavRecoveryManager,
@@ -46,7 +47,7 @@ class TranscodingWorker @AssistedInject constructor(
 
         diagnosticLogger.info(DiagnosticCategory.RECORDING, "TRANSCODING_STARTED", mapOf(LogKeys.DRAFT_ID to draftId))
         
-        val draft = draftDao.getDraftById(draftId, userId) ?: return@withContext Result.failure()
+        val draft = draftDao.get().getDraftById(draftId, userId) ?: return@withContext Result.failure()
 
         val rawFile = draft.rawPcmPath?.let { File(it) } ?: return@withContext Result.failure()
         if (!rawFile.exists()) {
@@ -88,7 +89,7 @@ class TranscodingWorker @AssistedInject constructor(
             }
 
             // 3. Finalize paths in DB with targeted update (Commit before cleanup)
-            draftDao.updateTranscodingResult(
+            draftDao.get().updateTranscodingResult(
                 id = draftId,
                 userId = userId,
                 localAudioPath = finalAudioFile.absolutePath,
@@ -118,6 +119,6 @@ class TranscodingWorker @AssistedInject constructor(
             stage != null -> ProcessingStatus.Active(stage)
             else -> ProcessingStatus.Idle
         }
-        draftDao.updateProcessingStatus(id, userId, newProcessing)
+        draftDao.get().updateProcessingStatus(id, userId, newProcessing)
     }
 }

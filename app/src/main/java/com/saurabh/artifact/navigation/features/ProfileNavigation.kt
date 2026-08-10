@@ -13,8 +13,8 @@ import com.saurabh.artifact.ui.moderation.ModerationScreen
 import com.saurabh.artifact.ui.profile.ProfileScreen
 import com.saurabh.artifact.ui.profile.ResonanceListScreen
 import com.saurabh.artifact.ui.settings.SettingsScreen
-import com.saurabh.artifact.ui.debug.DebugMenuScreen
 import com.saurabh.artifact.ui.player.PlayerViewModel
+import com.saurabh.artifact.navigation.registerDebugRoutes
 
 fun NavGraphBuilder.profileNavigation(
     navController: NavHostController,
@@ -82,12 +82,10 @@ fun NavGraphBuilder.profileNavigation(
         )
     }
 
-    composable<DebugMenu> {
-        DebugMenuScreen(
-            onBackClick = onBack,
-            onNavigateToModeration = { navController.navigate(Moderation) }
-        )
-    }
+    registerDebugRoutes(
+        navController = navController,
+        onBack = onBack
+    )
 
     composable<Moderation> {
         ModerationScreen(

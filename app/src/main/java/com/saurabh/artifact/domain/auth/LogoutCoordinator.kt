@@ -44,7 +44,7 @@ class LogoutCoordinator @Inject constructor(
     private val playbackSettingsDataStore: PlaybackSettingsDataStore,
     private val recordingSessionManager: RecordingSessionManager,
     private val workManager: WorkManager,
-    private val database: AppDatabase,
+    private val database: dagger.Lazy<AppDatabase>,
     private val storageManager: StorageManager,
     private val backupEncryptionManager: BackupEncryptionManager,
     private val diagnosticLogger: DiagnosticLogger
@@ -202,7 +202,7 @@ class LogoutCoordinator @Inject constructor(
                 // PHASE C: Database Cleanup
                 diagnosticLogger.debug(DiagnosticCategory.AUTH, "LOGOUT_CLEANUP_PHASE_C")
                 try {
-                    database.clearAllTables()
+                    database.get().clearAllTables()
                 } catch (e: Exception) {
                     diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_DB_FAILED", throwable = e)
                     roomSuccess = false

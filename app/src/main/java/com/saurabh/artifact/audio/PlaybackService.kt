@@ -47,8 +47,8 @@ import kotlinx.coroutines.launch
 @AndroidEntryPoint
 class PlaybackService : MediaLibraryService() {
 
-    @Inject lateinit var playableArtifactRepository: PlayableArtifactRepository
-    @Inject lateinit var engagementRepository: EngagementRepository
+    @Inject lateinit var playableArtifactRepository: dagger.Lazy<PlayableArtifactRepository>
+    @Inject lateinit var engagementRepository: dagger.Lazy<EngagementRepository>
     @Inject lateinit var settingsDataStore: PlaybackSettingsDataStore
 
     private var mediaSession: MediaLibrarySession? = null
@@ -279,7 +279,7 @@ class PlaybackService : MediaLibraryService() {
                         }
 
                         val artifacts = if (idsToFetch.isNotEmpty()) {
-                            playableArtifactRepository.resolveArtifactsByIds(idsToFetch).getOrDefault(emptyList())
+                            playableArtifactRepository.get().resolveArtifactsByIds(idsToFetch).getOrDefault(emptyList())
                         } else {
                             emptyList()
                         }
@@ -287,7 +287,7 @@ class PlaybackService : MediaLibraryService() {
                         if (artifacts.isNotEmpty()) {
                             val mediaItems = artifacts.map { createMediaItem(it) }
                             val currentArtifact = artifacts.getOrNull(lastIndex) ?: artifacts.first()
-                            val pos = engagementRepository.getEngagement(currentArtifact.id).getOrNull()?.lastPositionMs ?: 0L
+                            val pos = engagementRepository.get().getEngagement(currentArtifact.id).getOrNull()?.lastPositionMs ?: 0L
                             
                             val result = MediaSession.MediaItemsWithStartPosition(
                                 mediaItems,

@@ -25,7 +25,7 @@ class EngagementSyncRaceTest {
     @Before
     fun setup() {
         repository = EngagementRepository(
-            engagementDao = engagementDao,
+            engagementDao = { engagementDao },
             firestoreRepository = firestoreRepository,
             syncScheduler = syncScheduler,
             externalScope = externalScope

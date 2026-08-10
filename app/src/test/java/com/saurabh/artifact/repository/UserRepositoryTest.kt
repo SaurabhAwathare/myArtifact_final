@@ -34,6 +34,8 @@ class UserRepositoryTest {
 
     @Before
     fun setup() {
+        every { firestore.collection(any()) } returns mockk(relaxed = true)
+        
         repository = UserRepository(
             context, auth, firestore,
             Lazy { userDao },

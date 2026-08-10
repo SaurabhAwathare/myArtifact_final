@@ -3,6 +3,7 @@ package com.saurabh.artifact.backup
 import android.content.Context
 import com.saurabh.artifact.security.BackupEncryptionManager
 import com.saurabh.artifact.util.EncryptedStorageManager
+import dagger.Lazy
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -21,7 +22,7 @@ interface CloudProvider {
 @Singleton
 class BackupManager @Inject constructor(
     @param:ApplicationContext private val context: Context,
-    private val draftDao: com.saurabh.artifact.data.local.DraftDao,
+    private val draftDao: Lazy<com.saurabh.artifact.data.local.DraftDao>,
     private val encryptedStorageManager: EncryptedStorageManager,
     private val backupEncryptionManager: BackupEncryptionManager,
     private val cloudProvider: CloudProvider
@@ -37,7 +38,7 @@ suspend fun performBackup(mnemonic: List<String>) = withContext(Dispatchers.IO) 
         // Ensure the manager is initialized with this mnemonic if it's a manual backup
         backupEncryptionManager.saveMnemonic(mnemonic.joinToString(" "))
 
-        val drafts = draftDao.getAllDrafts()
+        val drafts = draftDao.get().getAllDrafts()
         
         for (draft in drafts) {
             val localFile = File(draft.localAudioPath)

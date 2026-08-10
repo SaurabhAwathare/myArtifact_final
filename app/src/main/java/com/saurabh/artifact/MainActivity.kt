@@ -60,7 +60,6 @@ class MainActivity : ComponentActivity() {
         mainViewModel.onLaunchIntent(intent)
 
         setContent {
-            val playerViewModel: PlayerViewModel = hiltViewModel()
             val startupState by mainViewModel.startupState.collectAsStateWithLifecycle()
             val stage by mainViewModel.startupStage.collectAsStateWithLifecycle()
 
@@ -79,7 +78,6 @@ class MainActivity : ComponentActivity() {
                     startupState = startupState,
                     stage = stage,
                     mainViewModel = mainViewModel,
-                    playerViewModel = playerViewModel,
                     recordingSessionManager = recordingSessionManager,
                     onboardingManager = onboardingManager,
                     diagnosticLogger = diagnosticLogger
@@ -99,7 +97,6 @@ fun AppRoot(
     startupState: AppStartupState,
     stage: StartupStage,
     mainViewModel: MainViewModel,
-    playerViewModel: PlayerViewModel,
     recordingSessionManager: RecordingSessionManager,
     onboardingManager: OnboardingManager,
     diagnosticLogger: DiagnosticLogger
@@ -127,6 +124,8 @@ fun AppRoot(
         is AppStartupState.Ready -> {
             val readyState = startupState
             val startDestination = readyState.startDestination
+            val playerViewModel: PlayerViewModel = hiltViewModel()
+
             key(startDestination) {
                 val navController = rememberNavController()
 

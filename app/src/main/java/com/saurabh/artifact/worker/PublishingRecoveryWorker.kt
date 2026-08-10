@@ -20,7 +20,7 @@ import java.util.concurrent.TimeUnit
 class PublishingRecoveryWorker @AssistedInject constructor(
     @Assisted private val context: Context,
     @Assisted params: WorkerParameters,
-    private val uploadTaskDao: com.saurabh.artifact.data.local.UploadTaskDao,
+    private val uploadTaskDao: dagger.Lazy<com.saurabh.artifact.data.local.UploadTaskDao>,
     private val workManager: WorkManager,
     private val diagnosticLogger: DiagnosticLogger
 ) : CoroutineWorker(context, params) {
@@ -31,7 +31,7 @@ class PublishingRecoveryWorker @AssistedInject constructor(
         val now = System.currentTimeMillis()
         val oneHourAgo = now - TimeUnit.HOURS.toMillis(1)
 
-        val pendingTasks = uploadTaskDao.getAllTasks().filter { 
+        val pendingTasks = uploadTaskDao.get().getAllTasks().filter { 
             it.lastUpdated < oneHourAgo
         }
 

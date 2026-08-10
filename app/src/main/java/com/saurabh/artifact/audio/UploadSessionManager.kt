@@ -8,6 +8,7 @@ import com.saurabh.artifact.util.WorkNames
 import com.saurabh.artifact.repository.DraftRepository
 import com.saurabh.artifact.domain.PublishingOrchestrator
 import com.saurabh.artifact.model.*
+import dagger.Lazy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -24,7 +25,7 @@ import javax.inject.Singleton
 @Singleton
 class PublishStateManager @Inject constructor(
     private val draftRepository: DraftRepository,
-    private val draftDao: DraftDao,
+    private val draftDao: Lazy<DraftDao>,
     private val publishingOrchestrator: PublishingOrchestrator,
     private val authRepository: com.saurabh.artifact.repository.AuthRepository,
     private val workManager: WorkManager
@@ -155,7 +156,7 @@ class PublishStateManager @Inject constructor(
 
     private suspend fun performWatchdogCleanup() {
         val staleThreshold = System.currentTimeMillis() - 24 * 60 * 60 * 1000 // 24 hours
-        val drafts = draftDao.getAllDrafts().filter { 
+        val drafts = draftDao.get().getAllDrafts().filter { 
             it.lifecycle == ArtifactLifecycle.PROCESSING && it.updatedAt < staleThreshold 
         }
         
@@ -174,7 +175,7 @@ class PublishStateManager @Inject constructor(
             if (userId.isEmpty()) return
 
             scope.launch {
-                draftDao.dismissDraft(current.draftId, userId)
+                draftDao.get().dismissDraft(current.draftId, userId)
                 _currentPublishState.value = null
             }
         }

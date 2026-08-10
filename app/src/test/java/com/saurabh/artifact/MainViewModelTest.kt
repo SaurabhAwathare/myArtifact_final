@@ -40,13 +40,13 @@ class MainViewModelTest {
     private val logoutCoordinator = mockk<LogoutCoordinator>(relaxed = true)
     private val observeStealthModeUseCase = mockk<ObserveStealthModeUseCase>(relaxed = true)
     private val startupCoordinator = mockk<StartupCoordinator>(relaxed = true)
-    private val intent = mockk<Intent>()
+    private val intent = mockk<Intent>(relaxed = true)
     private val fakeLogger = FakeDiagnosticLogger()
     private val savedStateHandle = SavedStateHandle()
 
     private val testAuthFlow = MutableStateFlow<com.google.firebase.auth.FirebaseUser?>(null)
     private lateinit var viewModel: MainViewModel
-    private val testDispatcher = StandardTestDispatcher()
+    private val testDispatcher = UnconfinedTestDispatcher()
 
     @Before
     fun setup() {
@@ -74,7 +74,7 @@ class MainViewModelTest {
         every { intent.data } returns null
 
         coEvery {
-            startupCoordinator.awaitComponent(com.saurabh.artifact.startup.StartupComponent.CORE)
+            startupCoordinator.awaitComponent(any())
         } returns Unit
 
         viewModel = MainViewModel(
@@ -97,7 +97,7 @@ class MainViewModelTest {
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
 
         viewModel.start()
-        testScheduler.runCurrent()
+        advanceUntilIdle()
 
         verify { startupCoordinator.emitReadiness(StartupComponent.AUTH) }
         verify { StartupMetrics.onAuthReady() }
@@ -112,7 +112,7 @@ class MainViewModelTest {
         testAuthFlow.value = user
 
         viewModel.start()
-        testScheduler.runCurrent()
+        advanceUntilIdle()
 
         verify { startupCoordinator.emitReadiness(StartupComponent.AUTH) }
         verify { StartupMetrics.onAuthReady() }
@@ -124,7 +124,7 @@ class MainViewModelTest {
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.UNAUTHENTICATED
 
         viewModel.start()
-        testScheduler.runCurrent()
+        advanceUntilIdle()
 
         verify { startupCoordinator.emitReadiness(StartupComponent.AUTH) }
         verify { StartupMetrics.onAuthReady() }
@@ -156,7 +156,7 @@ class MainViewModelTest {
         }
 
         viewModel.onLaunchIntent(intent)
-        testScheduler.runCurrent()
+        advanceUntilIdle()
 
         assertTrue(navigationEvents.any { it is InstantRecord })
         job.cancel()
@@ -176,7 +176,7 @@ class MainViewModelTest {
 
         // 1. Receive intent while Initializing
         viewModel.onLaunchIntent(intent)
-        testScheduler.runCurrent()
+        advanceUntilIdle()
 
         val navigationEvents = mutableListOf<Any>()
         val job = launch {
@@ -185,7 +185,7 @@ class MainViewModelTest {
 
         // 2. Start initialization
         viewModel.start()
-        testScheduler.runCurrent()
+        advanceUntilIdle()
 
         // 3. Verify event delivered once Ready
         val event = navigationEvents.filterIsInstance<IncomingArtifact>().firstOrNull()
@@ -218,7 +218,7 @@ class MainViewModelTest {
         }
 
         viewModel.onLaunchIntent(intent)
-        testScheduler.runCurrent()
+        advanceUntilIdle()
 
         val event = navigationEvents.filterIsInstance<IncomingArtifact>().firstOrNull()
         assertEquals("abc456", event?.artifactId)
@@ -245,7 +245,7 @@ class MainViewModelTest {
 
         // 2. Start app
         viewModel.start()
-        testScheduler.runCurrent()
+        advanceUntilIdle()
 
         // 3. Verify event NOT delivered
         assertTrue(navigationEvents.isEmpty())
@@ -271,7 +271,7 @@ class MainViewModelTest {
         }
 
         viewModel.onLaunchIntent(intent)
-        testScheduler.runCurrent()
+        advanceUntilIdle()
 
         assertTrue(navigationEvents.isEmpty())
         job.cancel()
@@ -285,7 +285,7 @@ class MainViewModelTest {
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
 
         viewModel.start()
-        testScheduler.runCurrent()
+        advanceUntilIdle()
 
         val state = viewModel.startupState.value
         assertTrue(state is AppStartupState.Ready)
@@ -299,7 +299,7 @@ class MainViewModelTest {
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.Failure(Exception("Network error"))
 
         viewModel.start()
-        testScheduler.runCurrent()
+        advanceUntilIdle()
 
         val state = viewModel.startupState.value
         assertTrue(state is AppStartupState.Error)
@@ -414,7 +414,7 @@ class MainViewModelTest {
         
         // 2. Start app - goes to Login
         viewModel.start()
-        testScheduler.runCurrent()
+        advanceUntilIdle()
         
         assertEquals(AppStartupState.Ready(Login), viewModel.startupState.value)
         assertTrue(navigationEvents.isEmpty())
@@ -427,7 +427,7 @@ class MainViewModelTest {
         testAuthFlow.value = user
         viewModel.retryStartup() 
         
-        testScheduler.runCurrent()
+        advanceUntilIdle()
 
         // 4. Verify event delivered
         val event = navigationEvents.filterIsInstance<IncomingArtifact>().firstOrNull()
@@ -452,12 +452,12 @@ class MainViewModelTest {
         // 1. Buffer intent
         viewModel.onLaunchIntent(intent)
         viewModel.start()
-        testScheduler.runCurrent()
+        advanceUntilIdle()
 
         // 2. Simulate Failed Authentication (Stays at Login)
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.UNAUTHENTICATED
         viewModel.retryStartup()
-        testScheduler.runCurrent()
+        advanceUntilIdle()
 
         // 3. Verify event NOT consumed
         assertTrue(navigationEvents.isEmpty())
@@ -469,7 +469,7 @@ class MainViewModelTest {
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
         
         viewModel.retryStartup()
-        testScheduler.runCurrent()
+        advanceUntilIdle()
 
         // 5. Verify event delivered now
         val event = navigationEvents.filterIsInstance<IncomingArtifact>().firstOrNull()
@@ -484,7 +484,7 @@ class MainViewModelTest {
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.UNAUTHENTICATED
         
         viewModel.start()
-        testScheduler.runCurrent()
+        advanceUntilIdle()
         assertEquals(AppStartupState.Ready(Login), viewModel.startupState.value)
 
         val navigationEvents = mutableListOf<Any>()
@@ -498,7 +498,7 @@ class MainViewModelTest {
         every { intent.action } returns null
 
         viewModel.onLaunchIntent(intent)
-        testScheduler.runCurrent()
+        advanceUntilIdle()
         assertTrue(navigationEvents.isEmpty())
 
         // 2. Log in
@@ -508,7 +508,7 @@ class MainViewModelTest {
         
         testAuthFlow.value = user
         viewModel.retryStartup()
-        testScheduler.runCurrent()
+        advanceUntilIdle()
 
         // 3. Verify event delivered
         val event = navigationEvents.filterIsInstance<IncomingArtifact>().firstOrNull()
@@ -538,7 +538,7 @@ class MainViewModelTest {
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
         
         viewModel.start()
-        testScheduler.runCurrent()
+        advanceUntilIdle()
 
         // 2. Verify delivered once
         assertEquals(1, navigationEvents.filterIsInstance<IncomingArtifact>().size)
@@ -546,7 +546,7 @@ class MainViewModelTest {
         // 3. Simulate another Auth change or Ready state re-emission
         // Manually trigger deferred observer again (though it should be finished)
         viewModel.retryStartup()
-        testScheduler.runCurrent()
+        advanceUntilIdle()
 
         // 4. Verify NOT delivered again
         assertEquals(1, navigationEvents.filterIsInstance<IncomingArtifact>().size)
@@ -562,7 +562,7 @@ class MainViewModelTest {
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
         
         viewModel.start()
-        testScheduler.runCurrent()
+        advanceUntilIdle()
         
         // Verify state is Ready(Home) and SavedState is populated
         assertTrue(viewModel.startupState.value is AppStartupState.Ready)
@@ -583,7 +583,7 @@ class MainViewModelTest {
 
         // 3. Start the new ViewModel
         newViewModel.start()
-        testScheduler.runCurrent()
+        advanceUntilIdle()
 
         // 4. Verify startup logic was skipped and state restored immediately
         assertTrue(newViewModel.startupState.value is AppStartupState.Ready)
@@ -606,7 +606,7 @@ class MainViewModelTest {
 
         // 3. Start ViewModel
         viewModel.start()
-        testScheduler.runCurrent()
+        advanceUntilIdle()
 
         // 4. Verify full startup executed (auth check occurred)
         coVerify { getInitialDestinationUseCase() }
@@ -626,7 +626,7 @@ class MainViewModelTest {
 
         // 2. Start ViewModel
         viewModel.start()
-        testScheduler.runCurrent()
+        advanceUntilIdle()
 
         // 3. Verify full startup executed
         verify(exactly = 1) { startupCoordinator.start() }
@@ -670,7 +670,7 @@ class MainViewModelTest {
         savedStateHandle["resolved_destination_id"] = "HOME"
         
         newViewModel.start()
-        testScheduler.runCurrent()
+        advanceUntilIdle()
 
         // 4. Verify event delivered after restoration
         val event = navigationEvents.filterIsInstance<IncomingArtifact>().firstOrNull()
@@ -696,9 +696,8 @@ class MainViewModelTest {
         every { intent.getBooleanExtra(any(), any()) } returns false
         every { intent.action } returns null
 
-        val intent2 = mockk<Intent>()
+        val intent2 = mockk<Intent>(relaxed = true)
         every { intent2.getStringExtra("artifactId") } returns "second"
-        every { intent2.getBooleanExtra(any(), any()) } returns false
         every { intent2.action } returns null
 
         viewModel.onLaunchIntent(intent)
@@ -711,7 +710,7 @@ class MainViewModelTest {
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
         
         viewModel.start()
-        testScheduler.runCurrent()
+        advanceUntilIdle()
 
         // 3. Verify only one delivery (the last one)
         val artifacts = navigationEvents.filterIsInstance<IncomingArtifact>()

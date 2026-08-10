@@ -1,6 +1,7 @@
 package com.saurabh.artifact.audio
 
 import android.content.Context
+import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
@@ -13,7 +14,7 @@ import android.util.Log
 /**
  * Singleton object to manage Media3 SimpleCache instance.
  */
-@UnstableApi
+@OptIn(UnstableApi::class)
 object MediaCache {
     private var instance: SimpleCache? = null
     private const val CACHE_SIZE = 500 * 1024 * 1024L // 500MB

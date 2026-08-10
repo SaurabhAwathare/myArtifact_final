@@ -17,7 +17,7 @@ import javax.inject.Singleton
 
 @Singleton
 class PlayableArtifactRepository @Inject constructor(
-    private val draftDao: DraftDao,
+    private val draftDao: dagger.Lazy<DraftDao>,
     private val artifactRepository: ArtifactRepository,
     private val draftToArtifactMapper: DraftToArtifactMapper,
     private val userRepository: UserRepository,
@@ -44,7 +44,7 @@ class PlayableArtifactRepository @Inject constructor(
             }
 
             // Fallback/Standard path: Check Local Drafts
-            val draft = draftDao.getDraftById(id, userId)
+            val draft = draftDao.get().getDraftById(id, userId)
             if (draft != null) {
                 val author = userRepository.getCachedProfile()?.let { AuthorSnapshot.fromUser(it) } 
                     ?: AuthorSnapshot(name = "You")
@@ -139,7 +139,7 @@ class PlayableArtifactRepository @Inject constructor(
             // 1. Fetch all matching drafts in one go (if possible, otherwise one by one for now)
             // Note: DraftDao doesn't have getDraftsByIds yet, so we'll fetch them individually
             // or we could add it to DraftDao. For simplicity and minimum risk, we iterate.
-            val draftsMap = ids.mapNotNull { id -> draftDao.getDraftById(id, userId) }.associateBy { it.id }
+            val draftsMap = ids.mapNotNull { id -> draftDao.get().getDraftById(id, userId) }.associateBy { it.id }
             
             val author = if (draftsMap.isNotEmpty()) {
                 userRepository.getCachedProfile()?.let { AuthorSnapshot.fromUser(it) } 

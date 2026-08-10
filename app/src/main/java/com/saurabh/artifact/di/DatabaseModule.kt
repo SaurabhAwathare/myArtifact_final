@@ -30,7 +30,6 @@ object DatabaseModule {
             "artifact_db",
         ).openHelperFactory(encryptionManager.getEncryptionFactory())
             .addMigrations(*DatabaseMigrations.ALL_MIGRATIONS)
-            .fallbackToDestructiveMigration(true)
             .build()
     }
 

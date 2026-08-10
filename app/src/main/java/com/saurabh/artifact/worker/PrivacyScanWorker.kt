@@ -9,6 +9,7 @@ import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.model.*
+import dagger.Lazy
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
@@ -24,7 +25,7 @@ import kotlinx.coroutines.withContext
 class PrivacyScanWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted workerParams: WorkerParameters,
-    private val draftDao: DraftDao,
+    private val draftDao: Lazy<DraftDao>,
     private val authRepository: com.saurabh.artifact.repository.AuthRepository,
     private val diagnosticLogger: DiagnosticLogger
 ) : CoroutineWorker(appContext, workerParams) {
@@ -39,7 +40,7 @@ class PrivacyScanWorker @AssistedInject constructor(
         
         try {
             // Immediately transition to Idle as the feature is legacy
-            draftDao.updateProcessingStatus(draftId, userId, ProcessingStatus.Idle)
+            draftDao.get().updateProcessingStatus(draftId, userId, ProcessingStatus.Idle)
             Result.success()
         } catch (e: Exception) {
             diagnosticLogger.error(DiagnosticCategory.SECURITY, "PRIVACY_SCAN_CLEANUP_FAILED", mapOf(LogKeys.DRAFT_ID to draftId), e)

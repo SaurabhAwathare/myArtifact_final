@@ -11,12 +11,12 @@ import com.google.crypto.tink.aead.AeadConfig
 import com.google.crypto.tink.integration.android.AndroidKeysetManager
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
-import com.saurabh.artifact.startup.StartupComponent
-import com.saurabh.artifact.startup.StartupCoordinator
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import net.zetetic.database.sqlcipher.SQLiteDatabase
 import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 import java.io.File
@@ -32,7 +32,6 @@ private val Context.dataStore by preferencesDataStore(name = "db_encryption_pref
 @Singleton
 class DatabaseEncryptionManager @Inject constructor(
     @param:ApplicationContext private val context: Context,
-    private val startupCoordinator: StartupCoordinator,
     private val diagnosticLogger: DiagnosticLogger
 ) {
     private val googleAEAD: Aead by lazy {
@@ -46,14 +45,59 @@ class DatabaseEncryptionManager @Inject constructor(
             .getPrimitive(Aead::class.java)
     }
 
+    @Volatile
     private var cachedPassphrase: ByteArray? = null
 
     /**
+     * Preloads and validates the database passphrase on a background thread.
+     * Must be called during the startup sequence before the database is accessed.
+     */
+    suspend fun preload(): Result<Unit> = withContext(Dispatchers.IO) {
+        if (cachedPassphrase != null) return@withContext Result.success(Unit)
+
+        try {
+            val encryptedPassphrase = context.dataStore.data
+                .map { preferences -> preferences[DB_PASSPHRASE_KEY] }
+                .first()
+
+            val passphrase = if (encryptedPassphrase != null) {
+                try {
+                    val encryptedBytes = Base64.decode(encryptedPassphrase, Base64.DEFAULT)
+                    val decrypted = googleAEAD.decrypt(encryptedBytes, null)
+                    
+                    // VALIDATION: Check if this passphrase can actually open the database
+                    if (!validatePassphrase(decrypted)) {
+                        diagnosticLogger.error(DiagnosticCategory.SECURITY, "DB_PASSPHRASE_VALIDATION_FAILED")
+                        generateAndStoreNewPassphrase()
+                    } else {
+                        decrypted
+                    }
+                } catch (e: Exception) {
+                    diagnosticLogger.error(DiagnosticCategory.SECURITY, "DB_DECRYPTION_FAILED", throwable = e)
+                    generateAndStoreNewPassphrase()
+                }
+            } else {
+                generateAndStoreNewPassphrase()
+            }
+
+            cachedPassphrase = passphrase
+            Result.success(Unit)
+        } catch (e: Exception) {
+            diagnosticLogger.error(DiagnosticCategory.SECURITY, "DB_PRELOAD_FATAL_ERROR", throwable = e)
+            Result.failure(e)
+        }
+    }
+
+    /**
      * Gets or creates a high-entropy passphrase for the database.
-     * The passphrase is encrypted using Google TINK and stored in DataStore.
+     * 
+     * WARNING: If [preload] has not been called, this will trigger a synchronous
+     * runBlocking operation which may cause ANRs on the Main Thread.
      */
     fun getDatabasePassphrase(): ByteArray {
         cachedPassphrase?.let { return it }
+
+        diagnosticLogger.warn(DiagnosticCategory.SECURITY, "DB_PASSPHRASE_SYNC_FETCH", mapOf("thread" to Thread.currentThread().name))
 
         val passphrase = runBlocking {
             val encryptedPassphrase = context.dataStore.data
@@ -65,18 +109,14 @@ class DatabaseEncryptionManager @Inject constructor(
                     val encryptedBytes = Base64.decode(encryptedPassphrase, Base64.DEFAULT)
                     val passphrase = googleAEAD.decrypt(encryptedBytes, null)
                     
-                    // VALIDATION: Check if this passphrase can actually open the database
                     if (!validatePassphrase(passphrase)) {
                         diagnosticLogger.error(DiagnosticCategory.SECURITY, "DB_PASSPHRASE_VALIDATION_FAILED")
-                        // If validation fails, it might be a genuinely corrupted DB or wrong key.
-                        // We generate a new one, but keep the old DB renamed.
                         generateAndStoreNewPassphrase()
                     } else {
                         passphrase
                     }
                 } catch (e: Exception) {
                     diagnosticLogger.error(DiagnosticCategory.SECURITY, "DB_DECRYPTION_FAILED", throwable = e)
-                    // If decryption fails (e.g., keyset changed), generate new one
                     generateAndStoreNewPassphrase()
                 }
             } else {
@@ -84,8 +124,6 @@ class DatabaseEncryptionManager @Inject constructor(
             }
         }
         
-        // Signal that the database encryption/access is ready
-        startupCoordinator.emitReadiness(StartupComponent.DATABASE)
         cachedPassphrase = passphrase
         return passphrase
     }

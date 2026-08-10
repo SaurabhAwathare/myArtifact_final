@@ -5,6 +5,7 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.util.ArtifactLogger
+import dagger.Lazy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -18,7 +19,7 @@ import javax.inject.Singleton
 class ReactionRepository @Inject constructor(
     @param:dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context,
     private val firestore: FirebaseFirestore,
-    private val pendingInteractionDao: com.saurabh.artifact.data.local.PendingInteractionDao
+    private val pendingInteractionDao: Lazy<com.saurabh.artifact.data.local.PendingInteractionDao>
 ) {
 
     private val debounceMap = java.util.concurrent.ConcurrentHashMap<String, Long>()
@@ -41,8 +42,8 @@ class ReactionRepository @Inject constructor(
                 action = com.saurabh.artifact.data.local.InteractionAction.ADD,
                 metadata = type.id
             )
-            pendingInteractionDao.deleteByType(artifactId, userId, com.saurabh.artifact.data.local.InteractionType.REACTION)
-            pendingInteractionDao.insert(pending)
+            pendingInteractionDao.get().deleteByType(artifactId, userId, com.saurabh.artifact.data.local.InteractionType.REACTION)
+            pendingInteractionDao.get().insert(pending)
             com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
             
             ArtifactLogger.i("ReactionRepository", "Reaction interaction queued locally for $artifactId")
@@ -68,8 +69,8 @@ class ReactionRepository @Inject constructor(
                 interactionType = com.saurabh.artifact.data.local.InteractionType.REACTION,
                 action = com.saurabh.artifact.data.local.InteractionAction.REMOVE
             )
-            pendingInteractionDao.deleteByType(artifactId, userId, com.saurabh.artifact.data.local.InteractionType.REACTION)
-            pendingInteractionDao.insert(pending)
+            pendingInteractionDao.get().deleteByType(artifactId, userId, com.saurabh.artifact.data.local.InteractionType.REACTION)
+            pendingInteractionDao.get().insert(pending)
             com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
             
             ArtifactLogger.i("ReactionRepository", "Reaction removal interaction queued locally for $artifactId")
@@ -226,8 +227,8 @@ class ReactionRepository @Inject constructor(
             )
             
             // Clean up any existing pending reactions for this artifact to avoid redundant toggles
-            pendingInteractionDao.deleteByType(artifactId, userId, com.saurabh.artifact.data.local.InteractionType.REACTION)
-            pendingInteractionDao.insert(pending)
+            pendingInteractionDao.get().deleteByType(artifactId, userId, com.saurabh.artifact.data.local.InteractionType.REACTION)
+            pendingInteractionDao.get().insert(pending)
 
             // 2. Trigger Sync Worker
             com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
@@ -244,7 +245,7 @@ class ReactionRepository @Inject constructor(
                     action = com.saurabh.artifact.data.local.InteractionAction.ADD, // Assumption: most toggles are additions when offline
                     metadata = type.id
                 )
-                pendingInteractionDao.insert(pending)
+                pendingInteractionDao.get().insert(pending)
                 com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
                 Result.success(Unit)
             } else {

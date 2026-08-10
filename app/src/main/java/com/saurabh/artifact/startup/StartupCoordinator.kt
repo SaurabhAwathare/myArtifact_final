@@ -33,8 +33,6 @@ import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 
-import androidx.media3.common.util.UnstableApi
-
 /**
  * Defines the technical components that must be ready for the app to function.
  */
@@ -50,11 +48,11 @@ enum class StartupComponent {
  * Centralized orchestrator for the Startup Island Architecture.
  * Manages the transition between startup stages to ensure smooth user perception.
  */
-@UnstableApi
 @Singleton
 class StartupCoordinator @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val workManager: WorkManager,
+    private val encryptionManager: com.saurabh.artifact.security.DatabaseEncryptionManager,
     private val environmentProvider: com.saurabh.artifact.util.EnvironmentProvider,
     private val cleanupManager: dagger.Lazy<com.saurabh.artifact.audio.ArtifactCleanupManager>
 ) {
@@ -152,6 +150,11 @@ class StartupCoordinator @Inject constructor(
                 // Note: initializeAppCheck() must be called in Application.onCreate()
                 awaitAppCheckReadiness()
                 initializeSecurityProviderSync()
+
+                // Preload database encryption before signaling CORE
+                encryptionManager.preload()
+                emitReadiness(StartupComponent.DATABASE)
+
                 initializeCore() 
                 emitReadiness(StartupComponent.CORE)
                 Log.d("RACE_CHECK", "CORE_READY")

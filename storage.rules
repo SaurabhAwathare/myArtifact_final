@@ -3,16 +3,31 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
 
+    // Helper: Checks if the artifact is public and active in Firestore
+    function isPublicArtifact(draftId) {
+      let artifact = firestore.get(/databases/(default)/documents/artifacts/$(draftId)).data;
+      return artifact.isPublic == true && artifact.status == "ACTIVE";
+    }
+
     // 1. Artifacts: Flat structure with userId prefix (e.g., artifacts/UID_ID.m4a)
     match /artifacts/{fileName} {
-      // Public artifacts might need public read, but business logic suggests authenticated read for now
-      allow read: if request.auth != null;
+      // Allow read if:
+      // 1. User is the owner (UID prefix match)
+      // 2. Artifact is public and active in Firestore (verified via draftId metadata)
+      allow read: if request.auth != null && (
+        fileName.matches("^" + request.auth.uid + "_.*") ||
+        (resource.metadata != null && resource.metadata.draftId != null && isPublicArtifact(resource.metadata.draftId))
+      );
       allow write: if request.auth != null && fileName.matches("^" + request.auth.uid + "_.*");
     }
 
     // 2. Transcripts: Flat structure with userId prefix (e.g., transcripts/UID_ID.json)
     match /transcripts/{fileName} {
-      allow read: if request.auth != null;
+      // Mirror authorization from artifacts for consistency
+      allow read: if request.auth != null && (
+        fileName.matches("^" + request.auth.uid + "_.*") ||
+        (resource.metadata != null && resource.metadata.draftId != null && isPublicArtifact(resource.metadata.draftId))
+      );
       allow write: if request.auth != null && fileName.matches("^" + request.auth.uid + "_.*");
     }
 

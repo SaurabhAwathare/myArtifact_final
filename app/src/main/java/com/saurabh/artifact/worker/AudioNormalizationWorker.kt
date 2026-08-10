@@ -7,6 +7,7 @@ import androidx.work.WorkerParameters
 import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.model.ProcessingStage
+import dagger.Lazy
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlin.time.Duration.Companion.seconds
@@ -18,7 +19,7 @@ import kotlinx.coroutines.withContext
 class AudioNormalizationWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted workerParams: WorkerParameters,
-    private val draftDao: DraftDao,
+    private val draftDao: Lazy<DraftDao>,
     private val authRepository: com.saurabh.artifact.repository.AuthRepository
 ) : CoroutineWorker(appContext, workerParams) {
 
@@ -47,7 +48,7 @@ class AudioNormalizationWorker @AssistedInject constructor(
             stage != null -> ProcessingStatus.Active(stage)
             else -> ProcessingStatus.Idle
         }
-        draftDao.updateProcessingStatus(id, userId, newProcessing)
+        draftDao.get().updateProcessingStatus(id, userId, newProcessing)
     }
 
     companion object {

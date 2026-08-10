@@ -9,6 +9,10 @@ import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * Internal tool for auditing and simulating profile states.
+ * Included ONLY in debug builds.
+ */
 @Singleton
 class ProfileAuditTool @Inject constructor(
     private val auth: FirebaseAuth,

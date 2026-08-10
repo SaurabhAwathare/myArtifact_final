@@ -7,6 +7,7 @@ import com.saurabh.artifact.diagnostics.ArtifactLogger
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.model.*
+import dagger.Lazy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -20,16 +21,16 @@ import javax.inject.Singleton
 
 @Singleton
 class DraftRepository @Inject constructor(
-    private val draftDao: DraftDao,
-    private val uploadTaskDao: UploadTaskDao,
-    private val draftsDatabase: AppDatabase,
+    private val draftDao: Lazy<DraftDao>,
+    private val uploadTaskDao: Lazy<UploadTaskDao>,
+    private val draftsDatabase: Lazy<AppDatabase>,
     private val draftToArtifactMapper: DraftToArtifactMapper,
     private val userRepository: UserRepository
 ) {
     suspend fun getDraft(id: String): Result<ArtifactDraftEntity> = withContext(Dispatchers.IO) {
         try {
             val userId = userRepository.getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
-            val draft = draftDao.getDraftById(id, userId)
+            val draft = draftDao.get().getDraftById(id, userId)
             if (draft != null) {
                 Result.success(draft)
             } else {
@@ -42,7 +43,7 @@ class DraftRepository @Inject constructor(
 
     fun observeDrafts(): Flow<List<ArtifactDraftEntity>> {
         val userId = userRepository.getCurrentUserId() ?: return flowOf(emptyList())
-        return draftDao.observeDrafts(userId)
+        return draftDao.get().observeDrafts(userId)
     }
 
     /**
@@ -52,7 +53,7 @@ class DraftRepository @Inject constructor(
     fun observeDraftAsArtifact(id: String): Flow<Artifact?> {
         val currentUserId = userRepository.getCurrentUserId() ?: return flowOf(null)
 
-        val optimizedDraftFlow = draftDao.observeDraftById(id, currentUserId)
+        val optimizedDraftFlow = draftDao.get().observeDraftById(id, currentUserId)
             .distinctUntilChanged { old, new ->
                 PlaybackKey.from(old) == PlaybackKey.from(new)
             }
@@ -129,7 +130,7 @@ class DraftRepository @Inject constructor(
         }
     }
 
-    fun observeAllUploadTasks(): Flow<List<UploadTaskEntity>> = uploadTaskDao.observeAllTasks()
+    fun observeAllUploadTasks(): Flow<List<UploadTaskEntity>> = uploadTaskDao.get().observeAllTasks()
 
     /**
      * Combined flow for UI to show drafts with their active upload progress.
@@ -158,20 +159,20 @@ class DraftRepository @Inject constructor(
     suspend fun prepareForPublishing(draftId: String, initialStatus: SyncStatus): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val userId = userRepository.getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
-            draftsDatabase.withTransaction {
-                val draft = draftDao.getDraftById(draftId, userId) ?: throw Exception("Draft not found")
+            draftsDatabase.get().withTransaction {
+                val draft = draftDao.get().getDraftById(draftId, userId) ?: throw Exception("Draft not found")
                 
                 // 1. Calculate actual size for early progress accuracy
                 val actualSize = File(draft.frozenAudioPath ?: draft.localAudioPath).length()
 
                 // 2. Update Draft lifecycle to locking state
-                draftDao.updateStatusAndLifecycle(draftId, userId, draft.status.copy(publication = initialStatus), ArtifactLifecycle.READY_TO_PUBLISH)
+                draftDao.get().updateStatusAndLifecycle(draftId, userId, draft.status.copy(publication = initialStatus), ArtifactLifecycle.READY_TO_PUBLISH)
 
                 // Sync the actual size to the main draft table too
-                draftDao.updateSyncProgress(draftId, userId, 0, actualSize, draft.uploadSessionUri)
+                draftDao.get().updateSyncProgress(draftId, userId, 0, actualSize, draft.uploadSessionUri)
                 
                 // 3. Initialize the separated upload task
-                uploadTaskDao.insert(UploadTaskEntity(
+                uploadTaskDao.get().insert(UploadTaskEntity(
                     draftId = draftId,
                     workerId = null,
                     status = initialStatus,
@@ -190,10 +191,10 @@ class DraftRepository @Inject constructor(
     suspend fun updateDraft(draftId: String, transform: (ArtifactDraftEntity) -> ArtifactDraftEntity): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val userId = userRepository.getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
-            draftsDatabase.withTransaction {
-                draftDao.getDraftById(draftId, userId)?.let { draft ->
+            draftsDatabase.get().withTransaction {
+                draftDao.get().getDraftById(draftId, userId)?.let { draft ->
                     val updated = transform(draft)
-                    draftDao.update(updated)
+                    draftDao.get().update(updated)
                 }
             }
             Result.success(Unit)
@@ -205,10 +206,10 @@ class DraftRepository @Inject constructor(
     suspend fun updateStatus(draftId: String, transform: (DraftStatus) -> DraftStatus): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val userId = userRepository.getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
-            draftsDatabase.withTransaction {
-                draftDao.getDraftById(draftId, userId)?.let { draft ->
+            draftsDatabase.get().withTransaction {
+                draftDao.get().getDraftById(draftId, userId)?.let { draft ->
                     val newStatus = transform(draft.status)
-                    draftDao.updateStatus(draftId, userId, newStatus)
+                    draftDao.get().updateStatus(draftId, userId, newStatus)
                 }
             }
             Result.success(Unit)
@@ -220,9 +221,9 @@ class DraftRepository @Inject constructor(
     suspend fun updateUploadProgress(draftId: String, uploaded: Long, total: Long, sessionUri: String?): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val userId = userRepository.getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
-            draftsDatabase.withTransaction {
-                uploadTaskDao.updateProgress(draftId, uploaded, total, sessionUri)
-                draftDao.updateSyncProgress(draftId, userId, uploaded, total, sessionUri)
+            draftsDatabase.get().withTransaction {
+                uploadTaskDao.get().updateProgress(draftId, uploaded, total, sessionUri)
+                draftDao.get().updateSyncProgress(draftId, userId, uploaded, total, sessionUri)
             }
             Result.success(Unit)
         } catch (e: Exception) {
@@ -233,11 +234,11 @@ class DraftRepository @Inject constructor(
     suspend fun updateUploadStatus(draftId: String, status: SyncStatus): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val userId = userRepository.getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
-            draftsDatabase.withTransaction {
-                uploadTaskDao.updateStatus(draftId, status)
+            draftsDatabase.get().withTransaction {
+                uploadTaskDao.get().updateStatus(draftId, status)
                 // Synchronize with Draft status for UI observers that look at the draft directly
-                draftDao.getDraftById(draftId, userId)?.let { draft ->
-                    draftDao.updateStatus(draftId, userId, draft.status.copy(publication = status))
+                draftDao.get().getDraftById(draftId, userId)?.let { draft ->
+                    draftDao.get().updateStatus(draftId, userId, draft.status.copy(publication = status))
                 }
             }
             Result.success(Unit)
@@ -249,9 +250,9 @@ class DraftRepository @Inject constructor(
     suspend fun updateUploadedAudioUrl(draftId: String, url: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val userId = userRepository.getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
-            draftsDatabase.withTransaction {
-                draftDao.updateUploadCheckpoint(draftId, userId, url)
-                uploadTaskDao.updateAudioUrl(draftId, url)
+            draftsDatabase.get().withTransaction {
+                draftDao.get().updateUploadCheckpoint(draftId, userId, url)
+                uploadTaskDao.get().updateAudioUrl(draftId, url)
             }
             Result.success(Unit)
         } catch (e: Exception) {
@@ -266,9 +267,9 @@ class DraftRepository @Inject constructor(
     suspend fun invalidateUploadSession(draftId: String, version: Int): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val userId = userRepository.getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
-            draftsDatabase.withTransaction {
-                draftDao.invalidateUploadSession(draftId, userId, version)
-                uploadTaskDao.invalidateTask(draftId, SyncStatus.Queued)
+            draftsDatabase.get().withTransaction {
+                draftDao.get().invalidateUploadSession(draftId, userId, version)
+                uploadTaskDao.get().invalidateTask(draftId, SyncStatus.Queued)
             }
             Result.success(Unit)
         } catch (e: Exception) {
@@ -279,9 +280,9 @@ class DraftRepository @Inject constructor(
     suspend fun markAsPublished(draftId: String, remoteId: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val userId = userRepository.getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
-            draftsDatabase.withTransaction {
-                draftDao.markAsPublished(draftId, userId, remoteId)
-                uploadTaskDao.deleteByDraftId(draftId)
+            draftsDatabase.get().withTransaction {
+                draftDao.get().markAsPublished(draftId, userId, remoteId)
+                uploadTaskDao.get().deleteByDraftId(draftId)
             }
             Result.success(Unit)
         } catch (e: Exception) {

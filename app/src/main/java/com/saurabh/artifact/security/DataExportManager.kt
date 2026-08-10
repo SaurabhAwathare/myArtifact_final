@@ -12,6 +12,7 @@ import com.google.crypto.tink.streamingaead.StreamingAeadConfig
 import com.google.crypto.tink.util.SecretBytes
 import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.repository.AuthRepository
+import dagger.Lazy
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -27,7 +28,7 @@ import javax.inject.Singleton
 @Singleton
 class DataExportManager @Inject constructor(
     @param:ApplicationContext private val context: Context,
-    private val draftDao: DraftDao,
+    private val draftDao: Lazy<DraftDao>,
     private val encryptionManager: BackupEncryptionManager,
     private val authRepository: AuthRepository
 ) {
@@ -41,7 +42,7 @@ class DataExportManager @Inject constructor(
      */
     suspend fun exportAllDrafts(outputUri: Uri): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            val drafts = draftDao.getAllDrafts()
+            val drafts = draftDao.get().getAllDrafts()
             val exportKey = encryptionManager.getExportKey()
             val userId = authRepository.currentUserId.ifEmpty { "anonymous" }
             

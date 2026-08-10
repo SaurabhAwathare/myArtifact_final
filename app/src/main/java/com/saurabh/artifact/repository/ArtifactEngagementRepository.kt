@@ -1,6 +1,5 @@
 package com.saurabh.artifact.repository
 
-import androidx.media3.common.util.UnstableApi
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
@@ -24,7 +23,6 @@ import javax.inject.Singleton
  * Handles all user engagement, playback recording, and personalization signals.
  * This repository owns the interaction data that drives the Artifact personalization loop.
  */
-@OptIn(UnstableApi::class)
 @Singleton
 class ArtifactEngagementRepository @Inject constructor(
     private val firestore: FirebaseFirestore,

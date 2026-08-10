@@ -21,7 +21,7 @@ import dagger.assisted.AssistedInject
 class CleanupOrphanFilesWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted params: WorkerParameters,
-    private val draftDao: DraftDao,
+    private val draftDao: dagger.Lazy<DraftDao>,
     private val localDraftManager: LocalDraftManager,
     private val maintenanceManager: DatabaseMaintenanceManager,
     private val diagnosticLogger: DiagnosticLogger
@@ -32,7 +32,7 @@ class CleanupOrphanFilesWorker @AssistedInject constructor(
         
         return try {
             // 1. Reconcile filesystem
-            val allDrafts = draftDao.getAllDrafts()
+            val allDrafts = draftDao.get().getAllDrafts()
             localDraftManager.reconcileStorage(allDrafts)
             
             // 2. Perform database maintenance (Pruning & VACUUM)

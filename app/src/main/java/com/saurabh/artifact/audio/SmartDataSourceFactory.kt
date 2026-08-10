@@ -2,6 +2,7 @@ package com.saurabh.artifact.audio
 
 import android.content.Context
 import android.net.Uri
+import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
@@ -17,7 +18,7 @@ import android.os.SystemClock
  * A DataSource.Factory that intelligently chooses between the standard local/network data source
  * and the EncryptedFileDataSource based on the file path.
  */
-@UnstableApi
+@OptIn(UnstableApi::class)
 class SmartDataSourceFactory(
     private val context: Context
 ) : DataSource.Factory {

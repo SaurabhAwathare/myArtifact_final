@@ -21,40 +21,37 @@ class DatabaseMigrationTest {
         FrameworkSQLiteOpenHelperFactory()
     )
 
+    /**
+     * Verifies the full migration chain from the production baseline (v60) to the current version.
+     */
     @Test
     @Throws(IOException::class)
-    fun migrate53To54() {
-        // Create earliest version of the database.
-        helper.createDatabase(TEST_DB, 53).apply {
-            // Insert some data for version 53
-            execSQL("INSERT INTO pending_interactions (artifactId, interactionType, action, createdAt, correlationId, retryCount) VALUES ('art1', 'SAVE', 'ADD', 123456789, 'corr1', 0)")
-            execSQL("INSERT INTO dead_letter_interactions (originalId, artifactId, interactionType, action, createdAt, correlationId, failedAt, failureType, retryCount) VALUES (1, 'art2', 'REACTION', 'ADD', 123456780, 'corr2', 123456781, 'PERMANENT', 0)")
-            close()
-        }
+    fun migrateAll_60_to_63() {
+        // 1. Create database at Version 60 (Production Baseline)
+        helper.createDatabase(TEST_DB, 60).apply {
+            // Populate representative data
+            execSQL(
+                """
+                INSERT INTO artifact_drafts (
+                    id, localAudioPath, isPublic, isListened, tags, 
+                    durationMs, createdAt, updatedAt, status, lifecycle, 
+                    uploadedBytes, totalBytes, uploadAttemptCount, isEncrypted, 
+                    reviewProgress, transcriptionState, lastCheckpointTimestamp, 
+                    durableBytes, isCorrupted, version, mimeType, amplitudeData,
+                    reviewCompleted, titleCompleted, emotionCompleted, approvalCompleted,
+                    lastRecoveryAttemptAt, isDismissed, cleanupRetryCount
+                ) VALUES (
+                    'draft_60', '/path/60', 1, 0, '[]', 
+                    0, 123456789, 123456789, 'LocalOnly', 'RECORDING', 
+                    0, 0, 0, 0, 
+                    0.0, 'IDLE', 123456789, 
+                    0, 0, 1, 'audio/wav', '[]',
+                    0, 0, 0, 0,
+                    0, 0, 0
+                )
+                """.trimIndent()
+            )
 
-        // Open latest version of the database. Room will validate the schema
-        // once all migrations execute.
-        val db = helper.runMigrationsAndValidate(TEST_DB, 54, true, DatabaseMigrations.MIGRATION_53_54)
-
-        // Verify data survived and new column exists with default value
-        val pendingCursor = db.query("SELECT * FROM pending_interactions")
-        assert(pendingCursor.moveToFirst())
-        assert(pendingCursor.getString(pendingCursor.getColumnIndexOrThrow("userId")) == "")
-        assert(pendingCursor.getString(pendingCursor.getColumnIndexOrThrow("artifactId")) == "art1")
-        pendingCursor.close()
-
-        val dlqCursor = db.query("SELECT * FROM dead_letter_interactions")
-        assert(dlqCursor.moveToFirst())
-        assert(dlqCursor.getString(dlqCursor.getColumnIndexOrThrow("userId")) == "")
-        assert(dlqCursor.getString(dlqCursor.getColumnIndexOrThrow("artifactId")) == "art2")
-        dlqCursor.close()
-    }
-
-    @Test
-    @Throws(IOException::class)
-    fun migrate61To62() {
-        // Create database in version 61
-        helper.createDatabase(TEST_DB, 61).apply {
             execSQL(
                 """
                 INSERT INTO artifacts (
@@ -62,53 +59,97 @@ class DatabaseMigrationTest {
                     authorSigilSeed, authorSigilColor, authorSigilConfigJson, 
                     audioUrl, createdAt, durationMs, title, description, 
                     emotion, emotionTag, playCount, reactionCount, 
-                    amplitudeData, isDraft, lastUpdated
+                    commentCount, reportCount, safetyConcernCount, reporterIds,
+                    amplitudeData, status, isDraft, lastUpdated
                 ) VALUES (
-                    'art1', 'user1', 'anon1', 'Name', 'sigil', 
+                    'art_60', 'user_60', 'anon_60', 'Name', 'sigil', 
                     'seed', 'color', '{}', 
                     'url', 123456789, 1000, 'Title', 'Desc', 
                     'NEUTRAL', 'tag', 0, 0, 
-                    '[0.1]', 0, 123456789
+                    0, 0, 0, '[]',
+                    '[]', 'ACTIVE', 0, 123456789
                 )
                 """.trimIndent()
             )
             close()
         }
 
-        // Migrate to 62
-        val db = helper.runMigrationsAndValidate(TEST_DB, 62, true, DatabaseMigrations.MIGRATION_61_62)
+        // 2. Run all migrations up to v63
+        val db = helper.runMigrationsAndValidate(TEST_DB, 63, true, *DatabaseMigrations.ALL_MIGRATIONS)
 
-        // Verify isEncrypted exists and defaults to 0 (false)
-        val cursor = db.query("SELECT * FROM artifacts WHERE id = 'art1'")
+        // 3. Verify Data Integrity & New Fields
+        
+        // Check artifact_drafts (added userId in 61, uploadFormatVersion in 63)
+        val draftCursor = db.query("SELECT * FROM artifact_drafts WHERE id = 'draft_60'")
+        assert(draftCursor.moveToFirst())
+        
+        // userId should have default 'LEGACY_UNKNOWN' from MIGRATION_60_61
+        val userIdIndex = draftCursor.getColumnIndexOrThrow("userId")
+        assertEquals("LEGACY_UNKNOWN", draftCursor.getString(userIdIndex))
+        
+        // uploadFormatVersion should have default 1 from MIGRATION_62_63
+        val formatVersionIndex = draftCursor.getColumnIndexOrThrow("uploadFormatVersion")
+        assertEquals(1, draftCursor.getInt(formatVersionIndex))
+        
+        // verify existing fields preserved
+        assertEquals("/path/60", draftCursor.getString(draftCursor.getColumnIndexOrThrow("localAudioPath")))
+        draftCursor.close()
+
+        // Check artifacts (added isEncrypted in 62)
+        val artCursor = db.query("SELECT * FROM artifacts WHERE id = 'art_60'")
+        assert(artCursor.moveToFirst())
+        
+        // isEncrypted should have default 0 from MIGRATION_61_62
+        val isEncryptedIndex = artCursor.getColumnIndexOrThrow("isEncrypted")
+        assertEquals(0, artCursor.getInt(isEncryptedIndex))
+        
+        // verify existing fields preserved
+        assertEquals("user_60", artCursor.getString(artCursor.getColumnIndexOrThrow("userId")))
+        artCursor.close()
+    }
+
+    @Test
+    @Throws(IOException::class)
+    fun migrate60To61_isolated() {
+        helper.createDatabase(TEST_DB, 60).apply {
+            execSQL("INSERT INTO artifact_drafts (id, localAudioPath, isPublic, isListened, tags, durationMs, createdAt, updatedAt, status, lifecycle, uploadedBytes, totalBytes, uploadAttemptCount, isEncrypted, reviewProgress, transcriptionState, lastCheckpointTimestamp, durableBytes, isCorrupted, version, mimeType, amplitudeData, reviewCompleted, titleCompleted, emotionCompleted, approvalCompleted, lastRecoveryAttemptAt, isDismissed, cleanupRetryCount) VALUES ('d1', 'p1', 1, 0, '[]', 0, 1, 1, 'LocalOnly', 'RECORDING', 0, 0, 0, 0, 0.0, 'IDLE', 1, 0, 0, 1, 'wav', '[]', 0, 0, 0, 0, 0, 0, 0)")
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 61, true, DatabaseMigrations.MIGRATION_60_61)
+        val cursor = db.query("SELECT userId FROM artifact_drafts WHERE id = 'd1'")
         assert(cursor.moveToFirst())
-        val encryptionIndex = cursor.getColumnIndexOrThrow("isEncrypted")
-        assertEquals(0, cursor.getInt(encryptionIndex))
+        assertEquals("LEGACY_UNKNOWN", cursor.getString(0))
         cursor.close()
     }
 
     @Test
     @Throws(IOException::class)
-    fun migrate58To59() {
-        helper.createDatabase(TEST_DB, 58).apply {
-            execSQL(
-                """
-                INSERT INTO artifact_engagement (
-                    artifactId, versionTag, durationMs, audioChecksum, coverage, 
-                    lastPositionMs, furthestPositionMs, hasReachedEnd, lastUpdated
-                ) VALUES (
-                    'art1', 'v1', 10000, 'abc', x'00', 0, 0, 0, 123456789
-                )
-            """.trimIndent()
-            )
+    fun migrate61To62_isolated() {
+        helper.createDatabase(TEST_DB, 61).apply {
+            execSQL("INSERT INTO artifacts (id, userId, authorAnonymousId, authorName, authorSigil, authorSigilSeed, authorSigilColor, authorSigilConfigJson, audioUrl, createdAt, durationMs, title, description, emotion, emotionTag, playCount, reactionCount, commentCount, reportCount, safetyConcernCount, reporterIds, amplitudeData, status, isDraft, lastUpdated) VALUES ('a1', 'u1', 'an1', 'n', 's', 'ss', 'c', '{}', 'url', 1, 1, 't', 'd', 'NEUTRAL', 'tag', 0, 0, 0, 0, 0, '[]', '[]', 'ACTIVE', 0, 1)")
             close()
         }
 
-        val db = helper.runMigrationsAndValidate(TEST_DB, 59, true, DatabaseMigrations.MIGRATION_58_59)
-
-        val cursor = db.query("SELECT * FROM artifact_engagement WHERE artifactId = 'art1'")
+        val db = helper.runMigrationsAndValidate(TEST_DB, 62, true, DatabaseMigrations.MIGRATION_61_62)
+        val cursor = db.query("SELECT isEncrypted FROM artifacts WHERE id = 'a1'")
         assert(cursor.moveToFirst())
-        assert(cursor.getInt(cursor.getColumnIndexOrThrow("reviewTrackingVersion")) == 1)
-        assert(cursor.getInt(cursor.getColumnIndexOrThrow("segmentSizeMs")) == 0)
+        assertEquals(0, cursor.getInt(0))
+        cursor.close()
+    }
+
+    @Test
+    @Throws(IOException::class)
+    fun migrate62To63_isolated() {
+        helper.createDatabase(TEST_DB, 62).apply {
+            execSQL("INSERT INTO artifact_drafts (id, userId, localAudioPath, isPublic, isListened, tags, durationMs, createdAt, updatedAt, status, lifecycle, uploadedBytes, totalBytes, uploadAttemptCount, isEncrypted, reviewProgress, transcriptionState, lastCheckpointTimestamp, durableBytes, isCorrupted, version, mimeType, amplitudeData, reviewCompleted, titleCompleted, emotionCompleted, approvalCompleted, lastRecoveryAttemptAt, isDismissed, cleanupRetryCount) VALUES ('d2', 'u2', 'p2', 1, 0, '[]', 0, 1, 1, 'LocalOnly', 'RECORDING', 0, 0, 0, 0, 0.0, 'IDLE', 1, 0, 0, 1, 'wav', '[]', 0, 0, 0, 0, 0, 0, 0)")
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 63, true, DatabaseMigrations.MIGRATION_62_63)
+        val cursor = db.query("SELECT uploadFormatVersion FROM artifact_drafts WHERE id = 'd2'")
+        assert(cursor.moveToFirst())
+        assertEquals(1, cursor.getInt(0))
         cursor.close()
     }
 }

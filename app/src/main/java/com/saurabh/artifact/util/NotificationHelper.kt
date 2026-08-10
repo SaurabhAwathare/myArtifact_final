@@ -12,7 +12,6 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import androidx.core.app.ActivityCompat
 import androidx.annotation.OptIn
-import androidx.media3.common.util.UnstableApi
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.work.ForegroundInfo
@@ -32,14 +31,12 @@ import kotlinx.coroutines.runBlocking
  */
 object NotificationHelper {
 
-    @UnstableApi
     @EntryPoint
     @InstallIn(SingletonComponent::class)
     interface NotificationHelperEntryPoint {
         fun settingsRepository(): SettingsRepository
     }
 
-    @UnstableApi
     private fun isNotificationEnabled(context: Context): Boolean {
         return try {
             val entryPoint = EntryPointAccessors.fromApplication(context, NotificationHelperEntryPoint::class.java)
@@ -151,7 +148,6 @@ object NotificationHelper {
             .build()
     }
 
-    @OptIn(UnstableApi::class)
     fun updateUploadProgress(
         context: Context,
         title: String,
@@ -166,7 +162,6 @@ object NotificationHelper {
         }
     }
 
-    @OptIn(UnstableApi::class)
     fun showUploadSuccessNotification(context: Context, title: String) {
         if (!isNotificationEnabled(context)) return
 
@@ -183,7 +178,6 @@ object NotificationHelper {
         }
     }
 
-    @OptIn(UnstableApi::class)
     fun showUploadErrorNotification(context: Context, message: String) {
         if (!isNotificationEnabled(context)) return
 
@@ -204,7 +198,6 @@ object NotificationHelper {
         NotificationManagerCompat.from(context).cancelAll()
     }
 
-    @OptIn(UnstableApi::class)
     fun showReminderNotification(context: Context, title: String, message: String) {
         if (!isNotificationEnabled(context)) return
 
@@ -234,7 +227,6 @@ object NotificationHelper {
      * Shows a notification for social interactions (resonances, comments).
      * Includes artifact navigation when clicked.
      */
-    @OptIn(UnstableApi::class)
     fun showInteractionNotification(
         context: Context,
         title: String,
