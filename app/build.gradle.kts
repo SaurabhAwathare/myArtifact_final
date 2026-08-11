@@ -40,7 +40,9 @@ configure<com.android.build.api.dsl.ApplicationExtension> {
     val keyAliasValue = getProp("keyAlias", "ARTIFACT_RELEASE_KEY_ALIAS")
     val keyPasswordValue = getProp("keyPassword", "ARTIFACT_RELEASE_KEY_PASSWORD")
 
-    val storeFileObj = storeFilePath?.let { file(it) }
+    val storeFileObj = storeFilePath?.let {
+        if (it.startsWith("/") || it.contains(":\\")) file(it) else rootProject.file(it)
+    }
     val isSigningConfigured = (storeFileObj?.exists() == true) &&
             (storePasswordValue != null) &&
             (keyAliasValue != null) &&
@@ -58,7 +60,7 @@ configure<com.android.build.api.dsl.ApplicationExtension> {
         applicationId = "com.saurabh.artifact"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1
+        versionCode = 2
         versionName = "1.0"
 
         testInstrumentationRunner = "com.saurabh.artifact.HiltTestRunner"

@@ -73,7 +73,15 @@ class CredentialHelper @Inject constructor(
             ArtifactLogger.i(DiagnosticCategory.AUTH, "GOOGLE_SIGN_IN_CANCELED")
             CredentialResult.Canceled
         } catch (e: NoCredentialException) {
-            ArtifactLogger.w(DiagnosticCategory.AUTH, "GOOGLE_SIGN_IN_NO_CREDENTIAL")
+            val metadata = buildMap {
+                put("exception_class", e.javaClass.name)
+                put("exception_message", e.message ?: "no message")
+                e.cause?.let { cause ->
+                    put("cause_class", cause.javaClass.name)
+                    put("cause_message", cause.message ?: "no message")
+                }
+            }
+            ArtifactLogger.w(DiagnosticCategory.AUTH, "GOOGLE_SIGN_IN_NO_CREDENTIAL", metadata, e)
             CredentialResult.Failure(UiText.StringResource(R.string.unauthenticated_presence))
         } catch (e: Exception) {
             ArtifactLogger.e(DiagnosticCategory.AUTH, "GOOGLE_SIGN_IN_FAILURE", throwable = e)
