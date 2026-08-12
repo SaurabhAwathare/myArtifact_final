@@ -9,7 +9,6 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.google.devtools.ksp)
-    id("kotlin-kapt")
     alias(libs.plugins.hilt)
     alias(libs.plugins.kotlin.serialization)
 
@@ -60,7 +59,7 @@ configure<com.android.build.api.dsl.ApplicationExtension> {
         applicationId = "com.saurabh.artifact"
         minSdk = 24
         targetSdk = 36
-        versionCode = 2
+        versionCode = 3
         versionName = "1.0"
 
         testInstrumentationRunner = "com.saurabh.artifact.HiltTestRunner"
@@ -236,7 +235,7 @@ dependencies {
     implementation(libs.androidx.appsearch)
     implementation(libs.androidx.appsearch.platform.storage)
     implementation(libs.androidx.appsearch.local.storage)
-    kapt(libs.androidx.appsearch.compiler)
+    ksp(libs.androidx.appsearch.compiler)
 
     // WorkManager
     implementation(libs.androidx.work.runtime.ktx)

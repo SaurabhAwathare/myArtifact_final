@@ -8,35 +8,6 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:1002864539573:android:7339f47cd98c02ae290bfc",
-        "android_client_info": {
-          "package_name": "com.example.appcheck.repro"
-        }
-      },
-      "oauth_client": [
-        {
-          "client_id": "1002864539573-qftmoh7cis3rnbi6u646tlmri55v6ler.apps.googleusercontent.com",
-          "client_type": 3
-        }
-      ],
-      "api_key": [
-        {
-          "current_key": "AIzaSyCJ_IpeUwKviB3S0PthojttlKyW9vVds-4"
-        }
-      ],
-      "services": {
-        "appinvite_service": {
-          "other_platform_oauth_client": [
-            {
-              "client_id": "1002864539573-qftmoh7cis3rnbi6u646tlmri55v6ler.apps.googleusercontent.com",
-              "client_type": 3
-            }
-          ]
-        }
-      }
-    },
-    {
-      "client_info": {
         "mobilesdk_app_id": "1:1002864539573:android:b517e49cf083dd97290bfc",
         "android_client_info": {
           "package_name": "com.saurabh.artifact"
@@ -49,14 +20,6 @@
           "android_info": {
             "package_name": "com.saurabh.artifact",
             "certificate_hash": "a50e880aac378e293f066c58142d3f891f64a911"
-          }
-        },
-        {
-          "client_id": "1002864539573-o504l8pe9dkoo1nrs53vfv8cd5oj6b07.apps.googleusercontent.com",
-          "client_type": 1,
-          "android_info": {
-            "package_name": "com.saurabh.artifact",
-            "certificate_hash": "bf192cbcbbafad769d5297f6a17846309c44fb89"
           }
         },
         {
