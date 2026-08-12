@@ -44,7 +44,7 @@ class CredentialHelper @Inject constructor(
             val googleIdOption = GetGoogleIdOption.Builder()
                 .setServerClientId(serverClientId)
                 .setFilterByAuthorizedAccounts(filterByAuthorizedAccounts)
-                .setAutoSelectEnabled(true)
+                .setAutoSelectEnabled(false)
                 .setNonce(finalNonce)
                 .build()
 
