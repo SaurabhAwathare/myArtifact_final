@@ -44,6 +44,22 @@
       },
       "oauth_client": [
         {
+          "client_id": "1002864539573-349m38qta5qr5erido04egng4gqohagp.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.saurabh.artifact",
+            "certificate_hash": "b859ceab0cc18e596e7aa2aa941844828bad2976"
+          }
+        },
+        {
+          "client_id": "1002864539573-5ib4ot4tl7ed507ibbe1g458o83f1kcf.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.saurabh.artifact",
+            "certificate_hash": "975c8b5b6809c90c44c745c40b747ea6b9915c79"
+          }
+        },
+        {
           "client_id": "1002864539573-kvpdp5r5j15bu0vtm52atkg20jjec5ut.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {

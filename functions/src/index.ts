@@ -588,6 +588,29 @@ export const onUserDeleted = functions.auth.user().onDelete(async (user, context
       logger.error("[DELETE USER] Stage=Listening Sessions | ERROR:", e);
     }
 
+    // 5.5 Anonymize Comments (Preserve conversation integrity while severing UID link)
+    try {
+      let commentsAnonymizedCount = 0;
+      let commentsSize;
+      do {
+        const snapshot = await db.collectionGroup("comments")
+          .where("creatorId", "==", uid)
+          .limit(500)
+          .get();
+
+        commentsSize = snapshot.size;
+        if (commentsSize > 0) {
+          const batch = db.batch();
+          snapshot.docs.forEach((doc) => batch.update(doc.ref, {creatorId: ""}));
+          await batch.commit();
+          commentsAnonymizedCount += commentsSize;
+        }
+      } while (commentsSize > 0);
+      logger.info(`[DELETE USER] Stage=Anonymize Comments | Count=${commentsAnonymizedCount}`);
+    } catch (e) {
+      logger.error("[DELETE USER] Stage=Anonymize Comments | ERROR:", e);
+    }
+
     // 6. Final User Document & Subcollections Deletion
     const userRef = db.collection("users").doc(uid);
     const subCollections = [
@@ -606,6 +629,36 @@ export const onUserDeleted = functions.auth.user().onDelete(async (user, context
       } catch (e) {
         logger.warn(`[DELETE USER] Subcollection=${sub} | ERROR:`, e);
       }
+    }
+
+    // 7. Cleanup Global Reactions
+    try {
+      let reactionsSize;
+      do {
+        reactionsSize = await deleteQueryBatch(db.collection("reactions_global").where("userId", "==", uid).limit(500));
+      } while (reactionsSize > 0);
+    } catch (e) {
+      logger.error("[DELETE USER] Stage=Global Reactions | ERROR:", e);
+    }
+
+    // 8. Cleanup Artifact Reactions
+    try {
+      let artifactReactionsSize;
+      do {
+        artifactReactionsSize = await deleteQueryBatch(db.collection("artifact_reactions").where("userId", "==", uid).limit(500));
+      } while (artifactReactionsSize > 0);
+    } catch (e) {
+      logger.error("[DELETE USER] Stage=Artifact Reactions | ERROR:", e);
+    }
+
+    // 9. Cleanup Plays
+    try {
+      let playsSize;
+      do {
+        playsSize = await deleteQueryBatch(db.collection("artifact_plays").where("userId", "==", uid).limit(500));
+      } while (playsSize > 0);
+    } catch (e) {
+      logger.error("[DELETE USER] Stage=Plays | ERROR:", e);
     }
 
     try {

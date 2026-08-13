@@ -137,6 +137,14 @@
   "fieldOverrides": [
     {
       "collectionGroup": "comments",
+      "fieldPath": "creatorId",
+      "indexes": [
+        { "queryScope": "COLLECTION_GROUP", "order": "ASCENDING" },
+        { "queryScope": "COLLECTION_GROUP", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "comments",
       "fieldPath": "author.avatarSeed",
       "indexes": [
         { "queryScope": "COLLECTION_GROUP", "order": "ASCENDING" },

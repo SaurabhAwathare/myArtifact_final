@@ -5,39 +5,184 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Delete Your Account — Artifact</title>
     <link rel="stylesheet" href="css/styles.css">
+    <style>
+        .hidden { display: none; }
+        .danger-zone { border: 1px solid #ff4444; padding: 1.5rem; border-radius: 8px; margin-top: 2rem; background: #2a1a1a; }
+        .btn { padding: 0.8rem 1.5rem; border-radius: 4px; border: none; font-weight: bold; cursor: pointer; font-size: 1rem; transition: background 0.2s; }
+        .btn-primary { background: var(--accent-color); color: #fff; }
+        .btn-primary:hover { background: #7b1fa2; }
+        .btn-danger { background: #ff4444; color: #fff; }
+        .btn-danger:hover { background: #cc0000; }
+        .btn-danger:disabled { background: #666; cursor: not-allowed; }
+        .status-msg { margin-top: 1rem; padding: 1rem; border-radius: 4px; }
+        .status-error { background: #ff444433; color: #ff8888; border: 1px solid #ff4444; }
+        .status-success { background: #00c85333; color: #b9f6ca; border: 1px solid #00c853; }
+        .user-info { margin-bottom: 1rem; font-weight: 500; color: var(--secondary-color); }
+        .checkbox-container { display: flex; align-items: flex-start; gap: 0.8rem; margin: 1.5rem 0; cursor: pointer; }
+        .checkbox-container input { margin-top: 0.3rem; }
+    </style>
 </head>
 <body>
     <header>
         <div class="logo"><a href="index.html">Artifact</a></div>
     </header>
     <main>
-        <h1>How to Delete Your Account</h1>
-        <p>You have full control over your emotional journey on Artifact, including the right to dissolve your presence and delete your data.</p>
+        <h1>Account Deletion</h1>
+        <p>You have full control over your emotional journey on Artifact. If you wish to permanently delete your account and associated data, you can do so here.</p>
 
         <div class="legal-content">
-            <h2>Steps to Delete Account</h2>
-            <ol>
-                <li>Open the Artifact app on your Android device.</li>
-                <li>Tap on your <strong>Presence</strong> (profile icon) to open your hearth.</li>
-                <li>Tap the <strong>Settings</strong> icon (gear) in the top right corner.</li>
-                <li>Scroll to the bottom of the Settings menu.</li>
-                <li>Tap <strong>Delete Account</strong>.</li>
-                <li>Confirm your choice. This action is permanent and cannot be undone.</li>
-            </ol>
-
-            <h2>What Happens Next?</h2>
+            <h2>Important Information</h2>
             <ul>
-                <li><strong>Immediate Effect:</strong> Your presence is dissolved, and you will be logged out. Other users will no longer be able to find your profile or hear your artifacts.</li>
-                <li><strong>Data Deletion:</strong> All your audio recordings, transcripts, profile metadata, and follow relationships are queued for permanent deletion from our servers.</li>
-                <li><strong>Timeline:</strong> Data is typically removed within 30 days of the request.</li>
+                <li><strong>Permanence:</strong> Account deletion is irreversible. Your profile, artifacts, and social connections will be dissolved.</li>
+                <li><strong>Anonymized Content:</strong> To preserve the integrity of ongoing conversations, comments you've left on others' artifacts will remain visible but will be permanently anonymized (your identity will be removed).</li>
+                <li><strong>Backend Cleanup:</strong> Once you trigger deletion, our automated systems will begin purging your PII, audio recordings, and metadata across all services.</li>
             </ul>
 
-            <h2>Need Help?</h2>
-            <p>If you no longer have access to the app or need assistance, please contact us at <a href="mailto:privacy@myartifact.app">privacy@myartifact.app</a> from the email address associated with your account.</p>
+            <div id="auth-section">
+                <h3>Step 1: Authenticate</h3>
+                <p>To verify your identity, please sign in with the Google account associated with your Artifact profile.</p>
+                <button id="login-btn" class="btn btn-primary">Sign in with Google to Delete</button>
+            </div>
+
+            <div id="delete-section" class="hidden">
+                <div class="danger-zone">
+                    <h3>Step 2: Confirm Deletion</h3>
+                    <div class="user-info">Signed in as: <span id="user-email"></span></div>
+
+                    <p>WARNING: This action will permanently close your account and initiate the data destruction process.</p>
+
+                    <label class="checkbox-container">
+                        <input type="checkbox" id="confirm-checkbox">
+                        <span>I understand that deleting my Artifact account is permanent and cannot be undone.</span>
+                    </label>
+
+                    <button id="delete-btn" class="btn btn-danger" disabled>Delete My Account Permanently</button>
+                </div>
+            </div>
+
+            <div id="success-section" class="hidden">
+                <div class="status-msg status-success">
+                    <h3>Deletion Initiated</h3>
+                    <p>Your Artifact account deletion has been initiated successfully. You have been signed out, and our backend cleanup process (onUserDeleted) has been triggered to remove your personal data.</p>
+                </div>
+            </div>
+
+            <div id="status-msg" class="status-msg hidden"></div>
+
+            <h2 style="margin-top: 3rem;">Other Ways to Delete</h2>
+            <p>If you still have the Artifact app installed, we recommend using the in-app deletion tool found in <strong>Settings > Delete Account</strong> for the most seamless experience.</p>
+            <p>For manual assistance or if you encounter issues, please contact us at <a href="mailto:privacy@myartifact.app">privacy@myartifact.app</a>.</p>
         </div>
     </main>
     <footer>
         <p><a href="index.html">Home</a> | <a href="privacy.html">Privacy Policy</a> | <a href="contact.html">Contact Support</a></p>
     </footer>
+
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { getAuth, GoogleAuthProvider, signInWithPopup, deleteUser, onAuthStateChanged, reauthenticateWithPopup } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyCJ_IpeUwKviB3S0PthojttlKyW9vVds-4",
+            authDomain: "myartifact-555e3.firebaseapp.com",
+            projectId: "myartifact-555e3",
+            storageBucket: "myartifact-555e3.firebasestorage.app",
+            messagingSenderId: "1002864539573",
+            appId: "1:1002864539573:web:78103ed7e694366e290bfc"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const provider = new GoogleAuthProvider();
+
+        const authSection = document.getElementById('auth-section');
+        const deleteSection = document.getElementById('delete-section');
+        const successSection = document.getElementById('success-section');
+        const userEmailSpan = document.getElementById('user-email');
+        const deleteBtn = document.getElementById('delete-btn');
+        const confirmCheckbox = document.getElementById('confirm-checkbox');
+        const statusMsg = document.getElementById('status-msg');
+        const loginBtn = document.getElementById('login-btn');
+
+        function showMessage(text, type = 'error') {
+            statusMsg.textContent = text;
+            statusMsg.className = `status-msg ${type === 'error' ? 'status-error' : 'status-success'}`;
+            statusMsg.classList.remove('hidden');
+        }
+
+        function hideMessage() {
+            statusMsg.classList.add('hidden');
+        }
+
+        loginBtn.addEventListener('click', async () => {
+            hideMessage();
+            try {
+                await signInWithPopup(auth, provider);
+            } catch (error) {
+                console.error(error);
+                if (error.code !== 'auth/popup-closed-by-user') {
+                    showMessage("Authentication failed: " + error.message);
+                }
+            }
+        });
+
+        confirmCheckbox.addEventListener('change', () => {
+            deleteBtn.disabled = !confirmCheckbox.checked;
+        });
+
+        deleteBtn.addEventListener('click', async () => {
+            const user = auth.currentUser;
+            if (!user) {
+                showMessage("No active session found. Please sign in again.");
+                return;
+            }
+
+            deleteBtn.disabled = true;
+            deleteBtn.textContent = "Processing...";
+            hideMessage();
+
+            try {
+                await deleteUser(user);
+                // Success
+                deleteSection.classList.add('hidden');
+                successSection.classList.remove('hidden');
+                authSection.classList.add('hidden');
+            } catch (error) {
+                console.error(error);
+                deleteBtn.disabled = false;
+                deleteBtn.textContent = "Delete My Account Permanently";
+
+                if (error.code === 'auth/requires-recent-login') {
+                    showMessage("For security, you must sign in again immediately before deleting your account.", "error");
+                    // Trigger re-auth flow
+                    setTimeout(async () => {
+                        try {
+                            await reauthenticateWithPopup(user, provider);
+                            showMessage("Re-authentication successful. You can now delete your account.", "success");
+                        } catch (reauthError) {
+                            showMessage("Re-authentication failed. Please refresh and try again.");
+                        }
+                    }, 2000);
+                } else {
+                    showMessage("Deletion failed: " + error.message);
+                }
+            }
+        });
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                userEmailSpan.textContent = user.email;
+                authSection.classList.add('hidden');
+                deleteSection.classList.remove('hidden');
+                successSection.classList.add('hidden');
+            } else {
+                // If not in success state, show auth section
+                if (successSection.classList.contains('hidden')) {
+                    authSection.classList.remove('hidden');
+                    deleteSection.classList.add('hidden');
+                }
+            }
+        });
+    </script>
 </body>
 </html>
