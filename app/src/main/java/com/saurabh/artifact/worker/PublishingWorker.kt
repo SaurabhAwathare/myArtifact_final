@@ -42,14 +42,6 @@ class PublishingWorker @AssistedInject constructor(
         
         startTime = System.currentTimeMillis()
 
-        // 0. Initialize Foreground Service for long-running upload
-        try {
-            setForeground(getForegroundInfo())
-            diagnosticLogger.debug(DiagnosticCategory.WORKMANAGER, "PUBLISHING_FOREGROUND_SET", mapOf(LogKeys.DRAFT_ID to draftId))
-        } catch (e: Exception) {
-            diagnosticLogger.warn(DiagnosticCategory.WORKMANAGER, "PUBLISHING_FOREGROUND_FAILED", mapOf(LogKeys.DRAFT_ID to draftId), e)
-        }
-
         // 0.2 Acquire Ownership (with 10 min timeout threshold)
         val timeoutThreshold = System.currentTimeMillis() - 10 * 60 * 1000L
         val acquisitionResult = withContext(Dispatchers.IO) {
@@ -58,6 +50,15 @@ class PublishingWorker @AssistedInject constructor(
 
         when (acquisitionResult) {
             AcquisitionResult.ACQUIRED -> {
+                // 0. Initialize Foreground Service for long-running upload
+                // This worker has successfully acquired the lock, so it is the authoritative owner.
+                try {
+                    setForeground(getForegroundInfo())
+                    diagnosticLogger.debug(DiagnosticCategory.WORKMANAGER, "PUBLISHING_FOREGROUND_SET", mapOf(LogKeys.DRAFT_ID to draftId))
+                } catch (e: Exception) {
+                    diagnosticLogger.warn(DiagnosticCategory.WORKMANAGER, "PUBLISHING_FOREGROUND_FAILED", mapOf(LogKeys.DRAFT_ID to draftId), e)
+                }
+
                 // Phase 4: Explicit Ownership Verification
                 val draft = draftRepository.getDraft(draftId).getOrNull()
                 val currentUserId = authRepository.currentUserId

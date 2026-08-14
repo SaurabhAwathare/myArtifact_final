@@ -138,10 +138,18 @@ class UserSessionManager @Inject constructor(
     }
 
     /**
-     * Clears all session data. Used during sign out.
+     * Clears all session data. Used during full account deletion or sign out.
+     * Purges both local DataStore and persistent Block Store identity markers.
      */
     suspend fun clear() {
-        dataStore.edit { it.clear() }
+        try {
+            dataStore.edit { it.clear() }
+        } catch (e: Exception) {
+            android.util.Log.e("UserSessionManager", "Failed to clear local DataStore", e)
+        }
+        
+        // Purge persistent identity markers from Google Play Services
+        blockStoreManager.clear()
     }
 
     /**

@@ -24,6 +24,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.model.ArtifactLifecycle
@@ -47,6 +54,15 @@ fun PublishingStudioScreen(
     val logger = ArtifactTheme.logger
     val sessionState by viewModel.sessionState.collectAsState()
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { _ ->
+        // We trigger publish regardless of result to ensure the core feature works,
+        // but the notification depends on the OS granting this.
+        viewModel.onPublishClick()
+    }
 
     LaunchedEffect(draftId) {
         logger.trace(DiagnosticCategory.STUDIO, "STUDIO_SCREEN_LAUNCHED", mapOf(LogKeys.DRAFT_ID to draftId))
@@ -69,7 +85,7 @@ fun PublishingStudioScreen(
 
     BackHandler {
         logger.debug(DiagnosticCategory.NAVIGATION, "STUDIO_BACK_TRIGGERED", mapOf("step" to sessionState.currentStep.name))
-        if (sessionState.currentStep == StudioStep.REVIEW || (sessionState.bypassReview && sessionState.currentStep == StudioStep.DETAILS)) {
+        if (sessionState.currentStep == StudioStep.REVIEW) {
             onCancel()
         } else {
             viewModel.previousStep()
@@ -113,7 +129,7 @@ fun PublishingStudioScreen(
             StudioTopBar(
                 currentStep = sessionState.currentStep,
                 onBack = {
-                    if (sessionState.currentStep == StudioStep.REVIEW || sessionState.currentStep == StudioStep.PROCESSING || (sessionState.bypassReview && sessionState.currentStep == StudioStep.DETAILS)) onCancel()
+                    if (sessionState.currentStep == StudioStep.REVIEW || sessionState.currentStep == StudioStep.PROCESSING) onCancel()
                     else viewModel.previousStep()
                 },
                 onClose = onCancel,
@@ -125,7 +141,22 @@ fun PublishingStudioScreen(
                 StudioBottomBar(
                     state = sessionState,
                     onNext = { viewModel.nextStep() },
-                    onPublish = { viewModel.onPublishClick() }
+                    onPublish = {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            val hasPermission = ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.POST_NOTIFICATIONS
+                            ) == PackageManager.PERMISSION_GRANTED
+
+                            if (!hasPermission) {
+                                permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            } else {
+                                viewModel.onPublishClick()
+                            }
+                        } else {
+                            viewModel.onPublishClick()
+                        }
+                    }
                 )
             }
         },
@@ -138,8 +169,7 @@ fun PublishingStudioScreen(
         ) {
             // Step Indicator
             StudioProgressIndicator(
-                currentStep = sessionState.currentStep,
-                bypassReview = sessionState.bypassReview
+                currentStep = sessionState.currentStep
             )
 
             Box(modifier = Modifier.weight(1f)) {
@@ -224,8 +254,7 @@ fun StudioTopBar(
 
 @Composable
 fun StudioProgressIndicator(
-    currentStep: StudioStep,
-    bypassReview: Boolean
+    currentStep: StudioStep
 ) {
     Row(
         modifier = Modifier
@@ -235,7 +264,6 @@ fun StudioProgressIndicator(
     ) {
         StudioStep.entries
             .filter { it != StudioStep.PUBLISHING && it != StudioStep.PROCESSING }
-            .filter { !bypassReview || it != StudioStep.REVIEW }
             .forEach { step ->
                 val isActive = step.index <= currentStep.index
                 Box(

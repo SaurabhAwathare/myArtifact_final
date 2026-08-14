@@ -391,10 +391,24 @@ class ArtifactRepository @Inject constructor(
             
             repositoryScope.launch(Dispatchers.Default) {
                 val artifacts = snapshot?.documents?.mapNotNull { doc ->
-                    val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
-                    if (artifact != null && (artifact.status == ArtifactStatus.ACTIVE || !onlyActive)) {
-                        artifact
-                    } else null
+                    try {
+                        val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
+                        if (artifact != null && (artifact.status == ArtifactStatus.ACTIVE || !onlyActive)) {
+                            artifact
+                        } else null
+                    } catch (e: Exception) {
+                        diagnosticLogger.error(
+                            category = DiagnosticCategory.PROFILE,
+                            eventName = "ARTIFACT_DESERIALIZATION_FAILED",
+                            metadata = mapOf(
+                                LogKeys.ARTIFACT_ID to doc.id,
+                                "userId" to userId,
+                                "context" to "getUserArtifacts"
+                            ),
+                            throwable = e
+                        )
+                        null
+                    }
                 } ?: emptyList()
                 
                 trySend(artifacts to snapshot?.documents?.lastOrNull())

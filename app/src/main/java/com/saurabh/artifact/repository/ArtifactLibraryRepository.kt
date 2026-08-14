@@ -175,33 +175,64 @@ class ArtifactLibraryRepository @Inject constructor(
                 }
 
                 repositoryScope.launch(Dispatchers.IO) {
-                    val chunks = artifactIds.chunked(10)
                     val allSaved = mutableListOf<Artifact>()
-                    for (chunk in chunks) {
-                        val docs = firestore.collection("artifacts")
-                            .whereIn(com.google.firebase.firestore.FieldPath.documentId(), chunk)
-                            .get().await()
-                        
-                        val mappedChunk = withContext(Dispatchers.Default) {
-                            docs.documents.mapNotNull { doc ->
-                                val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
-                                if (artifact == null || artifact.audioUrl.isEmpty() || artifact.status != ArtifactStatus.ACTIVE) return@mapNotNull null
-                                
-                                val reportCount = doc.getLong("reportCount") ?: 0L
-                                val reporterIds = doc.get("reporterIds") as? List<*> ?: emptyList<String>()
-                                
-                                if (reportCount >= 3L || reporterIds.contains(userId)) {
-                                    null
-                                } else {
-                                    artifact
+                    try {
+                        val chunks = artifactIds.chunked(10)
+                        for (chunk in chunks) {
+                            val docs = firestore.collection("artifacts")
+                                .whereIn(com.google.firebase.firestore.FieldPath.documentId(), chunk)
+                                .get().await()
+                            
+                            val mappedChunk = withContext(Dispatchers.Default) {
+                                docs.documents.mapNotNull { doc ->
+                                    try {
+                                        val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
+                                        if (artifact == null || artifact.audioUrl.isEmpty() || artifact.status != ArtifactStatus.ACTIVE) return@mapNotNull null
+                                        
+                                        val reportCount = doc.getLong("reportCount") ?: 0L
+                                        val reporterIds = doc.get("reporterIds") as? List<*> ?: emptyList<String>()
+                                        
+                                        if (reportCount >= 3L || reporterIds.contains(userId)) {
+                                            null
+                                        } else {
+                                            artifact
+                                        }
+                                    } catch (e: Exception) {
+                                        if (e is kotlinx.coroutines.CancellationException) throw e
+                                        diagnosticLogger.error(
+                                            category = DiagnosticCategory.FIRESTORE,
+                                            eventName = "ARTIFACT_DESERIALIZATION_FAILED",
+                                            metadata = mapOf(
+                                                LogKeys.ARTIFACT_ID to doc.id,
+                                                "userId" to userId,
+                                                "context" to "getSavedArtifacts"
+                                            ),
+                                            throwable = e
+                                        )
+                                        null
+                                    }
                                 }
                             }
+                            allSaved.addAll(mappedChunk)
                         }
-                        allSaved.addAll(mappedChunk)
+                    } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
+                        diagnosticLogger.error(
+                            category = DiagnosticCategory.FIRESTORE,
+                            eventName = "SAVED_ARTIFACTS_CHUNK_FETCH_FAILED",
+                            metadata = mapOf(
+                                "userId" to userId,
+                                "totalIds" to artifactIds.size,
+                                "collectedSoFar" to allSaved.size
+                            ),
+                            throwable = e
+                        )
+                    } finally {
+                        // Sort by the order of artifactIds (which is sorted by savedAt)
+                        // Fixed Logic Bug: Compare against Artifact ID property, not the loop variable itself
+                        val sortedSaved = artifactIds.mapNotNull { id -> allSaved.find { it.id == id } }
+                        trySend(sortedSaved)
                     }
-                    // Sort by the order of artifactIds (which is sorted by savedAt)
-                    val sortedSaved = artifactIds.mapNotNull { id -> allSaved.find { it.id == id } }
-                    trySend(sortedSaved)
                 }
             }
         awaitClose { subscription.remove() }

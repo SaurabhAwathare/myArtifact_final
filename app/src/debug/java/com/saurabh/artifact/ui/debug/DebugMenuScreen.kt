@@ -64,13 +64,6 @@ fun DebugMenuScreen(
                     onCheckedChange = { viewModel.toggleDebugOverlays(it) },
                     icon = Icons.Default.Layers
                 )
-                SettingsSwitch(
-                    title = "Bypass Review Screen",
-                    subtitle = "Skip recording review and auto-advance to details",
-                    checked = uiState.settings.bypassReview,
-                    onCheckedChange = { viewModel.toggleBypassReview(it) },
-                    icon = Icons.Default.FastForward
-                )
             }
 
             DebugSection(title = "Admin Tools") {

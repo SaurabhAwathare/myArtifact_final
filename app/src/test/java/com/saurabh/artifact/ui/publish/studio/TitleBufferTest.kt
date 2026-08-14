@@ -8,7 +8,6 @@ import com.saurabh.artifact.domain.PublishArtifactUseCase
 import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.model.DraftStatus
 import com.saurabh.artifact.repository.AuthRepository
-import com.saurabh.artifact.repository.DebugSettings
 import com.saurabh.artifact.repository.RecordingRepository
 import com.saurabh.artifact.util.ArtifactLogger
 import io.mockk.*
@@ -32,7 +31,6 @@ class TitleBufferTest {
     private val identityScout = mockk<IdentityScout>(relaxed = true)
     private val authRepository = mockk<AuthRepository>(relaxed = true)
     private val cleanupManager = mockk<com.saurabh.artifact.audio.ArtifactCleanupManager>(relaxed = true)
-    private val debugRepository = mockk<com.saurabh.artifact.repository.DebugRepository>(relaxed = true)
     private val workManager = mockk<androidx.work.WorkManager>(relaxed = true)
     private val diagnosticLogger = mockk<com.saurabh.artifact.diagnostics.DiagnosticLogger>(relaxed = true)
 
@@ -76,7 +74,6 @@ class TitleBufferTest {
         every { playbackCoordinator.duration } returns flowOf(0.milliseconds)
         every { playbackCoordinator.currentArtifact } returns MutableStateFlow(null)
         every { recordingRepository.observeRecoveryState(any(), any()) } returns flowOf(false)
-        every { debugRepository.debugSettings } returns flowOf(DebugSettings())
     }
 
     @After
@@ -94,7 +91,6 @@ class TitleBufferTest {
             publishArtifactUseCase,
             identityScout,
             authRepository,
-            debugRepository,
             workManager,
             diagnosticLogger
         )
