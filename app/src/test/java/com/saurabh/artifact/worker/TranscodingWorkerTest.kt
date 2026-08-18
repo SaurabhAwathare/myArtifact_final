@@ -22,6 +22,8 @@ import java.io.File
 import java.io.FileOutputStream
 import java.nio.file.Files
 
+import dagger.Lazy
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class TranscodingWorkerTest {
     private val draftDao = mockk<DraftDao>(relaxed = true)
@@ -55,7 +57,7 @@ class TranscodingWorkerTest {
         worker = TranscodingWorker(
             appContext = context,
             workerParams = workerParams,
-            draftDao = draftDao,
+            draftDao = Lazy { draftDao },
             localDraftManager = localDraftManager,
             encryptedStorageManager = encryptedStorageManager,
             wavRecoveryManager = wavRecoveryManager,

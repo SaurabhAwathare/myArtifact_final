@@ -22,7 +22,6 @@ work = "2.11.2"
 startup = "1.2.0"
 firebaseBom = "34.14.1"
 firebaseCrashlytics = "3.0.3"
-androidxCarApp = "1.7.0"
 credentials = "1.6.0"
 googleid = "1.2.0"
 media3 = "1.10.1"
@@ -143,7 +142,6 @@ firebase-appcheck-debug = { group = "com.google.firebase", name = "firebase-appc
 firebase-crashlytics = { group = "com.google.firebase", name = "firebase-crashlytics" }
 firebase-perf = { group = "com.google.firebase", name = "firebase-perf" }
 firebase-ai = { group = "com.google.firebase", name = "firebase-ai" }
-androidx-car-app = { group = "androidx.car.app", name = "app", version.ref = "androidxCarApp" }
 play-services-auth = { group = "com.google.android.gms", name = "play-services-auth", version.ref = "playServicesAuth" }
 androidx-credentials = { group = "androidx.credentials", name = "credentials", version.ref = "credentials" }
 androidx-credentials-play-services-auth = { group = "androidx.credentials", name = "credentials-play-services-auth", version.ref = "credentials" }

@@ -1,6 +1,7 @@
 package com.saurabh.artifact.repository
 
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.CollectionReference
@@ -167,10 +168,19 @@ class UserRepository @Inject constructor(
                 }
             } catch (e: Exception) {
                 diagnosticLogger.warn(DiagnosticCategory.AUTH, "USER_RELOAD_FAILED", mapOf(LogKeys.USER_ID to initialUser.uid), e)
-                if (e !is kotlinx.coroutines.TimeoutCancellationException) {
+                
+                // CRITICAL FIX: Only sign out if the error clearly indicates the account is invalid/revoked.
+                // Network failures or timeouts must NOT trigger a logout, as this would cause permanent
+                // local data loss in the LogoutCoordinator.
+                if (e is FirebaseAuthInvalidUserException) {
+                    diagnosticLogger.error(DiagnosticCategory.AUTH, "AUTH_SESSION_REVOKED", mapOf(LogKeys.USER_ID to initialUser.uid))
                     auth.signOut()
-                    return@withContext Result.failure(AppError.from(e))
+                    return@withContext Result.failure(AppError.Unauthenticated("Session revoked: ${e.errorCode}"))
                 }
+                
+                // For all other errors (Network, Timeout, etc.), we proceed using the existing local session.
+                // Firebase SDK will handle token refresh retries automatically when connectivity returns.
+                diagnosticLogger.info(DiagnosticCategory.AUTH, "RELOAD_SKIPPED_FOR_TRANSIENT_ERROR", mapOf("errorType" to e.javaClass.simpleName))
             }
 
             val currentUser = auth.currentUser ?: return@withContext Result.failure(AppError.Unauthenticated())
@@ -972,6 +982,34 @@ class UserRepository @Inject constructor(
                 Result.failure(e)
             }
         }
+    }
+
+    /**
+     * Enqueues an artifact count increment operation to be processed asynchronously.
+     */
+    suspend fun enqueueArtifactCountIncrement(userId: String, artifactId: String) {
+        val interaction = com.saurabh.artifact.data.local.PendingInteractionEntity(
+            userId = userId,
+            artifactId = artifactId,
+            interactionType = com.saurabh.artifact.data.local.InteractionType.ARTIFACT_COUNT,
+            action = com.saurabh.artifact.data.local.InteractionAction.ADD
+        )
+        pendingInteractionDao.get().insert(interaction)
+        com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
+    }
+
+    /**
+     * Enqueues an artifact count decrement operation to be processed asynchronously.
+     */
+    suspend fun enqueueArtifactCountDecrement(userId: String, artifactId: String) {
+        val interaction = com.saurabh.artifact.data.local.PendingInteractionEntity(
+            userId = userId,
+            artifactId = artifactId,
+            interactionType = com.saurabh.artifact.data.local.InteractionType.ARTIFACT_COUNT,
+            action = com.saurabh.artifact.data.local.InteractionAction.REMOVE
+        )
+        pendingInteractionDao.get().insert(interaction)
+        com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
     }
 
     /**

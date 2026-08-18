@@ -120,4 +120,71 @@ class UserRepositoryTest {
         
         unmockkStatic("kotlinx.coroutines.tasks.TasksKt")
     }
+
+    @Test
+    fun `getOrCreateProfile does NOT signOut on network error during reload`() = runBlocking {
+        // Setup mocks
+        val userId = "user123"
+        val firebaseUser = mockk<FirebaseUser>()
+        every { firebaseUser.uid } returns userId
+        every { firebaseUser.email } returns "test@example.com"
+        every { firebaseUser.displayName } returns "Test User"
+        
+        // Mock reload() to fail with network error
+        val reloadTask = mockk<Task<Void>>()
+        every { firebaseUser.reload() } returns reloadTask
+        
+        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        // Note: FirebaseNetworkException might be hard to instantiate if not on classpath, 
+        // but it's a standard Firebase dependency.
+        val networkException = Exception("Network Error") 
+        // In the real app, we check 'is FirebaseAuthInvalidUserException'. 
+        // A generic Exception should NOT trigger signOut.
+        coEvery { reloadTask.await() } throws networkException
+        
+        every { auth.currentUser } returns firebaseUser
+        every { auth.signOut() } just Runs
+
+        // Mock subsequent Firestore calls to avoid NPEs
+        val userRef = mockk<DocumentReference>(relaxed = true)
+        every { firestore.collection("users").document(userId) } returns userRef
+        val task = mockk<Task<Any>>(relaxed = true)
+        every { firestore.runTransaction<Any>(any()) } returns task
+        // We expect it to proceed and try the transaction (which will also likely fail offline, but that's handled separately)
+        
+        // When
+        repository.getOrCreateProfile()
+
+        // Then
+        verify(exactly = 0) { auth.signOut() }
+        
+        unmockkStatic("kotlinx.coroutines.tasks.TasksKt")
+    }
+
+    @Test
+    fun `getOrCreateProfile signs out on FirebaseAuthInvalidUserException during reload`() = runBlocking {
+        // Setup mocks
+        val userId = "user123"
+        val firebaseUser = mockk<FirebaseUser>()
+        every { firebaseUser.uid } returns userId
+        
+        val reloadTask = mockk<Task<Void>>()
+        every { firebaseUser.reload() } returns reloadTask
+        
+        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        val authException = mockk<com.google.firebase.auth.FirebaseAuthInvalidUserException>()
+        every { authException.errorCode } returns "ERROR_USER_NOT_FOUND"
+        coEvery { reloadTask.await() } throws authException
+        
+        every { auth.currentUser } returns firebaseUser
+        every { auth.signOut() } just Runs
+
+        // When
+        repository.getOrCreateProfile()
+
+        // Then
+        verify(exactly = 1) { auth.signOut() }
+        
+        unmockkStatic("kotlinx.coroutines.tasks.TasksKt")
+    }
 }

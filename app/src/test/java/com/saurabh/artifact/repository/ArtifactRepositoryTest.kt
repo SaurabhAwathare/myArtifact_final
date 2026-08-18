@@ -249,7 +249,7 @@ class ArtifactRepositoryTest {
         
         // Phase 2 Compliance: Verify NO local cleanup occurs in repository
         coVerify(exactly = 0) { artifactDao.deleteById(any()) }
-        coVerify { userRepository.decrementArtifactsCount(userId) }
+        coVerify { userRepository.enqueueArtifactCountDecrement(userId, artifactId) }
     }
 
     @Test

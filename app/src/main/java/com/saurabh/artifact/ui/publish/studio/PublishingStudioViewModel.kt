@@ -377,6 +377,9 @@ class PublishingStudioViewModel @Inject constructor(
         val userId = authRepository.currentUserId
         if (userId.isEmpty()) return
 
+        // Transition to Publishing step immediately to provide feedback
+        _currentStepOverride.value = StudioStep.PUBLISHING
+
         viewModelScope.launch {
             _uiState.update { it.copy(isPublishing = true) }
             

@@ -7,6 +7,18 @@
       "namespace": "android_app",
       "package_name": "com.saurabh.artifact",
       "sha256_cert_fingerprints": [
+        "1A:D8:6C:14:D8:FC:1E:FF:9C:20:00:04:A4:AB:AC:3B:FC:E9:D9:E3:9E:C6:BA:7B:58:2D:7F:F3:08:05:48:D9"
+      ]
+    }
+  },
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.saurabh.artifact.debug",
+      "sha256_cert_fingerprints": [
         "F3:EA:19:81:20:AF:22:8B:7E:5B:61:B2:A5:AB:5A:5F:9A:CC:BA:95:7E:24:E1:35:E3:98:72:E0:23:E4:3D:67"
       ]
     }

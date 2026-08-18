@@ -416,7 +416,8 @@ fun ArtifactCard(
                     artifactId = artifact.id,
                     title = artifact.title,
                     authorName = artifact.author.name,
-                    authorSigil = artifact.author.sigil
+                    authorSigil = artifact.author.sigil,
+                    shareUrl = com.saurabh.artifact.util.ShareUrlGenerator.generateArtifactUrl(artifact.id)
                 )
                 val shareText = com.saurabh.artifact.util.ShareFormatter.formatShareText(payload)
                 

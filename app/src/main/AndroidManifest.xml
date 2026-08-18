@@ -24,7 +24,6 @@
     <queries>
         <package android:name="com.google.android.gms" />
         <package android:name="com.android.vending" />
-        <package android:name="com.google.android.projection.gearhead" />
         <package android:name="com.google.android.apps.maps" />
         <intent>
             <action android:name="com.google.android.gms.actions.SEARCH_ACTION" />

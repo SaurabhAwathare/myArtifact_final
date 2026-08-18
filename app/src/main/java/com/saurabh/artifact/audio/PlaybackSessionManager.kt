@@ -343,6 +343,11 @@ class PlaybackSessionManager @Inject constructor(
             
             // Check if we are already playing this exact artifact to avoid redundant resets
             if ((player.currentMediaItem?.mediaId == artifact.id) && (player.playbackState != Player.STATE_IDLE)) {
+                // Ensure domain state is restored even if Media3 item is already loaded.
+                // This handles cases where the domain model might have been cleared while 
+                // the player remained in a non-idle state (e.g. paused or ended).
+                _currentArtifact.value = artifact
+                
                 if (initialPosition > 0 && kotlin.math.abs(player.currentPosition - initialPosition) > 2000) {
                     player.seekTo(initialPosition)
                 }

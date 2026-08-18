@@ -875,8 +875,8 @@ class ArtifactRepository @Inject constructor(
             
             diagnosticLogger.info(DiagnosticCategory.FIRESTORE, "ARTIFACT_SOFT_DELETED", mapOf(LogKeys.ARTIFACT_ID to artifactId))
 
-            // Decrement artifactsCount
-            userRepository.get().decrementArtifactsCount(currentUserId)
+            // Decrement artifactsCount asynchronously
+            userRepository.get().enqueueArtifactCountDecrement(currentUserId, artifactId)
 
             Result.success(Unit)
         } catch (e: Exception) {

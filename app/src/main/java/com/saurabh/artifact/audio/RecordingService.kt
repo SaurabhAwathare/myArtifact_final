@@ -232,11 +232,10 @@ class RecordingService : Service() {
                     _recordingState.value.status == RecordingStatus.COMPLETED) {
                     
                     pacingJob?.cancel()
-                    // Psychological Pacing: Intentional Delay before capture starts
-                    pacingJob = serviceScope.launch {
-                        diagnosticLogger.debug(DiagnosticCategory.RECORDER, "RECORDING_PACING_STARTED")
-                        _recordingState.value = RecordingState(status = RecordingStatus.PREPARING)
-                        delay(1500.milliseconds)
+                    // Start recording immediately to ensure reliability
+                    diagnosticLogger.debug(DiagnosticCategory.RECORDER, "RECORDING_START_REQUESTED")
+                    _recordingState.value = RecordingState(status = RecordingStatus.PREPARING)
+                    serviceScope.launch {
                         startRecording(draftId)
                     }
                 } else {
@@ -649,7 +648,6 @@ class RecordingService : Service() {
                             durationSeconds = seconds,
                             amplitudes = internalAmplitudes.toList() // Snapshot of the list
                         )
-                        updateNotification(seconds, RecordingStatus.RECORDING)
                     } else if (shouldUpdateFullState) {
                         _recordingState.value = _recordingState.value.copy(amplitudes = internalAmplitudes.toList())
                     }
@@ -667,10 +665,9 @@ class RecordingService : Service() {
             this, 0, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
+        // 1. Actions
         val stopIntent = Intent(this, RecordingService::class.java).apply { action = ACTION_STOP }
-        val stopPendingIntent = PendingIntent.getService(
-            this, 1, stopIntent, PendingIntent.FLAG_IMMUTABLE
-        )
+        val stopPendingIntent = PendingIntent.getService(this, 1, stopIntent, PendingIntent.FLAG_IMMUTABLE)
 
         val pauseAction = if (status == RecordingStatus.RECORDING) {
             val pauseIntent = Intent(this, RecordingService::class.java).apply { action = ACTION_PAUSE }
@@ -682,13 +679,7 @@ class RecordingService : Service() {
             NotificationCompat.Action(android.R.drawable.ic_media_play, "Resume", resumePending)
         }
 
-        val returnAction = NotificationCompat.Action(
-            android.R.drawable.ic_menu_revert,
-            "Return to Recording",
-            pendingIntent
-        )
-
-        val timeText = String.format(Locale.getDefault(), "%02d:%02d", seconds / 60, seconds % 60)
+        // 2. Branding & Content
         val statusText = when (status) {
             RecordingStatus.PREPARING -> "Creating a calm space..."
             RecordingStatus.PAUSED -> "Holding your artifact..."
@@ -700,18 +691,29 @@ class RecordingService : Service() {
             else -> "myArtifact"
         }
 
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(statusText)
-            .setContentText("Duration: $timeText")
-            .setSmallIcon(R.mipmap.ic_launcher)
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("Artifact")
+            .setContentText(statusText)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setOngoing(true)
             .setContentIntent(pendingIntent)
             .addAction(pauseAction)
-            .addAction(returnAction)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", stopPendingIntent)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .build()
+            .setOnlyAlertOnce(true)
+
+        // 3. Timer State
+        if (status == RecordingStatus.RECORDING) {
+            builder.setUsesChronometer(true)
+                .setWhen(System.currentTimeMillis() - (seconds * 1000))
+        } else {
+            val timeText = String.format(Locale.getDefault(), "%02d:%02d", seconds / 60, seconds % 60)
+            builder.setUsesChronometer(false)
+                .setContentText("$statusText ($timeText)")
+        }
+
+        return builder.build()
     }
 
     private fun updateNotification(seconds: Long, status: RecordingStatus) {
@@ -740,7 +742,7 @@ class RecordingService : Service() {
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "Audio Recording",
-                NotificationManager.IMPORTANCE_LOW
+                NotificationManager.IMPORTANCE_DEFAULT
             )
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(channel)
@@ -781,7 +783,7 @@ class RecordingService : Service() {
 
     companion object {
         const val NOTIFICATION_ID = 1
-        const val CHANNEL_ID = "recording_channel"
+        const val CHANNEL_ID = "recording_channel_v2"
         const val ACTION_START = "ACTION_START"
         const val ACTION_STOP = "ACTION_STOP"
         const val ACTION_CANCEL = "ACTION_CANCEL"

@@ -66,8 +66,8 @@ class RecordingRepository @Inject constructor(
             )
             draftDao.get().insert(draft)
             
-            // Increment artifactsCount on the user's Firestore document
-            userRepository.incrementArtifactsCount(currentUserId)
+            // Increment artifactsCount asynchronously to avoid blocking recording start
+            userRepository.enqueueArtifactCountIncrement(currentUserId, id)
 
             Result.success(id)
         } catch (e: Exception) {

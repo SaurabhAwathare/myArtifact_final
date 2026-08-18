@@ -22,6 +22,7 @@ object InteractionType {
     const val REACTION = "REACTION"
     const val SAVE = "SAVE"
     const val FOLLOW = "FOLLOW"
+    const val ARTIFACT_COUNT = "ARTIFACT_COUNT"
 }
 
 object InteractionAction {

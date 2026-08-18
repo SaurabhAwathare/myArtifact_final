@@ -63,4 +63,21 @@ class ShareFormatterTest {
         
         assertEquals(expected, ShareFormatter.formatShareText(payload).trim())
     }
+
+    @Test
+    fun `formatShareText with canonical ShareUrlGenerator`() {
+        val artifactId = "test-123"
+        val payload = SharePayload(
+            artifactId = artifactId,
+            title = "Testing Links",
+            authorName = "Tester",
+            shareUrl = ShareUrlGenerator.generateArtifactUrl(artifactId)
+        )
+        
+        val expectedUrl = "https://myartifact-555e3.web.app/a/test-123"
+        val result = ShareFormatter.formatShareText(payload)
+        
+        assertEquals(true, result.contains(expectedUrl))
+        assertEquals(true, result.contains("\"Testing Links\""))
+    }
 }

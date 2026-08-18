@@ -105,7 +105,16 @@ fun GlobalOverlayHost(
     CompositionLocalProvider(LocalBottomOverlayOffset provides totalOffset) {
         Box(modifier = Modifier.fillMaxSize()) {
             // 0. ACTUAL APP CONTENT
-            content()
+            // We apply the totalOffset as bottom padding to the main content container.
+            // This ensures that all screens (including those with bottom-aligned elements 
+            // like FABs or Snackbars) reserve space for the floating overlays.
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(bottom = totalOffset)
+            ) {
+                content()
+            }
 
             // 1. PLAYER SYSTEM (Full Screen & Hidden layers)
             // Staggered appearance via Stage, but structural stability is preserved.

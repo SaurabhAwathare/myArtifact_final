@@ -10,6 +10,12 @@
       "firebase.json",
       "**/.*",
       "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "/a/**",
+        "destination": "/index.html"
+      }
     ]
   },
   "firestore": {

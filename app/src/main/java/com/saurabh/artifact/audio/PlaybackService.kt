@@ -9,11 +9,9 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
-import androidx.media3.session.MediaLibraryService
+import androidx.media3.session.MediaSessionService
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MediaItem
-import androidx.media3.session.LibraryResult
-import com.google.common.collect.ImmutableList
 import androidx.media3.session.DefaultMediaNotificationProvider
 import com.saurabh.artifact.MainActivity
 import com.saurabh.artifact.util.NotificationHelper
@@ -45,13 +43,13 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
-class PlaybackService : MediaLibraryService() {
+class PlaybackService : MediaSessionService() {
 
     @Inject lateinit var playableArtifactRepository: dagger.Lazy<PlayableArtifactRepository>
     @Inject lateinit var engagementRepository: dagger.Lazy<EngagementRepository>
     @Inject lateinit var settingsDataStore: PlaybackSettingsDataStore
 
-    private var mediaSession: MediaLibrarySession? = null
+    private var mediaSession: MediaSession? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     
     private lateinit var attributionContext: android.content.Context
@@ -198,7 +196,7 @@ class PlaybackService : MediaLibraryService() {
             }
         })
 
-        val callback = object : MediaLibrarySession.Callback {
+        val callback = object : MediaSession.Callback {
             @UnstableApi
             override fun onCustomCommand(
                 session: MediaSession,
@@ -310,56 +308,14 @@ class PlaybackService : MediaLibraryService() {
                 return completer
             }
 
-            override fun onGetLibraryRoot(
-                session: MediaLibrarySession,
-                browser: MediaSession.ControllerInfo,
-                params: LibraryParams?
-            ): ListenableFuture<LibraryResult<MediaItem>> {
-                val rootItem = MediaItem.Builder()
-                    .setMediaId("ROOT")
-                    .setMediaMetadata(
-                        MediaMetadata.Builder()
-                            .setIsBrowsable(true)
-                            .setIsPlayable(false)
-                            .setTitle("Artifact")
-                            .build()
-                    )
-                    .build()
-                return Futures.immediateFuture(LibraryResult.ofItem(rootItem, params))
-            }
-
-            override fun onGetChildren(
-                session: MediaLibrarySession,
-                browser: MediaSession.ControllerInfo,
-                parentId: String,
-                page: Int,
-                pageSize: Int,
-                params: LibraryParams?
-            ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
-                return if (parentId == "ROOT") {
-                    val nowPlaying = MediaItem.Builder()
-                        .setMediaId("NOW_PLAYING")
-                        .setMediaMetadata(
-                            MediaMetadata.Builder()
-                                .setTitle("Recently Heard")
-                                .setIsBrowsable(true)
-                                .setIsPlayable(false)
-                                .build()
-                        )
-                        .build()
-                    Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.of(nowPlaying), params))
-                } else {
-                    Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.of(), params))
-                }
-            }
-            
             override fun onPostConnect(session: MediaSession, controller: MediaSession.ControllerInfo) {
                 super.onPostConnect(session, controller)
                 ArtifactLogger.d(DiagnosticCategory.PLAYER, "CONTROLLER_CONNECTED", mapOf("packageName" to controller.packageName))
             }
         }
 
-        mediaSession = MediaLibrarySession.Builder(this, player, callback)
+        mediaSession = MediaSession.Builder(this, player)
+            .setCallback(callback)
             .setSessionActivity(createSessionActivityPendingIntent())
             .build()
     }
@@ -411,7 +367,7 @@ class PlaybackService : MediaLibraryService() {
         )
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? {
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
         return mediaSession
     }
 

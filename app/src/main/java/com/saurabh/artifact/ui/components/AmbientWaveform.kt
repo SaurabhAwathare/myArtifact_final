@@ -117,12 +117,18 @@ fun AmbientWaveform(
             .graphicsLayer(alpha = 0.99f)
             .drawWithCache {
                 onDrawWithContent {
-                    val barWidthPx = context.barWidth.toPx()
-                    val gapPx = context.gap.toPx()
+                    val totalBars = processedAmplitudes.size
+                    if (totalBars <= 0) return@onDrawWithContent
+
+                    // Phase 12: Responsive Geometry Calculation
+                    // Instead of using fixed Dp values, we distribute the intended number of bars 
+                    // across the actual available width of the Canvas.
+                    val cycleWidth = size.width / totalBars
+                    val barRatio = context.barWidth / (context.barWidth + context.gap)
+                    val barWidthPx = cycleWidth * barRatio
+                    
                     val cornerRadius = CornerRadius(barWidthPx / 2f)
                     val centerY = size.height / 2f
-                    
-                    val cycleWidth = barWidthPx + gapPx
                     val driftOffset = if (!isPaused && !isStatic && context != WaveformContext.Recording) {
                         driftPhase * cycleWidth
                     } else 0f
@@ -231,10 +237,14 @@ private fun StaticWaveform(
             .fillMaxWidth()
             .height(context.height)
             .drawBehind {
-                val barWidthPx = context.barWidth.toPx()
-                val gapPx = context.gap.toPx()
+                val totalBars = waveform.size
+                if (totalBars <= 0) return@drawBehind
+
+                val cycleWidth = size.width / totalBars
+                val barRatio = context.barWidth / (context.barWidth + context.gap)
+                val barWidthPx = cycleWidth * barRatio
+                
                 val centerY = size.height / 2f
-                val cycleWidth = barWidthPx + gapPx
                 val cornerRadius = CornerRadius(barWidthPx / 2f)
 
                 waveform.forEachIndexed { index, amp ->
@@ -276,10 +286,14 @@ fun StaticWaveformPlaceholder(
             .fillMaxWidth()
             .height(context.height)
             .drawBehind {
-                val barWidthPx = context.barWidth.toPx()
-                val gapPx = context.gap.toPx()
+                val totalBars = pattern.size
+                if (totalBars <= 0) return@drawBehind
+
+                val cycleWidth = size.width / totalBars
+                val barRatio = context.barWidth / (context.barWidth + context.gap)
+                val barWidthPx = cycleWidth * barRatio
+                
                 val centerY = size.height / 2f
-                val cycleWidth = barWidthPx + gapPx
                 val cornerRadius = CornerRadius(barWidthPx / 2f)
 
                 pattern.forEachIndexed { index, amp ->

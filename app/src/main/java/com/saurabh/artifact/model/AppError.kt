@@ -79,6 +79,8 @@ sealed class AppError : Exception() {
     companion object {
         fun from(e: Throwable): AppError = when (e) {
             is com.google.firebase.auth.FirebaseAuthRecentLoginRequiredException -> ReauthenticationRequired()
+            is com.google.firebase.auth.FirebaseAuthInvalidUserException -> Unauthenticated("Session invalid: ${e.errorCode}")
+            is com.google.firebase.FirebaseNetworkException -> NetworkFailure()
             is com.google.firebase.firestore.FirebaseFirestoreException -> {
                 when (e.code) {
                     com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED -> PermissionDenied()

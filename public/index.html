@@ -5,32 +5,249 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Artifact — Voice-First Social Platform</title>
     <link rel="stylesheet" href="css/styles.css">
+    <style>
+        /* UI Refinement for Artifact Shared Page */
+        :root {
+            --card-bg: #161616;
+            --card-border: #2a2a2a;
+            --muted-text: #888;
+        }
+
+        body {
+            background: radial-gradient(circle at top, #1a1a1a 0%, #0d0d0d 100%);
+        }
+
+        main {
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            max-width: 600px;
+        }
+
+        .artifact-card {
+            display: none;
+            width: 100%;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            padding: 3rem 2rem;
+            background: var(--card-bg);
+            border-radius: 24px;
+            margin-top: 2rem;
+            border: 1px solid var(--card-border);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+            animation: fadeIn 0.6s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .share-label {
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: var(--muted-text);
+            margin-bottom: 2rem;
+        }
+
+        .artifact-title {
+            font-size: 2.2rem;
+            font-weight: 800;
+            margin-bottom: 1rem;
+            color: #fff;
+            line-height: 1.2;
+            word-break: break-word;
+        }
+
+        .artifact-author {
+            font-size: 1.2rem;
+            font-weight: 500;
+            color: var(--secondary-color);
+            margin-bottom: 3rem;
+        }
+
+        .human-library-note {
+            font-size: 0.95rem;
+            line-height: 1.5;
+            color: #ccc;
+            margin-bottom: 2.5rem;
+            max-width: 320px;
+            font-style: italic;
+        }
+
+        .cta-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background-color: var(--accent-color);
+            color: white;
+            padding: 1rem 2.5rem;
+            border-radius: 100px;
+            font-weight: 700;
+            font-size: 1.1rem;
+            text-decoration: none;
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            box-shadow: 0 8px 15px rgba(98, 0, 238, 0.3);
+        }
+
+        .cta-button:hover {
+            background-color: #7b1fa2;
+            transform: scale(1.03) translateY(-2px);
+            box-shadow: 0 12px 20px rgba(98, 0, 238, 0.4);
+            text-decoration: none;
+        }
+
+        .status-msg {
+            margin-top: 4rem;
+            color: var(--muted-text);
+            font-size: 1.1rem;
+            font-weight: 500;
+        }
+
+        .main-hero {
+            text-align: center;
+            margin-top: 6rem;
+            animation: fadeIn 0.8s ease-out;
+        }
+
+        .main-hero h1 {
+            font-size: 2.5rem;
+            margin-bottom: 1.5rem;
+            background: linear-gradient(to right, #fff, #888);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .main-hero p {
+            font-size: 1.1rem;
+            color: #aaa;
+            max-width: 500px;
+            margin: 0 auto;
+        }
+
+        .platform-badge {
+            margin-top: 3rem;
+            padding: 0.5rem 1rem;
+            background: rgba(255,255,255,0.05);
+            border-radius: 8px;
+            font-size: 0.85rem;
+            color: var(--muted-text);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+    </style>
 </head>
 <body>
     <header>
         <div class="logo">Artifact</div>
-        <nav class="nav-links">
+    </header>
+
+    <main>
+        <!-- Home State: Static Hero -->
+        <section id="hero" class="main-hero">
+            <h1>Authentic Voice.<br>Responsible Anonymity.</h1>
+            <p>Artifact is a sanctuary for authentic expression. Share reflections and connect through the power of voice in a secure, anonymous space.</p>
+            <div class="platform-badge">Available for Android</div>
+        </section>
+
+        <!-- Shared Artifact State -->
+        <section id="artifact-view" class="artifact-card">
+            <div class="share-label">An Artifact has been shared</div>
+
+            <div id="loading" class="status-msg">Loading...</div>
+            <div id="error" class="status-msg" style="display: none;">This Artifact isn't available.</div>
+
+            <div id="details" style="display: none; width: 100%;">
+                <div id="title" class="artifact-title"></div>
+                <div id="author" class="artifact-author"></div>
+
+                <div class="human-library-note">
+                    "A voice shared as part of the Human Library — a collection of authentic reflections from around the world."
+                </div>
+
+                <a href="https://play.google.com/store/apps/details?id=com.saurabh.artifact" class="cta-button">Listen in Artifact</a>
+
+                <div style="margin-top: 2rem; font-size: 0.8rem; color: var(--muted-text);">
+                    Available on Android
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <nav class="nav-links" style="margin-bottom: 2rem;">
             <a href="privacy.html">Privacy</a>
             <a href="terms.html">Terms</a>
             <a href="contact.html">Contact</a>
         </nav>
-    </header>
-    <main>
-        <section style="text-align: center; margin-top: 4rem;">
-            <h1>Authentic Voice. Responsible Anonymity.</h1>
-            <p>Artifact is a sanctuary for authentic expression. Share your reflections, connect with others through the power of voice, and preserve your emotional journey in a secure, anonymous space.</p>
-            <div style="margin-top: 2rem;">
-                <p>Coming soon to Android.</p>
-            </div>
-        </section>
-    </main>
-    <footer>
         <p>&copy; 2026 Artifact. All rights reserved.</p>
-        <p>
-            <a href="privacy.html">Privacy Policy</a> |
-            <a href="terms.html">Terms of Service</a> |
-            <a href="delete-account.html">Account Deletion</a>
-        </p>
+        <p style="margin-top: 0.5rem;"><a href="delete-account.html">Account Deletion</a></p>
     </footer>
+
+    <script>
+        (function() {
+            const path = window.location.pathname;
+            const segments = path.split('/').filter(s => s.length > 0);
+
+            // Route Check: /a/{artifactId}
+            if (segments.length >= 2 && segments[0] === 'a') {
+                const artifactId = segments[1];
+
+                // Switch View
+                document.getElementById('hero').style.display = 'none';
+                document.getElementById('artifact-view').style.display = 'flex';
+
+                fetchArtifact(artifactId);
+            }
+
+            async function fetchArtifact(id) {
+                const loadingEl = document.getElementById('loading');
+                const errorEl = document.getElementById('error');
+                const detailsEl = document.getElementById('details');
+                const titleEl = document.getElementById('title');
+                const authorEl = document.getElementById('author');
+
+                const projectId = 'myartifact-555e3';
+                const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/artifacts/${id}`;
+
+                try {
+                    const response = await fetch(url);
+                    if (!response.ok) throw new Error('Unavailable');
+
+                    const doc = await response.json();
+                    const fields = doc.fields;
+
+                    // Privacy Guard: Explicitly verify public status
+                    const isPublic = fields.isPublic && fields.isPublic.booleanValue;
+                    if (isPublic !== true) throw new Error('Private');
+
+                    // Data Mapping
+                    const title = fields.title ? fields.title.stringValue : 'Untitled';
+
+                    let authorName = 'Anonymous';
+                    let authorSigil = '';
+                    if (fields.author && fields.author.mapValue && fields.author.mapValue.fields) {
+                        const af = fields.author.mapValue.fields;
+                        authorName = af.name ? af.name.stringValue : 'Anonymous';
+                        authorSigil = af.sigil ? af.sigil.stringValue : '';
+                    }
+
+                    // Render
+                    titleEl.textContent = `"${title}"`;
+                    authorEl.textContent = `by ${authorName}${authorSigil ? ' ' + authorSigil : ''}`;
+
+                    loadingEl.style.display = 'none';
+                    detailsEl.style.display = 'block';
+                } catch (e) {
+                    loadingEl.style.display = 'none';
+                    errorEl.style.display = 'block';
+                }
+            }
+        })();
+    </script>
 </body>
 </html>

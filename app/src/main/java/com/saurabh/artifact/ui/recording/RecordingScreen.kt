@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -121,9 +122,10 @@ fun RecordingScreen(
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val audioGranted = permissions[Manifest.permission.RECORD_AUDIO] ?: false
+        if (audioGranted) {
             viewModel.startRecording()
         } else {
             val permission = Manifest.permission.RECORD_AUDIO
@@ -134,17 +136,19 @@ fun RecordingScreen(
     }
 
     val requestPermission = {
-        val permission = Manifest.permission.RECORD_AUDIO
-        when {
-            ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED -> {
-                viewModel.startRecording()
-            }
-            activity?.shouldShowRequestPermissionRationale(permission) == true -> {
-                showRationaleDialog = true
-            }
-            else -> {
-                permissionLauncher.launch(permission)
-            }
+        val permissions = mutableListOf(Manifest.permission.RECORD_AUDIO)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        
+        val allGranted = permissions.all {
+            ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+        }
+
+        if (allGranted) {
+            viewModel.startRecording()
+        } else {
+            permissionLauncher.launch(permissions.toTypedArray())
         }
     }
     
@@ -171,7 +175,11 @@ fun RecordingScreen(
                 TextButton(
                     onClick = {
                         showRationaleDialog = false
-                        permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        val permissions = mutableListOf(Manifest.permission.RECORD_AUDIO)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                        permissionLauncher.launch(permissions.toTypedArray())
                     },
                     colors = ButtonDefaults.textButtonColors(contentColor = GoldAura500)
                 ) {

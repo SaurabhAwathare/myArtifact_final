@@ -21,6 +21,8 @@ import org.junit.After
 import org.junit.Before
 import org.junit.Test
 
+import dagger.Lazy
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class BackupSyncWorkerTest {
     private val draftDao = mockk<DraftDao>(relaxed = true)
@@ -41,7 +43,7 @@ class BackupSyncWorkerTest {
         worker = BackupSyncWorker(
             context,
             workerParams,
-            draftDao,
+            Lazy { draftDao },
             authRepository,
             encryptedStorageManager,
             backupEncryptionManager,

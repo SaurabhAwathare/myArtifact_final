@@ -141,10 +141,9 @@ fun FeedScreen(
         },
         snackbarHost = { AppSnackbarHost(snackbarHostState) },
         floatingActionButton = {
-            val bottomOffset = LocalBottomOverlayOffset.current
             AuraDock(
                 onInitiate = { onNavigateToRecord(null) },
-                modifier = Modifier.padding(bottom = 16.dp + bottomOffset)
+                modifier = Modifier.padding(bottom = 16.dp)
             )
         },
         floatingActionButtonPosition = FabPosition.End

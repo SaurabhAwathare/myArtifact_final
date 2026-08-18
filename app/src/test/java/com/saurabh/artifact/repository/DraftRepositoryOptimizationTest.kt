@@ -13,6 +13,8 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
+import dagger.Lazy
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class DraftRepositoryOptimizationTest {
     private val draftDao = mockk<DraftDao>()
@@ -22,9 +24,9 @@ class DraftRepositoryOptimizationTest {
     private val userRepository = mockk<UserRepository>()
 
     private val repository = DraftRepository(
-        draftDao = draftDao,
-        uploadTaskDao = uploadTaskDao,
-        draftsDatabase = draftsDatabase,
+        draftDao = Lazy { draftDao },
+        uploadTaskDao = Lazy { uploadTaskDao },
+        draftsDatabase = Lazy { draftsDatabase },
         draftToArtifactMapper = draftToArtifactMapper,
         userRepository = userRepository
     )

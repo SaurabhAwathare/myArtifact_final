@@ -19,6 +19,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
 import java.io.File
+import dagger.Lazy
 import kotlin.time.Duration.Companion.milliseconds
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -57,7 +58,7 @@ class RecordingRaceConditionTest {
         Dispatchers.setMain(testDispatcher)
         
         service = spyk(RecordingService()).apply {
-            this.draftDao = this@RecordingRaceConditionTest.draftDao
+            this.draftDao = Lazy { this@RecordingRaceConditionTest.draftDao }
             this.artifactRepository = this@RecordingRaceConditionTest.artifactRepository
             this.recordingRepository = this@RecordingRaceConditionTest.recordingRepository
             this.userSessionManager = this@RecordingRaceConditionTest.userSessionManager

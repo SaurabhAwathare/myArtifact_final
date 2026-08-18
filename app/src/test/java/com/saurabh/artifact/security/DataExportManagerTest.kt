@@ -29,6 +29,8 @@ import java.io.FileOutputStream
 import java.util.zip.ZipInputStream
 import javax.crypto.spec.SecretKeySpec
 
+import dagger.Lazy
+
 class DataExportManagerTest {
 
     @get:Rule
@@ -50,7 +52,7 @@ class DataExportManagerTest {
     fun setup() {
         StreamingAeadConfig.register()
         every { context.contentResolver } returns contentResolver
-        dataExportManager = DataExportManager(context, draftDao, encryptionManager, authRepository)
+        dataExportManager = DataExportManager(context, Lazy { draftDao }, encryptionManager, authRepository)
     }
 
     @Test

@@ -90,7 +90,6 @@ fun SettingsScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val serverClientId = stringResource(R.string.default_web_client_id)
-    val bottomOverlayOffset = LocalBottomOverlayOffset.current
     
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -272,8 +271,6 @@ fun SettingsScreen(
                         }
                     )
                 }
-
-                Spacer(modifier = Modifier.height(bottomOverlayOffset))
             }
             
             if (isDeleting) {

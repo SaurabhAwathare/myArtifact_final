@@ -18,6 +18,8 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import kotlin.time.Duration.Companion.seconds
 
+import dagger.Lazy
+
 @RunWith(RobolectricTestRunner::class)
 @OptIn(ExperimentalCoroutinesApi::class)
 class GetPlayerContextUseCaseTest {
@@ -40,7 +42,7 @@ class GetPlayerContextUseCaseTest {
             userRepository,
             savedArtifactManager,
             authRepository,
-            pendingInteractionDao,
+            Lazy { pendingInteractionDao },
             draftRepository,
             diagnosticLogger
         )

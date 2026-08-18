@@ -16,6 +16,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
+import dagger.Lazy
+
 class PlayableArtifactRepositoryTest {
     private val draftDao = mockk<DraftDao>(relaxed = true)
     private val artifactRepository = mockk<ArtifactRepository>(relaxed = true)
@@ -31,7 +33,7 @@ class PlayableArtifactRepositoryTest {
     @Before
     fun setup() {
         repository = PlayableArtifactRepository(
-            draftDao,
+            Lazy { draftDao },
             artifactRepository,
             draftToArtifactMapper,
             userRepository,

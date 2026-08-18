@@ -606,7 +606,8 @@ class PlayerViewModel @Inject constructor(
                     artifactId = artifact.id,
                     title = artifact.title,
                     authorName = artifact.author.name,
-                    authorSigil = artifact.author.sigil
+                    authorSigil = artifact.author.sigil,
+                    shareUrl = com.saurabh.artifact.util.ShareUrlGenerator.generateArtifactUrl(artifact.id)
                 )
             )
         }

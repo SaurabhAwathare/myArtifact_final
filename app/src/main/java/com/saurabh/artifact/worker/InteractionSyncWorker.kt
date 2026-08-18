@@ -250,7 +250,8 @@ class InteractionSyncWorker @AssistedInject constructor(
     private fun isCollapsible(type: String): Boolean {
         return type == InteractionType.SAVE || 
                type == InteractionType.REACTION || 
-               type == InteractionType.FOLLOW
+               type == InteractionType.FOLLOW ||
+               type == InteractionType.ARTIFACT_COUNT
     }
 
     /**
@@ -286,6 +287,14 @@ class InteractionSyncWorker @AssistedInject constructor(
                     } else {
                         userRepository.syncUnfollowFromFirestore(userId, targetUserId)
                     }
+                }
+                InteractionType.ARTIFACT_COUNT -> {
+                    if (interaction.action == InteractionAction.ADD) {
+                        userRepository.incrementArtifactsCount(userId)
+                    } else {
+                        userRepository.decrementArtifactsCount(userId)
+                    }
+                    KResult.success(Unit)
                 }
                 else -> throw Exception("Unknown interaction type: ${interaction.interactionType}")
             }

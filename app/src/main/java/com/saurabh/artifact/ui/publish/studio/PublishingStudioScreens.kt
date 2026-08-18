@@ -263,7 +263,7 @@ fun StudioProgressIndicator(
         horizontalArrangement = Arrangement.spacedBy(Spacing.Small)
     ) {
         StudioStep.entries
-            .filter { it != StudioStep.PUBLISHING && it != StudioStep.PROCESSING }
+            .filter { it != StudioStep.DELETING && it != StudioStep.PROCESSING }
             .forEach { step ->
                 val isActive = step.index <= currentStep.index
                 Box(
