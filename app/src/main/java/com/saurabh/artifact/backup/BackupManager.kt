@@ -34,11 +34,11 @@ class BackupManager @Inject constructor(
  * This can be used for a manual "Backup Now" feature or legacy migration.
  */
 @Suppress("unused")
-suspend fun performBackup(mnemonic: List<String>) = withContext(Dispatchers.IO) {
+suspend fun performBackup(userId: String, mnemonic: List<String>) = withContext(Dispatchers.IO) {
         // Ensure the manager is initialized with this mnemonic if it's a manual backup
         backupEncryptionManager.saveMnemonic(mnemonic.joinToString(" "))
 
-        val drafts = draftDao.get().getAllDrafts()
+        val drafts = draftDao.get().getAllDraftsByUserId(userId)
         
         for (draft in drafts) {
             val localFile = File(draft.localAudioPath)

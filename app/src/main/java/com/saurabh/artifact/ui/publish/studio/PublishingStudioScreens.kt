@@ -128,6 +128,7 @@ fun PublishingStudioScreen(
         topBar = {
             StudioTopBar(
                 currentStep = sessionState.currentStep,
+                isError = sessionState.error != null,
                 onBack = {
                     if (sessionState.currentStep == StudioStep.REVIEW || sessionState.currentStep == StudioStep.PROCESSING) onCancel()
                     else viewModel.previousStep()
@@ -204,6 +205,7 @@ fun PublishingStudioScreen(
 @Composable
 fun StudioTopBar(
     currentStep: StudioStep,
+    isError: Boolean = false,
     onBack: () -> Unit,
     onClose: () -> Unit,
     onDelete: () -> Unit
@@ -216,14 +218,14 @@ fun StudioTopBar(
                     StudioStep.REVIEW -> "Review Recording"
                     StudioStep.DETAILS -> "Add Details"
                     StudioStep.APPROVAL -> "Ready to Publish?"
-                    StudioStep.PUBLISHING -> "Publishing..."
+                    StudioStep.PUBLISHING -> if (isError) "Publishing Failed" else "Publishing..."
                     StudioStep.DELETING -> "Deleting..."
                 },
                 style = ArtifactTheme.typography.titleMedium
             )
         },
         navigationIcon = {
-            if (currentStep != StudioStep.PUBLISHING && currentStep != StudioStep.DELETING) {
+            if ((currentStep != StudioStep.PUBLISHING || isError) && currentStep != StudioStep.DELETING) {
                 IconButton(onClick = onBack) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
                 }
@@ -465,10 +467,21 @@ fun StudioDetailsStep(
 
         OutlinedTextField(
             value = state.title,
-            onValueChange = { viewModel.updateTitle(it) },
+            onValueChange = { 
+                if (it.length <= 70) {
+                    viewModel.updateTitle(it) 
+                }
+            },
             label = { Text("Title") },
+            placeholder = { Text("What is this reflection about?") },
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp)
+            shape = RoundedCornerShape(12.dp),
+            supportingText = {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    Text("${state.title.length}/70", style = MaterialTheme.typography.labelSmall)
+                }
+            },
+            singleLine = false
         )
 
         EmotionSelector(

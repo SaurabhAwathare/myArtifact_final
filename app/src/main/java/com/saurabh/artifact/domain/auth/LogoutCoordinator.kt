@@ -192,11 +192,11 @@ class LogoutCoordinator @Inject constructor(
                     settingsDSSuccess = settingsDSSuccess && false 
                 }
 
-                // 8.5 Invalidate Backup Encryption Cache
+                // 8.5 Clear Backup Security State
                 try {
-                    backupEncryptionManager.invalidateCache()
+                    backupEncryptionManager.clear()
                 } catch (e: Exception) {
-                    diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_BACKUP_CACHE_FAILED", throwable = e)
+                    diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_BACKUP_FAILED", throwable = e)
                 }
 
                 // PHASE C: Database Cleanup

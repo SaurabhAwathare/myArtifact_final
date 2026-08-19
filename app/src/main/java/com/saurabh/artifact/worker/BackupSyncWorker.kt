@@ -44,9 +44,8 @@ class BackupSyncWorker @AssistedInject constructor(
         }
 
         // 1. Get drafts that are not published, not deleting, and not yet backed up
-        // Backup is system-wide maintenance but filtered by current user for upload
-        val pendingDrafts = draftDao.get().getAllDrafts().filter { 
-            it.userId == userId &&
+        // Query is user-scoped at the DAO level for defense-in-depth.
+        val pendingDrafts = draftDao.get().getAllDraftsByUserId(userId).filter { 
             (it.lifecycle != ArtifactLifecycle.PUBLISHED) &&
             (it.lifecycle != ArtifactLifecycle.DELETING) &&
             (it.lifecycle != ArtifactLifecycle.DELETED) &&

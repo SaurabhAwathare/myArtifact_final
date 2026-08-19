@@ -25,12 +25,12 @@ class ExampleInstrumentedTest {
         // Hilt will inject dependencies before the test starts
         
         // Wait for the app to pass the splash screen and settle on the initial destination.
-        // We look for the "myArtifact" brand title which is present on both Feed and Login screens.
+        // We look for the "Artifact" brand title which is present on both Feed and Login screens.
         composeTestRule.waitUntil(timeoutMillis = 5000) {
-            composeTestRule.onAllNodes(hasText("myArtifact", substring = true)).fetchSemanticsNodes().isNotEmpty()
+            composeTestRule.onAllNodes(hasText("Artifact", substring = true)).fetchSemanticsNodes().isNotEmpty()
         }
 
         // Assert that the branding is visible
-        composeTestRule.onNode(hasText("myArtifact", substring = true)).assertExists()
+        composeTestRule.onNode(hasText("Artifact", substring = true)).assertExists()
     }
 }

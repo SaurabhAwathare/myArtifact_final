@@ -42,9 +42,11 @@ class DataExportManager @Inject constructor(
      */
     suspend fun exportAllDrafts(outputUri: Uri): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            val drafts = draftDao.get().getAllDrafts()
+            val userId = authRepository.currentUserId
+            if (userId.isEmpty()) return@withContext Result.failure(Exception("Unauthenticated export attempt"))
+
+            val drafts = draftDao.get().getAllDraftsByUserId(userId)
             val exportKey = encryptionManager.getExportKey()
-            val userId = authRepository.currentUserId.ifEmpty { "anonymous" }
             
             // Associated Data (AAD) for format versioning and user isolation
             val aad = "artifact_export_v1:$userId".toByteArray()

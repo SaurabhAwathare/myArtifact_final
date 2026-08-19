@@ -82,7 +82,7 @@ class DataExportManagerTest {
         )
         File(draft.localAudioPath).writeText("fake audio content")
 
-        coEvery { draftDao.getAllDrafts() } returns listOf(draft)
+        coEvery { draftDao.getAllDraftsByUserId(userId) } returns listOf(draft)
         coEvery { encryptionManager.getExportKey() } returns exportKey
         every { authRepository.currentUserId } returns userId
 
@@ -137,7 +137,7 @@ class DataExportManagerTest {
         val userId = "test_user_123"
         val exportKeyBytes = ByteArray(32) { 0x42.toByte() }
         val exportKey = SecretKeySpec(exportKeyBytes, "AES")
-        coEvery { draftDao.getAllDrafts() } returns emptyList()
+        coEvery { draftDao.getAllDraftsByUserId(userId) } returns emptyList()
         coEvery { encryptionManager.getExportKey() } returns exportKey
         every { authRepository.currentUserId } returns userId
 
@@ -170,5 +170,69 @@ class DataExportManagerTest {
         } catch (e: java.io.IOException) {
             // Expected
         }
+    }
+
+    @Test
+    fun `test cross-account isolation during export`() = runBlocking {
+        val userA = "user_a"
+        val userB = "user_b"
+        
+        val draftA = ArtifactDraftEntity(id = "draft_a", userId = userA, localAudioPath = tempFolder.newFile("a.wav").absolutePath)
+        val draftB = ArtifactDraftEntity(id = "draft_b", userId = userB, localAudioPath = tempFolder.newFile("b.wav").absolutePath)
+        
+        val exportKey = SecretKeySpec(ByteArray(32), "AES")
+        
+        // Setup: User A is logged in
+        every { authRepository.currentUserId } returns userA
+        coEvery { encryptionManager.getExportKey() } returns exportKey
+        
+        // DAO should ONLY be called with current user ID
+        coEvery { draftDao.getAllDraftsByUserId(userA) } returns listOf(draftA)
+        coEvery { draftDao.getAllDraftsByUserId(userB) } returns listOf(draftB)
+        
+        val outputFile = tempFolder.newFile("isolation_test.artx")
+        val uri = mockk<Uri>()
+        every { contentResolver.openOutputStream(uri) } returns FileOutputStream(outputFile)
+        
+        // Action: Perform export
+        dataExportManager.exportAllDrafts(uri)
+        
+        // Verification: Decrypt and check entries
+        val aad = "artifact_export_v1:$userA".toByteArray()
+        val streamingAead = getStreamingAead(exportKey.encoded)
+        
+        streamingAead.newDecryptingStream(outputFile.inputStream(), aad).use { decryptedStream ->
+            ZipInputStream(decryptedStream).use { zipIn ->
+                var entryCount = 0
+                var hasA = false
+                var hasB = false
+                
+                var entry = zipIn.nextEntry
+                while (entry != null) {
+                    if (entry.name.contains("draft_a")) hasA = true
+                    if (entry.name.contains("draft_b")) hasB = true
+                    entryCount++
+                    entry = zipIn.nextEntry
+                }
+                
+                assertTrue("Should contain User A drafts", hasA)
+                assertFalse("Must NOT contain User B drafts", hasB)
+            }
+        }
+    }
+
+    private fun getStreamingAead(keyBytes: ByteArray): StreamingAead {
+        val parameters = PredefinedStreamingAeadParameters.AES256_GCM_HKDF_4KB as AesGcmHkdfStreamingParameters
+        val keysetHandle = KeysetHandle.newBuilder()
+            .addEntry(
+                KeysetHandle.importKey(
+                    AesGcmHkdfStreamingKey.create(
+                        parameters,
+                        SecretBytes.copyFrom(keyBytes, InsecureSecretKeyAccess.get())
+                    )
+                ).makePrimary().withFixedId(1)
+            )
+            .build()
+        return keysetHandle.getPrimitive(StreamingAead::class.java)
     }
 }

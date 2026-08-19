@@ -298,7 +298,9 @@ fun ArtifactCard(
                         text = if (isHidden) "This reflection has been quieted." else displayTitle,
                         style = ArtifactTheme.typography.bodyLarge,
                         color = if (isHidden) ArtifactTheme.colors.onSurfaceMuted else ArtifactTheme.colors.onSurfaceMain,
-                        fontStyle = if (isHidden) FontStyle.Italic else FontStyle.Normal
+                        fontStyle = if (isHidden) FontStyle.Italic else FontStyle.Normal,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
                     )
 
                     if (!isHidden) {

@@ -209,20 +209,23 @@ class PublishingStudioViewModel @Inject constructor(
         val userId = authRepository.currentUserId
         if (userId.isEmpty()) return
         
+        // Enforce 70-character limit at the boundary
+        val constrainedTitle = title.take(70)
+        
         // Update local buffer immediately for zero-latency UI
-        _titleInput.value = title
+        _titleInput.value = constrainedTitle
 
         // Phase 4: Debounce Room writes
         titleDebounceJob?.cancel()
         titleDebounceJob = viewModelScope.launch {
             kotlinx.coroutines.delay(500)
             
-            diagnosticLogger.debug(DiagnosticCategory.STUDIO, "TITLE_UPDATE_DEBOUNCED", mapOf(LogKeys.DRAFT_ID to draftId, "titleLength" to title.length))
-            val result = recordingRepository.updateDraftMetadata(draftId, title, sessionState.value.emotion)
+            diagnosticLogger.debug(DiagnosticCategory.STUDIO, "TITLE_UPDATE_DEBOUNCED", mapOf(LogKeys.DRAFT_ID to draftId, "titleLength" to constrainedTitle.length))
+            val result = recordingRepository.updateDraftMetadata(draftId, constrainedTitle, sessionState.value.emotion)
             if (result.isSuccess) {
                 recordingRepository.updateStudioState(
                     id = draftId,
-                    title = title.isNotBlank(),
+                    title = constrainedTitle.isNotBlank(),
                     emotion = sessionState.value.emotionCompleted,
                     approval = sessionState.value.approvalCompleted
                 )
@@ -306,22 +309,32 @@ class PublishingStudioViewModel @Inject constructor(
 
     fun previousStep() {
         val draftId = _draftId.value ?: return
-        val currentStep = sessionState.value.currentStep
+        val currentState = sessionState.value
+        val currentStep = currentState.currentStep
         
         val prevStep = when (currentStep) {
             StudioStep.DETAILS -> StudioStep.REVIEW
             StudioStep.APPROVAL -> StudioStep.DETAILS
+            StudioStep.PUBLISHING -> if (currentState.error != null) StudioStep.APPROVAL else currentStep
             else -> currentStep
         }
         
-        diagnosticLogger.info(DiagnosticCategory.STUDIO, "PREVIOUS_STEP_REQUESTED", mapOf(
-            LogKeys.DRAFT_ID to draftId, 
-            "fromStep" to currentStep.name,
-            "toStep" to prevStep.name
-        ))
+        if (prevStep != currentStep) {
+            diagnosticLogger.info(DiagnosticCategory.STUDIO, "PREVIOUS_STEP_REQUESTED", mapOf(
+                LogKeys.DRAFT_ID to draftId, 
+                "fromStep" to currentStep.name,
+                "toStep" to prevStep.name
+            ))
 
-        // Pure UI override - NEVER persist backward transitions
-        _currentStepOverride.value = prevStep
+            if (currentStep == StudioStep.PUBLISHING) {
+                // Reset publishing error state when retreating
+                _uiState.update { it.copy(error = null, isPublishing = false) }
+            }
+
+            // Pure UI override - NEVER persist backward transitions
+            val persistentStep = StudioStep.fromLifecycle(currentState.lifecycle)
+            _currentStepOverride.value = if (prevStep == persistentStep) null else prevStep
+        }
     }
 
     fun onPublishClick() {

@@ -120,8 +120,8 @@ class LogoutCoordinatorTest {
         // Verify Phase C.5: Storage
         verify { storageManager.clearUserStorage() }
 
-        // Verify backup cache invalidation
-        verify { backupEncryptionManager.invalidateCache() }
+        // Verify backup security cleanup
+        coVerify { backupEncryptionManager.clear() }
 
         // Verify Phase E: Sign Out
         coVerify { authRepository.signOut() }
@@ -164,5 +164,18 @@ class LogoutCoordinatorTest {
         fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_SESSION_FAILED")
         fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_DB_FAILED")
         fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_STORAGE_FAILED")
+    }
+
+    @Test
+    fun `cleanup survives backup cleanup failure`() = runTest(testDispatcher) {
+        coEvery { backupEncryptionManager.clear() } throws Exception("Backup clear failed")
+
+        val result = coordinator.executeLogout()
+
+        assertTrue(result.isSuccess)
+        
+        // Verify sign out was still called
+        coVerify { authRepository.signOut() }
+        fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_BACKUP_FAILED")
     }
 }

@@ -39,6 +39,9 @@ import com.saurabh.artifact.auth.CredentialResult
 import com.saurabh.artifact.domain.auth.RegistrationResult
 import com.saurabh.artifact.ui.theme.GoldAura500
 import com.saurabh.artifact.ui.theme.Obsidian950
+import com.saurabh.artifact.ui.components.AuraLogo
+import androidx.compose.ui.tooling.preview.Preview
+import com.saurabh.artifact.ui.theme.ArtifactTheme
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -70,8 +73,13 @@ fun LoginScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
+            AuraLogo(
+                size = 64.dp,
+                modifier = Modifier.padding(bottom = 32.dp)
+            )
+
             Text(
-                text = "myArtifact",
+                text = "Artifact",
                 style = MaterialTheme.typography.displayLarge,
                 color = GoldAura500
             )
@@ -149,6 +157,14 @@ fun LoginScreen(
 
             LegalFooter()
         }
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF050505)
+@Composable
+fun LoginScreenPreview() {
+    ArtifactTheme {
+        LoginScreen(onLoginSuccess = {})
     }
 }
 

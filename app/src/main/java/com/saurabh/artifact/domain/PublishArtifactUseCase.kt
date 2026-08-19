@@ -29,6 +29,10 @@ class PublishArtifactUseCase @Inject constructor(
             return Result.failure(Exception("Title is required"))
         }
 
+        if (draft.title.length > 70) {
+            return Result.failure(Exception("Title must not exceed 70 characters"))
+        }
+
         return try {
             val result = publishingOrchestrator.approvePublishing(draft.id)
             Result.success(result)

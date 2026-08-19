@@ -18,7 +18,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "My Artifact"
+rootProject.name = "Artifact"
 include(":app")
 include(":baselineprofile")
 include(":isolation_test")

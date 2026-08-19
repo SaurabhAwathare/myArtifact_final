@@ -44,4 +44,23 @@ class PublishArtifactUseCaseTest {
         assertEquals(expectedResult, result.getOrNull())
         coVerify { publishingOrchestrator.approvePublishing(draftId) }
     }
+
+    @Test
+    fun `invoke should fail if title exceeds 70 characters`() = runBlocking {
+        val draftId = "draft123"
+        val draftFilePath = "path/to/draft"
+        
+        val draft = mockk<com.saurabh.artifact.data.local.ArtifactDraftEntity>(relaxed = true) {
+            every { id } returns draftId
+            every { lifecycle } returns com.saurabh.artifact.model.ArtifactLifecycle.READY_TO_PUBLISH
+            every { title } returns "A".repeat(71)
+        }
+        coEvery { recordingRepository.getDraftByPath(draftFilePath) } returns Result.success(draft)
+        
+        val result = useCase(draftFilePath)
+        
+        assert(result.isFailure)
+        assertEquals("Title must not exceed 70 characters", result.exceptionOrNull()?.message)
+        coVerify(exactly = 0) { publishingOrchestrator.approvePublishing(any()) }
+    }
 }

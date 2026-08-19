@@ -124,4 +124,37 @@ class TitleBufferTest {
         // Verify: Room update CALLED
         coVerify(exactly = 1) { recordingRepository.updateDraftMetadata(draftId, "New Title", any()) }
     }
+
+    @Test
+    fun `updateTitle should enforce 70 character limit`() = runTest {
+        val viewModel = PublishingStudioViewModel(
+            recordingRepository,
+            cleanupManager,
+            playbackCoordinator,
+            publishArtifactUseCase,
+            identityScout,
+            authRepository,
+            workManager,
+            diagnosticLogger
+        )
+
+        val draftId = "test-draft"
+        viewModel.loadDraft(draftId)
+        runCurrent()
+
+        val longTitle = "A".repeat(100)
+        val expectedTitle = "A".repeat(70)
+
+        viewModel.updateTitle(longTitle)
+        runCurrent()
+
+        // Verify local buffer is truncated
+        assertEquals(expectedTitle, viewModel.sessionState.value.title)
+
+        advanceTimeBy(600)
+        runCurrent()
+
+        // Verify repo update uses truncated title
+        coVerify(exactly = 1) { recordingRepository.updateDraftMetadata(draftId, expectedTitle, any()) }
+    }
 }

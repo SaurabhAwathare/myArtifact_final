@@ -118,6 +118,19 @@ class BackupEncryptionManager @Inject constructor(
     }
 
     /**
+     * Clears all stored recovery data and invalidates in-memory key caches.
+     * Should be called during logout or account deletion.
+     */
+    suspend fun clear() {
+        invalidateCache()
+        try {
+            context.backupPrefs.edit { it.clear() }
+        } catch (_: Exception) {
+            // Silently handle DataStore failures during logout
+        }
+    }
+
+    /**
      * Explicitly invalidates all in-memory key caches.
      * Should be called during logout, account deletion, or recovery phrase changes.
      */

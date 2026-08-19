@@ -688,7 +688,7 @@ class RecordingService : Service() {
                 else "Listening to your essence..."
             }
             RecordingStatus.COMPLETED -> "Artifact secured."
-            else -> "myArtifact"
+            else -> "Artifact"
         }
 
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)

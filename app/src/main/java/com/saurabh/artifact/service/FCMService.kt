@@ -31,7 +31,7 @@ class FCMService : FirebaseMessagingService() {
 
         // 1. Handle Notification Payload (Foreground or explicit notification block)
         remoteMessage.notification?.let { notification ->
-            val title = notification.title ?: "myArtifact"
+            val title = notification.title ?: "Artifact"
             val body = notification.body ?: "Someone engaged with your artifact 💬"
             
             NotificationHelper.showInteractionNotification(

@@ -42,6 +42,10 @@ interface DraftDao {
     @Query("SELECT * FROM artifact_drafts WHERE localAudioPath = :path AND userId = :userId")
     suspend fun getDraftByPath(path: String, userId: String): ArtifactDraftEntity?
 
+    /** User-scoped: Fetch all drafts for a specific user. */
+    @Query("SELECT * FROM artifact_drafts WHERE userId = :userId")
+    suspend fun getAllDraftsByUserId(userId: String): List<ArtifactDraftEntity>
+
     /** System-maintenance: Fetch all drafts for storage reconciliation. */
     @Query("SELECT * FROM artifact_drafts")
     suspend fun getAllDrafts(): List<ArtifactDraftEntity>

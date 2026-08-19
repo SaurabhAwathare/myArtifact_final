@@ -8,17 +8,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
 import com.saurabh.artifact.ui.theme.ArtifactTheme
-import com.saurabh.artifact.ui.theme.GoldAura500
 
 /**
  * Standardized branding for the application.
- * Displays "myArtifact" with specific typography requirements:
- * - "my": lowercase, italic, medium weight, warm accent color.
+ * Displays "Artifact" with specific typography requirements:
  * - "Artifact": bold, primary identity color.
  */
 @Composable
@@ -29,15 +26,6 @@ fun BrandTitle(
 ) {
     Text(
         text = buildAnnotatedString {
-            withStyle(
-                SpanStyle(
-                    fontStyle = FontStyle.Italic,
-                    fontWeight = FontWeight.Medium,
-                    color = GoldAura500
-                )
-            ) {
-                append("my")
-            }
             withStyle(
                 SpanStyle(
                     fontWeight = FontWeight.Bold,

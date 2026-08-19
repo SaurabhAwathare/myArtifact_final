@@ -1,5 +1,6 @@
 package com.saurabh.artifact.ui.onboarding
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -39,6 +40,9 @@ import com.saurabh.artifact.R
 import com.saurabh.artifact.ui.splash.AnimatedWaveform
 import com.saurabh.artifact.ui.theme.GoldAura500
 import com.saurabh.artifact.ui.theme.Obsidian950
+import com.saurabh.artifact.ui.components.AuraLogo
+import androidx.compose.ui.tooling.preview.Preview
+import com.saurabh.artifact.ui.theme.ArtifactTheme
 import kotlinx.coroutines.launch
 
 @Composable
@@ -47,6 +51,13 @@ fun OnboardingScreen(
 ) {
     val pagerState = rememberPagerState(pageCount = { 3 })
     val scope = rememberCoroutineScope()
+
+    // Handle system back navigation to go to previous onboarding page
+    BackHandler(enabled = pagerState.currentPage > 0) {
+        scope.launch {
+            pagerState.animateScrollToPage(pagerState.currentPage - 1)
+        }
+    }
 
     Scaffold(
         containerColor = Obsidian950
@@ -58,7 +69,8 @@ fun OnboardingScreen(
         ) {
             HorizontalPager(
                 state = pagerState,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
+                userScrollEnabled = true // Explicitly allowing swipe
             ) { page ->
                 when (page) {
                     0 -> OnboardingPage1()
@@ -70,6 +82,9 @@ fun OnboardingScreen(
             OnboardingFooter(
                 currentPage = pagerState.currentPage,
                 onContinue = {
+                    // Guard against rapid double-taps skipping pages
+                    if (pagerState.isScrollInProgress) return@OnboardingFooter
+                    
                     if (pagerState.currentPage < 2) {
                         scope.launch {
                             pagerState.animateScrollToPage(pagerState.currentPage + 1)
@@ -137,11 +152,9 @@ fun OnboardingPage2() {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Icon(
-            imageVector = Icons.Outlined.Shield,
-            contentDescription = null,
-            modifier = Modifier.size(120.dp),
-            tint = GoldAura500
+        AuraLogo(
+            size = 100.dp,
+            isPulsing = false // Static focus for identity concept
         )
 
         Spacer(modifier = Modifier.height(48.dp))
@@ -203,6 +216,14 @@ fun OnboardingPage3() {
     }
 }
 
+@Preview(showBackground = true, backgroundColor = 0xFF050505)
+@Composable
+fun OnboardingPage2Preview() {
+    ArtifactTheme {
+        OnboardingPage2()
+    }
+}
+
 @Composable
 fun OnboardingFooter(
     currentPage: Int,
@@ -227,7 +248,7 @@ fun OnboardingFooter(
             shape = RoundedCornerShape(28.dp)
         ) {
             Text(
-                text = if (currentPage == 2) "Enter myArtifact" else "Continue",
+                text = if (currentPage == 2) "Enter Artifact" else "Continue",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )

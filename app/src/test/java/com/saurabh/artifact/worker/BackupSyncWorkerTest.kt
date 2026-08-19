@@ -81,7 +81,7 @@ class BackupSyncWorkerTest {
             every { isEncrypted } returns false
         }
 
-        coEvery { draftDao.getAllDrafts() } returns listOf(deletingDraft, deletedDraft, readyDraft)
+        coEvery { draftDao.getAllDraftsByUserId("user_1") } returns listOf(deletingDraft, deletedDraft, readyDraft)
         
         // Mock success for the ready draft to avoid exceptions
         coEvery { backupEncryptionManager.encryptForBackup(any()) } returns byteArrayOf(1, 2, 3)

@@ -27,13 +27,15 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.saurabh.artifact.ui.theme.GoldAura500
 import com.saurabh.artifact.ui.theme.Obsidian950
+import com.saurabh.artifact.ui.components.AuraLogo
+import androidx.compose.ui.tooling.preview.Preview
+import com.saurabh.artifact.ui.theme.ArtifactTheme
 import kotlin.math.PI
 import kotlin.math.sin
 
@@ -58,15 +60,13 @@ fun SplashUI() {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            AuraLogo(
+                size = 80.dp,
+                modifier = Modifier.padding(bottom = 24.dp)
+            )
+
             Text(
                 text = buildAnnotatedString {
-                    withStyle(style = SpanStyle(
-                        color = GoldAura500,
-                        fontStyle = FontStyle.Italic,
-                        fontWeight = FontWeight.Light
-                    )) {
-                        append("my")
-                    }
                     withStyle(style = SpanStyle(
                         color = Color.White,
                         fontWeight = FontWeight.Bold
@@ -93,6 +93,14 @@ fun SplashUI() {
         ) {
             AnimatedWaveform()
         }
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF050505)
+@Composable
+fun SplashUIPreview() {
+    ArtifactTheme {
+        SplashUI()
     }
 }
 

@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">myArtifact</string>
+    <string name="app_name">Artifact</string>
     <string name="attribution_audio_recording">Audio recording for artifacts</string>
     <string name="attribution_media_playback">Media playback for artifacts</string>
     <string name="attribution_data_sync">Data synchronization for artifacts</string>
