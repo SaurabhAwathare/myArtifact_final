@@ -42,8 +42,9 @@ class AddCommentUseCase @Inject constructor(
 
         // 3. Construct Domain Object
         val now = Timestamp.now()
+        val commentId = java.util.UUID.randomUUID().toString()
         val comment = Comment(
-            id = "", // ID is typically assigned by the persistence layer (Firestore)
+            id = commentId,
             artifactId = artifactId,
             creatorId = user.id,
             author = authorSnapshot,

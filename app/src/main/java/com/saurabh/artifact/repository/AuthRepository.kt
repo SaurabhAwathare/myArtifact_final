@@ -325,7 +325,7 @@ class AuthRepository @Inject constructor(
     }
 
     /**
-     * Removes the FCM token from the user's private settings in Firestore.
+     * Removes the FCM token from the user's private settings in Firestore and invalidates it locally.
      * This is called during sign-out to ensure the device no longer receives notifications for this user.
      *
      * IMPORTANT: This MUST execute before [firebaseAuth.signOut] because the user's UID
@@ -334,6 +334,10 @@ class AuthRepository @Inject constructor(
     private suspend fun clearFcmToken() {
         val uid = firebaseAuth.currentUser?.uid ?: return
         try {
+            // 1. Invalidate local FCM token to prevent reuse/leakage
+            com.google.firebase.messaging.FirebaseMessaging.getInstance().deleteToken().await()
+            
+            // 2. Remove token reference from Firestore
             firestore.collection("users").document(uid)
                 .collection("private").document("settings")
                 .update("fcmToken", FieldValue.delete())

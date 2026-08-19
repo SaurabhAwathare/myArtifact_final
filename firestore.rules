@@ -267,6 +267,8 @@ service cloud.firestore {
                       isValidComment(request.resource.data) &&
                       request.resource.data.creatorId == request.auth.uid &&
                       request.resource.data.artifactId == artifactId &&
+                      // Artifact Visibility Boundary (Phase 2 Ch 10 Fix)
+                      canReadArtifact(artifactId) &&
                       // Authoritative Unlock Enforcement (Phase 3)
                       // Owners are exempt from the unlock requirement.
                       (isArtifactOwner(artifactId) || isCommentUnlocked(request.auth.uid, artifactId)) &&

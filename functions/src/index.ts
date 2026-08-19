@@ -13,6 +13,60 @@ if (!admin.apps.length) {
 }
 
 /**
+ * Authoritatively deletes all documents returned by a query in batches of 500.
+ * Ensures Firestore limits are respected while draining large collections.
+ *
+ * @param db The Firestore instance.
+ * @param query The query identifying documents to delete.
+ * @param label A diagnostic label for logging.
+ * @returns The total number of deleted documents.
+ */
+async function deleteQueryBatch(
+  db: admin.firestore.Firestore,
+  query: admin.firestore.Query,
+  label: string
+): Promise<number> {
+  let totalDeleted = 0;
+  try {
+    while (true) {
+      // 1. Fetch at most 500 documents (limit of one WriteBatch)
+      const querySnapshot = await query.limit(500).get();
+
+      // 2. Return immediately when no documents remain
+      if (querySnapshot.size === 0) {
+        if (totalDeleted > 0) {
+          logger.info(`[BATCH_DELETE] ${label} | FINISHED | Total=${totalDeleted}`);
+        } else {
+          logger.info(`[BATCH_DELETE] ${label} | NONE`);
+        }
+        break;
+      }
+
+      // 3. Delete the fetched documents in one WriteBatch
+      const batch = db.batch();
+      querySnapshot.docs.forEach((doc) => batch.delete(doc.ref));
+
+      // 4. Commit the batch
+      await batch.commit();
+
+      totalDeleted += querySnapshot.size;
+      logger.info(`[BATCH_DELETE] ${label} | DELETED Batch=${querySnapshot.size} | Cumulative=${totalDeleted}`);
+
+      // 5. Repeat until the collection is empty
+      // If we got fewer than 500, we know we are done without an extra round-trip
+      if (querySnapshot.size < 500) {
+        logger.info(`[BATCH_DELETE] ${label} | FINISHED | Total=${totalDeleted}`);
+        break;
+      }
+    }
+    return totalDeleted;
+  } catch (e) {
+    logger.error(`[BATCH_DELETE] ${label} | ERROR:`, e);
+    throw e; // Rethrow to trigger Function retry
+  }
+}
+
+/**
  * Robust cascading cleanup triggered when an artifact's status changes to DELETED.
  * Handles Storage files, reactions, aggregates, metadata, and final document deletion.
  * Designed for idempotency and high reliability.
@@ -37,26 +91,6 @@ export const onArtifactCleanupTrigger = functions.firestore
     const audioUrl = newData.audioUrl;
     const transcriptUrl = newData.transcriptUrl;
     const userId = newData.userId;
-
-    // Helper to delete all documents returned by a query in batches
-    const deleteQueryBatch = async (query: admin.firestore.Query, label: string) => {
-      try {
-        const querySnapshot = await query.get();
-        if (querySnapshot.size === 0) {
-          logger.info(`[CLEANUP] ${label} | NONE`);
-          return 0;
-        }
-
-        const batch = db.batch();
-        querySnapshot.docs.forEach((doc) => batch.delete(doc.ref));
-        await batch.commit();
-        logger.info(`[CLEANUP] ${label} | DELETED Count=${querySnapshot.size}`);
-        return querySnapshot.size;
-      } catch (e) {
-        logger.error(`[CLEANUP] ${label} | ERROR:`, e);
-        throw e; // Rethrow to trigger Function retry
-      }
-    };
 
     try {
       // 1. Storage Cleanup: Audio
@@ -111,6 +145,7 @@ export const onArtifactCleanupTrigger = functions.firestore
 
       // 5. Top-level Reactions (artifact_reactions)
       await deleteQueryBatch(
+        db,
         db.collection("artifact_reactions").where("artifactId", "==", artifactId),
         "Global Reactions"
       );
@@ -126,12 +161,14 @@ export const onArtifactCleanupTrigger = functions.firestore
 
       // 7. Notifications
       await deleteQueryBatch(
+        db,
         db.collection("notifications").where("artifactId", "==", artifactId),
         "Notifications"
       );
 
       // 8. Engagement Records (Collection Group)
       await deleteQueryBatch(
+        db,
         db.collectionGroup("engagement").where("artifactId", "==", artifactId),
         "Engagement Records"
       );
@@ -152,12 +189,14 @@ export const onArtifactCleanupTrigger = functions.firestore
 
       // 10. Private Feedback
       await deleteQueryBatch(
+        db,
         db.collection("feedback_private").where("artifactId", "==", artifactId),
         "Private Feedback"
       );
 
       // 11. Artifact Plays (Aggregation Source)
       await deleteQueryBatch(
+        db,
         db.collection("artifact_plays").where("artifactId", "==", artifactId),
         "Artifact Plays"
       );
@@ -312,15 +351,22 @@ export const onFollowIntentCreated = functions.firestore
         });
       });
 
-      // 3. Create Notification
-      await admin.firestore().collection("notifications").add({
-        userId: targetId,
-        followerId: uid,
-        message: "PRESENCE_RESONATED",
-        type: "FOLLOW",
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        isRead: false,
-      });
+      // 3. Authoritative Preference Check
+      const targetSettingsDoc = await db.collection("users").doc(targetId)
+        .collection("private").doc("settings")
+        .get();
+
+      if (targetSettingsDoc.data()?.notificationsEnabled !== false) {
+        // Create Notification
+        await admin.firestore().collection("notifications").add({
+          userId: targetId,
+          followerId: uid,
+          message: "PRESENCE_RESONATED",
+          type: "FOLLOW",
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          isRead: false,
+        });
+      }
 
       logger.interaction("FOLLOW_SUCCESS", {userId: uid, artifactId: targetId}, "SUCCESS");
     });
@@ -382,10 +428,18 @@ export const onReactionIntentCreated = functions.firestore
     return withIdempotency(idempotencyKey, async () => {
       const db = admin.firestore();
 
-      // 1. Get Artifact Owner
+      // 1. Get Artifact Owner and verify visibility
       const artifactDoc = await db.collection("artifacts").doc(artifactId).get();
       if (!artifactDoc.exists) return;
-      const ownerId = artifactDoc.data()?.userId;
+      const artifactData = artifactDoc.data()!;
+
+      // Privacy Boundary: Block notifications for private artifacts if not by owner
+      if (!artifactData.isPublic && artifactData.userId !== uid) {
+        logger.info(`[REACTION_NOTIF] Suppressed for private artifact | ArtifactID=${artifactId}`);
+        return;
+      }
+
+      const ownerId = artifactData.userId;
 
       const reactionId = `${artifactId}_${uid}`;
       const globalRef = db.collection("artifact_reactions").doc(reactionId);
@@ -404,16 +458,22 @@ export const onReactionIntentCreated = functions.firestore
         });
       });
 
-      // 3. Create Notification for Owner
+      // 3. Create Notification for Owner (with Preference Check)
       if (ownerId && ownerId !== uid) {
-        await db.collection("notifications").add({
-          userId: ownerId,
-          message: `RESONANCE|${data.type}`,
-          artifactId: artifactId,
-          type: "RESONANCE",
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          isRead: false,
-        });
+        const ownerSettingsDoc = await db.collection("users").doc(ownerId)
+          .collection("private").doc("settings")
+          .get();
+
+        if (ownerSettingsDoc.data()?.notificationsEnabled !== false) {
+          await db.collection("notifications").add({
+            userId: ownerId,
+            message: `RESONANCE|${data.type}`,
+            artifactId: artifactId,
+            type: "RESONANCE",
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            isRead: false,
+          });
+        }
       }
 
       logger.interaction("REACTION_SUCCESS", {userId: uid, artifactId: artifactId}, "SUCCESS");
@@ -486,17 +546,6 @@ export const onUserDeleted = functions.auth.user().onDelete(async (user, context
   let sessionsDeletedTotal = 0;
   let profileDeleted = false;
 
-  // Helper to delete all documents returned by a query in batches
-  const deleteQueryBatch = async (query: admin.firestore.Query) => {
-    const querySnapshot = await query.get();
-    if (querySnapshot.size === 0) return 0;
-
-    const batch = db.batch();
-    querySnapshot.docs.forEach((doc) => batch.delete(doc.ref));
-    await batch.commit();
-    return querySnapshot.size;
-  };
-
   try {
     // 1. Cleanup Artifacts
     const artifactsSnapshot = await db.collection("artifacts").where("userId", "==", uid).get();
@@ -518,13 +567,11 @@ export const onUserDeleted = functions.auth.user().onDelete(async (user, context
 
     // 2. Cleanup Notifications
     try {
-      let notificationsSize;
-      do {
-        notificationsSize = await deleteQueryBatch(db.collection("notifications").where("userId", "==", uid).limit(500));
-        if (notificationsSize > 0) {
-          notificationsDeletedTotal += notificationsSize;
-        }
-      } while (notificationsSize > 0);
+      notificationsDeletedTotal = await deleteQueryBatch(
+        db,
+        db.collection("notifications").where("userId", "==", uid),
+        "User Notifications"
+      );
     } catch (e) {
       logger.error("[DELETE USER] Stage=Notifications | ERROR:", e);
     }
@@ -577,13 +624,11 @@ export const onUserDeleted = functions.auth.user().onDelete(async (user, context
 
     // 5. Cleanup Listening Sessions
     try {
-      let sessionsSize;
-      do {
-        sessionsSize = await deleteQueryBatch(db.collection("listening_sessions").where("userId", "==", uid).limit(500));
-        if (sessionsSize > 0) {
-          sessionsDeletedTotal += sessionsSize;
-        }
-      } while (sessionsSize > 0);
+      sessionsDeletedTotal = await deleteQueryBatch(
+        db,
+        db.collection("listening_sessions").where("userId", "==", uid),
+        "User Listening Sessions"
+      );
     } catch (e) {
       logger.error("[DELETE USER] Stage=Listening Sessions | ERROR:", e);
     }
@@ -625,7 +670,7 @@ export const onUserDeleted = functions.auth.user().onDelete(async (user, context
 
     for (const sub of subCollections) {
       try {
-        await deleteQueryBatch(userRef.collection(sub));
+        await deleteQueryBatch(db, userRef.collection(sub), `User Subcollection: ${sub}`);
       } catch (e) {
         logger.warn(`[DELETE USER] Subcollection=${sub} | ERROR:`, e);
       }
@@ -633,40 +678,43 @@ export const onUserDeleted = functions.auth.user().onDelete(async (user, context
 
     // 7. Cleanup Global Reactions
     try {
-      let reactionsSize;
-      do {
-        reactionsSize = await deleteQueryBatch(db.collection("reactions_global").where("userId", "==", uid).limit(500));
-      } while (reactionsSize > 0);
+      await deleteQueryBatch(
+        db,
+        db.collection("reactions_global").where("userId", "==", uid),
+        "User Global Reactions"
+      );
     } catch (e) {
       logger.error("[DELETE USER] Stage=Global Reactions | ERROR:", e);
     }
 
     // 8. Cleanup Artifact Reactions
     try {
-      let artifactReactionsSize;
-      do {
-        artifactReactionsSize = await deleteQueryBatch(db.collection("artifact_reactions").where("userId", "==", uid).limit(500));
-      } while (artifactReactionsSize > 0);
+      await deleteQueryBatch(
+        db,
+        db.collection("artifact_reactions").where("userId", "==", uid),
+        "User Artifact Reactions"
+      );
     } catch (e) {
       logger.error("[DELETE USER] Stage=Artifact Reactions | ERROR:", e);
     }
 
     // 9. Cleanup Plays
     try {
-      let playsSize;
-      do {
-        playsSize = await deleteQueryBatch(db.collection("artifact_plays").where("userId", "==", uid).limit(500));
-      } while (playsSize > 0);
+      await deleteQueryBatch(
+        db,
+        db.collection("artifact_plays").where("userId", "==", uid),
+        "User Artifact Plays"
+      );
     } catch (e) {
       logger.error("[DELETE USER] Stage=Plays | ERROR:", e);
     }
 
     try {
       const privateRef = userRef.collection("private");
-      await deleteQueryBatch(privateRef.doc("intents").collection("follow"));
-      await deleteQueryBatch(privateRef.doc("intents").collection("reactions"));
-      await deleteQueryBatch(privateRef.doc("interactions").collection("reactions"));
-      await deleteQueryBatch(privateRef.doc("blocks").collection("users"));
+      await deleteQueryBatch(db, privateRef.doc("intents").collection("follow"), "User Intent: Follow");
+      await deleteQueryBatch(db, privateRef.doc("intents").collection("reactions"), "User Intent: Reactions");
+      await deleteQueryBatch(db, privateRef.doc("interactions").collection("reactions"), "User Interaction: Reactions");
+      await deleteQueryBatch(db, privateRef.doc("blocks").collection("users"), "User Blocks");
 
       await privateRef.doc("settings").delete();
       await privateRef.doc("intents").delete();
@@ -897,10 +945,18 @@ export const onCommentCreated = functions.firestore
       const db = admin.firestore();
       const artifactRef = db.collection("artifacts").doc(artifactId);
 
-      // Fetch Artifact to get ownerId
+      // Fetch Artifact to get ownerId and verify visibility
       const artifactDoc = await artifactRef.get();
       if (!artifactDoc.exists) return;
       const artifactData = artifactDoc.data()!;
+
+      // Privacy Boundary: Block notifications for non-public artifacts
+      // Exception: Owner always receives notifications for their own artifacts
+      if (!artifactData.isPublic && artifactData.userId !== data.creatorId) {
+        logger.info(`[NOTIFICATION] Suppressed for private artifact | ArtifactID=${artifactId}`);
+        return;
+      }
+
       const ownerId = artifactData.userId;
 
       await artifactRef.update({
@@ -910,6 +966,17 @@ export const onCommentCreated = functions.firestore
       // Create Notification if commenter is not the owner
       const commenterId = data.creatorId;
       if (ownerId && ownerId !== commenterId) {
+        // Authoritative Preference Check
+        const userSettingsDoc = await db.collection("users").doc(ownerId)
+          .collection("private").doc("settings")
+          .get();
+
+        const settings = userSettingsDoc.data();
+        if (settings?.notificationsEnabled === false) {
+          logger.info(`[NOTIFICATION] Suppressed by user preference | UserID=${ownerId}`);
+          return;
+        }
+
         await db.collection("notifications").add({
           userId: ownerId,
           message: `COMMENT|${artifactData.title || "Unknown Artifact"}`,
