@@ -160,6 +160,12 @@
             android:foregroundServiceType="dataSync" />
 
         <service
+            android:name=".security.ExportService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <service
             android:name=".audio.RecordingService"
             android:enabled="true"
             android:exported="false"

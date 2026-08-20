@@ -16,8 +16,4 @@
     <loc>https://myartifact.app/contact.html</loc>
     <priority>0.5</priority>
   </url>
-  <url>
-    <loc>https://myartifact.app/delete-account.html</loc>
-    <priority>0.5</priority>
-  </url>
 </urlset>

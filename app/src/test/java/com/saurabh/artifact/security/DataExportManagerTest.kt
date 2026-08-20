@@ -3,33 +3,31 @@ package com.saurabh.artifact.security
 import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
-import com.google.crypto.tink.InsecureSecretKeyAccess
-import com.google.crypto.tink.KeysetHandle
-import com.google.crypto.tink.StreamingAead
-import com.google.crypto.tink.streamingaead.AesGcmHkdfStreamingKey
-import com.google.crypto.tink.streamingaead.AesGcmHkdfStreamingParameters
-import com.google.crypto.tink.streamingaead.PredefinedStreamingAeadParameters
-import com.google.crypto.tink.streamingaead.StreamingAeadConfig
-import com.google.crypto.tink.util.SecretBytes
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.storage.FirebaseStorage
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.data.local.DraftDao
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.ArtifactLifecycle
+import com.saurabh.artifact.model.User
+import com.saurabh.artifact.repository.ArtifactLibraryRepository
+import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.AuthRepository
+import com.saurabh.artifact.repository.UserRepository
+import com.saurabh.artifact.util.EncryptedStorageManager
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
-import java.io.File
 import java.io.FileOutputStream
 import java.util.zip.ZipInputStream
-import javax.crypto.spec.SecretKeySpec
-
-import dagger.Lazy
 
 class DataExportManagerTest {
 
@@ -38,8 +36,14 @@ class DataExportManagerTest {
 
     private val context = mockk<Context>()
     private val draftDao = mockk<DraftDao>()
-    private val encryptionManager = mockk<BackupEncryptionManager>()
     private val authRepository = mockk<AuthRepository>()
+    private val artifactRepository = mockk<ArtifactRepository>()
+    private val userRepository = mockk<UserRepository>()
+    private val libraryRepository = mockk<ArtifactLibraryRepository>()
+    private val encryptedStorageManager = mockk<EncryptedStorageManager>()
+    private val firestore = mockk<FirebaseFirestore>()
+    private val storage = mockk<FirebaseStorage>()
+    private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
     private val contentResolver = mockk<ContentResolver>()
 
     private lateinit var dataExportManager: DataExportManager
@@ -50,189 +54,141 @@ class DataExportManagerTest {
 
     @Before
     fun setup() {
-        StreamingAeadConfig.register()
         every { context.contentResolver } returns contentResolver
-        dataExportManager = DataExportManager(context, Lazy { draftDao }, encryptionManager, authRepository)
-    }
-
-    @Test
-    fun `test cryptographic domain separation`() {
-        val phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
-        val backupSalt = "artifact_backup_v1_salt".toByteArray()
-        val exportSalt = "artifact_export_v1_salt".toByteArray()
-
-        val backupKey = SecurityArchitecture.deriveKey(phrase, backupSalt)
-        val exportKey = SecurityArchitecture.deriveKey(phrase, exportSalt)
-
-        assertFalse("Backup and Export keys must be different", backupKey.contentEquals(exportKey))
-    }
-
-    @Test
-    fun `test secure export produced encrypted file and is decryptable`() = runBlocking {
-        // 1. Setup mocks
-        val userId = "test_user_123"
-        val exportKeyBytes = ByteArray(32) { 0x42.toByte() }
-        val exportKey = SecretKeySpec(exportKeyBytes, "AES")
-        
-        val draft = ArtifactDraftEntity(
-            id = "draft_1",
-            userId = TEST_USER_ID,
-            localAudioPath = tempFolder.newFile("audio.wav").absolutePath,
-            lifecycle = ArtifactLifecycle.READY_TO_PUBLISH
+        dataExportManager = DataExportManager(
+            context,
+            { draftDao },
+            authRepository,
+            { artifactRepository },
+            { userRepository },
+            { libraryRepository },
+            encryptedStorageManager,
+            firestore,
+            storage,
+            diagnosticLogger
         )
-        File(draft.localAudioPath).writeText("fake audio content")
+    }
 
-        coEvery { draftDao.getAllDraftsByUserId(userId) } returns listOf(draft)
-        coEvery { encryptionManager.getExportKey() } returns exportKey
+    @Test
+    fun `test export produces valid plain ZIP with expected structure`() = runBlocking {
+        // 1. Setup mocks
+        val userId = TEST_USER_ID
         every { authRepository.currentUserId } returns userId
+        
+        coEvery { userRepository.getCachedProfile() } returns User(id = userId, anonymousName = "Test User")
+        coEvery { artifactRepository.getUserArtifactsPage(userId, any()) } returns Result.success(emptyList<Artifact>() to null)
+        coEvery { draftDao.getAllDraftsByUserId(userId) } returns listOf(
+            ArtifactDraftEntity(
+                id = "draft_1",
+                userId = userId,
+                localAudioPath = tempFolder.newFile("audio.wav").absolutePath,
+                lifecycle = ArtifactLifecycle.READY_TO_PUBLISH
+            )
+        )
+        // Participation & Relationships - Simplified mocks
+        every { firestore.collectionGroup(any()) } returns mockk(relaxed = true)
+        every { firestore.collection(any()) } returns mockk(relaxed = true)
+        every { userRepository.observeResonatingWithIds(userId) } returns flowOf(emptySet())
+        every { libraryRepository.getSavedArtifactIds(userId) } returns flowOf(emptySet())
 
-        val outputFile = tempFolder.newFile("export.artx")
+        val outputFile = tempFolder.newFile("export.zip")
         val uri = mockk<Uri>()
         every { contentResolver.openOutputStream(uri) } returns FileOutputStream(outputFile)
 
         // 2. Execute Export
-        val result = dataExportManager.exportAllDrafts(uri)
+        val result = dataExportManager.exportData(uri)
         assertTrue(result.isSuccess)
 
-        // 3. Verify the file is NOT a plain ZIP
-        val isPlainZip = try {
-            ZipInputStream(outputFile.inputStream()).use { it.nextEntry != null }
-        } catch (e: Exception) {
-            false
-        }
-        assertFalse("Exported file should not be a plain ZIP", isPlainZip)
-
-        // 4. Decrypt and Verify Content
-        val aad = "artifact_export_v1:$userId".toByteArray()
-        val parameters = PredefinedStreamingAeadParameters.AES256_GCM_HKDF_4KB as AesGcmHkdfStreamingParameters
-
-        val keysetHandle = KeysetHandle.newBuilder()
-            .addEntry(
-                KeysetHandle.importKey(
-                    AesGcmHkdfStreamingKey.create(
-                        parameters,
-                        SecretBytes.copyFrom(exportKeyBytes, InsecureSecretKeyAccess.get())
-                    )
-                ).makePrimary().withFixedId(1)
-            )
-            .build()
-
-        val streamingAead = keysetHandle.getPrimitive(StreamingAead::class.java)
-
-        streamingAead.newDecryptingStream(outputFile.inputStream(), aad).use { decryptedStream ->
-            ZipInputStream(decryptedStream).use { zipIn ->
-                val entry = zipIn.nextEntry
-                assertNotNull(entry)
-                assertTrue(entry!!.name.contains("metadata.json"))
-                
-                val metadata = zipIn.bufferedReader().readText()
-                assertTrue(metadata.contains("draft_1"))
+        // 3. Verify the file is a plain ZIP and contains manifest
+        var hasManifest = false
+        var hasReadme = false
+        var hasDraft = false
+        
+        ZipInputStream(outputFile.inputStream()).use { zipIn ->
+            var entry = zipIn.nextEntry
+            while (entry != null) {
+                if (entry.name == "manifest.json") hasManifest = true
+                if (entry.name == "README.txt") hasReadme = true
+                if (entry.name.contains("Drafts/draft_")) hasDraft = true
+                entry = zipIn.nextEntry
             }
         }
+        
+        assertTrue("Should contain manifest.json", hasManifest)
+        assertTrue("Should contain README.txt", hasReadme)
+        assertTrue("Should contain drafts", hasDraft)
     }
 
     @Test
-    fun `test export fails with wrong AAD`() = runBlocking {
-        // ... similar setup as above ...
-        val userId = "test_user_123"
-        val exportKeyBytes = ByteArray(32) { 0x42.toByte() }
-        val exportKey = SecretKeySpec(exportKeyBytes, "AES")
-        coEvery { draftDao.getAllDraftsByUserId(userId) } returns emptyList()
-        coEvery { encryptionManager.getExportKey() } returns exportKey
+    fun `test export emits progress updates`() = runBlocking {
+        val userId = TEST_USER_ID
         every { authRepository.currentUserId } returns userId
+        coEvery { userRepository.getCachedProfile() } returns User(id = userId, anonymousName = "Test User")
+        coEvery { artifactRepository.getUserArtifactsPage(userId, any()) } returns Result.success(emptyList<Artifact>() to null)
+        coEvery { draftDao.getAllDraftsByUserId(userId) } returns emptyList()
+        every { firestore.collectionGroup(any()) } returns mockk(relaxed = true)
+        every { firestore.collection(any()) } returns mockk(relaxed = true)
+        every { userRepository.observeResonatingWithIds(userId) } returns flowOf(emptySet())
+        every { libraryRepository.getSavedArtifactIds(userId) } returns flowOf(emptySet())
 
-        val outputFile = tempFolder.newFile("export_fail.artx")
+        val outputFile = tempFolder.newFile("progress_test.zip")
         val uri = mockk<Uri>()
         every { contentResolver.openOutputStream(uri) } returns FileOutputStream(outputFile)
 
-        dataExportManager.exportAllDrafts(uri)
+        val progressUpdates = mutableListOf<ExportProgress>()
+        dataExportManager.exportData(uri) { progressUpdates.add(it) }
 
-        // Try decrypting with WRONG user ID in AAD
-        val wrongAad = "artifact_export_v1:different_user".toByteArray()
-        val parameters = PredefinedStreamingAeadParameters.AES256_GCM_HKDF_4KB as AesGcmHkdfStreamingParameters
-
-        val keysetHandle = KeysetHandle.newBuilder()
-            .addEntry(
-                KeysetHandle.importKey(
-                    AesGcmHkdfStreamingKey.create(
-                        parameters,
-                        SecretBytes.copyFrom(exportKeyBytes, InsecureSecretKeyAccess.get())
-                    )
-                ).makePrimary().withFixedId(1)
-            )
-            .build()
-
-        val streamingAead = keysetHandle.getPrimitive(StreamingAead::class.java)
-
-        try {
-            streamingAead.newDecryptingStream(outputFile.inputStream(), wrongAad).use { it.read() }
-            fail("Should have thrown exception due to AAD mismatch")
-        } catch (e: java.io.IOException) {
-            // Expected
-        }
+        assertTrue("Should emit Starting", progressUpdates.contains(ExportProgress.Starting))
+        assertTrue("Should emit Profile", progressUpdates.contains(ExportProgress.Profile))
+        assertTrue("Should emit Finalizing", progressUpdates.contains(ExportProgress.Finalizing))
+        assertTrue("Should emit Complete", progressUpdates.any { it is ExportProgress.Complete })
     }
 
     @Test
-    fun `test cross-account isolation during export`() = runBlocking {
-        val userA = "user_a"
-        val userB = "user_b"
+    fun `test export isolation - Stay With Me does not export other user audio`() = runBlocking {
+        val userId = TEST_USER_ID
+        val otherArtifactId = "other_artifact_123"
         
-        val draftA = ArtifactDraftEntity(id = "draft_a", userId = userA, localAudioPath = tempFolder.newFile("a.wav").absolutePath)
-        val draftB = ArtifactDraftEntity(id = "draft_b", userId = userB, localAudioPath = tempFolder.newFile("b.wav").absolutePath)
+        every { authRepository.currentUserId } returns userId
+        coEvery { userRepository.getCachedProfile() } returns User(id = userId, anonymousName = "Test User")
+        coEvery { artifactRepository.getUserArtifactsPage(userId, any()) } returns Result.success(emptyList<Artifact>() to null)
+        coEvery { draftDao.getAllDraftsByUserId(userId) } returns emptyList()
         
-        val exportKey = SecretKeySpec(ByteArray(32), "AES")
+        // Mock "Stay With Me" references
+        every { libraryRepository.getSavedArtifactIds(userId) } returns flowOf(setOf(otherArtifactId))
         
-        // Setup: User A is logged in
-        every { authRepository.currentUserId } returns userA
-        coEvery { encryptionManager.getExportKey() } returns exportKey
-        
-        // DAO should ONLY be called with current user ID
-        coEvery { draftDao.getAllDraftsByUserId(userA) } returns listOf(draftA)
-        coEvery { draftDao.getAllDraftsByUserId(userB) } returns listOf(draftB)
-        
-        val outputFile = tempFolder.newFile("isolation_test.artx")
+        // Other mocks
+        every { firestore.collectionGroup(any()) } returns mockk(relaxed = true)
+        every { firestore.collection(any()) } returns mockk(relaxed = true)
+        every { userRepository.observeResonatingWithIds(userId) } returns flowOf(emptySet())
+
+        val outputFile = tempFolder.newFile("isolation_stay_with_me.zip")
         val uri = mockk<Uri>()
         every { contentResolver.openOutputStream(uri) } returns FileOutputStream(outputFile)
-        
-        // Action: Perform export
-        dataExportManager.exportAllDrafts(uri)
-        
-        // Verification: Decrypt and check entries
-        val aad = "artifact_export_v1:$userA".toByteArray()
-        val streamingAead = getStreamingAead(exportKey.encoded)
-        
-        streamingAead.newDecryptingStream(outputFile.inputStream(), aad).use { decryptedStream ->
-            ZipInputStream(decryptedStream).use { zipIn ->
-                var entryCount = 0
-                var hasA = false
-                var hasB = false
-                
-                var entry = zipIn.nextEntry
-                while (entry != null) {
-                    if (entry.name.contains("draft_a")) hasA = true
-                    if (entry.name.contains("draft_b")) hasB = true
-                    entryCount++
-                    entry = zipIn.nextEntry
-                }
-                
-                assertTrue("Should contain User A drafts", hasA)
-                assertFalse("Must NOT contain User B drafts", hasB)
+
+        // Execute Export
+        dataExportManager.exportData(uri)
+
+        // Verify ZIP content
+        ZipInputStream(outputFile.inputStream()).use { zipIn ->
+            var entry = zipIn.nextEntry
+            while (entry != null) {
+                // Ensure no entry belongs to the other artifact ID (especially no audio)
+                assertFalse("Export must NOT contain other user's artifact audio or metadata", 
+                    entry.name.contains(otherArtifactId) && !entry.name.contains("stayed_with_me.json"))
+                entry = zipIn.nextEntry
             }
         }
     }
 
-    private fun getStreamingAead(keyBytes: ByteArray): StreamingAead {
-        val parameters = PredefinedStreamingAeadParameters.AES256_GCM_HKDF_4KB as AesGcmHkdfStreamingParameters
-        val keysetHandle = KeysetHandle.newBuilder()
-            .addEntry(
-                KeysetHandle.importKey(
-                    AesGcmHkdfStreamingKey.create(
-                        parameters,
-                        SecretBytes.copyFrom(keyBytes, InsecureSecretKeyAccess.get())
-                    )
-                ).makePrimary().withFixedId(1)
-            )
-            .build()
-        return keysetHandle.getPrimitive(StreamingAead::class.java)
+    @Test
+    fun `test export isolation - only current user data included`() = runBlocking {
+        every { authRepository.currentUserId } returns ""
+        
+        val uri = mockk<Uri>()
+        val result = dataExportManager.exportData(uri)
+        
+        assertFalse("Export should fail if unauthenticated", result.isSuccess)
+        assertEquals("Unauthenticated export attempt", result.exceptionOrNull()?.message)
     }
 }

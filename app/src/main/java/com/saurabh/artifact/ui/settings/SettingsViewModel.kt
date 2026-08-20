@@ -3,6 +3,8 @@ package com.saurabh.artifact.ui.settings
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.security.DataExportManager
+import com.saurabh.artifact.security.ExportProgress
+import com.saurabh.artifact.security.ExportService
 import com.saurabh.artifact.util.ClipboardGuard
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -59,6 +61,23 @@ class SettingsViewModel @Inject constructor(
 
     private val _isDeleting = MutableStateFlow(false)
     val isDeleting: StateFlow<Boolean> = _isDeleting.asStateFlow()
+
+    private val _isExporting = MutableStateFlow(false)
+    val isExporting: StateFlow<Boolean> = _isExporting.asStateFlow()
+
+    private val _exportProgress = MutableStateFlow<ExportProgress?>(null)
+    val exportProgress: StateFlow<ExportProgress?> = _exportProgress.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            ExportService.exportState.collect { progress ->
+                _exportProgress.value = progress
+                _isExporting.value = progress != null && 
+                                   progress !is ExportProgress.Complete && 
+                                   progress !is ExportProgress.Failed
+            }
+        }
+    }
 
     fun updateBiometricLock(enabled: Boolean) {
         update { it.copy(biometricLockEnabled = enabled) }
@@ -163,19 +182,11 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun exportData(outputUri: android.net.Uri) {
-        diagnosticLogger.info(DiagnosticCategory.SETTINGS, "EXPORT_STARTED")
-        viewModelScope.launch {
-            dataExportManager.exportAllDrafts(outputUri)
-                .onSuccess {
-                    diagnosticLogger.info(DiagnosticCategory.SETTINGS, "EXPORT_SUCCESS")
-                    _events.emit(SettingsUiEvent.ShowMessage(UiText.StringResource(R.string.export_ready)))
-                }
-                .onFailure {
-                    diagnosticLogger.error(DiagnosticCategory.SETTINGS, "EXPORT_FAILED", throwable = it)
-                    _events.emit(SettingsUiEvent.ShowMessage(UiText.StringResource(R.string.export_failed)))
-                }
-        }
+    fun exportData(context: android.content.Context, outputUri: android.net.Uri) {
+        if (_isExporting.value) return
+        
+        diagnosticLogger.info(DiagnosticCategory.SETTINGS, "EXPORT_TRIGGERED")
+        ExportService.start(context, outputUri)
     }
 
     /**

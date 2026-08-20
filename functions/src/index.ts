@@ -28,6 +28,7 @@ async function deleteQueryBatch(
 ): Promise<number> {
   let totalDeleted = 0;
   try {
+    // eslint-disable-next-line no-constant-condition
     while (true) {
       // 1. Fetch at most 500 documents (limit of one WriteBatch)
       const querySnapshot = await query.limit(500).get();
@@ -732,7 +733,7 @@ export const onUserDeleted = functions.auth.user().onDelete(async (user, context
     }
 
     const totalDuration = Date.now() - startTime;
-    logger.info(`[DELETE USER] FINISH | Artifacts Deleted: ${artifactsDeletedCount} | Profile Deleted: ${profileDeleted ? "YES" : "NO"} | Duration=${totalDuration}ms`);
+    logger.info(`[DELETE USER] FINISH | Artifacts Deleted: ${artifactsDeletedCount} | Notifications: ${notificationsDeletedTotal} | Sessions: ${sessionsDeletedTotal} | Profile Deleted: ${profileDeleted ? "YES" : "NO"} | Duration=${totalDuration}ms`);
 
     return null;
   } catch (error) {

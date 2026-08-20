@@ -60,6 +60,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.saurabh.artifact.R
 import com.saurabh.artifact.auth.CredentialResult
+import com.saurabh.artifact.security.ExportProgress
 import com.saurabh.artifact.ui.components.NotificationRationaleDialog
 import com.saurabh.artifact.ui.util.LocalBottomOverlayOffset
 import com.saurabh.artifact.ui.util.UiText
@@ -77,6 +78,8 @@ fun SettingsScreen(
     val accountInfo by viewModel.accountInfo.collectAsStateWithLifecycle()
     val isAnonymous by viewModel.isAnonymous.collectAsStateWithLifecycle()
     val isDeleting by viewModel.isDeleting.collectAsStateWithLifecycle()
+    val isExporting by viewModel.isExporting.collectAsStateWithLifecycle()
+    val exportProgress by viewModel.exportProgress.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     
     var showDeleteConfirmation by remember { mutableStateOf(false) }
@@ -126,7 +129,7 @@ fun SettingsScreen(
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/zip"),
         onResult = { uri ->
-            uri?.let { viewModel.exportData(it) }
+            uri?.let { viewModel.exportData(context, it) }
         }
     )
 
@@ -224,8 +227,9 @@ fun SettingsScreen(
                 SettingsSection(title = "Data") {
                     SettingsClickable(
                         title = "Export Data",
-                        subtitle = "Export your encrypted Artifact data to your device",
+                        subtitle = "Export your personal reflections and recordings as a portable archive",
                         icon = Icons.Default.Download,
+                        enabled = !isExporting,
                         onClick = { showExportConfirmation = true }
                     )
                     SettingsClickable(
@@ -273,12 +277,33 @@ fun SettingsScreen(
                 }
             }
             
-            if (isDeleting) {
+            if (isDeleting || isExporting) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator()
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator()
+                        if (isExporting) {
+                            val statusText = when (val p = exportProgress) {
+                                is ExportProgress.Starting -> "Starting export..."
+                                is ExportProgress.Profile -> "Fetching profile..."
+                                is ExportProgress.Artifacts -> "Exporting Artifacts (${p.current}/${p.total})"
+                                is ExportProgress.Drafts -> "Exporting Drafts (${p.current}/${p.total})"
+                                is ExportProgress.Participation -> "Archiving comments..."
+                                is ExportProgress.Resonance -> "Exporting relationships..."
+                                is ExportProgress.Saved -> "Exporting saved content..."
+                                is ExportProgress.Finalizing -> "Finalizing archive..."
+                                else -> "Preparing archive..."
+                            }
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                statusText,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -390,7 +415,7 @@ fun SettingsScreen(
         AlertDialog(
             onDismissRequest = { showExportConfirmation = false },
             title = { Text("Export Data?") },
-            text = { Text("Do you really want to export all your local drafts? This will create a ZIP archive of your audio and metadata.") },
+            text = { Text("Do you really want to export all your artifacts and recordings? This will create a ZIP archive that can be opened on any device.") },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -410,10 +435,16 @@ fun SettingsScreen(
     }
 
     if (showExportSuccess) {
+        val hasOmissions = (exportProgress as? ExportProgress.Complete)?.hasOmissions ?: false
         AlertDialog(
             onDismissRequest = { showExportSuccess = false },
-            title = { Text("Export Complete") },
-            text = { Text("Your data has been successfully collected and encrypted. You can find your export at the location you selected.") },
+            title = { Text(if (hasOmissions) "Export Completed with Omissions" else "Export Complete") },
+            text = { 
+                Text(
+                    if (hasOmissions) "Your data has been exported, but some recordings could not be retrieved. See manifest.json in the ZIP for details."
+                    else "Your data has been successfully exported. You can find your ZIP archive at the location you selected."
+                )
+            },
             confirmButton = {
                 TextButton(onClick = { showExportSuccess = false }) {
                     Text("OK")

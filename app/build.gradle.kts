@@ -59,8 +59,8 @@ configure<com.android.build.api.dsl.ApplicationExtension> {
         applicationId = "com.saurabh.artifact"
         minSdk = 24
         targetSdk = 36
-        versionCode = 6
-        versionName = "1.1"
+        versionCode = 9
+        versionName = "1.4"
 
         testInstrumentationRunner = "com.saurabh.artifact.HiltTestRunner"
     }
@@ -85,14 +85,19 @@ configure<com.android.build.api.dsl.ApplicationExtension> {
             buildConfigField("String", "FIREBASE_PROJECT_ID", "\"myartifact-555e3\"")
         }
         release {
-            if (isSigningConfigured) {
-                signingConfig = signingConfigs.getByName("release")
+            signingConfig = if (isSigningConfigured) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
             }
             manifestPlaceholders["appLabel"] = "@string/app_name"
             buildConfigField("String", "FIREBASE_ENV", "\"PROD\"")
             buildConfigField("String", "FIREBASE_PROJECT_ID", "\"myartifact-555e3\"")
             isMinifyEnabled = true
             isShrinkResources = true
+            ndk {
+                debugSymbolLevel = "FULL"
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",

@@ -94,31 +94,37 @@ fun SettingsClickable(
     modifier: Modifier = Modifier,
     subtitle: String? = null,
     icon: ImageVector? = null,
-    textColor: Color = MaterialTheme.colorScheme.onSurface
+    textColor: Color = MaterialTheme.colorScheme.onSurface,
+    enabled: Boolean = true
 ) {
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable(enabled = enabled, onClick = onClick)
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        val contentAlpha = if (enabled) 1f else 0.4f
         if (icon != null) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
                 modifier = Modifier.size(24.dp),
-                tint = if (textColor == MaterialTheme.colorScheme.onSurface) MaterialTheme.colorScheme.onSurfaceVariant else textColor
+                tint = (if (textColor == MaterialTheme.colorScheme.onSurface) MaterialTheme.colorScheme.onSurfaceVariant else textColor).copy(alpha = contentAlpha)
             )
             Spacer(modifier = Modifier.width(16.dp))
         }
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = title, style = MaterialTheme.typography.bodyLarge, color = textColor)
+            Text(
+                text = title, 
+                style = MaterialTheme.typography.bodyLarge, 
+                color = textColor.copy(alpha = contentAlpha)
+            )
             if (subtitle != null) {
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha)
                 )
             }
         }

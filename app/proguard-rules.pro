@@ -15,6 +15,7 @@
 # Project Models
 # Keeping model classes to prevent issues with reflection/serialization (e.g. Firebase)
 -keep class com.saurabh.artifact.model.** { *; }
+-keep class com.saurabh.artifact.data.remote.model.** { *; }
 
 # Preserve constructor parameters for Artifact to support reflection-based deserialization
 # Note: This rule preserves constructor information only. It should be retained only if runtime validation confirms it is required.

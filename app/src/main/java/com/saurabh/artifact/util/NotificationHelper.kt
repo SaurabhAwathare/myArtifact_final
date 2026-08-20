@@ -60,6 +60,10 @@ object NotificationHelper {
     const val CHANNEL_NAME_UPLOADS = "Upload Status"
     const val CHANNEL_DESC_UPLOADS = "Status updates for your artifact uploads."
 
+    const val CHANNEL_ID_EXPORTS = "exports_channel"
+    const val CHANNEL_NAME_EXPORTS = "Data Export"
+    const val CHANNEL_DESC_EXPORTS = "Progress and results for your personal data exports."
+
     const val CHANNEL_ID_PLAYBACK = "playback_channel"
     const val CHANNEL_NAME_PLAYBACK = "Playback"
     const val CHANNEL_DESC_PLAYBACK = "Controls and status for your listening experience."
@@ -103,6 +107,15 @@ object NotificationHelper {
                 setShowBadge(false) // Uploads don't need badges
             }
 
+            // Create Exports Channel (IMPORTANCE_DEFAULT to ensure visibility during long-running tasks)
+            val exportsChannel = NotificationChannel(
+                CHANNEL_ID_EXPORTS,
+                CHANNEL_NAME_EXPORTS,
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = CHANNEL_DESC_EXPORTS
+            }
+
             // Create Playback Channel (IMPORTANCE_LOW - non-interruptive updates)
             val playbackChannel = NotificationChannel(
                 CHANNEL_ID_PLAYBACK,
@@ -114,8 +127,78 @@ object NotificationHelper {
             }
             
             notificationManager.createNotificationChannels(
-                listOf(interactionsChannel, remindersChannel, uploadsChannel, playbackChannel)
+                listOf(interactionsChannel, remindersChannel, uploadsChannel, exportsChannel, playbackChannel)
             )
+        }
+    }
+
+    const val EXPORT_NOTIFICATION_ID = 5001
+
+    fun buildExportProgressNotification(
+        context: Context,
+        statusText: String,
+        isIndeterminate: Boolean = true,
+        progress: Int = 0,
+        cancelIntent: PendingIntent? = null
+    ): Notification {
+        return NotificationCompat.Builder(context, CHANNEL_ID_EXPORTS)
+            .setContentTitle("Exporting Artifact Data")
+            .setContentText(statusText)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setOngoing(true)
+            .setProgress(100, progress, isIndeterminate)
+            .setOnlyAlertOnce(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+            .apply {
+                cancelIntent?.let {
+                    addAction(R.mipmap.ic_launcher, "Cancel", it)
+                }
+            }
+            .build()
+    }
+
+    fun updateExportProgress(
+        context: Context,
+        statusText: String,
+        isIndeterminate: Boolean = true,
+        progress: Int = 0,
+        cancelIntent: PendingIntent? = null
+    ) {
+        if (!isNotificationEnabled(context)) return
+
+        try {
+            if (hasNotificationPermission(context)) {
+                val notification = buildExportProgressNotification(context, statusText, isIndeterminate, progress, cancelIntent)
+                NotificationManagerCompat.from(context).notify(EXPORT_NOTIFICATION_ID, notification)
+            }
+        } catch (_: SecurityException) {
+            // Permission revoked mid-operation
+        }
+    }
+
+    fun showExportResultNotification(
+        context: Context,
+        title: String,
+        message: String,
+        isSuccess: Boolean
+    ) {
+        if (!isNotificationEnabled(context)) return
+
+        try {
+            if (hasNotificationPermission(context)) {
+                val notification = NotificationCompat.Builder(context, CHANNEL_ID_EXPORTS)
+                    .setContentTitle(title)
+                    .setContentText(message)
+                    .setSmallIcon(R.mipmap.ic_launcher)
+                    .setAutoCancel(true)
+                    .setPriority(if (isSuccess) NotificationCompat.PRIORITY_DEFAULT else NotificationCompat.PRIORITY_HIGH)
+                    .build()
+                
+                NotificationManagerCompat.from(context).notify(EXPORT_NOTIFICATION_ID + (if (isSuccess) 1 else 2), notification)
+            }
+        } catch (_: SecurityException) {
+            // Permission revoked
         }
     }
 

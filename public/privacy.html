@@ -9,44 +9,79 @@
 <body>
     <header>
         <div class="logo"><a href="index.html">Artifact</a></div>
+        <nav class="nav-links">
+            <a href="index.html">Home</a>
+            <a href="terms.html">Terms</a>
+            <a href="contact.html">Contact</a>
+        </nav>
     </header>
     <main>
         <h1>Privacy Policy</h1>
-        <p>Last Updated: August 14, 2026</p>
+        <p class="last-updated">Last Updated: August 20, 2026</p>
 
         <div class="legal-content">
-            <h2>1. Introduction</h2>
-            <p>Artifact is a voice-first social platform built on the principles of <strong>Responsible Anonymity</strong>. We prioritize your privacy and the authenticity of your emotional expression.</p>
+            <p>Artifact is a voice-first social platform built on the principles of <strong>Responsible Anonymity</strong>. We prioritize the authenticity of your emotional expression and the security of your presence.</p>
 
-            <h2>2. Information We Collect and How We Use It</h2>
-            <h3>a. Authentication & Identity</h3>
-            <p><strong>Firebase Authentication:</strong> We use Google Sign-In to verify your identity. We collect your name and email address to manage your account and secure your data. Your real name and email are <strong>never</strong> shared with other users.</p>
+            <h2>1. Responsible Anonymity</h2>
+            <p>Artifact uses authentication to maintain accountability and protect the community. Public participation is based on an anonymous Artifact identity rather than your real-world identity. This allows you to share authentic experiences without turning Artifact into an identity-driven social network.</p>
 
-            <h3>b. Audio Data & Voice Recordings</h3>
-            <p><strong>Artifacts:</strong> When you publish an "Artifact", your voice recording is uploaded to our secure cloud storage. Audio may be processed for transcription and safety analysis.</p>
+            <h2>2. Information We Collect</h2>
 
-            <h3>c. Metadata & Social Interaction</h3>
-            <p>We store profile data (anonymous nickname, sigil), artifact metadata, and social interactions (reactions, play history) in Cloud Firestore.</p>
+            <h3>a. Account & Authentication Information</h3>
+            <p>We use Google Sign-In to verify your identity. Artifact receives your name and email address from Google. This <strong>Platform Identity</strong> is stored in private database collections and is used for account management, security, and re-authentication. It is not shared with other Creators.</p>
 
-            <h2>3. Data Storage and Security</h2>
-            <p>All cloud data is stored securely using Google Firebase services. We implementation industry-standard encryption and access controls to protect your data.</p>
+            <h3>b. Anonymous Profile Information</h3>
+            <p>Your <strong>Public Artifact Identity</strong> consists of a generated <strong>Anonymous Name</strong> and a unique <strong>Sigil</strong>. This identity is separate from your real-world name and is what other Artifact Creators see.</p>
 
-            <h2>4. Account Deletion & Data Retention</h2>
-            <p>You can permanently delete your account via the App Settings or our <a href="https://myartifact-555e3.web.app/delete-account.html">Web Deletion Tool</a>. When you delete your Artifact account:</p>
+            <h3>c. Artifacts and Voice Recordings</h3>
+            <p>When you publish an "Artifact", your voice recording is uploaded to our secure cloud storage. We store metadata such as the title, chosen emotion, and amplitude data used to render the visual waveform of your voice.</p>
+
+            <h3>d. Interaction Information</h3>
+            <p>We store data about how you interact with the Human Library, including when you <strong>Resonate</strong> with an Artifact, follow another Creator, or share a <strong>Reflection</strong> (comment).</p>
+
+            <h3>e. Technical Information</h3>
+            <p>We collect technical data to ensure service integrity, including hashed device fingerprints and security tokens used by Firebase App Check and Play Integrity to prevent unauthorized access and abuse.</p>
+
+            <h2>3. How We Use Information</h2>
             <ul>
-                <li><strong>Profile & Content:</strong> Your profile data, audio recordings, transcripts, and personal content associated directly with your account are permanently removed.</li>
-                <li><strong>Interactions:</strong> Your reaction history and play history are deleted.</li>
-                <li><strong>Comment Anonymization:</strong> Comments you have shared on other users' Artifacts may remain visible so that existing conversations remain intact. These comments are permanently disconnected from your deleted account and are no longer linked to your user identity.</li>
-                <li><strong>Moderation & Safety:</strong> Certain information, such as moderation or safety reports, may be retained when necessary for community safety, abuse prevention, legal obligations, or platform integrity.</li>
-                <li><strong>Timeline:</strong> Account deletion processing begins immediately after confirmation. Some backend cleanup operations may complete asynchronously.</li>
+                <li>To provide and maintain the Artifact service.</li>
+                <li>To secure your account and prevent abuse.</li>
+                <li>To generate contextually relevant <strong>Reflection Prompts</strong> using AI assistance. </li>
+                <li>To deliver notifications when others resonate with your presence.</li>
             </ul>
 
-            <h2>5. Contact Us</h2>
-            <p>For privacy inquiries or to exercise your data rights, contact: <strong>privacy@myartifact.app</strong> (or use our contact form).</p>
+            <h3>AI Assistance Transparency</h3>
+            <p>When generating Reflection Prompts, Artifact may send limited, non-identifying data to our AI service provider (Google Vertex AI). This data includes your current chosen emotion, the time of day, and a scrubbed summary of your session context. <strong>Your voice recordings and raw transcripts are never sent to the AI service.</strong></p>
+
+            <h2>4. Data Storage and Protection</h2>
+            <p>All cloud data is stored securely using Google Firebase services. We use industry-standard access controls to protect your data. Local data, including drafts and settings, is stored securely on your device.</p>
+
+            <div class="alert-box">
+                <strong>Important: Deletion Requirement</strong>
+                Account deletion and individual Artifact deletion <strong>must</strong> be initiated from within the authenticated Artifact Android application. We do not provide external web-based deletion mechanisms.
+            </div>
+
+            <h2>5. Account Deletion</h2>
+            <p>You can permanently delete your Artifact account from the <strong>Settings</strong> section within the Artifact Android application. When you initiate account deletion:</p>
+            <ul>
+                <li><strong>Initiation:</strong> The process begins immediately upon your confirmation in the app.</li>
+                <li><strong>Cascading Cleanup:</strong> Our systems asynchronously remove your Platform Identity, profile data, and associated voice recordings from cloud storage.</li>
+                <li><strong>Anonymization:</strong> Reflections (comments) you have shared remain visible to preserve conversation integrity but are permanently disconnected from your identity.</li>
+                <li><strong>Retained Information:</strong> Certain data, such as safety reports or security logs, may be retained for a limited period to prevent fraud, ensure community safety, or meet legal obligations.</li>
+            </ul>
+
+            <h2>6. Artifact Deletion</h2>
+            <p>Individual Artifacts can be deleted within the application. Deleting an Artifact removes the audio recording and its primary metadata. Associated interactions are cleaned up through automated backend processes.</p>
+
+            <h2>7. Third-Party Services</h2>
+            <p>Artifact uses Google Firebase and Google Play Services for authentication, storage, infrastructure, and security. We do not share your Platform Identity or voice recordings with third-party advertisers.</p>
+
+            <h2>8. Contact Us</h2>
+            <p>For questions about your data or to exercise your privacy rights, please contact: <strong>artifactdeveloper050@gmail.com</strong></p>
         </div>
     </main>
     <footer>
-        <p><a href="index.html">Home</a> | <a href="terms.html">Terms of Service</a></p>
+        <p>&copy; 2026 Artifact. All rights reserved.</p>
     </footer>
 </body>
 </html>
