@@ -48,10 +48,24 @@ object DatabaseMigrations {
             db.execSQL("ALTER TABLE artifact_drafts ADD COLUMN uploadFormatVersion INTEGER NOT NULL DEFAULT 1")
         }
     }
+
+    /**
+     * Migration 63 -> 64: Prompt Depth and Consumption Tracking.
+     * Adds 'depthLevel' and 'isConsumed' to 'prompts' table.
+     * Preserves existing history by marking prompts with usageCount > 0 as consumed.
+     */
+    val MIGRATION_63_64 = object : Migration(63, 64) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE prompts ADD COLUMN depthLevel INTEGER NOT NULL DEFAULT 1")
+            db.execSQL("ALTER TABLE prompts ADD COLUMN isConsumed INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("UPDATE prompts SET isConsumed = 1 WHERE usageCount > 0")
+        }
+    }
     
     val ALL_MIGRATIONS = arrayOf<Migration>(
         MIGRATION_60_61,
         MIGRATION_61_62,
-        MIGRATION_62_63
+        MIGRATION_62_63,
+        MIGRATION_63_64
     )
 }

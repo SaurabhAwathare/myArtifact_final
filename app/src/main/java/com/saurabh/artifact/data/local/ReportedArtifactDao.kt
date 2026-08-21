@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface ReportedArtifactDao {
@@ -15,6 +16,9 @@ interface ReportedArtifactDao {
 
     @Query("SELECT artifactId FROM reported_artifacts WHERE userId = :userId")
     suspend fun getReportedArtifactIds(userId: String): List<String>
+
+    @Query("SELECT artifactId FROM reported_artifacts WHERE userId = :userId")
+    fun observeReportedArtifactIds(userId: String): Flow<List<String>>
 
     @Query("DELETE FROM reported_artifacts WHERE userId = :userId AND artifactId = :artifactId")
     suspend fun delete(userId: String, artifactId: String)

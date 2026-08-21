@@ -38,6 +38,7 @@ class MainViewModelTest {
     private val getInitialDestinationUseCase = mockk<GetInitialDestinationUseCase>()
     private val registrationCoordinator = mockk<RegistrationCoordinator>()
     private val logoutCoordinator = mockk<LogoutCoordinator>(relaxed = true)
+    private val sessionManager = mockk<com.saurabh.artifact.data.local.UserSessionManager>(relaxed = true)
     private val observeStealthModeUseCase = mockk<ObserveStealthModeUseCase>(relaxed = true)
     private val startupCoordinator = mockk<StartupCoordinator>(relaxed = true)
     private val intent = mockk<Intent>(relaxed = true)
@@ -65,6 +66,7 @@ class MainViewModelTest {
         every { observeStealthModeUseCase.invoke() } returns flowOf(false)
         every { startupCoordinator.stage } returns MutableStateFlow(com.saurabh.artifact.startup.StartupStage.ARRIVAL)
         every { startupCoordinator.isRescueModeActive } returns false
+        every { sessionManager.owningUid } returns MutableStateFlow(null)
 
         every { intent.getStringExtra("notificationType") } returns null
         every { intent.getStringExtra("artifactId") } returns null
@@ -82,6 +84,7 @@ class MainViewModelTest {
             getInitialDestinationUseCase,
             registrationCoordinator,
             logoutCoordinator,
+            sessionManager,
             observeStealthModeUseCase,
             startupCoordinator,
             savedStateHandle,
@@ -717,5 +720,101 @@ class MainViewModelTest {
         assertEquals(1, artifacts.size)
         assertEquals("second", artifacts.first().artifactId)
         job.cancel()
+    }
+
+    @Test
+    fun `process restoration with UID mismatch should ignore saved destination and trigger fresh startup`() = runTest {
+        // 1. Setup SavedState for User A
+        savedStateHandle["startup_completed"] = true
+        savedStateHandle["resolved_destination_id"] = "HOME"
+        savedStateHandle["resolved_uid"] = "user_A"
+
+        // 2. Simulate User B is now logged in
+        val userB = mockk<com.google.firebase.auth.FirebaseUser>()
+        every { userB.uid } returns "user_B"
+        testAuthFlow.value = userB
+        
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
+        coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
+
+        // 3. Start ViewModel
+        viewModel.start()
+        advanceUntilIdle()
+
+        // 4. Verify fresh startup executed (getInitialDestinationUseCase called)
+        coVerify(exactly = 1) { getInitialDestinationUseCase() }
+        
+        // Verify state is Ready(Home) for User B (not restored from User A's stale completion state)
+        assertTrue(viewModel.startupState.value is AppStartupState.Ready)
+        assertEquals(Home, (viewModel.startupState.value as AppStartupState.Ready).startDestination)
+        
+        // Verify SavedState updated to User B
+        assertEquals("user_B", savedStateHandle.get<String>("resolved_uid"))
+    }
+
+    @Test
+    fun `direct User A to User B transition should trigger blocking cleanup`() = runTest {
+        // 1. App starts with User A
+        val userA = mockk<com.google.firebase.auth.FirebaseUser>()
+        every { userA.uid } returns "user_A"
+        testAuthFlow.value = userA
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
+        coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
+        
+        viewModel.start()
+        advanceUntilIdle()
+        
+        // 2. Transition directly to User B
+        val userB = mockk<com.google.firebase.auth.FirebaseUser>()
+        every { userB.uid } returns "user_B"
+        
+        // Mock DataStore still belonging to A to trigger "dirty" cleanup check
+        every { sessionManager.owningUid } returns MutableStateFlow("user_A")
+        
+        testAuthFlow.value = userB
+        advanceUntilIdle()
+
+        // 3. Verify LogoutCoordinator was called to wipe User A's data
+        coVerify(atLeast = 1) { logoutCoordinator.performFullCleanup() }
+    }
+
+    @Test
+    fun `User B initialization must wait for User A cleanup to complete`() = runTest {
+        // 1. App starts with User A
+        val userA = mockk<com.google.firebase.auth.FirebaseUser>()
+        every { userA.uid } returns "user_A"
+        testAuthFlow.value = userA
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
+        coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
+        
+        viewModel.start()
+        advanceUntilIdle()
+
+        // 2. Setup User B transition with SLOW cleanup
+        val userB = mockk<com.google.firebase.auth.FirebaseUser>()
+        every { userB.uid } returns "user_B"
+        every { sessionManager.owningUid } returns MutableStateFlow("user_A")
+
+        coEvery { logoutCoordinator.performFullCleanup() } coAnswers {
+            delay(1000) // Artificial delay
+            CleanupResult(status = CleanupStatus.COMPLETED)
+        }
+
+        // 3. Trigger transition
+        testAuthFlow.value = userB
+        
+        // 4. Advance time partially
+        advanceTimeBy(500)
+        
+        // Verify User B's profile check has NOT started yet
+        coVerify(exactly = 0) { registrationCoordinator.ensureProfileExists() }
+        assertTrue(viewModel.isCleaning.value)
+
+        // 5. Complete cleanup
+        advanceTimeBy(600)
+        
+        // 6. Verify User B's profile check now proceeds
+        coVerify(atLeast = 1) { registrationCoordinator.ensureProfileExists() }
+        assertTrue(!viewModel.isCleaning.value)
     }
 }

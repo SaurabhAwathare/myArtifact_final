@@ -354,6 +354,12 @@ service cloud.firestore {
       allow read: if isOwner(uid);
     }
 
+    match /feedback_private/{feedbackId} {
+      allow create: if isAuth() &&
+                    feedbackId.startsWith(request.auth.uid + "_");
+      allow read: if false; // Private to backend only
+    }
+
     // --- MODERATION ---
     match /moderation_queue/{artifactId} {
       allow read: if isGlobalAdmin();

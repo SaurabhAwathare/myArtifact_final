@@ -26,7 +26,11 @@ class ArtifactRemoteMediator(
     private val artifactDao = database.artifactDao()
 
     override suspend fun initialize(): InitializeAction {
-        return if (hasUsableCachedData()) {
+        // Targeted Fix: If an emotion category is selected, ALWAYS force a refresh
+        // to ensure we get fresh content for that category regardless of existing cache.
+        return if (!emotion.isNullOrEmpty() && emotion != "All") {
+            InitializeAction.LAUNCH_INITIAL_REFRESH
+        } else if (hasUsableCachedData()) {
             InitializeAction.SKIP_INITIAL_REFRESH
         } else {
             InitializeAction.LAUNCH_INITIAL_REFRESH
@@ -53,14 +57,17 @@ class ArtifactRemoteMediator(
                 }
             }
 
+            val relatedEmotions = if (!emotion.isNullOrEmpty() && emotion != "All") {
+                com.saurabh.artifact.util.EmotionCategoryMapper.getRelatedEmotions(emotion)
+            } else null
+
             var query = firestore.collection("artifacts")
                 .whereEqualTo("isPublic", true)
                 .whereEqualTo("status", com.saurabh.artifact.model.ArtifactStatus.ACTIVE.name)
                 .orderBy("createdAt", Query.Direction.DESCENDING)
                 .orderBy(com.google.firebase.firestore.FieldPath.documentId(), Query.Direction.DESCENDING)
 
-            if (!emotion.isNullOrEmpty() && emotion != "All") {
-                val relatedEmotions = com.saurabh.artifact.util.EmotionCategoryMapper.getRelatedEmotions(emotion)
+            if (relatedEmotions != null) {
                 query = query.whereIn("emotion", relatedEmotions)
             }
 
@@ -102,9 +109,16 @@ class ArtifactRemoteMediator(
             val endOfPaginationReached = artifacts.isEmpty()
 
             database.withTransaction {
-                // HARDENING: Only clear local data if we actually got a successful non-empty refresh from network
-                if (loadType == LoadType.REFRESH && artifacts.isNotEmpty()) {
-                    artifactDao.clearAll()
+                // Targeted Fix: Only clear data relevant to the current emotion category during refresh.
+                if (loadType == LoadType.REFRESH) {
+                    if (relatedEmotions != null) {
+                        val relatedEmotionEnums = relatedEmotions.mapNotNull { label ->
+                            Emotion.entries.find { it.label.equals(label, ignoreCase = true) }
+                        }
+                        artifactDao.deleteArtifactsByEmotions(relatedEmotionEnums)
+                    } else {
+                        artifactDao.clearAll()
+                    }
                 }
                 
                 if (artifacts.isNotEmpty()) {

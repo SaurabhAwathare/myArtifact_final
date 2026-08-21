@@ -24,23 +24,32 @@ interface PromptDao {
     @Query("UPDATE prompts SET isFavorite = :isFavorite WHERE id = :id")
     suspend fun updateFavoriteStatus(id: String, isFavorite: Boolean)
 
+    @Query("UPDATE prompts SET isConsumed = 1 WHERE id = :id")
+    suspend fun markAsConsumed(id: String)
+
+    @Query("SELECT COUNT(*) FROM prompts WHERE isConsumed = 1")
+    suspend fun getConsumedCount(): Int
+
     @Query("UPDATE prompts SET usageCount = usageCount + 1, lastUsedTimestamp = :timestamp WHERE id = :id")
     suspend fun recordUsage(id: String, timestamp: Long = System.currentTimeMillis())
 
     @Query("SELECT COUNT(*) FROM prompts")
     suspend fun getPromptCount(): Int
 
-    @Query("SELECT * FROM prompts ORDER BY RANDOM() LIMIT 1")
+    @Query("SELECT * FROM prompts WHERE isConsumed = 0 ORDER BY RANDOM() LIMIT 1")
     suspend fun getRandomPrompt(): PromptEntity?
 
-    @Query("SELECT * FROM prompts WHERE mood = :mood ORDER BY RANDOM() LIMIT 1")
+    @Query("SELECT * FROM prompts WHERE mood = :mood AND isConsumed = 0 ORDER BY RANDOM() LIMIT 1")
     suspend fun getRandomPromptByMood(mood: String): PromptEntity?
 
-    @Query("SELECT * FROM prompts WHERE mood = :mood ORDER BY lastUsedTimestamp ASC LIMIT 1")
+    @Query("SELECT * FROM prompts WHERE mood = :mood AND isConsumed = 0 ORDER BY lastUsedTimestamp ASC LIMIT 1")
     suspend fun getOldestPromptByMood(mood: String): PromptEntity?
 
-    @Query("SELECT * FROM prompts ORDER BY lastUsedTimestamp ASC LIMIT 1")
+    @Query("SELECT * FROM prompts WHERE isConsumed = 0 ORDER BY lastUsedTimestamp ASC LIMIT 1")
     suspend fun getOldestPrompt(): PromptEntity?
+
+    @Query("SELECT * FROM prompts WHERE isConsumed = 0 AND depthLevel <= :maxDepth ORDER BY depthLevel DESC, RANDOM() LIMIT 1")
+    suspend fun getNextEligiblePrompt(maxDepth: Int): PromptEntity?
 
     @Query("SELECT * FROM prompts ORDER BY lastUsedTimestamp DESC LIMIT :limit")
     suspend fun getRecentPrompts(limit: Int): List<PromptEntity>

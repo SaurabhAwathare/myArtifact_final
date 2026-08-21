@@ -44,6 +44,7 @@ class MainViewModel @Inject constructor(
     private val getInitialDestinationUseCase: GetInitialDestinationUseCase,
     private val registrationCoordinator: com.saurabh.artifact.domain.auth.RegistrationCoordinator,
     private val logoutCoordinator: com.saurabh.artifact.domain.auth.LogoutCoordinator,
+    private val sessionManager: com.saurabh.artifact.data.local.UserSessionManager,
     private val observeStealthModeUseCase: ObserveStealthModeUseCase,
     private val startupCoordinator: StartupCoordinator,
     private val savedStateHandle: SavedStateHandle,
@@ -53,6 +54,7 @@ class MainViewModel @Inject constructor(
     companion object {
         private const val KEY_STARTUP_COMPLETED = "startup_completed"
         private const val KEY_RESOLVED_DESTINATION_ID = "resolved_destination_id"
+        private const val KEY_RESOLVED_UID = "resolved_uid"
         private const val KEY_PENDING_EVENT_JSON = "pending_event_json"
         
         private const val ID_HOME = "HOME"
@@ -63,6 +65,9 @@ class MainViewModel @Inject constructor(
 
     private val _startupState = MutableStateFlow<AppStartupState>(AppStartupState.Initializing)
     val startupState = _startupState.asStateFlow()
+
+    private val _isCleaning = MutableStateFlow(false)
+    val isCleaning = _isCleaning.asStateFlow()
 
     private val _reportingArtifactId = MutableStateFlow<String?>(null)
     val reportingArtifactId = _reportingArtifactId.asStateFlow()
@@ -100,30 +105,48 @@ class MainViewModel @Inject constructor(
             }
         }
 
-        // Root Auth State Observation
-        // If the user signs out anywhere, we detect the transition and force a full cleanup
-        // before resetting to the Login screen. This handles remote logout, token revocation, etc.
+        // Comprehensive Auth Boundary & Cleanup Observation
+        // If the UID changes (direct swap or transition to/from null), 
+        // we detect if the local state belongs to a different user and trigger cleanup.
         viewModelScope.launch {
             authRepository.currentUser
                 .scan(null to null) { acc: Pair<com.google.firebase.auth.FirebaseUser?, com.google.firebase.auth.FirebaseUser?>, value ->
                     acc.second to value
                 }
                 .collect { (previous, current) ->
-                    val isTransitionToUnauthenticated = previous != null && current == null
+                    val previousUid = previous?.uid
+                    val currentUid = current?.uid
                     
-                    if (isTransitionToUnauthenticated && started.get() && _startupState.value !is AppStartupState.Initializing) {
-                        diagnosticLogger.info(DiagnosticCategory.AUTH, "LOGOUT_STARTED")
+                    val isUidChange = previousUid != currentUid
+                    val isTransitionToUnauthenticated = previousUid != null && currentUid == null
+                    
+                    if (isUidChange && started.get() && _startupState.value !is AppStartupState.Initializing) {
+                        val owningUid = sessionManager.owningUid.first()
                         
-                        try {
-                            // BLOCKING: Ensure cleanup completes before UI transition to prevent stale data visibility
-                            val result = logoutCoordinator.performFullCleanup()
-                            diagnosticLogger.info(DiagnosticCategory.AUTH, "LOGOUT_COMPLETED")
-                        } catch (e: Exception) {
-                            // Security: Never log sensitive data (UID, email, tokens) on failure
-                            diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_FAILED", throwable = e)
-                        } finally {
-                            // Hard Reset: Ensure navigation to Login screen regardless of cleanup success
-                            _startupState.value = AppStartupState.Ready(Login)
+                        // DECISION: Trigger cleanup if:
+                        // 1. We just logged out (A -> null)
+                        // 2. We swapped users (A -> B)
+                        // 3. We logged into B but DataStore still belongs to A (null -> B and dirty)
+                        val isCleanupRequired = isTransitionToUnauthenticated || 
+                                               (currentUid != null && owningUid != null && owningUid != currentUid)
+                        
+                        if (isCleanupRequired) {
+                            diagnosticLogger.info(DiagnosticCategory.AUTH, "ACCOUNT_BOUNDARY_DETECTED", mapOf("from" to (previousUid ?: "null"), "to" to (currentUid ?: "null")))
+                            
+                            try {
+                                _isCleaning.value = true
+                                // BLOCKING: Ensure cleanup completes before continuing to prevent stale data visibility
+                                logoutCoordinator.performFullCleanup()
+                                diagnosticLogger.info(DiagnosticCategory.AUTH, "ACCOUNT_CLEANUP_COMPLETED")
+                            } catch (e: Exception) {
+                                diagnosticLogger.error(DiagnosticCategory.AUTH, "ACCOUNT_CLEANUP_FAILED", throwable = e)
+                            } finally {
+                                _isCleaning.value = false
+                                if (currentUid == null) {
+                                    // Hard Reset to Login screen only if we are now logged out
+                                    _startupState.value = AppStartupState.Ready(Login)
+                                }
+                            }
                         }
                     }
                 }
@@ -149,11 +172,15 @@ class MainViewModel @Inject constructor(
         // --- PROCESS DEATH RESTORATION ---
         val wasCompleted = savedStateHandle.get<Boolean>(KEY_STARTUP_COMPLETED) ?: false
         val destinationId = savedStateHandle.get<String>(KEY_RESOLVED_DESTINATION_ID)
+        val resolvedUid = savedStateHandle.get<String>(KEY_RESOLVED_UID)
+        val currentUid = authRepository.currentUser.value?.uid
 
-        if (wasCompleted && destinationId != null && authRepository.currentUser.value != null) {
+        // BLOCKER FIX: Verify that the restored state belongs to the currently logged-in user.
+        // If UIDs mismatch (User B resuming User A's process), discard and force fresh startup.
+        if (wasCompleted && destinationId != null && currentUid != null && currentUid == resolvedUid) {
             val restoredDestination = mapIdToRoute(destinationId)
             if (restoredDestination != null) {
-                diagnosticLogger.info(DiagnosticCategory.STARTUP, "STARTUP_RESTORED", mapOf("destination" to destinationId))
+                diagnosticLogger.info(DiagnosticCategory.STARTUP, "STARTUP_RESTORED", mapOf("destination" to destinationId, "uid" to currentUid))
                 _startupState.value = AppStartupState.Ready(restoredDestination)
                 
                 // Process Restoration implies identity stability
@@ -165,6 +192,9 @@ class MainViewModel @Inject constructor(
                 }
                 return
             }
+        } else if (wasCompleted && resolvedUid != null && currentUid != resolvedUid) {
+            diagnosticLogger.warn(DiagnosticCategory.STARTUP, "RESTORATION_UID_MISMATCH", mapOf("saved" to resolvedUid, "current" to (currentUid ?: "null")))
+            // Continue to normal startup to re-validate User B
         }
         // ---------------------------------
 
@@ -208,6 +238,10 @@ class MainViewModel @Inject constructor(
     private fun executeStartup() {
         viewModelScope.launch {
             try {
+                // BLOCKER FIX: Wait for any cross-account cleanup to finish before initializing the new session.
+                // This ensures User B never sees User A's cached DataStore/Room identity.
+                isCleaning.first { !it }
+
                 startupCoordinator.start()
                 
                 // BLOCKING: Wait for Core/Security readiness (including App Check)
@@ -278,9 +312,12 @@ class MainViewModel @Inject constructor(
         // Persist for Process Death Recovery
         val destination = state.startDestination
         val destinationId = mapRouteToId(destination)
-        if (destinationId != null) {
+        val currentUid = authRepository.currentUser.value?.uid
+
+        if (destinationId != null && currentUid != null) {
             savedStateHandle[KEY_STARTUP_COMPLETED] = true
             savedStateHandle[KEY_RESOLVED_DESTINATION_ID] = destinationId
+            savedStateHandle[KEY_RESOLVED_UID] = currentUid
         }
     }
 

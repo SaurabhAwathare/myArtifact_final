@@ -140,9 +140,9 @@ fun ArtifactOptionsSheet(
                     }
                 } else {
                     OptionItem(
-                        label = "Give feedback",
-                        description = "Tell us how this content feels",
-                        icon = Icons.Rounded.ChatBubbleOutline,
+                        label = "Not for me",
+                        description = "See less content like this in your feed",
+                        icon = Icons.Rounded.RemoveCircleOutline,
                         onClick = {
                             onFeedbackClick()
                             onDismiss()

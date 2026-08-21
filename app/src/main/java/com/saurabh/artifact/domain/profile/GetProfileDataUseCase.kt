@@ -4,6 +4,7 @@ import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.User
 import com.saurabh.artifact.repository.*
+import com.saurabh.artifact.domain.ArtifactVisibilityFilter
 import kotlinx.coroutines.flow.*
 import javax.inject.Inject
 
@@ -23,7 +24,8 @@ class GetProfileDataUseCase @Inject constructor(
     private val userRepository: UserRepository,
     private val artifactRepository: ArtifactRepository,
     private val recordingRepository: RecordingRepository,
-    private val authRepository: AuthRepository
+    private val authRepository: AuthRepository,
+    private val visibilityFilter: ArtifactVisibilityFilter
 ) {
     operator fun invoke(targetUserId: String?): Flow<ProfileData?> {
         return authRepository.currentUser.flatMapLatest { currentUser ->
@@ -38,17 +40,32 @@ class GetProfileDataUseCase @Inject constructor(
                 artifactRepository.getUserArtifacts(finalId, onlyActive = !isSelf),
                 if (isSelf) artifactRepository.getSavedArtifacts(finalId) else flowOf(emptyList()),
                 if (isSelf) recordingRepository.observeDrafts() else flowOf(emptyList()),
-                if (currentUserId.isNotEmpty()) userRepository.observeIsResonating(currentUserId, finalId) else flowOf(false)
-            ) { profile, artifactsWithSnapshot, saved, localDrafts, isResonating ->
+                if (currentUserId.isNotEmpty()) userRepository.observeIsResonating(currentUserId, finalId) else flowOf(false),
+                visibilityFilter.observeSuppressedIds(currentUserId)
+            ) { params ->
+                @Suppress("UNCHECKED_CAST")
+                val profile = params[0] as User?
+                @Suppress("UNCHECKED_CAST")
+                val artifactsWithSnapshot = params[1] as Pair<List<Artifact>, com.google.firebase.firestore.DocumentSnapshot?>
+                @Suppress("UNCHECKED_CAST")
+                val saved = params[2] as List<Artifact>
+                @Suppress("UNCHECKED_CAST")
+                val localDrafts = params[3] as List<ArtifactDraftEntity>
+                val isResonating = params[4] as Boolean
+                @Suppress("UNCHECKED_CAST")
+                val suppressedIds = params[5] as Set<String>
+
                 val (allArtifacts, lastDoc) = artifactsWithSnapshot
                 val statusPublished = com.saurabh.artifact.model.ArtifactStatus.ACTIVE
                 val localDraftIds = localDrafts.map { it.id }.toSet()
 
+                val filteredArtifacts = allArtifacts.filter { it.id !in suppressedIds }
+
                 ProfileData(
                     userProfile = profile,
-                    publishedArtifacts = allArtifacts.filter { it.status == statusPublished },
+                    publishedArtifacts = filteredArtifacts.filter { it.status == statusPublished },
                     lastArtifactDocument = lastDoc,
-                    cloudDrafts = allArtifacts.filter { 
+                    cloudDrafts = filteredArtifacts.filter { 
                         it.status != statusPublished && 
                         it.status != com.saurabh.artifact.model.ArtifactStatus.DELETED &&
                         it.id !in localDraftIds

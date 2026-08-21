@@ -17,13 +17,15 @@ interface ArtifactDao {
         SELECT *, (
             SELECT COUNT(*) FROM artifacts a2 
             WHERE (a2.reportCount < 3 AND a2.safetyConcernCount < 3 AND a2.id NOT IN (SELECT artifactId FROM reported_artifacts WHERE userId = :currentUserId))
+            AND (:emotions IS NULL OR a2.emotion IN (:emotions))
             AND (a2.createdAt > a1.createdAt OR (a2.createdAt = a1.createdAt AND a2.id >= a1.id))
         ) - 1 as absoluteIndex
         FROM artifacts a1
         WHERE (reportCount < 3 AND safetyConcernCount < 3 AND id NOT IN (SELECT artifactId FROM reported_artifacts WHERE userId = :currentUserId))
+        AND (:emotions IS NULL OR emotion IN (:emotions))
         ORDER BY createdAt DESC, id DESC
     """)
-    fun getArtifactsPaged(currentUserId: String): PagingSource<Int, ArtifactEntityWithIndex>
+    fun getArtifactsPaged(currentUserId: String, emotions: List<com.saurabh.artifact.model.Emotion>?): PagingSource<Int, ArtifactEntityWithIndex>
 
     @Query("SELECT EXISTS(SELECT 1 FROM artifacts LIMIT 1)")
     suspend fun hasCachedArtifacts(): Boolean
@@ -36,6 +38,9 @@ interface ArtifactDao {
 
     @Query("SELECT * FROM artifacts WHERE id IN (:ids)")
     suspend fun getArtifactsByIds(ids: List<String>): List<ArtifactEntity>
+
+    @Query("DELETE FROM artifacts WHERE emotion IN (:emotions)")
+    suspend fun deleteArtifactsByEmotions(emotions: List<com.saurabh.artifact.model.Emotion>)
 
     @Query("DELETE FROM artifacts WHERE id = :artifactId")
     suspend fun deleteById(artifactId: String)

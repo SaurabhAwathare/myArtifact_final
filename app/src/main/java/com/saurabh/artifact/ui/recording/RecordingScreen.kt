@@ -10,12 +10,16 @@ import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.EaseInOutSine
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,8 +32,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -51,7 +53,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -59,11 +60,9 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -73,7 +72,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.util.lerp
 import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.saurabh.artifact.data.local.RecordingStatus
@@ -84,7 +82,6 @@ import com.saurabh.artifact.ui.theme.GoldAura500
 import com.saurabh.artifact.ui.theme.Obsidian900
 import com.saurabh.artifact.ui.theme.Obsidian950
 import com.saurabh.artifact.util.TimeUtils
-import kotlin.math.absoluteValue
 
 @Composable
 fun RecordingScreen(
@@ -100,26 +97,9 @@ fun RecordingScreen(
     var showRationaleDialog by remember { mutableStateOf(false) }
     var showPermanentDenialDialog by remember { mutableStateOf(false) }
 
-    val pagerState = rememberPagerState(
-        initialPage = uiState.currentPromptIndex,
-        pageCount = { uiState.promptList.size }
-    )
-
     // Best practice: Use rememberUpdatedState for callbacks used in side effects
     val currentOnFinished by rememberUpdatedState(onFinished)
     val currentOnBack by rememberUpdatedState(onBack)
-
-    // Sync pager state with ViewModel if needed (optional, but good for activePrompt tracking)
-    LaunchedEffect(pagerState.currentPage) {
-        viewModel.updatePromptIndex(pagerState.currentPage)
-    }
-
-    // Sync ViewModel initial state to pager
-    LaunchedEffect(uiState.currentPromptIndex) {
-        if (uiState.currentPromptIndex != pagerState.currentPage) {
-            pagerState.scrollToPage(uiState.currentPromptIndex)
-        }
-    }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -334,46 +314,26 @@ fun RecordingScreen(
                     .fillMaxSize()
                     .padding(innerPadding)
             ) {
-                // TOP HALF - PROMPT SECTION (Swipeable)
+                // TOP HALF - PROMPT SECTION
                 Box(
                     modifier = Modifier
                         .weight(1.2f)
                         .fillMaxWidth(),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (uiState.promptList.isNotEmpty()) {
-                        HorizontalPager(
-                            state = pagerState,
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(horizontal = 48.dp),
-                            pageSpacing = 16.dp
-                        ) { page ->
-                            val prompt = uiState.promptList[page]
-                            val pageOffset by remember {
-                                derivedStateOf {
-                                    ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction).absoluteValue
-                                }
-                            }
-                            
+                    AnimatedContent(
+                        targetState = uiState.currentPrompt,
+                        transitionSpec = {
+                            fadeIn(animationSpec = tween(500)) togetherWith
+                            fadeOut(animationSpec = tween(500))
+                        },
+                        label = "PromptSwitch"
+                    ) { prompt ->
+                        if (prompt != null) {
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .graphicsLayer {
-                                        // Cinematic scale and fade
-                                        val scale = lerp(
-                                            start = 0.85f,
-                                            stop = 1f,
-                                            fraction = 1f - pageOffset.coerceIn(0f, 1f)
-                                        )
-                                        scaleX = scale
-                                        scaleY = scale
-                                        alpha = lerp(
-                                            start = 0.3f,
-                                            stop = 1f,
-                                            fraction = 1f - pageOffset.coerceIn(0f, 1f)
-                                        )
-                                    }
-                                    .blur(radius = (pageOffset * 10).dp),
+                                    .padding(horizontal = 48.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.Center
                             ) {
@@ -401,16 +361,24 @@ fun RecordingScreen(
                                 Spacer(modifier = Modifier.height(32.dp))
 
                                 // ACTION LINK: Try Another Prompt
-                                TextButton(
-                                    onClick = { viewModel.nextPrompt() },
-                                    colors = ButtonDefaults.textButtonColors(
-                                        contentColor = Color(0xFFFFB74D).copy(alpha = 0.6f) // Warm amber
-                                    )
-                                ) {
-                                    Text(
-                                        text = "Try Another Prompt →",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Light
+                                if (!uiState.isPromptLoading) {
+                                    TextButton(
+                                        onClick = { viewModel.nextPrompt() },
+                                        colors = ButtonDefaults.textButtonColors(
+                                            contentColor = Color(0xFFFFB74D).copy(alpha = 0.6f) // Warm amber
+                                        )
+                                    ) {
+                                        Text(
+                                            text = "Try Another Prompt →",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Light
+                                        )
+                                    }
+                                } else {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(24.dp),
+                                        color = GoldAura500.copy(alpha = 0.4f),
+                                        strokeWidth = 2.dp
                                     )
                                 }
 
@@ -423,10 +391,9 @@ fun RecordingScreen(
                                     textAlign = TextAlign.Center
                                 )
                             }
+                        } else {
+                            CircularProgressIndicator(color = GoldAura500.copy(alpha = 0.2f))
                         }
-                    } else {
-                        // Fallback/Loading
-                        CircularProgressIndicator(color = GoldAura500.copy(alpha = 0.2f))
                     }
                 }
 

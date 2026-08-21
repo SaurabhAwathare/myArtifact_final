@@ -31,6 +31,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
+import com.saurabh.artifact.R
+import com.saurabh.artifact.startup.StartupStage
 import com.saurabh.artifact.ui.theme.GoldAura500
 import com.saurabh.artifact.ui.theme.Obsidian950
 import com.saurabh.artifact.ui.components.AuraLogo
@@ -40,7 +43,7 @@ import kotlin.math.PI
 import kotlin.math.sin
 
 @Composable
-fun SplashUI() {
+fun SplashUI(stage: StartupStage = StartupStage.ARRIVAL) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -80,7 +83,10 @@ fun SplashUI() {
             Spacer(modifier = Modifier.height(8.dp))
             
             Text(
-                text = "pure expression",
+                text = if (stage == StartupStage.DELETION_CLEANUP) 
+                    stringResource(R.string.account_deletion_cleanup_lock)
+                else 
+                    "pure expression",
                 style = MaterialTheme.typography.labelMedium,
                 color = Color.White.copy(alpha = 0.5f)
             )

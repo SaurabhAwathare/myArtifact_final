@@ -32,6 +32,7 @@ class SettingsRepository @Inject constructor(
     private val firestore: FirebaseFirestore,
     private val authRepository: AuthRepository,
     private val startupCoordinator: StartupCoordinator,
+    private val maintenanceRepository: MaintenanceRepository,
     private val sessionManager: com.saurabh.artifact.data.local.UserSessionManager,
     private val logoutCoordinator: dagger.Lazy<com.saurabh.artifact.domain.auth.LogoutCoordinator>
 ) {
@@ -163,15 +164,22 @@ class SettingsRepository @Inject constructor(
     }
 
     suspend fun deleteUserAccount(): Result<Unit> {
-        authRepository.currentUser.value ?: return Result.failure(Exception("Not logged in"))
+        val userId = authRepository.currentUser.value?.uid ?: return Result.failure(Exception("Not logged in"))
         
         return try {
-            // 1. Perform Full Local Cleanup (Hardening)
+            // 1. Establish Durable Deletion State (Maintenance Lock)
+            maintenanceRepository.setPendingDeletion(userId)
+
+            // 2. Authoritative Remote Trigger (Firebase Auth)
+            // This is the "point of no return" that triggers 'onUserDeleted' Cloud Function
+            authRepository.deleteCurrentUser().getOrThrow()
+            
+            // 3. Perform Full Local Cleanup (Hardening)
             // This clears Room database, DataStores, caches, and stops active media.
             logoutCoordinator.get().performFullCleanup()
             
-            // 2. Delete Auth account (This becomes the authoritative trigger for 'onUserDeleted' Cloud Function)
-            authRepository.deleteCurrentUser().getOrThrow()
+            // 4. Clear Maintenance State on success
+            maintenanceRepository.setPendingDeletion(null)
 
             Result.success(Unit)
         } catch (e: Exception) {

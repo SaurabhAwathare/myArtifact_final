@@ -40,17 +40,14 @@ class RecordingViewModel @Inject constructor(
     private val _navigationEvents = Channel<String>(capacity = Channel.BUFFERED)
     val navigationEvents = _navigationEvents.receiveAsFlow()
 
-    private var promptList: List<ReflectionPrompt> = emptyList()
-    private var currentPromptIndex = 0
-
     init {
         if (authRepository.currentUser.value == null) {
             diagnosticLogger.warn(DiagnosticCategory.AUTH, "RECORDING_BLOCKED_AUTH", mapOf("reason" to "USER_NULL"))
         } else {
-            loadPrompts()
+            loadInitialPrompt()
             observeRecordingSession()
             
-            // Immediate start for InstantRecord flow (Warning ritual handled in PreRecordingWarningScreen)
+            // Immediate start for InstantRecord flow
             _uiState.update { it.copy(flowState = RecordingFlowState.RECORDING) }
             
             viewModelScope.launch {
@@ -59,67 +56,52 @@ class RecordingViewModel @Inject constructor(
         }
     }
 
-    private fun loadPrompts() {
+    private fun loadInitialPrompt() {
         viewModelScope.launch {
-            // Ensure DB is initialized
             promptRepository.initializeIfEmpty()
 
-            // First load all prompts and wait for data
-            promptRepository.getAllPrompts()
-                .first { it.isNotEmpty() }
-                .let { allPrompts ->
-                    promptList = allPrompts.shuffled()
-                    
-                    // Priority 1: Navigation Argument
-                    val navPromptEncoded = savedStateHandle.get<String>("prompt")
-                    val navPrompt = navPromptEncoded?.let {
-                        try {
-                            URLDecoder.decode(it, StandardCharsets.UTF_8.toString())
-                        } catch (_: Exception) {
-                            it
-                        }
-                    }
-                    
-                    // Priority 2: Session-active prompt
-                    val activePromptId = userSessionManager.activePromptId.first()
-                    
-                    var targetPrompt = if (navPrompt != null) {
-                        promptList.find { it.question.equals(navPrompt.trim(), ignoreCase = true) }
-                    } else null
-
-                    if (targetPrompt == null && navPrompt != null) {
-                        // Create a temporary prompt for the one passed via navigation if not in DB
-                        targetPrompt = ReflectionPrompt(
-                            id = "nav_${System.currentTimeMillis()}",
-                            category = PromptCategory.AI_GUIDED,
-                            question = navPrompt.trim()
-                        )
-                        promptList = listOf(targetPrompt) + promptList
-                    }
-
-                    if (targetPrompt == null && activePromptId != null) {
-                        targetPrompt = promptList.find { it.id == activePromptId }
-                    }
-                    
-                    if (targetPrompt != null) {
-                        currentPromptIndex = promptList.indexOf(targetPrompt)
-                        _uiState.update { it.copy(
-                            currentPrompt = targetPrompt,
-                            promptList = promptList,
-                            currentPromptIndex = currentPromptIndex,
-                            isPromptVisible = true
-                        ) }
-                    } else {
-                        val firstPrompt = promptList[currentPromptIndex]
-                        _uiState.update { it.copy(
-                            currentPrompt = firstPrompt,
-                            promptList = promptList,
-                            currentPromptIndex = currentPromptIndex,
-                            isPromptVisible = true
-                        ) }
-                        userSessionManager.setActivePromptId(firstPrompt.id)
-                    }
+            // Priority 1: Navigation Argument
+            val navPromptEncoded = savedStateHandle.get<String>("prompt")
+            val navPrompt = navPromptEncoded?.let {
+                try {
+                    URLDecoder.decode(it, StandardCharsets.UTF_8.toString())
+                } catch (_: Exception) {
+                    it
                 }
+            }
+
+            if (navPrompt != null) {
+                val targetPrompt = ReflectionPrompt(
+                    id = "nav_${System.currentTimeMillis()}",
+                    category = PromptCategory.GENERAL,
+                    question = navPrompt.trim()
+                )
+                _uiState.update { it.copy(currentPrompt = targetPrompt, isPromptVisible = true) }
+                return@launch
+            }
+
+            // Priority 2: Session-active prompt (if not already consumed)
+            val activePromptId = userSessionManager.activePromptId.first()
+            if (activePromptId != null) {
+                // We should ideally check if it's consumed, but for simplicity we fetch it if it exists
+                // The repo will handle variety if we ask for a new one.
+                // For now, let's just get a fresh one if we don't have one cached to ensure non-repetition
+                // if the user restarts after seeing one but before "consuming" it.
+                // BUT the requirement says "survive app restart". 
+                // So we check if the active one is still valid.
+                val allPrompts = promptRepository.getAllPrompts().first()
+                val activePrompt = allPrompts.find { it.id == activePromptId }
+                
+                if (activePrompt != null && !activePrompt.isConsumed) { 
+                    _uiState.update { it.copy(currentPrompt = activePrompt, isPromptVisible = true) }
+                    return@launch
+                }
+            }
+
+            // Priority 3: Fresh eligible prompt
+            val freshPrompt = promptManager.getNextPrompt()
+            _uiState.update { it.copy(currentPrompt = freshPrompt, isPromptVisible = true) }
+            userSessionManager.setActivePromptId(freshPrompt.id)
         }
     }
 
@@ -146,6 +128,12 @@ class RecordingViewModel @Inject constructor(
 
                 if (state.status == RecordingStatus.COMPLETED && state.draftId.isNotEmpty()) {
                     diagnosticLogger.info(DiagnosticCategory.RECORDING, "RECORDING_FINALIZED", mapOf(LogKeys.DRAFT_ID to state.draftId))
+                    
+                    // Mark as consumed on successful recording
+                    uiState.value.currentPrompt?.id?.let { id ->
+                        promptRepository.markAsConsumed(id)
+                    }
+                    
                     viewModelScope.launch {
                         _navigationEvents.send(state.draftId)
                     }
@@ -191,73 +179,28 @@ class RecordingViewModel @Inject constructor(
     }
 
     fun nextPrompt() {
-        if (promptList.isNotEmpty()) {
-            currentPromptIndex = (currentPromptIndex + 1) % promptList.size
-            val nextPrompt = promptList[currentPromptIndex]
-            _uiState.update { it.copy(
-                currentPrompt = nextPrompt,
-                currentPromptIndex = currentPromptIndex
-            ) }
-            viewModelScope.launch {
-                userSessionManager.setActivePromptId(nextPrompt.id)
-            }
-        }
-    }
-
-    fun updatePromptIndex(index: Int) {
-        if (promptList.isNotEmpty() && index in promptList.indices) {
-            currentPromptIndex = index
-            val nextPrompt = promptList[currentPromptIndex]
-            _uiState.update { it.copy(
-                currentPrompt = nextPrompt,
-                currentPromptIndex = currentPromptIndex
-            ) }
-            viewModelScope.launch {
-                userSessionManager.setActivePromptId(nextPrompt.id)
-            }
-        }
-    }
-
-    fun refreshAIPrompt(context: String? = null) {
         viewModelScope.launch {
             _uiState.update { it.copy(isPromptLoading = true) }
-            try {
-                // Determine time of day for context
-                val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
-                val timeOfDay = when (hour) {
-                    in 5..11 -> "morning"
-                    in 12..16 -> "afternoon"
-                    in 17..21 -> "evening"
-                    else -> "night"
-                }
-
-                val aiPrompt = promptManager.getSmartReflectionPrompt(
-                    emotion = null, // Could be derived from transcription in the future
-                    context = context,
-                    timeOfDay = timeOfDay
-                )
-
-                // Add to list and select it
-                promptList = listOf(aiPrompt) + promptList
-                currentPromptIndex = 0
-                _uiState.update { it.copy(
-                    currentPrompt = aiPrompt,
-                    promptList = promptList,
-                    currentPromptIndex = 0,
-                    isPromptLoading = false
-                ) }
-                userSessionManager.setActivePromptId(aiPrompt.id)
-                
-                diagnosticLogger.info(
-                    DiagnosticCategory.STUDIO, 
-                    "AI_PROMPT_REFRESHED", 
-                    mapOf(LogKeys.PROMPT_ID to aiPrompt.id)
-                )
-            } catch (e: Exception) {
-                diagnosticLogger.error(DiagnosticCategory.STUDIO, "AI_PROMPT_REFRESH_FAILED", throwable = e)
-                _uiState.update { it.copy(isPromptLoading = false) }
+            
+            // Mark current as consumed
+            uiState.value.currentPrompt?.id?.let { id ->
+                promptRepository.markAsConsumed(id)
             }
+            
+            // Fetch new one
+            val nextPrompt = promptManager.getNextPrompt()
+            _uiState.update { it.copy(
+                currentPrompt = nextPrompt,
+                isPromptLoading = false
+            ) }
+            userSessionManager.setActivePromptId(nextPrompt.id)
         }
+    }
+
+    // Deprecated / No-op
+    fun updatePromptIndex(index: Int) {}
+    fun refreshAIPrompt(context: String? = null) {
+        nextPrompt()
     }
 }
 
@@ -271,8 +214,6 @@ data class RecordingUiState(
     val lastDraftPath: String? = null,
     val isPromptVisible: Boolean = true,
     val currentPrompt: ReflectionPrompt? = null,
-    val promptList: List<ReflectionPrompt> = emptyList(),
-    val currentPromptIndex: Int = 0,
     val isPromptLoading: Boolean = false,
     val amplitudes: List<Float> = emptyList(),
     val currentAmplitude: Float = 0f,

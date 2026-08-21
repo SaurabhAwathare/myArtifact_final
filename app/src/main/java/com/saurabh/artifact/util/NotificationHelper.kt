@@ -142,7 +142,7 @@ object NotificationHelper {
         cancelIntent: PendingIntent? = null
     ): Notification {
         return NotificationCompat.Builder(context, CHANNEL_ID_EXPORTS)
-            .setContentTitle("Exporting Artifact Data")
+            .setContentTitle("Exporting your Artifacts")
             .setContentText(statusText)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setOngoing(true)
@@ -181,16 +181,24 @@ object NotificationHelper {
         context: Context,
         title: String,
         message: String,
-        isSuccess: Boolean
+        isSuccess: Boolean,
+        fileName: String? = null
     ) {
         if (!isNotificationEnabled(context)) return
 
         try {
             if (hasNotificationPermission(context)) {
+                val finalMessage = if (isSuccess && fileName != null) {
+                    "$fileName\n$message"
+                } else {
+                    message
+                }
+
                 val notification = NotificationCompat.Builder(context, CHANNEL_ID_EXPORTS)
                     .setContentTitle(title)
-                    .setContentText(message)
+                    .setContentText(finalMessage)
                     .setSmallIcon(R.mipmap.ic_launcher)
+                    .setStyle(NotificationCompat.BigTextStyle().bigText(finalMessage))
                     .setAutoCancel(true)
                     .setPriority(if (isSuccess) NotificationCompat.PRIORITY_DEFAULT else NotificationCompat.PRIORITY_HIGH)
                     .build()

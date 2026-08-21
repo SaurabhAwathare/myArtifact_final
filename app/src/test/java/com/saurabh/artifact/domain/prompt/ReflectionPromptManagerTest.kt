@@ -2,7 +2,7 @@ package com.saurabh.artifact.domain.prompt
 
 import com.saurabh.artifact.model.PromptCategory
 import com.saurabh.artifact.model.ReflectionPrompt
-import com.saurabh.artifact.service.ReflectionAIService
+import com.saurabh.artifact.repository.PromptRepository
 import io.mockk.*
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -10,31 +10,31 @@ import org.junit.Before
 import org.junit.Test
 
 class ReflectionPromptManagerTest {
-    private val aiService = mockk<ReflectionAIService>(relaxed = true)
+    private val promptRepository = mockk<PromptRepository>(relaxed = true)
     private lateinit var manager: ReflectionPromptManager
 
     @Before
     fun setup() {
         manager = ReflectionPromptManager(
-            aiService = { aiService }
+            promptRepository = promptRepository
         )
     }
 
     @Test
-    fun `getSmartReflectionPrompt should return prompt from AI service`() = runBlocking {
-        val expected = ReflectionPrompt(id = "1", question = "How are you?", category = PromptCategory.GENERAL)
-        coEvery { aiService.generatePrompt(any(), any(), any()) } returns Result.success(expected)
+    fun `getNextPrompt should return prompt from repository`() = runBlocking {
+        val expected = ReflectionPrompt(id = "1", question = "How are you?", category = PromptCategory.GENERAL, depthLevel = 1)
+        coEvery { promptRepository.getNewPrompt() } returns expected
 
-        val result = manager.getSmartReflectionPrompt("Joy", "Context", "Morning")
+        val result = manager.getNextPrompt()
 
         assertEquals(expected, result)
     }
 
     @Test
-    fun `getSmartReflectionPrompt should return fallback if AI service fails`() = runBlocking {
-        coEvery { aiService.generatePrompt(any(), any(), any()) } returns Result.failure(Exception("AI Error"))
+    fun `getNextPrompt should return fallback if repository returns null`() = runBlocking {
+        coEvery { promptRepository.getNewPrompt() } returns null
 
-        val result = manager.getSmartReflectionPrompt("Joy", "Context", "Morning")
+        val result = manager.getNextPrompt()
 
         assertEquals(PromptCategory.GENERAL, result.category)
         assert(result.id.startsWith("fallback_"))

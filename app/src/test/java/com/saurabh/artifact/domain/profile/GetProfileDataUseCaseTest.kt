@@ -3,10 +3,12 @@ package com.saurabh.artifact.domain.profile
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.*
+import com.saurabh.artifact.domain.ArtifactVisibilityFilter
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
 import org.junit.Before
@@ -19,6 +21,7 @@ class GetProfileDataUseCaseTest {
     private val artifactRepository = mockk<ArtifactRepository>()
     private val recordingRepository = mockk<RecordingRepository>()
     private val authRepository = mockk<AuthRepository>()
+    private val visibilityFilter = mockk<ArtifactVisibilityFilter>()
 
     private lateinit var useCase: GetProfileDataUseCase
 
@@ -28,7 +31,8 @@ class GetProfileDataUseCaseTest {
             userRepository,
             artifactRepository,
             recordingRepository,
-            authRepository
+            authRepository,
+            visibilityFilter
         )
         
         val mockUser = mockk<com.google.firebase.auth.FirebaseUser> {
@@ -39,6 +43,7 @@ class GetProfileDataUseCaseTest {
         every { userRepository.streamUserProfile(any()) } returns flowOf(null)
         every { userRepository.observeIsResonating(any(), any()) } returns flowOf(false)
         every { artifactRepository.getSavedArtifacts(any()) } returns flowOf(emptyList())
+        every { visibilityFilter.observeSuppressedIds(any()) } returns flowOf(emptySet())
     }
 
     @Test
@@ -85,5 +90,40 @@ class GetProfileDataUseCaseTest {
         assertTrue(result!!.localDrafts.isEmpty())
         assertEquals(1, result.cloudDrafts.size)
         assertEquals("unique_cloud_id", result.cloudDrafts[0].id)
+    }
+
+    @Test
+    fun `should filter reported artifacts reactively`() = runTest {
+        val artifact1 = mockk<Artifact> {
+            every { id } returns "art1"
+            every { status } returns ArtifactStatus.ACTIVE
+        }
+        val artifact2 = mockk<Artifact> {
+            every { id } returns "art2"
+            every { status } returns ArtifactStatus.ACTIVE
+        }
+        
+        every { artifactRepository.getUserArtifacts(any(), any()) } returns flowOf(listOf(artifact1, artifact2) to null)
+        every { recordingRepository.observeDrafts() } returns flowOf(emptyList())
+        
+        val suppressedFlow = kotlinx.coroutines.flow.MutableStateFlow(emptySet<String>())
+        every { visibilityFilter.observeSuppressedIds(any()) } returns suppressedFlow
+
+        val results = mutableListOf<ProfileData?>()
+        val job = launch {
+            useCase(null).collect { results.add(it) }
+        }
+
+        // Initially both visible
+        assertEquals(1, results.size)
+        assertEquals(2, results.last()?.publishedArtifacts?.size)
+
+        // Report art1
+        suppressedFlow.value = setOf("art1")
+        assertEquals(2, results.size)
+        assertEquals(1, results.last()?.publishedArtifacts?.size)
+        assertEquals("art2", results.last()?.publishedArtifacts?.get(0)?.id)
+
+        job.cancel()
     }
 }

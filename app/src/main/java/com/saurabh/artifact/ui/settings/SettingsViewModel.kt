@@ -26,7 +26,7 @@ sealed class SettingsUiEvent {
     object AccountDeleted : SettingsUiEvent()
     object LoggedOut : SettingsUiEvent()
     object ReauthenticationRequired : SettingsUiEvent()
-    object ExportInitiated : SettingsUiEvent()
+    object ExportStarted : SettingsUiEvent()
 }
 
 data class AccountInfo(val realName: SecureString, val email: SecureString)
@@ -65,6 +65,12 @@ class SettingsViewModel @Inject constructor(
     private val _isExporting = MutableStateFlow(false)
     val isExporting: StateFlow<Boolean> = _isExporting.asStateFlow()
 
+    private val _deletionConfirmationInput = MutableStateFlow("")
+    val deletionConfirmationInput: StateFlow<String> = _deletionConfirmationInput.asStateFlow()
+
+    val isDeletionConfirmed = _deletionConfirmationInput.map { it == "DELETE" }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
     private val _exportProgress = MutableStateFlow<ExportProgress?>(null)
     val exportProgress: StateFlow<ExportProgress?> = _exportProgress.asStateFlow()
 
@@ -93,6 +99,10 @@ class SettingsViewModel @Inject constructor(
 
     fun updateNotifications(enabled: Boolean) {
         update { it.copy(notificationsEnabled = enabled) }
+    }
+
+    fun updateDeletionConfirmation(input: String) {
+        _deletionConfirmationInput.value = input
     }
 
     fun updateSmartReminders(enabled: Boolean) {
@@ -144,10 +154,11 @@ class SettingsViewModel @Inject constructor(
             
             val reauthenticationResult = if (idToken != null) {
                 authRepository.reauthenticateWithGoogle(idToken)
-            } else if (isAnonymous.value) {
-                // Anonymous users don't need Google ID token for re-auth in this context
-                // but the current AuthRepository.reauthenticateWithGoogle expects one.
-                Result.failure(Exception("Google Sign-In verification required."))
+            } else if (isAnonymous.value && isDeletionConfirmed.value) {
+                // DURABLE SAFETY: For anonymous users, the deliberate "DELETE" typing 
+                // acts as the authoritative re-verification. We also attempt a token refresh
+                // to satisfy Firebase's "recent login" requirement where possible.
+                authRepository.refreshSession()
             } else {
                 Result.failure(Exception("Authentication credentials missing."))
             }
@@ -187,6 +198,10 @@ class SettingsViewModel @Inject constructor(
         
         diagnosticLogger.info(DiagnosticCategory.SETTINGS, "EXPORT_TRIGGERED")
         ExportService.start(context, outputUri)
+        
+        viewModelScope.launch {
+            _events.emit(SettingsUiEvent.ExportStarted)
+        }
     }
 
     /**

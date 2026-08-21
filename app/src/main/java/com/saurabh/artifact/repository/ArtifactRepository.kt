@@ -514,7 +514,14 @@ class ArtifactRepository @Inject constructor(
                 maxSize = 30
             ),
             remoteMediator = ArtifactRemoteMediator(firestore, database.get(), currentUserId, emotion),
-            pagingSourceFactory = { artifactDao.get().getArtifactsPaged(currentUserId) }
+            pagingSourceFactory = { 
+                val relatedEmotionEnums = if (!emotion.isNullOrEmpty() && emotion != "All") {
+                    com.saurabh.artifact.util.EmotionCategoryMapper.getRelatedEmotions(emotion).mapNotNull { label ->
+                        Emotion.entries.find { it.label.equals(label, ignoreCase = true) }
+                    }
+                } else null
+                artifactDao.get().getArtifactsPaged(currentUserId, relatedEmotionEnums) 
+            }
         ).flow.map { pagingData: PagingData<ArtifactEntityWithIndex> ->
             pagingData.map { wrapper -> 
                 mapArtifactEntityToArtifact(wrapper.entity) to wrapper.absoluteIndex

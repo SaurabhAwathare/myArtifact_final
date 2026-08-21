@@ -532,8 +532,15 @@ export const onArtifactCreated = functions.firestore
 
 /**
  * Authoritatively handles permanent account cleanup when a user is deleted.
+ * Hardened for idempotency and scalability with increased timeout and memory.
  */
-export const onUserDeleted = functions.auth.user().onDelete(async (user, context) => {
+export const onUserDeleted = functions
+  .runWith({
+    timeoutSeconds: 540,
+    memory: "1GB",
+  })
+  .auth.user()
+  .onDelete(async (user, context) => {
   const uid = user.uid;
   const db = admin.firestore();
   const startTime = Date.now();
@@ -577,37 +584,64 @@ export const onUserDeleted = functions.auth.user().onDelete(async (user, context
       logger.error("[DELETE USER] Stage=Notifications | ERROR:", e);
     }
 
-    // 3. Cleanup Resonances
+    // 3. Cleanup Resonances (Hardened for Idempotency)
     try {
       const resonanceOutSnapshot = await db.collection("users").doc(uid).collection("resonance_out").get();
-      for (const doc of resonanceOutSnapshot.docs) {
-        const targetId = doc.id;
-        try {
-          await db.collection("users").doc(targetId).collection("resonance_in").doc(uid).delete();
-          await db.collection("users").doc(targetId).update({
-            resonanceInCount: FieldValue.increment(-1),
-            followersCount: FieldValue.increment(-1),
-          });
-          resonanceUpdatedCount++;
-        } catch (e) {
-          logger.warn(`[DELETE USER] ResonanceOut=users/${targetId}/resonance_in/${uid} | ERROR:`, e);
-        }
+      // Process in small parallel batches to avoid timeout while staying under rate limits
+      const outBatches = [];
+      const outDocs = resonanceOutSnapshot.docs;
+      for (let i = 0; i < outDocs.size; i += 10) {
+        const chunk = outDocs.slice(i, i + 10);
+        outBatches.push(Promise.all(chunk.map(async (doc) => {
+          const targetId = doc.id;
+          try {
+            await db.runTransaction(async (transaction) => {
+              const sourceRef = db.collection("users").doc(uid).collection("resonance_out").doc(targetId);
+              const sourceDoc = await transaction.get(sourceRef);
+              if (!sourceDoc.exists) return; // Already processed
+
+              transaction.delete(sourceRef);
+              transaction.delete(db.collection("users").doc(targetId).collection("resonance_in").doc(uid));
+              transaction.update(db.collection("users").doc(targetId), {
+                resonanceInCount: FieldValue.increment(-1),
+                followersCount: FieldValue.increment(-1),
+              });
+            });
+            resonanceUpdatedCount++;
+          } catch (e) {
+            logger.warn(`[DELETE USER] ResonanceOut=users/${targetId}/resonance_in/${uid} | ERROR:`, e);
+          }
+        })));
       }
+      await Promise.all(outBatches);
 
       const resonanceInSnapshot = await db.collection("users").doc(uid).collection("resonance_in").get();
-      for (const doc of resonanceInSnapshot.docs) {
-        const followerId = doc.id;
-        try {
-          await db.collection("users").doc(followerId).collection("resonance_out").doc(uid).delete();
-          await db.collection("users").doc(followerId).update({
-            resonanceOutCount: FieldValue.increment(-1),
-            followingCount: FieldValue.increment(-1),
-          });
-          resonanceUpdatedCount++;
-        } catch (e) {
-          logger.warn(`[DELETE USER] ResonanceIn=users/${followerId}/resonance_out/${uid} | ERROR:`, e);
-        }
+      const inBatches = [];
+      const inDocs = resonanceInSnapshot.docs;
+      for (let i = 0; i < inDocs.size; i += 10) {
+        const chunk = inDocs.slice(i, i + 10);
+        inBatches.push(Promise.all(chunk.map(async (doc) => {
+          const followerId = doc.id;
+          try {
+            await db.runTransaction(async (transaction) => {
+              const sourceRef = db.collection("users").doc(uid).collection("resonance_in").doc(followerId);
+              const sourceDoc = await transaction.get(sourceRef);
+              if (!sourceDoc.exists) return; // Already processed
+
+              transaction.delete(sourceRef);
+              transaction.delete(db.collection("users").doc(followerId).collection("resonance_out").doc(uid));
+              transaction.update(db.collection("users").doc(followerId), {
+                resonanceOutCount: FieldValue.increment(-1),
+                followingCount: FieldValue.increment(-1),
+              });
+            });
+            resonanceUpdatedCount++;
+          } catch (e) {
+            logger.warn(`[DELETE USER] ResonanceIn=users/${followerId}/resonance_out/${uid} | ERROR:`, e);
+          }
+        })));
       }
+      await Promise.all(inBatches);
     } catch (e) {
       logger.error("[DELETE USER] Stage=Resonance | ERROR:", e);
     }

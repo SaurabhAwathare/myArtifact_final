@@ -66,6 +66,8 @@ class ExportService : Service() {
 
         diagnosticLogger.info(DiagnosticCategory.SETTINGS, "EXPORT_SERVICE_START")
         
+        val fileName = getFileName(outputUri) ?: "artifact_export.zip"
+
         exportJob = serviceScope.launch {
             // 1. Start Foreground
             val cancelIntent = PendingIntent.getService(
@@ -102,9 +104,10 @@ class ExportService : Service() {
                     
                     NotificationHelper.showExportResultNotification(
                         this@ExportService,
-                        if (hasOmissions) "Export Completed with Omissions" else "Export Complete",
+                        if (hasOmissions) "Export completed with omissions" else "Export complete",
                         if (hasOmissions) "Some recordings could not be retrieved. See manifest.json." else "Your Artifact archive is ready.",
-                        isSuccess = true
+                        isSuccess = true,
+                        fileName = fileName
                     )
                 }.onFailure { e ->
                     diagnosticLogger.error(DiagnosticCategory.SETTINGS, "EXPORT_SERVICE_FAILED", throwable = e)
@@ -128,8 +131,8 @@ class ExportService : Service() {
         val (text, isIndeterminate, percent) = when (progress) {
             is ExportProgress.Starting -> Triple("Starting export...", true, 0)
             is ExportProgress.Profile -> Triple("Fetching profile...", true, 0)
-            is ExportProgress.Artifacts -> Triple("Exporting Artifacts (${progress.current}/${progress.total})", false, (progress.current * 100 / progress.total))
-            is ExportProgress.Drafts -> Triple("Exporting Drafts (${progress.current}/${progress.total})", false, (progress.current * 100 / progress.total))
+            is ExportProgress.Artifacts -> Triple("Artifacts (${progress.current}/${progress.total})", false, (progress.current * 100 / progress.total))
+            is ExportProgress.Drafts -> Triple("Drafts (${progress.current}/${progress.total})", false, (progress.current * 100 / progress.total))
             is ExportProgress.Participation -> Triple("Archiving comments...", true, 0)
             is ExportProgress.Resonance -> Triple("Exporting relationships...", true, 0)
             is ExportProgress.Saved -> Triple("Exporting saved content...", true, 0)
@@ -151,6 +154,29 @@ class ExportService : Service() {
         _exportState.value = ExportProgress.Failed("Export cancelled by user")
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
+    }
+
+    private fun getFileName(uri: Uri): String? {
+        var result: String? = null
+        if (uri.scheme == "content") {
+            val cursor = contentResolver.query(uri, null, null, null, null)
+            cursor?.use {
+                if (it.moveToFirst()) {
+                    val index = it.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    if (index != -1) {
+                        result = it.getString(index)
+                    }
+                }
+            }
+        }
+        if (result == null) {
+            result = uri.path
+            val cut = result?.lastIndexOf('/')
+            if (cut != null && cut != -1) {
+                result = result.substring(cut + 1)
+            }
+        }
+        return result
     }
 
     override fun onDestroy() {

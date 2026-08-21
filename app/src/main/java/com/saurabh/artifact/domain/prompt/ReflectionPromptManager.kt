@@ -2,37 +2,40 @@ package com.saurabh.artifact.domain.prompt
 
 import com.saurabh.artifact.model.PromptCategory
 import com.saurabh.artifact.model.ReflectionPrompt
-import com.saurabh.artifact.service.ReflectionAIService
+import com.saurabh.artifact.repository.PromptRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Manages the generation and selection of reflection prompts.
- * This manager encapsulates the behavior of context-aware AI prompt generation.
+ * Manages the selection of reflection prompts from the local question bank.
+ * This manager ensures that prompts follow the non-repetition and depth-progression rules.
  */
 @Singleton
 class ReflectionPromptManager @Inject constructor(
-    private val aiService: dagger.Lazy<ReflectionAIService>
+    private val promptRepository: PromptRepository
 ) {
 
     /**
-     * Generates a contextually relevant reflection prompt using the AI service.
-     * Provides a stable fallback prompt if the AI service fails or is unavailable.
+     * Fetches the next eligible reflection prompt from the local question bank.
+     * Guarantees zero AI cost and works fully offline.
+     */
+    suspend fun getNextPrompt(): ReflectionPrompt = withContext(Dispatchers.IO) {
+        return@withContext promptRepository.getNewPrompt() ?: ReflectionPrompt(
+            id = "fallback_${System.currentTimeMillis()}",
+            category = PromptCategory.GENERAL,
+            question = "What's one thing that stayed with you today?",
+            depthLevel = 1
+        )
+    }
+
+    /**
+     * Legacy bridge for existing callers. Delegates to getNextPrompt().
      */
     suspend fun getSmartReflectionPrompt(
-        emotion: String?,
-        context: String?,
-        timeOfDay: String?
-    ): ReflectionPrompt = withContext(Dispatchers.IO) {
-        return@withContext aiService.get().generatePrompt(emotion, context, timeOfDay).getOrElse {
-            // Fallback prompt if AI fails
-            ReflectionPrompt(
-                id = "fallback_${System.currentTimeMillis()}",
-                category = PromptCategory.GENERAL,
-                question = "What's one thing that stayed with you today?"
-            )
-        }
-    }
+        emotion: String? = null,
+        context: String? = null,
+        timeOfDay: String? = null
+    ): ReflectionPrompt = getNextPrompt()
 }

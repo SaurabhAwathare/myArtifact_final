@@ -1,0 +1,12 @@
+[
+  { "id": "L1_041", "question": "What's a flavor you enjoyed today?", "category": "GENERAL", "tone": "GENTLE", "depthLevel": 1 },
+  { "id": "L1_042", "question": "What's a way you moved your body today?", "category": "GENERAL", "tone": "GENTLE", "depthLevel": 1 },
+  { "id": "L1_043", "question": "What's a texture that caught your attention today?", "category": "GENERAL", "tone": "GENTLE", "depthLevel": 1 },
+  { "id": "L1_044", "question": "What's a way you practiced patience today?", "category": "GENERAL", "tone": "GENTLE", "depthLevel": 1 },
+  { "id": "L1_045", "question": "What's a way you were kind to yourself today?", "category": "GENERAL", "tone": "GENTLE", "depthLevel": 1 },
+  { "id": "L1_046", "question": "What's a way you were kind to someone else today?", "category": "GENERAL", "tone": "GENTLE", "depthLevel": 1 },
+  { "id": "L1_047", "question": "What's a way you practiced mindfulness today?", "category": "GENERAL", "tone": "GENTLE", "depthLevel": 1 },
+  { "id": "L1_048", "question": "What's a way you practiced gratitude today?", "category": "GENERAL", "tone": "GENTLE", "depthLevel": 1 },
+  { "id": "L1_049", "question": "What's a way you practiced compassion today?", "category": "GENERAL", "tone": "GENTLE", "depthLevel": 1 },
+  { "id": "L1_050", "question": "What's a way you practiced resilience today?", "category": "GENERAL", "tone": "GENTLE", "depthLevel": 1 }
+]

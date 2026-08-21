@@ -296,6 +296,20 @@ class AuthRepository @Inject constructor(
         }
     }
 
+    /**
+     * Refreshes the current user's session. For anonymous users, this can help
+     * satisfy "recent login" requirements for destructive operations.
+     */
+    suspend fun refreshSession(): Result<Unit> {
+        val user = firebaseAuth.currentUser ?: return Result.failure(AppError.Unauthenticated())
+        return try {
+            user.getIdToken(true).await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(AppError.from(e))
+        }
+    }
+
     suspend fun deleteCurrentUser(): Result<Unit> {
         val user = firebaseAuth.currentUser ?: return Result.failure(AppError.Unauthenticated())
         return try {

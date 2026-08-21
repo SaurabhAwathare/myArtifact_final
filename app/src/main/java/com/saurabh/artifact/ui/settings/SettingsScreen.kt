@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -31,6 +32,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SnackbarHost
@@ -79,14 +81,14 @@ fun SettingsScreen(
     val isAnonymous by viewModel.isAnonymous.collectAsStateWithLifecycle()
     val isDeleting by viewModel.isDeleting.collectAsStateWithLifecycle()
     val isExporting by viewModel.isExporting.collectAsStateWithLifecycle()
-    val exportProgress by viewModel.exportProgress.collectAsStateWithLifecycle()
+    val deletionConfirmationInput by viewModel.deletionConfirmationInput.collectAsStateWithLifecycle()
+    val isDeletionConfirmed by viewModel.isDeletionConfirmed.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     
     var showDeleteConfirmation by remember { mutableStateOf(false) }
     var showReauthenticationDialog by remember { mutableStateOf(false) }
     var showLogoutConfirmation by remember { mutableStateOf(false) }
     var showExportConfirmation by remember { mutableStateOf(false) }
-    var showExportSuccess by remember { mutableStateOf(false) }
     var showNotificationRationale by remember { mutableStateOf(false) }
     var pendingActionAfterPermission by remember { mutableStateOf<(() -> Unit)?>(null) }
 
@@ -150,8 +152,10 @@ fun SettingsScreen(
                 is SettingsUiEvent.ReauthenticationRequired -> {
                     showReauthenticationDialog = true
                 }
-                is SettingsUiEvent.ExportInitiated -> {
-                    showExportSuccess = true
+                is SettingsUiEvent.ExportStarted -> {
+                    snackbarHostState.showSnackbar(
+                        context.getString(R.string.export_started_feedback)
+                    )
                 }
             }
         }
@@ -227,7 +231,10 @@ fun SettingsScreen(
                 SettingsSection(title = "Data") {
                     SettingsClickable(
                         title = "Export Data",
-                        subtitle = "Export your personal reflections and recordings as a portable archive",
+                        subtitle = if (isExporting) 
+                            "Export currently in progress. Track in notifications." 
+                        else 
+                            "Export your personal reflections and recordings as a portable archive",
                         icon = Icons.Default.Download,
                         enabled = !isExporting,
                         onClick = { showExportConfirmation = true }
@@ -277,32 +284,13 @@ fun SettingsScreen(
                 }
             }
             
-            if (isDeleting || isExporting) {
+            if (isDeleting) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator()
-                        if (isExporting) {
-                            val statusText = when (val p = exportProgress) {
-                                is ExportProgress.Starting -> "Starting export..."
-                                is ExportProgress.Profile -> "Fetching profile..."
-                                is ExportProgress.Artifacts -> "Exporting Artifacts (${p.current}/${p.total})"
-                                is ExportProgress.Drafts -> "Exporting Drafts (${p.current}/${p.total})"
-                                is ExportProgress.Participation -> "Archiving comments..."
-                                is ExportProgress.Resonance -> "Exporting relationships..."
-                                is ExportProgress.Saved -> "Exporting saved content..."
-                                is ExportProgress.Finalizing -> "Finalizing archive..."
-                                else -> "Preparing archive..."
-                            }
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                statusText,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                            )
-                        }
                     }
                 }
             }
@@ -311,21 +299,62 @@ fun SettingsScreen(
 
     if (showDeleteConfirmation) {
         AlertDialog(
-            onDismissRequest = { showDeleteConfirmation = false },
-            title = { Text("Delete Account?") },
-            text = { Text("This will permanently delete your anonymous profile and all your journal entries. This action is irreversible.") },
+            onDismissRequest = { 
+                showDeleteConfirmation = false 
+                viewModel.updateDeletionConfirmation("")
+            },
+            title = { Text("Delete Account permanently?") },
+            text = { 
+                Column {
+                    Text(
+                        stringResource(R.string.account_deletion_warning),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        stringResource(R.string.account_deletion_export_recommendation),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    OutlinedTextField(
+                        value = deletionConfirmationInput,
+                        onValueChange = { viewModel.updateDeletionConfirmation(it) },
+                        label = { Text("Type 'DELETE' to confirm") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        isError = deletionConfirmationInput.isNotEmpty() && !isDeletionConfirmed
+                    )
+                }
+            },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        showDeleteConfirmation = false
-                        viewModel.initiateDelete()
+                Column(horizontalAlignment = Alignment.End) {
+                    TextButton(
+                        onClick = {
+                            showDeleteConfirmation = false
+                            exportLauncher.launch("artifact_export_${System.currentTimeMillis()}.zip")
+                        }
+                    ) {
+                        Text("Export My Data First")
                     }
-                ) {
-                    Text("Delete Permanently", color = MaterialTheme.colorScheme.error)
+                    TextButton(
+                        onClick = {
+                            showDeleteConfirmation = false
+                            viewModel.initiateDelete()
+                        },
+                        enabled = isDeletionConfirmed
+                    ) {
+                        Text("Delete Permanently", color = if (isDeletionConfirmed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f))
+                    }
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showDeleteConfirmation = false }) {
+                TextButton(
+                    onClick = { 
+                        showDeleteConfirmation = false 
+                        viewModel.updateDeletionConfirmation("")
+                    }
+                ) {
                     Text("Cancel")
                 }
             }
@@ -429,25 +458,6 @@ fun SettingsScreen(
             dismissButton = {
                 TextButton(onClick = { showExportConfirmation = false }) {
                     Text("Cancel")
-                }
-            }
-        )
-    }
-
-    if (showExportSuccess) {
-        val hasOmissions = (exportProgress as? ExportProgress.Complete)?.hasOmissions ?: false
-        AlertDialog(
-            onDismissRequest = { showExportSuccess = false },
-            title = { Text(if (hasOmissions) "Export Completed with Omissions" else "Export Complete") },
-            text = { 
-                Text(
-                    if (hasOmissions) "Your data has been exported, but some recordings could not be retrieved. See manifest.json in the ZIP for details."
-                    else "Your data has been successfully exported. You can find your ZIP archive at the location you selected."
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = { showExportSuccess = false }) {
-                    Text("OK")
                 }
             }
         )

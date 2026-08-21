@@ -8,6 +8,7 @@ import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.repository.FeedRepository
 import com.saurabh.artifact.repository.PaginatedArtifacts
 import com.saurabh.artifact.service.FeedRanker
+import com.saurabh.artifact.domain.ArtifactVisibilityFilter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -15,10 +16,12 @@ class PersonalizedPagingSource(
     private val userId: String,
     private val feedRepository: FeedRepository,
     private val feedRanker: FeedRanker,
+    private val visibilityFilter: ArtifactVisibilityFilter,
     private val emotion: String? = null
 ) : PagingSource<PersonalizedPagingSource.PageKey, Pair<Artifact, Int>>() {
 
     private val emittedIds = mutableSetOf<String>()
+    private var suppressedIdsSnapshot: Set<String>? = null
 
     data class PageKey(
         val resonatedLast: DocumentSnapshot? = null,
@@ -40,21 +43,27 @@ class PersonalizedPagingSource(
                 val resonatedResult = feedRepository.getResonatingArtifacts(
                     userId = userId,
                     limit = pageSize,
-                    lastVisible = key.resonatedLast
+                    lastVisible = key.resonatedLast,
+                    emotion = emotion
                 ).getOrDefault(PaginatedArtifacts(emptyList(), null))
 
                 val discoveryResult = feedRepository.getDiscoveryCandidates(
                     userId = userId,
                     limit = pageSize,
-                    lastVisible = key.discoveryLast
+                    lastVisible = key.discoveryLast,
+                    emotion = emotion
                 ).getOrDefault(PaginatedArtifacts(emptyList(), null))
 
                 Log.d("PagingSourceDiag", "Page Offset: ${key.offset}")
                 Log.d("PagingSourceDiag", "Resonating IDs: ${resonatedResult.artifacts.map { it.id }}")
                 Log.d("PagingSourceDiag", "Discovery IDs: ${discoveryResult.artifacts.map { it.id }}")
 
+                val suppressed = suppressedIdsSnapshot ?: visibilityFilter.getSuppressedIdsSnapshot(userId).also {
+                    suppressedIdsSnapshot = it
+                }
+
                 val combined = (resonatedResult.artifacts + discoveryResult.artifacts)
-                    .filter { it.id !in emittedIds }
+                    .filter { it.id !in emittedIds && it.id !in suppressed }
                     .distinctBy { it.id }
 
                 emittedIds.addAll(combined.map { it.id })

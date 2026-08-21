@@ -15,7 +15,9 @@ data class PromptEntity(
     val mood: String? = null,
     val isFavorite: Boolean = false,
     val usageCount: Int = 0,
-    val lastUsedTimestamp: Long = 0
+    val lastUsedTimestamp: Long = 0,
+    val depthLevel: Int = 1,
+    val isConsumed: Boolean = false
 )
 
 fun PromptEntity.toDomainModel(): ReflectionPrompt {
@@ -26,7 +28,9 @@ fun PromptEntity.toDomainModel(): ReflectionPrompt {
         tone = tone,
         mood = mood,
         isFavorite = isFavorite,
-        usageCount = usageCount
+        usageCount = usageCount,
+        depthLevel = depthLevel,
+        isConsumed = isConsumed
     )
 }
 
@@ -38,6 +42,8 @@ fun ReflectionPrompt.toEntity(): PromptEntity {
         tone = tone,
         mood = mood,
         isFavorite = isFavorite,
-        usageCount = usageCount
+        usageCount = usageCount,
+        depthLevel = depthLevel,
+        isConsumed = isConsumed
     )
 }

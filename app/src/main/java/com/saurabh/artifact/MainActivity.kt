@@ -228,7 +228,7 @@ fun AppRoot(
             )
         }
         else -> {
-            SplashUI()
+            SplashUI(stage = stage)
         }
     }
 }

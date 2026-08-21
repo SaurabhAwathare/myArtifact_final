@@ -43,7 +43,7 @@ class ArtifactDaoIndexedQueryTest {
         )
         dao.insertAll(artifacts)
 
-        val pagingSource = dao.getArtifactsPaged("")
+        val pagingSource = dao.getArtifactsPaged("", null)
         val result = pagingSource.load(
             PagingSource.LoadParams.Refresh(
                 key = null,
@@ -77,7 +77,7 @@ class ArtifactDaoIndexedQueryTest {
         dao.insertAll(artifacts)
 
         val startTime = System.currentTimeMillis()
-        val pagingSource = dao.getArtifactsPaged("")
+        val pagingSource = dao.getArtifactsPaged("", null)
         val result = pagingSource.load(
             PagingSource.LoadParams.Refresh(
                 key = null,

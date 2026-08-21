@@ -10,6 +10,7 @@ import com.saurabh.artifact.model.FeedDisplayItem
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.FeedRepository
 import com.saurabh.artifact.service.FeedRanker
+import com.saurabh.artifact.domain.ArtifactVisibilityFilter
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -18,7 +19,8 @@ import javax.inject.Inject
 class GetPersonalizedFeedFlowUseCase @Inject constructor(
     private val authRepository: AuthRepository,
     private val feedRepository: FeedRepository,
-    private val feedRanker: FeedRanker
+    private val feedRanker: FeedRanker,
+    private val visibilityFilter: ArtifactVisibilityFilter
 ) {
     operator fun invoke(emotion: String?): Flow<PagingData<FeedDisplayItem.ArtifactItem>> {
         val userId = authRepository.currentUser.value?.uid ?: return flowOf(PagingData.empty())
@@ -35,6 +37,7 @@ class GetPersonalizedFeedFlowUseCase @Inject constructor(
                     userId = userId,
                     feedRepository = feedRepository,
                     feedRanker = feedRanker,
+                    visibilityFilter = visibilityFilter,
                     emotion = emotion
                 ) 
             }

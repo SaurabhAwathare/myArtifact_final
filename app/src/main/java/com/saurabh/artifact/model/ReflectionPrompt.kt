@@ -10,7 +10,9 @@ data class ReflectionPrompt(
     val mood: String? = null,
     val tone: EmotionalTone = EmotionalTone.REFLECTIVE,
     val isFavorite: Boolean = false,
-    val usageCount: Int = 0
+    val usageCount: Int = 0,
+    val depthLevel: Int = 1,
+    val isConsumed: Boolean = false
 )
 
 @Serializable

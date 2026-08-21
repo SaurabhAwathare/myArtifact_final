@@ -31,9 +31,14 @@ class FeedRepository @Inject constructor(
     suspend fun getResonatingArtifacts(
         userId: String, 
         limit: Int = 20,
-        lastVisible: DocumentSnapshot? = null
+        lastVisible: DocumentSnapshot? = null,
+        emotion: String? = null
     ): Result<PaginatedArtifacts> = withContext(Dispatchers.IO) {
         return@withContext try {
+            val relatedEmotions = if (!emotion.isNullOrEmpty() && emotion != "All") {
+                com.saurabh.artifact.util.EmotionCategoryMapper.getRelatedEmotions(emotion)
+            } else null
+
             val resonatedUserIds: List<String> = firestore.collection("users")
                 .document(userId)
                 .collection("resonance_out")
@@ -66,6 +71,11 @@ class FeedRepository @Inject constructor(
                     val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
                     if ((artifact == null) || artifact.audioUrl.isEmpty()) return@mapNotNull null
                     
+                    // Filter by emotion locally if requested (Firestore limit: only one whereIn per query)
+                    if (relatedEmotions != null && !relatedEmotions.contains(artifact.emotion)) {
+                        return@mapNotNull null
+                    }
+
                     val reportCount = doc.getLong("reportCount") ?: 0L
                     val reporterIds = doc["reporterIds"] as? List<*> ?: emptyList<String>()
                     
@@ -102,15 +112,24 @@ class FeedRepository @Inject constructor(
     suspend fun getDiscoveryCandidates(
         userId: String? = null,
         limit: Int = 20,
-        lastVisible: DocumentSnapshot? = null
+        lastVisible: DocumentSnapshot? = null,
+        emotion: String? = null
     ): Result<PaginatedArtifacts> = withContext(Dispatchers.IO) {
         return@withContext try {
             val poolSize = 50 // Fetch a larger pool for better ranking variety
-            
+            val relatedEmotions = if (!emotion.isNullOrEmpty() && emotion != "All") {
+                com.saurabh.artifact.util.EmotionCategoryMapper.getRelatedEmotions(emotion)
+            } else null
+
             var query = firestore.collection("artifacts")
                 .whereEqualTo("isPublic", true)
                 .whereEqualTo("status", ArtifactStatus.ACTIVE.name)
-                .orderBy("createdAt", Query.Direction.DESCENDING)
+
+            if (relatedEmotions != null) {
+                query = query.whereIn("emotion", relatedEmotions)
+            }
+
+            query = query.orderBy("createdAt", Query.Direction.DESCENDING)
                 .limit(poolSize.toLong())
 
             if (lastVisible != null) {

@@ -54,7 +54,9 @@ class StartupCoordinator @Inject constructor(
     private val workManager: WorkManager,
     private val encryptionManager: com.saurabh.artifact.security.DatabaseEncryptionManager,
     private val environmentProvider: com.saurabh.artifact.util.EnvironmentProvider,
-    private val cleanupManager: dagger.Lazy<com.saurabh.artifact.audio.ArtifactCleanupManager>
+    private val cleanupManager: dagger.Lazy<com.saurabh.artifact.audio.ArtifactCleanupManager>,
+    private val maintenanceRepository: com.saurabh.artifact.repository.MaintenanceRepository,
+    private val logoutCoordinator: dagger.Lazy<com.saurabh.artifact.domain.auth.LogoutCoordinator>
 ) {
     private val scope = CoroutineScope(
         Dispatchers.Main + 
@@ -143,6 +145,30 @@ class StartupCoordinator @Inject constructor(
             if (_isRescueModeActive) {
                 initializeRescueMode()
                 return@launch
+            }
+
+            // DURABLE RECOVERY: Check for interrupted account deletion
+            try {
+                val pendingUid = maintenanceRepository.getPendingDeletionUid()
+                if (pendingUid != null) {
+                    Log.w("Startup", "Pending account deletion detected for UID: $pendingUid. LOCKING STARTUP.")
+                    _stage.value = StartupStage.DELETION_CLEANUP
+                    
+                    // Execute authoritative local wipe
+                    val result = logoutCoordinator.get().performFullCleanup()
+                    if (result.status == com.saurabh.artifact.domain.auth.CleanupStatus.COMPLETED) {
+                        Log.i("Startup", "Recovery cleanup completed successfully. Releasing lock.")
+                        maintenanceRepository.setPendingDeletion(null)
+                        // Transition back to Arrival to allow normal startup to resume
+                        _stage.value = StartupStage.ARRIVAL
+                    } else {
+                        Log.e("Startup", "Recovery cleanup failed. Startup remains locked.")
+                        _terminalError.value = Exception("Account deletion recovery failed. Please contact support.")
+                        return@launch
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("Startup", "Failed to check maintenance state", e)
             }
 
             try {

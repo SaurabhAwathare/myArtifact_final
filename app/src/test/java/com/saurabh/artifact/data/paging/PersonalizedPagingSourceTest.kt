@@ -6,6 +6,7 @@ import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.repository.FeedRepository
 import com.saurabh.artifact.repository.PaginatedArtifacts
 import com.saurabh.artifact.service.FeedRanker
+import com.saurabh.artifact.domain.ArtifactVisibilityFilter
 import io.mockk.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
@@ -19,6 +20,7 @@ class PersonalizedPagingSourceTest {
 
     private val feedRepository = mockk<FeedRepository>()
     private val feedRanker = mockk<FeedRanker>()
+    private val visibilityFilter = mockk<ArtifactVisibilityFilter>()
     private val userId = "test_user"
     
     private lateinit var pagingSource: PersonalizedPagingSource
@@ -30,10 +32,13 @@ class PersonalizedPagingSourceTest {
         every { Log.e(any(), any()) } returns 0
         every { Log.e(any(), any(), any()) } returns 0
 
+        coEvery { visibilityFilter.getSuppressedIdsSnapshot(any()) } returns emptySet()
+
         pagingSource = PersonalizedPagingSource(
             userId = userId,
             feedRepository = feedRepository,
-            feedRanker = feedRanker
+            feedRanker = feedRanker,
+            visibilityFilter = visibilityFilter
         )
         
         coEvery { feedRanker.rank(any(), any(), any()) } answers { 
@@ -133,5 +138,29 @@ class PersonalizedPagingSourceTest {
 
         val result = pagingSource.load(params)
         assertTrue(result is PagingSource.LoadResult.Error)
+    }
+
+    @Test
+    fun `load filters suppressed artifacts using snapshot`() = runTest {
+        val artifact1 = Artifact(id = "1")
+        val artifact2 = Artifact(id = "2")
+        val page1 = PaginatedArtifacts(listOf(artifact1, artifact2), null)
+        
+        coEvery { feedRepository.getResonatingArtifacts(any(), any(), any()) } returns Result.success(page1)
+        coEvery { feedRepository.getDiscoveryCandidates(any(), any(), any()) } returns Result.success(PaginatedArtifacts(emptyList(), null))
+        coEvery { visibilityFilter.getSuppressedIdsSnapshot(userId) } returns setOf("1")
+
+        val result = pagingSource.load(
+            PagingSource.LoadParams.Refresh(null, 10, false)
+        ) as PagingSource.LoadResult.Page
+
+        assertEquals(1, result.data.size)
+        assertEquals("2", result.data[0].first.id)
+        
+        // Verify filter only called once (snapshot behavior)
+        coVerify(exactly = 1) { visibilityFilter.getSuppressedIdsSnapshot(userId) }
+        
+        pagingSource.load(PagingSource.LoadParams.Append(result.nextKey!!, 10, false))
+        coVerify(exactly = 1) { visibilityFilter.getSuppressedIdsSnapshot(userId) }
     }
 }

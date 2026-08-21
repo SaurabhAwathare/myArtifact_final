@@ -17,6 +17,10 @@
     <string name="removed_from_journey">The reflection has been set free from your journey.</string>
     <string name="export_ready">Your reflections are ready for their journey.</string>
     <string name="export_failed">The journey was interrupted. Please try again.</string>
+    <string name="export_started_feedback">Export started. Track progress in notifications.</string>
+    <string name="account_deletion_warning">This will permanently dissolve your profile and all your voice recordings. This action cannot be reversed.</string>
+    <string name="account_deletion_export_recommendation">We recommend exporting your data first to keep a personal archive of your reflections.</string>
+    <string name="account_deletion_cleanup_lock">Your account is being dissolved. This may take a moment.</string>
     <string name="no_voice_yet">This reflection hasn\'t found its voice yet.</string>
     <string name="presence_needs_reaffirmation">Your presence needs to be reaffirmed.</string>
     <string name="presence_ritual_failed">The ritual could not be completed at this time.</string>

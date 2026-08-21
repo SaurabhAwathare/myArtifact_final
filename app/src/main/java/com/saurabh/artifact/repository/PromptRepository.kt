@@ -25,8 +25,40 @@ class PromptRepository @Inject constructor(
     private val json = Json { ignoreUnknownKeys = true }
 
     /**
+     * Selects the next eligible unconsumed prompt based on depth level.
+     */
+    suspend fun getNewPrompt(): ReflectionPrompt? = withContext(Dispatchers.IO) {
+        initializeIfEmpty()
+
+        val consumedCount = promptDao.get().getConsumedCount()
+        val maxDepth = calculateMaxDepth(consumedCount)
+
+        val entity = promptDao.get().getNextEligiblePrompt(maxDepth) 
+            ?: promptDao.get().getOldestPrompt() // Final fallback if depth exhausted
+
+        entity?.toDomainModel()
+    }
+
+    private fun calculateMaxDepth(consumedCount: Int): Int {
+        return when {
+            consumedCount < 30 -> 1
+            consumedCount < 100 -> 2
+            consumedCount < 250 -> 3
+            else -> 4
+        }
+    }
+
+    /**
+     * Marks a prompt as permanently consumed.
+     */
+    suspend fun markAsConsumed(promptId: String) = withContext(Dispatchers.IO) {
+        promptDao.get().markAsConsumed(promptId)
+    }
+
+    /**
      * Selects the least recently used prompt (context-aware if mood provided)
      * and expands templates like `EMOTION`.
+     * DEPRECATED: Use getNewPrompt() for the new consumption-based flow.
      */
     suspend fun getSmartFallback(mood: String? = null): ReflectionPrompt? = withContext(Dispatchers.IO) {
         initializeIfEmpty()

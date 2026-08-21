@@ -19,6 +19,7 @@ class UserSessionManager @Inject constructor(
     private val blockStoreManager: BlockStoreManager,
 ) {
     private object PreferencesKeys {
+        val OWNING_UID = stringPreferencesKey("owning_uid")
         val ANONYMOUS_ID = stringPreferencesKey("anonymous_id")
         val SIGIL_SEED = stringPreferencesKey("sigil_seed")
         val SIGIL_CONFIG_JSON = stringPreferencesKey("sigil_config_json")
@@ -31,6 +32,13 @@ class UserSessionManager @Inject constructor(
         val ACTIVE_DRAFT_ID = stringPreferencesKey("active_draft_id")
         val ACTIVE_PROMPT_ID = stringPreferencesKey("active_prompt_id")
     }
+
+    /**
+     * Exposes the UID of the user who authoritatively owns the local DataStore state.
+     * Used by MainViewModel to detect cross-account leakage.
+     */
+    val owningUid: Flow<String?> = dataStore.data
+        .map { preferences -> preferences[PreferencesKeys.OWNING_UID] }
 
     /**
      * Retrieves the current anonymous profile. 
@@ -125,6 +133,7 @@ class UserSessionManager @Inject constructor(
      */
     suspend fun syncFromRemote(user: com.saurabh.artifact.model.User) {
         dataStore.edit { preferences ->
+            preferences[PreferencesKeys.OWNING_UID] = user.id
             preferences[PreferencesKeys.ANONYMOUS_ID] = user.anonymousId
             preferences[PreferencesKeys.USERNAME] = user.anonymousName
             preferences[PreferencesKeys.SIGIL] = user.anonymousSigil
