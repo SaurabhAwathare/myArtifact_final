@@ -154,7 +154,7 @@ fun SettingsScreen(
                 }
                 is SettingsUiEvent.ExportStarted -> {
                     snackbarHostState.showSnackbar(
-                        context.getString(R.string.export_started_feedback)
+                        UiText.StringResource(R.string.export_started_feedback).asString(context)
                     )
                 }
             }
