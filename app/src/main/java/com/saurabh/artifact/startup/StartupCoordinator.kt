@@ -290,13 +290,6 @@ class StartupCoordinator @Inject constructor(
         }
     }
 
-    private fun initializeSecurityProvider() {
-        // Legacy method, no longer used in mandatory path but kept for safety if referenced elsewhere
-        scope.launch(Dispatchers.Default) {
-            initializeSecurityProviderSync()
-        }
-    }
-
     private fun initializeBackground() {
         Log.d("Startup", "Initializing Background Services")
         scheduleDailyReminder()
@@ -316,6 +309,7 @@ class StartupCoordinator @Inject constructor(
         val reminderRequest = PeriodicWorkRequestBuilder<ReminderWorker>(24, TimeUnit.HOURS)
             .setInitialDelay(24, TimeUnit.HOURS)
             .addTag("daily_reminder")
+            .addTag(SessionConstants.TAG_USER_SESSION_WORK)
             .build()
 
         workManager.enqueueUniquePeriodicWork(
@@ -330,6 +324,7 @@ class StartupCoordinator @Inject constructor(
         val cleanupRequest = PeriodicWorkRequestBuilder<CleanupOrphanFilesWorker>(24, TimeUnit.HOURS)
             .setInitialDelay(30, TimeUnit.SECONDS) // Run soon after startup
             .addTag("orphan_cleanup")
+            .addTag(SessionConstants.TAG_USER_SESSION_WORK)
             .build()
 
         workManager.enqueueUniquePeriodicWork(

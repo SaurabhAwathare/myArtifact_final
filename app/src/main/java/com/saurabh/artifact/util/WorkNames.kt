@@ -15,14 +15,4 @@ object WorkNames {
      * Name for the artifact processing chain (transcoding, normalization, etc.).
      */
     fun forProcessing(draftId: String): String = "process_$draftId"
-    
-    /**
-     * Tag for the retention cleanup worker.
-     */
-    fun forRetentionCleanup(artifactId: String): String = "retention_cleanup_$artifactId"
-    
-    /**
-     * Tag for the immediate local cleanup worker.
-     */
-    fun forCleanup(artifactId: String): String = "cleanup_$artifactId"
 }

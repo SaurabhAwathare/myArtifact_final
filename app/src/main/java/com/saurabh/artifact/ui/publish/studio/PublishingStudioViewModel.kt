@@ -399,14 +399,6 @@ class PublishingStudioViewModel @Inject constructor(
             recordingRepository.getDraft(draftId).onSuccess { draft ->
                 publishArtifactUseCase(draft.localAudioPath)
                     .onSuccess { result ->
-                        if (result == PublishingResult.FAILED) {
-                            diagnosticLogger.error(DiagnosticCategory.PUBLISH, "PUBLISH_INITIATION_FAILED", mapOf(LogKeys.DRAFT_ID to draftId))
-                            _uiState.update { 
-                                it.copy(isPublishing = false, error = "Publishing failed to initiate. Please try again.") 
-                            }
-                            return@onSuccess
-                        }
-
                         diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISH_INITIATION_SUCCESS", mapOf(LogKeys.DRAFT_ID to draftId))
                         playbackCoordinator.stop()
 

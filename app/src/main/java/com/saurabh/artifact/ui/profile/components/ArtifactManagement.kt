@@ -54,16 +54,15 @@ fun ArtifactManagementBottomSheet(
                 )
 
                 if (isDraft) {
-                    val isReady = isListened
-                    val label = if (isReady) "Publish Artifact" else "Review to Publish (${(reviewProgress * 100).toInt()}%)"
-                    val icon = if (isReady) Icons.Rounded.Publish else Icons.Rounded.Headset
+                    val label = if (isListened) "Publish Artifact" else "Review to Publish (${(reviewProgress * 100).toInt()}%)"
+                    val icon = if (isListened) Icons.Rounded.Publish else Icons.Rounded.Headset
                     
                     ManagementActionItem(
                         icon = icon,
                         label = label,
-                        textColor = if (isReady) ArtifactTheme.colors.waveformActive else ArtifactTheme.colors.onSurfaceMuted,
+                        textColor = if (isListened) ArtifactTheme.colors.waveformActive else ArtifactTheme.colors.onSurfaceMuted,
                         onClick = {
-                            if (isReady) onPublishClick() else onReviewClick()
+                            if (isListened) onPublishClick() else onReviewClick()
                             onDismiss()
                         }
                     )

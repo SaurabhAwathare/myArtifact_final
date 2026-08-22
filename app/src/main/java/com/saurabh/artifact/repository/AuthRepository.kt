@@ -315,7 +315,7 @@ class AuthRepository @Inject constructor(
         return try {
             user.delete().await()
             Result.success(Unit)
-        } catch (e: com.google.firebase.auth.FirebaseAuthRecentLoginRequiredException) {
+        } catch (_: com.google.firebase.auth.FirebaseAuthRecentLoginRequiredException) {
             Result.failure(AppError.ReauthenticationRequired())
         } catch (e: Exception) {
             Result.failure(AppError.from(e))

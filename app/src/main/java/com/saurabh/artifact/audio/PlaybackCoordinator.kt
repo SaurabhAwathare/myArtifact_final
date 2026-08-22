@@ -18,7 +18,7 @@ import kotlin.time.Duration.Companion.seconds
 class PlaybackCoordinator @Inject constructor(
     private val playbackSessionManager: PlaybackSessionManager,
     private val reviewSessionManager: ReviewSessionManager,
-    private val reviewAuthorityService: ReviewAuthorityService,
+    reviewAuthorityService: ReviewAuthorityService,
     private val transientPlayerManager: TransientPlayerManager,
     private val analytics: PlaybackAnalyticsManager
 ) {

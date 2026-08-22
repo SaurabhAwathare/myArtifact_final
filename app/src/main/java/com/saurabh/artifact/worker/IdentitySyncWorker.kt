@@ -5,6 +5,7 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.*
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.saurabh.artifact.domain.auth.SessionConstants
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
@@ -116,6 +117,7 @@ class IdentitySyncWorker @AssistedInject constructor(
                 .setConstraints(constraints)
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, java.util.concurrent.TimeUnit.SECONDS)
                 .addTag("identity_sync_$userId")
+                .addTag(SessionConstants.TAG_USER_SESSION_WORK)
                 .build()
 
             WorkManager.getInstance(context).enqueueUniqueWork(

@@ -11,9 +11,6 @@ sealed class ProcessingStatus {
     data class Active(val stage: ProcessingStage) : ProcessingStatus()
     
     @Serializable
-    object Completed : ProcessingStatus()
-    
-    @Serializable
     object Failed : ProcessingStatus()
 }
 

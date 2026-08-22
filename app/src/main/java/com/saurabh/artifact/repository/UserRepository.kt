@@ -12,7 +12,6 @@ import com.google.firebase.firestore.FieldPath
 import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.User
 import com.saurabh.artifact.model.SigilConfig
-import com.saurabh.artifact.model.sigil.*
 import com.saurabh.artifact.model.UserPrivateSettings
 import com.saurabh.artifact.util.SecureString
 import com.saurabh.artifact.util.UsernameGenerator
@@ -856,25 +855,6 @@ class UserRepository @Inject constructor(
         } catch (e: Exception) {
             diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "IDENTITY_EXPOSURE_REPORT_FAILED", mapOf("reporterId" to reporterId, "reportedUserId" to reportedUserId), e)
             Result.failure(e)
-        }
-    }
-
-    /**
-     * Blocks a user from future interactions.
-     */
-    suspend fun blockUser(userId: String, targetUserId: String): Result<Unit> = withContext(Dispatchers.IO) {
-        try {
-            val blockRef = usersCollection.document(userId).collection("private").document("blocks")
-                .collection("users").document(targetUserId)
-            
-            blockRef.set(mapOf(
-                "timestamp" to FieldValue.serverTimestamp()
-            )).await()
-
-            Result.success(Unit)
-        } catch (e: Exception) {
-            diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "BLOCK_USER_FAILED", mapOf(LogKeys.USER_ID to userId, "targetUserId" to targetUserId), e)
-            Result.failure(AppError.from(e))
         }
     }
 

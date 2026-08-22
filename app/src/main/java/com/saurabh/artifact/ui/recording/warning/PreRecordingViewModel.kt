@@ -87,11 +87,6 @@ class PreRecordingViewModel @Inject constructor(
         }
     }
 
-    fun skipCountdown() {
-        savedStateHandle[KEY_RITUAL_END_TIME] = System.currentTimeMillis()
-        recordingSessionManager.skipRitual()
-    }
-
     fun cancel() {
         savedStateHandle.remove<Long>(KEY_RITUAL_END_TIME)
         recordingSessionManager.cancelRitual()

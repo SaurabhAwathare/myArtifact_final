@@ -28,11 +28,10 @@ sealed class AppStartupState {
     object Initializing : AppStartupState()
     object Unauthenticated : AppStartupState()
     object Registering : AppStartupState()
-    object Recovering : AppStartupState()
     object Rescue : AppStartupState()
     data class Ready(
         val startDestination: Any,
-        val startupAction: Any? = null
+        val startupAction: Any? = null,
     ) : AppStartupState()
     data class Error(val message: String) : AppStartupState()
 }
@@ -45,7 +44,7 @@ class MainViewModel @Inject constructor(
     private val registrationCoordinator: com.saurabh.artifact.domain.auth.RegistrationCoordinator,
     private val logoutCoordinator: com.saurabh.artifact.domain.auth.LogoutCoordinator,
     private val sessionManager: com.saurabh.artifact.data.local.UserSessionManager,
-    private val observeStealthModeUseCase: ObserveStealthModeUseCase,
+    observeStealthModeUseCase: ObserveStealthModeUseCase,
     private val startupCoordinator: StartupCoordinator,
     private val savedStateHandle: SavedStateHandle,
     private val diagnosticLogger: DiagnosticLogger
@@ -66,7 +65,7 @@ class MainViewModel @Inject constructor(
     private val _startupState = MutableStateFlow<AppStartupState>(AppStartupState.Initializing)
     val startupState = _startupState.asStateFlow()
 
-    private val _isCleaning = MutableStateFlow(false)
+    private val _isCleaning = MutableStateFlow(value = false)
     val isCleaning = _isCleaning.asStateFlow()
 
     private val _reportingArtifactId = MutableStateFlow<String?>(null)
@@ -99,7 +98,7 @@ class MainViewModel @Inject constructor(
             try {
                 pendingStartupEvent = Json.decodeFromString<IncomingArtifact>(json)
                 diagnosticLogger.info(DiagnosticCategory.STARTUP, "STARTUP_EVENT_RESTORED")
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 // Compatibility: If serialization format changed, discard the event rather than crashing
                 diagnosticLogger.warn(DiagnosticCategory.STARTUP, "STARTUP_EVENT_RESTORE_FAILED")
             }
@@ -118,7 +117,7 @@ class MainViewModel @Inject constructor(
                     val currentUid = current?.uid
                     
                     val isUidChange = previousUid != currentUid
-                    val isTransitionToUnauthenticated = previousUid != null && currentUid == null
+                    val isTransitionToUnauthenticated = (previousUid != null && currentUid == null)
                     
                     if (isUidChange && started.get() && _startupState.value !is AppStartupState.Initializing) {
                         val owningUid = sessionManager.owningUid.first()
@@ -138,8 +137,8 @@ class MainViewModel @Inject constructor(
                                 // BLOCKING: Ensure cleanup completes before continuing to prevent stale data visibility
                                 logoutCoordinator.performFullCleanup()
                                 diagnosticLogger.info(DiagnosticCategory.AUTH, "ACCOUNT_CLEANUP_COMPLETED")
-                            } catch (e: Exception) {
-                                diagnosticLogger.error(DiagnosticCategory.AUTH, "ACCOUNT_CLEANUP_FAILED", throwable = e)
+                            } catch (_: Exception) {
+                                diagnosticLogger.error(DiagnosticCategory.AUTH, "ACCOUNT_CLEANUP_FAILED")
                             } finally {
                                 _isCleaning.value = false
                                 if (currentUid == null) {
@@ -155,7 +154,7 @@ class MainViewModel @Inject constructor(
         // Single observation of terminal startup errors
         startupCoordinator.terminalError
             .filterNotNull()
-            .onEach { error ->
+            .onEach { _ ->
                 diagnosticLogger.error(DiagnosticCategory.STARTUP, "STARTUP_TERMINAL_FAILURE")
                 _startupState.value = AppStartupState.Error("Security initialization failed.")
             }

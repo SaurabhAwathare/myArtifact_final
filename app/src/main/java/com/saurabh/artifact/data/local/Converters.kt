@@ -9,16 +9,9 @@ import com.saurabh.artifact.model.EmotionalTone
 import com.saurabh.artifact.model.PromptCategory
 import com.saurabh.artifact.model.SyncStatus
 import com.saurabh.artifact.model.SyncState
-import com.saurabh.artifact.domain.review.ReviewTrackingVersion
 import kotlinx.serialization.json.Json
 
 class Converters {
-    @TypeConverter
-    fun fromReviewTrackingVersion(version: ReviewTrackingVersion): Int = version.value
-
-    @TypeConverter
-    fun toReviewTrackingVersion(value: Int): ReviewTrackingVersion = ReviewTrackingVersion.fromInt(value)
-
     @TypeConverter
     fun fromSyncState(state: SyncState): String = state.name
 

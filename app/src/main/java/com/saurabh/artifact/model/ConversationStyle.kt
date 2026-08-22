@@ -56,7 +56,6 @@ import kotlinx.serialization.Serializable
  */
 enum class EnergyLevel {
     LOW,    // Calm, quiet, bedtime-friendly
-    MEDIUM, // Engaging, standard conversational pace
     HIGH    // Intense, loud, or rapid-fire
 }
 

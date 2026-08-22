@@ -26,7 +26,7 @@ class DraftListViewModel @Inject constructor(
     private val recordingRepository: RecordingRepository,
     private val draftRepository: DraftRepository,
     private val publishingOrchestrator: PublishingOrchestrator,
-    private val authRepository: com.saurabh.artifact.repository.AuthRepository,
+    authRepository: com.saurabh.artifact.repository.AuthRepository,
     private val cleanupManager: ArtifactCleanupManager,
     audioPlayer: PlaybackCoordinator
 ) : ViewModel() {

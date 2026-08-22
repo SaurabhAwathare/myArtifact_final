@@ -79,6 +79,7 @@ export const onArtifactCleanupTrigger = functions.firestore
     const oldData = change.before.data();
     const artifactId = context.params.artifactId;
     const db = admin.firestore();
+    const bucket = admin.storage().bucket();
     const startTime = Date.now();
 
     // Only trigger if status transitioned to DELETED
@@ -95,34 +96,72 @@ export const onArtifactCleanupTrigger = functions.firestore
 
     try {
       // 1. Storage Cleanup: Audio
-      if (audioUrl && audioUrl.includes("firebasestorage")) {
+      // Primary: Delete via URL in document
+      let audioDeleted = false;
+      if (audioUrl && audioUrl.includes("firebasestorage") && audioUrl.includes("/o/")) {
         try {
-          const decodedPath = decodeURIComponent(audioUrl.split("/o/")[1].split("?")[0]);
-          await admin.storage().bucket().file(decodedPath).delete();
-          logger.info(`[CLEANUP] Audio | DELETED | Path=${decodedPath}`);
+          const parts = audioUrl.split("/o/");
+          if (parts.length > 1) {
+            const decodedPath = decodeURIComponent(parts[1].split("?")[0]);
+            await admin.storage().bucket().file(decodedPath).delete();
+            logger.info(`[CLEANUP] Audio | DELETED | Path=${decodedPath}`);
+            audioDeleted = true;
+          }
         } catch (e: any) {
           if (e.code === 404) {
-            logger.warn(`[CLEANUP] Audio | ALREADY_GONE | Path=${audioUrl}`);
+            logger.warn(`[CLEANUP] Audio | 404 on URL | Path=${audioUrl}`);
+            // Do NOT set audioDeleted=true, let safety net try predictable path
           } else {
             logger.error("[CLEANUP] Audio | ERROR:", e);
-            throw e;
+          }
+        }
+      }
+
+      if (!audioDeleted && userId) {
+        // Safety Net: Predictable path deletion for incomplete/abandoned artifacts
+        const predictablePath = `artifacts/${userId}_${artifactId}.m4a`;
+        try {
+          await bucket.file(predictablePath).delete();
+          logger.info(`[CLEANUP] Audio | SafetyNet DELETED | Path=${predictablePath}`);
+          audioDeleted = true;
+        } catch (e: any) {
+          if (e.code === 404) {
+              logger.info(`[CLEANUP] Audio | SafetyNet 404 | Path=${predictablePath}`);
+          } else {
+              logger.error(`[CLEANUP] Audio | SafetyNet Error | Path=${predictablePath}:`, e);
           }
         }
       }
 
       // 2. Storage Cleanup: Transcript
-      if (transcriptUrl && transcriptUrl.includes("firebasestorage")) {
+      let transcriptDeleted = false;
+      if (transcriptUrl && transcriptUrl.includes("firebasestorage") && transcriptUrl.includes("/o/")) {
         try {
-          const decodedPath = decodeURIComponent(transcriptUrl.split("/o/")[1].split("?")[0]);
-          await admin.storage().bucket().file(decodedPath).delete();
-          logger.info(`[CLEANUP] Transcript | DELETED | Path=${decodedPath}`);
+          const parts = transcriptUrl.split("/o/");
+          if (parts.length > 1) {
+            const decodedPath = decodeURIComponent(parts[1].split("?")[0]);
+            await admin.storage().bucket().file(decodedPath).delete();
+            logger.info(`[CLEANUP] Transcript | DELETED | Path=${decodedPath}`);
+            transcriptDeleted = true;
+          }
         } catch (e: any) {
           if (e.code === 404) {
-            logger.warn(`[CLEANUP] Transcript | ALREADY_GONE | Path=${transcriptUrl}`);
+            logger.warn(`[CLEANUP] Transcript | 404 on URL | Path=${transcriptUrl}`);
           } else {
             logger.error("[CLEANUP] Transcript | ERROR:", e);
-            throw e;
           }
+        }
+      }
+
+      if (!transcriptDeleted && userId) {
+        // Safety Net for Transcripts
+        const predictablePath = `transcripts/${userId}_${artifactId}.json`;
+        try {
+          await bucket.file(predictablePath).delete();
+          logger.info(`[CLEANUP] Transcript | SafetyNet DELETED | Path=${predictablePath}`);
+          transcriptDeleted = true;
+        } catch (e: any) {
+            // 404 is expected
         }
       }
 
@@ -540,239 +579,150 @@ export const onUserDeleted = functions
     memory: "1GB",
   })
   .auth.user()
-  .onDelete(async (user, context) => {
-  const uid = user.uid;
+  .onDelete(async (user) => {
+    const uid = user.uid;
   const db = admin.firestore();
+  const bucket = admin.storage().bucket();
   const startTime = Date.now();
 
   logger.info(`[DELETE USER] START | UID=${uid}`);
 
-  // Summary trackers
-  let artifactsDeletedCount = 0;
-  let notificationsDeletedTotal = 0;
-  let resonanceUpdatedCount = 0;
-  let sessionsDeletedTotal = 0;
-  let profileDeleted = false;
-
   try {
-    // 1. Cleanup Artifacts
-    const artifactsSnapshot = await db.collection("artifacts").where("userId", "==", uid).get();
+    // 0. Storage Cleanup: Backups (Authoritative prefix purge)
+    try {
+      const [files] = await bucket.getFiles({ prefix: `backups/${uid}/` });
+      if (files.length > 0) {
+        for (const file of files) {
+            await file.delete();
+            logger.info(`[DELETE USER] Storage | File Deleted | Path=${file.name}`);
+        }
+        logger.info(`[DELETE USER] Storage | Backups Purged | Count=${files.length} | UID=${uid}`);
+      } else {
+        logger.info(`[DELETE USER] Storage | No Backups Found | UID=${uid}`);
+      }
+    } catch (e) {
+      logger.error(`[DELETE USER] Storage | Backups Error | UID=${uid}:`, e);
+    }
 
-    for (const doc of artifactsSnapshot.docs) {
-      try {
+    // 1. Cleanup Artifacts (SCALABLE: Bulk mark for trigger-based cleanup)
+    const artifactsQuery = db.collection("artifacts").where("userId", "==", uid);
+    const artifactsSnapshot = await artifactsQuery.get();
+
+    if (!artifactsSnapshot.empty) {
+      const bulkWriter = db.bulkWriter();
+      artifactsSnapshot.docs.forEach((doc) => {
         if (doc.data().status !== "DELETED") {
-          await doc.ref.update({
+          bulkWriter.update(doc.ref, {
             status: "DELETED",
             isPublic: false,
             deletedAt: FieldValue.serverTimestamp(),
           });
         }
-        artifactsDeletedCount++;
-      } catch (e) {
-        logger.error(`[DELETE USER] ArtifactID=${doc.id} | ERROR:`, e);
-      }
+      });
+      await bulkWriter.close();
+      logger.info(`[DELETE USER] Artifacts | Marked for cleanup: ${artifactsSnapshot.size}`);
     }
 
     // 2. Cleanup Notifications
-    try {
-      notificationsDeletedTotal = await deleteQueryBatch(
-        db,
-        db.collection("notifications").where("userId", "==", uid),
-        "User Notifications"
-      );
-    } catch (e) {
-      logger.error("[DELETE USER] Stage=Notifications | ERROR:", e);
-    }
+    await deleteQueryBatch(
+      db,
+      db.collection("notifications").where("userId", "==", uid),
+      "User Notifications"
+    );
 
-    // 3. Cleanup Resonances (Hardened for Idempotency)
+    // 3. Cleanup Resonances (Counter integrity preserved)
     try {
       const resonanceOutSnapshot = await db.collection("users").doc(uid).collection("resonance_out").get();
-      // Process in small parallel batches to avoid timeout while staying under rate limits
-      const outBatches = [];
-      const outDocs = resonanceOutSnapshot.docs;
-      for (let i = 0; i < outDocs.size; i += 10) {
-        const chunk = outDocs.slice(i, i + 10);
-        outBatches.push(Promise.all(chunk.map(async (doc) => {
-          const targetId = doc.id;
-          try {
-            await db.runTransaction(async (transaction) => {
-              const sourceRef = db.collection("users").doc(uid).collection("resonance_out").doc(targetId);
-              const sourceDoc = await transaction.get(sourceRef);
-              if (!sourceDoc.exists) return; // Already processed
-
-              transaction.delete(sourceRef);
-              transaction.delete(db.collection("users").doc(targetId).collection("resonance_in").doc(uid));
-              transaction.update(db.collection("users").doc(targetId), {
-                resonanceInCount: FieldValue.increment(-1),
-                followersCount: FieldValue.increment(-1),
-              });
-            });
-            resonanceUpdatedCount++;
-          } catch (e) {
-            logger.warn(`[DELETE USER] ResonanceOut=users/${targetId}/resonance_in/${uid} | ERROR:`, e);
-          }
-        })));
+      for (const doc of resonanceOutSnapshot.docs) {
+        const targetId = doc.id;
+        await db.runTransaction(async (transaction) => {
+          transaction.delete(db.collection("users").doc(uid).collection("resonance_out").doc(targetId));
+          transaction.delete(db.collection("users").doc(targetId).collection("resonance_in").doc(uid));
+          transaction.update(db.collection("users").doc(targetId), {
+            resonanceInCount: FieldValue.increment(-1),
+            followersCount: FieldValue.increment(-1),
+          });
+        });
       }
-      await Promise.all(outBatches);
 
       const resonanceInSnapshot = await db.collection("users").doc(uid).collection("resonance_in").get();
-      const inBatches = [];
-      const inDocs = resonanceInSnapshot.docs;
-      for (let i = 0; i < inDocs.size; i += 10) {
-        const chunk = inDocs.slice(i, i + 10);
-        inBatches.push(Promise.all(chunk.map(async (doc) => {
-          const followerId = doc.id;
-          try {
-            await db.runTransaction(async (transaction) => {
-              const sourceRef = db.collection("users").doc(uid).collection("resonance_in").doc(followerId);
-              const sourceDoc = await transaction.get(sourceRef);
-              if (!sourceDoc.exists) return; // Already processed
-
-              transaction.delete(sourceRef);
-              transaction.delete(db.collection("users").doc(followerId).collection("resonance_out").doc(uid));
-              transaction.update(db.collection("users").doc(followerId), {
-                resonanceOutCount: FieldValue.increment(-1),
-                followingCount: FieldValue.increment(-1),
-              });
-            });
-            resonanceUpdatedCount++;
-          } catch (e) {
-            logger.warn(`[DELETE USER] ResonanceIn=users/${followerId}/resonance_out/${uid} | ERROR:`, e);
-          }
-        })));
+      for (const doc of resonanceInSnapshot.docs) {
+        const followerId = doc.id;
+        await db.runTransaction(async (transaction) => {
+          transaction.delete(db.collection("users").doc(uid).collection("resonance_in").doc(followerId));
+          transaction.delete(db.collection("users").doc(followerId).collection("resonance_out").doc(uid));
+          transaction.update(db.collection("users").doc(followerId), {
+            resonanceOutCount: FieldValue.increment(-1),
+            followingCount: FieldValue.increment(-1),
+          });
+        });
       }
-      await Promise.all(inBatches);
     } catch (e) {
       logger.error("[DELETE USER] Stage=Resonance | ERROR:", e);
     }
 
-    // 4. Cleanup Username
+    // 4. Cleanup Username (Mapping removal)
     try {
       const userDoc = await db.collection("users").doc(uid).get();
       const username = userDoc.data()?.anonymousName;
-      if (typeof username === "string" && username) {
+      if (username) {
         await db.collection("usernames").doc(username.toLowerCase().trim()).delete();
       }
+      // Safety Net: Cleanup any other username mappings for this UID
+      await deleteQueryBatch(db, db.collection("usernames").where("uid", "==", uid), "Username Safety Net");
     } catch (e) {
       logger.error("[DELETE USER] Stage=Username | ERROR:", e);
     }
 
     // 5. Cleanup Listening Sessions
-    try {
-      sessionsDeletedTotal = await deleteQueryBatch(
-        db,
-        db.collection("listening_sessions").where("userId", "==", uid),
-        "User Listening Sessions"
-      );
-    } catch (e) {
-      logger.error("[DELETE USER] Stage=Listening Sessions | ERROR:", e);
-    }
+    await deleteQueryBatch(
+      db,
+      db.collection("listening_sessions").where("userId", "==", uid),
+      "User Listening Sessions"
+    );
 
-    // 5.5 Anonymize Comments (Preserve conversation integrity while severing UID link)
+    // 5.5 Anonymize Comments (Preserve history while severing identity)
     try {
-      let commentsAnonymizedCount = 0;
-      let commentsSize;
-      do {
-        const snapshot = await db.collectionGroup("comments")
-          .where("creatorId", "==", uid)
-          .limit(500)
-          .get();
-
-        commentsSize = snapshot.size;
-        if (commentsSize > 0) {
-          const batch = db.batch();
-          snapshot.docs.forEach((doc) => batch.update(doc.ref, {creatorId: ""}));
-          await batch.commit();
-          commentsAnonymizedCount += commentsSize;
-        }
-      } while (commentsSize > 0);
-      logger.info(`[DELETE USER] Stage=Anonymize Comments | Count=${commentsAnonymizedCount}`);
+      const commentsQuery = db.collectionGroup("comments").where("creatorId", "==", uid);
+      const commentsSnapshot = await commentsQuery.get();
+      if (!commentsSnapshot.empty) {
+        const bulkWriter = db.bulkWriter();
+        commentsSnapshot.docs.forEach((doc) => bulkWriter.update(doc.ref, { creatorId: "" }));
+        await bulkWriter.close();
+        logger.info(`[DELETE USER] Comments | Anonymized: ${commentsSnapshot.size}`);
+      }
     } catch (e) {
       logger.error("[DELETE USER] Stage=Anonymize Comments | ERROR:", e);
     }
 
-    // 6. Final User Document & Subcollections Deletion
-    const userRef = db.collection("users").doc(uid);
-    const subCollections = [
-      "engagement",
-      "savedArtifacts",
-      "resonance_in",
-      "resonance_out",
-      "followers",
-      "following",
-      "recommendation_profiles",
+    // 6. Root Collection Cleanup (User-agnostic but UID-scoped data)
+    const globalCollections = [
+      { coll: "reactions_global", field: "userId", label: "Global Reactions" },
+      { coll: "artifact_reactions", field: "userId", label: "Artifact Reactions" },
+      { coll: "artifact_plays", field: "userId", label: "Artifact Plays" },
+      { coll: "feedback_private", field: "userId", label: "Private Feedback" }
     ];
 
-    for (const sub of subCollections) {
-      try {
-        await deleteQueryBatch(db, userRef.collection(sub), `User Subcollection: ${sub}`);
-      } catch (e) {
-        logger.warn(`[DELETE USER] Subcollection=${sub} | ERROR:`, e);
-      }
-    }
-
-    // 7. Cleanup Global Reactions
-    try {
+    for (const entry of globalCollections) {
       await deleteQueryBatch(
         db,
-        db.collection("reactions_global").where("userId", "==", uid),
-        "User Global Reactions"
+        db.collection(entry.coll).where(entry.field, "==", uid),
+        entry.label
       );
-    } catch (e) {
-      logger.error("[DELETE USER] Stage=Global Reactions | ERROR:", e);
     }
 
-    // 8. Cleanup Artifact Reactions
-    try {
-      await deleteQueryBatch(
-        db,
-        db.collection("artifact_reactions").where("userId", "==", uid),
-        "User Artifact Reactions"
-      );
-    } catch (e) {
-      logger.error("[DELETE USER] Stage=Artifact Reactions | ERROR:", e);
-    }
-
-    // 9. Cleanup Plays
-    try {
-      await deleteQueryBatch(
-        db,
-        db.collection("artifact_plays").where("userId", "==", uid),
-        "User Artifact Plays"
-      );
-    } catch (e) {
-      logger.error("[DELETE USER] Stage=Plays | ERROR:", e);
-    }
-
-    try {
-      const privateRef = userRef.collection("private");
-      await deleteQueryBatch(db, privateRef.doc("intents").collection("follow"), "User Intent: Follow");
-      await deleteQueryBatch(db, privateRef.doc("intents").collection("reactions"), "User Intent: Reactions");
-      await deleteQueryBatch(db, privateRef.doc("interactions").collection("reactions"), "User Interaction: Reactions");
-      await deleteQueryBatch(db, privateRef.doc("blocks").collection("users"), "User Blocks");
-
-      await privateRef.doc("settings").delete();
-      await privateRef.doc("intents").delete();
-      await privateRef.doc("interactions").delete();
-      await privateRef.doc("blocks").delete();
-    } catch (e) {
-      logger.error("[DELETE USER] Stage=Private Collections | ERROR:", e);
-    }
-
-    try {
-      await userRef.delete();
-      profileDeleted = true;
-    } catch (e) {
-      logger.error("[DELETE USER] Stage=Final User Doc | ERROR:", e);
-    }
+    // 7. FINAL: Recursive User Tree Destruction
+    // This authoritatively handles ALL nested subcollections (engagement, published_artifacts, intents, etc.)
+    const userRef = db.collection("users").doc(uid);
+    await db.recursiveDelete(userRef);
 
     const totalDuration = Date.now() - startTime;
-    logger.info(`[DELETE USER] FINISH | Artifacts Deleted: ${artifactsDeletedCount} | Notifications: ${notificationsDeletedTotal} | Sessions: ${sessionsDeletedTotal} | Profile Deleted: ${profileDeleted ? "YES" : "NO"} | Duration=${totalDuration}ms`);
+    logger.info(`[DELETE USER] FINISH | UID=${uid} | Duration=${totalDuration}ms`);
 
     return null;
   } catch (error) {
     logger.error(`[DELETE USER] FATAL ERROR | UID=${uid}:`, error);
-    return null;
+    throw error; // Trigger retry for transient failures
   }
 });
 

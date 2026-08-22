@@ -105,7 +105,7 @@ class PublishingWorker @AssistedInject constructor(
                     val now = System.currentTimeMillis()
                     if (now - lastProgressUpdateTime > 500L || transferred == total) {
                         lastProgressUpdateTime = now
-                        updateNotificationIfNeeded(title, transferred, total, draftId)
+                        updateNotificationIfNeeded(title, transferred, total)
                     }
                 }
             )
@@ -151,13 +151,13 @@ class PublishingWorker @AssistedInject constructor(
         )
     }
 
-    private fun updateNotificationIfNeeded(title: String, transferred: Long, total: Long, draftId: String) {
+    private fun updateNotificationIfNeeded(title: String, transferred: Long, total: Long) {
         val now = System.currentTimeMillis()
         val duration = now - startTime
         
         if (duration > 5000) {
             val progress = (transferred * 100 / total).toInt()
-            NotificationHelper.updateUploadProgress(appContext, title, progress, draftId)
+            NotificationHelper.updateUploadProgress(appContext, title, progress)
         }
     }
 

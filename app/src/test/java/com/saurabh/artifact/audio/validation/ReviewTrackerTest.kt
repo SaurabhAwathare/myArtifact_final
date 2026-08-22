@@ -1,20 +1,21 @@
 package com.saurabh.artifact.audio.validation
 
 import com.saurabh.artifact.domain.review.EngagementEvidence
-import com.saurabh.artifact.domain.review.ReviewPolicy
 import com.saurabh.artifact.domain.review.ReviewTrackingVersion
+import com.saurabh.artifact.domain.review.publishing.PublishingReviewPolicy
+import com.saurabh.artifact.domain.review.publishing.PublishingReviewValidator
 import org.junit.Assert.*
 import org.junit.Test
 
 class ReviewTrackerTest {
 
-    private val ruleEngine = DefaultReviewValidator()
+    private val ruleEngine = PublishingReviewValidator()
 
     @Test
     fun `test normal playback completion legacy`() {
         val duration = 10000L // 10s
         val evidence = EngagementEvidence("art1", "v1", duration, reviewTrackingVersion = ReviewTrackingVersion.LEGACY_BUCKETED)
-        val policy = ReviewPolicy()
+        val policy = PublishingReviewPolicy()
         val tracker = DefaultReviewTracker(
             initialEvidence = evidence,
             segmentSizer = { dur, ver -> policy.getSegmentSizeMs(dur, ver) },
@@ -36,7 +37,7 @@ class ReviewTrackerTest {
     fun `test normal playback completion version 2`() {
         val duration = 10000L // 10s
         val evidence = EngagementEvidence("art1", "v1", duration, reviewTrackingVersion = ReviewTrackingVersion.FIXED_ONE_SECOND)
-        val policy = ReviewPolicy()
+        val policy = PublishingReviewPolicy()
         val tracker = DefaultReviewTracker(
             initialEvidence = evidence,
             segmentSizer = { dur, ver -> policy.getSegmentSizeMs(dur, ver) },
@@ -59,7 +60,7 @@ class ReviewTrackerTest {
     fun `test coverage at high playback speed`() {
         val duration = 10000L // 10s
         val evidence = EngagementEvidence("art1", "v1", duration, reviewTrackingVersion = ReviewTrackingVersion.FIXED_ONE_SECOND)
-        val policy = ReviewPolicy()
+        val policy = PublishingReviewPolicy()
         val tracker = DefaultReviewTracker(
             initialEvidence = evidence,
             segmentSizer = { dur, ver -> policy.getSegmentSizeMs(dur, ver) },
@@ -82,7 +83,7 @@ class ReviewTrackerTest {
     fun `test seek-to-end bypass failure`() {
         val duration = 60000L // 60s
         val evidence = EngagementEvidence("art1", "v1", duration, reviewTrackingVersion = ReviewTrackingVersion.FIXED_ONE_SECOND)
-        val policy = ReviewPolicy()
+        val policy = PublishingReviewPolicy()
         val tracker = DefaultReviewTracker(
             initialEvidence = evidence,
             segmentSizer = { dur, ver -> policy.getSegmentSizeMs(dur, ver) },

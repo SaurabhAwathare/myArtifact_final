@@ -90,15 +90,4 @@ class PreRecordingViewModelTest {
             events.any { it is PreRecordingWarningEvent.NavigateToRecording })
         job.cancel()
     }
-
-    @Test
-    fun `skipCountdown updates SavedStateHandle and Manager`() = runTest {
-        viewModel = PreRecordingViewModel(recordingSessionManager, savedStateHandle)
-        
-        viewModel.skipCountdown()
-        
-        verify { recordingSessionManager.skipRitual() }
-        val savedEndTime = savedStateHandle.get<Long>("ritual_end_time")!!
-        assertTrue(savedEndTime <= System.currentTimeMillis())
-    }
 }

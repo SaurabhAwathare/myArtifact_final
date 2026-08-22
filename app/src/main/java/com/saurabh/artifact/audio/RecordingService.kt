@@ -383,7 +383,7 @@ class RecordingService : Service() {
                 
                 draft?.let { it ->
                     draftDao.get().update(it.copy(
-                        status = it.status.copy(publication = com.saurabh.artifact.model.SyncStatus.LocalOnly),
+                        status = it.status.copy(publication = SyncStatus.LocalOnly),
                         lifecycle = com.saurabh.artifact.model.ArtifactLifecycle.RECORDING
                     ))
                 }

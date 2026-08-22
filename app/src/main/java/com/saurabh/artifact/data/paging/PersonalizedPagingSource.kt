@@ -17,7 +17,7 @@ class PersonalizedPagingSource(
     private val feedRepository: FeedRepository,
     private val feedRanker: FeedRanker,
     private val visibilityFilter: ArtifactVisibilityFilter,
-    private val emotion: String? = null
+    private val emotion: String? = null,
 ) : PagingSource<PersonalizedPagingSource.PageKey, Pair<Artifact, Int>>() {
 
     private val emittedIds = mutableSetOf<String>()
@@ -63,8 +63,10 @@ class PersonalizedPagingSource(
                 }
 
                 val combined = (resonatedResult.artifacts + discoveryResult.artifacts)
-                    .filter { it.id !in emittedIds && it.id !in suppressed }
+                    .asSequence()
+                    .filter { (it.id !in emittedIds) && (it.id !in suppressed) }
                     .distinctBy { it.id }
+                    .toList()
 
                 emittedIds.addAll(combined.map { it.id })
 

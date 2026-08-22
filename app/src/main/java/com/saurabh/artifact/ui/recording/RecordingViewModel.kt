@@ -22,13 +22,13 @@ import javax.inject.Inject
 
 @HiltViewModel
 class RecordingViewModel @Inject constructor(
-    private val authRepository: com.saurabh.artifact.repository.AuthRepository,
+    authRepository: com.saurabh.artifact.repository.AuthRepository,
     private val promptRepository: PromptRepository,
     private val promptManager: com.saurabh.artifact.domain.prompt.ReflectionPromptManager,
     private val userSessionManager: UserSessionManager,
     private val recordingSessionManager: RecordingSessionManager,
     private val savedStateHandle: SavedStateHandle,
-    private val diagnosticLogger: DiagnosticLogger
+    private val diagnosticLogger: DiagnosticLogger,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(RecordingUiState())
@@ -92,7 +92,7 @@ class RecordingViewModel @Inject constructor(
                 val allPrompts = promptRepository.getAllPrompts().first()
                 val activePrompt = allPrompts.find { it.id == activePromptId }
                 
-                if (activePrompt != null && !activePrompt.isConsumed) { 
+                if (activePrompt != null && (!activePrompt.isConsumed)) { 
                     _uiState.update { it.copy(currentPrompt = activePrompt, isPromptVisible = true) }
                     return@launch
                 }
@@ -195,12 +195,6 @@ class RecordingViewModel @Inject constructor(
             ) }
             userSessionManager.setActivePromptId(nextPrompt.id)
         }
-    }
-
-    // Deprecated / No-op
-    fun updatePromptIndex(index: Int) {}
-    fun refreshAIPrompt(context: String? = null) {
-        nextPrompt()
     }
 }
 

@@ -32,10 +32,6 @@ class PublishApprovalRepository @Inject constructor(
         draftDao.get().getDraftById(id, userId)
     }
 
-    suspend fun updateDraft(draft: ArtifactDraftEntity) = withContext(Dispatchers.IO) {
-        // userId check is built into draftDao.update
-        draftDao.get().update(draft)
-    }
 
     suspend fun approveAndFreezeAuto(draftId: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
@@ -55,6 +51,13 @@ class PublishApprovalRepository @Inject constructor(
                 emptyList()
             }
 
+            // 2. Deterministic Validation before freezing
+            val validation = validateDraft(draft, transcript)
+            if (!validation.isValid) {
+                Log.w("PublishApprovalRepo", "Validation failed: ${validation.errorCode} - ${validation.errorMessage}")
+                return@withContext Result.failure(AppError.InvalidInput(validation.errorMessage ?: "Validation failed"))
+            }
+
             approveAndFreeze(draftId, transcript)
         } catch (e: Exception) {
             Log.e("PublishApprovalRepo", "Auto-approval failed.", e)
@@ -63,11 +66,113 @@ class PublishApprovalRepository @Inject constructor(
     }
 
     suspend fun validateDraft(draft: ArtifactDraftEntity, transcript: List<TranscriptSegment>): ValidationResult = withContext(Dispatchers.Default) {
-        ValidationResult(
-            hasSensitiveInfo = false,
-            isHighRisk = false,
-            sensitiveFlagCount = 0
-        )
+        val title = draft.title ?: ""
+        
+        // 1. Title PII Scan (UI Bypass Prevention)
+        val user = authRepository.currentUser.value
+        
+        val realName = user?.displayName?.let { com.saurabh.artifact.util.SecureString.fromString(it) }
+        val email = user?.email?.let { com.saurabh.artifact.util.SecureString.fromString(it) }
+        
+        val leaks = try {
+            com.saurabh.artifact.domain.IdentityScout().detectLeaks(title, realName, email)
+        } finally {
+            realName?.clear()
+            email?.clear()
+        }
+        
+        if (leaks.isNotEmpty()) {
+            return@withContext ValidationResult(
+                isValid = false,
+                errorCode = "TITLE_PII_DETECTED",
+                errorMessage = "Your title contains sensitive identity information. Please use a more anonymous title.",
+                hasSensitiveInfo = true,
+                sensitiveFlagCount = leaks.size
+            )
+        }
+
+        // 2. Audio File Deterministic Checks
+        val audioFile = File(draft.localAudioPath)
+        
+        if (!audioFile.exists()) {
+            return@withContext ValidationResult(
+                isValid = false,
+                errorCode = "AUDIO_FILE_MISSING",
+                errorMessage = "The recording file could not be found."
+            )
+        }
+
+        if (!audioFile.canRead()) {
+            return@withContext ValidationResult(
+                isValid = false,
+                errorCode = "AUDIO_FILE_READ_ERROR",
+                errorMessage = "The recording file is not readable."
+            )
+        }
+
+        val fileSize = audioFile.length()
+        if (fileSize == 0L) {
+            return@withContext ValidationResult(
+                isValid = false,
+                errorCode = "AUDIO_FILE_EMPTY",
+                errorMessage = "The recording is empty."
+            )
+        }
+
+        // Deterministic Safety Bound: 100MB (~2 hours of high quality AAC/M4A)
+        if (fileSize > 100 * 1024 * 1024) {
+            return@withContext ValidationResult(
+                isValid = false,
+                errorCode = "AUDIO_FILE_TOO_LARGE",
+                errorMessage = "The recording exceeds the maximum size limit."
+            )
+        }
+
+        // 3. Duration Check (Min 3 seconds)
+        if (draft.durationMs < 3000) {
+            return@withContext ValidationResult(
+                isValid = false,
+                errorCode = "AUDIO_DURATION_TOO_SHORT",
+                errorMessage = "Artifacts must be at least 3 seconds long."
+            )
+        }
+
+        // 4. Lightweight Container Validation (Magic Bytes)
+        val isFormatValid = try {
+            val buffer = ByteArray(16)
+            val inputStream = if (draft.isEncrypted) {
+                com.saurabh.artifact.security.SecurityArchitecture.openDecryptingStream(context, audioFile)
+            } else {
+                audioFile.inputStream()
+            }
+            
+            inputStream.use { it.read(buffer) }
+            
+            // ftyp check (M4A/MP4): bytes 4-7 are 'ftyp' (66 74 79 70)
+            val isM4A = buffer.size >= 8 && 
+                        buffer[4] == 0x66.toByte() && buffer[5] == 0x74.toByte() && 
+                        buffer[6] == 0x79.toByte() && buffer[7] == 0x70.toByte()
+            
+            // RIFF check (WAV): bytes 0-3 are 'RIFF' (52 49 46 46)
+            val isWAV = buffer.size >= 4 && 
+                        buffer[0] == 0x52.toByte() && buffer[1] == 0x49.toByte() && 
+                        buffer[2] == 0x46.toByte() && buffer[3] == 0x46.toByte()
+
+            isM4A || isWAV
+        } catch (e: Exception) {
+            Log.e("PublishApprovalRepo", "Failed to verify audio container", e)
+            false
+        }
+
+        if (!isFormatValid) {
+            return@withContext ValidationResult(
+                isValid = false,
+                errorCode = "AUDIO_FORMAT_INVALID",
+                errorMessage = "The recording format is unrecognized or corrupted."
+            )
+        }
+
+        ValidationResult(isValid = true)
     }
 
     suspend fun approveAndFreeze(draftId: String, transcript: List<TranscriptSegment>): Result<Unit> = withContext(Dispatchers.IO) {
@@ -122,8 +227,11 @@ class PublishApprovalRepository @Inject constructor(
     }
 
     data class ValidationResult(
-        val hasSensitiveInfo: Boolean,
-        val isHighRisk: Boolean,
-        val sensitiveFlagCount: Int
+        val isValid: Boolean,
+        val errorCode: String? = null,
+        val errorMessage: String? = null,
+        val hasSensitiveInfo: Boolean = false,
+        val isHighRisk: Boolean = false,
+        val sensitiveFlagCount: Int = 0
     )
 }

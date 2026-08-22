@@ -40,7 +40,7 @@ import javax.inject.Inject
  */
 @HiltViewModel
 class CommentViewModel @Inject constructor(
-    private val savedStateHandle: SavedStateHandle,
+    savedStateHandle: SavedStateHandle,
     private val getCommentsUseCase: GetCommentsUseCase,
     private val addCommentUseCase: AddCommentUseCase,
     private val deleteCommentUseCase: DeleteCommentUseCase,
@@ -372,19 +372,5 @@ class CommentViewModel @Inject constructor(
         viewModelScope.launch {
             _events.emit(CommentUiEvent.NavigateToProfile(userId))
         }
-    }
-
-    /**
-     * Clears any active error from the UI state.
-     */
-    fun clearError() {
-        _uiState.update { it.copy(error = null) }
-    }
-
-    /**
-     * Clears any active submission error from the UI state.
-     */
-    fun clearSubmissionError() {
-        _uiState.update { it.copy(submissionError = null) }
     }
 }

@@ -2,7 +2,6 @@ package com.saurabh.artifact.ui.settings
 
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
-import com.saurabh.artifact.security.DataExportManager
 import com.saurabh.artifact.security.ExportProgress
 import com.saurabh.artifact.security.ExportService
 import com.saurabh.artifact.util.ClipboardGuard
@@ -35,7 +34,6 @@ data class AccountInfo(val realName: SecureString, val email: SecureString)
 class SettingsViewModel @Inject constructor(
     private val repository: SettingsRepository,
     private val authRepository: com.saurabh.artifact.repository.AuthRepository,
-    private val dataExportManager: DataExportManager,
     private val clipboardGuard: ClipboardGuard,
     private val logoutCoordinator: com.saurabh.artifact.domain.auth.LogoutCoordinator,
     val credentialHelper: CredentialHelper,
@@ -71,30 +69,14 @@ class SettingsViewModel @Inject constructor(
     val isDeletionConfirmed = _deletionConfirmationInput.map { it == "DELETE" }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
-    private val _exportProgress = MutableStateFlow<ExportProgress?>(null)
-    val exportProgress: StateFlow<ExportProgress?> = _exportProgress.asStateFlow()
-
     init {
         viewModelScope.launch {
             ExportService.exportState.collect { progress ->
-                _exportProgress.value = progress
                 _isExporting.value = progress != null && 
                                    progress !is ExportProgress.Complete && 
                                    progress !is ExportProgress.Failed
             }
         }
-    }
-
-    fun updateBiometricLock(enabled: Boolean) {
-        update { it.copy(biometricLockEnabled = enabled) }
-    }
-
-    fun updateAutoLock(enabled: Boolean) {
-        update { it.copy(autoLockEnabled = enabled) }
-    }
-
-    fun updateStealthMode(enabled: Boolean) {
-        update { it.copy(stealthModeEnabled = enabled) }
     }
 
     fun updateNotifications(enabled: Boolean) {

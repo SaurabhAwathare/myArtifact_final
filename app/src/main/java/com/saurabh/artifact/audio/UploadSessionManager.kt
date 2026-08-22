@@ -3,20 +3,18 @@ package com.saurabh.artifact.audio
 import android.util.Log
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import kotlinx.coroutines.guava.await
 import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.util.WorkNames
 import com.saurabh.artifact.repository.DraftRepository
 import com.saurabh.artifact.domain.PublishingOrchestrator
 import com.saurabh.artifact.model.*
 import dagger.Lazy
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.time.Duration.Companion.minutes
 
 /**
  * Orchestrates the unified publishing state by observing the local database,
@@ -77,10 +75,12 @@ class PublishStateManager @Inject constructor(
                 // 1. Verify Actual Activity
                 val isServiceActive = isServiceRunning && activeServiceDraftId == id
                 val workInfos = try {
-                    workManager.getWorkInfosByTag(WorkNames.forProcessing(id)).get() + 
-                    workManager.getWorkInfosByTag(WorkNames.forPublishing(id)).get()
-                } catch (e: Exception) {
-                    emptyList<WorkInfo>()
+                    withContext(Dispatchers.IO) {
+                        workManager.getWorkInfosByTag(WorkNames.forProcessing(id)).await() + 
+                        workManager.getWorkInfosByTag(WorkNames.forPublishing(id)).await()
+                    }
+                } catch (_: Exception) {
+                    emptyList()
                 }
                 
                 val isWorkActive = workInfos.any { 
@@ -148,7 +148,7 @@ class PublishStateManager @Inject constructor(
         // Watchdog: Periodically clean up stale processing drafts
         scope.launch {
             while (true) {
-                kotlinx.coroutines.delay(10 * 60 * 1000) // Every 10 minutes
+                delay(10.minutes) // Every 10 minutes
                 performWatchdogCleanup()
             }
         }

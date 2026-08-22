@@ -24,7 +24,6 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -66,7 +65,6 @@ class PlayerViewModel @Inject constructor(
     val shareEvent: SharedFlow<SharePayload> = _shareEvent.asSharedFlow()
 
     private val _playerError = MutableStateFlow<String?>(null)
-    val playerError: StateFlow<String?> = _playerError.asStateFlow()
 
     private val _currentPlayableArtifact = MutableStateFlow<PlayableArtifact?>(null)
     private val _loadState = MutableStateFlow(PlayerLoadState.IDLE)
@@ -131,7 +129,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     private fun mapAppErrorToUserMessage(error: Throwable): String {
-        return when (val appError = AppError.from(error)) {
+        return when (AppError.from(error)) {
             is AppError.NotFound -> "This artifact is no longer available."
             is AppError.PermissionDenied -> "This artifact isn't available to you."
             is AppError.NetworkFailure -> "Connection lost. Please check your network."

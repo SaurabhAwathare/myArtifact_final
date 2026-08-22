@@ -50,7 +50,6 @@ fun ImmersivePlayerScreen(
     onSpeedChange: (Float) -> Unit,
     onSeek: (Float) -> Unit,
     onScrubbing: (Float) -> Unit = {},
-    onShowAdvanced: () -> Unit,
     onResonateClick: (com.saurabh.artifact.model.ReactionType) -> Unit = {},
     onResonateConnectionClick: () -> Unit = {},
     onResonatorsCountClick: (String) -> Unit = {},
@@ -507,7 +506,6 @@ fun ImmersiveDraftPlayerPreview() {
             onForward = {},
             onSpeedChange = {},
             onSeek = {},
-            onShowAdvanced = {},
             playableArtifact = null
         )
     }

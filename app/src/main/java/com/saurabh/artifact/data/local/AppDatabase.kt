@@ -33,9 +33,4 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun deadLetterInteractionDao(): DeadLetterInteractionDao
     abstract fun userDao(): UserDao
     abstract fun reportedArtifactDao(): ReportedArtifactDao
-
-    companion object {
-        // Migrations are centrally managed in DatabaseMigrations
-        fun getMigrations() = DatabaseMigrations.ALL_MIGRATIONS
-    }
 }

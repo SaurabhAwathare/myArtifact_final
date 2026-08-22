@@ -3,14 +3,13 @@ package com.saurabh.artifact.domain
 import android.content.Context
 import android.util.Log
 import androidx.work.*
-import androidx.work.await
+import kotlinx.coroutines.guava.await
 import com.saurabh.artifact.audio.UploadService
 import com.saurabh.artifact.util.WorkNames
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.security.UploadGuard
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.domain.auth.SessionConstants
-import com.saurabh.artifact.domain.review.publishing.PublishingReviewPolicy
 import com.saurabh.artifact.worker.PublishingWorker
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -27,8 +26,7 @@ class PublishingOrchestrator @Inject constructor(
     private val connectivityObserver: com.saurabh.artifact.util.ConnectivityObserver,
     private val uploadGuard: UploadGuard,
     private val authRepository: AuthRepository,
-    private val workManager: WorkManager,
-    private val publishingPolicy: PublishingReviewPolicy
+    private val workManager: WorkManager
 ) {
 
     suspend fun startProcessing(draftId: String) = withContext(Dispatchers.IO) {
@@ -60,10 +58,6 @@ class PublishingOrchestrator @Inject constructor(
             .addTag(SessionConstants.TAG_USER_SESSION_WORK)
             .build()
 
-        // Phase 4 Cleanup: Automatic transcription and transcript-based analysis are now optional/skipped.
-        // These workers (TranscriptionWorker, PrivacyScanWorker, SafetyAnalysisWorker) are preserved 
-        // in the codebase for future audio-based analysis but removed from the active pipeline.
-
         val finalStateWork = OneTimeWorkRequestBuilder<com.saurabh.artifact.worker.ProcessingFinalizerWorker>()
             .setInputData(inputData)
             .addTag(SessionConstants.TAG_USER_SESSION_WORK)
@@ -84,60 +78,13 @@ class PublishingOrchestrator @Inject constructor(
      * Checks if a processing chain for the given draft is currently active.
      */
     suspend fun isProcessingActive(draftId: String): Boolean = withContext(Dispatchers.IO) {
-        val workInfos = workManager.getWorkInfosForUniqueWork(WorkNames.forProcessing(draftId)).get()
+        val workInfos = workManager.getWorkInfosForUniqueWork(WorkNames.forProcessing(draftId)).await()
         workInfos.any { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.RUNNING }
     }
 
-    suspend fun approveAndPublish(
-        draftId: String,
-        transcript: List<TranscriptSegment>
-    ): Result<Unit> = withContext(Dispatchers.IO) {
-        try {
-            val freezeResult = approvalRepository.approveAndFreeze(draftId, transcript)
-            if (freezeResult.isFailure) return@withContext freezeResult
 
-            Log.i("PublishingOrchestrator", "Draft approved and frozen. Enqueuing publication.")
-            
-            val draft = draftRepository.getDraft(draftId).getOrThrow()
-
-            // 0. Strict Validation: Review Required
-            if (draft.lifecycle != ArtifactLifecycle.READY_TO_PUBLISH) {
-                Log.e("PublishingOrchestrator", "Attempted to publish unreviewed draft.")
-                val requiredPercent = (publishingPolicy.minCoverage * 100).toInt()
-                return@withContext Result.failure(Exception("$requiredPercent% Review required before publishing."))
-            }
-
-            // 1. Check if already publishing to avoid double enqueuing
-            if (draft.lifecycle == ArtifactLifecycle.PUBLISHED) {
-                return@withContext Result.success(Unit)
-            }
-
-            // 2. Transition to READY_TO_PUBLISH + SyncStatus.Queued or SyncStatus.WaitingForNetwork
-            val isOnline = connectivityObserver.isOnline()
-            val initialStatus = if (isOnline) {
-                SyncStatus.Queued
-            } else {
-                SyncStatus.WaitingForNetwork
-            }
-
-            draftRepository.prepareForPublishing(draftId, initialStatus)
-
-            // 3. Trigger Publishing Hybrid Solution
-            // Immediate Start via Service
-            UploadService.start(context, draftId)
-            
-            // Trigger Publishing Worker as fallback
-            enqueuePublishingWork(draftId)
-            
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Log.e("PublishingOrchestrator", "Critical failure during approval/publish handoff", e)
-            Result.failure(e)
-        }
-    }
-
-    suspend fun approvePublishing(draftId: String): PublishingResult = withContext(Dispatchers.IO) {
-        val draft = draftRepository.getDraft(draftId).getOrNull() ?: return@withContext PublishingResult.FAILED
+    suspend fun approvePublishing(draftId: String): Result<PublishingResult> = withContext(Dispatchers.IO) {
+        val draft = draftRepository.getDraft(draftId).getOrNull() ?: return@withContext Result.failure(Exception("Draft not found"))
 
         // 0. Security Validation: Ensure tokens are present and valid
         val userId = authRepository.currentUserId
@@ -146,19 +93,19 @@ class PublishingOrchestrator @Inject constructor(
             val reApproveResult = approvalRepository.approveAndFreezeAuto(draftId)
             if (reApproveResult.isFailure) {
                 Log.e("PublishingOrchestrator", "Failed to auto-approve draft.")
-                return@withContext PublishingResult.FAILED
+                return@withContext Result.failure(reApproveResult.exceptionOrNull() ?: Exception("Auto-approval failed"))
             }
         }
         
         // 0.1 Strict Validation: Review Required
         if (draft.lifecycle != ArtifactLifecycle.READY_TO_PUBLISH) {
             Log.e("PublishingOrchestrator", "Attempted to publish unreviewed draft via legacy route.")
-            return@withContext PublishingResult.FAILED
+            return@withContext Result.failure(Exception("Review required before publishing."))
         }
 
         // 1. Check if already publishing to avoid double enqueuing
         if (draft.lifecycle == ArtifactLifecycle.PUBLISHED) {
-            return@withContext PublishingResult.ALREADY_IN_PROGRESS
+            return@withContext Result.success(PublishingResult.ALREADY_IN_PROGRESS)
         }
 
         // 2. Transition to READY_TO_PUBLISH + SyncStatus.Queued or SyncStatus.WaitingForNetwork
@@ -178,16 +125,11 @@ class PublishingOrchestrator @Inject constructor(
         // Trigger Publishing Worker as fallback
         enqueuePublishingWork(draftId)
 
-        if (isOnline) PublishingResult.UPLOAD_STARTED else PublishingResult.QUEUED_OFFLINE
+        val result = if (isOnline) PublishingResult.UPLOAD_STARTED else PublishingResult.QUEUED_OFFLINE
+        Result.success(result)
     }
 
     private fun enqueuePublishingWork(draftId: String) {
-        // Analytics
-        val bundle = android.os.Bundle().apply { putString("draft_id", draftId) }
-        try {
-             // Injected manually since it's a Singleton
-        } catch (_: Exception) {}
-
         val inputData = workDataOf(PublishingWorker.KEY_DRAFT_ID to draftId)
         
         val constraints = Constraints.Builder()

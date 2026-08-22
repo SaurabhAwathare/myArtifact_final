@@ -186,8 +186,6 @@ data class ArtifactDetail(
 
 enum class NotificationType {
     RESONANCE,    // General reaction
-    @Suppress("unused") SUPPORT,      // Strength/Space
-    @Suppress("unused") PRESENCE,     // Witnessed/Viewed (future)
     @Suppress("unused") SYSTEM,       // Upload/Admin
     COMMENT,          // New comment on artifact
     FOLLOW            // Someone started following you

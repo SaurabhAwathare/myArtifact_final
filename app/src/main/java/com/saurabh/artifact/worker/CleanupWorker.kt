@@ -14,6 +14,7 @@ import com.saurabh.artifact.data.local.UploadTaskDao
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
+import com.saurabh.artifact.domain.auth.SessionConstants
 import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.model.LocalCleanupStatus
 import com.saurabh.artifact.repository.ArtifactRepository
@@ -54,8 +55,13 @@ class CleanupWorker @AssistedInject constructor(
         }
 
         val artifactId = inputData.getString(KEY_ARTIFACT_ID) ?: return Result.failure()
+        val purgeRemote = inputData.getBoolean(KEY_PURGE_REMOTE, false)
         
-        diagnosticLogger.info(DiagnosticCategory.WORKMANAGER, "CLEANUP_STARTED", mapOf(LogKeys.ARTIFACT_ID to artifactId))
+        diagnosticLogger.info(
+            DiagnosticCategory.WORKMANAGER, 
+            "CLEANUP_STARTED", 
+            mapOf(LogKeys.ARTIFACT_ID to artifactId, "purgeRemote" to purgeRemote)
+        )
         
         return try {
             // 1. Find the draft in local database (Robust Lookup - System Agnostic for Maintenance)
@@ -65,11 +71,7 @@ class CleanupWorker @AssistedInject constructor(
             }
             
             if (draft == null) {
-                // This is an expected idempotent condition. The draft may have been removed already by:
-                // 1. A manual deletion worker (cleanup_$artifactId)
-                // 2. A previously successful retention worker
-                // 3. Periodic DatabaseMaintenanceManager pruning
-                // 4. Recovery at startup
+                // This is an expected idempotent condition. The draft may have been removed already.
                 diagnosticLogger.info(
                     DiagnosticCategory.WORKMANAGER, 
                     "CLEANUP_DRAFT_NOT_FOUND", 
@@ -81,13 +83,21 @@ class CleanupWorker @AssistedInject constructor(
             }
 
             // 2. Ensure remote deletion is complete for published artifacts
-            if (draft.remoteArtifactId != null) {
+            // Only perform remote delete if explicitly requested (Manual Delete path)
+            if (purgeRemote && draft.remoteArtifactId != null) {
                 diagnosticLogger.info(DiagnosticCategory.WORKMANAGER, "CLEANUP_REMOTE_VERIFY", mapOf(LogKeys.ARTIFACT_ID to artifactId))
                 val remoteResult = artifactRepository.performRemoteDelete(draft.remoteArtifactId)
                 if (remoteResult.isFailure) {
                     diagnosticLogger.warn(DiagnosticCategory.WORKMANAGER, "CLEANUP_REMOTE_RETRY_FAILED", mapOf(LogKeys.ARTIFACT_ID to artifactId))
                     return Result.retry()
                 }
+            } else if (!purgeRemote && draft.remoteArtifactId != null) {
+                // Retention Cleanup path: Explicitly avoid remote deletion
+                diagnosticLogger.info(
+                    DiagnosticCategory.WORKMANAGER, 
+                    "CLEANUP_REMOTE_SKIP_RETENTION", 
+                    mapOf(LogKeys.ARTIFACT_ID to artifactId)
+                )
             }
 
             // 3. Transition to CLEANING state
@@ -160,6 +170,7 @@ class CleanupWorker @AssistedInject constructor(
     companion object {
         const val KEY_ARTIFACT_ID = "artifact_id"
         const val KEY_EMERGENCY_MODE = "emergency_mode"
+        const val KEY_PURGE_REMOTE = "purge_remote"
         private const val MAX_RETRIES = 5
     }
 }

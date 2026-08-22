@@ -33,7 +33,6 @@ class SettingsRepository @Inject constructor(
     private val authRepository: AuthRepository,
     private val startupCoordinator: StartupCoordinator,
     private val maintenanceRepository: MaintenanceRepository,
-    private val sessionManager: com.saurabh.artifact.data.local.UserSessionManager,
     private val logoutCoordinator: dagger.Lazy<com.saurabh.artifact.domain.auth.LogoutCoordinator>
 ) {
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

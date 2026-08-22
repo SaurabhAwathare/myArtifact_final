@@ -19,7 +19,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.BookmarkBorder
-import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Pause
@@ -68,7 +67,6 @@ fun ArtifactCard(
     onReportClick: () -> Unit,
 ) {
     val haptic = LocalHapticFeedback.current
-    val context = LocalContext.current
 
     Card(
         modifier = modifier

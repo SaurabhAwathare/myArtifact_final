@@ -7,7 +7,6 @@ import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.domain.auth.LogoutCoordinator
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.SettingsRepository
-import com.saurabh.artifact.security.DataExportManager
 import com.saurabh.artifact.util.ClipboardGuard
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
@@ -24,7 +23,6 @@ import org.junit.Test
 class SettingsViewModelTest {
     private val repository = mockk<SettingsRepository>(relaxed = true)
     private val authRepository = mockk<AuthRepository>(relaxed = true)
-    private val dataExportManager = mockk<DataExportManager>(relaxed = true)
     private val clipboardGuard = mockk<ClipboardGuard>(relaxed = true)
     private val logoutCoordinator = mockk<LogoutCoordinator>(relaxed = true)
     private val credentialHelper = mockk<CredentialHelper>(relaxed = true)
@@ -43,7 +41,7 @@ class SettingsViewModelTest {
         every { repository.userSettings } returns MutableStateFlow(mockk(relaxed = true))
 
         viewModel = SettingsViewModel(
-            repository, authRepository, dataExportManager, 
+            repository, authRepository, 
             clipboardGuard, logoutCoordinator, credentialHelper, diagnosticLogger
         )
         @Test

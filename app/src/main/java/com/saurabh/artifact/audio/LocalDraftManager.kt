@@ -33,6 +33,16 @@ class LocalDraftManager @Inject constructor(
         val validDraftIds = allDrafts.asSequence().map { it.id }.toSet()
         val knownPaths = mutableSetOf<String>()
 
+        val rootDir = storageManager.draftsRootDirectory
+        val existingDraftFolders = rootDir.listFiles()?.filter { it.isDirectory && it.name.startsWith("draft_") } ?: emptyList()
+
+        // SANITY GATE: If DB returns zero drafts but folders exist, abort destructive purge.
+        // This protects against temporary Room query failures or initialization races.
+        if (allDrafts.isEmpty() && existingDraftFolders.isNotEmpty()) {
+            Log.w("LocalDraftManager", "Reconciliation aborted: DB is empty but ${existingDraftFolders.size} folders found. Possible Room failure.")
+            return
+        }
+
         allDrafts.forEach { draft ->
             knownPaths.add(File(draft.localAudioPath).absolutePath)
             draft.rawPcmPath?.let { knownPaths.add(File(it).absolutePath) }
@@ -48,24 +58,21 @@ class LocalDraftManager @Inject constructor(
         }
 
         // 2. Scan and prune the root drafts directory (directory level)
-        val rootDir = storageManager.draftsRootDirectory
-        rootDir.listFiles()?.forEach { draftDir ->
-            if (draftDir.isDirectory && draftDir.name.startsWith("draft_")) {
-                val draftId = draftDir.name.substringAfter("draft_")
-                if (draftId !in validDraftIds) {
-                    // Check grace period: if the directory was created recently, skip it
-                    if ((now - draftDir.lastModified()) > gracePeriodMs) {
-                        Log.i("LocalDraftManager", "Deleting orphaned draft directory.")
-                        storageManager.deleteDirectoryRecursively(draftDir)
-                    }
-                } else {
-                    // 3. Within a valid draft directory, prune untracked files
-                    draftDir.listFiles()?.forEach { file ->
-                        if (file.isFile && file.absolutePath !in knownPaths) {
-                            if ((now - file.lastModified()) > gracePeriodMs) {
-                                Log.i("LocalDraftManager", "Deleting untracked file in valid draft.")
-                                file.delete()
-                            }
+        existingDraftFolders.forEach { draftDir ->
+            val draftId = draftDir.name.substringAfter("draft_")
+            if (draftId !in validDraftIds) {
+                // Check grace period: if the directory was created recently, skip it
+                if ((now - draftDir.lastModified()) > gracePeriodMs) {
+                    Log.i("LocalDraftManager", "Deleting orphaned draft directory.")
+                    storageManager.deleteDirectoryRecursively(draftDir)
+                }
+            } else {
+                // 3. Within a valid draft directory, prune untracked files
+                draftDir.listFiles()?.forEach { file ->
+                    if (file.isFile && file.absolutePath !in knownPaths) {
+                        if ((now - file.lastModified()) > gracePeriodMs) {
+                            Log.i("LocalDraftManager", "Deleting untracked file in valid draft.")
+                            file.delete()
                         }
                     }
                 }

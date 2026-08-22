@@ -11,7 +11,6 @@ import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.audio.PlaybackCoordinator
 import com.saurabh.artifact.audio.PublishStateManager
-import com.saurabh.artifact.audio.ReviewSessionManager
 import com.saurabh.artifact.domain.feed.GetFeedFlowUseCase
 import com.saurabh.artifact.domain.feed.GetPersonalizedFeedFlowUseCase
 import com.saurabh.artifact.domain.prompt.GetReflectionPromptUseCase
@@ -87,7 +86,6 @@ class FeedViewModel @Inject constructor(
     savedArtifactManager: SavedArtifactManager,
     private val firestore: FirebaseFirestore,
     val audioPlayer: PlaybackCoordinator,
-    private val reviewSessionManager: ReviewSessionManager,
     private val publishStateManager: PublishStateManager,
     private val uploadGuard: UploadGuard,
     private val feedComposer: FeedComposer,
@@ -536,7 +534,7 @@ class FeedViewModel @Inject constructor(
         publishStateManager.retryPublish(draftId)
     }
 
-    fun cancelPublish(draftId: String) {
+    fun cancelPublish() {
         // Redesign: For now, Cancel just dismisses the bar, or we could trigger deletion
         publishStateManager.dismissSession()
     }

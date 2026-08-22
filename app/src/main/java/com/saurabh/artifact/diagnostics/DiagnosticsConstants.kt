@@ -24,14 +24,3 @@ object LogKeys {
     const val STACKTRACE_HASH = "stacktrace_hash"
 }
 
-/**
- * Standardized suffixes for event names to represent lifecycle states.
- */
-object LogSuffix {
-    const val STARTED = "_STARTED"
-    const val PROGRESS = "_PROGRESS"
-    const val SUCCESS = "_SUCCESS"
-    const val FAILURE = "_FAILURE"
-    const val CANCELLED = "_CANCELLED"
-    const val SUMMARY = "_SUMMARY"
-}

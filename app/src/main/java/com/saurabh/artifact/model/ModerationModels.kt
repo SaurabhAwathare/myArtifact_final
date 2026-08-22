@@ -6,8 +6,7 @@ import kotlinx.serialization.Serializable
 @Serializable
 enum class ModerationStatus {
     SAFE,           // Content is visible to all
-    HIDDEN,         // Content is hidden from all users except the author
-    REMOVED         // Content is removed from the platform
+    HIDDEN          // Content is hidden from all users except the author
 }
 
 /**

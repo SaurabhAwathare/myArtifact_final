@@ -122,16 +122,15 @@ fun AppRoot(
             )
         }
         is AppStartupState.Ready -> {
-            val readyState = startupState
-            val startDestination = readyState.startDestination
+            val startDestination = startupState.startDestination
             val playerViewModel: PlayerViewModel = hiltViewModel()
 
             key(startDestination) {
                 val navController = rememberNavController()
 
-                LaunchedEffect(navController, readyState.startupAction) {
+                LaunchedEffect(navController, startupState.startupAction) {
                     // 1. Synchronous execution of startup action (if any)
-                    readyState.startupAction?.let { action ->
+                    startupState.startupAction?.let { action ->
                         when (action) {
                             is IncomingArtifact -> {
                                 playerViewModel.playArtifactById(
@@ -221,9 +220,8 @@ fun AppRoot(
             }
         }
         is AppStartupState.Error -> {
-            val errorState = startupState as AppStartupState.Error
             com.saurabh.artifact.ui.splash.StartupErrorScreen(
-                message = errorState.message,
+                message = startupState.message,
                 onRetry = { mainViewModel.retryStartup() }
             )
         }

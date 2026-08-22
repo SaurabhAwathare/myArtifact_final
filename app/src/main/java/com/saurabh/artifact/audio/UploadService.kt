@@ -107,7 +107,7 @@ class UploadService : Service() {
             }
 
             // 2. Start Foreground
-            val notification = NotificationHelper.buildUploadProgressNotification(attributionContext, "Preparing...", 0, draftId)
+            val notification = NotificationHelper.buildUploadProgressNotification(attributionContext, "Preparing...", 0)
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 startForeground(
                     NotificationHelper.UPLOAD_NOTIFICATION_ID,
@@ -137,7 +137,7 @@ class UploadService : Service() {
                     draftId = draftId,
                     onProgress = { transferred, total, _ ->
                         val progress = (transferred * 100 / total).toInt()
-                        NotificationHelper.updateUploadProgress(attributionContext, title, progress, draftId)
+                        NotificationHelper.updateUploadProgress(attributionContext, title, progress)
                     }
                 ).onSuccess {
                     diagnosticLogger.info(DiagnosticCategory.PUBLISH, "UPLOAD_SERVICE_SUCCESS", mapOf(LogKeys.ARTIFACT_ID to draftId))

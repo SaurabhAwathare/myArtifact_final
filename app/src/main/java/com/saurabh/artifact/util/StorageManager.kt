@@ -202,13 +202,4 @@ class StorageManager @Inject constructor(
 
         return StorageCleanupResult(deleted, skipped, failures)
     }
-
-    /**
-     * Clears all user-specific storage, including drafts and internal/external caches.
-     * This is a privacy-critical operation.
-     * @deprecated Use clearUserStorage() for a structured result and safer whitelisting.
-     */
-    fun clearAllUserStorage(): Boolean {
-        return clearUserStorage().failures.isEmpty()
-    }
 }

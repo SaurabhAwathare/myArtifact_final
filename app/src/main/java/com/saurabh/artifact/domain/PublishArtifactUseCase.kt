@@ -34,8 +34,7 @@ class PublishArtifactUseCase @Inject constructor(
         }
 
         return try {
-            val result = publishingOrchestrator.approvePublishing(draft.id)
-            Result.success(result)
+            publishingOrchestrator.approvePublishing(draft.id)
         } catch (e: Exception) {
             Result.failure(e)
         }

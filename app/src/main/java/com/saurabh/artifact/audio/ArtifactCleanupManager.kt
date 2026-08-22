@@ -50,7 +50,13 @@ class ArtifactCleanupManager @Inject constructor(
                 val unfinished = draftDao.get().getUnfinishedCleanups()
                 unfinished.forEach { draft ->
                     ArtifactLogger.i(DiagnosticCategory.WORKMANAGER, "CLEANUP_RESUMING", mapOf("draftId" to draft.id))
-                    scheduleLocalCleanup(draft.id)
+                    // Recover intent: If it was PENDING and has a remote ID, it was likely a manual delete.
+                    // But to be fail-safe, we only purge remote if we are absolutely sure.
+                    // Since deleteArtifact() now schedules with purgeRemote=true, 
+                    // and WorkManager persists that input, this recovery path is mostly for 
+                    // state transitions that didn't even start a worker.
+                    val shouldPurgeRemote = draft.remoteArtifactId != null && draft.localCleanupStatus == LocalCleanupStatus.PENDING
+                    scheduleLocalCleanup(draft.id, purgeRemote = shouldPurgeRemote)
                 }
             } catch (e: Exception) {
                 ArtifactLogger.e(DiagnosticCategory.WORKMANAGER, "CLEANUP_RECOVERY_FAILED", throwable = e)
@@ -95,10 +101,11 @@ class ArtifactCleanupManager @Inject constructor(
             
             if (result.isSuccess) {
                 ArtifactLogger.i(DiagnosticCategory.PUBLISH, "ARTIFACT_REMOTE_DELETION_SUCCESS", mapOf("artifactId" to artifactId))
-                scheduleLocalCleanup(artifactId)
+                scheduleLocalCleanup(artifactId, purgeRemote = true)
             } else {
                 ArtifactLogger.e(DiagnosticCategory.PUBLISH, "ARTIFACT_REMOTE_DELETION_FAILED", mapOf("artifactId" to artifactId))
-                // Do NOT schedule local cleanup if remote failed, to allow user retry
+                // Even if remote failed, we schedule the worker to handle the remote retry + local cleanup
+                scheduleLocalCleanup(artifactId, purgeRemote = true)
             }
             result
         } finally {
@@ -116,7 +123,7 @@ class ArtifactCleanupManager @Inject constructor(
         _deletingArtifactIds.value += draftId
         return try {
             draftDao.get().updateLocalCleanupStatus(draftId, userId, LocalCleanupStatus.PENDING)
-            scheduleLocalCleanup(draftId)
+            scheduleLocalCleanup(draftId, purgeRemote = false)
             ArtifactLogger.i(DiagnosticCategory.DRAFT, "DRAFT_LOCAL_DELETION_QUEUED", mapOf("draftId" to draftId))
             Result.success(Unit)
         } catch (e: Exception) {
@@ -133,12 +140,14 @@ class ArtifactCleanupManager @Inject constructor(
     fun scheduleRetentionCleanup(artifactId: String) {
         val inputData = Data.Builder()
             .putString(CleanupWorker.KEY_ARTIFACT_ID, artifactId)
+            .putBoolean(CleanupWorker.KEY_PURGE_REMOTE, false) // Explicitly safe
             .build()
 
         val cleanupRequest = OneTimeWorkRequestBuilder<CleanupWorker>()
             .setInitialDelay(RetentionPolicy.DEFAULT_RETENTION_DAYS, RetentionPolicy.RETENTION_TIME_UNIT)
             .setInputData(inputData)
             .addTag("retention_cleanup_$artifactId")
+            .addTag(com.saurabh.artifact.domain.auth.SessionConstants.TAG_USER_SESSION_WORK)
             .build()
 
         workManager.enqueueUniqueWork(
@@ -168,14 +177,16 @@ class ArtifactCleanupManager @Inject constructor(
         )
     }
 
-    private fun scheduleLocalCleanup(artifactId: String) {
+    private fun scheduleLocalCleanup(artifactId: String, purgeRemote: Boolean) {
         val inputData = Data.Builder()
             .putString(CleanupWorker.KEY_ARTIFACT_ID, artifactId)
+            .putBoolean(CleanupWorker.KEY_PURGE_REMOTE, purgeRemote)
             .build()
 
         val cleanupRequest = OneTimeWorkRequestBuilder<CleanupWorker>()
             .setInputData(inputData)
             .addTag("cleanup_$artifactId")
+            .addTag(com.saurabh.artifact.domain.auth.SessionConstants.TAG_USER_SESSION_WORK)
             .build()
 
         workManager.enqueueUniqueWork(

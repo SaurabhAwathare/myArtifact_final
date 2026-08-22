@@ -164,7 +164,7 @@ class RecordingRepository @Inject constructor(
         try {
             val userId = userRepository.getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
             val trimmedTitle = newTitle?.trim()
-            if ((trimmedTitle != null) && (trimmedTitle.isEmpty() || trimmedTitle.length > 70)) {
+            if (trimmedTitle != null && (trimmedTitle.isEmpty() || trimmedTitle.length > 70)) {
                 return@withContext Result.failure(AppError.InvalidInput("Title length must be 1-70 characters"))
             }
             draftDao.get().updateTitle(id, userId, trimmedTitle)
@@ -199,58 +199,14 @@ class RecordingRepository @Inject constructor(
         }
     }
 
-    suspend fun recoverDraft(id: String, lifecycle: ArtifactLifecycle): Result<Unit> = withContext(Dispatchers.IO) {
-        diagnosticLogger.info(
-            DiagnosticCategory.RECORDING,
-            "DRAFT_RECOVERY_STARTED",
-            mapOf(LogKeys.DRAFT_ID to id, "targetLifecycle" to lifecycle.name)
-        )
-        try {
-            val userId = userRepository.getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
-            draftDao.get().updateLifecycle(id, userId, lifecycle, isRecovery = true)
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Result.failure(AppError.from(e))
-        }
-    }
-
-    suspend fun updateProcessingStatus(id: String, status: ProcessingStatus): Result<Unit> = withContext(Dispatchers.IO) {
-        try {
-            val userId = userRepository.getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
-            draftDao.get().updateProcessingStatus(id, userId, status)
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Result.failure(AppError.from(e))
-        }
-    }
-
-    suspend fun updateWaveform(id: String, amplitudeData: List<Float>): Result<Unit> = withContext(Dispatchers.IO) {
-        try {
-            val userId = userRepository.getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
-            draftDao.get().updateWaveformResult(id, userId, amplitudeData)
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Result.failure(AppError.from(e))
-        }
-    }
-
     suspend fun finalizeProcessing(id: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val userId = userRepository.getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
             draftDao.get().finalizeProcessing(id, userId)
-            // Mark recovery complete when terminal state reached
-            markRecoveryComplete(id)
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(AppError.from(e))
         }
-    }
-
-    /**
-     * Resets the recovery flag. 
-     */
-    suspend fun markRecoveryComplete(id: String) {
-        // No-op for now as state is derived from WorkManager + lastRecoveryAttemptAt
     }
 
     suspend fun updateStudioState(
@@ -326,9 +282,6 @@ class RecordingRepository @Inject constructor(
             
             diagnosticLogger.info(DiagnosticCategory.RECORDING, "INTERRUPTED_DRAFTS_RECOVERY_STARTED", mapOf(LogKeys.USER_ID to userId))
             
-            // 0. Repair Lifecycle Desynchronization
-            reconcileLifecycleConsistency()
-
             val now = System.currentTimeMillis()
 
             // 1. Recover interrupted recordings (RECORDING lifecycle)
@@ -455,6 +408,7 @@ class RecordingRepository @Inject constructor(
     /**
      * Observes the recovery state of a specific draft.
      */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     fun observeRecoveryState(draftId: String, workManager: WorkManager): Flow<Boolean> {
         return observeDraft(draftId).map { draft ->
             if (draft == null) return@map false
@@ -462,7 +416,7 @@ class RecordingRepository @Inject constructor(
                                     draft.lastRecoveryAttemptAt > draft.updatedAt
             hasRecoveryMetadata
         }.flatMapLatest { isMarkedRecovering ->
-            if (!isMarkedRecovering) return@flatMapLatest flowOf(false)
+            if (!isMarkedRecovering) return@flatMapLatest flowOf(value = false)
             workManager.getWorkInfosForUniqueWorkLiveData(WorkNames.forProcessing(draftId)).asFlow().map { workInfos ->
                 workInfos.any { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.RUNNING }
             }
@@ -490,13 +444,6 @@ class RecordingRepository @Inject constructor(
                 cleanupManager.deleteDraft(draft.id)
             }
         }
-    }
-
-    /**
-     * Authoritative repair for any desynchronized lifecycle fields.
-     */
-    private suspend fun reconcileLifecycleConsistency() {
-        // No longer needed as status.lifecycle is removed.
     }
 
     companion object {

@@ -2,7 +2,7 @@ package com.saurabh.artifact.audio
 
 import android.app.PendingIntent
 import android.content.Intent
-import android.util.Log
+import androidx.core.net.toUri
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Player
@@ -18,7 +18,6 @@ import com.saurabh.artifact.util.NotificationHelper
 import android.os.Handler
 import android.os.Looper
 import androidx.media3.exoplayer.DefaultLoadControl
-import androidx.media3.exoplayer.upstream.BandwidthMeter
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -97,20 +96,22 @@ class PlaybackService : MediaSessionService() {
                 30_000, // Min buffer 30s
                 60_000, // Max buffer 60s
                 2_500,  // Buffer for playback 2.5s
-                5_000   // Buffer for playback after rebuffer 5s
+                5_000,   // Buffer for playback after rebuffer 5s
             )
             .build()
 
         val bandwidthMeter = DefaultBandwidthMeter.getSingletonInstance(this)
-        bandwidthMeter.addEventListener(Handler(Looper.getMainLooper()), object : BandwidthMeter.EventListener {
-            override fun onBandwidthSample(elapsedMs: Int, bytesTransferred: Long, bitrateEstimate: Long) {
-                ArtifactLogger.v(DiagnosticCategory.NETWORK, "BANDWIDTH_SAMPLE", mapOf(
+        bandwidthMeter.addEventListener(Handler(Looper.getMainLooper())) { elapsedMs, bytesTransferred, bitrateEstimate ->
+            ArtifactLogger.v(
+                DiagnosticCategory.NETWORK,
+                "BANDWIDTH_SAMPLE",
+                mapOf(
                     "elapsedMs" to elapsedMs,
                     "bytes" to bytesTransferred,
-                    "bitrate" to bitrateEstimate
-                ))
-            }
-        })
+                    "bitrate" to bitrateEstimate,
+                )
+            )
+        }
 
         val player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(
@@ -136,14 +137,6 @@ class PlaybackService : MediaSessionService() {
                 val artifact = player.currentMediaItem?.mediaId ?: "unknown"
                 val pos = player.currentPosition
                 
-                val stateName = when (playbackState) {
-                    Player.STATE_IDLE -> "IDLE"
-                    Player.STATE_BUFFERING -> "BUFFERING"
-                    Player.STATE_READY -> "READY"
-                    Player.STATE_ENDED -> "ENDED"
-                    else -> "UNKNOWN"
-                }
-
                 when (playbackState) {
                     Player.STATE_READY -> {
                         ArtifactLogger.i(DiagnosticCategory.PLAYER, "STATE_READY", mapOf(
@@ -321,7 +314,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun createMediaItem(artifact: com.saurabh.artifact.model.Artifact): MediaItem {
-        val uri = android.net.Uri.parse(artifact.audioUrl)
+        val uri = artifact.audioUrl.toUri()
             .buildUpon()
             .appendQueryParameter("artifact_id", artifact.id)
             .appendQueryParameter("encrypted", artifact.isEncrypted.toString())

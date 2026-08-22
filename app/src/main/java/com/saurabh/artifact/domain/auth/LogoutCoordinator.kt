@@ -152,6 +152,8 @@ class LogoutCoordinator @Inject constructor(
                 // 4. Cancel user-scoped background workers
                 try {
                     workManager.cancelAllWorkByTag(SessionConstants.TAG_USER_SESSION_WORK).result.await()
+                    // Small delay to ensure WorkManager has yielded DB locks
+                    delay(500)
                 } catch (e: Exception) {
                     diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_STOP_WORKERS_FAILED", throwable = e)
                     workersSuccess = false
@@ -165,61 +167,84 @@ class LogoutCoordinator @Inject constructor(
                     notificationsSuccess = false
                 }
 
-                // PHASE B: Clear Local State (DataStores)
+                // PHASE B: Local Data Destruction (Database & Files)
+                // We perform this before clearing DataStores so owningUid remains as a taint flag if failure occurs.
                 diagnosticLogger.debug(DiagnosticCategory.AUTH, "LOGOUT_CLEANUP_PHASE_B")
                 
-                // 6. Clear Session DataStore
-                try {
-                    sessionManager.clear()
-                } catch (e: Exception) {
-                    diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_SESSION_FAILED", throwable = e)
-                    sessionDSSuccess = false
-                }
-
-                // 7. Clear Settings DataStore
-                try {
-                    settingsRepository.signOut()
-                } catch (e: Exception) {
-                    diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_SETTINGS_FAILED", throwable = e)
-                    settingsDSSuccess = false
-                }
-
-                // 8. Clear Playback State DataStore
-                try {
-                    playbackSettingsDataStore.clear()
-                } catch (e: Exception) {
-                    diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_PLAYBACK_DS_FAILED", throwable = e)
-                    settingsDSSuccess = settingsDSSuccess && false 
-                }
-
-                // 8.5 Clear Backup Security State
-                try {
-                    backupEncryptionManager.clear()
-                } catch (e: Exception) {
-                    diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_BACKUP_FAILED", throwable = e)
-                }
-
-                // PHASE C: Database Cleanup
-                diagnosticLogger.debug(DiagnosticCategory.AUTH, "LOGOUT_CLEANUP_PHASE_C")
+                // 6. Database Cleanup
                 try {
                     database.get().clearAllTables()
                 } catch (e: Exception) {
                     diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_DB_FAILED", throwable = e)
-                    roomSuccess = false
+                    
+                    // FALLBACK: If clearAllTables fails (e.g. locks), try destructive delete
+                    try {
+                        diagnosticLogger.warn(DiagnosticCategory.AUTH, "LOGOUT_DB_FALLBACK_TRIGGERED")
+                        database.get().close()
+                        val deleted = context.deleteDatabase("artifact_db")
+                        if (deleted) {
+                            diagnosticLogger.info(DiagnosticCategory.AUTH, "LOGOUT_DB_FALLBACK_SUCCESS")
+                            roomSuccess = true
+                        } else {
+                            diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_DB_FALLBACK_RETURNED_FALSE")
+                            roomSuccess = false
+                        }
+                    } catch (fallbackError: Exception) {
+                        diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_DB_FALLBACK_FAILED", throwable = fallbackError)
+                        roomSuccess = false
+                    }
                 }
 
-                // PHASE C.5: User File Cleanup
-                diagnosticLogger.debug(DiagnosticCategory.AUTH, "LOGOUT_CLEANUP_PHASE_C_5")
+                // 7. User File Cleanup
                 try {
                     storageManager.clearUserStorage()
                 } catch (e: Exception) {
                     diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_STORAGE_FAILED", throwable = e)
                 }
 
+                // PHASE C: Clear Local State (DataStores)
+                // Critical boundary: only clear these if destructive cleanup was successful
+                diagnosticLogger.debug(DiagnosticCategory.AUTH, "LOGOUT_CLEANUP_PHASE_C")
+                
+                if (roomSuccess) {
+                    // 8. Clear Session DataStore (Contains owningUid - the taint marker)
+                    try {
+                        sessionManager.clear()
+                    } catch (e: Exception) {
+                        diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_SESSION_FAILED", throwable = e)
+                        sessionDSSuccess = false
+                    }
+
+                    // 9. Clear Settings DataStore
+                    try {
+                        settingsRepository.signOut()
+                    } catch (e: Exception) {
+                        diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_SETTINGS_FAILED", throwable = e)
+                        settingsDSSuccess = false
+                    }
+
+                    // 10. Clear Playback State DataStore
+                    try {
+                        playbackSettingsDataStore.clear()
+                    } catch (e: Exception) {
+                        diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_PLAYBACK_DS_FAILED", throwable = e)
+                    }
+
+                    // 10.5 Clear Backup Security State
+                    try {
+                        backupEncryptionManager.clear()
+                    } catch (e: Exception) {
+                        diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_BACKUP_FAILED", throwable = e)
+                    }
+                } else {
+                    diagnosticLogger.warn(DiagnosticCategory.AUTH, "LOGOUT_SKIP_DATASTORE_CLEAR", mapOf("reason" to "DB cleanup failed"))
+                    sessionDSSuccess = false
+                }
+
                 // PHASE D: Finalize
                 diagnosticLogger.debug(DiagnosticCategory.AUTH, "LOGOUT_CLEANUP_PHASE_D")
                 
-                // 9. Release Media Cache handles
+                // 11. Release Media Cache handles
                 try {
                     MediaCache.release()
                 } catch (e: Exception) {

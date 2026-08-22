@@ -43,7 +43,7 @@ object NotificationHelper {
             val settingsRepository = entryPoint.settingsRepository()
             // Preference check - use runBlocking sparingly for this short DataStore read
             runBlocking { settingsRepository.userSettings.first().notificationsEnabled }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             true // Fallback to enabled if repository access fails
         }
     }
@@ -224,8 +224,7 @@ object NotificationHelper {
     fun buildUploadProgressNotification(
         context: Context,
         title: String,
-        progress: Int,
-        draftId: String
+        progress: Int
     ): Notification {
         return NotificationCompat.Builder(context, CHANNEL_ID_UPLOADS)
             .setContentTitle(title)
@@ -242,13 +241,12 @@ object NotificationHelper {
     fun updateUploadProgress(
         context: Context,
         title: String,
-        progress: Int,
-        draftId: String
+        progress: Int
     ) {
         if (!isNotificationEnabled(context)) return
 
         if (ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
-            val notification = buildUploadProgressNotification(context, title, progress, draftId)
+            val notification = buildUploadProgressNotification(context, title, progress)
             NotificationManagerCompat.from(context).notify(UPLOAD_NOTIFICATION_ID, notification)
         }
     }
@@ -369,7 +367,7 @@ object NotificationHelper {
     }
 
     fun getUploadForegroundInfo(context: Context, title: String, progress: Int): ForegroundInfo {
-        val notification = buildUploadProgressNotification(context, title, progress, "")
+        val notification = buildUploadProgressNotification(context, title, progress)
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             ForegroundInfo(
                 UPLOAD_NOTIFICATION_ID,

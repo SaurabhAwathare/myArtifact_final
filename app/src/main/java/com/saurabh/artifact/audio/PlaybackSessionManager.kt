@@ -1,5 +1,6 @@
 package com.saurabh.artifact.audio
 
+import androidx.core.net.toUri
 import android.content.ComponentName
 import android.content.Context
 import androidx.media3.common.MediaItem
@@ -348,7 +349,7 @@ class PlaybackSessionManager @Inject constructor(
                 // the player remained in a non-idle state (e.g. paused or ended).
                 _currentArtifact.value = artifact
                 
-                if (initialPosition > 0 && kotlin.math.abs(player.currentPosition - initialPosition) > 2000) {
+                if (initialPosition > 0 && (kotlin.math.abs(player.currentPosition - initialPosition) > 2000)) {
                     player.seekTo(initialPosition)
                 }
                 player.play()
@@ -401,7 +402,7 @@ class PlaybackSessionManager @Inject constructor(
     }
 
     private fun createMediaItem(artifact: Artifact): MediaItem {
-        val uri = android.net.Uri.parse(artifact.audioUrl)
+        val uri = artifact.audioUrl.toUri()
             .buildUpon()
             .appendQueryParameter("artifact_id", artifact.id)
             .appendQueryParameter("encrypted", artifact.isEncrypted.toString())

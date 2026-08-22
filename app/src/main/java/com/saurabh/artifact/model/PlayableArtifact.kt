@@ -21,7 +21,6 @@ data class PlayableArtifact(
 )
 
 enum class PlaybackSource {
-    REVIEW_NEW_RECORDING,
     REVIEW_DRAFT,
     FEED_PLAYBACK,
     PROFILE_PLAYBACK,

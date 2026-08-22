@@ -1,8 +1,6 @@
 package com.saurabh.artifact.repository
 
 import android.net.Uri
-import android.util.Log
-import androidx.core.net.toUri
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
@@ -80,7 +78,7 @@ class ArtifactRepository @Inject constructor(
     private val storage: FirebaseStorage,
     private val draftDao: dagger.Lazy<DraftDao>,
     private val userRepository: dagger.Lazy<UserRepository>,
-    private val artifactDao: dagger.Lazy<com.saurabh.artifact.data.local.ArtifactDao>,
+    private val artifactDao: dagger.Lazy<ArtifactDao>,
     private val database: dagger.Lazy<com.saurabh.artifact.data.local.AppDatabase>,
     private val artifactLibraryRepository: dagger.Lazy<ArtifactLibraryRepository>,
     private val moderationRepository: dagger.Lazy<ArtifactModerationRepository>,
@@ -172,7 +170,7 @@ class ArtifactRepository @Inject constructor(
         val docRef = firestore.collection("artifacts").document(artifactId)
         val subscription = docRef.addSnapshotListener { snapshot, error ->
             if (error != null) {
-                if (error.code == com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+                if (error.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
                     diagnosticLogger.warn(DiagnosticCategory.FIRESTORE, "ARTIFACT_OBSERVE_DENIED", mapOf(LogKeys.ARTIFACT_ID to artifactId))
                 } else {
                     diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "ARTIFACT_OBSERVE_FAILED", mapOf(LogKeys.ARTIFACT_ID to artifactId), error)
@@ -379,7 +377,7 @@ class ArtifactRepository @Inject constructor(
                     eventName = "PROFILE_ARTIFACT_QUERY_FAILED",
                     metadata = mapOf(
                         "userId" to userId,
-                        "errorCode" to (error as? FirebaseFirestoreException)?.code?.name.orEmpty(),
+                        "errorCode" to error.code.name,
                         "errorMessage" to error.message.orEmpty(),
                         "isPublicOnly" to isPublicOnly
                     ),
@@ -468,17 +466,6 @@ class ArtifactRepository @Inject constructor(
             Result.failure(e)
         }
     }
-
-    /**
-     * Submits private feedback that is hidden from the public and the author.
-     * Used for personalization and safety monitoring.
-     * Bridge to ArtifactEngagementRepository.
-     */
-    suspend fun submitPrivateFeedback(
-        artifactId: String,
-        userId: String,
-        type: FeedbackType
-    ): Result<Unit> = artifactEngagementRepository.get().submitPrivateFeedback(artifactId, userId, type)
 
     /**
      * Submits a user report for an artifact.
@@ -647,13 +634,6 @@ class ArtifactRepository @Inject constructor(
         artifactLibraryRepository.get().syncSave(userId, artifactId, shelf)
 
     /**
-     * Internal synchronization method for artifact unsaving.
-     * Bridge to ArtifactLibraryRepository.
-     */
-    internal suspend fun unsaveArtifactFromFirestore(userId: String, artifactId: String): Result<Unit> = 
-        artifactLibraryRepository.get().syncUnsave(userId, artifactId)
-
-    /**
      * Streams the current user's saved artifact IDs for global UI synchronization.
      * Bridge to ArtifactLibraryRepository.
      */
@@ -736,7 +716,7 @@ class ArtifactRepository @Inject constructor(
         transcriptJson: String
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
-            val fileName = "transcripts/${userId}_${draftId}.json"
+            val fileName = "transcripts/${userId}_$draftId.json"
             val fileRef = storage.reference.child(fileName)
             
             val metadata = StorageMetadata.Builder()
@@ -756,7 +736,7 @@ class ArtifactRepository @Inject constructor(
             val extraParams = mutableMapOf<String, Any>(
                 LogKeys.DRAFT_ID to draftId,
                 "userId" to userId,
-                "path" to "transcripts/${userId}_${draftId}.json",
+                "path" to "transcripts/${userId}_$draftId.json",
                 "exceptionType" to e.javaClass.name
             )
 

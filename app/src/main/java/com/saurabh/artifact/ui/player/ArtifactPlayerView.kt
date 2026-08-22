@@ -153,7 +153,6 @@ fun ArtifactPlayerView(
                     onSpeedChange = { viewModel.setPlaybackSpeed(it) },
                     onSeek = { viewModel.seekTo((it * uiState.durationMs).toLong()) },
                     onScrubbing = { viewModel.onScrubbing((it * uiState.durationMs).toLong()) },
-                    onShowAdvanced = { viewModel.setShowAdvancedControls(true) },
                     onResonateClick = { viewModel.toggleResonate(it) },
                     onResonateConnectionClick = { viewModel.toggleResonanceConnection() },
                     onResonatorsCountClick = onResonatorsCountClick,

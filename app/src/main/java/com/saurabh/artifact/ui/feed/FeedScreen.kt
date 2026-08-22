@@ -33,7 +33,6 @@ import kotlinx.coroutines.flow.map
 import androidx.compose.ui.zIndex
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.ui.components.ArtifactCard
-import com.saurabh.artifact.ui.components.ArtifactFeedCard
 import com.saurabh.artifact.ui.components.AmbientUploadBar
 import com.saurabh.artifact.ui.components.EmberLogo
 import com.saurabh.artifact.ui.components.CrisisSupportCard
@@ -163,7 +162,7 @@ fun FeedScreen(
             AmbientUploadBar(
                 state = publishState,
                 onRetry = { viewModel.retryPublish(it) },
-                onCancel = { viewModel.cancelPublish(it) }
+                onCancel = { viewModel.cancelPublish() }
             )
 
             Box(modifier = Modifier.weight(1f)) {
