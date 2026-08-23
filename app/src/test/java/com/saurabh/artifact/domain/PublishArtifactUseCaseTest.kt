@@ -36,7 +36,7 @@ class PublishArtifactUseCaseTest {
             every { title } returns "Valid Title"
         }
         coEvery { recordingRepository.getDraftByPath(draftFilePath) } returns Result.success(draft)
-        coEvery { publishingOrchestrator.approvePublishing(draftId) } returns expectedResult
+        coEvery { publishingOrchestrator.approvePublishing(draftId) } returns Result.success(expectedResult)
         
         val result = useCase(draftFilePath)
         
@@ -60,7 +60,29 @@ class PublishArtifactUseCaseTest {
         val result = useCase(draftFilePath)
         
         assert(result.isFailure)
-        assertEquals("Title must not exceed 70 characters", result.exceptionOrNull()?.message)
+        assertEquals("Invalid input: Title must not exceed 70 characters", result.exceptionOrNull()?.message)
         coVerify(exactly = 0) { publishingOrchestrator.approvePublishing(any()) }
+    }
+
+    @Test
+    fun `invoke should propagate orchestrator failure`() = runBlocking {
+        val draftId = "draft123"
+        val draftFilePath = "path/to/draft"
+        val errorMessage = "Validation failed: Title contains PII"
+        
+        val draft = mockk<com.saurabh.artifact.data.local.ArtifactDraftEntity>(relaxed = true) {
+            every { id } returns draftId
+            every { lifecycle } returns com.saurabh.artifact.model.ArtifactLifecycle.READY_TO_PUBLISH
+            every { title } returns "Valid Title"
+        }
+        coEvery { recordingRepository.getDraftByPath(draftFilePath) } returns Result.success(draft)
+        coEvery { publishingOrchestrator.approvePublishing(draftId) } returns Result.failure(com.saurabh.artifact.model.AppError.InvalidInput(errorMessage))
+        
+        val result = useCase(draftFilePath)
+        
+        assert(result.isFailure)
+        val exception = result.exceptionOrNull()
+        assert(exception is com.saurabh.artifact.model.AppError.InvalidInput)
+        assertEquals("Invalid input: $errorMessage", exception?.message)
     }
 }

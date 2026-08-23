@@ -17,20 +17,20 @@ class PublishArtifactUseCase @Inject constructor(
         if (userId.isEmpty()) return Result.failure(com.saurabh.artifact.model.AppError.Unauthenticated())
         
         val draftResult = recordingRepository.getDraftByPath(draftFilePath)
-        val draft = draftResult.getOrNull() ?: return Result.failure(Exception("Draft not found"))
+        val draft = draftResult.getOrNull() ?: return Result.failure(com.saurabh.artifact.model.AppError.NotFound("Draft", draftFilePath))
 
         if (draft.lifecycle != com.saurabh.artifact.model.ArtifactLifecycle.READY_TO_PUBLISH) {
             Log.w("PublishValidation", "Draft status: ${draft.lifecycle}, Progress: ${draft.reviewProgress}")
             val requiredPercent = (publishingPolicy.minCoverage * 100).toInt()
-            return Result.failure(Exception("$requiredPercent% Review required before publishing"))
+            return Result.failure(com.saurabh.artifact.model.AppError.InvalidInput("$requiredPercent% Review required before publishing"))
         }
 
         if (draft.title.isNullOrBlank()) {
-            return Result.failure(Exception("Title is required"))
+            return Result.failure(com.saurabh.artifact.model.AppError.InvalidInput("Title is required"))
         }
 
         if (draft.title.length > 70) {
-            return Result.failure(Exception("Title must not exceed 70 characters"))
+            return Result.failure(com.saurabh.artifact.model.AppError.InvalidInput("Title must not exceed 70 characters"))
         }
 
         return try {

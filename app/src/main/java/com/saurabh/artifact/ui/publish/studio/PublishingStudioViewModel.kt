@@ -402,12 +402,16 @@ class PublishingStudioViewModel @Inject constructor(
                         diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISH_INITIATION_SUCCESS", mapOf(LogKeys.DRAFT_ID to draftId))
                         playbackCoordinator.stop()
 
-                        _uiState.update { 
-                            it.copy(
-                                isPublishing = false, 
-                                isSuccess = true,
-                                isQueuedOffline = result == PublishingResult.QUEUED_OFFLINE
-                            ) 
+                        if (result == PublishingResult.FAILED) {
+                            _uiState.update { it.copy(isPublishing = false, error = "Publishing failed to initiate. Please try again.") }
+                        } else {
+                            _uiState.update { 
+                                it.copy(
+                                    isPublishing = false, 
+                                    isSuccess = true,
+                                    isQueuedOffline = result == PublishingResult.QUEUED_OFFLINE
+                                ) 
+                            }
                         }
                     }
                     .onFailure { e ->

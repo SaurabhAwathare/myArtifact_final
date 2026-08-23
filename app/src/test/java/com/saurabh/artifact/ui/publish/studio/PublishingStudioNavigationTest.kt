@@ -39,7 +39,7 @@ class PublishingStudioNavigationTest {
         private const val TEST_USER_ID = "test-user-id"
     }
 
-    private val testDispatcher = StandardTestDispatcher()
+    private val testDispatcher = UnconfinedTestDispatcher()
     private val draftId = "test-draft"
     private val draftFlow = MutableStateFlow<ArtifactDraftEntity?>(null)
 
@@ -47,7 +47,7 @@ class PublishingStudioNavigationTest {
     fun setup() {
         Dispatchers.setMain(testDispatcher)
 
-        val mockUser = mockk<com.google.firebase.auth.FirebaseUser> {
+        val mockUser = mockk<com.google.firebase.auth.FirebaseUser>(relaxed = true) {
             every { uid } returns TEST_USER_ID
             every { displayName } returns "Test User"
             every { email } returns "test@example.com"
@@ -67,8 +67,8 @@ class PublishingStudioNavigationTest {
             emotionCompleted = true
         )
         
-        every { recordingRepository.observeDraft(draftId) } returns draftFlow
-        coEvery { recordingRepository.getDraft(draftId) } returns Result.success(draftFlow.value!!)
+        every { recordingRepository.observeDraft(any()) } returns draftFlow
+        coEvery { recordingRepository.getDraft(any()) } answers { Result.success(draftFlow.value!!) }
         
         every { playbackCoordinator.reviewProgress } returns MutableStateFlow(ReviewState())
         every { playbackCoordinator.isPlaying } returns MutableStateFlow(false)
@@ -88,59 +88,125 @@ class PublishingStudioNavigationTest {
     @Test
     fun `previousStep should return to APPROVAL when in PUBLISHING with error`() = runTest {
         val viewModel = createViewModel()
+        val states = mutableListOf<StudioSessionState>()
+        val collectJob = launch(UnconfinedTestDispatcher()) {
+            viewModel.sessionState.toList(states)
+        }
+        
         viewModel.loadDraft(draftId)
         runCurrent()
 
         // 1. Simulate reaching APPROVAL step
-        draftFlow.value = draftFlow.value!!.copy(lifecycle = ArtifactLifecycle.READY_TO_PUBLISH)
+        draftFlow.value = draftFlow.value!!.copy(
+            lifecycle = ArtifactLifecycle.READY_TO_PUBLISH,
+            emotion = com.saurabh.artifact.model.Emotion.CALM,
+            reviewCompleted = true,
+            titleCompleted = true,
+            emotionCompleted = true
+        )
         runCurrent()
-        assertEquals(StudioStep.APPROVAL, viewModel.sessionState.value.currentStep)
+        assertEquals(StudioStep.APPROVAL, states.last().currentStep)
 
         // 2. Trigger Publish with failure
         coEvery { publishArtifactUseCase(any()) } returns Result.success(PublishingResult.FAILED)
         viewModel.onPublishClick()
         runCurrent()
+        advanceUntilIdle()
         
-        assertEquals(StudioStep.PUBLISHING, viewModel.sessionState.value.currentStep)
-        assertEquals("Publishing failed to initiate. Please try again.", viewModel.sessionState.value.error)
+        val lastState = states.last()
+        assertEquals("States size: ${states.size}. Expected step PUBLISHING after click but was ${lastState.currentStep}. All steps: ${states.map { it.currentStep }}", StudioStep.PUBLISHING, lastState.currentStep)
+        assertEquals("Publishing failed to initiate. Please try again.", lastState.error)
 
         // 3. User clicks back
         viewModel.previousStep()
         runCurrent()
 
         // Verify: Returned to APPROVAL and error is cleared
-        assertEquals(StudioStep.APPROVAL, viewModel.sessionState.value.currentStep)
-        assertNull(viewModel.sessionState.value.error)
+        assertEquals(StudioStep.APPROVAL, states.last().currentStep)
+        assertNull(states.last().error)
+        
+        collectJob.cancel()
     }
 
     @Test
     fun `previousStep should stay in PUBLISHING when in PUBLISHING without error (active publish)`() = runTest {
         val viewModel = createViewModel()
+        val states = mutableListOf<StudioSessionState>()
+        val collectJob = launch(UnconfinedTestDispatcher()) {
+            viewModel.sessionState.toList(states)
+        }
+        
         viewModel.loadDraft(draftId)
         runCurrent()
 
         // 1. Set state to APPROVAL
-        draftFlow.value = draftFlow.value!!.copy(lifecycle = ArtifactLifecycle.READY_TO_PUBLISH)
+        draftFlow.value = draftFlow.value!!.copy(
+            lifecycle = ArtifactLifecycle.READY_TO_PUBLISH,
+            emotion = com.saurabh.artifact.model.Emotion.CALM,
+            reviewCompleted = true,
+            titleCompleted = true,
+            emotionCompleted = true
+        )
         runCurrent()
+        assertEquals(StudioStep.APPROVAL, states.last().currentStep)
 
         // 2. Mock a long-running publish
         coEvery { publishArtifactUseCase(any()) } coAnswers {
-            delay(1000.milliseconds)
+            delay(1000)
             Result.success(PublishingResult.UPLOAD_STARTED)
         }
         
         viewModel.onPublishClick()
+        // Wait enough to start but not finish
         runCurrent()
         
-        assertEquals(StudioStep.PUBLISHING, viewModel.sessionState.value.currentStep)
-        assertNull(viewModel.sessionState.value.error)
+        assertEquals(StudioStep.PUBLISHING, states.last().currentStep)
+        assertNull(states.last().error)
 
         // 3. User clicks back during active publish
         viewModel.previousStep()
         runCurrent()
 
         // Verify: Navigation is blocked (stays in PUBLISHING)
-        assertEquals(StudioStep.PUBLISHING, viewModel.sessionState.value.currentStep)
+        assertEquals(StudioStep.PUBLISHING, states.last().currentStep)
+        
+        // Let the publish finish
+        advanceUntilIdle()
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `performPublish should propagate specific validation error message to UI`() = runTest {
+        val viewModel = createViewModel()
+        val states = mutableListOf<StudioSessionState>()
+        val collectJob = launch(UnconfinedTestDispatcher()) {
+            viewModel.sessionState.toList(states)
+        }
+        
+        viewModel.loadDraft(draftId)
+        runCurrent()
+
+        // Set state to APPROVAL
+        draftFlow.value = draftFlow.value!!.copy(
+            lifecycle = ArtifactLifecycle.READY_TO_PUBLISH,
+            emotion = com.saurabh.artifact.model.Emotion.CALM,
+            reviewCompleted = true,
+            titleCompleted = true,
+            emotionCompleted = true
+        )
+        runCurrent()
+        assertEquals(StudioStep.APPROVAL, states.last().currentStep)
+
+        val specificError = "Artifacts must be at least 3 seconds long."
+        coEvery { publishArtifactUseCase(any()) } returns Result.failure(com.saurabh.artifact.model.AppError.InvalidInput(specificError))
+        
+        viewModel.onPublishClick()
+        runCurrent()
+        
+        assertEquals("Invalid input: $specificError", states.last().error)
+        assertEquals(StudioStep.PUBLISHING, states.last().currentStep)
+        
+        collectJob.cancel()
     }
 
     private fun createViewModel() = PublishingStudioViewModel(
