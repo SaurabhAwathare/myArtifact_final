@@ -11,10 +11,12 @@ import com.saurabh.artifact.domain.auth.RegistrationResult
 import com.saurabh.artifact.navigation.Login
 import com.saurabh.artifact.navigation.Onboarding
 import com.saurabh.artifact.navigation.IdentityReveal
+import com.saurabh.artifact.navigation.MnemonicReveal
 import com.saurabh.artifact.navigation.Home
 import com.saurabh.artifact.ui.login.LoginScreen
 import com.saurabh.artifact.ui.onboarding.OnboardingScreen
 import com.saurabh.artifact.ui.identity.IdentityRevealScreen
+import com.saurabh.artifact.ui.identity.MnemonicRevealScreen
 import com.saurabh.artifact.util.OnboardingManager
 import kotlinx.coroutines.launch
 
@@ -66,8 +68,18 @@ fun NavGraphBuilder.authNavigation(
     composable<IdentityReveal> {
         IdentityRevealScreen(
             onContinue = {
-                navController.navigate(Home) {
+                navController.navigate(MnemonicReveal) {
                     popUpTo(IdentityReveal) { inclusive = true }
+                }
+            }
+        )
+    }
+
+    composable<MnemonicReveal> {
+        MnemonicRevealScreen(
+            onComplete = {
+                navController.navigate(Home) {
+                    popUpTo(MnemonicReveal) { inclusive = true }
                 }
             }
         )

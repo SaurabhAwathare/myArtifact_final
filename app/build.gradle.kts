@@ -59,7 +59,7 @@ configure<com.android.build.api.dsl.ApplicationExtension> {
         applicationId = "com.saurabh.artifact"
         minSdk = 24
         targetSdk = 36
-        versionCode = 9
+        versionCode = 10
         versionName = "1.4"
 
         testInstrumentationRunner = "com.saurabh.artifact.HiltTestRunner"
@@ -243,6 +243,7 @@ dependencies {
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.hilt.work)
     ksp(libs.androidx.hilt.work.compiler)
+    testImplementation(libs.androidx.work.testing)
 
     // Security
     implementation(libs.tink.android)

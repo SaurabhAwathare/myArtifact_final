@@ -38,7 +38,8 @@ data class ArtifactColorScheme(
      * Must maintain visible contrast (> 2.5:1) against surface backgrounds.
      */
     val waveformInactive: Color,
-    val softError: Color
+    val softError: Color,
+    val goldAura: Color
 )
 
 val LocalArtifactColors = staticCompositionLocalOf {
@@ -51,7 +52,8 @@ val LocalArtifactColors = staticCompositionLocalOf {
         onSurfaceAura = OnSurfaceAura,
         waveformActive = GoldAura500,
         waveformInactive = Obsidian700,
-        softError = SoftError
+        softError = SoftError,
+        goldAura = GoldAura500
     )
 }
 
@@ -116,7 +118,8 @@ fun ArtifactTheme(
         onSurfaceAura = OnSurfaceAura,
         waveformActive = GoldAura500,
         waveformInactive = Obsidian700,
-        softError = SoftError
+        softError = SoftError,
+        goldAura = GoldAura500
     )
 
     // Typography used by Material components.

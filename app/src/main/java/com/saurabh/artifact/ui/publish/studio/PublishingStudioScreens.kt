@@ -43,12 +43,14 @@ import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.theme.Spacing
 import com.saurabh.artifact.util.TimeUtils
 import com.saurabh.artifact.ui.components.moderation.PrivacyNudgeDialog
+import com.saurabh.artifact.navigation.MnemonicReveal
 
 @Composable
 fun PublishingStudioScreen(
     draftId: String,
     onFinish: () -> Unit,
     onCancel: () -> Unit,
+    onSecurityRequired: () -> Unit = {},
     viewModel: PublishingStudioViewModel = hiltViewModel()
 ) {
     val logger = ArtifactTheme.logger
@@ -80,6 +82,13 @@ fun PublishingStudioScreen(
         if (sessionState.lifecycle == ArtifactLifecycle.DELETING) {
             logger.info(DiagnosticCategory.STUDIO, "STUDIO_DRAFT_DELETING_NAVIGATE")
             onCancel()
+        }
+    }
+
+    LaunchedEffect(sessionState.currentStep) {
+        if (sessionState.currentStep == StudioStep.SECURITY_REQUIRED) {
+            logger.info(DiagnosticCategory.SECURITY, "STUDIO_SECURITY_REDIRECT")
+            onSecurityRequired()
         }
     }
 
@@ -194,6 +203,7 @@ fun PublishingStudioScreen(
                         StudioStep.APPROVAL -> StudioApprovalStep(sessionState, viewModel)
                         StudioStep.PUBLISHING -> StudioPublishingStep(sessionState, onFinish)
                         StudioStep.DELETING -> { /* Placeholder while LaunchedEffect handles exit */ }
+                        StudioStep.SECURITY_REQUIRED -> { /* Redirect handled by LaunchedEffect */ }
                     }
                 }
             }
@@ -220,6 +230,7 @@ fun StudioTopBar(
                     StudioStep.APPROVAL -> "Ready to Publish?"
                     StudioStep.PUBLISHING -> if (isError) "Publishing Failed" else "Publishing..."
                     StudioStep.DELETING -> "Deleting..."
+                    StudioStep.SECURITY_REQUIRED -> "Security Required"
                 },
                 style = ArtifactTheme.typography.titleMedium
             )
@@ -326,7 +337,8 @@ fun StudioBottomBar(
                         StudioStep.DETAILS -> state.titleCompleted && state.emotionCompleted
                         StudioStep.PROCESSING, 
                         StudioStep.PUBLISHING, 
-                        StudioStep.DELETING -> true
+                        StudioStep.DELETING,
+                        StudioStep.SECURITY_REQUIRED -> true
                         StudioStep.APPROVAL -> true // Technically unreachable due to outer if, but kept for exhaustiveness
                     },
                     colors = ButtonDefaults.buttonColors(

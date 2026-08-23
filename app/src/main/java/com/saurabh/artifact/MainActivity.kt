@@ -33,6 +33,7 @@ import com.saurabh.artifact.ui.player.PlayerViewModel
 import com.saurabh.artifact.ui.splash.SplashUI
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.ui.recovery.MnemonicRestoreScreen
 import com.saurabh.artifact.ui.recovery.RescueScreen
 import com.saurabh.artifact.util.OnboardingManager
 import dagger.hilt.android.AndroidEntryPoint
@@ -118,6 +119,16 @@ fun AppRoot(
                     val intent = activity.intent
                     activity.finish()
                     activity.startActivity(intent)
+                }
+            )
+        }
+        is AppStartupState.Recovery -> {
+            MnemonicRestoreScreen(
+                onSuccess = {
+                    mainViewModel.retryStartup()
+                },
+                onStartFresh = {
+                    mainViewModel.retryStartup()
                 }
             )
         }

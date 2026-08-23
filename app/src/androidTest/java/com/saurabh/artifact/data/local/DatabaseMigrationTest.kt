@@ -26,14 +26,14 @@ class DatabaseMigrationTest {
      */
     @Test
     @Throws(IOException::class)
-    fun migrateAll_60_to_63() {
+    fun migrateAll_60_to_64() {
         // 1. Create database at Version 60 (Production Baseline)
         helper.createDatabase(TEST_DB, 60).apply {
             // Populate representative data
             execSQL(
                 """
                 INSERT INTO artifact_drafts (
-                    id, localAudioPath, isPublic, isListened, tags, 
+                    id, userId, localAudioPath, isPublic, isListened, tags, 
                     durationMs, createdAt, updatedAt, status, lifecycle, 
                     uploadedBytes, totalBytes, uploadAttemptCount, isEncrypted, 
                     reviewProgress, transcriptionState, lastCheckpointTimestamp, 
@@ -41,7 +41,7 @@ class DatabaseMigrationTest {
                     reviewCompleted, titleCompleted, emotionCompleted, approvalCompleted,
                     lastRecoveryAttemptAt, isDismissed, cleanupRetryCount
                 ) VALUES (
-                    'draft_60', '/path/60', 1, 0, '[]', 
+                    'draft_60', 'user_60', '/path/60', 1, 0, '[]', 
                     0, 123456789, 123456789, 'LocalOnly', 'RECORDING', 
                     0, 0, 0, 0, 
                     0.0, 'IDLE', 123456789, 
@@ -71,41 +71,66 @@ class DatabaseMigrationTest {
                 )
                 """.trimIndent()
             )
+            
+            execSQL(
+                """
+                INSERT INTO prompts (
+                    id, category, text, context, usageCount, createdAt, lastUsedAt
+                ) VALUES (
+                    'prompt_60', 'CALM', 'Text', 'Context', 1, 123456789, 123456789
+                )
+                """.trimIndent()
+            )
             close()
         }
 
-        // 2. Run all migrations up to v63
-        val db = helper.runMigrationsAndValidate(TEST_DB, 63, true, *DatabaseMigrations.ALL_MIGRATIONS)
+        // 2. Run all migrations up to v64
+        val db = helper.runMigrationsAndValidate(TEST_DB, 64, true, *DatabaseMigrations.ALL_MIGRATIONS)
 
         // 3. Verify Data Integrity & New Fields
         
         // Check artifact_drafts (added userId in 61, uploadFormatVersion in 63)
         val draftCursor = db.query("SELECT * FROM artifact_drafts WHERE id = 'draft_60'")
         assert(draftCursor.moveToFirst())
-        
-        // userId should have default 'LEGACY_UNKNOWN' from MIGRATION_60_61
-        val userIdIndex = draftCursor.getColumnIndexOrThrow("userId")
-        assertEquals("LEGACY_UNKNOWN", draftCursor.getString(userIdIndex))
-        
-        // uploadFormatVersion should have default 1 from MIGRATION_62_63
-        val formatVersionIndex = draftCursor.getColumnIndexOrThrow("uploadFormatVersion")
-        assertEquals(1, draftCursor.getInt(formatVersionIndex))
-        
-        // verify existing fields preserved
-        assertEquals("/path/60", draftCursor.getString(draftCursor.getColumnIndexOrThrow("localAudioPath")))
+        assertEquals("user_60", draftCursor.getString(draftCursor.getColumnIndexOrThrow("userId")))
+        assertEquals(1, draftCursor.getInt(draftCursor.getColumnIndexOrThrow("uploadFormatVersion")))
         draftCursor.close()
 
         // Check artifacts (added isEncrypted in 62)
         val artCursor = db.query("SELECT * FROM artifacts WHERE id = 'art_60'")
         assert(artCursor.moveToFirst())
-        
-        // isEncrypted should have default 0 from MIGRATION_61_62
-        val isEncryptedIndex = artCursor.getColumnIndexOrThrow("isEncrypted")
-        assertEquals(0, artCursor.getInt(isEncryptedIndex))
-        
-        // verify existing fields preserved
-        assertEquals("user_60", artCursor.getString(artCursor.getColumnIndexOrThrow("userId")))
+        assertEquals(0, artCursor.getInt(artCursor.getColumnIndexOrThrow("isEncrypted")))
         artCursor.close()
+        
+        // Check prompts (added depthLevel and isConsumed in 64)
+        val promptCursor = db.query("SELECT * FROM prompts WHERE id = 'prompt_60'")
+        assert(promptCursor.moveToFirst())
+        assertEquals(1, promptCursor.getInt(promptCursor.getColumnIndexOrThrow("depthLevel")))
+        assertEquals(1, promptCursor.getInt(promptCursor.getColumnIndexOrThrow("isConsumed")))
+        promptCursor.close()
+    }
+
+    @Test
+    @Throws(IOException::class)
+    fun migrate63To64_isolated() {
+        helper.createDatabase(TEST_DB, 63).apply {
+            execSQL("INSERT INTO prompts (id, category, text, context, usageCount, createdAt, lastUsedAt) VALUES ('p1', 'CALM', 't', 'c', 1, 1, 1)")
+            execSQL("INSERT INTO prompts (id, category, text, context, usageCount, createdAt, lastUsedAt) VALUES ('p2', 'CALM', 't', 'c', 0, 1, 0)")
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 64, true, DatabaseMigrations.MIGRATION_63_64)
+        
+        val cursor1 = db.query("SELECT depthLevel, isConsumed FROM prompts WHERE id = 'p1'")
+        assert(cursor1.moveToFirst())
+        assertEquals(1, cursor1.getInt(0))
+        assertEquals(1, cursor1.getInt(1))
+        cursor1.close()
+
+        val cursor2 = db.query("SELECT isConsumed FROM prompts WHERE id = 'p2'")
+        assert(cursor2.moveToFirst())
+        assertEquals(0, cursor2.getInt(0))
+        cursor2.close()
     }
 
     @Test

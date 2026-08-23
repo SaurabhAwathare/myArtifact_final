@@ -7,7 +7,16 @@ import androidx.navigation.toRoute
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
-import com.saurabh.artifact.navigation.*
+import com.saurabh.artifact.navigation.DraftEdit
+import com.saurabh.artifact.navigation.DraftList
+import com.saurabh.artifact.navigation.Home
+import com.saurabh.artifact.navigation.InstantRecord
+import com.saurabh.artifact.navigation.MnemonicReveal
+import com.saurabh.artifact.navigation.PostRecordingDecision
+import com.saurabh.artifact.navigation.PreRecordingWarning
+import com.saurabh.artifact.navigation.PublishApproval
+import com.saurabh.artifact.navigation.PublishPreparation
+import com.saurabh.artifact.navigation.PublishingStudio
 import com.saurabh.artifact.ui.drafts.list.DraftListScreen
 import com.saurabh.artifact.ui.publish.studio.PublishingStudioScreen
 import com.saurabh.artifact.ui.recording.decision.PostRecordingDecisionScreen
@@ -48,6 +57,9 @@ fun NavGraphBuilder.recordingNavigation(
             onCancel = {
                 diagnosticLogger.info(DiagnosticCategory.NAVIGATION, "NAVIGATE_FROM_STUDIO", mapOf(LogKeys.DRAFT_ID to route.draftId, "action" to "CANCEL"))
                 navController.popBackStack()
+            },
+            onSecurityRequired = {
+                navController.navigate(MnemonicReveal)
             }
         )
     }
@@ -111,6 +123,9 @@ fun NavGraphBuilder.recordingNavigation(
             onCancel = {
                 diagnosticLogger.info(DiagnosticCategory.NAVIGATION, "NAVIGATE_FROM_STUDIO", mapOf(LogKeys.DRAFT_ID to route.draftId, "action" to "CANCEL"))
                 navController.popBackStack()
+            },
+            onSecurityRequired = {
+                navController.navigate(MnemonicReveal)
             }
         )
     }

@@ -14,6 +14,7 @@ import com.saurabh.artifact.domain.settings.ObserveStealthModeUseCase
 import com.saurabh.artifact.startup.StartupComponent
 import com.saurabh.artifact.startup.StartupCoordinator
 import com.saurabh.artifact.startup.StartupMetrics
+import com.saurabh.artifact.security.PreloadResult
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
@@ -29,6 +30,7 @@ sealed class AppStartupState {
     object Unauthenticated : AppStartupState()
     object Registering : AppStartupState()
     object Rescue : AppStartupState()
+    object Recovery : AppStartupState()
     data class Ready(
         val startDestination: Any,
         val startupAction: Any? = null,
@@ -60,6 +62,7 @@ class MainViewModel @Inject constructor(
         private const val ID_LOGIN = "LOGIN"
         private const val ID_ONBOARDING = "ONBOARDING"
         private const val ID_IDENTITY_REVEAL = "IDENTITY_REVEAL"
+        private const val ID_MNEMONIC_REVEAL = "MNEMONIC_REVEAL"
     }
 
     private val _startupState = MutableStateFlow<AppStartupState>(AppStartupState.Initializing)
@@ -213,6 +216,7 @@ class MainViewModel @Inject constructor(
             ID_LOGIN -> Login
             ID_ONBOARDING -> Onboarding
             ID_IDENTITY_REVEAL -> IdentityReveal
+            ID_MNEMONIC_REVEAL -> MnemonicReveal
             else -> null
         }
     }
@@ -223,6 +227,7 @@ class MainViewModel @Inject constructor(
             Login -> ID_LOGIN
             Onboarding -> ID_ONBOARDING
             IdentityReveal -> ID_IDENTITY_REVEAL
+            MnemonicReveal -> ID_MNEMONIC_REVEAL
             else -> null
         }
     }
@@ -245,6 +250,13 @@ class MainViewModel @Inject constructor(
                 
                 // BLOCKING: Wait for Core/Security readiness (including App Check)
                 startupCoordinator.awaitComponent(StartupComponent.CORE)
+
+                // WAIT FOR Preload Result
+                val result = startupCoordinator.preloadResult.first { it != null }
+                if (result is PreloadResult.RecoveryRequired) {
+                    _startupState.value = AppStartupState.Recovery
+                    return@launch
+                }
 
                 // BLOCKING: Wait for Database/Encryption readiness (off main thread)
                 startupCoordinator.awaitComponent(StartupComponent.DATABASE)

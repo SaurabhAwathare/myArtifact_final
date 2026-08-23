@@ -69,6 +69,7 @@ data class FeedUiState(
     val isCrisis: Boolean = false,
     val isRefreshing: Boolean = false,
     val hasNewContent: Boolean = false,
+    val isMnemonicSaved: Boolean = true,
     val error: UiError? = null
 )
 
@@ -82,6 +83,7 @@ class FeedViewModel @Inject constructor(
     private val personalizationEngine: PersonalizationEngine,
     private val adManager: AdManager,
     private val memoryManager: MemoryManager,
+    private val onboardingManager: com.saurabh.artifact.util.OnboardingManager,
     startupCoordinator: StartupCoordinator,
     savedArtifactManager: SavedArtifactManager,
     private val firestore: FirebaseFirestore,
@@ -109,11 +111,13 @@ class FeedViewModel @Inject constructor(
     val uiState: StateFlow<FeedUiState> = combine(
         _uiState,
         selectedEmotion,
-        showRankedFeed
-    ) { current, emotion, ranked ->
+        showRankedFeed,
+        onboardingManager.isMnemonicSaved
+    ) { current, emotion, ranked, mnemonicSaved ->
         current.copy(
             selectedEmotion = emotion,
-            showRankedFeed = ranked
+            showRankedFeed = ranked,
+            isMnemonicSaved = mnemonicSaved
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, FeedUiState())
 

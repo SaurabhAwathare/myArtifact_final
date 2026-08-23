@@ -47,6 +47,8 @@ class LogoutCoordinator @Inject constructor(
     private val database: dagger.Lazy<AppDatabase>,
     private val storageManager: StorageManager,
     private val backupEncryptionManager: BackupEncryptionManager,
+    private val onboardingManager: com.saurabh.artifact.util.OnboardingManager,
+    private val databaseEncryptionManager: com.saurabh.artifact.security.DatabaseEncryptionManager,
     private val diagnosticLogger: DiagnosticLogger
 ) {
 
@@ -235,6 +237,20 @@ class LogoutCoordinator @Inject constructor(
                         backupEncryptionManager.clear()
                     } catch (e: Exception) {
                         diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_BACKUP_FAILED", throwable = e)
+                    }
+
+                    // 10.6 Clear Onboarding State
+                    try {
+                        onboardingManager.clear()
+                    } catch (e: Exception) {
+                        diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_ONBOARDING_FAILED", throwable = e)
+                    }
+
+                    // 10.7 Clear Database Encryption State
+                    try {
+                        databaseEncryptionManager.clear()
+                    } catch (e: Exception) {
+                        diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_DB_ENCRYPTION_FAILED", throwable = e)
                     }
                 } else {
                     diagnosticLogger.warn(DiagnosticCategory.AUTH, "LOGOUT_SKIP_DATASTORE_CLEAR", mapOf("reason" to "DB cleanup failed"))

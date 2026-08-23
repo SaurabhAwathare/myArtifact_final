@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
@@ -24,6 +25,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.paging.compose.collectAsLazyPagingItems
@@ -52,6 +54,7 @@ import com.saurabh.artifact.ui.components.PetalChip
 import com.saurabh.artifact.ui.components.QuietTab
 import com.saurabh.artifact.ui.components.ArtifactSigil
 import com.saurabh.artifact.ui.theme.ArtifactTheme
+import com.saurabh.artifact.ui.theme.GoldAura500
 import com.saurabh.artifact.util.StartupTracer
 import com.saurabh.artifact.ui.components.BrandTitle
 import com.saurabh.artifact.model.Artifact
@@ -76,6 +79,7 @@ fun FeedScreen(
     onNavigateToDebugMenu: () -> Unit,
     onReportArtifact: (String) -> Unit,
     onAuthorClick: (String) -> Unit = {},
+    onNavigateToSecurity: () -> Unit = {},
     viewModel: FeedViewModel = hiltViewModel(),
 ) {
     val logger = ArtifactTheme.logger
@@ -190,7 +194,8 @@ fun FeedScreen(
                         stage = stage,
                         onNavigateToRecord = onNavigateToRecord,
                         onReportClick = onReportArtifact,
-                        onAuthorClick = onAuthorClick
+                        onAuthorClick = onAuthorClick,
+                        onNavigateToSecurity = onNavigateToSecurity
                     )
                 }
 
@@ -359,6 +364,7 @@ private fun FeedContent(
     onNavigateToRecord: (String?) -> Unit,
     onReportClick: (String) -> Unit,
     onAuthorClick: (String) -> Unit,
+    onNavigateToSecurity: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val currentArtifacts = if (showRankedFeed) forYouArtifacts else recentArtifacts
@@ -375,7 +381,7 @@ private fun FeedContent(
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
             item(key = "header") {
-                FeedHeader(viewModel, reflectionPrompt, stage, onNavigateToRecord)
+                FeedHeader(viewModel, reflectionPrompt, stage, onNavigateToRecord, onNavigateToSecurity = onNavigateToSecurity)
             }
 
             items(
@@ -436,12 +442,15 @@ fun FeedHeader(
     reflectionPrompt: ReflectionPrompt?, 
     stage: StartupStage,
     onNavigateToRecord: (String?) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onNavigateToSecurity: () -> Unit = {}
 ) {
     val logger = ArtifactTheme.logger
     val isPromptLoading by viewModel.isPromptLoading.collectAsStateWithLifecycle()
     val safetyLevel by viewModel.safetyLevel.collectAsStateWithLifecycle()
     val isCrisis by viewModel.isCrisis.collectAsStateWithLifecycle()
+    val feedState by viewModel.uiState.collectAsStateWithLifecycle()
+    val isMnemonicSaved = feedState.isMnemonicSaved
     val context = LocalContext.current
     
     Column(
@@ -462,6 +471,10 @@ fun FeedHeader(
                 },
                 onContinue = { viewModel.dismissCrisis() }
             )
+        }
+
+        if (!isMnemonicSaved && stage >= StartupStage.IMMERSION) {
+            SecurityNudgeCard(onClick = onNavigateToSecurity)
         }
 
         // Defer heavy prompt card rendering until IMMERSION stage
@@ -631,6 +644,47 @@ private fun NewContentIndicator(
                 "New Artifacts",
                 style = MaterialTheme.typography.labelLarge,
                 modifier = Modifier.padding(bottom = 1.dp)
+            )
+        }
+    }
+}
+
+@Composable
+fun SecurityNudgeCard(onClick: () -> Unit) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = ArtifactTheme.colors.surfaceHearth),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Rounded.Lock,
+                contentDescription = null,
+                tint = GoldAura500,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "Secure Your Journey",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = ArtifactTheme.colors.onSurfaceMain,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    "Set up your recovery phrase to ensure you never lose your artifacts.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = ArtifactTheme.colors.onSurfaceMuted
+                )
+            }
+            Icon(
+                Icons.Rounded.ChevronRight,
+                contentDescription = null,
+                tint = ArtifactTheme.colors.onSurfaceMuted
             )
         }
     }

@@ -56,6 +56,9 @@ fun NavGraphBuilder.feedNavigation(
             onReportArtifact = onReportArtifact,
             onAuthorClick = { userId ->
                 navController.navigate(Profile(userId))
+            },
+            onNavigateToSecurity = {
+                navController.navigate(MnemonicReveal)
             }
         )
     }
@@ -92,6 +95,9 @@ fun NavGraphBuilder.feedNavigation(
             onReportArtifact = onReportArtifact,
             onAuthorClick = { userId ->
                 navController.navigate(Profile(userId))
+            },
+            onNavigateToSecurity = {
+                navController.navigate(MnemonicReveal)
             }
         )
     }

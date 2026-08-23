@@ -22,6 +22,7 @@ class OnboardingManager @Inject constructor(
     @param:ApplicationContext private val context: Context
 ) {
     private val onboardingCompletedKey = booleanPreferencesKey("onboarding_completed")
+    private val mnemonicSavedKey = booleanPreferencesKey("is_mnemonic_saved")
     private val userGoalsKey = stringSetPreferencesKey("user_goals")
 
     val isOnboardingCompleted: Flow<Boolean> = context.dataStore.data
@@ -36,10 +37,23 @@ class OnboardingManager @Inject constructor(
             preferences[onboardingCompletedKey] ?: false
         }
 
+    val isMnemonicSaved: Flow<Boolean> = context.dataStore.data
+        .map { preferences -> preferences[mnemonicSavedKey] ?: false }
+
+    suspend fun setMnemonicSaved(saved: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[mnemonicSavedKey] = saved
+        }
+    }
+
     suspend fun setOnboardingCompleted(goals: Set<String>) {
         context.dataStore.edit { preferences ->
             preferences[onboardingCompletedKey] = true
             preferences[userGoalsKey] = goals
         }
+    }
+
+    suspend fun clear() {
+        context.dataStore.edit { it.clear() }
     }
 }

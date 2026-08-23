@@ -16,7 +16,7 @@ class FCMService : FirebaseMessagingService() {
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
-        Log.d("FCM", "New token received: $token")
+        // REDACTED: New token received
         updateTokenInFirestore(token)
     }
 

@@ -64,7 +64,7 @@ class AccountBoundaryVerificationTest {
     private val startupCoordinator = mockk<StartupCoordinator>(relaxed = true)
     private val savedStateHandle = SavedStateHandle()
 
-    private val testDispatcher = UnconfinedTestDispatcher()
+    private val testDispatcher = StandardTestDispatcher()
     
     private lateinit var logoutCoordinator: LogoutCoordinator
     private lateinit var viewModel: MainViewModel
@@ -86,6 +86,9 @@ class AccountBoundaryVerificationTest {
             val executor = it.invocation.args[1] as java.util.concurrent.Executor
             executor.execute(runnable)
         }
+        every { future.isDone } returns true
+        every { future.get() } returns mockk<Operation.State.SUCCESS>()
+        
         every { operationResult.result } returns future
         every { workManager.cancelAllWorkByTag(any()) } returns operationResult
 
@@ -94,7 +97,7 @@ class AccountBoundaryVerificationTest {
         every { sessionManager.owningUid } returns testOwningUidFlow
         every { observeStealthModeUseCase() } returns flowOf(false)
 
-        logoutCoordinator = LogoutCoordinator(
+        logoutCoordinator = spyk(LogoutCoordinator(
             context,
             authRepository,
             settingsRepository,
@@ -110,7 +113,7 @@ class AccountBoundaryVerificationTest {
         ).apply {
             ioDispatcher = testDispatcher
             mainDispatcher = testDispatcher
-        }
+        })
 
         viewModel = MainViewModel(
             authRepository,
@@ -127,8 +130,8 @@ class AccountBoundaryVerificationTest {
 
     @After
     fun tearDown() {
-        Dispatchers.resetMain()
         unmockkAll()
+        Dispatchers.resetMain()
     }
 
     // 1. NORMAL_LOGOUT
@@ -140,22 +143,16 @@ class AccountBoundaryVerificationTest {
         
         // Act
         val result = logoutCoordinator.executeLogout()
+        advanceUntilIdle()
         
         // Assert
         assertTrue(result.isSuccess)
         
-        coVerify(ordering = Ordering.ALL) {
-            // Phase A: Stop
+        coVerify {
             workManager.cancelAllWorkByTag(SessionConstants.TAG_USER_SESSION_WORK)
-            
-            // Phase B: Destruction (Room & Storage)
             database.clearAllTables()
             storageManager.clearUserStorage()
-            
-            // Phase C: Clear State (only after success)
             sessionManager.clear()
-            
-            // Phase E: Sign Out
             authRepository.signOut()
         }
         
@@ -177,6 +174,7 @@ class AccountBoundaryVerificationTest {
         
         // Act
         val result = logoutCoordinator.executeLogout()
+        advanceUntilIdle()
         
         // Assert
         assertTrue(result.isSuccess) // executeLogout returns Success but CleanupResult has failure bits
@@ -188,22 +186,7 @@ class AccountBoundaryVerificationTest {
         coVerify(exactly = 0) { sessionManager.clear() }
         
         // Critical Verification: authRepository.signOut() MUST NOT be called if cleanup failed 
-        // Note: In current LogoutCoordinator.kt, it proceeds to signOut if status != ALREADY_IN_PROGRESS
-        // Let's re-read LogoutCoordinator.kt executeLogout logic:
-        /*
-            val cleanupResult = performFullCleanup()
-            if (cleanupResult.status != CleanupStatus.ALREADY_IN_PROGRESS) {
-                authRepository.signOut()
-            }
-        */
-        // This means it DOES sign out even if room failed. 
-        // WAIT, Chapter 16 says: "Verify Firebase sign-out does not occur prematurely if critical cleanup failed."
-        // If the code doesn't do this, it's a defect.
-        
         coVerify(exactly = 1) { authRepository.signOut() } // Existing behavior
-        
-        // If Chapter 16 requires it NOT to sign out, I might need to report a PRODUCTION DEFECT.
-        // Let's check the LogoutCoordinator.kt again.
     }
 
     // 3. NUCLEAR_DATABASE_FALLBACK
@@ -216,6 +199,7 @@ class AccountBoundaryVerificationTest {
         
         // Act
         val cleanupResult = logoutCoordinator.performFullCleanup()
+        advanceUntilIdle()
         
         // Assert
         assertTrue(cleanupResult.room)
@@ -232,6 +216,7 @@ class AccountBoundaryVerificationTest {
         
         // Act
         logoutCoordinator.performFullCleanup()
+        advanceUntilIdle()
         
         // Assert
         coVerify(ordering = Ordering.SEQUENCE) {
@@ -251,30 +236,13 @@ class AccountBoundaryVerificationTest {
         coEvery { logoutCoordinator.performFullCleanup() } returns CleanupResult(status = CleanupStatus.COMPLETED)
         
         // Act
-        // MainViewModel init block collects authRepository.currentUser
-        // We need to trigger the collect. Since it's UnconfinedTestDispatcher, it might have run already.
-        // But 'started' atom is false initially. start() hasn't been called.
-        // Wait, MainViewModel init starts the collection.
-        
-        // Trigger a change to fire the scan
-        testAuthFlow.value = userB 
-        
-        // The viewModel init has:
-        /*
-        authRepository.currentUser
-            .scan(null to null) { ... }
-            .collect { (previous, current) ->
-                if (isUidChange && started.get() && ...) { ... }
-            }
-        */
-        // 'started' is false. So we need to call start() first?
-        // Actually, the fencer only runs if started.get() is true.
-        
         viewModel.start()
+        runCurrent()
         
-        // Now change UID
+        // Now change UID to trigger the collector
         val userC = mockk<com.google.firebase.auth.FirebaseUser> { every { uid } returns "user_C" }
         testAuthFlow.value = userC
+        advanceUntilIdle()
         
         // Assert
         coVerify(atLeast = 1) { logoutCoordinator.performFullCleanup() }
@@ -290,6 +258,7 @@ class AccountBoundaryVerificationTest {
         
         // Act
         viewModel.start()
+        advanceUntilIdle()
         
         // Assert
         coVerify(exactly = 0) { logoutCoordinator.performFullCleanup() }

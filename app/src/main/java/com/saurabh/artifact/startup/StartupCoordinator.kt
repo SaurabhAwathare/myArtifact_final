@@ -6,6 +6,7 @@ import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailability
 import com.google.android.gms.security.ProviderInstaller
 import android.content.Intent
+import com.saurabh.artifact.security.PreloadResult
 import com.saurabh.artifact.util.CoroutineExceptionHandlerUtils
 import com.saurabh.artifact.util.StartupTracer
 import com.saurabh.artifact.domain.auth.SessionConstants
@@ -21,10 +22,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.ExistingWorkPolicy
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.tasks.await
 import kotlin.coroutines.resume
 import kotlin.time.Duration.Companion.milliseconds
@@ -72,6 +70,9 @@ class StartupCoordinator @Inject constructor(
     private val _terminalError = MutableStateFlow<Throwable?>(null)
     val terminalError = _terminalError.asStateFlow()
 
+    private val _preloadResult = MutableStateFlow<PreloadResult?>(null)
+    val preloadResult = _preloadResult.asStateFlow()
+
     private var isStarted = false
     private var startupJob: Job? = null
     
@@ -106,6 +107,7 @@ class StartupCoordinator @Inject constructor(
         _readyComponents.value = emptySet()
         _terminalError.value = null
         _stage.value = StartupStage.ARRIVAL
+        _preloadResult.value = null
     }
 
     /**
@@ -178,7 +180,19 @@ class StartupCoordinator @Inject constructor(
                 initializeSecurityProviderSync()
 
                 // Preload database encryption before signaling CORE
-                encryptionManager.preload()
+                val result = encryptionManager.preload()
+                _preloadResult.value = result
+
+                if (result is PreloadResult.RecoveryRequired) {
+                    Log.w("Startup", "DATABASE RECOVERY REQUIRED. HOLDING STARTUP.")
+                    // Do NOT signal DATABASE readiness yet. UI will handle navigation to Recovery.
+                    return@launch 
+                }
+
+                if (result is PreloadResult.FatalFailure) {
+                    throw result.throwable
+                }
+
                 emitReadiness(StartupComponent.DATABASE)
 
                 initializeCore() 

@@ -10,6 +10,7 @@ import com.saurabh.artifact.audio.PlaybackCoordinator
 import com.saurabh.artifact.audio.PlaybackType
 import com.saurabh.artifact.domain.IdentityScout
 import com.saurabh.artifact.domain.PublishArtifactUseCase
+import com.saurabh.artifact.security.DatabaseEncryptionManager
 import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.model.Emotion
 import com.saurabh.artifact.model.PlaybackSource
@@ -29,7 +30,8 @@ enum class StudioStep(val index: Int) {
     DETAILS(1),
     APPROVAL(2),
     PUBLISHING(3),
-    DELETING(4);
+    DELETING(4),
+    SECURITY_REQUIRED(5);
 
     companion object {
         fun fromLifecycle(lifecycle: ArtifactLifecycle): StudioStep = when (lifecycle) {
@@ -77,7 +79,8 @@ data class StudioSessionState(
     val isRecovering: Boolean = false,
     val error: String? = null,
     val showPrivacyNudge: Boolean = false,
-    val privacyWarnings: List<String> = emptyList()
+    val privacyWarnings: List<String> = emptyList(),
+    val isRecoverySetup: Boolean = true
 )
 
 @HiltViewModel
@@ -88,6 +91,7 @@ class PublishingStudioViewModel @Inject constructor(
     private val publishArtifactUseCase: PublishArtifactUseCase,
     private val identityScout: IdentityScout,
     private val authRepository: AuthRepository,
+    private val databaseEncryptionManager: DatabaseEncryptionManager,
     private val workManager: WorkManager,
     private val diagnosticLogger: DiagnosticLogger
 ) : ViewModel() {
@@ -115,6 +119,7 @@ class PublishingStudioViewModel @Inject constructor(
             val draftFlow = recordingRepository.observeDraft(id).filterNotNull()
             val reviewFlow = playbackCoordinator.reviewProgress
             val recoveryFlow = recordingRepository.observeRecoveryState(id, workManager)
+            val isRecoverySetupFlow = databaseEncryptionManager.isRecoverySetup
             
             // Combine local UI state
             val localContextFlow = combine(
@@ -122,31 +127,24 @@ class PublishingStudioViewModel @Inject constructor(
                 _uiState
             ) { title, ui -> title to ui }
 
-            combine(
+            val persistentStateFlow = combine(
                 draftFlow,
                 reviewFlow,
                 recoveryFlow,
-                localContextFlow,
-                _currentStepOverride
-            ) { draft, review, isRecovering, localContext, overrideStep ->
+                isRecoverySetupFlow,
+                localContextFlow
+            ) { draft, review, isRecovering, isRecoverySetup, localContext ->
                 val (titleBuffer, ui) = localContext
                 
-                val effectiveLifecycle = draft.lifecycle
-
-                val persistentStep = StudioStep.fromLifecycle(effectiveLifecycle)
-                val currentStep = overrideStep ?: persistentStep
-                val displayTitle = titleBuffer ?: draft.title ?: ""
-
                 StudioSessionState(
                     draftId = draft.id,
-                    currentStep = currentStep,
                     lifecycle = draft.lifecycle,
                     reviewSatisfied = draft.reviewCompleted,
                     reviewCompleted = draft.reviewCompleted,
                     titleCompleted = draft.titleCompleted,
                     emotionCompleted = draft.emotionCompleted,
                     approvalCompleted = draft.approvalCompleted,
-                    title = displayTitle,
+                    title = titleBuffer ?: draft.title ?: "",
                     emotion = draft.emotion,
                     isPlaying = playbackCoordinator.isPlaying.value,
                     playbackSpeed = playbackCoordinator.playbackSpeed.value,
@@ -159,8 +157,17 @@ class PublishingStudioViewModel @Inject constructor(
                     isRecovering = isRecovering,
                     error = ui.error,
                     showPrivacyNudge = ui.showPrivacyNudge,
-                    privacyWarnings = ui.privacyWarnings
+                    privacyWarnings = ui.privacyWarnings,
+                    isRecoverySetup = isRecoverySetup
                 )
+            }
+
+            combine(
+                persistentStateFlow,
+                _currentStepOverride
+            ) { state, overrideStep ->
+                val persistentStep = StudioStep.fromLifecycle(state.lifecycle)
+                state.copy(currentStep = overrideStep ?: persistentStep)
             }
         }
         .stateIn(
@@ -376,6 +383,13 @@ class PublishingStudioViewModel @Inject constructor(
         val state = sessionState.value
         val draftId = state.draftId ?: return
         
+        // SECURITY ENFORCEMENT: Requirement from Phase 3 Chapter 25
+        if (!state.isRecoverySetup) {
+            diagnosticLogger.info(DiagnosticCategory.SECURITY, "PUBLISH_REDIRECT_TO_MNEMONIC", mapOf(LogKeys.DRAFT_ID to draftId))
+            _currentStepOverride.value = StudioStep.SECURITY_REQUIRED
+            return
+        }
+
         // Use reviewSatisfied to allow publishing when bypass is active
         if (state.title.isBlank() || state.emotion == null || !state.reviewSatisfied) {
             diagnosticLogger.warn(DiagnosticCategory.PUBLISH, "PUBLISH_PRECONDITION_FAILED", mapOf(
@@ -453,5 +467,6 @@ data class StudioUiState(
     val isRecovering: Boolean = false,
     val error: String? = null,
     val showPrivacyNudge: Boolean = false,
-    val privacyWarnings: List<String> = emptyList()
+    val privacyWarnings: List<String> = emptyList(),
+    val isRecoverySetup: Boolean = true
 )

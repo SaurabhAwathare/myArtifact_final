@@ -20,6 +20,9 @@ object Login : Route
 @Serializable
 object IdentityReveal : Route
 
+@Serializable
+object MnemonicReveal : Route
+
 // --- Main / Feed Routes ---
 
 @Serializable
