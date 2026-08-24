@@ -35,7 +35,8 @@ fun ArtifactOptionsSheet(
     recommendationReason: com.saurabh.artifact.model.FeedRecommendationReason? = null,
     isPublic: Boolean = true,
     isDraft: Boolean = false,
-    showDelete: Boolean = true
+    showDelete: Boolean = true,
+    showSettings: Boolean = true
 ) {
     Popup(
         onDismissRequest = onDismiss,
@@ -116,15 +117,17 @@ fun ArtifactOptionsSheet(
                 }
 
                 if (isOwner) {
-                    OptionItem(
-                        label = "Resonance Settings",
-                        description = "Change who can see support counts",
-                        icon = Icons.Rounded.Settings,
-                        onClick = {
-                            onSettingsClick()
-                            onDismiss()
-                        }
-                    )
+                    if (showSettings) {
+                        OptionItem(
+                            label = "Resonance Settings",
+                            description = "Change who can see support counts",
+                            icon = Icons.Rounded.Settings,
+                            onClick = {
+                                onSettingsClick()
+                                onDismiss()
+                            }
+                        )
+                    }
 
                     if (showDelete) {
                         OptionItem(

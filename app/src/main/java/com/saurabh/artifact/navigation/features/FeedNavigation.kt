@@ -28,13 +28,17 @@ fun NavGraphBuilder.feedNavigation(
         diagnosticLogger.debug(DiagnosticCategory.NAVIGATION, "NAVIGATE_TO_FEED", mapOf("source" to "Home"))
         val onNavigateToProfile = remember(navController) {
             {
-                navController.navigate(Profile())
+                navController.navigate(Profile()) {
+                    launchSingleTop = true
+                }
             }
         }
 
         val onNavigateToNotifications = remember(navController) {
             {
-                navController.navigate(Notifications)
+                navController.navigate(Notifications) {
+                    launchSingleTop = true
+                }
             }
         }
 
@@ -55,7 +59,9 @@ fun NavGraphBuilder.feedNavigation(
             onNavigateToDebugMenu = onNavigateToDebugMenu,
             onReportArtifact = onReportArtifact,
             onAuthorClick = { userId ->
-                navController.navigate(Profile(userId))
+                navController.navigate(Profile(userId)) {
+                    launchSingleTop = true
+                }
             },
             onNavigateToSecurity = {
                 navController.navigate(MnemonicReveal)
@@ -67,13 +73,17 @@ fun NavGraphBuilder.feedNavigation(
         diagnosticLogger.debug(DiagnosticCategory.NAVIGATION, "NAVIGATE_TO_FEED", mapOf("source" to "Feed"))
         val onNavigateToProfile = remember(navController) {
             {
-                navController.navigate(Profile())
+                navController.navigate(Profile()) {
+                    launchSingleTop = true
+                }
             }
         }
 
         val onNavigateToNotifications = remember(navController) {
             {
-                navController.navigate(Notifications)
+                navController.navigate(Notifications) {
+                    launchSingleTop = true
+                }
             }
         }
 
@@ -94,7 +104,9 @@ fun NavGraphBuilder.feedNavigation(
             onNavigateToDebugMenu = onNavigateToDebugMenu,
             onReportArtifact = onReportArtifact,
             onAuthorClick = { userId ->
-                navController.navigate(Profile(userId))
+                navController.navigate(Profile(userId)) {
+                    launchSingleTop = true
+                }
             },
             onNavigateToSecurity = {
                 navController.navigate(MnemonicReveal)
@@ -109,7 +121,9 @@ fun NavGraphBuilder.feedNavigation(
                 when (notification.type) {
                     NotificationType.FOLLOW -> {
                         if (notification.followerId.isNotEmpty()) {
-                            navController.navigate(Profile(notification.followerId))
+                            navController.navigate(Profile(notification.followerId)) {
+                                launchSingleTop = true
+                            }
                         }
                     }
                     NotificationType.COMMENT, NotificationType.RESONANCE -> {

@@ -56,11 +56,6 @@ fun MiniPlayer(
                     .size(48.dp)
                     .clip(RoundedCornerShape(14.dp))
                     .background(Color.White.copy(alpha = 0.05f))
-                    .clickable { 
-                        if (uiState.internalOwnerId.isNotEmpty()) {
-                            onAuthorClick(uiState.internalOwnerId)
-                        }
-                    }
             )
             
             Column(
@@ -83,12 +78,7 @@ fun MiniPlayer(
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.clickable { 
-                            if (uiState.internalOwnerId.isNotEmpty()) {
-                                onAuthorClick(uiState.internalOwnerId)
-                            }
-                        }
+                        overflow = TextOverflow.Ellipsis
                     )
 
                     if (uiState.sleepTimerMillisRemaining != null) {

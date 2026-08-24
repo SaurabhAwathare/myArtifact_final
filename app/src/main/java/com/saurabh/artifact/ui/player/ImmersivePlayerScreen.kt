@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -191,7 +192,6 @@ fun ImmersivePlayerScreen(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center
                         ) {
-                            val title = playableArtifact?.title ?: artifact?.title ?: "Untitled"
                             val emotion = playableArtifact?.emotion ?: artifact?.emotion ?: ""
                             
                             if (isVerifiedDraft) {
@@ -225,7 +225,7 @@ fun ImmersivePlayerScreen(
 
                                     com.saurabh.artifact.ui.components.ArtifactSigil(
                                         config = safeSigilConfig,
-                                        size = 180.dp,
+                                        size = 200.dp,
                                         modifier = Modifier.clickable { 
                                             android.util.Log.d("ImmersivePlayerScreen", "PLAYER_AUTHOR_CLICK: sigil click, userId=${uiState.internalOwnerId}")
                                             if (uiState.internalOwnerId.isEmpty()) {
@@ -234,61 +234,6 @@ fun ImmersivePlayerScreen(
                                             onAuthorClick(uiState.internalOwnerId) 
                                         }
                                     )
-                                }
-                            }
-                            
-                            Spacer(modifier = Modifier.height(32.dp))
-                            
-                            Text(
-                                text = title,
-                                style = MaterialTheme.typography.headlineMedium,
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                textAlign = TextAlign.Center
-                            )
-                            
-                            Spacer(modifier = Modifier.height(12.dp))
-                            
-                            if (isVerifiedDraft) {
-                                Text(
-                                    text = "Private Draft",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = Color(0xFFFFB74D).copy(alpha = 0.8f),
-                                    fontWeight = FontWeight.Light
-                                )
-                            } else {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        val authorName = playableArtifact?.authorName ?: artifact?.author?.name ?: ""
-                                        val authorSigil = playableArtifact?.authorSigil ?: artifact?.author?.sigil ?: ""
-                                        
-                                        Text(
-                                            text = authorName,
-                                            style = MaterialTheme.typography.bodyLarge,
-                                            color = Color.White.copy(alpha = 0.5f),
-                                            fontWeight = FontWeight.Medium,
-                                            modifier = Modifier.clickable { 
-                                                android.util.Log.d("ImmersivePlayerScreen", "PLAYER_AUTHOR_CLICK: name click, userId=${uiState.internalOwnerId}")
-                                                if (uiState.internalOwnerId.isEmpty()) {
-                                                    android.util.Log.e("ImmersivePlayerScreen", "PLAYER_AUTHOR_ID_EMPTY: name click")
-                                                }
-                                                onAuthorClick(uiState.internalOwnerId) 
-                                            }
-                                        )
-                                        if (authorSigil.isNotEmpty()) {
-                                            Text(
-                                                text = " · ",
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                color = Color.White.copy(alpha = 0.2f)
-                                            )
-                                            Text(
-                                                text = authorSigil,
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                color = Color.White.copy(alpha = 0.4f),
-                                                fontWeight = FontWeight.Light
-                                            )
-                                        }
-                                    }
                                 }
                             }
                         }
@@ -302,6 +247,70 @@ fun ImmersivePlayerScreen(
                     .padding(vertical = 24.dp)
                     .zIndex(5f)
             ) {
+                // Identity Block (Title & Creator) - Prominent & Left-aligned
+                if (!showTranscript) {
+                    val title = playableArtifact?.title ?: artifact?.title ?: "Untitled"
+                    
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 24.dp),
+                        horizontalAlignment = Alignment.Start
+                    ) {
+                        Text(
+                            text = title,
+                            style = MaterialTheme.typography.headlineMedium.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                letterSpacing = (-0.5).sp
+                            ),
+                            color = Color.White,
+                            textAlign = TextAlign.Start,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        
+                        Spacer(modifier = Modifier.height(4.dp))
+                        
+                        if (isVerifiedDraft) {
+                            Text(
+                                text = "Private Draft",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color(0xFFFFB74D).copy(alpha = 0.7f),
+                                fontWeight = FontWeight.Light,
+                                letterSpacing = 1.sp
+                            )
+                        } else {
+                            val authorName = playableArtifact?.authorName ?: artifact?.author?.name ?: ""
+                            val authorSigil = playableArtifact?.authorSigil ?: artifact?.author?.sigil ?: ""
+                            
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.clickable { onAuthorClick(uiState.internalOwnerId) }
+                            ) {
+                                Text(
+                                    text = authorName,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = Color.White.copy(alpha = 0.7f),
+                                    fontWeight = FontWeight.Bold
+                                )
+                                if (authorSigil.isNotEmpty()) {
+                                    Text(
+                                        text = " · ",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = Color.White.copy(alpha = 0.3f)
+                                    )
+                                    Text(
+                                        text = authorSigil,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = Color.White.copy(alpha = 0.5f),
+                                        fontWeight = FontWeight.Light
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
                 val amplitudes = playableArtifact?.originalDraft?.amplitudeData 
                     ?: artifact?.amplitudeData 
                     ?: emptyList()
@@ -436,13 +445,20 @@ private fun PlayerHeader(
             )
         }
         
-        Text(
-            text = if (showTranscript) "Transcript" else "Now Playing",
-            style = MaterialTheme.typography.labelMedium,
-            color = Color.White.copy(alpha = 0.4f),
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 1.sp
-        )
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.weight(1f)
+        ) {
+            Text(
+                text = if (showTranscript) "Transcript" else "Now Playing",
+                style = MaterialTheme.typography.labelMedium,
+                color = Color.White.copy(alpha = 0.8f),
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                letterSpacing = 1.sp
+            )
+        }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (hasTranscript) {

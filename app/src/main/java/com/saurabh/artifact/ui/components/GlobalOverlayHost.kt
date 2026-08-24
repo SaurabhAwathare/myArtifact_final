@@ -128,7 +128,9 @@ fun GlobalOverlayHost(
                             // Collapse the expanded player before navigation so the destination
                             // screen is immediately visible while keeping playback active.
                             playerViewModel.setExpanded(false)
-                            navController.navigate(Profile(userId))
+                            navController.navigate(Profile(userId)) {
+                                launchSingleTop = true
+                            }
                         }
                     },
                     onResonatorsCountClick = { artifactId ->

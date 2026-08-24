@@ -200,6 +200,7 @@ fun ArtifactPlayerView(
                     },
                     onDismiss = { showOptionsSheet = false },
                     showDelete = false, // Centralize management in Profile
+                    showSettings = false,
                     onShareClick = {
                         viewModel.onShareClicked()
                     }

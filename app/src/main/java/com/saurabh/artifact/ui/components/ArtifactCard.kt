@@ -409,6 +409,7 @@ fun ArtifactCard(
             onReportClick = onReportClick,
             onDismiss = { showOptionsSheet = false },
             showDelete = false,
+            showSettings = true,
             onFeedbackClick = onFeedbackClick,
             onSettingsClick = onSettingsClick,
             onWhyThisClick = { showWhySheet = true },
