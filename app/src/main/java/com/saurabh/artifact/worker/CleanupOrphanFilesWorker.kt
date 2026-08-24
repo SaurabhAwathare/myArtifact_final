@@ -25,10 +25,14 @@ class CleanupOrphanFilesWorker @AssistedInject constructor(
     private val draftDao: dagger.Lazy<DraftDao>,
     private val localDraftManager: LocalDraftManager,
     private val maintenanceManager: DatabaseMaintenanceManager,
+    private val startupCoordinator: com.saurabh.artifact.startup.StartupCoordinator,
     private val diagnosticLogger: DiagnosticLogger
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
+        // WORKER LOCK: Ensure database encryption is ready before proceeding
+        startupCoordinator.awaitComponent(com.saurabh.artifact.startup.StartupComponent.DATABASE)
+
         diagnosticLogger.info(DiagnosticCategory.WORKMANAGER, "ORPHAN_CLEANUP_STARTED")
         
         return try {

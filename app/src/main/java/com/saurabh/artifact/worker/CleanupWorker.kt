@@ -44,10 +44,14 @@ class CleanupWorker @AssistedInject constructor(
     private val deletionManager: DraftDeletionManager,
     private val storageManager: StorageManager,
     private val artifactRepository: ArtifactRepository,
+    private val startupCoordinator: com.saurabh.artifact.startup.StartupCoordinator,
     private val diagnosticLogger: DiagnosticLogger
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
+        // WORKER LOCK: Ensure database encryption is ready before proceeding
+        startupCoordinator.awaitComponent(com.saurabh.artifact.startup.StartupComponent.DATABASE)
+
         val isEmergency = inputData.getBoolean(KEY_EMERGENCY_MODE, false)
         
         if (isEmergency) {

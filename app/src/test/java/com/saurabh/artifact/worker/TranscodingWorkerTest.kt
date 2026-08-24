@@ -33,6 +33,7 @@ class TranscodingWorkerTest {
     private val authRepository = mockk<AuthRepository>(relaxed = true)
     private val context = mockk<Context>(relaxed = true)
     private val workerParams = mockk<WorkerParameters>(relaxed = true)
+    private val startupCoordinator = mockk<com.saurabh.artifact.startup.StartupCoordinator>(relaxed = true)
 
     private lateinit var worker: TranscodingWorker
 
@@ -54,6 +55,8 @@ class TranscodingWorkerTest {
 
         every { authRepository.currentUserId } returns TEST_USER_ID
 
+        coEvery { startupCoordinator.awaitComponent(com.saurabh.artifact.startup.StartupComponent.DATABASE) } returns Unit
+
         worker = TranscodingWorker(
             appContext = context,
             workerParams = workerParams,
@@ -62,6 +65,7 @@ class TranscodingWorkerTest {
             encryptedStorageManager = encryptedStorageManager,
             wavRecoveryManager = wavRecoveryManager,
             authRepository = authRepository,
+            startupCoordinator = startupCoordinator,
             diagnosticLogger = mockk(relaxed = true),
         )
     }

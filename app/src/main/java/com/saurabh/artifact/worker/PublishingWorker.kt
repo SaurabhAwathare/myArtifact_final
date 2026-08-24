@@ -30,6 +30,7 @@ class PublishingWorker @AssistedInject constructor(
     private val draftRepository: DraftRepository,
     private val authRepository: AuthRepository,
     private val uploadTaskDao: Lazy<UploadTaskDao>,
+    private val startupCoordinator: com.saurabh.artifact.startup.StartupCoordinator,
     private val diagnosticLogger: DiagnosticLogger
 ) : CoroutineWorker(appContext, workerParams) {
 
@@ -37,6 +38,9 @@ class PublishingWorker @AssistedInject constructor(
     private var lastProgressUpdateTime = 0L
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        // WORKER LOCK: Ensure database encryption is ready before proceeding
+        startupCoordinator.awaitComponent(com.saurabh.artifact.startup.StartupComponent.DATABASE)
+
         val draftId = inputData.getString(KEY_DRAFT_ID) ?: return@withContext Result.failure()
         diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISHING_WORKER_STARTED", mapOf(LogKeys.DRAFT_ID to draftId))
         

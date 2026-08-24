@@ -14,10 +14,12 @@ import androidx.lifecycle.SavedStateHandle
 import io.mockk.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Before
 import org.junit.Test
 
@@ -37,6 +39,7 @@ class StartupRecoveryIntegrationTest {
     private lateinit var viewModel: MainViewModel
 
     private val preloadResultFlow = MutableStateFlow<PreloadResult?>(null)
+    private val readyComponents = MutableStateFlow<Set<StartupComponent>>(emptySet())
 
     @Before
     fun setup() {
@@ -46,6 +49,12 @@ class StartupRecoveryIntegrationTest {
         every { observeStealthModeUseCase() } returns flowOf(false)
         every { authRepository.currentUser } returns MutableStateFlow(null)
         every { sessionManager.owningUid } returns flowOf(null)
+
+        // REALISTIC DEPENDENCY MODEL: awaitComponent now actually suspends until readyComponents is updated
+        coEvery { startupCoordinator.awaitComponent(any()) } coAnswers {
+            val component = it.invocation.args[0] as StartupComponent
+            readyComponents.first { set -> set.contains(component) }
+        }
 
         viewModel = MainViewModel(
             authRepository,
@@ -61,19 +70,30 @@ class StartupRecoveryIntegrationTest {
     }
 
     @Test
-    fun `MainViewModel transitions to Recovery state when preload returns RecoveryRequired`() = runTest {
+    fun `MainViewModel transitions to Recovery state and keeps DATABASE locked when recovery is required`() = runTest {
         // 1. Start ViewModel
         viewModel.start()
-        
-        // 2. Simulate CORE readiness
-        coEvery { startupCoordinator.awaitComponent(StartupComponent.CORE) } returns Unit
-        
-        // 3. Emit RecoveryRequired
-        preloadResultFlow.value = PreloadResult.RecoveryRequired
-        
         runCurrent()
         
+        // ASSERT: ViewModel is suspended waiting for CORE
+        assertEquals(AppStartupState.Initializing, viewModel.startupState.value)
+        
+        // 2. Simulate Coordinator emitting RecoveryRequired (Internal Step 1)
+        preloadResultFlow.value = PreloadResult.RecoveryRequired
+        runCurrent()
+        
+        // ASSERT: Still initializing because CORE hasn't been emitted yet (the deadlock point)
+        assertEquals(AppStartupState.Initializing, viewModel.startupState.value)
+        
+        // 3. Simulate Coordinator emitting CORE (Internal Step 2 - The Fix)
+        readyComponents.value = setOf(StartupComponent.CORE)
+        runCurrent()
+        
+        // ASSERT: ViewModel is now unblocked and evaluates the preload result
         assertEquals(AppStartupState.Recovery, viewModel.startupState.value)
+        
+        // 4. VERIFY LOCK: DATABASE must NOT be emitted in this path
+        assertFalse("DATABASE must remain locked during recovery", readyComponents.value.contains(StartupComponent.DATABASE))
     }
 
     @Test

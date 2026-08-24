@@ -43,6 +43,7 @@ class FeedViewModelStateRestorationTest {
     private val personalizationEngine = mockk<PersonalizationEngine>(relaxed = true)
     private val adManager = mockk<AdManager>(relaxed = true)
     private val memoryManager = mockk<MemoryManager>(relaxed = true)
+    private val onboardingManager = mockk<com.saurabh.artifact.util.OnboardingManager>(relaxed = true)
     private val startupCoordinator = mockk<StartupCoordinator>(relaxed = true)
     private val savedArtifactManager = mockk<SavedArtifactManager>(relaxed = true)
     private val firestore = mockk<FirebaseFirestore>(relaxed = true)
@@ -89,6 +90,7 @@ class FeedViewModelStateRestorationTest {
             personalizationEngine = personalizationEngine,
             adManager = adManager,
             memoryManager = memoryManager,
+            onboardingManager = onboardingManager,
             startupCoordinator = startupCoordinator,
             savedArtifactManager = savedArtifactManager,
             firestore = firestore,

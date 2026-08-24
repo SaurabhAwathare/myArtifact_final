@@ -8,6 +8,7 @@ import com.saurabh.artifact.domain.auth.LogoutCoordinator
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.SettingsRepository
 import com.saurabh.artifact.util.ClipboardGuard
+import com.saurabh.artifact.model.UserSettings
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -15,6 +16,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.*
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -38,29 +40,21 @@ class SettingsViewModelTest {
         Dispatchers.setMain(testDispatcher)
         every { authRepository.currentUser } returns MutableStateFlow(null)
         every { authRepository.privateSettings } returns MutableStateFlow(null)
-        every { repository.userSettings } returns MutableStateFlow(mockk(relaxed = true))
+        every { repository.userSettings } returns MutableStateFlow(UserSettings())
 
         viewModel = SettingsViewModel(
             repository, authRepository, 
             clipboardGuard, logoutCoordinator, credentialHelper, diagnosticLogger
         )
-        @Test
-    fun `isDeletionConfirmed should be true only when input is DELETE`() = runTest {
-        viewModel.updateDeletionConfirmation("DELET")
-        assertTrue(!viewModel.isDeletionConfirmed.value)
-
-        viewModel.updateDeletionConfirmation("DELETE")
-        assertTrue(viewModel.isDeletionConfirmed.value)
-
-        viewModel.updateDeletionConfirmation("delete")
-        assertTrue(!viewModel.isDeletionConfirmed.value)
     }
-}
 
     @After
     fun tearDown() {
         Dispatchers.resetMain()
-        @Test
+        unmockkAll()
+    }
+
+    @Test
     fun `isDeletionConfirmed should be true only when input is DELETE`() = runTest {
         viewModel.updateDeletionConfirmation("DELET")
         assertTrue(!viewModel.isDeletionConfirmed.value)
@@ -71,7 +65,6 @@ class SettingsViewModelTest {
         viewModel.updateDeletionConfirmation("delete")
         assertTrue(!viewModel.isDeletionConfirmed.value)
     }
-}
 
     @Test
     fun `exportData should emit ExportStarted event`() = runTest {
@@ -79,27 +72,29 @@ class SettingsViewModelTest {
         
         val event = viewModel.events.first()
         assertTrue(event is SettingsUiEvent.ExportStarted)
-        @Test
-    fun `isDeletionConfirmed should be true only when input is DELETE`() = runTest {
-        viewModel.updateDeletionConfirmation("DELET")
-        assertTrue(!viewModel.isDeletionConfirmed.value)
-
-        viewModel.updateDeletionConfirmation("DELETE")
-        assertTrue(viewModel.isDeletionConfirmed.value)
-
-        viewModel.updateDeletionConfirmation("delete")
-        assertTrue(!viewModel.isDeletionConfirmed.value)
     }
-}
+
     @Test
-    fun `isDeletionConfirmed should be true only when input is DELETE`() = runTest {
-        viewModel.updateDeletionConfirmation("DELET")
-        assertTrue(!viewModel.isDeletionConfirmed.value)
+    fun `updateNotifications should call repository`() = runTest {
+        viewModel.updateNotifications(true)
+        coVerify { repository.updateSettings(match { it.notificationsEnabled }) }
+    }
 
-        viewModel.updateDeletionConfirmation("DELETE")
-        assertTrue(viewModel.isDeletionConfirmed.value)
+    @Test
+    fun `updateSmartReminders should call repository`() = runTest {
+        viewModel.updateSmartReminders(true)
+        coVerify { repository.updateSettings(match { it.smartRemindersEnabled }) }
+    }
 
-        viewModel.updateDeletionConfirmation("delete")
-        assertTrue(!viewModel.isDeletionConfirmed.value)
+    @Test
+    fun `updateStealthMode should call repository`() = runTest {
+        viewModel.updateStealthMode(true)
+        coVerify { repository.updateSettings(match { it.stealthModeEnabled }) }
+    }
+
+    @Test
+    fun `updateDataCollection should call repository`() = runTest {
+        viewModel.updateDataCollection(true)
+        coVerify { repository.updateSettings(match { it.dataCollectionConsent }) }
     }
 }

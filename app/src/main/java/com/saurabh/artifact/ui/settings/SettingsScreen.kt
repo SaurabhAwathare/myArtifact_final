@@ -226,6 +226,20 @@ fun SettingsScreen(
                             handleNotificationToggle(enabled) { viewModel.updateSmartReminders(it) }
                         }
                     )
+                    SettingsSwitch(
+                        title = "Stealth Mode",
+                        subtitle = "Hide application content from screenshots and system previews",
+                        icon = Icons.Default.Shield,
+                        checked = uiState.stealthModeEnabled,
+                        onCheckedChange = { viewModel.updateStealthMode(it) }
+                    )
+                    SettingsSwitch(
+                        title = "Personalize My Feed",
+                        subtitle = "Improve recommendations based on your listening behavior. Interaction data stays on your device.",
+                        icon = Icons.Default.Person,
+                        checked = uiState.dataCollectionConsent,
+                        onCheckedChange = { viewModel.updateDataCollection(it) }
+                    )
                 }
 
                 SettingsSection(title = "Data") {

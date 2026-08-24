@@ -182,15 +182,32 @@ class MainViewModel @Inject constructor(
         if (wasCompleted && destinationId != null && currentUid != null && currentUid == resolvedUid) {
             val restoredDestination = mapIdToRoute(destinationId)
             if (restoredDestination != null) {
-                diagnosticLogger.info(DiagnosticCategory.STARTUP, "STARTUP_RESTORED", mapOf("destination" to destinationId, "uid" to currentUid))
-                _startupState.value = AppStartupState.Ready(restoredDestination)
-                
-                // Process Restoration implies identity stability
-                markAuthReady()
+                viewModelScope.launch {
+                    // Safe Restoration: Await technical readiness before exposing UI
+                    // Guard 1: Core Security (App Check)
+                    startupCoordinator.awaitComponent(StartupComponent.CORE)
 
-                // If there's a pending event (restored in init), start the observer
-                if (pendingStartupEvent != null) {
-                    startDeferredNavigationObserver()
+                    // Guard 2: Preload Result Inspection (Detect recovery before database lock)
+                    val result = startupCoordinator.preloadResult.first { it != null }
+                    if (result is PreloadResult.RecoveryRequired) {
+                        diagnosticLogger.warn(DiagnosticCategory.STARTUP, "RESTORATION_RECOVERY_TRIGGERED")
+                        _startupState.value = AppStartupState.Recovery
+                        return@launch
+                    }
+
+                    // Guard 3: Database Readiness
+                    startupCoordinator.awaitComponent(StartupComponent.DATABASE)
+
+                    diagnosticLogger.info(DiagnosticCategory.STARTUP, "STARTUP_RESTORED", mapOf("destination" to destinationId, "uid" to currentUid))
+                    _startupState.value = AppStartupState.Ready(restoredDestination)
+                    
+                    // Process Restoration implies identity stability
+                    markAuthReady()
+
+                    // If there's a pending event (restored in init), start the observer
+                    if (pendingStartupEvent != null) {
+                        startDeferredNavigationObserver()
+                    }
                 }
                 return
             }

@@ -25,6 +25,7 @@ class RecoveryWorkerTest {
     private val publishingOrchestrator = mockk<PublishingOrchestrator>(relaxed = true)
     private val context = mockk<Context>(relaxed = true)
     private val workerParams = mockk<WorkerParameters>(relaxed = true)
+    private val startupCoordinator = mockk<com.saurabh.artifact.startup.StartupCoordinator>(relaxed = true)
 
     private lateinit var worker: RecoveryWorker
 
@@ -35,6 +36,8 @@ class RecoveryWorkerTest {
         every { Log.i(any(), any()) } returns 0
         every { Log.e(any(), any()) } returns 0
         every { Log.e(any(), any(), any()) } returns 0
+        
+        coEvery { startupCoordinator.awaitComponent(com.saurabh.artifact.startup.StartupComponent.DATABASE) } returns Unit
 
         worker = RecoveryWorker(
             appContext = context,
@@ -42,6 +45,7 @@ class RecoveryWorkerTest {
             recordingRepository = recordingRepository,
             encryptionManager = encryptionManager,
             publishingOrchestrator = publishingOrchestrator,
+            startupCoordinator = startupCoordinator,
             diagnosticLogger = mockk(relaxed = true)
         )
     }

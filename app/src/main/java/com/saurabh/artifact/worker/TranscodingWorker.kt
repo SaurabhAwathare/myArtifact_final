@@ -36,10 +36,14 @@ class TranscodingWorker @AssistedInject constructor(
     private val encryptedStorageManager: EncryptedStorageManager,
     private val wavRecoveryManager: WavRecoveryManager,
     private val authRepository: com.saurabh.artifact.repository.AuthRepository,
+    private val startupCoordinator: com.saurabh.artifact.startup.StartupCoordinator,
     private val diagnosticLogger: DiagnosticLogger,
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        // WORKER LOCK: Ensure database encryption is ready before proceeding
+        startupCoordinator.awaitComponent(com.saurabh.artifact.startup.StartupComponent.DATABASE)
+
         val draftId = inputData.getString(AudioNormalizationWorker.KEY_DRAFT_ID) ?: return@withContext Result.failure()
         val userId = authRepository.currentUserId
         

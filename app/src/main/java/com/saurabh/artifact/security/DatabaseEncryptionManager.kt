@@ -200,6 +200,7 @@ class DatabaseEncryptionManager @Inject constructor(
         val passphrase = runBlocking {
             val prefs = dataStore.data.first()
             val encryptedPassphrase = prefs[DB_PASSPHRASE_KEY]
+            val recoveryWrapper = prefs[RECOVERY_WRAPPER_KEY]
 
             if (encryptedPassphrase != null) {
                 try {
@@ -208,18 +209,35 @@ class DatabaseEncryptionManager @Inject constructor(
                     
                     if (!validatePassphrase(decrypted)) {
                         diagnosticLogger.error(DiagnosticCategory.SECURITY, "DB_PASSPHRASE_VALIDATION_FAILED")
+                        
+                        // SAFETY LOCK: If recovery is possible, DO NOT wipe.
+                        if (recoveryWrapper != null) {
+                            throw DatabaseLockedException("Database locked: validation failed but recovery exists.")
+                        }
+                        
                         generateAndStoreNewPassphrase()
                     } else {
                         decrypted
                     }
                 } catch (e: Exception) {
+                    if (e is DatabaseLockedException) throw e
+                    
                     diagnosticLogger.error(DiagnosticCategory.SECURITY, "DB_DECRYPTION_FAILED", throwable = e)
-                    // If sync fetch fails, we must check if recovery is possible or wipe
-                    // Since this is a legacy sync method, we maintain the "fail-safe" wipe
-                    // but log it heavily.
+                    
+                    // SAFETY LOCK: If decryption failed (e.g. Keystore invalidation) but recovery is possible, DO NOT wipe.
+                    if (recoveryWrapper != null) {
+                        throw DatabaseLockedException("Database locked: decryption failed but recovery exists.")
+                    }
+                    
                     generateAndStoreNewPassphrase()
                 }
             } else {
+                // If we have a recovery wrapper but no passphrase, we are in a RESTORE state.
+                // Room initialization must be blocked until tryRecovery() re-binds the passphrase.
+                if (recoveryWrapper != null) {
+                    throw DatabaseLockedException("Database locked: restore pending.")
+                }
+                
                 generateAndStoreNewPassphrase()
             }
         }

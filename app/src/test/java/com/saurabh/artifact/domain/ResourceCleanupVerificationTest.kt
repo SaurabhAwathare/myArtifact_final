@@ -55,6 +55,7 @@ class ResourceCleanupVerificationTest {
     private val userRepository = mockk<UserRepository>(relaxed = true)
     private val authRepository = mockk<AuthRepository>(relaxed = true)
     private val database = mockk<AppDatabase>(relaxed = true)
+    private val startupCoordinator = mockk<com.saurabh.artifact.startup.StartupCoordinator>(relaxed = true)
     private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
     
     private lateinit var testDraftsDir: File
@@ -65,6 +66,7 @@ class ResourceCleanupVerificationTest {
         testDraftsDir = Files.createTempDirectory("test_drafts").toFile()
         
         every { authRepository.currentUserId } returns "user_1"
+        coEvery { startupCoordinator.awaitComponent(com.saurabh.artifact.startup.StartupComponent.DATABASE) } returns Unit
         
         storageManager = mockk<StorageManager> {
             every { draftsRootDirectory } returns testDraftsDir
@@ -227,7 +229,7 @@ class ResourceCleanupVerificationTest {
                 override fun createWorker(appContext: Context, workerClassName: String, params: androidx.work.WorkerParameters): ListenableWorker {
                     return CleanupWorker(
                         appContext, params, Lazy { draftDao }, Lazy { artifactDao }, Lazy { uploadTaskDao }, Lazy { database },
-                        DraftDeletionManager(storageManager), storageManager, artifactRepository, diagnosticLogger
+                        DraftDeletionManager(storageManager), storageManager, artifactRepository, startupCoordinator, diagnosticLogger
                     )
                 }
             })
@@ -264,7 +266,7 @@ class ResourceCleanupVerificationTest {
                 override fun createWorker(appContext: Context, workerClassName: String, params: androidx.work.WorkerParameters): ListenableWorker {
                     return CleanupWorker(
                         appContext, params, Lazy { draftDao }, Lazy { artifactDao }, Lazy { uploadTaskDao }, Lazy { database },
-                        DraftDeletionManager(storageManager), storageManager, artifactRepository, diagnosticLogger
+                        DraftDeletionManager(storageManager), storageManager, artifactRepository, startupCoordinator, diagnosticLogger
                     )
                 }
             })

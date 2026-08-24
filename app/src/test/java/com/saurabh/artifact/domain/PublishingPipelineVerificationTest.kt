@@ -24,6 +24,8 @@ import com.saurabh.artifact.util.ConnectivityObserver
 import com.saurabh.artifact.util.FileIntegrity
 import com.saurabh.artifact.util.WorkNames
 import com.saurabh.artifact.worker.*
+import com.saurabh.artifact.startup.StartupCoordinator
+import com.saurabh.artifact.startup.StartupComponent
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -64,6 +66,7 @@ class PublishingPipelineVerificationTest {
     private val localDraftManager = mockk<LocalDraftManager>(relaxed = true)
     private val encryptedStorageManager = mockk<EncryptedStorageManager>(relaxed = true)
     private val wavRecoveryManager = mockk<WavRecoveryManager>(relaxed = true)
+    private val startupCoordinator = mockk<StartupCoordinator>(relaxed = true)
     private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
     
     private val testDispatcher = StandardTestDispatcher()
@@ -71,6 +74,8 @@ class PublishingPipelineVerificationTest {
     @Before
     fun setup() {
         context = ApplicationProvider.getApplicationContext()
+
+        coEvery { startupCoordinator.awaitComponent(StartupComponent.DATABASE) } returns Unit
         
         // Initialize WorkManager for testing
         WorkManagerTestInitHelper.initializeTestWorkManager(context)
@@ -158,6 +163,7 @@ class PublishingPipelineVerificationTest {
             encryptedStorageManager,
             wavRecoveryManager,
             authRepository,
+            startupCoordinator,
             diagnosticLogger
         )
         
@@ -177,7 +183,8 @@ class PublishingPipelineVerificationTest {
             context,
             mockk(relaxed = true) { every { inputData } returns workDataOf("key_draft_id" to draftId) },
             Lazy { draftDao },
-            authRepository
+            authRepository,
+            startupCoordinator
         )
         
         val normResult = normalizationWorker.doWork()
@@ -188,7 +195,8 @@ class PublishingPipelineVerificationTest {
             context,
             mockk(relaxed = true) { every { inputData } returns workDataOf("key_draft_id" to draftId) },
             Lazy { draftDao },
-            authRepository
+            authRepository,
+            startupCoordinator
         )
         
         val waveformResult = waveformWorker.doWork()
@@ -242,6 +250,7 @@ class PublishingPipelineVerificationTest {
             recordingRepository,
             Lazy { draftDao },
             authRepository,
+            startupCoordinator,
             diagnosticLogger
         )
 
@@ -336,6 +345,7 @@ class PublishingPipelineVerificationTest {
                         draftRepository, 
                         authRepository, 
                         Lazy { uploadTaskDao }, 
+                        startupCoordinator, 
                         diagnosticLogger
                     )
                 }

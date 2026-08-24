@@ -20,10 +20,14 @@ class AudioNormalizationWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted workerParams: WorkerParameters,
     private val draftDao: Lazy<DraftDao>,
-    private val authRepository: com.saurabh.artifact.repository.AuthRepository
+    private val authRepository: com.saurabh.artifact.repository.AuthRepository,
+    private val startupCoordinator: com.saurabh.artifact.startup.StartupCoordinator
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        // WORKER LOCK: Ensure database encryption is ready before proceeding
+        startupCoordinator.awaitComponent(com.saurabh.artifact.startup.StartupComponent.DATABASE)
+
         val draftId = inputData.getString(KEY_DRAFT_ID) ?: return@withContext Result.failure()
         val userId = authRepository.currentUserId
         

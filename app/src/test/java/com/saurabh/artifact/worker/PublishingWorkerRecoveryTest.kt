@@ -49,6 +49,8 @@ class PublishingWorkerRecoveryTest {
         // 1. Simulate RecoveryWorker finding the draft
         coEvery { recordingRepository.recoverInterruptedDrafts() } returns KResult.success(listOf(draft))
         coEvery { publishingOrchestrator.isProcessingActive(draftId) } returns false
+        val startupCoordinator = mockk<com.saurabh.artifact.startup.StartupCoordinator>(relaxed = true)
+        coEvery { startupCoordinator.awaitComponent(com.saurabh.artifact.startup.StartupComponent.DATABASE) } returns Unit
 
         val worker = RecoveryWorker(
             appContext = context,
@@ -56,6 +58,7 @@ class PublishingWorkerRecoveryTest {
             recordingRepository = recordingRepository,
             encryptionManager = mockk(relaxed = true),
             publishingOrchestrator = publishingOrchestrator,
+            startupCoordinator = startupCoordinator,
             diagnosticLogger = mockk(relaxed = true)
         )
 

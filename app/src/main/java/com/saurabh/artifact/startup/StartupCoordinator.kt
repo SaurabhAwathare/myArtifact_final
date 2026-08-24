@@ -185,6 +185,8 @@ class StartupCoordinator @Inject constructor(
 
                 if (result is PreloadResult.RecoveryRequired) {
                     Log.w("Startup", "DATABASE RECOVERY REQUIRED. HOLDING STARTUP.")
+                    // UNBLOCK UI: Signal that core technical evaluation is done
+                    emitReadiness(StartupComponent.CORE)
                     // Do NOT signal DATABASE readiness yet. UI will handle navigation to Recovery.
                     return@launch 
                 }

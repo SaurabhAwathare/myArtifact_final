@@ -91,6 +91,14 @@ class SettingsViewModel @Inject constructor(
         update { it.copy(smartRemindersEnabled = enabled) }
     }
 
+    fun updateStealthMode(enabled: Boolean) {
+        update { it.copy(stealthModeEnabled = enabled) }
+    }
+
+    fun updateDataCollection(enabled: Boolean) {
+        update { it.copy(dataCollectionConsent = enabled) }
+    }
+
     private fun update(reducer: (UserSettings) -> UserSettings) {
         viewModelScope.launch {
             val oldSettings = uiState.value

@@ -56,6 +56,8 @@ class AccountBoundaryVerificationTest {
     private val storageManager = mockk<StorageManager>(relaxed = true)
     private val backupEncryptionManager = mockk<BackupEncryptionManager>(relaxed = true)
     private val fakeLogger = FakeDiagnosticLogger()
+    private val onboardingManager = mockk<com.saurabh.artifact.util.OnboardingManager>(relaxed = true)
+    private val databaseEncryptionManager = mockk<com.saurabh.artifact.security.DatabaseEncryptionManager>(relaxed = true)
     
     // Dependencies for MainViewModel
     private val getInitialDestinationUseCase = mockk<GetInitialDestinationUseCase>(relaxed = true)
@@ -109,6 +111,8 @@ class AccountBoundaryVerificationTest {
             { database },
             storageManager,
             backupEncryptionManager,
+            onboardingManager,
+            databaseEncryptionManager,
             fakeLogger
         ).apply {
             ioDispatcher = testDispatcher

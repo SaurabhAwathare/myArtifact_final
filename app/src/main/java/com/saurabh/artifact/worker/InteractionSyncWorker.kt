@@ -39,10 +39,14 @@ class InteractionSyncWorker @AssistedInject constructor(
     private val artifactLibraryRepository: ArtifactLibraryRepository,
     private val engagementRepository: EngagementRepository,
     private val firestoreEngagementRepository: FirestoreEngagementRepository,
-    private val userRepository: UserRepository
+    private val userRepository: UserRepository,
+    private val startupCoordinator: com.saurabh.artifact.startup.StartupCoordinator
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        // WORKER LOCK: Ensure database encryption is ready before proceeding
+        startupCoordinator.awaitComponent(com.saurabh.artifact.startup.StartupComponent.DATABASE)
+
         val currentUserId = FirebaseAuth.getInstance().currentUser?.uid ?: return@withContext Result.failure()
         ArtifactLogger.i(DiagnosticCategory.WORKER, "SYNC_STARTED", mapOf("worker" to "InteractionSyncWorker"))
         

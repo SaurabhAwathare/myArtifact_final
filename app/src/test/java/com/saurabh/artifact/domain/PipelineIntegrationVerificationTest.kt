@@ -15,6 +15,8 @@ import com.saurabh.artifact.repository.*
 import com.saurabh.artifact.security.UploadGuard
 import com.saurabh.artifact.util.*
 import com.saurabh.artifact.worker.*
+import com.saurabh.artifact.startup.StartupCoordinator
+import com.saurabh.artifact.startup.StartupComponent
 import com.saurabh.artifact.domain.review.publishing.PublishingReviewPolicy
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
@@ -54,6 +56,8 @@ class PipelineIntegrationVerificationTest {
         val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
         val connectivityObserver = mockk<ConnectivityObserver>(relaxed = true)
         val uploadGuard = mockk<UploadGuard>(relaxed = true)
+        val startupCoordinator = mockk<StartupCoordinator>(relaxed = true)
+        coEvery { startupCoordinator.awaitComponent(StartupComponent.DATABASE) } returns Unit
 
         WorkManagerTestInitHelper.initializeTestWorkManager(appContext)
         val workManager = WorkManager.getInstance(appContext)
@@ -156,7 +160,7 @@ class PipelineIntegrationVerificationTest {
             .setInputData(workDataOf("key_draft_id" to draftId))
             .setWorkerFactory(object : WorkerFactory() {
                 override fun createWorker(appContext: Context, workerClassName: String, workerParameters: WorkerParameters): ListenableWorker {
-                    return TranscodingWorker(appContext, workerParameters, Lazy { draftDao }, localDraftManager, encryptedStorageManager, mockk(relaxed = true), authRepository, diagnosticLogger)
+                    return TranscodingWorker(appContext, workerParameters, Lazy { draftDao }, localDraftManager, encryptedStorageManager, mockk(relaxed = true), authRepository, startupCoordinator, diagnosticLogger)
                 }
             }).build()
         assertTrue(transcodingWorker.doWork() is ListenableWorker.Result.Success)
@@ -166,7 +170,7 @@ class PipelineIntegrationVerificationTest {
             .setInputData(workDataOf("key_draft_id" to draftId))
             .setWorkerFactory(object : WorkerFactory() {
                 override fun createWorker(appContext: Context, workerClassName: String, workerParameters: WorkerParameters): ListenableWorker {
-                    return WaveformWorker(appContext, workerParameters, Lazy { draftDao }, authRepository)
+                    return WaveformWorker(appContext, workerParameters, Lazy { draftDao }, authRepository, startupCoordinator)
                 }
             }).build()
         assertTrue(waveformWorker.doWork() is ListenableWorker.Result.Success)
@@ -176,7 +180,7 @@ class PipelineIntegrationVerificationTest {
             .setInputData(workDataOf("key_draft_id" to draftId))
             .setWorkerFactory(object : WorkerFactory() {
                 override fun createWorker(appContext: Context, workerClassName: String, workerParameters: WorkerParameters): ListenableWorker {
-                    return ProcessingFinalizerWorker(appContext, workerParameters, recordingRepository, Lazy { draftDao }, authRepository, diagnosticLogger)
+                    return ProcessingFinalizerWorker(appContext, workerParameters, recordingRepository, Lazy { draftDao }, authRepository, startupCoordinator, diagnosticLogger)
                 }
             }).build()
         assertTrue(finalizer.doWork() is ListenableWorker.Result.Success)
@@ -239,7 +243,7 @@ class PipelineIntegrationVerificationTest {
                 .setInputData(workDataOf("key_draft_id" to draftId))
                 .setWorkerFactory(object : WorkerFactory() {
                     override fun createWorker(appContext: Context, workerClassName: String, workerParameters: WorkerParameters): ListenableWorker {
-                        return PublishingWorker(appContext, workerParameters, publishingManager, draftRepository, authRepository, Lazy { uploadTaskDaoMock }, diagnosticLogger)
+                        return PublishingWorker(appContext, workerParameters, publishingManager, draftRepository, authRepository, Lazy { uploadTaskDaoMock }, startupCoordinator, diagnosticLogger)
                     }
                 }).build()
         )

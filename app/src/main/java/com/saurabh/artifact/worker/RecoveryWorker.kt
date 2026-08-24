@@ -27,10 +27,14 @@ class RecoveryWorker @AssistedInject constructor(
     private val recordingRepository: RecordingRepository,
     private val encryptionManager: DatabaseEncryptionManager,
     private val publishingOrchestrator: PublishingOrchestrator,
+    private val startupCoordinator: com.saurabh.artifact.startup.StartupCoordinator,
     private val diagnosticLogger: DiagnosticLogger
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        // WORKER LOCK: Ensure database encryption is ready before proceeding
+        startupCoordinator.awaitComponent(com.saurabh.artifact.startup.StartupComponent.DATABASE)
+
         diagnosticLogger.info(DiagnosticCategory.WORKMANAGER, "RECOVERY_SCAN_STARTED")
         try {
             // Periodically refresh encryption metadata to ensure it uses the latest master key

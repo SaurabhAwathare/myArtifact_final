@@ -31,6 +31,7 @@ class TitleBufferTest {
     private val identityScout = mockk<IdentityScout>(relaxed = true)
     private val authRepository = mockk<AuthRepository>(relaxed = true)
     private val cleanupManager = mockk<com.saurabh.artifact.audio.ArtifactCleanupManager>(relaxed = true)
+    private val databaseEncryptionManager = mockk<com.saurabh.artifact.security.DatabaseEncryptionManager>(relaxed = true)
     private val workManager = mockk<androidx.work.WorkManager>(relaxed = true)
     private val diagnosticLogger = mockk<com.saurabh.artifact.diagnostics.DiagnosticLogger>(relaxed = true)
 
@@ -91,6 +92,7 @@ class TitleBufferTest {
             publishArtifactUseCase,
             identityScout,
             authRepository,
+            databaseEncryptionManager,
             workManager,
             diagnosticLogger
         )
@@ -134,6 +136,7 @@ class TitleBufferTest {
             publishArtifactUseCase,
             identityScout,
             authRepository,
+            databaseEncryptionManager,
             workManager,
             diagnosticLogger
         )

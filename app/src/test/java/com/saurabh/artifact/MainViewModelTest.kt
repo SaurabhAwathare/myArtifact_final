@@ -557,9 +557,96 @@ class MainViewModelTest {
     }
 
     @Test
-    fun `process death restoration should skip startup when already completed`() = runTest {
+    fun `process death restoration should await CORE and DATABASE before Ready`() = runTest {
+        // 1. Setup SavedState for restoration
+        savedStateHandle["startup_completed"] = true
+        savedStateHandle["resolved_destination_id"] = "HOME"
+        savedStateHandle["resolved_uid"] = "user_restored"
+        
+        val user = mockk<com.google.firebase.auth.FirebaseUser> { every { uid } returns "user_restored" }
+        testAuthFlow.value = user
+
+        // Use deferreds to control awaitComponent signals
+        val coreReady = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val dbReady = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val preloadResultFlow = MutableStateFlow<com.saurabh.artifact.security.PreloadResult?>(null)
+
+        coEvery { startupCoordinator.awaitComponent(StartupComponent.CORE) } coAnswers { coreReady.await() }
+        coEvery { startupCoordinator.awaitComponent(StartupComponent.DATABASE) } coAnswers { dbReady.await() }
+        every { startupCoordinator.preloadResult } returns preloadResultFlow
+
+        // 2. Start restoration
+        viewModel.start()
+        
+        // Assert: Initial state is Initializing
+        assertEquals(AppStartupState.Initializing, viewModel.startupState.value)
+
+        // 3. Signal CORE readiness
+        coreReady.complete(Unit)
+        testScheduler.runCurrent()
+        
+        // Assert: Still not ready (waiting for preload result)
+        assertEquals(AppStartupState.Initializing, viewModel.startupState.value)
+
+        // 4. Signal Successful Preload
+        preloadResultFlow.value = com.saurabh.artifact.security.PreloadResult.Success
+        testScheduler.runCurrent()
+
+        // Assert: Still not ready (waiting for DATABASE)
+        assertEquals(AppStartupState.Initializing, viewModel.startupState.value)
+
+        // 5. Signal DATABASE readiness
+        dbReady.complete(Unit)
+        testScheduler.runCurrent()
+
+        // Assert: Finally Ready
+        assertTrue(viewModel.startupState.value is AppStartupState.Ready)
+        assertEquals(Home, (viewModel.startupState.value as AppStartupState.Ready).startDestination)
+        
+        verify { startupCoordinator.emitReadiness(StartupComponent.AUTH) }
+    }
+
+    @Test
+    fun `process death restoration should transition to Recovery if preload result is RecoveryRequired`() = runTest {
+        // 1. Setup SavedState for restoration
+        savedStateHandle["startup_completed"] = true
+        savedStateHandle["resolved_destination_id"] = "HOME"
+        savedStateHandle["resolved_uid"] = "user_recovery"
+        
+        val user = mockk<com.google.firebase.auth.FirebaseUser> { every { uid } returns "user_recovery" }
+        testAuthFlow.value = user
+
+        val coreReady = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val preloadResultFlow = MutableStateFlow<com.saurabh.artifact.security.PreloadResult?>(null)
+
+        coEvery { startupCoordinator.awaitComponent(StartupComponent.CORE) } coAnswers { coreReady.await() }
+        every { startupCoordinator.preloadResult } returns preloadResultFlow
+
+        // 2. Start restoration
+        viewModel.start()
+        
+        // 3. Signal CORE readiness
+        coreReady.complete(Unit)
+        testScheduler.runCurrent()
+
+        // 4. Signal RecoveryRequired
+        preloadResultFlow.value = com.saurabh.artifact.security.PreloadResult.RecoveryRequired
+        testScheduler.runCurrent()
+
+        // Assert: Transitions to Recovery state
+        assertEquals(AppStartupState.Recovery, viewModel.startupState.value)
+        
+        // Verify DATABASE was NEVER awaited (Safe check)
+        coVerify(exactly = 0) { startupCoordinator.awaitComponent(StartupComponent.DATABASE) }
+        
+        // Verify Ready was never emitted
+        assertTrue(viewModel.startupState.value !is AppStartupState.Ready)
+    }
+
+    @Test
+    fun `process death restoration should skip startup logic when already completed`() = runTest {
         // 1. Simulate previous successful startup
-        val user = mockk<com.google.firebase.auth.FirebaseUser>()
+        val user = mockk<com.google.firebase.auth.FirebaseUser> { every { uid } returns "user_A" }
         testAuthFlow.value = user
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
@@ -589,13 +676,12 @@ class MainViewModelTest {
         newViewModel.start()
         advanceUntilIdle()
 
-        // 4. Verify startup logic was skipped and state restored immediately
+        // 4. Verify technical startup was awaited but heavy business logic (profile check) was skipped
+        coVerify(exactly = 2) { startupCoordinator.awaitComponent(StartupComponent.CORE) }
+        coVerify(exactly = 1) { getInitialDestinationUseCase() } // Only called in the FIRST viewModel.start()
+        
         assertTrue(newViewModel.startupState.value is AppStartupState.Ready)
         assertEquals(Home, (newViewModel.startupState.value as AppStartupState.Ready).startDestination)
-        
-        // Verify executeStartup was NOT called (startupCoordinator.start() would have been called if it was)
-        // Note: startupCoordinator was already called once during first ViewModel.start()
-        verify(exactly = 1) { startupCoordinator.start() } 
     }
 
     @Test

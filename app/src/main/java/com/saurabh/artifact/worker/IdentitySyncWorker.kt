@@ -22,10 +22,14 @@ class IdentitySyncWorker @AssistedInject constructor(
     @Assisted workerParams: WorkerParameters,
     private val firestore: FirebaseFirestore,
     private val userRepository: UserRepository,
+    private val startupCoordinator: com.saurabh.artifact.startup.StartupCoordinator,
     private val diagnosticLogger: DiagnosticLogger
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        // WORKER LOCK: Ensure database encryption is ready before proceeding
+        startupCoordinator.awaitComponent(com.saurabh.artifact.startup.StartupComponent.DATABASE)
+
         val userId = inputData.getString(KEY_USER_ID) ?: return@withContext Result.failure()
         diagnosticLogger.info(DiagnosticCategory.WORKMANAGER, "IDENTITY_SYNC_STARTED", mapOf(LogKeys.USER_ID to userId))
         

@@ -22,10 +22,14 @@ class PublishingRecoveryWorker @AssistedInject constructor(
     @Assisted params: WorkerParameters,
     private val uploadTaskDao: dagger.Lazy<com.saurabh.artifact.data.local.UploadTaskDao>,
     private val workManager: WorkManager,
+    private val startupCoordinator: com.saurabh.artifact.startup.StartupCoordinator,
     private val diagnosticLogger: DiagnosticLogger
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
+        // WORKER LOCK: Ensure database encryption is ready before proceeding
+        startupCoordinator.awaitComponent(com.saurabh.artifact.startup.StartupComponent.DATABASE)
+
         diagnosticLogger.info(DiagnosticCategory.WORKMANAGER, "PUBLISHING_RECOVERY_STARTED")
         
         val now = System.currentTimeMillis()

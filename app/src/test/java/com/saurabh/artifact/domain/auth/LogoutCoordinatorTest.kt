@@ -43,6 +43,8 @@ class LogoutCoordinatorTest {
     private val database = mockk<AppDatabase>(relaxed = true)
     private val storageManager = mockk<StorageManager>(relaxed = true)
     private val backupEncryptionManager = mockk<BackupEncryptionManager>(relaxed = true)
+    private val onboardingManager = mockk<com.saurabh.artifact.util.OnboardingManager>(relaxed = true)
+    private val databaseEncryptionManager = mockk<com.saurabh.artifact.security.DatabaseEncryptionManager>(relaxed = true)
     private val fakeLogger = FakeDiagnosticLogger()
     
     private val testDispatcher = UnconfinedTestDispatcher()
@@ -77,6 +79,8 @@ class LogoutCoordinatorTest {
             { database },
             storageManager,
             backupEncryptionManager,
+            onboardingManager,
+            databaseEncryptionManager,
             fakeLogger
         ).apply {
             ioDispatcher = testDispatcher
