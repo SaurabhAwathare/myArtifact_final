@@ -3,6 +3,7 @@ package com.saurabh.artifact.repository
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.auth.FirebaseAuth
 import com.saurabh.artifact.data.local.ReportedArtifactDao
 import com.saurabh.artifact.data.local.ReportedArtifactEntity
@@ -11,6 +12,7 @@ import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.ArtifactStatus
+import com.saurabh.artifact.model.EvidenceRevealResponse
 import com.saurabh.artifact.model.ModerationStatus
 import com.saurabh.artifact.model.ReportReason
 import com.saurabh.artifact.model.ReportStatus
@@ -29,6 +31,7 @@ import javax.inject.Singleton
 class ArtifactModerationRepository @Inject constructor(
     private val auth: FirebaseAuth,
     private val firestore: FirebaseFirestore,
+    private val functions: FirebaseFunctions,
     private val reportedArtifactDao: dagger.Lazy<ReportedArtifactDao>,
     private val diagnosticLogger: DiagnosticLogger
 ) {
@@ -71,6 +74,7 @@ class ArtifactModerationRepository @Inject constructor(
                 val status = when (action) {
                     ArtifactRepository.ModerationAction.HIDE_ARTIFACT -> ReportStatus.RESOLVED
                     ArtifactRepository.ModerationAction.DISMISS -> ReportStatus.DISMISSED
+                    ArtifactRepository.ModerationAction.PLACE_ON_LEGAL_HOLD -> ReportStatus.RESOLVED
                 }
                 
                 transaction.update(reportRef, "status", status.name)
@@ -81,6 +85,12 @@ class ArtifactModerationRepository @Inject constructor(
                         transaction.update(artifactRef, "isPublic", false)
                     }
                     ArtifactRepository.ModerationAction.DISMISS -> { /* Just resolve the report */ }
+                    ArtifactRepository.ModerationAction.PLACE_ON_LEGAL_HOLD -> {
+                        transaction.update(artifactRef, "moderation.legalHold", true)
+                        // Also hide content immediately for Child Safety
+                        transaction.update(artifactRef, "moderation.status", ModerationStatus.HIDDEN.name)
+                        transaction.update(artifactRef, "isPublic", false)
+                    }
                 }
             }.await()
             Result.success(Unit)
@@ -191,6 +201,38 @@ class ArtifactModerationRepository @Inject constructor(
             Result.success(Unit)
         } catch (e: Exception) {
             diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "ARTIFACT_REMOTE_DELETE_FAILED", mapOf(LogKeys.ARTIFACT_ID to artifactId), e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Calls the backend "Proxy Reveal" function to retrieve sensitive evidence for a
+     * confirmed Child Safety violation.
+     */
+    suspend fun revealModerationEvidence(artifactId: String): Result<EvidenceRevealResponse> = withContext(Dispatchers.IO) {
+        return@withContext try {
+            val data = mapOf("artifactId" to artifactId)
+            val result = functions
+                .getHttpsCallable("revealModerationEvidence")
+                .call(data)
+                .await()
+            
+            @Suppress("UNCHECKED_CAST")
+            val responseData = result.data as? Map<String, Any?>
+                ?: return@withContext Result.failure(Exception("Invalid response from server"))
+
+            val response = EvidenceRevealResponse(
+                creatorUid = responseData["creatorUid"] as? String ?: "",
+                creatorEmail = responseData["creatorEmail"] as? String ?: "",
+                audioUrl = responseData["audioUrl"] as? String,
+                expiresAt = responseData["expiresAt"] as? String,
+                audioStatus = responseData["audioStatus"] as? String ?: "UNKNOWN"
+            )
+
+            diagnosticLogger.info(DiagnosticCategory.SECURITY, "EVIDENCE_REVEAL_SUCCESS", mapOf(LogKeys.ARTIFACT_ID to artifactId))
+            Result.success(response)
+        } catch (e: Exception) {
+            diagnosticLogger.error(DiagnosticCategory.SECURITY, "EVIDENCE_REVEAL_FAILED", mapOf(LogKeys.ARTIFACT_ID to artifactId), e)
             Result.failure(e)
         }
     }

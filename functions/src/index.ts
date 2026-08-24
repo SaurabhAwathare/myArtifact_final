@@ -77,6 +77,11 @@ export const onArtifactCleanupTrigger = functions.firestore
   .onUpdate(async (change, context) => {
     const newData = change.after.data();
     const oldData = change.before.data();
+
+    if (!newData || !oldData) {
+      return null;
+    }
+
     const artifactId = context.params.artifactId;
     const db = admin.firestore();
     const bucket = admin.storage().bucket();
@@ -87,12 +92,23 @@ export const onArtifactCleanupTrigger = functions.firestore
       return null;
     }
 
+    // FINAL SAFETY GUARD: Prevent deletion if Legal Hold is active.
+    // We fetch the LATEST state to avoid race conditions with Admin hold placement.
+    const latestDoc = await db.collection("artifacts").doc(artifactId).get();
+    const latestData = latestDoc.data();
+
+    if (latestData?.moderation?.legalHold === true) {
+      logger.info(`[CLEANUP] Preservation Active | ArtifactID=${artifactId} | Skipping deletion (Fresh Read).`);
+      return null;
+    }
+
     logger.info(`[CLEANUP] START | ArtifactID=${artifactId} | EventId=${context.eventId}`);
 
-    // REQUIREMENT 1: Captured-State Deletion (Read all metadata into local variables)
-    const audioUrl = newData.audioUrl;
-    const transcriptUrl = newData.transcriptUrl;
-    const userId = newData.userId;
+    // REQUIREMENT 1: Captured-State Deletion (Read all metadata from latest doc or trigger snapshot)
+    const effectiveData = latestData || newData;
+    const audioUrl = effectiveData.audioUrl;
+    const transcriptUrl = effectiveData.transcriptUrl;
+    const userId = effectiveData.userId;
 
     try {
       // 1. Storage Cleanup: Audio
@@ -611,7 +627,14 @@ export const onUserDeleted = functions
     if (!artifactsSnapshot.empty) {
       const bulkWriter = db.bulkWriter();
       artifactsSnapshot.docs.forEach((doc) => {
-        if (doc.data().status !== "DELETED") {
+        const artifactData = doc.data();
+        if (artifactData.status !== "DELETED") {
+          // LEGAL HOLD GUARD: Do not mark for deletion if preserved
+          if (artifactData.moderation?.legalHold === true) {
+            logger.info(`[DELETE USER] Artifact Preserved (Legal Hold) | ArtifactID=${doc.id}`);
+            return;
+          }
+
           bulkWriter.update(doc.ref, {
             status: "DELETED",
             isPublic: false,
@@ -880,7 +903,14 @@ export const onReportCreated = functions.firestore
       const {reportCount, lastReportedAt} = await aggregateReports(db, artifactId);
 
       // 3. Evaluate moderation state
-      const newState = evaluateModerationState(reportCount);
+      let newState = evaluateModerationState(reportCount);
+
+      // PRIORITY OVERRIDE: Child Safety reports trigger immediate suppression (Threshold 1)
+      if (data.reason === "CHILD_SAFETY") {
+        newState = ModerationConfig.RecommendationState.SUPPRESSED;
+        logger.info(`[MODERATION] Child Safety Priority Suppression | ArtifactID=${artifactId}`);
+      }
+
       const currentData = artifactDoc.data()!;
 
       const batch = db.batch();
@@ -894,7 +924,7 @@ export const onReportCreated = functions.firestore
       if (newState === ModerationConfig.RecommendationState.SUPPRESSED &&
           currentData.recommendationState !== ModerationConfig.RecommendationState.SUPPRESSED) {
         updates.recommendationState = ModerationConfig.RecommendationState.SUPPRESSED;
-        logger.info(`[MODERATION] Suppression triggered | ArtifactID=${artifactId} | Count=${reportCount}`);
+        logger.info(`[MODERATION] Suppression triggered | ArtifactID=${artifactId} | Reason=${data.reason} | Count=${reportCount}`);
       }
 
       batch.update(artifactRef, updates);
@@ -1120,3 +1150,120 @@ export const onNotificationCreated = functions.firestore
       return null;
     }
   });
+
+/**
+ * "Break-Glass" Proxied Reveal for Child Safety Evidence.
+ * Allows an authorized Admin to retrieve the Creator's email and a temporary audio link
+ * for an artifact that is under Legal Hold and confirmed as a Child Safety violation.
+ */
+export const revealModerationEvidence = functions.https.onCall(async (data, context) => {
+  // 1. Authentication & Admin Authorization
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
+  }
+
+  const adminUid = context.auth.uid;
+  const artifactId = data.artifactId;
+
+  if (!artifactId || typeof artifactId !== "string") {
+    throw new functions.https.HttpsError("invalid-argument", "Artifact ID is required.");
+  }
+
+  const db = admin.firestore();
+
+  try {
+    // 2. Authoritative Admin Check
+    const adminSettings = await db.collection("users").doc(adminUid)
+      .collection("private").doc("settings").get();
+
+    if (adminSettings.data()?.isAdmin !== true) {
+      logger.warn(`[CEE] Unauthorized access attempt | AdminID=${adminUid} | ArtifactID=${artifactId}`);
+      throw new functions.https.HttpsError("permission-denied", "Unauthorized: Admin access required.");
+    }
+
+    // 3. Artifact Validation (Exists + Legal Hold)
+    const artifactDoc = await db.collection("artifacts").doc(artifactId).get();
+    if (!artifactDoc.exists) {
+      throw new functions.https.HttpsError("not-found", "Artifact not found.");
+    }
+
+    const artifactData = artifactDoc.data()!;
+    if (artifactData.moderation?.legalHold !== true) {
+      logger.warn(`[CEE] Access denied: No Legal Hold | AdminID=${adminUid} | ArtifactID=${artifactId}`);
+      throw new functions.https.HttpsError("failed-precondition", "Artifact is not under Legal Hold.");
+    }
+
+    const creatorUid = artifactData.userId;
+    if (!creatorUid) {
+      throw new functions.https.HttpsError("internal", "Artifact has no owner ID.");
+    }
+
+    // 4. Child Safety Case Validation (Authoritative Context)
+    // We check if there is at least one report for this artifact with reason CHILD_SAFETY and status RESOLVED.
+    const safetyReports = await db.collection("reports")
+      .where("artifactId", "==", artifactId)
+      .where("reason", "==", "CHILD_SAFETY")
+      .where("status", "==", "RESOLVED")
+      .limit(1)
+      .get();
+
+    if (safetyReports.empty) {
+      logger.warn(`[CEE] Access denied: No confirmed CHILD_SAFETY case | AdminID=${adminUid} | ArtifactID=${artifactId}`);
+      throw new functions.https.HttpsError("failed-precondition", "No confirmed Child Safety violation found for this artifact.");
+    }
+
+    // 5. Data Retrieval: Creator Identity
+    const creatorSettings = await db.collection("users").doc(creatorUid)
+      .collection("private").doc("settings").get();
+    const creatorEmail = creatorSettings.data()?.email || "email_unavailable";
+
+    // 6. Data Retrieval: Audio Evidence (Signed URL)
+    const bucket = admin.storage().bucket();
+    const audioPath = `artifacts/${creatorUid}_${artifactId}.m4a`;
+    const audioFile = bucket.file(audioPath);
+
+    const [exists] = await audioFile.exists();
+    let signedAudioUrl = null;
+    let expiresAt = null;
+
+    if (exists) {
+      // Configuration: 15 minute duration for review
+      const durationMs = 15 * 60 * 1000;
+      const expirationDate = new Date(Date.now() + durationMs);
+      const [url] = await audioFile.getSignedUrl({
+        action: "read",
+        expires: expirationDate,
+      });
+      signedAudioUrl = url;
+      expiresAt = expirationDate.toISOString();
+    } else {
+      logger.error(`[CEE] Audio file missing for held artifact | Path=${audioPath}`);
+    }
+
+    // 7. Authoritative Audit Log (Write BEFORE returning data)
+    await db.collection("moderation_audit_logs").add({
+      adminId: adminUid,
+      artifactId: artifactId,
+      creatorId: creatorUid,
+      action: "EVIDENCE_REVEAL",
+      reason: "CHILD_SAFETY_REPORTING",
+      timestamp: FieldValue.serverTimestamp(),
+    });
+
+    logger.info(`[CEE] Evidence Revealed | AdminID=${adminUid} | ArtifactID=${artifactId} | CreatorID=${creatorUid}`);
+
+    return {
+      creatorUid: creatorUid,
+      creatorEmail: creatorEmail,
+      audioUrl: signedAudioUrl,
+      expiresAt: expiresAt,
+      audioStatus: exists ? "AVAILABLE" : "MISSING",
+    };
+  } catch (error: any) {
+    if (error instanceof functions.https.HttpsError) {
+      throw error;
+    }
+    logger.error(`[CEE] FATAL ERROR | ArtifactID=${artifactId} | AdminID=${adminUid}:`, error);
+    throw new functions.https.HttpsError("internal", "An internal error occurred during evidence retrieval.");
+  }
+});

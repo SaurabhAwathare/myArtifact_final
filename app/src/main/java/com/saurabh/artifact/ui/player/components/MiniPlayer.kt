@@ -26,6 +26,7 @@ fun MiniPlayer(
     uiState: PlayerUiState,
     onExpand: () -> Unit,
     onTogglePlay: () -> Unit,
+    onAuthorClick: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val artifact = uiState.currentArtifact ?: return
@@ -55,6 +56,11 @@ fun MiniPlayer(
                     .size(48.dp)
                     .clip(RoundedCornerShape(14.dp))
                     .background(Color.White.copy(alpha = 0.05f))
+                    .clickable { 
+                        if (uiState.internalOwnerId.isNotEmpty()) {
+                            onAuthorClick(uiState.internalOwnerId)
+                        }
+                    }
             )
             
             Column(
@@ -71,21 +77,37 @@ fun MiniPlayer(
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 
-                if (uiState.sleepTimerMillisRemaining != null) {
-                    val minutes = (uiState.sleepTimerMillisRemaining / 60000).toInt()
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Rounded.Timer,
-                            contentDescription = null,
-                            modifier = Modifier.size(12.dp),
-                            tint = EmberGlow.copy(alpha = 0.7f)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "${minutes}m",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = EmberGlow.copy(alpha = 0.7f)
-                        )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = artifact.author.name,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.clickable { 
+                            if (uiState.internalOwnerId.isNotEmpty()) {
+                                onAuthorClick(uiState.internalOwnerId)
+                            }
+                        }
+                    )
+
+                    if (uiState.sleepTimerMillisRemaining != null) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        val minutes = (uiState.sleepTimerMillisRemaining / 60000).toInt()
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Rounded.Timer,
+                                contentDescription = null,
+                                modifier = Modifier.size(12.dp),
+                                tint = EmberGlow.copy(alpha = 0.7f)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "${minutes}m",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = EmberGlow.copy(alpha = 0.7f)
+                            )
+                        }
                     }
                 }
                 

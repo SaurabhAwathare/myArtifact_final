@@ -18,6 +18,7 @@ sealed class HealthStatus {
     object RepairRequired : HealthStatus()
     object Unrecoverable : HealthStatus()
     object Missing : HealthStatus()
+    object Terminated : HealthStatus()
 }
 
 @Singleton
@@ -58,6 +59,12 @@ class ProfileHealthChecker @Inject constructor(
             if (!privateSnapshot.exists()) {
                 ArtifactLogger.w(DiagnosticCategory.AUTH, "PROFILE_CHECK_PRIVATE_MISSING")
                 return HealthStatus.RepairRequired
+            }
+
+            val privateSettings = privateSnapshot.toObject(UserPrivateSettings::class.java)
+            if (privateSettings?.accountStatus == "TERMINATED") {
+                ArtifactLogger.e(DiagnosticCategory.AUTH, "PROFILE_CHECK_TERMINATED")
+                return HealthStatus.Terminated
             }
 
             ArtifactLogger.i(DiagnosticCategory.AUTH, "PROFILE_CHECK_SUCCESS")

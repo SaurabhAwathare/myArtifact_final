@@ -135,6 +135,7 @@ private fun ReportOption(
 
 private fun getIconForReason(reason: ReportReason): ImageVector {
     return when (reason) {
+        ReportReason.CHILD_SAFETY -> Icons.Rounded.Security
         ReportReason.HARASSMENT -> Icons.Rounded.PersonOff
         ReportReason.SELF_HARM -> Icons.Rounded.HealthAndSafety
         ReportReason.HATE_SPEECH -> Icons.Rounded.Gavel

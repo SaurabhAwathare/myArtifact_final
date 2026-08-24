@@ -169,7 +169,13 @@ fun GlobalOverlayHost(
                         MiniPlayer(
                             uiState = uiState,
                             onExpand = { playerViewModel.setExpanded(true) },
-                            onTogglePlay = { playerViewModel.togglePlayPause() }
+                            onTogglePlay = { playerViewModel.togglePlayPause() },
+                            onAuthorClick = { userId ->
+                                if (userId.isNotEmpty()) {
+                                    playerViewModel.setExpanded(false)
+                                    navController.navigate(Profile(userId))
+                                }
+                            }
                         )
                     }
                 }

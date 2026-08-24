@@ -30,6 +30,10 @@ class RegistrationCoordinator @Inject constructor(
                     ArtifactLogger.i(DiagnosticCategory.AUTH, "REGISTRATION_EXISTING_USER")
                     RegistrationResult.SuccessExistingUser
                 }
+                HealthStatus.Terminated -> {
+                    ArtifactLogger.e(DiagnosticCategory.AUTH, "REGISTRATION_FAILURE_TERMINATED")
+                    RegistrationResult.Failure(Exception("Account has been terminated for safety violations."))
+                }
                 HealthStatus.RepairRequired, is HealthStatus.Corrupted, HealthStatus.Missing -> {
                     if (status == HealthStatus.Missing) {
                         ArtifactLogger.i(DiagnosticCategory.AUTH, "PROFILE_CREATE_STARTED") // Explicitly for new profile case

@@ -5,11 +5,13 @@ import androidx.lifecycle.viewModelScope
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.model.Artifact
+import com.saurabh.artifact.model.EvidenceRevealResponse
 import com.saurabh.artifact.model.UserReport
 import com.saurabh.artifact.repository.ArtifactRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -59,6 +61,42 @@ class ModerationViewModel @Inject constructor(
                 }
         }
     }
+
+    fun revealEvidence(artifactId: String) {
+        viewModelScope.launch {
+            _uiState.update { state ->
+                if (state is ModerationUiState.Success) {
+                    val items = state.items.map { 
+                        if (it.artifact?.id == artifactId) it.copy(isRevealing = true) else it 
+                    }
+                    state.copy(items = items)
+                } else state
+            }
+
+            artifactRepository.revealModerationEvidence(artifactId)
+                .onSuccess { evidence ->
+                    _uiState.update { state ->
+                        if (state is ModerationUiState.Success) {
+                            val items = state.items.map { 
+                                if (it.artifact?.id == artifactId) it.copy(revealedEvidence = evidence, isRevealing = false) else it 
+                            }
+                            state.copy(items = items)
+                        } else state
+                    }
+                }
+                .onFailure { error ->
+                    _uiState.update { state ->
+                         if (state is ModerationUiState.Success) {
+                            val items = state.items.map { 
+                                if (it.artifact?.id == artifactId) it.copy(isRevealing = false) else it 
+                            }
+                            state.copy(items = items)
+                        } else state
+                    }
+                    diagnosticLogger.error(DiagnosticCategory.SECURITY, "EVIDENCE_REVEAL_FAILED", mapOf("artifactId" to artifactId), error)
+                }
+        }
+    }
 }
 
 sealed class ModerationUiState {
@@ -70,5 +108,7 @@ sealed class ModerationUiState {
 
 data class ReportItem(
     val report: UserReport,
-    val artifact: Artifact?
+    val artifact: Artifact?,
+    val revealedEvidence: EvidenceRevealResponse? = null,
+    val isRevealing: Boolean = false
 )

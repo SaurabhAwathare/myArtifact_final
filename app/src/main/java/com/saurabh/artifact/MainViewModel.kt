@@ -288,7 +288,12 @@ class MainViewModel @Inject constructor(
                     RegistrationResult.SuccessNewUser -> IdentityReveal
                     is RegistrationResult.Failure -> {
                         diagnosticLogger.error(DiagnosticCategory.STARTUP, "STARTUP_REGISTRATION_FAILED", throwable = result.exception)
-                        _startupState.value = AppStartupState.Error("Profile verification failed.")
+                        val message = if (result.exception.message?.contains("terminated") == true) {
+                            result.exception.message!!
+                        } else {
+                            "Profile verification failed."
+                        }
+                        _startupState.value = AppStartupState.Error(message)
                         startupCoordinator.completeAll()
                         return
                     }

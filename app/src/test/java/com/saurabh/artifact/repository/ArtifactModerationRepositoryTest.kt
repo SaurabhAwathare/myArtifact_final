@@ -20,6 +20,7 @@ import org.junit.Test
 class ArtifactModerationRepositoryTest {
     private val auth = mockk<FirebaseAuth>(relaxed = true)
     private val firestore = mockk<FirebaseFirestore>(relaxed = true)
+    private val functions = mockk<com.google.firebase.functions.FirebaseFunctions>(relaxed = true)
     private val reportedArtifactDao = mockk<ReportedArtifactDao>(relaxed = true)
     private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
 
@@ -30,6 +31,7 @@ class ArtifactModerationRepositoryTest {
         repository = ArtifactModerationRepository(
             auth = auth,
             firestore = firestore,
+            functions = functions,
             reportedArtifactDao = { reportedArtifactDao },
             diagnosticLogger = diagnosticLogger
         )
@@ -77,6 +79,36 @@ class ArtifactModerationRepositoryTest {
     }
 
     @Test
+    fun `submitReport with CHILD_SAFETY should create correct Firestore document`() = runBlocking {
+        val artifactId = "art_csam"
+        val userId = "user123"
+        val reason = ReportReason.CHILD_SAFETY
+        val details = "Urgent: CSAM"
+        val deviceId = 789
+        
+        every { auth.currentUser?.uid } returns userId
+        
+        val reportRef = mockk<DocumentReference>(relaxed = true)
+        val expectedReportId = "${userId}_${artifactId}"
+        every { firestore.collection("reports").document(expectedReportId) } returns reportRef
+        
+        val setTask = mockk<com.google.android.gms.tasks.Task<Void>>(relaxed = true)
+        every { reportRef.set(any()) } returns setTask
+        
+        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        coEvery { setTask.await() } returns mockk(relaxed = true)
+
+        val result = repository.submitReport(artifactId, reason, details, deviceId)
+
+        assertTrue(result.isSuccess)
+        
+        verify { reportRef.set(match { data ->
+            val dataMap = data as Map<String, Any?>
+            dataMap["reason"] == "CHILD_SAFETY"
+        }) }
+    }
+
+    @Test
     fun `resolveReport with HIDE_ARTIFACT should update report and artifact status`() = runBlocking {
         val reportId = "report123"
         val artifactId = "art123"
@@ -106,6 +138,68 @@ class ArtifactModerationRepositoryTest {
         verify { transaction.update(reportRef, "status", ReportStatus.RESOLVED.name) }
         verify { transaction.update(artifactRef, "moderation.status", ModerationStatus.HIDDEN.name) }
         verify { transaction.update(artifactRef, "isPublic", false) }
+    }
+
+    @Test
+    fun `resolveReport with PLACE_ON_LEGAL_HOLD should update artifact with legalHold and hide content`() = runBlocking {
+        val reportId = "report123"
+        val artifactId = "art123"
+        
+        val reportRef = mockk<DocumentReference>(relaxed = true)
+        val artifactRef = mockk<DocumentReference>(relaxed = true)
+        
+        every { firestore.collection("reports").document(reportId) } returns reportRef
+        every { firestore.collection("artifacts").document(artifactId) } returns artifactRef
+        
+        val transaction = mockk<com.google.firebase.firestore.Transaction>(relaxed = true)
+        val transactionTask = mockk<com.google.android.gms.tasks.Task<Unit>>(relaxed = true)
+        val transactionSlot = slot<com.google.firebase.firestore.Transaction.Function<Unit>>()
+        every { firestore.runTransaction(capture(transactionSlot)) } returns transactionTask
+        
+        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        coEvery { transactionTask.await() } answers {
+            transactionSlot.captured.apply(transaction)
+            Unit
+        }
+
+        val result = repository.resolveReport(reportId, artifactId, ArtifactRepository.ModerationAction.PLACE_ON_LEGAL_HOLD)
+
+        assertTrue(result.isSuccess)
+        verify { transaction.update(reportRef, "status", ReportStatus.RESOLVED.name) }
+        verify { transaction.update(artifactRef, "moderation.legalHold", true) }
+        verify { transaction.update(artifactRef, "moderation.status", ModerationStatus.HIDDEN.name) }
+        verify { transaction.update(artifactRef, "isPublic", false) }
+    }
+
+    @Test
+    fun `revealModerationEvidence should call Cloud Function and return response`() = runBlocking {
+        val artifactId = "art123"
+        val callable = mockk<com.google.firebase.functions.HttpsCallableReference>(relaxed = true)
+        val task = mockk<com.google.android.gms.tasks.Task<com.google.firebase.functions.HttpsCallableResult>>(relaxed = true)
+        val result = mockk<com.google.firebase.functions.HttpsCallableResult>(relaxed = true)
+        
+        every { functions.getHttpsCallable("revealModerationEvidence") } returns callable
+        every { callable.call(any()) } returns task
+        
+        val expectedData = mapOf(
+            "creatorUid" to "creator123",
+            "creatorEmail" to "test@example.com",
+            "audioUrl" to "https://signed-url.com",
+            "expiresAt" to "2026-08-24T18:00:00Z",
+            "audioStatus" to "AVAILABLE"
+        )
+        every { result.data } returns expectedData
+        
+        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        coEvery { task.await() } returns result
+
+        val ceeResult = repository.revealModerationEvidence(artifactId)
+
+        assertTrue(ceeResult.isSuccess)
+        val response = ceeResult.getOrNull()
+        assertEquals("creator123", response?.creatorUid)
+        assertEquals("test@example.com", response?.creatorEmail)
+        assertEquals("https://signed-url.com", response?.audioUrl)
     }
 
     @Test

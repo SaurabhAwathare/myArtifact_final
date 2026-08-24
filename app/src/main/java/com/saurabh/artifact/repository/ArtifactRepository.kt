@@ -24,6 +24,7 @@ import com.saurabh.artifact.model.ArtifactConversationMetadata
 import com.saurabh.artifact.model.ArtifactDetail
 import com.saurabh.artifact.model.ArtifactReactionCounts
 import com.saurabh.artifact.model.ArtifactStatus
+import com.saurabh.artifact.model.EvidenceRevealResponse
 import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.model.SigilConfig
 import com.saurabh.artifact.model.Emotion
@@ -333,9 +334,13 @@ class ArtifactRepository @Inject constructor(
         action: ModerationAction
     ): Result<Unit> = moderationRepository.get().resolveReport(reportId, artifactId, action)
 
+    suspend fun revealModerationEvidence(artifactId: String): Result<EvidenceRevealResponse> =
+        moderationRepository.get().revealModerationEvidence(artifactId)
+
     enum class ModerationAction {
         HIDE_ARTIFACT,
-        DISMISS
+        DISMISS,
+        PLACE_ON_LEGAL_HOLD
     }
 
     private fun downsampleAmplitudes(data: List<*>, target: Int): List<Float> {

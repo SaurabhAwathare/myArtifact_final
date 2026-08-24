@@ -20,6 +20,7 @@ enum class RecommendationState {
 }
 
 enum class ReportReason {
+    CHILD_SAFETY,
     HARASSMENT,
     SELF_HARM,
     HATE_SPEECH,
@@ -34,7 +35,8 @@ data class ModerationMetadata(
     var score: Float = 0f,
     var categories: List<String> = emptyList(),
     var updatedAt: Timestamp = Timestamp.now(),
-    var reviewId: String? = null
+    var reviewId: String? = null,
+    var legalHold: Boolean = false
 )
 
 data class UserReport(
@@ -53,3 +55,12 @@ enum class ReportStatus {
     RESOLVED,
     DISMISSED
 }
+
+@Serializable
+data class EvidenceRevealResponse(
+    val creatorUid: String = "",
+    val creatorEmail: String = "",
+    val audioUrl: String? = null,
+    val expiresAt: String? = null,
+    val audioStatus: String = "UNKNOWN"
+)

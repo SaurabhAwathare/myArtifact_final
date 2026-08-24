@@ -247,7 +247,7 @@ service cloud.firestore {
                      // audioUrl is immutable once ACTIVE
                      (resource.data.status != 'ACTIVE' || resource.data.audioUrl == request.resource.data.audioUrl) &&
                      !(request.resource.data.diff(resource.data).affectedKeys()
-                       .hasAny(['author', 'reactionCount', 'commentCount', 'playCount', 'reportCount', 'recommendationState'])));
+                       .hasAny(['author', 'reactionCount', 'commentCount', 'playCount', 'reportCount', 'recommendationState', 'moderation', 'moderationStatus', 'toxicityScore', 'safetyConcernCount', 'reporterIds'])));
 
       // Prevent users from hard-deleting the Artifact document to ensure Cloud Function trigger
       allow delete: if isGlobalAdmin();
@@ -364,6 +364,10 @@ service cloud.firestore {
     match /moderation_queue/{artifactId} {
       allow read: if isGlobalAdmin();
       allow write: if false;
+    }
+
+    match /moderation_audit_logs/{id} {
+      allow read, write: if false; // Internal Audit Only (Cloud Functions)
     }
   }
 }

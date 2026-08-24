@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -17,6 +18,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -36,8 +39,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.saurabh.artifact.model.ReportReason
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.ui.theme.Spacing
 
@@ -98,6 +103,9 @@ fun ModerationScreen(
                                 item = item,
                                 onAction = { action ->
                                     viewModel.resolveReport(item.report.id, item.report.artifactId, action)
+                                },
+                                onReveal = {
+                                    viewModel.revealEvidence(item.report.artifactId)
                                 }
                             )
                         }
@@ -111,7 +119,8 @@ fun ModerationScreen(
 @Composable
 fun ReportCard(
     item: ReportItem,
-    onAction: (ArtifactRepository.ModerationAction) -> Unit
+    onAction: (ArtifactRepository.ModerationAction) -> Unit,
+    onReveal: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -155,6 +164,49 @@ fun ReportCard(
                 )
             } ?: Text("Artifact details unavailable", color = MaterialTheme.colorScheme.error)
 
+            item.revealedEvidence?.let { evidence ->
+                Spacer(modifier = Modifier.height(Spacing.Medium))
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f)
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(Spacing.Small)) {
+                        Text(
+                            text = "SENSITIVE MODERATION EVIDENCE",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                        Text(
+                            text = "Creator Email: ${evidence.creatorEmail}",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Text(
+                            text = "Creator UID: ${evidence.creatorUid}",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        
+                        if (evidence.audioUrl != null) {
+                            Text(
+                                text = "Evidence Audio (Signed URL Generated)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = "Expires: ${evidence.expiresAt}",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        } else {
+                            Text(
+                                text = "Audio Evidence: ${evidence.audioStatus}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(Spacing.Large))
 
             Row(
@@ -171,6 +223,38 @@ fun ReportCard(
                 }
                 
                 Spacer(modifier = Modifier.width(Spacing.Small))
+
+                if (item.report.reason == ReportReason.CHILD_SAFETY && item.artifact?.moderation?.legalHold != true) {
+                    TextButton(
+                        onClick = { onAction(ArtifactRepository.ModerationAction.PLACE_ON_LEGAL_HOLD) },
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.tertiary)
+                    ) {
+                        Icon(Icons.Default.Lock, contentDescription = null)
+                        Spacer(modifier = Modifier.width(Spacing.Small))
+                        Text("Legal Hold")
+                    }
+                    Spacer(modifier = Modifier.width(Spacing.Small))
+                }
+
+                if (item.artifact?.moderation?.legalHold == true && item.report.reason == ReportReason.CHILD_SAFETY) {
+                    Button(
+                        onClick = { onReveal() },
+                        enabled = !item.isRevealing,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    ) {
+                        if (item.isRevealing) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Default.Info, contentDescription = null)
+                            Spacer(modifier = Modifier.width(Spacing.Small))
+                            Text("Reveal Evidence")
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(Spacing.Small))
+                }
 
                 Button(
                     onClick = { onAction(ArtifactRepository.ModerationAction.HIDE_ARTIFACT) },
