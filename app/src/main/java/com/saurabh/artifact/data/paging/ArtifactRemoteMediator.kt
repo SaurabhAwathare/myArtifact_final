@@ -25,6 +25,7 @@ class ArtifactRemoteMediator(
 ) : RemoteMediator<Int, ArtifactEntityWithIndex>() {
 
     private val artifactDao = database.artifactDao()
+    private val reportedArtifactDao = database.reportedArtifactDao()
 
     override suspend fun initialize(): InitializeAction {
         // Targeted Fix: If an emotion category is selected, ALWAYS force a refresh
@@ -80,6 +81,10 @@ class ArtifactRemoteMediator(
             val snapshot = NetworkUtils.retryWithBackoff {
                 query.limit(state.config.pageSize.toLong()).get().await()
             }
+
+            // Fetch local suppression snapshot for the current user
+            val suppressedIds = reportedArtifactDao.getReportedArtifactIds(currentUserId).toSet()
+
             val artifacts = snapshot.documents.mapNotNull { doc ->
                 val artifact =
                     doc.toObject(Artifact::class.java)?.copy(id = doc.id) ?: return@mapNotNull null
@@ -88,19 +93,22 @@ class ArtifactRemoteMediator(
                 // Authoritative Filter: Hide if global moderation thresholds met or if current user reported it
                 val reportCount = doc.getLong("reportCount") ?: 0L
                 val safetyConcernCount = doc.getLong("safetyConcernCount") ?: 0L
-                val reporterIds = doc.get("reporterIds") as? List<*> ?: emptyList<String>()
+                
+                // Note: reporterIds is deprecated and intentionally NOT populated by backend.
+                // isSuppressedByUser is now derived from the local Room database (synced from private Firestore markers).
+                val isSuppressedByUser = suppressedIds.contains(doc.id)
                 
                 // Reconstruct transient artifact metadata for policy evaluation
                 val artifactSnapshot = artifact.copy(
                     reportCount = reportCount,
                     safetyConcernCount = safetyConcernCount,
-                    reporterIds = reporterIds.map { it.toString() }
+                    reporterIds = emptyList() // No longer using public reporterIds
                 )
 
                 val isEligible = safetyPolicy.isEligibleForDiscovery(
                     artifact = artifactSnapshot,
                     currentUserId = currentUserId,
-                    isSuppressedByUser = reporterIds.contains(currentUserId)
+                    isSuppressedByUser = isSuppressedByUser
                 )
 
                 if (isEligible) {

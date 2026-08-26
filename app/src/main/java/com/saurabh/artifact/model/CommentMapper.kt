@@ -19,7 +19,8 @@ fun CommentDto.toDomain(): Comment {
             CommentStatus.valueOf(status.uppercase())
         } catch (_: Exception) {
             CommentStatus.ACTIVE
-        }
+        },
+        identityVersion = identityVersion
     )
 }
 
@@ -35,6 +36,7 @@ fun Comment.toDto(): CommentDto {
         text = text,
         createdAt = createdAt,
         updatedAt = updatedAt,
-        status = status.name
+        status = status.name,
+        identityVersion = identityVersion
     )
 }

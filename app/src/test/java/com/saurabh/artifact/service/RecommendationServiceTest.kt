@@ -10,11 +10,12 @@ import java.util.*
 class RecommendationServiceTest {
 
     private lateinit var service: RecommendationService
+    private val safetyPolicy = com.saurabh.artifact.domain.SafetyPolicy()
     private val config = RecommendationConfig.DEFAULT
 
     @Before
     fun setup() {
-        service = RecommendationService()
+        service = RecommendationService(safetyPolicy)
     }
 
     @Test

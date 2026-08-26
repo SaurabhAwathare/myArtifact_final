@@ -19,6 +19,8 @@ class ArtifactRemoteMediatorTest {
     private val firestore = mockk<FirebaseFirestore>(relaxed = true)
     private val database = mockk<AppDatabase>(relaxed = true)
     private val artifactDao = mockk<ArtifactDao>(relaxed = true)
+    private val reportedArtifactDao = mockk<com.saurabh.artifact.data.local.ReportedArtifactDao>(relaxed = true)
+    private val safetyPolicy = com.saurabh.artifact.domain.SafetyPolicy()
     private val currentUserId = "test_user"
 
     private lateinit var mediator: ArtifactRemoteMediator
@@ -26,11 +28,60 @@ class ArtifactRemoteMediatorTest {
     @Before
     fun setup() {
         every { database.artifactDao() } returns artifactDao
+        every { database.reportedArtifactDao() } returns reportedArtifactDao
         mediator = ArtifactRemoteMediator(
             firestore = firestore,
             database = database,
-            currentUserId = currentUserId
+            currentUserId = currentUserId,
+            safetyPolicy = safetyPolicy
         )
+    }
+
+    @Test
+    fun `load should filter out reported artifacts using local DAO`() = runTest {
+        val artifactId = "reported_art"
+        coEvery { reportedArtifactDao.getReportedArtifactIds(currentUserId) } returns listOf(artifactId)
+
+        val query = mockk<com.google.firebase.firestore.Query>(relaxed = true)
+        val snapshot = mockk<com.google.firebase.firestore.QuerySnapshot>(relaxed = true)
+        val doc = mockk<com.google.firebase.firestore.DocumentSnapshot>(relaxed = true)
+        
+        every { doc.id } returns artifactId
+        every { doc.toObject(com.saurabh.artifact.model.Artifact::class.java) } returns com.saurabh.artifact.model.Artifact(id = artifactId)
+        every { snapshot.documents } returns listOf(doc)
+        
+        every { firestore.collection("artifacts") } returns mockk(relaxed = true) {
+            every { whereEqualTo(any<String>(), any()) } returns this
+            every { orderBy(any<String>(), any()) } returns this
+            every { orderBy(any<com.google.firebase.firestore.FieldPath>(), any()) } returns this
+            every { limit(any()) } returns query
+        }
+
+        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        val task = mockk<com.google.android.gms.tasks.Task<com.google.firebase.firestore.QuerySnapshot>>(relaxed = true)
+        every { query.get() } returns task
+        coEvery { task.await() } returns snapshot
+
+        mockkStatic("androidx.room.RoomDatabaseKt")
+        val transactionLambda = slot<suspend () -> Any?>()
+        coEvery { database.withTransaction<Any?>(capture(transactionLambda)) } coAnswers {
+            transactionLambda.captured.invoke()
+        }
+
+        val pagingState = PagingState<Int, com.saurabh.artifact.data.local.ArtifactEntityWithIndex>(
+            pages = emptyList(),
+            anchorPosition = null,
+            config = PagingConfig(pageSize = 20),
+            leadingPlaceholderCount = 0
+        )
+
+        mediator.load(LoadType.REFRESH, pagingState)
+
+        // Verify that the reported artifact was NOT inserted into artifactDao
+        coVerify(exactly = 0) { artifactDao.insertAll(any()) }
+        
+        unmockkStatic("androidx.room.RoomDatabaseKt")
+        unmockkStatic("kotlinx.coroutines.tasks.TasksKt")
     }
 
     @Test

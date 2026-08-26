@@ -138,6 +138,9 @@ class UserProfileManager @Inject constructor(
             managerScope.launch {
                 Log.d("UserProfileManager", "Launching local sync for $userId")
                 val currentProfile = sessionManager.userProfile.first()
+                val latestUser = userRepository.getOrCreateProfile().getOrNull()?.user
+                val currentVersion = latestUser?.identityMetadata?.identityResetVersion ?: 0L
+                
                 Log.d("UserProfileManager", "Got profile for sync: ${currentProfile.username}")
                 artifactRepository.updateLocalAuthorSnapshot(
                     userId = userId,
@@ -148,7 +151,8 @@ class UserProfileManager @Inject constructor(
                         sigilSeed = config.seed,
                         sigilColor = currentProfile.sigilColor,
                         sigilConfig = config
-                    )
+                    ),
+                    identityVersion = currentVersion
                 )
             }
         }
@@ -180,6 +184,9 @@ class UserProfileManager @Inject constructor(
             managerScope.launch {
                 Log.d("UserProfileManager", "Launching local sync for $userId")
                 val currentProfile = sessionManager.userProfile.first()
+                val latestUser = userRepository.getOrCreateProfile().getOrNull()?.user
+                val currentVersion = latestUser?.identityMetadata?.identityResetVersion ?: 0L
+
                 Log.d("UserProfileManager", "Got profile for sync: ${currentProfile.username}")
                 artifactRepository.updateLocalAuthorSnapshot(
                     userId = userId,
@@ -190,7 +197,8 @@ class UserProfileManager @Inject constructor(
                         sigilSeed = currentProfile.sigilSeed,
                         sigilColor = currentProfile.sigilColor,
                         sigilConfig = currentProfile.sigilConfig
-                    )
+                    ),
+                    identityVersion = currentVersion
                 )
             }
         }
@@ -221,6 +229,7 @@ class UserProfileManager @Inject constructor(
         val result = userRepository.emergencyIdentityReset(userId)
         
         if (result.isSuccess) {
+            val newVersion = result.getOrThrow()
             // 2. Synchronize Local Artifact Cache (Optimistic)
             managerScope.launch {
                 try {
@@ -236,17 +245,18 @@ class UserProfileManager @Inject constructor(
                             sigilSeed = updatedProfile.sigilSeed,
                             sigilColor = updatedProfile.sigilColor,
                             sigilConfig = updatedProfile.sigilConfig
-                        )
+                        ),
+                        identityVersion = newVersion
                     )
                     Log.i("UserProfileManager", "Local identity synchronization completed for $userId")
                 } catch (e: Exception) {
                     Log.e("UserProfileManager", "Local identity synchronization failed for $userId", e)
                 }
             }
+            return Result.success(Unit)
         } else {
             Log.e("UserProfileManager", "Emergency reset orchestration aborted due to remote failure")
+            return Result.failure(result.exceptionOrNull() ?: Exception("Unknown error"))
         }
-        
-        return result
     }
 }

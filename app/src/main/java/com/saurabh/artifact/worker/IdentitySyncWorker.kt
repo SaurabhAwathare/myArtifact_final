@@ -30,7 +30,8 @@ class IdentitySyncWorker @AssistedInject constructor(
         startupCoordinator.awaitComponent(com.saurabh.artifact.startup.StartupComponent.DATABASE)
 
         val userId = inputData.getString(KEY_USER_ID) ?: return@withContext Result.failure()
-        diagnosticLogger.info(DiagnosticCategory.WORKMANAGER, "IDENTITY_SYNC_STARTED", mapOf(LogKeys.USER_ID to userId))
+        val version = inputData.getLong(KEY_VERSION, 0)
+        diagnosticLogger.info(DiagnosticCategory.WORKMANAGER, "IDENTITY_SYNC_STARTED", mapOf(LogKeys.USER_ID to userId, "version" to version))
         
         try {
             // 1. Fetch the latest profile from authoritative local/remote SSOT
@@ -43,7 +44,7 @@ class IdentitySyncWorker @AssistedInject constructor(
             // This ensures the local feed reflects the new identity immediately.
             // HISTORICAL FIX: Remote propagation is now handled by the backend Cloud Function
             // to overcome Firestore security rule restrictions on the 'author' field.
-            artifactRepository.updateLocalAuthorSnapshot(userId, snapshot)
+            artifactRepository.updateLocalAuthorSnapshot(userId, snapshot, user.identityMetadata.identityResetVersion)
 
             diagnosticLogger.info(DiagnosticCategory.WORKMANAGER, "IDENTITY_SYNC_SUCCESS", mapOf(LogKeys.USER_ID to userId))
             Result.success()

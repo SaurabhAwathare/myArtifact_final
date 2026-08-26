@@ -230,4 +230,94 @@ describe("Aggregate Cloud Functions", () => {
       expect(db.doc).toHaveBeenCalledWith(artifactId);
     });
   });
+
+  describe("onPrivateFeedbackCreated", () => {
+    it("should increment safetyConcernCount and suppress when threshold reached", async () => {
+      const artifactId = "art123";
+      const feedbackId = "feed123";
+      const wrapped = testEnv.wrap(myFunctions.onPrivateFeedbackCreated);
+
+      const snapshot = {
+        data: () => ({ artifactId, type: "SAFETY_CONCERN" }),
+      } as any;
+
+      (db.runTransaction as any).mockImplementation(async (cb: any) => {
+        const transaction = {
+          get: jest.fn(() => Promise.resolve({ exists: false })),
+          set: jest.fn(),
+          update: jest.fn(),
+          delete: jest.fn(),
+        };
+        return cb(transaction);
+      });
+
+      // Mock artifact doc with 2 existing safety concerns
+      db.doc.mockImplementation((id: string) => {
+        if (id === artifactId) {
+          return {
+            get: jest.fn(() => Promise.resolve({
+              exists: true,
+              data: () => ({ safetyConcernCount: 2, recommendationState: "ACTIVE" })
+            })),
+            update: jest.fn(() => Promise.resolve()),
+          };
+        }
+        return { doc: jest.fn().mockReturnThis() };
+      });
+
+      await wrapped(snapshot, {
+        params: { feedbackId },
+        eventId: "event_sf_123",
+      });
+
+      expect(db.collection).toHaveBeenCalledWith("artifacts");
+      const artRef = db.doc(artifactId);
+      expect(artRef.update).toHaveBeenCalledWith(expect.objectContaining({
+        safetyConcernCount: expect.anything(),
+        recommendationState: "SUPPRESSED"
+      }));
+    });
+  });
+
+  describe("onReportDeleted", () => {
+    it("should recalculate reportCount after deletion", async () => {
+      const artifactId = "art123";
+      const reportId = "rep123";
+      const wrapped = testEnv.wrap(myFunctions.onReportDeleted);
+
+      const snapshot = {
+        data: () => ({ artifactId, reporterId: "user1" }),
+      } as any;
+
+      // Mock aggregateReports behavior
+      db.collection.mockImplementation((name: string) => {
+        if (name === "reports") {
+          return {
+            where: jest.fn().mockReturnThis(),
+            get: jest.fn(() => Promise.resolve({
+              docs: [
+                { data: () => ({ reporterId: "user2", createdAt: { toMillis: () => 1000 } }) }
+              ]
+            }))
+          };
+        }
+        return { doc: jest.fn().mockReturnThis(), where: jest.fn().mockReturnThis() };
+      });
+
+      db.doc.mockImplementation((id: string) => ({
+        update: jest.fn(() => Promise.resolve())
+      }));
+
+      await wrapped(snapshot, {
+        params: { reportId },
+        eventId: "event_rep_del_123",
+      });
+
+      expect(db.collection).toHaveBeenCalledWith("artifacts");
+      const artRef = db.doc(artifactId);
+      expect(artRef.update).toHaveBeenCalledWith(expect.objectContaining({
+        reportCount: 1
+      }));
+    });
+  });
 });

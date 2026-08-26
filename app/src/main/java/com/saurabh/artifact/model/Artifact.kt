@@ -57,6 +57,7 @@ data class Artifact(
     val conversationMetadata: ArtifactConversationMetadata = ArtifactConversationMetadata(),
     val reactionVisibility: ReactionVisibilityMode = ReactionVisibilityMode.APPROXIMATE,
     val titleHistory: List<String> = emptyList(),
+    val identityVersion: Long = 0,
 
     /**
      * Firestore Release compatibility.

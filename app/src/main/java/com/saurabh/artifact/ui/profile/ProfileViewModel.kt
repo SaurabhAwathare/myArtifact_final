@@ -4,6 +4,9 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
+import androidx.paging.PagingData
+import androidx.paging.cachedIn
+import androidx.paging.map
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
@@ -45,7 +48,6 @@ data class ProfileUiState(
     val selectedTab: ProfileTab = ProfileTab.PUBLISHED,
     val publishedArtifacts: List<Artifact> = emptyList(),
     val cloudDrafts: List<Artifact> = emptyList(),
-    val savedArtifacts: List<Artifact> = emptyList(),
     val localDrafts: List<DraftUiModel> = emptyList(),
     val logoutState: LogoutState = LogoutState.Idle,
     val message: UiText? = null,
@@ -74,7 +76,6 @@ private data class ProfileContent(
     val mappedLocalDrafts: List<DraftUiModel>,
     val mappedPublishedArtifacts: List<Artifact>,
     val mappedCloudDrafts: List<Artifact>,
-    val mappedSavedArtifacts: List<Artifact>,
 )
 
 private data class PlaybackState(
@@ -111,6 +112,25 @@ class ProfileViewModel @Inject constructor(
     private val _isActionLoading = MutableStateFlow(value = false)
     private val _isRefreshing = MutableStateFlow(value = false)
     private val _refreshTrigger = MutableStateFlow(0)
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val savedArtifacts: Flow<PagingData<Artifact>> = _targetUserId.flatMapLatest { userId ->
+        val finalId = userId ?: currentUserId
+        if (finalId != null && (userId == null || userId == currentUserId)) {
+            artifactRepository.getSavedArtifactsPager(finalId)
+                .map { pagingData ->
+                    pagingData.map { artifact ->
+                        if (artifact.id == _editingId.value && _titleInput.value != null) {
+                            artifact.copy(title = _titleInput.value!!)
+                        } else {
+                            artifact
+                        }
+                    }
+                }
+        } else {
+            flowOf(PagingData.empty())
+        }
+    }.cachedIn(viewModelScope)
 
     // Phase 1: Pagination state
     private val _additionalPublishedArtifacts = MutableStateFlow<List<Artifact>>(emptyList())
@@ -194,7 +214,6 @@ class ProfileViewModel @Inject constructor(
             .map { mapArtifact(it) }
 
         val mappedCloudDrafts = data?.cloudDrafts?.map { mapArtifact(it) } ?: emptyList()
-        val mappedSaved = data?.savedArtifacts?.map { mapArtifact(it) } ?: emptyList()
 
         ProfileContent(
             data = data,
@@ -208,8 +227,7 @@ class ProfileViewModel @Inject constructor(
             hasMorePublished = hasMore,
             mappedLocalDrafts = mappedLocalDrafts,
             mappedPublishedArtifacts = mappedPublished,
-            mappedCloudDrafts = mappedCloudDrafts,
-            mappedSavedArtifacts = mappedSaved
+            mappedCloudDrafts = mappedCloudDrafts
         )
     }
 
@@ -247,7 +265,6 @@ class ProfileViewModel @Inject constructor(
             selectedTab = content.selectedTab,
             publishedArtifacts = content.mappedPublishedArtifacts,
             cloudDrafts = content.mappedCloudDrafts,
-            savedArtifacts = content.mappedSavedArtifacts,
             localDrafts = content.mappedLocalDrafts,
             logoutState = content.logoutState,
             message = content.message,

@@ -56,7 +56,7 @@ service cloud.firestore {
     function isValidComment(data) {
       // MAX_COMMENT_LENGTH must sync with CommentConstants.kt (currently 1000)
       let requiredFields = ['artifactId', 'creatorId', 'author', 'text', 'status'];
-      let optionalFields = ['createdAt', 'updatedAt', 'identityMetadata'];
+      let optionalFields = ['createdAt', 'updatedAt', 'identityVersion'];
       return data.keys().hasAll(requiredFields) &&
              data.keys().hasOnly(requiredFields.concat(optionalFields)) &&
              data.artifactId is string &&
@@ -179,6 +179,14 @@ service cloud.firestore {
                       );
       }
 
+      // Authoritative Report Markers (Cross-Device Suppression)
+      // These are created by backend triggers to ensure user-specific hiding.
+      // Client is restricted to read-only access to prevent "un-hiding" unsafe content.
+      match /private/reports/{document=**} {
+        allow read: if isOwner(uid);
+        allow write: if false;
+      }
+
       match /private/{document=**} {
         allow read: if isOwner(uid);
         allow write: if isOwner(uid) && (document != /settings);
@@ -234,6 +242,7 @@ service cloud.firestore {
                     request.resource.data.get('userId', '') == request.auth.uid &&
                     request.resource.data.author.anonymousId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.anonymousId &&
                     request.resource.data.author.keys().hasAll(['anonymousId', 'name']) &&
+                    request.resource.data.get('identityVersion', 0) == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.identityMetadata.get('identityResetVersion', 0) &&
                     isCreationStatusValid(request.resource.data) &&
                     isCreationFieldsValid(request.resource.data);
 
@@ -257,7 +266,7 @@ service cloud.firestore {
                      // audioUrl is immutable once ACTIVE
                      (resource.data.status != 'ACTIVE' || resource.data.audioUrl == request.resource.data.audioUrl) &&
                      !(request.resource.data.diff(resource.data).affectedKeys()
-                       .hasAny(['author', 'reactionCount', 'commentCount', 'playCount', 'reportCount', 'recommendationState', 'moderation', 'moderationStatus', 'toxicityScore', 'safetyConcernCount', 'reporterIds'])));
+                       .hasAny(['author', 'reactionCount', 'commentCount', 'playCount', 'reportCount', 'recommendationState', 'moderation', 'moderationStatus', 'toxicityScore', 'safetyConcernCount', 'reporterIds', 'identityVersion'])));
 
       // Prevent users from hard-deleting the Artifact document to ensure Cloud Function trigger
       allow delete: if isGlobalAdmin();
@@ -283,7 +292,9 @@ service cloud.firestore {
                       // Owners are exempt from the unlock requirement.
                       (isArtifactOwner(artifactId) || isCommentUnlocked(request.auth.uid, artifactId)) &&
                       // Ensure author.anonymousId matches user's anonymousId
-                      request.resource.data.author.anonymousId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.anonymousId;
+                      request.resource.data.author.anonymousId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.anonymousId &&
+                      // Ensure identityVersion matches current user version
+                      request.resource.data.get('identityVersion', 0) == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.identityMetadata.get('identityResetVersion', 0);
 
         // Update: Only owner can soft-delete (status: DELETED), or artifact owner can update creatorReaction
         allow update: if isAuth() && (

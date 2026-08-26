@@ -2,8 +2,13 @@ package com.saurabh.artifact.repository
 
 import android.content.Context
 import com.google.firebase.Timestamp
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.paging.PagingData
+import com.saurabh.artifact.data.paging.SavedArtifactPagingSource
 import com.saurabh.artifact.data.local.InteractionAction
 import com.saurabh.artifact.data.local.InteractionType
 import com.saurabh.artifact.data.local.PendingInteractionDao
@@ -32,14 +37,10 @@ class ArtifactLibraryRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     private val firestore: FirebaseFirestore,
     private val pendingInteractionDao: dagger.Lazy<PendingInteractionDao>,
+    private val visibilityFilter: dagger.Lazy<com.saurabh.artifact.domain.ArtifactVisibilityFilter>,
     private val safetyPolicy: com.saurabh.artifact.domain.SafetyPolicy,
     private val diagnosticLogger: DiagnosticLogger
 ) {
-    private val repositoryScope = CoroutineScope(
-        SupervisorJob() + 
-        Dispatchers.Main + 
-        CoroutineExceptionHandlerUtils.create("ArtifactLibraryRepository", "RepositoryScope failure")
-    )
 
     /**
      * Persists a private emotional bookmark for an artifact.
@@ -156,98 +157,24 @@ class ArtifactLibraryRepository @Inject constructor(
     }
 
     /**
-     * Fetches all artifacts saved by the user, hydrated with full artifact data.
+     * Provides a paginated stream of artifacts saved by the user.
+     * Ensures O(1) query growth for the "Stayed With Me" library.
      */
-    fun getSavedArtifacts(userId: String): Flow<List<Artifact>> = callbackFlow {
-        val subscription = firestore.collection("users").document(userId)
-            .collection("savedArtifacts")
-            .orderBy("savedAt", Query.Direction.DESCENDING)
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    trySend(emptyList())
-                    return@addSnapshotListener
-                }
-
-                val artifactIds = snapshot?.documents?.map { it.id } ?: emptyList()
-                if (artifactIds.isEmpty()) {
-                    trySend(emptyList())
-                    return@addSnapshotListener
-                }
-
-                repositoryScope.launch(Dispatchers.IO) {
-                    val allSaved = mutableListOf<Artifact>()
-                    try {
-                        val chunks = artifactIds.chunked(10)
-                        for (chunk in chunks) {
-                            val docs = firestore.collection("artifacts")
-                                .whereIn(com.google.firebase.firestore.FieldPath.documentId(), chunk)
-                                .get().await()
-                            
-                            val mappedChunk = withContext(Dispatchers.Default) {
-                                docs.documents.mapNotNull { doc ->
-                                    try {
-                                        val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
-                                        if (artifact == null) return@mapNotNull null
-                                        
-                                        val reportCount = doc.getLong("reportCount") ?: 0L
-                                        val safetyConcernCount = doc.getLong("safetyConcernCount") ?: 0L
-                                        val reporterIds = doc.get("reporterIds") as? List<*> ?: emptyList<String>()
-                                        
-                                        val artifactSnapshot = artifact.copy(
-                                            reportCount = reportCount,
-                                            safetyConcernCount = safetyConcernCount,
-                                            reporterIds = reporterIds.map { it.toString() }
-                                        )
-
-                                        val isEligible = safetyPolicy.isEligibleForDiscovery(
-                                            artifact = artifactSnapshot,
-                                            currentUserId = userId,
-                                            isSuppressedByUser = reporterIds.contains(userId)
-                                        )
-
-                                        if (isEligible) {
-                                            artifactSnapshot
-                                        } else {
-                                            null
-                                        }
-                                    } catch (e: Exception) {
-                                        if (e is kotlinx.coroutines.CancellationException) throw e
-                                        diagnosticLogger.error(
-                                            category = DiagnosticCategory.FIRESTORE,
-                                            eventName = "ARTIFACT_DESERIALIZATION_FAILED",
-                                            metadata = mapOf(
-                                                LogKeys.ARTIFACT_ID to doc.id,
-                                                "userId" to userId,
-                                                "context" to "getSavedArtifacts"
-                                            ),
-                                            throwable = e
-                                        )
-                                        null
-                                    }
-                                }
-                            }
-                            allSaved.addAll(mappedChunk)
-                        }
-                    } catch (e: Exception) {
-                        if (e is kotlinx.coroutines.CancellationException) throw e
-                        diagnosticLogger.error(
-                            category = DiagnosticCategory.FIRESTORE,
-                            eventName = "SAVED_ARTIFACTS_CHUNK_FETCH_FAILED",
-                            metadata = mapOf(
-                                "userId" to userId,
-                                "totalIds" to artifactIds.size,
-                                "collectedSoFar" to allSaved.size
-                            ),
-                            throwable = e
-                        )
-                    } finally {
-                        // Sort by the order of artifactIds (which is sorted by savedAt)
-                        // Fixed Logic Bug: Compare against Artifact ID property, not the loop variable itself
-                        val sortedSaved = artifactIds.mapNotNull { id -> allSaved.find { it.id == id } }
-                        trySend(sortedSaved)
-                    }
-                }
+    fun getSavedArtifactsPager(userId: String): Flow<PagingData<Artifact>> {
+        return Pager(
+            config = PagingConfig(
+                pageSize = 20,
+                prefetchDistance = 5,
+                enablePlaceholders = false
+            ),
+            pagingSourceFactory = {
+                SavedArtifactPagingSource(
+                    firestore = firestore,
+                    userId = userId,
+                    safetyPolicy = safetyPolicy,
+                    visibilityFilter = visibilityFilter.get()
+                )
             }
-        awaitClose { subscription.remove() }
+        ).flow
     }
 }

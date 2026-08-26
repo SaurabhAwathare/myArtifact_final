@@ -49,6 +49,7 @@ class LogoutCoordinator @Inject constructor(
     private val backupEncryptionManager: BackupEncryptionManager,
     private val onboardingManager: com.saurabh.artifact.util.OnboardingManager,
     private val databaseEncryptionManager: com.saurabh.artifact.security.DatabaseEncryptionManager,
+    private val personalizationEngine: dagger.Lazy<com.saurabh.artifact.service.PersonalizationEngine>,
     private val diagnosticLogger: DiagnosticLogger
 ) {
 
@@ -223,6 +224,14 @@ class LogoutCoordinator @Inject constructor(
                     } catch (e: Exception) {
                         diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_SETTINGS_FAILED", throwable = e)
                         settingsDSSuccess = false
+                    }
+
+                    // 9.5 Clear Personalization (AppSearch) - Synchronous Boundary
+                    try {
+                        personalizationEngine.get().clearLocalData()
+                        diagnosticLogger.info(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_PERSONALIZATION_SUCCESS")
+                    } catch (e: Exception) {
+                        diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_PERSONALIZATION_FAILED", throwable = e)
                     }
 
                     // 10. Clear Playback State DataStore

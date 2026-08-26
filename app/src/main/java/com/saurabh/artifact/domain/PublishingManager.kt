@@ -138,6 +138,7 @@ class PublishingManager @Inject constructor(
                 author = authorSnapshot,
                 audioUrl = draft.uploadedAudioUrl ?: "",
                 draft = draft,
+                identityVersion = userProfile.identityMetadata.identityResetVersion,
                 status = if (draft.uploadedAudioUrl != null) ArtifactStatus.ACTIVE else ArtifactStatus.PENDING_UPLOAD,
                 isPublic = if (draft.uploadedAudioUrl != null) draft.isPublic else false,
                 transcriptUrl = transcriptUrl

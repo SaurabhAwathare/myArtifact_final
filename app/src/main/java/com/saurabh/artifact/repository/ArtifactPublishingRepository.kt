@@ -249,6 +249,7 @@ class ArtifactPublishingRepository @Inject constructor(
         author: AuthorSnapshot,
         audioUrl: String,
         draft: ArtifactDraftEntity,
+        identityVersion: Long,
         status: ArtifactStatus = ArtifactStatus.ACTIVE,
         isPublic: Boolean = true,
         transcriptUrl: String? = null
@@ -293,7 +294,8 @@ class ArtifactPublishingRepository @Inject constructor(
                 moderation = ModerationMetadata(
                     status = ModerationStatus.SAFE,
                     updatedAt = Timestamp.now()
-                )
+                ),
+                identityVersion = identityVersion
             )
             val artifactData = mapArtifactToFirestoreData(artifact)
             
@@ -369,6 +371,7 @@ class ArtifactPublishingRepository @Inject constructor(
             "prompt" to artifact.prompt,
             "reactionVisibility" to artifact.reactionVisibility.name,
             "amplitudeData" to artifact.amplitudeData,
+            "identityVersion" to artifact.identityVersion,
             "moderation" to mapOf(
                 "status" to artifact.moderation.status.name,
                 "score" to artifact.moderation.score,

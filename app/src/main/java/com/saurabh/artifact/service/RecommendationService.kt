@@ -17,19 +17,24 @@ import javax.inject.Singleton
  * 5. Diversity (Post-processing)
  */
 @Singleton
-class RecommendationService @Inject constructor() {
+class RecommendationService @Inject constructor(
+    private val safetyPolicy: com.saurabh.artifact.domain.SafetyPolicy
+) {
 
     /**
      * Ranks and filters a list of artifacts through the recommendation pipeline.
      */
     fun rank(
         candidates: List<Artifact>,
+        userId: String? = null,
         config: RecommendationConfig = RecommendationConfig.DEFAULT
     ): List<Artifact> {
         if (candidates.isEmpty()) return emptyList()
 
-        // 1. Eligibility & Safety Stage
-        val safeCandidates = candidates.filter { isEligible(it) }
+        // 1. Eligibility & Safety Stage (Authoritative Delegation)
+        val safeCandidates = candidates.filter { artifact ->
+            safetyPolicy.isEligibleForDiscovery(artifact, userId)
+        }
 
         // 2. Categorization Stage (Freshness & Exploration)
         val now = Timestamp.now()
@@ -72,14 +77,6 @@ class RecommendationService @Inject constructor() {
 
         // 5. Diversity Stage (Post-processing)
         return applyDiversity(mergedFeed, config.maxConsecutiveFromCreator)
-    }
-
-    private fun isEligible(artifact: Artifact): Boolean {
-        return artifact.isPublic &&
-                artifact.status == ArtifactStatus.ACTIVE &&
-                artifact.recommendationState == RecommendationState.ACTIVE &&
-                artifact.moderation.status == ModerationStatus.SAFE &&
-                artifact.audioUrl.isNotEmpty()
     }
 
     private fun sortByQuality(artifacts: List<Artifact>, config: RecommendationConfig): List<Artifact> {

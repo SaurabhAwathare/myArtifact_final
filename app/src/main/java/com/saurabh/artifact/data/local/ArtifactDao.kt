@@ -54,7 +54,8 @@ interface ArtifactDao {
             authorSigil = :sigil, 
             authorSigilSeed = :seed, 
             authorSigilColor = :color, 
-            authorSigilConfigJson = :configJson 
+            authorSigilConfigJson = :configJson,
+            identityVersion = :identityVersion
         WHERE userId = :userId
     """)
     suspend fun updateAuthorInfo(
@@ -63,6 +64,7 @@ interface ArtifactDao {
         sigil: String, 
         seed: String, 
         color: String, 
-        configJson: String
+        configJson: String,
+        identityVersion: Long
     )
 }

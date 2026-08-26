@@ -1,5 +1,6 @@
 package com.saurabh.artifact.data.local
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.saurabh.artifact.model.ArtifactStatus
@@ -35,5 +36,6 @@ data class ArtifactEntity(
     val status: ArtifactStatus = ArtifactStatus.ACTIVE,
     val isDraft: Boolean = false,
     val isEncrypted: Boolean = false,
+    @ColumnInfo(defaultValue = "0") val identityVersion: Long = 0,
     val lastUpdated: Long = System.currentTimeMillis()
 )

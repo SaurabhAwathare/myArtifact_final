@@ -18,7 +18,8 @@ data class CommentDto(
     var text: String = "",
     @ServerTimestamp var createdAt: Timestamp? = null,
     @ServerTimestamp var updatedAt: Timestamp? = null,
-    var status: String = "ACTIVE"
+    var status: String = "ACTIVE",
+    var identityVersion: Long = 0
 ) {
     // Empty constructor for Firestore
     constructor() : this("")

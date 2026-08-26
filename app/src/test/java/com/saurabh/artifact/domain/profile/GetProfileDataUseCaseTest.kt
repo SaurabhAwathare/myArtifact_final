@@ -42,7 +42,6 @@ class GetProfileDataUseCaseTest {
         every { authRepository.currentUser } returns kotlinx.coroutines.flow.MutableStateFlow(mockUser)
         every { userRepository.streamUserProfile(any()) } returns flowOf(null)
         every { userRepository.observeIsResonating(any(), any()) } returns flowOf(false)
-        every { artifactRepository.getSavedArtifacts(any()) } returns flowOf(emptyList())
         every { visibilityFilter.observeSuppressedIds(any()) } returns flowOf(emptySet())
     }
 

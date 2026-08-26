@@ -51,6 +51,13 @@ class SecondaryDiscoverySafetyTest {
             safetyPolicy.isEligibleForDiscovery(hidden, currentUserId = "user1"))
     }
 
+    @Test
+    fun `Discovery should exclude artifacts reported by the current user`() {
+        val artifact = createArtifact()
+        // isEligibleForDiscovery should be false when isSuppressedByUser is true
+        assertFalse(safetyPolicy.isEligibleForDiscovery(artifact, currentUserId = "user1", isSuppressedByUser = true))
+    }
+
     private fun createArtifact(
         status: ArtifactStatus = ArtifactStatus.ACTIVE,
         recommendationState: RecommendationState = RecommendationState.ACTIVE,

@@ -736,7 +736,7 @@ class UserRepository @Inject constructor(
      * Immediately randomizes the user's identity for emergency privacy protection.
      * Hardened with a version-based state machine and atomic transaction.
      */
-    suspend fun emergencyIdentityReset(userId: String): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun emergencyIdentityReset(userId: String): Result<Long> = withContext(Dispatchers.IO) {
         if (userId.isBlank()) return@withContext Result.failure(AppError.InvalidInput("User ID cannot be blank"))
 
         try {
@@ -829,7 +829,7 @@ class UserRepository @Inject constructor(
             IdentitySyncWorker.enqueue(context, userId, newVersion, androidx.work.ExistingWorkPolicy.REPLACE)
 
             diagnosticLogger.info(DiagnosticCategory.AUTH, "EMERGENCY_RESET_SUCCESS", mapOf(LogKeys.USER_ID to userId, "version" to newVersion))
-            Result.success(Unit)
+            Result.success(newVersion)
         } catch (e: Exception) {
             diagnosticLogger.error(DiagnosticCategory.AUTH, "EMERGENCY_RESET_FAILED", mapOf(LogKeys.USER_ID to userId), e)
             Result.failure(AppError.from(e))

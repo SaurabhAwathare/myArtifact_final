@@ -13,6 +13,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.size
+import androidx.paging.compose.LazyPagingItems
+import androidx.paging.compose.itemKey
 import com.saurabh.artifact.model.Artifact
 
 fun LazyListScope.userArtifactsList(
@@ -90,6 +92,87 @@ fun LazyListScope.userArtifactsList(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 64.dp, horizontal = 32.dp),
+                contentAlignment = androidx.compose.ui.Alignment.Center
+            ) {
+                androidx.compose.material3.Text(
+                    text = emptyMessage,
+                    style = com.saurabh.artifact.ui.theme.ArtifactTheme.typography.bodyLarge,
+                    color = com.saurabh.artifact.ui.theme.ArtifactTheme.colors.onSurfaceMuted,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier.alpha(0.6f)
+                )
+            }
+        }
+    }
+}
+
+fun LazyListScope.userArtifactsList(
+    artifacts: LazyPagingItems<Artifact>,
+    currentlyPlayingArtifact: Artifact?,
+    isPlaying: Boolean,
+    isBuffering: Boolean,
+    currentPosition: Long,
+    duration: Long,
+    isSelf: Boolean,
+    currentUserId: String? = null,
+    onPlayClick: (Artifact) -> Unit,
+    onRename: (Artifact, String) -> Unit,
+    onDelete: (Artifact) -> Unit,
+    onSaveClick: (Artifact) -> Unit = {},
+    savedIds: Set<String> = emptySet(),
+    emptyMessage: String? = null
+) {
+    if (artifacts.itemCount > 0) {
+        items(
+            count = artifacts.itemCount,
+            key = artifacts.itemKey { it.id }
+        ) { index ->
+            val artifact = artifacts[index] ?: return@items
+
+            val isCurrent = currentlyPlayingArtifact?.id == artifact.id
+            val isSaved = savedIds.contains(artifact.id)
+            val isOwner = currentUserId != null && artifact.userId == currentUserId
+            val progress by remember(isCurrent, currentPosition, duration) {
+                derivedStateOf { 
+                    if (isCurrent && duration > 0) currentPosition.toFloat() / duration else 0f 
+                }
+            }
+
+            Box(modifier = Modifier.padding(horizontal = 20.dp)) {
+                ProfileArtifactCard(
+                    artifact = artifact,
+                    isDraft = false,
+                    isOwner = isOwner || isSelf,
+                    isPlaying = isCurrent && isPlaying,
+                    isBuffering = isCurrent && isBuffering,
+                    isSaved = isSaved,
+                    progress = progress,
+                    onPlayClick = { onPlayClick(artifact) },
+                    onRename = { newTitle -> onRename(artifact, newTitle) },
+                    onDelete = { onDelete(artifact) },
+                    onUnsave = { onSaveClick(artifact) }
+                )
+            }
+        }
+
+        val loadState = artifacts.loadState
+        if (loadState.append is androidx.paging.LoadState.Loading) {
+            item {
+                Box(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    contentAlignment = androidx.compose.ui.Alignment.Center
+                ) {
+                    androidx.compose.material3.CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        strokeWidth = 2.dp
+                    )
+                }
+            }
+        }
+    } else if (artifacts.loadState.refresh is androidx.paging.LoadState.NotLoading && emptyMessage != null) {
+        item {
+            Box(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 64.dp, horizontal = 32.dp),
                 contentAlignment = androidx.compose.ui.Alignment.Center
             ) {
                 androidx.compose.material3.Text(

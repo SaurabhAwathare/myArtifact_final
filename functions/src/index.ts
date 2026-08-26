@@ -68,56 +68,6 @@ async function deleteQueryBatch(
 }
 
 /**
- * Authoritatively updates all documents returned by a query in batches of 500.
- *
- * @param db The Firestore instance.
- * @param query The query identifying documents to update.
- * @param data The fields and values to update.
- * @param label A diagnostic label for logging.
- * @returns The total number of updated documents.
- */
-async function updateQueryBatch(
-  db: admin.firestore.Firestore,
-  query: admin.firestore.Query,
-  data: any,
-  label: string
-): Promise<number> {
-  let totalUpdated = 0;
-  try {
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const querySnapshot = await query.limit(500).get();
-
-      if (querySnapshot.size === 0) {
-        if (totalUpdated > 0) {
-          logger.info(`[BATCH_UPDATE] ${label} | FINISHED | Total=${totalUpdated}`);
-        } else {
-          logger.info(`[BATCH_UPDATE] ${label} | NONE`);
-        }
-        break;
-      }
-
-      const batch = db.batch();
-      querySnapshot.docs.forEach((doc) => batch.update(doc.ref, data));
-
-      await batch.commit();
-
-      totalUpdated += querySnapshot.size;
-      logger.info(`[BATCH_UPDATE] ${label} | UPDATED Batch=${querySnapshot.size} | Cumulative=${totalUpdated}`);
-
-      if (querySnapshot.size < 500) {
-        logger.info(`[BATCH_UPDATE] ${label} | FINISHED | Total=${totalUpdated}`);
-        break;
-      }
-    }
-    return totalUpdated;
-  } catch (e) {
-    logger.error(`[BATCH_UPDATE] ${label} | ERROR:`, e);
-    throw e;
-  }
-}
-
-/**
  * Robust cascading cleanup triggered when an artifact's status changes to DELETED.
  * Handles Storage files, reactions, aggregates, metadata, and final document deletion.
  * Designed for idempotency and high reliability.
@@ -636,12 +586,81 @@ export const onArtifactCreated = functions.firestore
   });
 
 /**
+ * Authoritatively updates identity fields in batches, ensuring version safety.
+ *
+ * @param db The Firestore instance.
+ * @param query The query identifying candidate documents.
+ * @param updateData The identity fields to update.
+ * @param newVersion The target identity version.
+ * @param label A diagnostic label for logging.
+ */
+async function updateIdentitySafe(
+  db: admin.firestore.Firestore,
+  query: admin.firestore.Query,
+  updateData: any,
+  newVersion: number,
+  label: string
+): Promise<number> {
+  let totalProcessed = 0;
+  let totalUpdated = 0;
+  let lastDoc = null;
+
+  try {
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      let pagedQuery = query.orderBy("__name__").limit(500);
+      if (lastDoc) {
+        pagedQuery = pagedQuery.startAfter(lastDoc);
+      }
+
+      const querySnapshot = await pagedQuery.get();
+      if (querySnapshot.size === 0) break;
+
+      const batch = db.batch();
+      let updatedInBatch = 0;
+
+      querySnapshot.docs.forEach((doc) => {
+        const storedVersion = doc.data().identityVersion || 0;
+        // Invariant: Only update if the incoming version is newer.
+        // This handles concurrent resets and prevents stale overwrites.
+        if (newVersion > storedVersion) {
+          batch.update(doc.ref, {
+            ...updateData,
+            identityVersion: newVersion,
+          });
+          updatedInBatch++;
+        }
+        lastDoc = doc;
+      });
+
+      if (updatedInBatch > 0) {
+        await batch.commit();
+        totalUpdated += updatedInBatch;
+      }
+
+      totalProcessed += querySnapshot.size;
+      logger.info(`[IDENTITY_BATCH] ${label} | Processed=${querySnapshot.size} | Updated=${updatedInBatch} | Cumulative=${totalUpdated}`);
+
+      if (querySnapshot.size < 500) break;
+    }
+    return totalUpdated;
+  } catch (e) {
+    logger.error(`[IDENTITY_BATCH] ${label} | ERROR:`, e);
+    throw e;
+  }
+}
+
+/**
  * Authoritative identity propagation triggered by identityResetVersion update.
  * Updates all historical Artifacts and Comments with the new anonymous identity.
- * This privileged operation overcomes client-side security rule restrictions on the 'author' field.
+ * Hardened with version safety and increased timeout for large historical sets.
  */
-export const onUserIdentityReset = functions.firestore
-  .document("users/{uid}")
+export const onUserIdentityReset = functions
+  .runWith({
+    timeoutSeconds: 540,
+    memory: "512MB",
+  })
+  .firestore.document("users/{uid}")
   .onUpdate(async (change, context) => {
     const newData = change.after.data();
     const oldData = change.before.data();
@@ -670,13 +689,13 @@ export const onUserIdentityReset = functions.firestore
     };
 
     try {
-      // 2. Propagate to Artifacts
+      // 2. Propagate to Artifacts (Version-Safe)
       const artifactsQuery = db.collection("artifacts").where("userId", "==", uid);
-      await updateQueryBatch(db, artifactsQuery, authorUpdate, "User Artifacts");
+      await updateIdentitySafe(db, artifactsQuery, authorUpdate, newVersion, "User Artifacts");
 
-      // 3. Propagate to Comments (Collection Group)
+      // 3. Propagate to Comments (Collection Group) (Version-Safe)
       const commentsQuery = db.collectionGroup("comments").where("creatorId", "==", uid);
-      await updateQueryBatch(db, commentsQuery, authorUpdate, "User Comments");
+      await updateIdentitySafe(db, commentsQuery, authorUpdate, newVersion, "User Comments");
 
       // 4. Finalize: Update lastCompletedIdentityVersion (Atomic Transaction)
       await db.runTransaction(async (transaction) => {
@@ -685,6 +704,7 @@ export const onUserIdentityReset = functions.firestore
         if (!userDoc.exists) return;
 
         const currentCompleted = userDoc.data()?.identityMetadata?.lastCompletedIdentityVersion || 0;
+        // Ensure we don't regress the completion version if a newer reset finished first
         if (newVersion > currentCompleted) {
           transaction.update(userRef, {
             "identityMetadata.lastCompletedIdentityVersion": newVersion,
@@ -1072,6 +1092,86 @@ export const onReportCreated = functions.firestore
       await batch.commit();
       logger.info(`[MODERATION] Aggregation success | ArtifactID=${artifactId} | Count=${reportCount}`);
     });
+  });
+
+/**
+ * Authoritatively handles private feedback aggregation.
+ * Triggered when a user submits feedback (e.g., Safety Concern, Not for me).
+ */
+export const onPrivateFeedbackCreated = functions.firestore
+  .document("feedback_private/{feedbackId}")
+  .onCreate(async (snapshot, context) => {
+    const data = snapshot.data();
+    if (!data) return null;
+
+    const artifactId = data.artifactId;
+    const type = data.type;
+
+    if (type !== "SAFETY_CONCERN") {
+      return null;
+    }
+
+    const idempotencyKey = `sf_agg_${context.params.feedbackId}`;
+
+    return withIdempotency(idempotencyKey, async () => {
+      const db = admin.firestore();
+      const artifactRef = db.collection("artifacts").doc(artifactId);
+
+      // 1. Verify Artifact exists
+      const artifactDoc = await artifactRef.get();
+      if (!artifactDoc.exists) {
+        logger.warn(`[SAFETY] Artifact not found for feedback | ID=${artifactId}`);
+        return;
+      }
+
+      const currentData = artifactDoc.data()!;
+
+      // 2. Authoritative Increment (Atomic)
+      const updates: any = {
+        safetyConcernCount: FieldValue.increment(1),
+      };
+
+      // 3. Evaluate moderation threshold
+      // Note: We use a threshold of 3 for safety concerns, consistent with reports.
+      const currentCount = (currentData.safetyConcernCount || 0) + 1;
+      if (currentCount >= ModerationConfig.SAFETY_CONCERN_SUPPRESSION_THRESHOLD &&
+          currentData.recommendationState !== ModerationConfig.RecommendationState.SUPPRESSED) {
+        updates.recommendationState = ModerationConfig.RecommendationState.SUPPRESSED;
+        logger.info(`[SAFETY] Suppression triggered by safety concerns | ArtifactID=${artifactId} | Count=${currentCount}`);
+      }
+
+      await artifactRef.update(updates);
+      logger.info(`[SAFETY] Aggregate success | ArtifactID=${artifactId} | NewCount=${currentCount}`);
+    });
+  });
+
+/**
+ * Recalculates report aggregates when a report is deleted (e.g., by an Admin).
+ */
+export const onReportDeleted = functions.firestore
+  .document("reports/{reportId}")
+  .onDelete(async (snapshot, context) => {
+    const data = snapshot.data();
+    if (!data) return null;
+
+    const artifactId = data.artifactId;
+    if (!artifactId) return null;
+
+    const db = admin.firestore();
+    const artifactRef = db.collection("artifacts").doc(artifactId);
+
+    // Atomic recalculation to ensure consistency
+    const {reportCount, lastReportedAt} = await aggregateReports(db, artifactId);
+
+    // We don't automatically clear SUPPRESSED state on report deletion
+    // because that usually requires an intentional Admin action (appeal).
+    await artifactRef.update({
+      reportCount: reportCount,
+      lastReportedAt: lastReportedAt,
+    });
+
+    logger.info(`[MODERATION] Aggregation update after delete | ArtifactID=${artifactId} | NewCount=${reportCount}`);
+    return null;
   });
 
 /**

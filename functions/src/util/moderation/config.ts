@@ -8,6 +8,11 @@ export const ModerationConfig = {
   REPORT_SUPPRESSION_THRESHOLD: 3,
 
   /**
+   * The number of safety concerns required before an artifact is suppressed.
+   */
+  SAFETY_CONCERN_SUPPRESSION_THRESHOLD: 3,
+
+  /**
    * Status constants for recommendation state.
    */
   RecommendationState: {

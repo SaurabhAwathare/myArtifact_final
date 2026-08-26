@@ -86,6 +86,7 @@ class ArtifactRepository @Inject constructor(
     private val publishingRepository: dagger.Lazy<ArtifactPublishingRepository>,
     private val artifactEngagementRepository: dagger.Lazy<ArtifactEngagementRepository>,
     private val reflectionPromptManager: dagger.Lazy<ReflectionPromptManager>,
+    private val visibilityFilter: dagger.Lazy<com.saurabh.artifact.domain.ArtifactVisibilityFilter>,
     private val safetyPolicy: com.saurabh.artifact.domain.SafetyPolicy,
     private val diagnosticLogger: DiagnosticLogger
 ) {
@@ -394,6 +395,10 @@ class ArtifactRepository @Inject constructor(
             }
             
             repositoryScope.launch(Dispatchers.Default) {
+                val suppressedIds = currentUserId?.let { 
+                    visibilityFilter.get().getSuppressedIdsSnapshot(it)
+                } ?: emptySet()
+
                 val artifacts = snapshot?.documents?.mapNotNull { doc ->
                     try {
                         val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
@@ -403,18 +408,17 @@ class ArtifactRepository @Inject constructor(
                         if (isPublicOnly) {
                             val reportCount = doc.getLong("reportCount") ?: 0L
                             val safetyConcernCount = doc.getLong("safetyConcernCount") ?: 0L
-                            val reporterIds = doc.get("reporterIds") as? List<*> ?: emptyList<String>()
                             
                             val artifactSnapshot = artifact.copy(
                                 reportCount = reportCount,
                                 safetyConcernCount = safetyConcernCount,
-                                reporterIds = reporterIds.map { it.toString() }
+                                reporterIds = emptyList() // Deprecated
                             )
 
                             val isEligible = safetyPolicy.isEligibleForDiscovery(
                                 artifact = artifactSnapshot,
                                 currentUserId = currentUserId,
-                                isSuppressedByUser = reporterIds.contains(currentUserId)
+                                isSuppressedByUser = suppressedIds.contains(doc.id)
                             )
                             
                             if (isEligible) artifactSnapshot else null
@@ -478,6 +482,10 @@ class ArtifactRepository @Inject constructor(
             }
 
             val snapshot = query.get().await()
+            val suppressedIds = currentUserId?.let { 
+                visibilityFilter.get().getSuppressedIdsSnapshot(it)
+            } ?: emptySet()
+
             val artifacts = snapshot.documents.mapNotNull { doc ->
                 val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
                 if (artifact == null) return@mapNotNull null
@@ -485,18 +493,17 @@ class ArtifactRepository @Inject constructor(
                 if (isPublicOnly) {
                     val reportCount = doc.getLong("reportCount") ?: 0L
                     val safetyConcernCount = doc.getLong("safetyConcernCount") ?: 0L
-                    val reporterIds = doc.get("reporterIds") as? List<*> ?: emptyList<String>()
                     
                     val artifactSnapshot = artifact.copy(
                         reportCount = reportCount,
                         safetyConcernCount = safetyConcernCount,
-                        reporterIds = reporterIds.map { it.toString() }
+                        reporterIds = emptyList() // Deprecated
                     )
 
                     val isEligible = safetyPolicy.isEligibleForDiscovery(
                         artifact = artifactSnapshot,
                         currentUserId = currentUserId,
-                        isSuppressedByUser = reporterIds.contains(currentUserId)
+                        isSuppressedByUser = suppressedIds.contains(doc.id)
                     )
                     
                     if (isEligible) artifactSnapshot else null
@@ -608,6 +615,7 @@ class ArtifactRepository @Inject constructor(
             status = entity.status,
             isDraftField = entity.isDraft,
             isEncrypted = entity.isEncrypted,
+            identityVersion = entity.identityVersion,
             conversationMetadata = ArtifactConversationMetadata(
                 primaryStyle = entity.primaryStyle
             )
@@ -646,6 +654,7 @@ class ArtifactRepository @Inject constructor(
             status = artifact.status,
             isDraft = artifact.isDraft,
             isEncrypted = artifact.isEncrypted,
+            identityVersion = artifact.identityVersion,
             lastUpdated = System.currentTimeMillis()
         )
     }
@@ -699,11 +708,11 @@ class ArtifactRepository @Inject constructor(
         artifactLibraryRepository.get().getSavedArtifactIds(userId)
 
     /**
-     * Fetches all artifacts saved by the user, hydrated with full artifact data.
+     * Provides a paginated stream of artifacts saved by the user.
      * Bridge to ArtifactLibraryRepository.
      */
-    fun getSavedArtifacts(userId: String): Flow<List<Artifact>> = 
-        artifactLibraryRepository.get().getSavedArtifacts(userId)
+    fun getSavedArtifactsPager(userId: String): Flow<PagingData<Artifact>> =
+        artifactLibraryRepository.get().getSavedArtifactsPager(userId)
 
     /**
      * Uploads an artifact audio file to Firebase Storage with resumable support.
@@ -727,11 +736,12 @@ class ArtifactRepository @Inject constructor(
         author: AuthorSnapshot,
         audioUrl: String,
         draft: ArtifactDraftEntity,
+        identityVersion: Long,
         status: ArtifactStatus = ArtifactStatus.ACTIVE,
         isPublic: Boolean = true,
         transcriptUrl: String? = null
     ): Result<String> = publishingRepository.get().createArtifactDocument(
-        userId, author, audioUrl, draft, status, isPublic, transcriptUrl
+        userId, author, audioUrl, draft, identityVersion, status, isPublic, transcriptUrl
     )
 
     /**
@@ -941,7 +951,7 @@ class ArtifactRepository @Inject constructor(
      * Optimistically updates the local Room database with new author identity information.
      * This ensures the Home Feed reflects changes immediately without waiting for a full reload.
      */
-    suspend fun updateLocalAuthorSnapshot(userId: String, snapshot: AuthorSnapshot) = withContext(Dispatchers.IO) {
+    suspend fun updateLocalAuthorSnapshot(userId: String, snapshot: AuthorSnapshot, identityVersion: Long) = withContext(Dispatchers.IO) {
         try {
             artifactDao.get().updateAuthorInfo(
                 userId = userId,
@@ -949,9 +959,10 @@ class ArtifactRepository @Inject constructor(
                 sigil = snapshot.sigil,
                 seed = snapshot.sigilSeed,
                 color = snapshot.sigilColor,
-                configJson = kotlinx.serialization.json.Json.encodeToString(snapshot.sigilConfig)
+                configJson = kotlinx.serialization.json.Json.encodeToString(snapshot.sigilConfig),
+                identityVersion = identityVersion
             )
-            diagnosticLogger.debug(DiagnosticCategory.DATABASE, "AUTHOR_SNAPSHOT_UPDATED", mapOf(LogKeys.USER_ID to userId))
+            diagnosticLogger.debug(DiagnosticCategory.DATABASE, "AUTHOR_SNAPSHOT_UPDATED", mapOf(LogKeys.USER_ID to userId, "version" to identityVersion))
         } catch (e: Exception) {
             diagnosticLogger.error(DiagnosticCategory.DATABASE, "AUTHOR_SNAPSHOT_UPDATE_FAILED", mapOf(LogKeys.USER_ID to userId), e)
         }

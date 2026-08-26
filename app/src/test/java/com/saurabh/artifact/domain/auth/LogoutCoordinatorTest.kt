@@ -45,6 +45,7 @@ class LogoutCoordinatorTest {
     private val backupEncryptionManager = mockk<BackupEncryptionManager>(relaxed = true)
     private val onboardingManager = mockk<com.saurabh.artifact.util.OnboardingManager>(relaxed = true)
     private val databaseEncryptionManager = mockk<com.saurabh.artifact.security.DatabaseEncryptionManager>(relaxed = true)
+    private val personalizationEngine = mockk<com.saurabh.artifact.service.PersonalizationEngine>(relaxed = true)
     private val fakeLogger = FakeDiagnosticLogger()
     
     private val testDispatcher = UnconfinedTestDispatcher()
@@ -81,6 +82,7 @@ class LogoutCoordinatorTest {
             backupEncryptionManager,
             onboardingManager,
             databaseEncryptionManager,
+            { personalizationEngine },
             fakeLogger
         ).apply {
             ioDispatcher = testDispatcher
@@ -126,6 +128,9 @@ class LogoutCoordinatorTest {
 
         // Verify backup security cleanup
         coVerify { backupEncryptionManager.clear() }
+
+        // Verify Personalization cleanup
+        verify { personalizationEngine.clearLocalData() }
 
         // Verify Phase E: Sign Out
         coVerify { authRepository.signOut() }

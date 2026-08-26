@@ -51,7 +51,8 @@ class AddCommentUseCase @Inject constructor(
             text = validatedText,
             createdAt = now,
             updatedAt = now,
-            status = CommentStatus.ACTIVE
+            status = CommentStatus.ACTIVE,
+            identityVersion = user.identityMetadata.identityResetVersion
         )
 
         // 4. Delegate to Repository

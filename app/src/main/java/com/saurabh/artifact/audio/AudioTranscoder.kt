@@ -52,10 +52,11 @@ class AudioTranscoder @Inject constructor() {
             FileInputStream(input).use { fis ->
                 fis.skip(WAV_HEADER_SIZE.toLong())
 
-                val buffer = ByteArray(4096)
+                val buffer = ByteArray(8192)
                 val info = MediaCodec.BufferInfo()
                 var isEof = false
-                var presentationTimeUs = 0L
+                var totalBytesRead = 0L
+                val bytesPerFrame = channels * 2 // 16-bit mono
 
                 while (true) {
                     if (!isEof) {
@@ -63,14 +64,20 @@ class AudioTranscoder @Inject constructor() {
                         if (inputBufferIndex >= 0) {
                             val inputBuffer = encoder.getInputBuffer(inputBufferIndex)!!
                             inputBuffer.clear()
-                            val read = fis.read(buffer)
+                            
+                            // Respect capacity and frame alignment (Zero-Trust Strategy)
+                            val capacity = inputBuffer.capacity()
+                            val limit = Math.min(buffer.size, (capacity / bytesPerFrame) * bytesPerFrame)
+                            
+                            val read = fis.read(buffer, 0, limit)
                             if (read > 0) {
                                 inputBuffer.put(buffer, 0, read)
+                                val presentationTimeUs = (totalBytesRead * 1000000L) / (sampleRate.toLong() * bytesPerFrame)
                                 encoder.queueInputBuffer(inputBufferIndex, 0, read, presentationTimeUs, 0)
-                                // Calculate next presentation time based on mono 16-bit samples
-                                presentationTimeUs += (read * 1000000L) / (sampleRate * channels * 2)
+                                totalBytesRead += read
                             } else {
                                 isEof = true
+                                val presentationTimeUs = (totalBytesRead * 1000000L) / (sampleRate.toLong() * bytesPerFrame)
                                 encoder.queueInputBuffer(inputBufferIndex, 0, 0, presentationTimeUs, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
                             }
                         }

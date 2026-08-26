@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.paging.compose.collectAsLazyPagingItems
 import com.saurabh.artifact.ui.profile.components.ProfileHeader
 import com.saurabh.artifact.ui.profile.components.draftSection
 import com.saurabh.artifact.ui.profile.components.userArtifactsList
@@ -35,6 +36,7 @@ fun ProfileScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val savedIds by viewModel.savedIds.collectAsStateWithLifecycle(emptySet())
+    val savedArtifacts = viewModel.savedArtifacts.collectAsLazyPagingItems()
     val showLogoutDialog = remember { mutableStateOf(false) }
     
     val snackbarHostState = remember { SnackbarHostState() }
@@ -237,7 +239,7 @@ fun ProfileScreen(
                         }
                         ProfileTab.SAVED -> {
                             userArtifactsList(
-                                artifacts = uiState.savedArtifacts,
+                                artifacts = savedArtifacts,
                                 currentlyPlayingArtifact = uiState.currentlyPlayingArtifact,
                                 isPlaying = uiState.isPlaying,
                                 isBuffering = uiState.isBuffering,

@@ -25,9 +25,18 @@ data class PaginatedArtifacts(
 class FeedRepository @Inject constructor(
     private val firestore: FirebaseFirestore,
     private val recommendationService: RecommendationService,
+    private val visibilityFilter: com.saurabh.artifact.domain.ArtifactVisibilityFilter,
     private val safetyPolicy: com.saurabh.artifact.domain.SafetyPolicy,
     private val diagnosticLogger: DiagnosticLogger
 ) {
+
+    private companion object {
+        /**
+         * The maximum number of followed users to scan for the Resonating Feed.
+         * Bounded optimization to prevent O(N) query growth while preserving meaningful connection.
+         */
+        const val MAX_RESONANCE_SCAN = 50
+    }
 
     suspend fun getResonatingArtifacts(
         userId: String, 
@@ -40,15 +49,21 @@ class FeedRepository @Inject constructor(
                 com.saurabh.artifact.util.EmotionCategoryMapper.getRelatedEmotions(emotion)
             } else null
 
+            // Phase 3: Bounded Discovery
+            // Fetch only the 50 most recent follows to keep query count stable
             val resonatedUserIds: List<String> = firestore.collection("users")
                 .document(userId)
                 .collection("resonance_out")
+                .orderBy("createdAt", Query.Direction.DESCENDING)
+                .limit(MAX_RESONANCE_SCAN.toLong())
                 .get()
                 .await()
                 .documents
                 .map { it.id }
 
             if (resonatedUserIds.isEmpty()) return@withContext Result.success(PaginatedArtifacts(emptyList(), null))
+
+            val suppressedIds = visibilityFilter.getSuppressedIdsSnapshot(userId)
 
             val chunks = resonatedUserIds.chunked(10)
             val allArtifacts = mutableListOf<Artifact>()
@@ -79,18 +94,17 @@ class FeedRepository @Inject constructor(
 
                     val reportCount = doc.getLong("reportCount") ?: 0L
                     val safetyConcernCount = doc.getLong("safetyConcernCount") ?: 0L
-                    val reporterIds = doc["reporterIds"] as? List<*> ?: emptyList<String>()
                     
                     val artifactSnapshot = artifact.copy(
                         reportCount = reportCount,
                         safetyConcernCount = safetyConcernCount,
-                        reporterIds = reporterIds.map { it.toString() }
+                        reporterIds = emptyList() // Deprecated
                     )
 
                     val isEligible = safetyPolicy.isEligibleForDiscovery(
                         artifact = artifactSnapshot,
                         currentUserId = userId,
-                        isSuppressedByUser = reporterIds.contains(userId)
+                        isSuppressedByUser = suppressedIds.contains(doc.id)
                     )
                     
                     if (isEligible) {
@@ -151,6 +165,8 @@ class FeedRepository @Inject constructor(
             }
 
             val snapshot = query.get().await()
+            val suppressedIds = userId?.let { visibilityFilter.getSuppressedIdsSnapshot(it) } ?: emptySet()
+
             val rawArtifacts = snapshot.documents.mapNotNull { doc ->
                 val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
                 if ((artifact == null) || artifact.audioUrl.isEmpty()) return@mapNotNull null
@@ -158,18 +174,17 @@ class FeedRepository @Inject constructor(
                 // 2. Safety Invariant Check
                 val reportCount = doc.getLong("reportCount") ?: 0L
                 val safetyConcernCount = doc.getLong("safetyConcernCount") ?: 0L
-                val reporterIds = doc["reporterIds"] as? List<*> ?: emptyList<String>()
 
                 val artifactSnapshot = artifact.copy(
                     reportCount = reportCount,
                     safetyConcernCount = safetyConcernCount,
-                    reporterIds = reporterIds.map { it.toString() }
+                    reporterIds = emptyList() // Deprecated
                 )
 
                 val isEligible = safetyPolicy.isEligibleForDiscovery(
                     artifact = artifactSnapshot,
                     currentUserId = userId,
-                    isSuppressedByUser = userId != null && reporterIds.contains(userId)
+                    isSuppressedByUser = suppressedIds.contains(doc.id)
                 )
 
                 if (isEligible) {
@@ -180,7 +195,7 @@ class FeedRepository @Inject constructor(
             }
 
             // Apply Recommendation Pipeline
-            val rankedArtifacts = recommendationService.rank(rawArtifacts)
+            val rankedArtifacts = recommendationService.rank(rawArtifacts, userId)
             
             // Take the requested limit
             val finalArtifacts = rankedArtifacts.take(limit)

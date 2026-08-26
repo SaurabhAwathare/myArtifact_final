@@ -13,7 +13,6 @@ data class ProfileData(
     val publishedArtifacts: List<Artifact>,
     val lastArtifactDocument: com.google.firebase.firestore.DocumentSnapshot?,
     val cloudDrafts: List<Artifact>,
-    val savedArtifacts: List<Artifact>,
     val localDrafts: List<ArtifactDraftEntity>,
     val isResonating: Boolean,
     val isSelf: Boolean
@@ -38,7 +37,6 @@ class GetProfileDataUseCase @Inject constructor(
             combine(
                 userRepository.streamUserProfile(finalId),
                 artifactRepository.getUserArtifacts(finalId, onlyActive = !isSelf),
-                if (isSelf) artifactRepository.getSavedArtifacts(finalId) else flowOf(emptyList()),
                 if (isSelf) recordingRepository.observeDrafts() else flowOf(emptyList()),
                 if (currentUserId.isNotEmpty()) userRepository.observeIsResonating(currentUserId, finalId) else flowOf(false),
                 visibilityFilter.observeSuppressedIds(currentUserId)
@@ -48,12 +46,10 @@ class GetProfileDataUseCase @Inject constructor(
                 @Suppress("UNCHECKED_CAST")
                 val artifactsWithSnapshot = params[1] as Pair<List<Artifact>, com.google.firebase.firestore.DocumentSnapshot?>
                 @Suppress("UNCHECKED_CAST")
-                val saved = params[2] as List<Artifact>
+                val localDrafts = params[2] as List<ArtifactDraftEntity>
+                val isResonating = params[3] as Boolean
                 @Suppress("UNCHECKED_CAST")
-                val localDrafts = params[3] as List<ArtifactDraftEntity>
-                val isResonating = params[4] as Boolean
-                @Suppress("UNCHECKED_CAST")
-                val suppressedIds = params[5] as Set<String>
+                val suppressedIds = params[4] as Set<String>
 
                 val (allArtifacts, lastDoc) = artifactsWithSnapshot
                 val statusPublished = com.saurabh.artifact.model.ArtifactStatus.ACTIVE
@@ -72,7 +68,6 @@ class GetProfileDataUseCase @Inject constructor(
                         it.status != com.saurabh.artifact.model.ArtifactStatus.DELETED &&
                         it.id !in localDraftIds
                     },
-                    savedArtifacts = saved,
                     localDrafts = localDrafts,
                     isResonating = isResonating,
                     isSelf = isSelf

@@ -114,7 +114,6 @@ class ArtifactEngagementRepository @Inject constructor(
             
             val feedbackId = "${userId}_${artifactId}_${type.name}"
             val feedbackRef = firestore.collection("feedback_private").document(feedbackId)
-            val artifactRef = firestore.collection("artifacts").document(artifactId)
 
             firestore.runTransaction { transaction ->
                 val feedbackData = mapOf(
@@ -125,10 +124,8 @@ class ArtifactEngagementRepository @Inject constructor(
                 )
                 transaction[feedbackRef] = feedbackData
 
-                // If it's a safety concern, increment the internal counter
-                if (type == FeedbackType.SAFETY_CONCERN) {
-                    transaction.update(artifactRef, "safetyConcernCount", FieldValue.increment(1))
-                }
+                // [DEPRECATED] Client-side increment is now handled by authoritative backend trigger
+                // to comply with Firestore security rules.
             }.await()
 
             com.saurabh.artifact.diagnostics.ArtifactLogger.i(DiagnosticCategory.FIRESTORE, "PRIVATE_FEEDBACK_SUCCESS", mapOf(LogKeys.ARTIFACT_ID to artifactId, "type" to type.name))
