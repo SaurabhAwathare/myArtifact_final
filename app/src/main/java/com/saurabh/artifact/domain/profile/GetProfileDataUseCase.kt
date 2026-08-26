@@ -59,6 +59,8 @@ class GetProfileDataUseCase @Inject constructor(
                 val statusPublished = com.saurabh.artifact.model.ArtifactStatus.ACTIVE
                 val localDraftIds = localDrafts.map { it.id }.toSet()
 
+                // Safety Invariant: Artifacts already filtered by Repository when viewing others.
+                // We keep the additional local suppression check for immediate UI feedback.
                 val filteredArtifacts = allArtifacts.filter { it.id !in suppressedIds }
 
                 ProfileData(

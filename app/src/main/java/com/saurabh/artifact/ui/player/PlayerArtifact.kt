@@ -23,5 +23,6 @@ data class PlayerArtifact(
     val createdAt: Timestamp,
     val transcript: List<TranscriptSegment>,
     val recommendationState: RecommendationState = RecommendationState.ACTIVE,
+    val isPublic: Boolean,
     val isDraft: Boolean
 )

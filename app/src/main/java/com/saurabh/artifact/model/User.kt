@@ -28,8 +28,6 @@ data class User(
     val dominantEmotion: String? = null,
     val usernameUpdatedAt: Timestamp? = null,
     @ServerTimestamp val createdAt: Timestamp? = null,
-    @ServerTimestamp val lastSeen: Timestamp? = null,
-    val emotionPreferences: Map<String, Long> = emptyMap(),
     
     // Resonance & Profile
     val bio: String = "",
@@ -38,10 +36,8 @@ data class User(
     val followersCount: Long = 0, // Keep for backward compatibility/migration
     val followingCount: Long = 0, // Keep for backward compatibility/migration
 
-    // Engagement
-    val lastActivityTimestamp: Timestamp? = null,
+    // Public Stats
     val artifactsCount: Long = 0,
-    val softStreakCount: Long = 0,
     val totalContributions: Long = 0,
     val lastPromptId: String = "",
     val identityMetadata: IdentityMetadata = IdentityMetadata(),
@@ -50,8 +46,9 @@ data class User(
     /**
      * Derives the user's current dominant emotion based on interaction history.
      */
-    fun deriveDominantEmotion(): String? {
-        return emotionPreferences.maxByOrNull { it.value }?.key
+    fun deriveDominantEmotion(privateSettings: UserPrivateSettings? = null): String? {
+        val prefs = privateSettings?.emotionPreferences ?: emptyMap()
+        return prefs.maxByOrNull { it.value }?.key
     }
 }
 
@@ -90,6 +87,10 @@ data class UserPrivateSettings(
     @get:PropertyName("isAdmin")
     val isAdmin: Boolean = false,
     val accountStatus: String = "ACTIVE", // ACTIVE, SHADOW_BANNED, BANNED
+    val emotionPreferences: Map<String, Long> = emptyMap(),
+    val lastActivityTimestamp: Timestamp? = null,
+    val softStreakCount: Long = 0,
+    val lastSeen: Timestamp? = null,
     val metadata: Map<String, Any> = emptyMap()
 ) {
     // Firestore compatibility properties

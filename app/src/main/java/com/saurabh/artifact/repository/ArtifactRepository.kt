@@ -86,6 +86,7 @@ class ArtifactRepository @Inject constructor(
     private val publishingRepository: dagger.Lazy<ArtifactPublishingRepository>,
     private val artifactEngagementRepository: dagger.Lazy<ArtifactEngagementRepository>,
     private val reflectionPromptManager: dagger.Lazy<ReflectionPromptManager>,
+    private val safetyPolicy: com.saurabh.artifact.domain.SafetyPolicy,
     private val diagnosticLogger: DiagnosticLogger
 ) {
     private val repositoryScope = CoroutineScope(
@@ -396,9 +397,33 @@ class ArtifactRepository @Inject constructor(
                 val artifacts = snapshot?.documents?.mapNotNull { doc ->
                     try {
                         val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
-                        if (artifact != null && (artifact.status == ArtifactStatus.ACTIVE || !onlyActive)) {
-                            artifact
-                        } else null
+                        if (artifact == null) return@mapNotNull null
+
+                        // If viewing someone else's profile, apply safety policy
+                        if (isPublicOnly) {
+                            val reportCount = doc.getLong("reportCount") ?: 0L
+                            val safetyConcernCount = doc.getLong("safetyConcernCount") ?: 0L
+                            val reporterIds = doc.get("reporterIds") as? List<*> ?: emptyList<String>()
+                            
+                            val artifactSnapshot = artifact.copy(
+                                reportCount = reportCount,
+                                safetyConcernCount = safetyConcernCount,
+                                reporterIds = reporterIds.map { it.toString() }
+                            )
+
+                            val isEligible = safetyPolicy.isEligibleForDiscovery(
+                                artifact = artifactSnapshot,
+                                currentUserId = currentUserId,
+                                isSuppressedByUser = reporterIds.contains(currentUserId)
+                            )
+                            
+                            if (isEligible) artifactSnapshot else null
+                        } else {
+                            // Self-view: Show all non-deleted artifacts
+                            if (artifact.status != ArtifactStatus.DELETED || !onlyActive) {
+                                artifact
+                            } else null
+                        }
                     } catch (e: Exception) {
                         diagnosticLogger.error(
                             category = DiagnosticCategory.PROFILE,
@@ -455,9 +480,31 @@ class ArtifactRepository @Inject constructor(
             val snapshot = query.get().await()
             val artifacts = snapshot.documents.mapNotNull { doc ->
                 val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
-                if (artifact != null && (artifact.status == ArtifactStatus.ACTIVE || !onlyActive)) {
-                    artifact
-                } else null
+                if (artifact == null) return@mapNotNull null
+
+                if (isPublicOnly) {
+                    val reportCount = doc.getLong("reportCount") ?: 0L
+                    val safetyConcernCount = doc.getLong("safetyConcernCount") ?: 0L
+                    val reporterIds = doc.get("reporterIds") as? List<*> ?: emptyList<String>()
+                    
+                    val artifactSnapshot = artifact.copy(
+                        reportCount = reportCount,
+                        safetyConcernCount = safetyConcernCount,
+                        reporterIds = reporterIds.map { it.toString() }
+                    )
+
+                    val isEligible = safetyPolicy.isEligibleForDiscovery(
+                        artifact = artifactSnapshot,
+                        currentUserId = currentUserId,
+                        isSuppressedByUser = reporterIds.contains(currentUserId)
+                    )
+                    
+                    if (isEligible) artifactSnapshot else null
+                } else {
+                    if (artifact.status != ArtifactStatus.DELETED || !onlyActive) {
+                        artifact
+                    } else null
+                }
             }
 
             Result.success(artifacts to snapshot.documents.lastOrNull())
@@ -505,7 +552,13 @@ class ArtifactRepository @Inject constructor(
                 enablePlaceholders = false,
                 maxSize = 30
             ),
-            remoteMediator = ArtifactRemoteMediator(firestore, database.get(), currentUserId, emotion),
+            remoteMediator = ArtifactRemoteMediator(
+                firestore = firestore, 
+                database = database.get(), 
+                currentUserId = currentUserId, 
+                emotion = emotion,
+                safetyPolicy = safetyPolicy
+            ),
             pagingSourceFactory = { 
                 val relatedEmotionEnums = if (!emotion.isNullOrEmpty() && emotion != "All") {
                     com.saurabh.artifact.util.EmotionCategoryMapper.getRelatedEmotions(emotion).mapNotNull { label ->

@@ -161,6 +161,7 @@ class PublishingPipelineVerificationTest {
             Lazy { draftDao },
             localDraftManager,
             encryptedStorageManager,
+            mockk(relaxed = true), // AudioTranscoder
             wavRecoveryManager,
             authRepository,
             startupCoordinator,

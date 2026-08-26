@@ -142,14 +142,24 @@ service cloud.firestore {
     // --- USERS & PROFILES ---
     match /users/{uid} {
       allow read: if isOwner(uid) ||
-                   (isAuth() && resource != null && !resource.data.keys().hasAny(['email', 'displayName', 'realName', 'fcmToken']));
+                   (isAuth() && resource != null &&
+                    !resource.data.keys().hasAny([
+                      'email', 'displayName', 'realName', 'fcmToken',
+                      'emotionPreferences', 'lastActivityTimestamp', 'softStreakCount', 'lastSeen'
+                    ]));
 
       allow update: if resource != null &&
                    isOwner(uid) &&
                    // Release Hardening: Block modification of privileged fields.
                    // Migration Fix: Allow deletion of legacy fields, block all other modifications (add/change).
-                   !request.resource.data.diff(resource.data).changedKeys().hasAny(['isAdmin', 'admin', 'accountStatus', 'email', 'realName', 'fcmToken']) &&
-                   !request.resource.data.diff(resource.data).addedKeys().hasAny(['isAdmin', 'admin', 'accountStatus', 'email', 'realName', 'fcmToken']) &&
+                   !request.resource.data.diff(resource.data).changedKeys().hasAny([
+                     'isAdmin', 'admin', 'accountStatus', 'email', 'realName', 'fcmToken',
+                     'emotionPreferences', 'lastActivityTimestamp', 'softStreakCount', 'lastSeen'
+                   ]) &&
+                   !request.resource.data.diff(resource.data).addedKeys().hasAny([
+                     'isAdmin', 'admin', 'accountStatus', 'email', 'realName', 'fcmToken',
+                     'emotionPreferences', 'lastActivityTimestamp', 'softStreakCount', 'lastSeen'
+                   ]) &&
                    isValidIdentityUpdate(resource.data, request.resource.data);
 
       allow create: if isOwner(uid) &&

@@ -62,6 +62,17 @@ class StorageManagerTest {
     }
 
     @Test
+    fun `test clearUserStorage deletes media cache`() {
+        val mediaCache = File(cacheDir, "media_cache").apply { mkdirs() }
+        File(mediaCache, "cached_audio.exo").writeText("audio data")
+        
+        val result = storageManager.clearUserStorage()
+        
+        assertFalse(mediaCache.exists())
+        assertTrue(result.deletedDirectories.contains("Media Cache"))
+    }
+
+    @Test
     fun `test clearUserStorage skips missing directories`() {
         val result = storageManager.clearUserStorage()
         
@@ -71,15 +82,13 @@ class StorageManagerTest {
     }
 
     @Test
-    fun `test clearUserStorage protects whitelisted cache directories`() {
+    fun `test clearUserStorage protects system whitelisted cache directories`() {
         val imageCache = File(cacheDir, "image_cache").apply { mkdirs() }
-        val mediaCache = File(cacheDir, "media_cache").apply { mkdirs() }
         val otherCache = File(cacheDir, "other_cache").apply { mkdirs() }
         
         storageManager.clearUserStorage()
         
         assertTrue(imageCache.exists())
-        assertTrue(mediaCache.exists())
         assertTrue(otherCache.exists())
     }
 

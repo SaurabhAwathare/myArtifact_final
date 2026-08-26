@@ -156,4 +156,37 @@ class AuthRepositoryTest {
         verify(exactly = 0) { firestore.collection(any()) }
         verify { firebaseAuth.signOut() }
     }
+
+    @Test
+    fun `deleteCurrentUser clears FCM token then deletes user`() = runBlocking {
+        val uid = "delete-uid"
+        val mockUser = mockk<FirebaseUser>()
+        every { mockUser.uid } returns uid
+        every { firebaseAuth.currentUser } returns mockUser
+        
+        val userDoc = mockk<DocumentReference>(relaxed = true)
+        val privateColl = mockk<CollectionReference>(relaxed = true)
+        val settingsDoc = mockk<DocumentReference>(relaxed = true)
+        
+        every { firestore.collection("users").document(uid) } returns userDoc
+        every { userDoc.collection("private") } returns privateColl
+        every { privateColl.document("settings") } returns settingsDoc
+
+        val updateTask = mockk<Task<Void>>(relaxed = true)
+        every { settingsDoc.update("fcmToken", any()) } returns updateTask
+        
+        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        coEvery { updateTask.await() } returns mockk()
+        coEvery { mockUser.delete().await() } returns mockk()
+
+        val result = repository.deleteCurrentUser()
+
+        assertTrue(result.isSuccess)
+        
+        // Verify order: FCM clear happens BEFORE auth deletion
+        coVerifyOrder {
+            settingsDoc.update("fcmToken", FieldValue.delete())
+            mockUser.delete()
+        }
+    }
 }

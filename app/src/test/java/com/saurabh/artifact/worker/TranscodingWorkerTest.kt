@@ -1,6 +1,7 @@
 package com.saurabh.artifact.worker
 
 import android.content.Context
+import android.media.MediaMetadataRetriever
 import android.util.Log
 import androidx.work.ListenableWorker
 import androidx.work.WorkerParameters
@@ -22,13 +23,12 @@ import java.io.File
 import java.io.FileOutputStream
 import java.nio.file.Files
 
-import dagger.Lazy
-
 @OptIn(ExperimentalCoroutinesApi::class)
 class TranscodingWorkerTest {
     private val draftDao = mockk<DraftDao>(relaxed = true)
     private val localDraftManager = mockk<LocalDraftManager>(relaxed = true)
     private val encryptedStorageManager = mockk<EncryptedStorageManager>(relaxed = true)
+    private val audioTranscoder = mockk<com.saurabh.artifact.audio.AudioTranscoder>(relaxed = true)
     private val wavRecoveryManager = mockk<WavRecoveryManager>(relaxed = true)
     private val authRepository = mockk<AuthRepository>(relaxed = true)
     private val context = mockk<Context>(relaxed = true)
@@ -47,6 +47,9 @@ class TranscodingWorkerTest {
         every { Log.d(any(), any()) } returns 0
         every { Log.e(any(), any()) } returns 0
         every { Log.e(any(), any(), any()) } returns 0
+        
+        val cacheDir = Files.createTempDirectory("cache").toFile()
+        every { context.cacheDir } returns cacheDir
 
         mockkObject(FileIntegrity)
         every { FileIntegrity.calculateChecksum(any()) } returns "checksum_123"
@@ -57,12 +60,19 @@ class TranscodingWorkerTest {
 
         coEvery { startupCoordinator.awaitComponent(com.saurabh.artifact.startup.StartupComponent.DATABASE) } returns Unit
 
+        mockkConstructor(MediaMetadataRetriever::class)
+        every { anyConstructed<MediaMetadataRetriever>().setDataSource(any<String>()) } just Runs
+        every { anyConstructed<MediaMetadataRetriever>().extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO) } returns "yes"
+        every { anyConstructed<MediaMetadataRetriever>().extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION) } returns "1000"
+        every { anyConstructed<MediaMetadataRetriever>().release() } just Runs
+
         worker = TranscodingWorker(
             appContext = context,
             workerParams = workerParams,
-            draftDao = Lazy { draftDao },
+            draftDao = { draftDao },
             localDraftManager = localDraftManager,
             encryptedStorageManager = encryptedStorageManager,
+            audioTranscoder = audioTranscoder,
             wavRecoveryManager = wavRecoveryManager,
             authRepository = authRepository,
             startupCoordinator = startupCoordinator,

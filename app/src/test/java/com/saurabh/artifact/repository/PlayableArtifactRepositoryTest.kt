@@ -37,6 +37,7 @@ class PlayableArtifactRepositoryTest {
             artifactRepository,
             draftToArtifactMapper,
             userRepository,
+            com.saurabh.artifact.domain.SafetyPolicy(),
             diagnosticLogger
         )
     }
@@ -83,5 +84,41 @@ class PlayableArtifactRepositoryTest {
         assertTrue(result.isSuccess)
         val playable = result.getOrThrow()
         assertTrue(playable.id == id)
+    }
+
+    @Test
+    fun `resolveArtifact should return failure if artifact has excessive reports`() = runBlocking {
+        val id = "reported123"
+        val artifact = Artifact(
+            id = id, 
+            status = ArtifactStatus.ACTIVE,
+            reportCount = 3L // Safety Invariant threshold
+        )
+        
+        coEvery { draftDao.getDraftById(id, any()) } returns null
+        coEvery { artifactRepository.getArtifactById(id) } returns Result.success(artifact)
+
+        val result = repository.resolveArtifact(id, PlaybackSource.DEEP_LINK)
+
+        assertTrue("Should fail for reported artifact", result.isFailure)
+        assertTrue(result.exceptionOrNull() is AppError.NotFound)
+    }
+
+    @Test
+    fun `resolveArtifact should return success if artifact has few reports`() = runBlocking {
+        val id = "safe123"
+        val artifact = Artifact(
+            id = id, 
+            status = ArtifactStatus.ACTIVE,
+            reportCount = 2L
+        )
+        
+        coEvery { draftDao.getDraftById(id, any()) } returns null
+        coEvery { artifactRepository.getArtifactById(id) } returns Result.success(artifact)
+
+        val result = repository.resolveArtifact(id, PlaybackSource.DEEP_LINK)
+
+        assertTrue("Should succeed for safe artifact", result.isSuccess)
+        assertTrue(result.getOrThrow().id == id)
     }
 }

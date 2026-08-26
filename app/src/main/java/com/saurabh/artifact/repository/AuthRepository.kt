@@ -313,6 +313,10 @@ class AuthRepository @Inject constructor(
     suspend fun deleteCurrentUser(): Result<Unit> {
         val user = firebaseAuth.currentUser ?: return Result.failure(AppError.Unauthenticated())
         return try {
+            // Hardening: Clear FCM token and Firestore reference before deletion while session is valid.
+            // This ensures the device is de-registered even if deletion is interrupted.
+            clearFcmToken()
+
             user.delete().await()
             Result.success(Unit)
         } catch (_: com.google.firebase.auth.FirebaseAuthRecentLoginRequiredException) {

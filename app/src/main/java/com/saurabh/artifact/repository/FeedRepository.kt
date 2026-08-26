@@ -25,6 +25,7 @@ data class PaginatedArtifacts(
 class FeedRepository @Inject constructor(
     private val firestore: FirebaseFirestore,
     private val recommendationService: RecommendationService,
+    private val safetyPolicy: com.saurabh.artifact.domain.SafetyPolicy,
     private val diagnosticLogger: DiagnosticLogger
 ) {
 
@@ -77,12 +78,25 @@ class FeedRepository @Inject constructor(
                     }
 
                     val reportCount = doc.getLong("reportCount") ?: 0L
+                    val safetyConcernCount = doc.getLong("safetyConcernCount") ?: 0L
                     val reporterIds = doc["reporterIds"] as? List<*> ?: emptyList<String>()
                     
-                    if (reportCount >= 3 || reporterIds.contains(userId)) {
-                        null
+                    val artifactSnapshot = artifact.copy(
+                        reportCount = reportCount,
+                        safetyConcernCount = safetyConcernCount,
+                        reporterIds = reporterIds.map { it.toString() }
+                    )
+
+                    val isEligible = safetyPolicy.isEligibleForDiscovery(
+                        artifact = artifactSnapshot,
+                        currentUserId = userId,
+                        isSuppressedByUser = reporterIds.contains(userId)
+                    )
+                    
+                    if (isEligible) {
+                        artifactSnapshot
                     } else {
-                        artifact
+                        null
                     }
                 }
                 allArtifacts.addAll(mappedChunk)
@@ -141,14 +155,27 @@ class FeedRepository @Inject constructor(
                 val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
                 if ((artifact == null) || artifact.audioUrl.isEmpty()) return@mapNotNull null
 
-                // Secondary safety check (redundant but safe)
+                // 2. Safety Invariant Check
                 val reportCount = doc.getLong("reportCount") ?: 0L
+                val safetyConcernCount = doc.getLong("safetyConcernCount") ?: 0L
                 val reporterIds = doc["reporterIds"] as? List<*> ?: emptyList<String>()
 
-                if (reportCount >= 3 || (userId != null && reporterIds.contains(userId))) {
-                    null
+                val artifactSnapshot = artifact.copy(
+                    reportCount = reportCount,
+                    safetyConcernCount = safetyConcernCount,
+                    reporterIds = reporterIds.map { it.toString() }
+                )
+
+                val isEligible = safetyPolicy.isEligibleForDiscovery(
+                    artifact = artifactSnapshot,
+                    currentUserId = userId,
+                    isSuppressedByUser = userId != null && reporterIds.contains(userId)
+                )
+
+                if (isEligible) {
+                    artifactSnapshot.slimForFeed()
                 } else {
-                    artifact.slimForFeed()
+                    null
                 }
             }
 

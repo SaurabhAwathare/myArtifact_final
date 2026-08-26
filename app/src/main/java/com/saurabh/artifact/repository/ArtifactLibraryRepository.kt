@@ -12,7 +12,6 @@ import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.model.Artifact
-import com.saurabh.artifact.model.ArtifactStatus
 import com.saurabh.artifact.util.CoroutineExceptionHandlerUtils
 import com.saurabh.artifact.worker.InteractionSyncWorker
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -33,6 +32,7 @@ class ArtifactLibraryRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     private val firestore: FirebaseFirestore,
     private val pendingInteractionDao: dagger.Lazy<PendingInteractionDao>,
+    private val safetyPolicy: com.saurabh.artifact.domain.SafetyPolicy,
     private val diagnosticLogger: DiagnosticLogger
 ) {
     private val repositoryScope = CoroutineScope(
@@ -187,15 +187,28 @@ class ArtifactLibraryRepository @Inject constructor(
                                 docs.documents.mapNotNull { doc ->
                                     try {
                                         val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
-                                        if (artifact == null || artifact.audioUrl.isEmpty() || artifact.status != ArtifactStatus.ACTIVE) return@mapNotNull null
+                                        if (artifact == null) return@mapNotNull null
                                         
                                         val reportCount = doc.getLong("reportCount") ?: 0L
+                                        val safetyConcernCount = doc.getLong("safetyConcernCount") ?: 0L
                                         val reporterIds = doc.get("reporterIds") as? List<*> ?: emptyList<String>()
                                         
-                                        if (reportCount >= 3L || reporterIds.contains(userId)) {
-                                            null
+                                        val artifactSnapshot = artifact.copy(
+                                            reportCount = reportCount,
+                                            safetyConcernCount = safetyConcernCount,
+                                            reporterIds = reporterIds.map { it.toString() }
+                                        )
+
+                                        val isEligible = safetyPolicy.isEligibleForDiscovery(
+                                            artifact = artifactSnapshot,
+                                            currentUserId = userId,
+                                            isSuppressedByUser = reporterIds.contains(userId)
+                                        )
+
+                                        if (isEligible) {
+                                            artifactSnapshot
                                         } else {
-                                            artifact
+                                            null
                                         }
                                     } catch (e: Exception) {
                                         if (e is kotlinx.coroutines.CancellationException) throw e

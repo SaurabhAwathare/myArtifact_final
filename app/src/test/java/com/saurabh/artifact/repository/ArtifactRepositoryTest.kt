@@ -66,6 +66,7 @@ class ArtifactRepositoryTest {
             publishingRepository = { publishingRepository },
             artifactEngagementRepository = { artifactEngagementRepository },
             reflectionPromptManager = { reflectionPromptManager },
+            safetyPolicy = com.saurabh.artifact.domain.SafetyPolicy(),
             diagnosticLogger = diagnosticLogger
         )
     }

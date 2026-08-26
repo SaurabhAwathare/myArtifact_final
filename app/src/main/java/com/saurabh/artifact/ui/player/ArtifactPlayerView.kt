@@ -192,7 +192,7 @@ fun ArtifactPlayerView(
             if (artifact != null) {
                 com.saurabh.artifact.ui.components.ArtifactOptionsSheet(
                     isOwner = uiState.isOwner,
-                    isPublic = true, // Player artifacts are always public for now
+                    isPublic = artifact.isPublic,
                     isDraft = uiState.isOwner && artifact.isDraft, // Only owner's drafts are drafts in this context
                     onReportClick = {
                         onReportArtifact(artifact.id)

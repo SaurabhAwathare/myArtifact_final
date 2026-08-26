@@ -110,7 +110,8 @@ fun DraftListScreen(
                             onPublish = { viewModel.onPublishClicked(draftWithUpload.draft.id) },
                             onDelete = {
                                 draftToDelete = draftWithUpload
-                            }
+                            },
+                            onRetryProcessing = { viewModel.retryProcessing(draftWithUpload) }
                         )
                     }
                 }
@@ -251,7 +252,8 @@ fun DraftItem(
     onClick: () -> Unit,
     onEdit: () -> Unit,
     onPublish: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onRetryProcessing: () -> Unit
 ) {
     val draft = draftWithUpload.draft
     val configuration = LocalConfiguration.current
@@ -262,12 +264,14 @@ fun DraftItem(
 
     val isProcessing = draft.status.processing is ProcessingStatus.Active || 
         draft.lifecycle == ArtifactLifecycle.PROCESSING
+    
+    val isFailed = draft.status.processing is ProcessingStatus.Failed
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.medium)
-            .clickable { onClick() },
+            .clickable { if (isFailed) onRetryProcessing() else onClick() },
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
         )
@@ -300,7 +304,23 @@ fun DraftItem(
                         }
                     )
                     
-                    StatusBadge(draft)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        StatusBadge(draft)
+                        if (isFailed) {
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = "Tap to retry",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+
+                if (isFailed) {
+                    IconButton(onClick = onRetryProcessing) {
+                        Icon(Icons.Default.Refresh, "Retry Processing", tint = MaterialTheme.colorScheme.primary)
+                    }
                 }
 
                 Box {
@@ -316,6 +336,16 @@ fun DraftItem(
                         expanded = showMenu,
                         onDismissRequest = { showMenu = false }
                     ) {
+                        if (isFailed) {
+                            DropdownMenuItem(
+                                text = { Text("Retry Processing") },
+                                onClick = {
+                                    showMenu = false
+                                    onRetryProcessing()
+                                },
+                                leadingIcon = { Icon(Icons.Default.Refresh, null, tint = MaterialTheme.colorScheme.primary) }
+                            )
+                        }
                         DropdownMenuItem(
                             text = { Text("Continue Review") },
                             onClick = {

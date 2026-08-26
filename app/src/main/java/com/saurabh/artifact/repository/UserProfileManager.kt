@@ -1,6 +1,7 @@
 package com.saurabh.artifact.repository
 
 import com.saurabh.artifact.data.local.UserSessionManager
+import com.saurabh.artifact.domain.ArtifactVisibilityFilter
 import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.worker.IdentitySyncWorker
 import android.content.Context
@@ -11,12 +12,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import dagger.Lazy
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -31,6 +34,7 @@ class UserProfileManager @Inject constructor(
     private val authRepository: AuthRepository,
     private val userRepository: UserRepository,
     private val artifactRepository: ArtifactRepository,
+    private val visibilityFilter: Lazy<ArtifactVisibilityFilter>,
     @com.saurabh.artifact.di.ApplicationScope internal val managerScope: CoroutineScope
 ) {
 
@@ -54,6 +58,19 @@ class UserProfileManager @Inject constructor(
                     sessionManager.syncFromRemote(firestoreUser)
                 }
             }
+        }
+
+        // Phase 3: Cross-Device Safety Sync
+        // Synchronize reported artifacts markers from private Firestore to local Room DB.
+        managerScope.launch {
+            authRepository.currentUser
+                .map { it?.uid }
+                .distinctUntilChanged()
+                .collectLatest { uid ->
+                    if (uid != null) {
+                        visibilityFilter.get().syncReportsFromRemote(uid, managerScope).collect()
+                    }
+                }
         }
     }
 

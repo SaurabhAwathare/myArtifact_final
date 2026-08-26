@@ -60,8 +60,9 @@ class DraftListViewModel @Inject constructor(
 
     fun onDraftClicked(draftWithUpload: DraftWithUpload) {
         val draft = draftWithUpload.draft
-        if (draft.status.publication is com.saurabh.artifact.model.SyncStatus.Recovering) {
-            // Trigger processing for interrupted draft
+        if (draft.status.publication is com.saurabh.artifact.model.SyncStatus.Recovering ||
+            draft.status.processing is com.saurabh.artifact.model.ProcessingStatus.Failed) {
+            // Trigger processing for interrupted or failed draft
             viewModelScope.launch {
                 publishingOrchestrator.startProcessing(draft.id)
             }
@@ -99,6 +100,13 @@ class DraftListViewModel @Inject constructor(
     fun retryPublish(draftWithUpload: DraftWithUpload) {
         viewModelScope.launch {
             publishingOrchestrator.retryPublishing(draftWithUpload.draft.id)
+        }
+    }
+
+    fun retryProcessing(draftWithUpload: DraftWithUpload) {
+        val draft = draftWithUpload.draft
+        viewModelScope.launch {
+            publishingOrchestrator.startProcessing(draft.id)
         }
     }
 

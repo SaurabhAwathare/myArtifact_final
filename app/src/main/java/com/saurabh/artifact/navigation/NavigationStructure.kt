@@ -78,7 +78,11 @@ data class PreRecordingWarning(val prompt: String? = null) : Route
 data class InstantRecord(val prompt: String? = null) : Route
 
 @Serializable
-data class IncomingArtifact(val artifactId: String)
+data class IncomingArtifact(
+    val artifactId: String,
+    val source: com.saurabh.artifact.model.PlaybackSource = com.saurabh.artifact.model.PlaybackSource.DEEP_LINK,
+    val recipientId: String? = null
+)
 
 @Serializable
 data class PostRecordingDecision(val draftId: String) : Route

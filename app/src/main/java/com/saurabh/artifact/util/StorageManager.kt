@@ -74,6 +74,9 @@ class StorageManager @Inject constructor(
     val tempUploadDirectory: File
         get() = File(context.cacheDir, "upload_temp")
 
+    val mediaCacheDirectory: File
+        get() = File(context.cacheDir, "media_cache")
+
     /**
      * Resolves a specific directory for a draft ID.
      */
@@ -161,7 +164,8 @@ class StorageManager @Inject constructor(
             "Legacy Drafts" to legacyDraftsDirectory,
             "Temp Recordings" to tempRecordingsDirectory,
             "Temp Transcoding" to tempTranscodingDirectory,
-            "Temp Uploads" to tempUploadDirectory
+            "Temp Uploads" to tempUploadDirectory,
+            "Media Cache" to mediaCacheDirectory
         )
 
         targets.forEach { (name, dir) ->

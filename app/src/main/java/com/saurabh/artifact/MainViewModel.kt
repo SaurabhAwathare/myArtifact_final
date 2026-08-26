@@ -7,6 +7,7 @@ import androidx.media3.common.util.UnstableApi
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.navigation.*
+import com.saurabh.artifact.model.PlaybackSource
 import com.saurabh.artifact.domain.auth.GetInitialDestinationUseCase
 import com.saurabh.artifact.domain.auth.InitialDestination
 import com.saurabh.artifact.domain.auth.RegistrationResult
@@ -45,6 +46,7 @@ class MainViewModel @Inject constructor(
     private val getInitialDestinationUseCase: GetInitialDestinationUseCase,
     private val registrationCoordinator: com.saurabh.artifact.domain.auth.RegistrationCoordinator,
     private val logoutCoordinator: com.saurabh.artifact.domain.auth.LogoutCoordinator,
+    private val maintenanceRepository: com.saurabh.artifact.repository.MaintenanceRepository,
     private val sessionManager: com.saurabh.artifact.data.local.UserSessionManager,
     observeStealthModeUseCase: ObserveStealthModeUseCase,
     private val startupCoordinator: StartupCoordinator,
@@ -227,6 +229,53 @@ class MainViewModel @Inject constructor(
         executeStartup()
     }
 
+    /**
+     * Proactively verifies that the local data boundary is intact during startup.
+     * Triggers a comprehensive cleanup if a pending deletion or account mismatch is detected.
+     */
+    private suspend fun checkLocalAccountBoundary() {
+        val currentUid = authRepository.currentUserId
+        val owningUid = sessionManager.owningUid.first()
+        val pendingDeletionUid = maintenanceRepository.getPendingDeletionUid()
+        
+        // Scenario 1: Interrupted deletion detected (Maintenance Lock)
+        val isDeletionInterrupted = pendingDeletionUid != null
+        
+        // Scenario 2: owningUid mismatch (dirty state from a previous user detected)
+        val isUidMismatch = currentUid.isNotEmpty() && owningUid != null && owningUid != currentUid
+        
+        // Scenario 3: App started logged-out but local account state exists (Dirty Logged Out)
+        val isDirtyLoggedOut = currentUid.isEmpty() && owningUid != null
+
+        if (isDeletionInterrupted || isUidMismatch || isDirtyLoggedOut) {
+            val reason = when {
+                isDeletionInterrupted -> "pending_deletion"
+                isUidMismatch -> "uid_mismatch"
+                else -> "dirty_logged_out"
+            }
+            
+            diagnosticLogger.info(
+                DiagnosticCategory.AUTH, 
+                "STARTUP_BOUNDARY_CLEANUP_TRIGGERED", 
+                mapOf("reason" to reason)
+            )
+            
+            try {
+                _isCleaning.value = true
+                logoutCoordinator.performFullCleanup()
+                
+                // Clear maintenance lock only if it was the reason for cleanup to prevent infinite loops
+                if (isDeletionInterrupted) {
+                    maintenanceRepository.setPendingDeletion(null)
+                }
+            } catch (e: Exception) {
+                diagnosticLogger.error(DiagnosticCategory.AUTH, "STARTUP_CLEANUP_FAILED", throwable = e)
+            } finally {
+                _isCleaning.value = false
+            }
+        }
+    }
+
     private fun mapIdToRoute(id: String): Any? {
         return when (id) {
             ID_HOME -> Home
@@ -259,6 +308,10 @@ class MainViewModel @Inject constructor(
     private fun executeStartup() {
         viewModelScope.launch {
             try {
+                // BLOCKER FIX: Proactively detect and clear stale local state or interrupted deletions
+                // before any system initialization occurs. This ensures no data leakage to new accounts.
+                checkLocalAccountBoundary()
+
                 // BLOCKER FIX: Wait for any cross-account cleanup to finish before initializing the new session.
                 // This ensures User B never sees User A's cached DataStore/Room identity.
                 isCleaning.first { !it }
@@ -402,6 +455,24 @@ class MainViewModel @Inject constructor(
 
             // 2. Deliver exactly once if event exists
             pendingStartupEvent?.let { event ->
+                if (event is IncomingArtifact) {
+                    val currentUid = authRepository.currentUserId
+                    // RECIPIENT GUARD: Verify if the notification was intended for this user
+                    if (event.source == PlaybackSource.NOTIFICATION && 
+                        event.recipientId != null && 
+                        event.recipientId != currentUid) {
+                        
+                        diagnosticLogger.error(
+                            DiagnosticCategory.AUTH, 
+                            "NOTIFICATION_REJECTED_RECIPIENT_MISMATCH", 
+                            mapOf("recipientId" to event.recipientId, "currentUserId" to currentUid)
+                        )
+                        pendingStartupEvent = null
+                        savedStateHandle.remove<String>(KEY_PENDING_EVENT_JSON)
+                        return@launch
+                    }
+                }
+
                 diagnosticLogger.info(DiagnosticCategory.NAV, "DEEP_LINK_DELIVERED", mapOf("event" to event.javaClass.simpleName))
                 emitNavigationEvent(event)
                 pendingStartupEvent = null
@@ -424,13 +495,18 @@ class MainViewModel @Inject constructor(
         val type = intent.getStringExtra("notificationType")
         val artifactId = intent.getStringExtra("artifactId")
         val userId = intent.getStringExtra("userId")
+        val recipientId = intent.getStringExtra("recipientId")
 
         if (type == "FOLLOW" && !userId.isNullOrBlank()) {
             return Profile(userId)
         }
 
         if (!artifactId.isNullOrBlank()) {
-            return IncomingArtifact(artifactId)
+            return IncomingArtifact(
+                artifactId = artifactId, 
+                source = com.saurabh.artifact.model.PlaybackSource.NOTIFICATION,
+                recipientId = recipientId
+            )
         }
 
         // 3. Handle Action View (App Links / URIs)
@@ -442,7 +518,7 @@ class MainViewModel @Inject constructor(
                 if (pathSegments.size >= 2 && pathSegments[0] == "a") {
                     val artifactId = pathSegments[1]
                     if (artifactId.isNotBlank()) {
-                        return IncomingArtifact(artifactId)
+                        return IncomingArtifact(artifactId, com.saurabh.artifact.model.PlaybackSource.DEEP_LINK)
                     }
                 }
             }
@@ -452,6 +528,22 @@ class MainViewModel @Inject constructor(
     }
 
     private fun emitNavigationEvent(event: Any) {
+        if (event is IncomingArtifact) {
+            val currentUid = authRepository.currentUserId
+            // RECIPIENT GUARD: Verify if the notification was intended for this user (Warm Start)
+            if (event.source == PlaybackSource.NOTIFICATION && 
+                event.recipientId != null && 
+                event.recipientId != currentUid) {
+                
+                diagnosticLogger.error(
+                    DiagnosticCategory.AUTH, 
+                    "NOTIFICATION_REJECTED_RECIPIENT_MISMATCH_WARM", 
+                    mapOf("recipientId" to event.recipientId, "currentUserId" to currentUid)
+                )
+                return
+            }
+        }
+        
         viewModelScope.launch {
             _navigationEvent.send(event)
         }

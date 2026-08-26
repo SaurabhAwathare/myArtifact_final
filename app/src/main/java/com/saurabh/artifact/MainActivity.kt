@@ -146,7 +146,7 @@ fun AppRoot(
                             is IncomingArtifact -> {
                                 playerViewModel.playArtifactById(
                                     action.artifactId, 
-                                    PlaybackSource.NOTIFICATION
+                                    action.source
                                 )
                             }
                             is com.saurabh.artifact.navigation.Route -> {
@@ -163,7 +163,7 @@ fun AppRoot(
                             is IncomingArtifact -> {
                                 playerViewModel.playArtifactById(
                                     event.artifactId, 
-                                    PlaybackSource.NOTIFICATION
+                                    event.source
                                 )
                             }
                             else -> {
@@ -199,12 +199,13 @@ fun AppRoot(
                             onReportArtifact = { mainViewModel.showReportSheet(it) },
                             onPlayArtifactById = { artifactId ->
                                 // Phase 12: Context Preservation - Only trigger playback if the artifact isn't already active.
-                                // This prevents overwriting the NOTIFICATION source during transient startup navigation collisions.
+                                // This prevents overwriting the source during transient startup navigation collisions.
                                 val state = playerViewModel.uiState.value
                                 val isAlreadyActive = state.currentArtifact?.id == artifactId || state.currentPlayableArtifact?.id == artifactId
                                 
                                 if (!isAlreadyActive) {
-                                    playerViewModel.playArtifactById(artifactId, PlaybackSource.NOTIFICATION)
+                                    // Default to DEEP_LINK for generic ID-based play requests from OS level if not specified
+                                    playerViewModel.playArtifactById(artifactId, PlaybackSource.DEEP_LINK)
                                 } else {
                                     playerViewModel.setExpanded(true)
                                 }

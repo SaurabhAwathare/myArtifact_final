@@ -114,7 +114,8 @@ class UserRepository @Inject constructor(
                         "isAnonymous" to false,
                         "usernameUpdatedAt" to FieldValue.serverTimestamp(),
                         "identityMetadata.lastIdentityChangeAt" to FieldValue.serverTimestamp(),
-                        "identityMetadata.identityChangeCount30Days" to newCount
+                        "identityMetadata.identityChangeCount30Days" to newCount,
+                        "identityMetadata.identityResetVersion" to FieldValue.increment(1) // Trigger backend propagation
                 ))
 
                 // 5. Clean up old username reservation
@@ -201,7 +202,10 @@ class UserRepository @Inject constructor(
                         val privateMissing = !privateSnapshot.exists()
 
                         // PHASE 1: Sensitive Data Migration (Atomic & Idempotent)
-                        val sensitiveFields = listOf("email", "realName", "fcmToken", "isAdmin", "accountStatus", "admin")
+                        val sensitiveFields = listOf(
+                            "email", "realName", "fcmToken", "isAdmin", "accountStatus", "admin",
+                            "emotionPreferences", "lastActivityTimestamp", "softStreakCount", "lastSeen"
+                        )
                         val fieldsToMove = mutableMapOf<String, Any>()
                         sensitiveFields.forEach { field ->
                             snapshot.get(field)?.let { value ->
@@ -715,7 +719,8 @@ class UserRepository @Inject constructor(
                     "sigilConfig" to config,
                     "usernameUpdatedAt" to FieldValue.serverTimestamp(),
                     "identityMetadata.lastIdentityChangeAt" to FieldValue.serverTimestamp(),
-                    "identityMetadata.identityChangeCount30Days" to newCount
+                    "identityMetadata.identityChangeCount30Days" to newCount,
+                    "identityMetadata.identityResetVersion" to FieldValue.increment(1) // Trigger backend propagation
                 )
             ).await()
 

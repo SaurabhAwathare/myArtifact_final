@@ -20,7 +20,8 @@ class ArtifactRemoteMediator(
     private val firestore: FirebaseFirestore,
     private val database: AppDatabase,
     private val currentUserId: String,
-    private val emotion: String? = null
+    private val emotion: String? = null,
+    private val safetyPolicy: com.saurabh.artifact.domain.SafetyPolicy
 ) : RemoteMediator<Int, ArtifactEntityWithIndex>() {
 
     private val artifactDao = database.artifactDao()
@@ -83,24 +84,27 @@ class ArtifactRemoteMediator(
                 val artifact =
                     doc.toObject(Artifact::class.java)?.copy(id = doc.id) ?: return@mapNotNull null
 
-                // Moderation Filter: Hide if HIDDEN or if reports/safety concerns are high or if current user reported it
+                // 2. Safety Invariant Check
+                // Authoritative Filter: Hide if global moderation thresholds met or if current user reported it
                 val reportCount = doc.getLong("reportCount") ?: 0L
                 val safetyConcernCount = doc.getLong("safetyConcernCount") ?: 0L
                 val reporterIds = doc.get("reporterIds") as? List<*> ?: emptyList<String>()
-                val modStatus = artifact.moderation.status
                 
-                val isModerated = modStatus == com.saurabh.artifact.model.ModerationStatus.HIDDEN || 
-                                 reportCount >= 3L || 
-                                 safetyConcernCount >= 3L ||
-                                 reporterIds.contains(currentUserId)
+                // Reconstruct transient artifact metadata for policy evaluation
+                val artifactSnapshot = artifact.copy(
+                    reportCount = reportCount,
+                    safetyConcernCount = safetyConcernCount,
+                    reporterIds = reporterIds.map { it.toString() }
+                )
 
-                // Filter out artifacts without audio URLs or that aren't active or are moderated
-                if (artifact.audioUrl.isNotEmpty() && !isModerated) {
-                    mapToEntity(artifact.copy(
-                        reportCount = reportCount, 
-                        safetyConcernCount = safetyConcernCount,
-                        reporterIds = reporterIds.map { it.toString() }
-                    ))
+                val isEligible = safetyPolicy.isEligibleForDiscovery(
+                    artifact = artifactSnapshot,
+                    currentUserId = currentUserId,
+                    isSuppressedByUser = reporterIds.contains(currentUserId)
+                )
+
+                if (isEligible) {
+                    mapToEntity(artifactSnapshot)
                 } else {
                     null
                 }

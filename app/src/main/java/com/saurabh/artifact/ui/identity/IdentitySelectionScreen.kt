@@ -215,17 +215,28 @@ fun IdentitySelectionScreen(
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            text = "Identity Protection",
+                            text = if (identityMetadata.isIdentitySyncPending) "Propagating Identity..." else "Identity Protection",
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.Bold
                         )
+                        
+                        if (identityMetadata.isIdentitySyncPending) {
+                            Spacer(Modifier.width(8.dp))
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(12.dp),
+                                strokeWidth = 1.5.dp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
                     
                     Spacer(Modifier.height(8.dp))
                     
                     Text(
-                        text = "Your anonymous identity helps others recognize you in the community. You can change it anytime if needed.",
+                        text = if (identityMetadata.isIdentitySyncPending) 
+                            "Refreshing your anonymous mark across all historical reflections and comments. This happens in the background."
+                            else "Your anonymous identity helps others recognize you in the community. You can change it anytime if needed.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center

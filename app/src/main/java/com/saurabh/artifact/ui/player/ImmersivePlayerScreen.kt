@@ -505,6 +505,7 @@ fun ImmersiveDraftPlayerPreview() {
                 amplitudeData = List(100) { (it % 10) / 10f },
                 createdAt = com.google.firebase.Timestamp.now(),
                 transcript = emptyList(),
+                isPublic = false,
                 isDraft = true
             ),
             uiState = PlayerUiState(

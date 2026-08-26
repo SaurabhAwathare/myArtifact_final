@@ -26,6 +26,7 @@ class FCMService : FirebaseMessagingService() {
         val data = remoteMessage.data
         val artifactId = data["artifactId"]
         val userId = data["userId"]
+        val recipientId = data["recipientId"]
         val notificationType = data["notificationType"]
         val channelId = data["channelId"] ?: NotificationHelper.CHANNEL_ID_INTERACTIONS
 
@@ -40,6 +41,7 @@ class FCMService : FirebaseMessagingService() {
                 message = body,
                 artifactId = artifactId,
                 userId = userId,
+                recipientId = recipientId,
                 notificationType = notificationType,
                 channelId = channelId,
             )
@@ -57,6 +59,7 @@ class FCMService : FirebaseMessagingService() {
                 message = message,
                 artifactId = artifactId,
                 userId = userId,
+                recipientId = recipientId,
                 notificationType = notificationType,
                 channelId = channelId,
             )

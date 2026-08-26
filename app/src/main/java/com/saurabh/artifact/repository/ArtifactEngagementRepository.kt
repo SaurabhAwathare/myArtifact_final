@@ -65,16 +65,30 @@ class ArtifactEngagementRepository @Inject constructor(
                 "timestamp" to FieldValue.serverTimestamp()
             )).await()
 
-            // Update user preferences (legacy/internal signal)
-            val userRef = firestore.collection("users").document(userId)
+            // Update user preferences (Private Signal)
+            val settingsRef = firestore.collection("users").document(userId)
+                .collection("private").document("settings")
+            
             firestore.runTransaction { transaction ->
-                val userDoc = transaction[userRef]
-                if (userDoc.exists()) {
+                val settingsDoc = transaction[settingsRef]
+                if (settingsDoc.exists()) {
                     @Suppress("UNCHECKED_CAST")
-                    val currentPrefs = userDoc["emotionPreferences"] as? Map<String, Long> ?: emptyMap()
+                    val currentPrefs = settingsDoc["emotionPreferences"] as? Map<String, Long> ?: emptyMap()
                     val newCount = (currentPrefs[emotion] ?: 0L) + 1
                     val newPrefs = currentPrefs.toMutableMap().apply { put(emotion, newCount) }
-                    transaction.update(userRef, "emotionPreferences", newPrefs)
+                    
+                    transaction.update(settingsRef, mapOf(
+                        "emotionPreferences" to newPrefs,
+                        "lastActivityTimestamp" to FieldValue.serverTimestamp()
+                    ))
+
+                    // Optional: Sync derived dominant emotion back to public profile for coarse personalization
+                    // Only if it actually changes.
+                    val newDominant = newPrefs.maxByOrNull { it.value }?.key
+                    if (newDominant != null) {
+                        val userRef = firestore.collection("users").document(userId)
+                        transaction.update(userRef, "dominantEmotion", newDominant)
+                    }
                 }
             }.await()
             

@@ -68,6 +68,56 @@ async function deleteQueryBatch(
 }
 
 /**
+ * Authoritatively updates all documents returned by a query in batches of 500.
+ *
+ * @param db The Firestore instance.
+ * @param query The query identifying documents to update.
+ * @param data The fields and values to update.
+ * @param label A diagnostic label for logging.
+ * @returns The total number of updated documents.
+ */
+async function updateQueryBatch(
+  db: admin.firestore.Firestore,
+  query: admin.firestore.Query,
+  data: any,
+  label: string
+): Promise<number> {
+  let totalUpdated = 0;
+  try {
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const querySnapshot = await query.limit(500).get();
+
+      if (querySnapshot.size === 0) {
+        if (totalUpdated > 0) {
+          logger.info(`[BATCH_UPDATE] ${label} | FINISHED | Total=${totalUpdated}`);
+        } else {
+          logger.info(`[BATCH_UPDATE] ${label} | NONE`);
+        }
+        break;
+      }
+
+      const batch = db.batch();
+      querySnapshot.docs.forEach((doc) => batch.update(doc.ref, data));
+
+      await batch.commit();
+
+      totalUpdated += querySnapshot.size;
+      logger.info(`[BATCH_UPDATE] ${label} | UPDATED Batch=${querySnapshot.size} | Cumulative=${totalUpdated}`);
+
+      if (querySnapshot.size < 500) {
+        logger.info(`[BATCH_UPDATE] ${label} | FINISHED | Total=${totalUpdated}`);
+        break;
+      }
+    }
+    return totalUpdated;
+  } catch (e) {
+    logger.error(`[BATCH_UPDATE] ${label} | ERROR:`, e);
+    throw e;
+  }
+}
+
+/**
  * Robust cascading cleanup triggered when an artifact's status changes to DELETED.
  * Handles Storage files, reactions, aggregates, metadata, and final document deletion.
  * Designed for idempotency and high reliability.
@@ -586,6 +636,72 @@ export const onArtifactCreated = functions.firestore
   });
 
 /**
+ * Authoritative identity propagation triggered by identityResetVersion update.
+ * Updates all historical Artifacts and Comments with the new anonymous identity.
+ * This privileged operation overcomes client-side security rule restrictions on the 'author' field.
+ */
+export const onUserIdentityReset = functions.firestore
+  .document("users/{uid}")
+  .onUpdate(async (change, context) => {
+    const newData = change.after.data();
+    const oldData = change.before.data();
+
+    if (!newData || !oldData) return null;
+
+    const newVersion = newData.identityMetadata?.identityResetVersion || 0;
+    const oldVersion = oldData.identityMetadata?.identityResetVersion || 0;
+
+    // Trigger only on monotonic version increase
+    if (newVersion <= oldVersion) return null;
+
+    const uid = context.params.uid;
+    const db = admin.firestore();
+
+    logger.info(`[IDENTITY_PROPAGATION] START | UID=${uid} | Version=${newVersion}`);
+
+    // 1. Prepare AuthorSnapshot Update (Nested field notation for deep merge)
+    const authorUpdate = {
+      "author.name": newData.anonymousName || "quiet presence",
+      "author.anonymousId": newData.anonymousId || "",
+      "author.sigil": newData.anonymousSigil || "",
+      "author.sigilSeed": newData.sigilSeed || "",
+      "author.sigilColor": newData.sigilColor || "#FFD700",
+      "author.sigilConfig": newData.sigilConfig || {},
+    };
+
+    try {
+      // 2. Propagate to Artifacts
+      const artifactsQuery = db.collection("artifacts").where("userId", "==", uid);
+      await updateQueryBatch(db, artifactsQuery, authorUpdate, "User Artifacts");
+
+      // 3. Propagate to Comments (Collection Group)
+      const commentsQuery = db.collectionGroup("comments").where("creatorId", "==", uid);
+      await updateQueryBatch(db, commentsQuery, authorUpdate, "User Comments");
+
+      // 4. Finalize: Update lastCompletedIdentityVersion (Atomic Transaction)
+      await db.runTransaction(async (transaction) => {
+        const userRef = db.collection("users").doc(uid);
+        const userDoc = await transaction.get(userRef);
+        if (!userDoc.exists) return;
+
+        const currentCompleted = userDoc.data()?.identityMetadata?.lastCompletedIdentityVersion || 0;
+        if (newVersion > currentCompleted) {
+          transaction.update(userRef, {
+            "identityMetadata.lastCompletedIdentityVersion": newVersion,
+            "identityMetadata.resetCompletedAt": FieldValue.serverTimestamp(),
+          });
+        }
+      });
+
+      logger.info(`[IDENTITY_PROPAGATION] SUCCESS | UID=${uid} | Version=${newVersion}`);
+      return null;
+    } catch (error) {
+      logger.error(`[IDENTITY_PROPAGATION] FATAL ERROR | UID=${uid} | Version=${newVersion}:`, error);
+      throw error; // Trigger Function retry
+    }
+  });
+
+/**
  * Authoritatively handles permanent account cleanup when a user is deleted.
  * Hardened for idempotency and scalability with increased timeout and memory.
  */
@@ -938,6 +1054,21 @@ export const onReportCreated = functions.firestore
         updatedAt: FieldValue.serverTimestamp(),
       }, {merge: true});
 
+      // 6. Cross-Device Sync Marker (Private to Reporter)
+      // Path: users/{uid}/private/reports/artifacts/{artifactId}
+      const reporterId = data.reporterId;
+      if (reporterId) {
+        const markerRef = db.collection("users").doc(reporterId)
+          .collection("private").doc("reports")
+          .collection("artifacts").doc(artifactId);
+
+        batch.set(markerRef, {
+          artifactId: artifactId,
+          reportedAt: lastReportedAt,
+          reason: data.reason
+        });
+      }
+
       await batch.commit();
       logger.info(`[MODERATION] Aggregation success | ArtifactID=${artifactId} | Count=${reportCount}`);
     });
@@ -1124,6 +1255,7 @@ export const onNotificationCreated = functions.firestore
         data: {
           artifactId: data.artifactId || "",
           userId: data.followerId || "",
+          recipientId: userId, // Internal Recipient Guard (Internal security field)
           notificationType: data.type || "",
           notificationId: context.params.notificationId,
         },

@@ -81,7 +81,7 @@ class FeedRanker @Inject constructor(
      * Higher score if the artifact matches the user's active mood mode.
      */
     private fun calculateMoodMatch(artifact: Artifact, user: User?, currentMood: String?): Double {
-        val targetEmotion = currentMood ?: user?.dominantEmotion ?: user?.deriveDominantEmotion() ?: return 0.5
+        val targetEmotion = currentMood ?: user?.dominantEmotion ?: return 0.5
         
         return if (artifact.emotion.equals(targetEmotion, ignoreCase = true)) {
             1.0

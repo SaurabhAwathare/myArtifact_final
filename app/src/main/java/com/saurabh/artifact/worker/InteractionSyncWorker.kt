@@ -322,6 +322,7 @@ class InteractionSyncWorker @AssistedInject constructor(
                 .setConstraints(constraints)
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
                 .addTag(TAG)
+                .addTag(com.saurabh.artifact.domain.auth.SessionConstants.TAG_USER_SESSION_WORK)
                 .build()
 
             WorkManager.getInstance(context).enqueueUniqueWork(

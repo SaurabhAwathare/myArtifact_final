@@ -38,6 +38,7 @@ class MainViewModelTest {
     private val getInitialDestinationUseCase = mockk<GetInitialDestinationUseCase>()
     private val registrationCoordinator = mockk<RegistrationCoordinator>()
     private val logoutCoordinator = mockk<LogoutCoordinator>(relaxed = true)
+    private val maintenanceRepository = mockk<com.saurabh.artifact.repository.MaintenanceRepository>(relaxed = true)
     private val sessionManager = mockk<com.saurabh.artifact.data.local.UserSessionManager>(relaxed = true)
     private val observeStealthModeUseCase = mockk<ObserveStealthModeUseCase>(relaxed = true)
     private val startupCoordinator = mockk<StartupCoordinator>(relaxed = true)
@@ -63,10 +64,12 @@ class MainViewModelTest {
 
         testAuthFlow.value = null
         every { authRepository.currentUser } returns testAuthFlow
+        every { authRepository.currentUserId } returns ""
         every { observeStealthModeUseCase.invoke() } returns flowOf(false)
         every { startupCoordinator.stage } returns MutableStateFlow(com.saurabh.artifact.startup.StartupStage.ARRIVAL)
         every { startupCoordinator.isRescueModeActive } returns false
         every { sessionManager.owningUid } returns MutableStateFlow(null)
+        coEvery { maintenanceRepository.getPendingDeletionUid() } returns null
 
         every { intent.getStringExtra("notificationType") } returns null
         every { intent.getStringExtra("artifactId") } returns null
@@ -84,6 +87,7 @@ class MainViewModelTest {
             getInitialDestinationUseCase,
             registrationCoordinator,
             logoutCoordinator,
+            maintenanceRepository,
             sessionManager,
             observeStealthModeUseCase,
             startupCoordinator,
@@ -93,8 +97,67 @@ class MainViewModelTest {
     }
 
     @Test
+    fun `startup with pending deletion should trigger comprehensive cleanup`() = runTest {
+        // Setup: A deletion was interrupted
+        coEvery { maintenanceRepository.getPendingDeletionUid() } returns "user_to_delete"
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.UNAUTHENTICATED
+
+        viewModel.start()
+        advanceUntilIdle()
+
+        // Verify cleanup was triggered immediately
+        coVerify(exactly = 1) { logoutCoordinator.performFullCleanup() }
+        // Verify maintenance lock was cleared
+        coVerify { maintenanceRepository.setPendingDeletion(null) }
+    }
+
+    @Test
+    fun `startup with owningUid mismatch should trigger cleanup before UI exposure`() = runTest {
+        // Setup: Current user is B, but local data belongs to A
+        every { authRepository.currentUserId } returns "user_B"
+        val userB = mockk<com.google.firebase.auth.FirebaseUser> { every { uid } returns "user_B" }
+        testAuthFlow.value = userB
+        every { sessionManager.owningUid } returns MutableStateFlow("user_A")
+        
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
+        coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
+
+        viewModel.start()
+        
+        // Advance partially - check if cleanup is in progress
+        advanceTimeBy(10)
+        assertTrue(viewModel.isCleaning.value)
+        coVerify(exactly = 1) { logoutCoordinator.performFullCleanup() }
+
+        advanceUntilIdle()
+        
+        // Verify registration check only happened AFTER cleanup
+        coVerify(ordering = Ordering.SEQUENCE) {
+            logoutCoordinator.performFullCleanup()
+            registrationCoordinator.ensureProfileExists()
+        }
+    }
+
+    @Test
+    fun `startup logged out with dirty state should trigger cleanup`() = runTest {
+        // Setup: No user logged in, but local state exists (dirty)
+        every { authRepository.currentUserId } returns ""
+        testAuthFlow.value = null
+        every { sessionManager.owningUid } returns MutableStateFlow("some_user")
+        
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.UNAUTHENTICATED
+
+        viewModel.start()
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { logoutCoordinator.performFullCleanup() }
+        assertEquals(AppStartupState.Ready(Login), viewModel.startupState.value)
+    }
+
+    @Test
     fun `startup should signal AUTH readiness on successful authenticated startup`() = runTest {
-        val user = mockk<com.google.firebase.auth.FirebaseUser>()
+        val user = mockk<com.google.firebase.auth.FirebaseUser> { every { uid } returns "user123" }
+        every { authRepository.currentUserId } returns "user123"
         testAuthFlow.value = user
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
@@ -111,7 +174,9 @@ class MainViewModelTest {
         // Setup SavedState for restoration
         savedStateHandle["startup_completed"] = true
         savedStateHandle["resolved_destination_id"] = "HOME"
-        val user = mockk<com.google.firebase.auth.FirebaseUser>()
+        savedStateHandle["resolved_uid"] = "user_restored"
+        val user = mockk<com.google.firebase.auth.FirebaseUser> { every { uid } returns "user_restored" }
+        every { authRepository.currentUserId } returns "user_restored"
         testAuthFlow.value = user
 
         viewModel.start()
@@ -665,6 +730,7 @@ class MainViewModelTest {
             getInitialDestinationUseCase,
             registrationCoordinator,
             logoutCoordinator,
+            maintenanceRepository,
             sessionManager,
             observeStealthModeUseCase,
             startupCoordinator,
@@ -742,6 +808,7 @@ class MainViewModelTest {
             getInitialDestinationUseCase,
             registrationCoordinator,
             logoutCoordinator,
+            maintenanceRepository,
             sessionManager,
             observeStealthModeUseCase,
             startupCoordinator,

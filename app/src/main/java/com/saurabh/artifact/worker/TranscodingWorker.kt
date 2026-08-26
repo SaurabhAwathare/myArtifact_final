@@ -34,6 +34,7 @@ class TranscodingWorker @AssistedInject constructor(
     private val draftDao: Lazy<DraftDao>,
     private val localDraftManager: LocalDraftManager,
     private val encryptedStorageManager: EncryptedStorageManager,
+    private val audioTranscoder: com.saurabh.artifact.audio.AudioTranscoder,
     private val wavRecoveryManager: WavRecoveryManager,
     private val authRepository: com.saurabh.artifact.repository.AuthRepository,
     private val startupCoordinator: com.saurabh.artifact.startup.StartupCoordinator,
@@ -77,32 +78,44 @@ class TranscodingWorker @AssistedInject constructor(
                 return@withContext Result.failure()
             }
 
-            // 1. Transcode raw WAV to finalized location (Encrypted)
+            // 1. Transcode raw WAV to temporary M4A (Unencrypted)
             val finalAudioFile = localDraftManager.createDraftFile(draftId, "m4a")
+            val tempM4aFile = File.createTempFile("transcoding_${draftId}", ".m4a", applicationContext.cacheDir)
+            
             diagnosticLogger.debug(DiagnosticCategory.RECORDING, "TRANSCODING_PROCESSING", mapOf(LogKeys.DRAFT_ID to draftId))
-            transcodeAndEncrypt(rawFile, finalAudioFile)
             
-            // 2. Metadata Extraction (Checksum)
-            val checksum = FileIntegrity.calculateChecksum(finalAudioFile.absolutePath)
-            
-            // 2.1 ATOMICITY FIX: Verify generated file essence before DB commitment
-            if (!finalAudioFile.exists() || finalAudioFile.length() == 0L) {
-                diagnosticLogger.error(DiagnosticCategory.RECORDING, "TRANSCODING_OUTPUT_EMPTY", mapOf(LogKeys.DRAFT_ID to draftId))
-                updateDraftStatus(draftId, userId, null, "Transcoding output verification failed")
-                return@withContext Result.failure()
+            try {
+                audioTranscoder.transcodeWavToAac(rawFile, tempM4aFile)
+                
+                // 2. Output Validation (Structural)
+                if (!validateM4A(tempM4aFile)) {
+                    diagnosticLogger.error(DiagnosticCategory.RECORDING, "TRANSCODING_VALIDATION_FAILED", mapOf(LogKeys.DRAFT_ID to draftId))
+                    updateDraftStatus(draftId, userId, null, "Transcoding output validation failed")
+                    return@withContext Result.failure()
+                }
+
+                // 3. Metadata Extraction (Checksum)
+                val checksum = FileIntegrity.calculateChecksum(tempM4aFile.absolutePath)
+
+                // 4. Encrypt to final location
+                encryptFinalFile(tempM4aFile, finalAudioFile)
+
+                // 5. Finalize paths in DB with targeted update (Commit before cleanup)
+                draftDao.get().updateTranscodingResult(
+                    id = draftId,
+                    userId = userId,
+                    localAudioPath = finalAudioFile.absolutePath,
+                    checksum = checksum,
+                    isEncrypted = true
+                )
+
+                diagnosticLogger.info(DiagnosticCategory.RECORDING, "TRANSCODING_SUCCESS", mapOf(LogKeys.DRAFT_ID to draftId))
+                Result.success()
+            } finally {
+                if (tempM4aFile.exists()) {
+                    tempM4aFile.delete()
+                }
             }
-
-            // 3. Finalize paths in DB with targeted update (Commit before cleanup)
-            draftDao.get().updateTranscodingResult(
-                id = draftId,
-                userId = userId,
-                localAudioPath = finalAudioFile.absolutePath,
-                checksum = checksum,
-                isEncrypted = true
-            )
-
-            diagnosticLogger.info(DiagnosticCategory.RECORDING, "TRANSCODING_SUCCESS", mapOf(LogKeys.DRAFT_ID to draftId))
-            Result.success()
         } catch (e: Exception) {
             diagnosticLogger.error(DiagnosticCategory.RECORDING, "TRANSCODING_FAILED", mapOf(LogKeys.DRAFT_ID to draftId), e)
             updateDraftStatus(draftId, userId, null, "Transcoding failed: ${e.message}")
@@ -110,8 +123,25 @@ class TranscodingWorker @AssistedInject constructor(
         }
     }
 
-    private fun transcodeAndEncrypt(input: File, output: File) {
-        // We use the encrypted output stream for the destination
+    private fun validateM4A(file: File): Boolean {
+        if (!file.exists() || file.length() == 0L) return false
+        val retriever = android.media.MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(file.absolutePath)
+            val hasAudio = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO)
+            val duration = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLong() ?: 0L
+            hasAudio == "yes" && duration > 0
+        } catch (_: Exception) {
+            false
+        } finally {
+            try {
+                retriever.release()
+            } catch (_: Exception) {}
+        }
+    }
+
+    private fun encryptFinalFile(input: File, output: File) {
+        output.parentFile?.mkdirs()
         encryptedStorageManager.getEncryptedOutputStream(output).use { encryptedOut ->
             input.inputStream().use { it.copyTo(encryptedOut) }
         }

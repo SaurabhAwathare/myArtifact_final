@@ -322,6 +322,7 @@ object NotificationHelper {
         message: String,
         artifactId: String?,
         userId: String? = null,
+        recipientId: String? = null,
         notificationType: String? = null,
         channelId: String = CHANNEL_ID_INTERACTIONS
     ) {
@@ -335,6 +336,9 @@ object NotificationHelper {
                 }
                 if (userId != null) {
                     putExtra("userId", userId)
+                }
+                if (recipientId != null) {
+                    putExtra("recipientId", recipientId)
                 }
                 if (notificationType != null) {
                     putExtra("notificationType", notificationType)

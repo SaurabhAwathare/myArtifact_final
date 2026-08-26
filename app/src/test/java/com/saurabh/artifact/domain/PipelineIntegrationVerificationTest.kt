@@ -160,7 +160,7 @@ class PipelineIntegrationVerificationTest {
             .setInputData(workDataOf("key_draft_id" to draftId))
             .setWorkerFactory(object : WorkerFactory() {
                 override fun createWorker(appContext: Context, workerClassName: String, workerParameters: WorkerParameters): ListenableWorker {
-                    return TranscodingWorker(appContext, workerParameters, Lazy { draftDao }, localDraftManager, encryptedStorageManager, mockk(relaxed = true), authRepository, startupCoordinator, diagnosticLogger)
+                    return TranscodingWorker(appContext, workerParameters, Lazy { draftDao }, localDraftManager, encryptedStorageManager, mockk(relaxed = true), mockk(relaxed = true), authRepository, startupCoordinator, diagnosticLogger)
                 }
             }).build()
         assertTrue(transcodingWorker.doWork() is ListenableWorker.Result.Success)

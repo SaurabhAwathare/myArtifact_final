@@ -10,6 +10,7 @@ import com.saurabh.artifact.domain.comment.DeleteCommentUseCase
 import com.saurabh.artifact.domain.comment.GetCommentsUseCase
 import com.saurabh.artifact.domain.review.EngagementEvidence
 import com.saurabh.artifact.repository.EngagementRepository
+import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.Comment
 import com.saurabh.artifact.model.SyncState
@@ -29,6 +30,8 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import javax.inject.Inject
 
 /**
@@ -45,12 +48,14 @@ class CommentViewModel @Inject constructor(
     private val addCommentUseCase: AddCommentUseCase,
     private val deleteCommentUseCase: DeleteCommentUseCase,
     private val engagementRepository: EngagementRepository,
+    private val authRepository: AuthRepository,
     private val ownershipAuthority: ArtifactOwnershipAuthority,
     private val diagnosticLogger: DiagnosticLogger
 ) : ViewModel() {
 
     private var artifactId: String = savedStateHandle.get<String>("artifactId") ?: ""
     private var isOwner: Boolean = false
+    private var currentUid: String? = null
 
     private val _uiState = MutableStateFlow(CommentUiState())
     val uiState: StateFlow<CommentUiState> = _uiState.asStateFlow()
@@ -61,10 +66,40 @@ class CommentViewModel @Inject constructor(
     private var lastVisibleCursor: DocumentSnapshot? = null
 
     private var unlockObservationJob: Job? = null
+    private var loadJob: Job? = null
 
     init {
+        observeAuthChanges()
         if (artifactId.isNotEmpty()) {
             checkOwnershipAndInitialize()
+        }
+    }
+
+    private fun observeAuthChanges() {
+        viewModelScope.launch {
+            authRepository.currentUser
+                .map { it?.uid }
+                .distinctUntilChanged()
+                .collect { uid ->
+                    if (currentUid != null && uid != currentUid) {
+                        diagnosticLogger.info(
+                            DiagnosticCategory.AUTH,
+                            "COMMENT_VM_ACCOUNT_BOUNDARY_RESET",
+                            mapOf("from" to (currentUid ?: "null"), "to" to (uid ?: "null"))
+                        )
+                        resetState()
+                    }
+                    currentUid = uid
+                }
+        }
+    }
+
+    private fun resetState() {
+        loadJob?.cancel()
+        unlockObservationJob?.cancel()
+        lastVisibleCursor = null
+        _uiState.update { 
+            CommentUiState(unlockState = if (isOwner) CommentUnlockState.UNLOCKED else CommentUnlockState.LOCKED)
         }
     }
 
@@ -75,12 +110,18 @@ class CommentViewModel @Inject constructor(
      */
     fun initialize(id: String) {
         android.util.Log.d("CommentVM", "initialize: current=$artifactId, new=$id")
-        if (id.isEmpty() || id == artifactId) {
-            android.util.Log.d("CommentVM", "initialize: skipping (id empty or same)")
+        val sessionUid = authRepository.currentUserId
+        
+        if (id.isEmpty() || (id == artifactId && sessionUid == currentUid)) {
+            android.util.Log.d("CommentVM", "initialize: skipping (id and session same)")
             return
         }
         
+        // SYNCHRONOUS RESET: Clear old state before starting new load
         artifactId = id
+        currentUid = sessionUid
+        resetState()
+        
         checkOwnershipAndInitialize()
     }
 
@@ -89,6 +130,11 @@ class CommentViewModel @Inject constructor(
             isOwner = ownershipAuthority.isCurrentUserOwner(artifactId)
             android.util.Log.d("COMMENT_TRACE", "Ownership check: artifactId=$artifactId, isOwner=$isOwner")
             
+            // Ensure unlock state reflects ownership immediately
+            if (isOwner) {
+                _uiState.update { it.copy(unlockState = CommentUnlockState.UNLOCKED) }
+            }
+
             loadInitialComments()
             observeUnlockStatus()
         }
@@ -203,11 +249,19 @@ class CommentViewModel @Inject constructor(
         android.util.Log.d("CommentVM", "loadInitialComments: artifactId=$artifactId, thread=${Thread.currentThread().name}")
         if (artifactId.isEmpty()) return
 
-        viewModelScope.launch {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
             _uiState.update { it.copy(isInitialLoading = true, error = null) }
             
+            val requestUid = currentUid
             getCommentsUseCase(artifactId)
                 .onSuccess { paginatedComments ->
+                    // IDENTITY GUARD: Only commit if the user hasn't changed since request started
+                    if (currentUid != requestUid) {
+                        diagnosticLogger.warn(DiagnosticCategory.COMMENT, "STALE_LOAD_REJECTED", mapOf("reason" to "uid_mismatch"))
+                        return@launch
+                    }
+
                     android.util.Log.d("CommentVM", "loadInitialComments success: count=${paginatedComments.comments.size}, artifactId=$artifactId")
                     lastVisibleCursor = paginatedComments.lastVisible
                     _uiState.update { 
@@ -219,6 +273,7 @@ class CommentViewModel @Inject constructor(
                     }
                 }
                 .onFailure { error ->
+                    if (currentUid != requestUid) return@launch
                     _uiState.update { 
                         it.copy(
                             isInitialLoading = false,
@@ -243,8 +298,11 @@ class CommentViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoadingNextPage = true) }
 
+            val requestUid = currentUid
             getCommentsUseCase(artifactId, lastVisible = lastVisibleCursor)
                 .onSuccess { paginatedComments ->
+                    if (currentUid != requestUid) return@launch
+
                     android.util.Log.d("CommentVM", "loadNextPage success: count=${paginatedComments.comments.size}, artifactId=$artifactId")
                     lastVisibleCursor = paginatedComments.lastVisible
                     _uiState.update { 
@@ -256,6 +314,7 @@ class CommentViewModel @Inject constructor(
                     }
                 }
                 .onFailure { error ->
+                    if (currentUid != requestUid) return@launch
                     _uiState.update { 
                         it.copy(
                             isLoadingNextPage = false,
@@ -276,8 +335,11 @@ class CommentViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isRefreshing = true, error = null) }
 
+            val requestUid = currentUid
             getCommentsUseCase(artifactId)
                 .onSuccess { paginatedComments ->
+                    if (currentUid != requestUid) return@launch
+
                     android.util.Log.d("CommentVM", "refreshComments success: count=${paginatedComments.comments.size}, artifactId=$artifactId")
                     lastVisibleCursor = paginatedComments.lastVisible
                     _uiState.update { 
@@ -289,6 +351,7 @@ class CommentViewModel @Inject constructor(
                     }
                 }
                 .onFailure { error ->
+                    if (currentUid != requestUid) return@launch
                     _uiState.update { 
                         it.copy(
                             isRefreshing = false,
@@ -311,8 +374,14 @@ class CommentViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isSubmitting = true, submissionError = null) }
 
+            val requestUid = currentUid
             addCommentUseCase(artifactId, text)
                 .onSuccess { newComment ->
+                    if (currentUid != requestUid) {
+                        diagnosticLogger.warn(DiagnosticCategory.COMMENT, "STALE_SUBMISSION_REJECTED", mapOf("reason" to "uid_mismatch"))
+                        return@launch
+                    }
+
                     android.util.Log.d("CommentVM", "submitComment success: id=${newComment.id}, artifactId=$artifactId")
                     // Opting for refreshing or merging? 
                     // To ensure consistency with Firestore ordering, merging at the top for immediate feedback
@@ -325,6 +394,7 @@ class CommentViewModel @Inject constructor(
                     _events.emit(CommentUiEvent.CommentSubmitted)
                 }
                 .onFailure { error ->
+                    if (currentUid != requestUid) return@launch
                     val appError = AppError.from(error)
                     android.util.Log.e("CommentVM", "submitComment failed: artifactId=$artifactId, error=${appError.technicalMessage}", error)
                     

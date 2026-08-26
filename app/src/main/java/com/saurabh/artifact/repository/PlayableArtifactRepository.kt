@@ -21,6 +21,7 @@ class PlayableArtifactRepository @Inject constructor(
     private val artifactRepository: ArtifactRepository,
     private val draftToArtifactMapper: DraftToArtifactMapper,
     private val userRepository: UserRepository,
+    private val safetyPolicy: com.saurabh.artifact.domain.SafetyPolicy,
     private val diagnosticLogger: DiagnosticLogger
 ) {
     /**
@@ -92,7 +93,9 @@ class PlayableArtifactRepository @Inject constructor(
     private suspend fun resolveFromPublished(id: String, source: PlaybackSource): Result<PlayableArtifact> {
         return artifactRepository.getArtifactById(id).fold(
             onSuccess = { artifact ->
-                if (artifact.status == com.saurabh.artifact.model.ArtifactStatus.DELETED) {
+                // SAFETY FILTER: Use centralized policy to determine if artifact can be intentionally played.
+                // SUPPRESSED artifacts remain playable via direct links as per product policy (ModerationBanner).
+                if (!safetyPolicy.isEligibleForPlayback(artifact)) {
                     Result.failure(AppError.NotFound("Artifact", id))
                 } else {
                     Result.success(
