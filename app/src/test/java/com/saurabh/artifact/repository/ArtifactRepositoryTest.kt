@@ -37,6 +37,7 @@ class ArtifactRepositoryTest {
     private val publishingRepository = mockk<ArtifactPublishingRepository>(relaxed = true)
     private val artifactEngagementRepository = mockk<ArtifactEngagementRepository>(relaxed = true)
     private val reflectionPromptManager = mockk<ReflectionPromptManager>(relaxed = true)
+    private val visibilityFilter = mockk<com.saurabh.artifact.domain.ArtifactVisibilityFilter>(relaxed = true)
     private val pendingInteractionDao = mockk<PendingInteractionDao>(relaxed = true)
     private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
 
@@ -66,6 +67,7 @@ class ArtifactRepositoryTest {
             publishingRepository = { publishingRepository },
             artifactEngagementRepository = { artifactEngagementRepository },
             reflectionPromptManager = { reflectionPromptManager },
+            visibilityFilter = { visibilityFilter },
             safetyPolicy = com.saurabh.artifact.domain.SafetyPolicy(),
             diagnosticLogger = diagnosticLogger
         )
@@ -90,14 +92,15 @@ class ArtifactRepositoryTest {
         val userId = "user123"
         val draft = ArtifactDraftEntity(id = "draft123", userId = TEST_USER_ID, localAudioPath = "/path")
         val author = AuthorSnapshot(name = "Author")
+        val identityVersion = 1L
         
-        coEvery { publishingRepository.createArtifactDocument(userId, author, "url", draft) } returns Result.success("id123")
+        coEvery { publishingRepository.createArtifactDocument(userId, author, "url", draft, identityVersion) } returns Result.success("id123")
         
-        val result = repository.createArtifactDocument(userId, author, "url", draft)
+        val result = repository.createArtifactDocument(userId, author, "url", draft, identityVersion)
         
         assert(result.isSuccess)
         assertEquals("id123", result.getOrThrow())
-        coVerify { publishingRepository.createArtifactDocument(userId, author, "url", draft) }
+        coVerify { publishingRepository.createArtifactDocument(userId, author, "url", draft, identityVersion) }
     }
 
     @Test

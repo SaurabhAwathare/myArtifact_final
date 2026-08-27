@@ -18,6 +18,9 @@ import com.saurabh.artifact.model.ReportReason
 import com.saurabh.artifact.model.ReportStatus
 import com.saurabh.artifact.model.UserReport
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -35,6 +38,9 @@ class ArtifactModerationRepository @Inject constructor(
     private val reportedArtifactDao: dagger.Lazy<ReportedArtifactDao>,
     private val diagnosticLogger: DiagnosticLogger
 ) {
+
+    private val _events = MutableSharedFlow<ModerationEvent>()
+    val events: SharedFlow<ModerationEvent> = _events.asSharedFlow()
 
     /**
      * Fetches all pending reports from Firestore for administrative review.
@@ -143,6 +149,9 @@ class ArtifactModerationRepository @Inject constructor(
                         artifactId = artifactId
                     )
                 )
+                
+                // Broadcast success for UI feedback and refresh
+                _events.emit(ModerationEvent.ReportSuccess(artifactId))
             } catch (e: Exception) {
                 diagnosticLogger.error(
                     DiagnosticCategory.DATABASE, 
@@ -236,4 +245,14 @@ class ArtifactModerationRepository @Inject constructor(
             Result.failure(e)
         }
     }
+}
+
+/**
+ * Sealed class defining global moderation events that the UI should react to.
+ */
+sealed class ModerationEvent {
+    /**
+     * Triggered when an artifact is successfully reported and suppressed locally.
+     */
+    data class ReportSuccess(val artifactId: String) : ModerationEvent()
 }

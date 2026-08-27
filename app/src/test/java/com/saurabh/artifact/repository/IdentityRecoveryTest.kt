@@ -23,6 +23,7 @@ class IdentityRecoveryTest {
     private val authRepository = mockk<AuthRepository>(relaxed = true)
     private val userRepository = mockk<UserRepository>(relaxed = true)
     private val artifactRepository = mockk<ArtifactRepository>(relaxed = true)
+    private val visibilityFilter = mockk<com.saurabh.artifact.domain.ArtifactVisibilityFilter>(relaxed = true)
     private val testDispatcher = kotlinx.coroutines.test.StandardTestDispatcher()
     private val testScope = TestScope(testDispatcher)
 
@@ -46,6 +47,7 @@ class IdentityRecoveryTest {
             authRepository = authRepository,
             userRepository = userRepository,
             artifactRepository = artifactRepository,
+            visibilityFilter = { visibilityFilter },
             managerScope = testScope.backgroundScope
         )
     }

@@ -26,6 +26,7 @@ class IdentitySyncTest {
     private val authRepository = mockk<AuthRepository>(relaxed = true)
     private val userRepository = mockk<UserRepository>(relaxed = true)
     private val artifactRepository = mockk<ArtifactRepository>(relaxed = true)
+    private val visibilityFilter = mockk<com.saurabh.artifact.domain.ArtifactVisibilityFilter>(relaxed = true)
     private val workManager = mockk<WorkManager>(relaxed = true)
     private val testDispatcher = kotlinx.coroutines.test.StandardTestDispatcher()
     private val testScope = kotlinx.coroutines.test.TestScope(testDispatcher)
@@ -59,6 +60,7 @@ class IdentitySyncTest {
             authRepository = authRepository,
             userRepository = userRepository,
             artifactRepository = artifactRepository,
+            visibilityFilter = { visibilityFilter },
             managerScope = testScope.backgroundScope
         )
 
@@ -87,7 +89,7 @@ class IdentitySyncTest {
         coVerify {
             artifactRepository.updateLocalAuthorSnapshot(userId, match {
                 it.name == newUsername && it.anonymousId == "anon1"
-            })
+            }, any())
         }
         verify {
             IdentitySyncWorker.enqueue(context, userId)
@@ -102,6 +104,7 @@ class IdentitySyncTest {
             authRepository = authRepository,
             userRepository = userRepository,
             artifactRepository = artifactRepository,
+            visibilityFilter = { visibilityFilter },
             managerScope = testScope.backgroundScope
         )
 
@@ -130,7 +133,7 @@ class IdentitySyncTest {
         coVerify {
             artifactRepository.updateLocalAuthorSnapshot(userId, match {
                 it.sigilConfig == newConfig && it.sigilSeed == "newSeed"
-            })
+            }, any())
         }
         verify {
             IdentitySyncWorker.enqueue(context, userId)

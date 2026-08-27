@@ -33,6 +33,8 @@ class ArtifactRepositoryEncryptionTest {
             publishingRepository = { mockk(relaxed = true) },
             artifactEngagementRepository = { mockk(relaxed = true) },
             reflectionPromptManager = { mockk(relaxed = true) },
+            visibilityFilter = { mockk(relaxed = true) },
+            safetyPolicy = mockk(relaxed = true),
             diagnosticLogger = mockk(relaxed = true)
         )
     }

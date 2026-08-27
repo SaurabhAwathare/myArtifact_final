@@ -45,6 +45,8 @@ class UserProfileManager @Inject constructor(
         managerScope.cancel()
     }
 
+    private var safetySyncJob: kotlinx.coroutines.Job? = null
+
     init {
         // Initialize anonymous ID if missing
         managerScope.launch {
@@ -59,19 +61,34 @@ class UserProfileManager @Inject constructor(
                 }
             }
         }
+    }
 
-        // Phase 3: Cross-Device Safety Sync
-        // Synchronize reported artifacts markers from private Firestore to local Room DB.
-        managerScope.launch {
-            authRepository.currentUser
-                .map { it?.uid }
-                .distinctUntilChanged()
-                .collectLatest { uid ->
-                    if (uid != null) {
-                        visibilityFilter.get().syncReportsFromRemote(uid, managerScope).collect()
-                    }
-                }
+    /**
+     * Explicitly initializes the cross-device safety synchronization for the given user.
+     * This ensures suppression markers are synchronized before discovery surfaces are shown.
+     * Manages its own lifecycle to prevent duplicate listeners or cross-account leakage.
+     */
+    fun initializeSafetySync(userId: String) {
+        if (userId.isEmpty()) return
+        
+        // Stop any existing sync to ensure clean boundary for account swaps
+        stopSafetySync()
+        
+        Log.i("UserProfileManager", "Initializing Safety Sync for $userId")
+        safetySyncJob = managerScope.launch {
+            visibilityFilter.get().syncReportsFromRemote(userId, managerScope).collect()
         }
+    }
+
+    /**
+     * Stops any active safety synchronization.
+     */
+    fun stopSafetySync() {
+        if (safetySyncJob?.isActive == true) {
+            Log.d("UserProfileManager", "Stopping active Safety Sync")
+            safetySyncJob?.cancel()
+        }
+        safetySyncJob = null
     }
 
     /**

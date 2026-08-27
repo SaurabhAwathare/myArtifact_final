@@ -65,7 +65,7 @@ class RecommendationServiceTest {
         }
 
         val config = RecommendationConfig(explorationRatio = 0.2f) // 1 in 5
-        val result = service.rank(established + underHeard, config)
+        val result = service.rank(candidates = established + underHeard, config = config)
 
         // Exploration ratio 0.2 means exploration interval is 5.
         // Item at index 5 and 11 (if exists) should be under-heard

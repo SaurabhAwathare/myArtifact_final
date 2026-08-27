@@ -142,9 +142,9 @@ export const onArtifactCleanupTrigger = functions.firestore
           audioDeleted = true;
         } catch (e: any) {
           if (e.code === 404) {
-              logger.info(`[CLEANUP] Audio | SafetyNet 404 | Path=${predictablePath}`);
+            logger.info(`[CLEANUP] Audio | SafetyNet 404 | Path=${predictablePath}`);
           } else {
-              logger.error(`[CLEANUP] Audio | SafetyNet Error | Path=${predictablePath}:`, e);
+            logger.error(`[CLEANUP] Audio | SafetyNet Error | Path=${predictablePath}:`, e);
           }
         }
       }
@@ -177,7 +177,7 @@ export const onArtifactCleanupTrigger = functions.firestore
           logger.info(`[CLEANUP] Transcript | SafetyNet DELETED | Path=${predictablePath}`);
           transcriptDeleted = true;
         } catch (e: any) {
-            // 404 is expected
+          // 404 is expected
         }
       }
 
@@ -733,157 +733,157 @@ export const onUserDeleted = functions
   .auth.user()
   .onDelete(async (user) => {
     const uid = user.uid;
-  const db = admin.firestore();
-  const bucket = admin.storage().bucket();
-  const startTime = Date.now();
+    const db = admin.firestore();
+    const bucket = admin.storage().bucket();
+    const startTime = Date.now();
 
-  logger.info(`[DELETE USER] START | UID=${uid}`);
+    logger.info(`[DELETE USER] START | UID=${uid}`);
 
-  try {
-    // 0. Storage Cleanup: Backups (Authoritative prefix purge)
     try {
-      const [files] = await bucket.getFiles({ prefix: `backups/${uid}/` });
-      if (files.length > 0) {
-        for (const file of files) {
+    // 0. Storage Cleanup: Backups (Authoritative prefix purge)
+      try {
+        const [files] = await bucket.getFiles({ prefix: `backups/${uid}/` });
+        if (files.length > 0) {
+          for (const file of files) {
             await file.delete();
             logger.info(`[DELETE USER] Storage | File Deleted | Path=${file.name}`);
-        }
-        logger.info(`[DELETE USER] Storage | Backups Purged | Count=${files.length} | UID=${uid}`);
-      } else {
-        logger.info(`[DELETE USER] Storage | No Backups Found | UID=${uid}`);
-      }
-    } catch (e) {
-      logger.error(`[DELETE USER] Storage | Backups Error | UID=${uid}:`, e);
-    }
-
-    // 1. Cleanup Artifacts (SCALABLE: Bulk mark for trigger-based cleanup)
-    const artifactsQuery = db.collection("artifacts").where("userId", "==", uid);
-    const artifactsSnapshot = await artifactsQuery.get();
-
-    if (!artifactsSnapshot.empty) {
-      const bulkWriter = db.bulkWriter();
-      artifactsSnapshot.docs.forEach((doc) => {
-        const artifactData = doc.data();
-        if (artifactData.status !== "DELETED") {
-          // LEGAL HOLD GUARD: Do not mark for deletion if preserved
-          if (artifactData.moderation?.legalHold === true) {
-            logger.info(`[DELETE USER] Artifact Preserved (Legal Hold) | ArtifactID=${doc.id}`);
-            return;
           }
-
-          bulkWriter.update(doc.ref, {
-            status: "DELETED",
-            isPublic: false,
-            deletedAt: FieldValue.serverTimestamp(),
-          });
+          logger.info(`[DELETE USER] Storage | Backups Purged | Count=${files.length} | UID=${uid}`);
+        } else {
+          logger.info(`[DELETE USER] Storage | No Backups Found | UID=${uid}`);
         }
-      });
-      await bulkWriter.close();
-      logger.info(`[DELETE USER] Artifacts | Marked for cleanup: ${artifactsSnapshot.size}`);
-    }
-
-    // 2. Cleanup Notifications
-    await deleteQueryBatch(
-      db,
-      db.collection("notifications").where("userId", "==", uid),
-      "User Notifications"
-    );
-
-    // 3. Cleanup Resonances (Counter integrity preserved)
-    try {
-      const resonanceOutSnapshot = await db.collection("users").doc(uid).collection("resonance_out").get();
-      for (const doc of resonanceOutSnapshot.docs) {
-        const targetId = doc.id;
-        await db.runTransaction(async (transaction) => {
-          transaction.delete(db.collection("users").doc(uid).collection("resonance_out").doc(targetId));
-          transaction.delete(db.collection("users").doc(targetId).collection("resonance_in").doc(uid));
-          transaction.update(db.collection("users").doc(targetId), {
-            resonanceInCount: FieldValue.increment(-1),
-            followersCount: FieldValue.increment(-1),
-          });
-        });
+      } catch (e) {
+        logger.error(`[DELETE USER] Storage | Backups Error | UID=${uid}:`, e);
       }
 
-      const resonanceInSnapshot = await db.collection("users").doc(uid).collection("resonance_in").get();
-      for (const doc of resonanceInSnapshot.docs) {
-        const followerId = doc.id;
-        await db.runTransaction(async (transaction) => {
-          transaction.delete(db.collection("users").doc(uid).collection("resonance_in").doc(followerId));
-          transaction.delete(db.collection("users").doc(followerId).collection("resonance_out").doc(uid));
-          transaction.update(db.collection("users").doc(followerId), {
-            resonanceOutCount: FieldValue.increment(-1),
-            followingCount: FieldValue.increment(-1),
-          });
-        });
-      }
-    } catch (e) {
-      logger.error("[DELETE USER] Stage=Resonance | ERROR:", e);
-    }
+      // 1. Cleanup Artifacts (SCALABLE: Bulk mark for trigger-based cleanup)
+      const artifactsQuery = db.collection("artifacts").where("userId", "==", uid);
+      const artifactsSnapshot = await artifactsQuery.get();
 
-    // 4. Cleanup Username (Mapping removal)
-    try {
-      const userDoc = await db.collection("users").doc(uid).get();
-      const username = userDoc.data()?.anonymousName;
-      if (username) {
-        await db.collection("usernames").doc(username.toLowerCase().trim()).delete();
-      }
-      // Safety Net: Cleanup any other username mappings for this UID
-      await deleteQueryBatch(db, db.collection("usernames").where("uid", "==", uid), "Username Safety Net");
-    } catch (e) {
-      logger.error("[DELETE USER] Stage=Username | ERROR:", e);
-    }
-
-    // 5. Cleanup Listening Sessions
-    await deleteQueryBatch(
-      db,
-      db.collection("listening_sessions").where("userId", "==", uid),
-      "User Listening Sessions"
-    );
-
-    // 5.5 Anonymize Comments (Preserve history while severing identity)
-    try {
-      const commentsQuery = db.collectionGroup("comments").where("creatorId", "==", uid);
-      const commentsSnapshot = await commentsQuery.get();
-      if (!commentsSnapshot.empty) {
+      if (!artifactsSnapshot.empty) {
         const bulkWriter = db.bulkWriter();
-        commentsSnapshot.docs.forEach((doc) => bulkWriter.update(doc.ref, { creatorId: "" }));
+        artifactsSnapshot.docs.forEach((doc) => {
+          const artifactData = doc.data();
+          if (artifactData.status !== "DELETED") {
+          // LEGAL HOLD GUARD: Do not mark for deletion if preserved
+            if (artifactData.moderation?.legalHold === true) {
+              logger.info(`[DELETE USER] Artifact Preserved (Legal Hold) | ArtifactID=${doc.id}`);
+              return;
+            }
+
+            bulkWriter.update(doc.ref, {
+              status: "DELETED",
+              isPublic: false,
+              deletedAt: FieldValue.serverTimestamp(),
+            });
+          }
+        });
         await bulkWriter.close();
-        logger.info(`[DELETE USER] Comments | Anonymized: ${commentsSnapshot.size}`);
+        logger.info(`[DELETE USER] Artifacts | Marked for cleanup: ${artifactsSnapshot.size}`);
       }
-    } catch (e) {
-      logger.error("[DELETE USER] Stage=Anonymize Comments | ERROR:", e);
-    }
 
-    // 6. Root Collection Cleanup (User-agnostic but UID-scoped data)
-    const globalCollections = [
-      { coll: "reactions_global", field: "userId", label: "Global Reactions" },
-      { coll: "artifact_reactions", field: "userId", label: "Artifact Reactions" },
-      { coll: "artifact_plays", field: "userId", label: "Artifact Plays" },
-      { coll: "feedback_private", field: "userId", label: "Private Feedback" }
-    ];
-
-    for (const entry of globalCollections) {
+      // 2. Cleanup Notifications
       await deleteQueryBatch(
         db,
-        db.collection(entry.coll).where(entry.field, "==", uid),
-        entry.label
+        db.collection("notifications").where("userId", "==", uid),
+        "User Notifications"
       );
+
+      // 3. Cleanup Resonances (Counter integrity preserved)
+      try {
+        const resonanceOutSnapshot = await db.collection("users").doc(uid).collection("resonance_out").get();
+        for (const doc of resonanceOutSnapshot.docs) {
+          const targetId = doc.id;
+          await db.runTransaction(async (transaction) => {
+            transaction.delete(db.collection("users").doc(uid).collection("resonance_out").doc(targetId));
+            transaction.delete(db.collection("users").doc(targetId).collection("resonance_in").doc(uid));
+            transaction.update(db.collection("users").doc(targetId), {
+              resonanceInCount: FieldValue.increment(-1),
+              followersCount: FieldValue.increment(-1),
+            });
+          });
+        }
+
+        const resonanceInSnapshot = await db.collection("users").doc(uid).collection("resonance_in").get();
+        for (const doc of resonanceInSnapshot.docs) {
+          const followerId = doc.id;
+          await db.runTransaction(async (transaction) => {
+            transaction.delete(db.collection("users").doc(uid).collection("resonance_in").doc(followerId));
+            transaction.delete(db.collection("users").doc(followerId).collection("resonance_out").doc(uid));
+            transaction.update(db.collection("users").doc(followerId), {
+              resonanceOutCount: FieldValue.increment(-1),
+              followingCount: FieldValue.increment(-1),
+            });
+          });
+        }
+      } catch (e) {
+        logger.error("[DELETE USER] Stage=Resonance | ERROR:", e);
+      }
+
+      // 4. Cleanup Username (Mapping removal)
+      try {
+        const userDoc = await db.collection("users").doc(uid).get();
+        const username = userDoc.data()?.anonymousName;
+        if (username) {
+          await db.collection("usernames").doc(username.toLowerCase().trim()).delete();
+        }
+        // Safety Net: Cleanup any other username mappings for this UID
+        await deleteQueryBatch(db, db.collection("usernames").where("uid", "==", uid), "Username Safety Net");
+      } catch (e) {
+        logger.error("[DELETE USER] Stage=Username | ERROR:", e);
+      }
+
+      // 5. Cleanup Listening Sessions
+      await deleteQueryBatch(
+        db,
+        db.collection("listening_sessions").where("userId", "==", uid),
+        "User Listening Sessions"
+      );
+
+      // 5.5 Anonymize Comments (Preserve history while severing identity)
+      try {
+        const commentsQuery = db.collectionGroup("comments").where("creatorId", "==", uid);
+        const commentsSnapshot = await commentsQuery.get();
+        if (!commentsSnapshot.empty) {
+          const bulkWriter = db.bulkWriter();
+          commentsSnapshot.docs.forEach((doc) => bulkWriter.update(doc.ref, { creatorId: "" }));
+          await bulkWriter.close();
+          logger.info(`[DELETE USER] Comments | Anonymized: ${commentsSnapshot.size}`);
+        }
+      } catch (e) {
+        logger.error("[DELETE USER] Stage=Anonymize Comments | ERROR:", e);
+      }
+
+      // 6. Root Collection Cleanup (User-agnostic but UID-scoped data)
+      const globalCollections = [
+        { coll: "reactions_global", field: "userId", label: "Global Reactions" },
+        { coll: "artifact_reactions", field: "userId", label: "Artifact Reactions" },
+        { coll: "artifact_plays", field: "userId", label: "Artifact Plays" },
+        { coll: "feedback_private", field: "userId", label: "Private Feedback" }
+      ];
+
+      for (const entry of globalCollections) {
+        await deleteQueryBatch(
+          db,
+          db.collection(entry.coll).where(entry.field, "==", uid),
+          entry.label
+        );
+      }
+
+      // 7. FINAL: Recursive User Tree Destruction
+      // This authoritatively handles ALL nested subcollections (engagement, published_artifacts, intents, etc.)
+      const userRef = db.collection("users").doc(uid);
+      await db.recursiveDelete(userRef);
+
+      const totalDuration = Date.now() - startTime;
+      logger.info(`[DELETE USER] FINISH | UID=${uid} | Duration=${totalDuration}ms`);
+
+      return null;
+    } catch (error) {
+      logger.error(`[DELETE USER] FATAL ERROR | UID=${uid}:`, error);
+      throw error; // Trigger retry for transient failures
     }
-
-    // 7. FINAL: Recursive User Tree Destruction
-    // This authoritatively handles ALL nested subcollections (engagement, published_artifacts, intents, etc.)
-    const userRef = db.collection("users").doc(uid);
-    await db.recursiveDelete(userRef);
-
-    const totalDuration = Date.now() - startTime;
-    logger.info(`[DELETE USER] FINISH | UID=${uid} | Duration=${totalDuration}ms`);
-
-    return null;
-  } catch (error) {
-    logger.error(`[DELETE USER] FATAL ERROR | UID=${uid}:`, error);
-    throw error; // Trigger retry for transient failures
-  }
-});
+  });
 
 /**
  * Authoritative backend validator for the "Listen Before You Respond" feature.
@@ -996,6 +996,18 @@ async function aggregateReports(db: admin.firestore.Firestore, artifactId: strin
 }
 
 /**
+ * Aggregates safety concerns for an artifact.
+ */
+async function aggregateSafetyConcerns(db: admin.firestore.Firestore, artifactId: string) {
+  const feedbackSnapshot = await db.collection("feedback_private")
+    .where("artifactId", "==", artifactId)
+    .where("type", "==", "SAFETY_CONCERN")
+    .get();
+
+  return feedbackSnapshot.size;
+}
+
+/**
  * Evaluates the moderation state of an artifact based on report count.
  */
 function evaluateModerationState(reportCount: number) {
@@ -1006,172 +1018,139 @@ function evaluateModerationState(reportCount: number) {
 }
 
 /**
- * Triggered when a community report is created.
- * Aggregates reports, evaluates moderation threshold, and updates artifact metadata.
+ * Triggered on any write to a report.
+ * Ensures the reporter's private suppression marker and artifact aggregates are consistent.
+ * Hardened with event-scoped idempotency (v2) to handle updates and healing.
  */
-export const onReportCreated = functions.firestore
+export const onReportWrite = functions.firestore
   .document("reports/{reportId}")
-  .onCreate(async (snapshot, context) => {
-    const data = snapshot.data();
-    if (!data) return null;
+  .onWrite(async (change, context) => {
+    const reportId = context.params.reportId;
+    const eventId = context.eventId;
 
-    const artifactId = data.artifactId;
-    if (!artifactId) {
-      logger.error("[MODERATION] Report missing artifactId", {reportId: context.params.reportId});
-      return null;
-    }
-
-    const idempotencyKey = `report_agg_v1_${context.params.reportId}`;
-
-    return withIdempotency(idempotencyKey, async () => {
+    return withIdempotency(`report_v2_${eventId}`, async () => {
       const db = admin.firestore();
-      const artifactRef = db.collection("artifacts").doc(artifactId);
-      const queueRef = db.collection("moderation_queue").doc(artifactId);
+      const beforeData = change.before.data();
+      const afterData = change.after.data();
 
-      // 1. Verify Artifact exists
-      const artifactDoc = await artifactRef.get();
-      if (!artifactDoc.exists) {
-        logger.warn(`[MODERATION] Artifact not found | ID=${artifactId}`);
-        return;
+      // 1. Identity Resolution
+      const data = afterData || beforeData;
+      if (!data) return null;
+
+      const artifactId = data.artifactId;
+      const reporterId = data.reporterId;
+
+      if (!artifactId || !reporterId) {
+        logger.error("[MODERATION] Report missing required fields", {reportId});
+        return null;
       }
 
-      // 2. Aggregate derived data from the source of truth (reports collection)
+      const markerRef = db.collection("users").doc(reporterId)
+        .collection("private").doc("reports")
+        .collection("artifacts").doc(artifactId);
+
+      const artifactRef = db.collection("artifacts").doc(artifactId);
+
+      // 2. Marker Lifecycle Management
+      if (!afterData) {
+        // DELETE Path: Remove cross-device suppression marker
+        await markerRef.delete();
+        logger.info(`[MODERATION] Marker removed | UserID=${reporterId} | ArtifactID=${artifactId}`);
+      } else {
+        // CREATE/UPDATE Path: Ensure marker exists and matches latest reason
+        await markerRef.set({
+          artifactId: artifactId,
+          reportedAt: afterData.createdAt || FieldValue.serverTimestamp(),
+          reason: afterData.reason,
+        });
+        logger.info(`[MODERATION] Marker established | UserID=${reporterId} | ArtifactID=${artifactId}`);
+      }
+
+      // 3. Aggregate Recalculation (Authoritative Re-scan)
       const {reportCount, lastReportedAt} = await aggregateReports(db, artifactId);
 
-      // 3. Evaluate moderation state
-      let newState = evaluateModerationState(reportCount);
-
-      // PRIORITY OVERRIDE: Child Safety reports trigger immediate suppression (Threshold 1)
-      if (data.reason === "CHILD_SAFETY") {
-        newState = ModerationConfig.RecommendationState.SUPPRESSED;
-        logger.info(`[MODERATION] Child Safety Priority Suppression | ArtifactID=${artifactId}`);
-      }
-
-      const currentData = artifactDoc.data()!;
-
-      const batch = db.batch();
-
-      // 4. Update Artifact Metadata (Derived)
+      // 4. Moderation State Evaluation
       const updates: any = {
         reportCount: reportCount,
         lastReportedAt: lastReportedAt,
       };
 
-      if (newState === ModerationConfig.RecommendationState.SUPPRESSED &&
-          currentData.recommendationState !== ModerationConfig.RecommendationState.SUPPRESSED) {
-        updates.recommendationState = ModerationConfig.RecommendationState.SUPPRESSED;
-        logger.info(`[MODERATION] Suppression triggered | ArtifactID=${artifactId} | Reason=${data.reason} | Count=${reportCount}`);
+      if (afterData) {
+        // PRIORITY OVERRIDE: Child Safety reports trigger immediate suppression
+        if (afterData.reason === "CHILD_SAFETY") {
+          updates.recommendationState = ModerationConfig.RecommendationState.SUPPRESSED;
+          logger.info(`[MODERATION] Child Safety Priority Suppression | ArtifactID=${artifactId}`);
+        } else {
+          const newState = evaluateModerationState(reportCount);
+          // Only transition to SUPPRESSED here. De-suppression is handled by Admin flow.
+          if (newState === ModerationConfig.RecommendationState.SUPPRESSED) {
+            updates.recommendationState = ModerationConfig.RecommendationState.SUPPRESSED;
+          }
+        }
       }
 
-      batch.update(artifactRef, updates);
+      // Atomic metadata update
+      await artifactRef.update(updates);
 
-      // 5. Update Moderation Queue
-      batch.set(queueRef, {
-        artifactId: artifactId,
-        reportCount: reportCount,
-        status: ModerationConfig.ModerationStatus.PENDING_REVIEW,
-        createdAt: currentData.createdAt || FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-      }, {merge: true});
-
-      // 6. Cross-Device Sync Marker (Private to Reporter)
-      // Path: users/{uid}/private/reports/artifacts/{artifactId}
-      const reporterId = data.reporterId;
-      if (reporterId) {
-        const markerRef = db.collection("users").doc(reporterId)
-          .collection("private").doc("reports")
-          .collection("artifacts").doc(artifactId);
-
-        batch.set(markerRef, {
+      // 5. Moderation Queue Synchronization (if not deleted)
+      if (afterData) {
+        const queueRef = db.collection("moderation_queue").doc(artifactId);
+        await queueRef.set({
           artifactId: artifactId,
-          reportedAt: lastReportedAt,
-          reason: data.reason
-        });
+          reportCount: reportCount,
+          status: ModerationConfig.ModerationStatus.PENDING_REVIEW,
+          updatedAt: FieldValue.serverTimestamp(),
+        }, {merge: true});
       }
 
-      await batch.commit();
       logger.info(`[MODERATION] Aggregation success | ArtifactID=${artifactId} | Count=${reportCount}`);
+      return null;
     });
   });
 
 /**
  * Authoritatively handles private feedback aggregation.
- * Triggered when a user submits feedback (e.g., Safety Concern, Not for me).
+ * Triggered on any write to private feedback to handle updates and deletion.
  */
-export const onPrivateFeedbackCreated = functions.firestore
+export const onPrivateFeedbackWrite = functions.firestore
   .document("feedback_private/{feedbackId}")
-  .onCreate(async (snapshot, context) => {
-    const data = snapshot.data();
-    if (!data) return null;
+  .onWrite(async (change, context) => {
+    const eventId = context.eventId;
+    const beforeData = change.before.data();
+    const afterData = change.after.data();
 
-    const artifactId = data.artifactId;
-    const type = data.type;
-
-    if (type !== "SAFETY_CONCERN") {
+    const data = afterData || beforeData;
+    if (!data || data.type !== "SAFETY_CONCERN") {
       return null;
     }
 
-    const idempotencyKey = `sf_agg_${context.params.feedbackId}`;
-
-    return withIdempotency(idempotencyKey, async () => {
+    return withIdempotency(`sf_agg_v2_${eventId}`, async () => {
       const db = admin.firestore();
+      const artifactId = data.artifactId;
       const artifactRef = db.collection("artifacts").doc(artifactId);
 
-      // 1. Verify Artifact exists
-      const artifactDoc = await artifactRef.get();
-      if (!artifactDoc.exists) {
-        logger.warn(`[SAFETY] Artifact not found for feedback | ID=${artifactId}`);
-        return;
-      }
+      // 1. Recalculate Safety Concerns (Authoritative)
+      const currentCount = await aggregateSafetyConcerns(db, artifactId);
 
-      const currentData = artifactDoc.data()!;
-
-      // 2. Authoritative Increment (Atomic)
+      // 2. Evaluate moderation threshold
       const updates: any = {
-        safetyConcernCount: FieldValue.increment(1),
+        safetyConcernCount: currentCount,
       };
 
-      // 3. Evaluate moderation threshold
-      // Note: We use a threshold of 3 for safety concerns, consistent with reports.
-      const currentCount = (currentData.safetyConcernCount || 0) + 1;
-      if (currentCount >= ModerationConfig.SAFETY_CONCERN_SUPPRESSION_THRESHOLD &&
-          currentData.recommendationState !== ModerationConfig.RecommendationState.SUPPRESSED) {
-        updates.recommendationState = ModerationConfig.RecommendationState.SUPPRESSED;
-        logger.info(`[SAFETY] Suppression triggered by safety concerns | ArtifactID=${artifactId} | Count=${currentCount}`);
+      if (currentCount >= ModerationConfig.SAFETY_CONCERN_SUPPRESSION_THRESHOLD) {
+        // Fetch current state to avoid overwriting more restrictive states if possible
+        const artifactDoc = await artifactRef.get();
+        if (artifactDoc.exists &&
+            artifactDoc.data()?.recommendationState !== ModerationConfig.RecommendationState.SUPPRESSED) {
+          updates.recommendationState = ModerationConfig.RecommendationState.SUPPRESSED;
+          logger.info(`[SAFETY] Suppression triggered by safety concerns | ArtifactID=${artifactId} | Count=${currentCount}`);
+        }
       }
 
       await artifactRef.update(updates);
       logger.info(`[SAFETY] Aggregate success | ArtifactID=${artifactId} | NewCount=${currentCount}`);
+      return null;
     });
-  });
-
-/**
- * Recalculates report aggregates when a report is deleted (e.g., by an Admin).
- */
-export const onReportDeleted = functions.firestore
-  .document("reports/{reportId}")
-  .onDelete(async (snapshot, context) => {
-    const data = snapshot.data();
-    if (!data) return null;
-
-    const artifactId = data.artifactId;
-    if (!artifactId) return null;
-
-    const db = admin.firestore();
-    const artifactRef = db.collection("artifacts").doc(artifactId);
-
-    // Atomic recalculation to ensure consistency
-    const {reportCount, lastReportedAt} = await aggregateReports(db, artifactId);
-
-    // We don't automatically clear SUPPRESSED state on report deletion
-    // because that usually requires an intentional Admin action (appeal).
-    await artifactRef.update({
-      reportCount: reportCount,
-      lastReportedAt: lastReportedAt,
-    });
-
-    logger.info(`[MODERATION] Aggregation update after delete | ArtifactID=${artifactId} | NewCount=${reportCount}`);
-    return null;
   });
 
 /**

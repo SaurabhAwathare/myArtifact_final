@@ -48,6 +48,7 @@ class MainViewModel @Inject constructor(
     private val logoutCoordinator: com.saurabh.artifact.domain.auth.LogoutCoordinator,
     private val maintenanceRepository: com.saurabh.artifact.repository.MaintenanceRepository,
     private val sessionManager: com.saurabh.artifact.data.local.UserSessionManager,
+    private val userProfileManager: com.saurabh.artifact.repository.UserProfileManager,
     observeStealthModeUseCase: ObserveStealthModeUseCase,
     private val startupCoordinator: StartupCoordinator,
     private val savedStateHandle: SavedStateHandle,
@@ -109,6 +110,25 @@ class MainViewModel @Inject constructor(
             }
         }
 
+        // Reactive Safety Sync Lifecycle Management
+        // Ensures synchronization is established for every authenticated session 
+        // regardless of startup path, and respects the cleanup barrier.
+        combine(
+            authRepository.currentUser,
+            isCleaning
+        ) { user, cleaning ->
+            user?.uid to cleaning
+        }
+        .distinctUntilChanged()
+        .onEach { (uid, cleaning) ->
+            if (uid != null && !cleaning) {
+                userProfileManager.initializeSafetySync(uid)
+            } else if (uid == null) {
+                userProfileManager.stopSafetySync()
+            }
+        }
+        .launchIn(viewModelScope)
+
         // Comprehensive Auth Boundary & Cleanup Observation
         // If the UID changes (direct swap or transition to/from null), 
         // we detect if the local state belongs to a different user and trigger cleanup.
@@ -140,8 +160,12 @@ class MainViewModel @Inject constructor(
                             try {
                                 _isCleaning.value = true
                                 // BLOCKING: Ensure cleanup completes before continuing to prevent stale data visibility
-                                logoutCoordinator.performFullCleanup()
-                                diagnosticLogger.info(DiagnosticCategory.AUTH, "ACCOUNT_CLEANUP_COMPLETED")
+                                val result = logoutCoordinator.performFullCleanup()
+                                if (result.isFullySuccessful) {
+                                    diagnosticLogger.info(DiagnosticCategory.AUTH, "ACCOUNT_CLEANUP_COMPLETED")
+                                } else {
+                                    diagnosticLogger.error(DiagnosticCategory.AUTH, "ACCOUNT_CLEANUP_INCOMPLETE", mapOf("result" to result.toString()))
+                                }
                             } catch (_: Exception) {
                                 diagnosticLogger.error(DiagnosticCategory.AUTH, "ACCOUNT_CLEANUP_FAILED")
                             } finally {
@@ -232,8 +256,10 @@ class MainViewModel @Inject constructor(
     /**
      * Proactively verifies that the local data boundary is intact during startup.
      * Triggers a comprehensive cleanup if a pending deletion or account mismatch is detected.
+     * Returns true if the boundary is clean (either no cleanup needed or successful cleanup),
+     * or false if a critical failure occurred that must block startup.
      */
-    private suspend fun checkLocalAccountBoundary() {
+    private suspend fun checkLocalAccountBoundary(): Boolean {
         val currentUid = authRepository.currentUserId
         val owningUid = sessionManager.owningUid.first()
         val pendingDeletionUid = maintenanceRepository.getPendingDeletionUid()
@@ -260,20 +286,30 @@ class MainViewModel @Inject constructor(
                 mapOf("reason" to reason)
             )
             
-            try {
+            return try {
                 _isCleaning.value = true
-                logoutCoordinator.performFullCleanup()
+                val result = logoutCoordinator.performFullCleanup()
                 
-                // Clear maintenance lock only if it was the reason for cleanup to prevent infinite loops
-                if (isDeletionInterrupted) {
-                    maintenanceRepository.setPendingDeletion(null)
+                if (result.isFullySuccessful) {
+                    // Clear maintenance lock only if it was the reason for cleanup to prevent infinite loops
+                    if (isDeletionInterrupted) {
+                        maintenanceRepository.setPendingDeletion(null)
+                    }
+                    true
+                } else {
+                    diagnosticLogger.error(DiagnosticCategory.AUTH, "STARTUP_CLEANUP_INCOMPLETE", mapOf("result" to result.toString()))
+                    _startupState.value = AppStartupState.Error("Data maintenance required. Please restart the app.")
+                    false
                 }
             } catch (e: Exception) {
                 diagnosticLogger.error(DiagnosticCategory.AUTH, "STARTUP_CLEANUP_FAILED", throwable = e)
+                _startupState.value = AppStartupState.Error("Security boundary violation. Please contact support.")
+                false
             } finally {
                 _isCleaning.value = false
             }
         }
+        return true
     }
 
     private fun mapIdToRoute(id: String): Any? {
@@ -310,7 +346,9 @@ class MainViewModel @Inject constructor(
             try {
                 // BLOCKER FIX: Proactively detect and clear stale local state or interrupted deletions
                 // before any system initialization occurs. This ensures no data leakage to new accounts.
-                checkLocalAccountBoundary()
+                if (!checkLocalAccountBoundary()) {
+                    return@launch // Abort on critical cleanup failure
+                }
 
                 // BLOCKER FIX: Wait for any cross-account cleanup to finish before initializing the new session.
                 // This ensures User B never sees User A's cached DataStore/Room identity.
@@ -354,8 +392,12 @@ class MainViewModel @Inject constructor(
                 _startupState.value = AppStartupState.Registering
                 
                 when (val result = registrationCoordinator.ensureProfileExists()) {
-                    RegistrationResult.SuccessExistingUser -> Home
-                    RegistrationResult.SuccessNewUser -> IdentityReveal
+                    RegistrationResult.SuccessExistingUser -> {
+                        Home
+                    }
+                    RegistrationResult.SuccessNewUser -> {
+                        IdentityReveal
+                    }
                     is RegistrationResult.Failure -> {
                         diagnosticLogger.error(DiagnosticCategory.STARTUP, "STARTUP_REGISTRATION_FAILED", throwable = result.exception)
                         val message = if (result.exception.message?.contains("terminated") == true) {

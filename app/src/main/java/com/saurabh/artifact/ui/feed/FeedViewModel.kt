@@ -17,6 +17,7 @@ import com.saurabh.artifact.domain.prompt.GetReflectionPromptUseCase
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.ArtifactEngagementRepository
+import com.saurabh.artifact.repository.ModerationEvent
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.NotificationRepository
 import com.saurabh.artifact.repository.SavedArtifactManager
@@ -215,6 +216,21 @@ class FeedViewModel @Inject constructor(
                     }
                 }
                 _uiState.update { it.copy(error = error) }
+            }
+        }
+
+        // Listen for global moderation events (e.g. Report Success)
+        viewModelScope.launch {
+            artifactRepository.moderationRepository.get().events.collect { event ->
+                when (event) {
+                    is ModerationEvent.ReportSuccess -> {
+                        _uiState.update { it.copy(
+                            error = UiError(UiText.DynamicString("Artifact hidden from your feed."))
+                        ) }
+                        _refreshTrigger.value += 1
+                        diagnosticLogger.info(DiagnosticCategory.FEED, "FEED_REFRESH_REPORT_SUCCESS", mapOf("artifactId" to event.artifactId))
+                    }
+                }
             }
         }
     }
@@ -459,10 +475,6 @@ class FeedViewModel @Inject constructor(
         viewModelScope.launch {
             val deviceIdHash = uploadGuard.getDeviceFingerprint().hashCode()
             artifactRepository.submitReport(artifactId, reason, optionalDescription, deviceIdHash)
-                .onSuccess {
-                    _uiState.update { it.copy(error = UiError(UiText.DynamicString("Report submitted anonymously. Thank you for keeping Artifact safe."))) }
-                    _refreshTrigger.value += 1
-                }
                 .onFailure { e ->
                     _uiState.update { it.copy(error = ErrorMessageMapper.mapToUiError(e, onRetry = { reportArtifact(artifactId, reason, optionalDescription) })) }
                 }

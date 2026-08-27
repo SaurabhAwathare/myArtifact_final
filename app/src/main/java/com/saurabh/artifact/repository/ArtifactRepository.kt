@@ -82,7 +82,7 @@ class ArtifactRepository @Inject constructor(
     private val artifactDao: dagger.Lazy<ArtifactDao>,
     private val database: dagger.Lazy<com.saurabh.artifact.data.local.AppDatabase>,
     private val artifactLibraryRepository: dagger.Lazy<ArtifactLibraryRepository>,
-    private val moderationRepository: dagger.Lazy<ArtifactModerationRepository>,
+    val moderationRepository: dagger.Lazy<ArtifactModerationRepository>,
     private val publishingRepository: dagger.Lazy<ArtifactPublishingRepository>,
     private val artifactEngagementRepository: dagger.Lazy<ArtifactEngagementRepository>,
     private val reflectionPromptManager: dagger.Lazy<ReflectionPromptManager>,

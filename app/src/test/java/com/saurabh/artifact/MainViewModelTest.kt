@@ -40,6 +40,7 @@ class MainViewModelTest {
     private val logoutCoordinator = mockk<LogoutCoordinator>(relaxed = true)
     private val maintenanceRepository = mockk<com.saurabh.artifact.repository.MaintenanceRepository>(relaxed = true)
     private val sessionManager = mockk<com.saurabh.artifact.data.local.UserSessionManager>(relaxed = true)
+    private val userProfileManager = mockk<com.saurabh.artifact.repository.UserProfileManager>(relaxed = true)
     private val observeStealthModeUseCase = mockk<ObserveStealthModeUseCase>(relaxed = true)
     private val startupCoordinator = mockk<StartupCoordinator>(relaxed = true)
     private val intent = mockk<Intent>(relaxed = true)
@@ -89,6 +90,7 @@ class MainViewModelTest {
             logoutCoordinator,
             maintenanceRepository,
             sessionManager,
+            userProfileManager,
             observeStealthModeUseCase,
             startupCoordinator,
             savedStateHandle,
@@ -732,6 +734,7 @@ class MainViewModelTest {
             logoutCoordinator,
             maintenanceRepository,
             sessionManager,
+            userProfileManager,
             observeStealthModeUseCase,
             startupCoordinator,
             savedStateHandle,
@@ -810,6 +813,7 @@ class MainViewModelTest {
             logoutCoordinator,
             maintenanceRepository,
             sessionManager,
+            userProfileManager,
             observeStealthModeUseCase,
             startupCoordinator,
             savedStateHandle,
