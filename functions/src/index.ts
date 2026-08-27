@@ -1008,102 +1008,137 @@ async function aggregateSafetyConcerns(db: admin.firestore.Firestore, artifactId
 }
 
 /**
- * Evaluates the moderation state of an artifact based on report count.
- */
-function evaluateModerationState(reportCount: number) {
-  if (reportCount >= ModerationConfig.REPORT_SUPPRESSION_THRESHOLD) {
-    return ModerationConfig.RecommendationState.SUPPRESSED;
-  }
-  return ModerationConfig.RecommendationState.ACTIVE;
-}
-
-/**
  * Triggered on any write to a report.
  * Ensures the reporter's private suppression marker and artifact aggregates are consistent.
- * Hardened with event-scoped idempotency (v2) to handle updates and healing.
+ * Optimized with incremental counters and transactional idempotency to eliminate O(N^2) reads.
  */
 export const onReportWrite = functions.firestore
   .document("reports/{reportId}")
   .onWrite(async (change, context) => {
     const reportId = context.params.reportId;
     const eventId = context.eventId;
+    const db = admin.firestore();
 
-    return withIdempotency(`report_v2_${eventId}`, async () => {
-      const db = admin.firestore();
-      const beforeData = change.before.data();
-      const afterData = change.after.data();
+    // Deterministic key for idempotency (v2 compatible)
+    const idempotencyKey = `report_v2_${eventId}`;
+    const idempotencyRef = db.collection("idempotency_keys").doc(idempotencyKey);
 
-      // 1. Identity Resolution
-      const data = afterData || beforeData;
-      if (!data) return null;
+    const beforeData = change.before.data();
+    const afterData = change.after.data();
+    const data = afterData || beforeData;
 
-      const artifactId = data.artifactId;
-      const reporterId = data.reporterId;
+    if (!data) return null;
 
-      if (!artifactId || !reporterId) {
-        logger.error("[MODERATION] Report missing required fields", {reportId});
+    const artifactId = data.artifactId;
+    const reporterId = data.reporterId;
+
+    if (!artifactId || !reporterId) {
+      logger.error("[MODERATION] Report missing required fields", {reportId});
+      return null;
+    }
+
+    const artifactRef = db.collection("artifacts").doc(artifactId);
+    const markerRef = db.collection("users").doc(reporterId)
+      .collection("private").doc("reports")
+      .collection("artifacts").doc(artifactId);
+
+    return await db.runTransaction(async (transaction) => {
+      // 1. Transactional Idempotency Check
+      const idempotencyDoc = await transaction.get(idempotencyRef);
+      if (idempotencyDoc.exists && idempotencyDoc.data()?.status === "SUCCESS") {
+        logger.info(`[MODERATION] Already processed event ${eventId} | ReportId=${reportId}`);
         return null;
       }
 
-      const markerRef = db.collection("users").doc(reporterId)
-        .collection("private").doc("reports")
-        .collection("artifacts").doc(artifactId);
+      // 2. State Determination
+      // CREATE: +1, DELETE: -1, UPDATE: 0
+      const delta = (!beforeData && afterData) ? 1 : (beforeData && !afterData) ? -1 : 0;
 
-      const artifactRef = db.collection("artifacts").doc(artifactId);
-
-      // 2. Marker Lifecycle Management
-      if (!afterData) {
-        // DELETE Path: Remove cross-device suppression marker
-        await markerRef.delete();
-        logger.info(`[MODERATION] Marker removed | UserID=${reporterId} | ArtifactID=${artifactId}`);
-      } else {
-        // CREATE/UPDATE Path: Ensure marker exists and matches latest reason
-        await markerRef.set({
-          artifactId: artifactId,
-          reportedAt: afterData.createdAt || FieldValue.serverTimestamp(),
-          reason: afterData.reason,
+      // 3. Read Current Artifact State
+      const artifactDoc = await transaction.get(artifactRef);
+      if (!artifactDoc.exists) {
+        logger.warn(`[MODERATION] Artifact missing | ArtifactID=${artifactId}`);
+        transaction.set(idempotencyRef, {
+          status: "SUCCESS",
+          reason: "ARTIFACT_NOT_FOUND",
+          createdAt: FieldValue.serverTimestamp(),
         });
-        logger.info(`[MODERATION] Marker established | UserID=${reporterId} | ArtifactID=${artifactId}`);
+        return null;
       }
 
-      // 3. Aggregate Recalculation (Authoritative Re-scan)
-      const {reportCount, lastReportedAt} = await aggregateReports(db, artifactId);
+      const artifactData = artifactDoc.data()!;
+      const currentReportCount = artifactData.reportCount || 0;
+      const newReportCount = Math.max(0, currentReportCount + delta);
 
-      // 4. Moderation State Evaluation
+      // 4. Prepare Metadata Updates
       const updates: any = {
-        reportCount: reportCount,
-        lastReportedAt: lastReportedAt,
+        reportCount: newReportCount,
+        lastUpdated: FieldValue.serverTimestamp(),
       };
 
       if (afterData) {
-        // PRIORITY OVERRIDE: Child Safety reports trigger immediate suppression
+        // Monotonic Update for lastReportedAt
+        const newReportedAt = afterData.createdAt || FieldValue.serverTimestamp();
+        const currentLastReportedAt = artifactData.lastReportedAt;
+
+        // Note: Firestore Timestamp comparison
+        const isNewer = !currentLastReportedAt || (
+          newReportedAt instanceof admin.firestore.Timestamp &&
+          currentLastReportedAt instanceof admin.firestore.Timestamp &&
+          newReportedAt.toMillis() > currentLastReportedAt.toMillis()
+        );
+
+        if (isNewer) {
+          updates.lastReportedAt = newReportedAt;
+        }
+
+        // 5. Authoritative Safety Logic (Suppression)
         if (afterData.reason === "CHILD_SAFETY") {
           updates.recommendationState = ModerationConfig.RecommendationState.SUPPRESSED;
-          logger.info(`[MODERATION] Child Safety Priority Suppression | ArtifactID=${artifactId}`);
-        } else {
-          const newState = evaluateModerationState(reportCount);
-          // Only transition to SUPPRESSED here. De-suppression is handled by Admin flow.
-          if (newState === ModerationConfig.RecommendationState.SUPPRESSED) {
+          logger.info(`[MODERATION] CHILD_SAFETY priority suppression | ArtifactID=${artifactId}`);
+        } else if (newReportCount >= ModerationConfig.REPORT_SUPPRESSION_THRESHOLD) {
+          // Threshold triggered suppression
+          if (artifactData.recommendationState !== ModerationConfig.RecommendationState.SUPPRESSED) {
             updates.recommendationState = ModerationConfig.RecommendationState.SUPPRESSED;
+            logger.info(`[MODERATION] Threshold suppression | ArtifactID=${artifactId} | Count=${newReportCount}`);
           }
         }
       }
 
-      // Atomic metadata update
-      await artifactRef.update(updates);
+      // Commit Artifact Update
+      transaction.update(artifactRef, updates);
 
-      // 5. Moderation Queue Synchronization (if not deleted)
+      // 6. Marker Lifecycle Management
+      if (!afterData) {
+        transaction.delete(markerRef);
+      } else {
+        transaction.set(markerRef, {
+          artifactId: artifactId,
+          reportedAt: afterData.createdAt || FieldValue.serverTimestamp(),
+          reason: afterData.reason,
+        });
+      }
+
+      // 7. Moderation Queue Synchronization (Atomic)
       if (afterData) {
         const queueRef = db.collection("moderation_queue").doc(artifactId);
-        await queueRef.set({
+        transaction.set(queueRef, {
           artifactId: artifactId,
-          reportCount: reportCount,
+          reportCount: newReportCount,
           status: ModerationConfig.ModerationStatus.PENDING_REVIEW,
           updatedAt: FieldValue.serverTimestamp(),
         }, {merge: true});
       }
 
-      logger.info(`[MODERATION] Aggregation success | ArtifactID=${artifactId} | Count=${reportCount}`);
+      // 8. Finalize Idempotency
+      transaction.set(idempotencyRef, {
+        status: "SUCCESS",
+        artifactId: artifactId,
+        delta: delta,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+
+      logger.info(`[MODERATION] Aggregation Success | ArtifactID=${artifactId} | NewCount=${newReportCount}`);
       return null;
     });
   });
@@ -1111,44 +1146,78 @@ export const onReportWrite = functions.firestore
 /**
  * Authoritatively handles private feedback aggregation.
  * Triggered on any write to private feedback to handle updates and deletion.
+ * Optimized with incremental counters and transactional idempotency.
  */
 export const onPrivateFeedbackWrite = functions.firestore
   .document("feedback_private/{feedbackId}")
   .onWrite(async (change, context) => {
     const eventId = context.eventId;
+    const db = admin.firestore();
+
     const beforeData = change.before.data();
     const afterData = change.after.data();
-
     const data = afterData || beforeData;
+
     if (!data || data.type !== "SAFETY_CONCERN") {
       return null;
     }
 
-    return withIdempotency(`sf_agg_v2_${eventId}`, async () => {
-      const db = admin.firestore();
-      const artifactId = data.artifactId;
-      const artifactRef = db.collection("artifacts").doc(artifactId);
+    const artifactId = data.artifactId;
+    const artifactRef = db.collection("artifacts").doc(artifactId);
 
-      // 1. Recalculate Safety Concerns (Authoritative)
-      const currentCount = await aggregateSafetyConcerns(db, artifactId);
+    // Incremental Idempotency Key
+    const idempotencyKey = `sf_agg_v3_${eventId}`;
+    const idempotencyRef = db.collection("idempotency_keys").doc(idempotencyKey);
 
-      // 2. Evaluate moderation threshold
+    return await db.runTransaction(async (transaction) => {
+      // 1. Transactional Idempotency Check
+      const idempotencyDoc = await transaction.get(idempotencyRef);
+      if (idempotencyDoc.exists && idempotencyDoc.data()?.status === "SUCCESS") {
+        return null;
+      }
+
+      // 2. State Determination
+      const delta = (!beforeData && afterData) ? 1 : (beforeData && !afterData) ? -1 : 0;
+
+      // 3. Read Current Artifact State
+      const artifactDoc = await transaction.get(artifactRef);
+      if (!artifactDoc.exists) {
+        transaction.set(idempotencyRef, {
+          status: "SUCCESS",
+          reason: "ARTIFACT_NOT_FOUND",
+          createdAt: FieldValue.serverTimestamp(),
+        });
+        return null;
+      }
+
+      const artifactData = artifactDoc.data()!;
+      const currentCount = artifactData.safetyConcernCount || 0;
+      const newCount = Math.max(0, currentCount + delta);
+
       const updates: any = {
-        safetyConcernCount: currentCount,
+        safetyConcernCount: newCount,
+        lastUpdated: FieldValue.serverTimestamp(),
       };
 
-      if (currentCount >= ModerationConfig.SAFETY_CONCERN_SUPPRESSION_THRESHOLD) {
-        // Fetch current state to avoid overwriting more restrictive states if possible
-        const artifactDoc = await artifactRef.get();
-        if (artifactDoc.exists &&
-            artifactDoc.data()?.recommendationState !== ModerationConfig.RecommendationState.SUPPRESSED) {
+      // 4. Safety Logic (Threshold Suppression)
+      if (newCount >= ModerationConfig.SAFETY_CONCERN_SUPPRESSION_THRESHOLD) {
+        if (artifactData.recommendationState !== ModerationConfig.RecommendationState.SUPPRESSED) {
           updates.recommendationState = ModerationConfig.RecommendationState.SUPPRESSED;
-          logger.info(`[SAFETY] Suppression triggered by safety concerns | ArtifactID=${artifactId} | Count=${currentCount}`);
+          logger.info(`[SAFETY] Suppression triggered | ArtifactID=${artifactId} | Count=${newCount}`);
         }
       }
 
-      await artifactRef.update(updates);
-      logger.info(`[SAFETY] Aggregate success | ArtifactID=${artifactId} | NewCount=${currentCount}`);
+      transaction.update(artifactRef, updates);
+
+      // 5. Finalize Idempotency
+      transaction.set(idempotencyRef, {
+        status: "SUCCESS",
+        artifactId: artifactId,
+        delta: delta,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+
+      logger.info(`[SAFETY] Aggregate success | ArtifactID=${artifactId} | NewCount=${newCount}`);
       return null;
     });
   });
@@ -1476,5 +1545,76 @@ export const revealModerationEvidence = functions.https.onCall(async (data, cont
     }
     logger.error(`[CEE] FATAL ERROR | ArtifactID=${artifactId} | AdminID=${adminUid}:`, error);
     throw new functions.https.HttpsError("internal", "An internal error occurred during evidence retrieval.");
+  }
+});
+
+/**
+ * Authoritatively heals the moderation counts for an artifact by re-scanning the reports collection.
+ * Use this to recover from race conditions or logic errors in the incremental counter.
+ */
+export const healArtifactModeration = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
+  }
+
+  const adminUid = context.auth.uid;
+  const artifactId = data.artifactId;
+
+  if (!artifactId || typeof artifactId !== "string") {
+    throw new functions.https.HttpsError("invalid-argument", "Artifact ID is required.");
+  }
+
+  const db = admin.firestore();
+
+  try {
+    // 1. Authoritative Admin Check
+    const adminSettings = await db.collection("users").doc(adminUid)
+      .collection("private").doc("settings").get();
+
+    if (adminSettings.data()?.isAdmin !== true) {
+      logger.warn(`[HEAL] Unauthorized access attempt | AdminID=${adminUid} | ArtifactID=${artifactId}`);
+      throw new functions.https.HttpsError("permission-denied", "Unauthorized: Admin access required.");
+    }
+
+    // 2. Perform Authoritative Re-scan
+    const {reportCount, lastReportedAt} = await aggregateReports(db, artifactId);
+    const safetyConcernCount = await aggregateSafetyConcerns(db, artifactId);
+
+    // 3. Update Artifact document
+    const artifactRef = db.collection("artifacts").doc(artifactId);
+    const artifactDoc = await artifactRef.get();
+
+    if (!artifactDoc.exists) {
+      throw new functions.https.HttpsError("not-found", "Artifact not found.");
+    }
+
+    const updates: any = {
+      reportCount: reportCount,
+      safetyConcernCount: safetyConcernCount,
+      lastReportedAt: lastReportedAt,
+      lastHealedAt: FieldValue.serverTimestamp(),
+    };
+
+    // 4. Re-evaluate Suppression State
+    if (reportCount >= ModerationConfig.REPORT_SUPPRESSION_THRESHOLD ||
+        safetyConcernCount >= ModerationConfig.SAFETY_CONCERN_SUPPRESSION_THRESHOLD) {
+      updates.recommendationState = ModerationConfig.RecommendationState.SUPPRESSED;
+    }
+
+    await artifactRef.update(updates);
+
+    logger.info(`[HEAL] Moderation counts restored | ArtifactID=${artifactId} | Reports=${reportCount} | Safety=${safetyConcernCount}`);
+
+    return {
+      success: true,
+      reportCount: reportCount,
+      safetyConcernCount: safetyConcernCount,
+    };
+  } catch (error: any) {
+    if (error instanceof functions.https.HttpsError) {
+      throw error;
+    }
+    logger.error(`[HEAL] FATAL ERROR | ArtifactID=${artifactId}:`, error);
+    throw new functions.https.HttpsError("internal", "An error occurred during count reconciliation.");
   }
 });

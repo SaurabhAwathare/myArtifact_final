@@ -9,7 +9,6 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.saurabh.artifact.data.local.AppDatabase
 import com.saurabh.artifact.data.local.ArtifactEntity
-import com.saurabh.artifact.data.local.ArtifactEntityWithIndex
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.Emotion
 import com.saurabh.artifact.util.NetworkUtils
@@ -19,13 +18,10 @@ import kotlinx.coroutines.tasks.await
 class ArtifactRemoteMediator(
     private val firestore: FirebaseFirestore,
     private val database: AppDatabase,
-    private val currentUserId: String,
-    private val emotion: String? = null,
-    private val safetyPolicy: com.saurabh.artifact.domain.SafetyPolicy
-) : RemoteMediator<Int, ArtifactEntityWithIndex>() {
+    private val emotion: String? = null
+) : RemoteMediator<Int, ArtifactEntity>() {
 
     private val artifactDao = database.artifactDao()
-    private val reportedArtifactDao = database.reportedArtifactDao()
 
     override suspend fun initialize(): InitializeAction {
         // Targeted Fix: If an emotion category is selected, ALWAYS force a refresh
@@ -48,14 +44,14 @@ class ArtifactRemoteMediator(
 
     override suspend fun load(
         loadType: LoadType,
-        state: PagingState<Int, ArtifactEntityWithIndex>
+        state: PagingState<Int, ArtifactEntity>
     ): MediatorResult {
         return try {
             val lastItem = when (loadType) {
                 LoadType.REFRESH -> null
                 LoadType.PREPEND -> return MediatorResult.Success(endOfPaginationReached = true)
                 LoadType.APPEND -> {
-                    state.lastItemOrNull()?.entity ?: return MediatorResult.Success(endOfPaginationReached = false)
+                    state.lastItemOrNull() ?: return MediatorResult.Success(endOfPaginationReached = false)
                 }
             }
 
@@ -82,43 +78,30 @@ class ArtifactRemoteMediator(
                 query.limit(state.config.pageSize.toLong()).get().await()
             }
 
-            // Fetch local suppression snapshot for the current user
-            val suppressedIds = reportedArtifactDao.getReportedArtifactIds(currentUserId).toSet()
-
             val artifacts = snapshot.documents.mapNotNull { doc ->
                 val artifact =
                     doc.toObject(Artifact::class.java)?.copy(id = doc.id) ?: return@mapNotNull null
 
                 // 2. Safety Invariant Check
-                // Authoritative Filter: Hide if global moderation thresholds met or if current user reported it
+                // Authoritative Filter: Persist global moderation thresholds and counts
                 val reportCount = doc.getLong("reportCount") ?: 0L
                 val safetyConcernCount = doc.getLong("safetyConcernCount") ?: 0L
                 
-                // Note: reporterIds is deprecated and intentionally NOT populated by backend.
-                // isSuppressedByUser is now derived from the local Room database (synced from private Firestore markers).
-                val isSuppressedByUser = suppressedIds.contains(doc.id)
-                
-                // Reconstruct transient artifact metadata for policy evaluation
+                // Reconstruct transient artifact metadata
                 val artifactSnapshot = artifact.copy(
                     reportCount = reportCount,
                     safetyConcernCount = safetyConcernCount,
-                    reporterIds = emptyList() // No longer using public reporterIds
+                    reporterIds = emptyList() 
                 )
 
-                val isEligible = safetyPolicy.isEligibleForDiscovery(
-                    artifact = artifactSnapshot,
-                    currentUserId = currentUserId,
-                    isSuppressedByUser = isSuppressedByUser
-                )
-
-                if (isEligible) {
-                    mapToEntity(artifactSnapshot)
-                } else {
-                    null
-                }
+                // Phase 4.15 Remediation: We no longer discard SUPPRESSED artifacts here.
+                // Instead, we persist them to Room so that discovery queries (DAO) can 
+                // authoritatively filter them out, effectively "overwriting" any 
+                // stale local Zombie records.
+                mapToEntity(artifactSnapshot)
             }
 
-            val endOfPaginationReached = artifacts.isEmpty()
+            val endOfPaginationReached = snapshot.isEmpty
 
             database.withTransaction {
                 // Targeted Fix: Only clear data relevant to the current emotion category during refresh.
@@ -172,6 +155,7 @@ class ArtifactRemoteMediator(
             amplitudeData = artifact.amplitudeData,
             transcriptUrl = artifact.transcriptUrl,
             status = artifact.status,
+            recommendationState = artifact.recommendationState,
             isDraft = artifact.isDraft,
             lastUpdated = System.currentTimeMillis()
         )

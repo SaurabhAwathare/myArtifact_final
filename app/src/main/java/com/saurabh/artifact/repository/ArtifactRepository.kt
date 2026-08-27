@@ -43,7 +43,6 @@ import com.saurabh.artifact.domain.prompt.ReflectionPromptManager
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
-import com.saurabh.artifact.data.local.ArtifactEntityWithIndex
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.saurabh.artifact.util.CoroutineExceptionHandlerUtils
 import com.saurabh.artifact.util.NetworkUtils
@@ -562,9 +561,7 @@ class ArtifactRepository @Inject constructor(
             remoteMediator = ArtifactRemoteMediator(
                 firestore = firestore, 
                 database = database.get(), 
-                currentUserId = currentUserId, 
-                emotion = emotion,
-                safetyPolicy = safetyPolicy
+                emotion = emotion
             ),
             pagingSourceFactory = { 
                 val relatedEmotionEnums = if (!emotion.isNullOrEmpty() && emotion != "All") {
@@ -574,9 +571,10 @@ class ArtifactRepository @Inject constructor(
                 } else null
                 artifactDao.get().getArtifactsPaged(currentUserId, relatedEmotionEnums) 
             }
-        ).flow.map { pagingData: PagingData<ArtifactEntityWithIndex> ->
-            pagingData.map { wrapper -> 
-                mapArtifactEntityToArtifact(wrapper.entity) to wrapper.absoluteIndex
+        ).flow.map { pagingData: PagingData<ArtifactEntity> ->
+            var index = 0
+            pagingData.map { entity -> 
+                mapArtifactEntityToArtifact(entity) to index++
             }
         }
     }
@@ -613,6 +611,7 @@ class ArtifactRepository @Inject constructor(
             amplitudeData = entity.amplitudeData,
             transcriptUrl = entity.transcriptUrl,
             status = entity.status,
+            recommendationState = entity.recommendationState,
             isDraftField = entity.isDraft,
             isEncrypted = entity.isEncrypted,
             identityVersion = entity.identityVersion,
@@ -652,6 +651,7 @@ class ArtifactRepository @Inject constructor(
             amplitudeData = artifact.amplitudeData,
             transcriptUrl = artifact.transcriptUrl,
             status = artifact.status,
+            recommendationState = artifact.recommendationState,
             isDraft = artifact.isDraft,
             isEncrypted = artifact.isEncrypted,
             identityVersion = artifact.identityVersion,

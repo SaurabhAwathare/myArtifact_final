@@ -3,29 +3,23 @@ package com.saurabh.artifact.data.local
 import androidx.paging.PagingSource
 import androidx.room.*
 
-data class ArtifactEntityWithIndex(
-    @Embedded val entity: ArtifactEntity,
-    val absoluteIndex: Int
-)
-
 @Dao
 interface ArtifactDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(artifacts: List<ArtifactEntity>)
 
+    /**
+     * Fetches a paginated stream of artifacts from the local cache.
+     * Optimized to remove O(N^2) absoluteIndex calculation; indexing is now handled 
+     * in the repository or UI layer for efficiency.
+     */
     @Query("""
-        SELECT *, (
-            SELECT COUNT(*) FROM artifacts a2 
-            WHERE (a2.reportCount < 3 AND a2.safetyConcernCount < 3 AND a2.id NOT IN (SELECT artifactId FROM reported_artifacts WHERE userId = :currentUserId))
-            AND (:emotions IS NULL OR a2.emotion IN (:emotions))
-            AND (a2.createdAt > a1.createdAt OR (a2.createdAt = a1.createdAt AND a2.id >= a1.id))
-        ) - 1 as absoluteIndex
-        FROM artifacts a1
-        WHERE (reportCount < 3 AND safetyConcernCount < 3 AND id NOT IN (SELECT artifactId FROM reported_artifacts WHERE userId = :currentUserId))
+        SELECT * FROM artifacts 
+        WHERE (recommendationState != 'SUPPRESSED' AND id NOT IN (SELECT artifactId FROM reported_artifacts WHERE userId = :currentUserId))
         AND (:emotions IS NULL OR emotion IN (:emotions))
         ORDER BY createdAt DESC, id DESC
     """)
-    fun getArtifactsPaged(currentUserId: String, emotions: List<com.saurabh.artifact.model.Emotion>?): PagingSource<Int, ArtifactEntityWithIndex>
+    fun getArtifactsPaged(currentUserId: String, emotions: List<com.saurabh.artifact.model.Emotion>?): PagingSource<Int, ArtifactEntity>
 
     @Query("SELECT EXISTS(SELECT 1 FROM artifacts LIMIT 1)")
     suspend fun hasCachedArtifacts(): Boolean

@@ -53,9 +53,9 @@ class ArtifactDaoEmotionFilteringTest {
         ) as PagingSource.LoadResult.Page
 
         assertEquals(2, result.data.size)
-        assertTrue(result.data.all { it.entity.emotion == Emotion.HAPPY })
-        assertTrue(result.data.any { it.entity.id == "H1" })
-        assertTrue(result.data.any { it.entity.id == "H2" })
+        assertTrue(result.data.all { it.emotion == Emotion.HAPPY })
+        assertTrue(result.data.any { it.id == "H1" })
+        assertTrue(result.data.any { it.id == "H2" })
     }
 
     @Test
@@ -79,8 +79,8 @@ class ArtifactDaoEmotionFilteringTest {
         ) as PagingSource.LoadResult.Page
 
         assertEquals(2, result.data.size)
-        assertTrue(result.data.any { it.entity.id == "H1" })
-        assertTrue(result.data.any { it.entity.id == "M1" })
+        assertTrue(result.data.any { it.id == "H1" })
+        assertTrue(result.data.any { it.id == "M1" })
     }
 
     @Test
@@ -119,7 +119,7 @@ class ArtifactDaoEmotionFilteringTest {
         ) as PagingSource.LoadResult.Page
 
         assertEquals(1, remaining.data.size)
-        assertEquals("S1", remaining.data[0].entity.id)
+        assertEquals("S1", remaining.data[0].id)
     }
 
     private fun createArtifact(id: String, emotion: Emotion): ArtifactEntity {

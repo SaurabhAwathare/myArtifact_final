@@ -3,6 +3,7 @@ package com.saurabh.artifact.data.local
 import androidx.room.TypeConverter
 import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.model.ArtifactStatus
+import com.saurabh.artifact.model.RecommendationState
 import com.saurabh.artifact.model.DraftStatus
 import com.saurabh.artifact.model.Emotion
 import com.saurabh.artifact.model.EmotionalTone
@@ -104,6 +105,16 @@ class Converters {
         ArtifactStatus.valueOf(value)
     } catch (_: Exception) {
         ArtifactStatus.ACTIVE
+    }
+
+    @TypeConverter
+    fun fromRecommendationState(state: RecommendationState): String = state.name
+
+    @TypeConverter
+    fun toRecommendationState(value: String): RecommendationState = try {
+        RecommendationState.valueOf(value)
+    } catch (_: Exception) {
+        RecommendationState.ACTIVE
     }
 
     @TypeConverter

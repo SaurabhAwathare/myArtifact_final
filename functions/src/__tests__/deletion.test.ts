@@ -1,6 +1,6 @@
 import functionsTest from "firebase-functions-test";
 import * as myFunctions from "../index";
-import { describe, it, expect, beforeAll, afterAll, beforeEach, jest } from "@jest/globals";
+import { describe, it, expect, afterAll, beforeEach, jest } from "@jest/globals";
 
 const testEnv = functionsTest();
 
@@ -38,7 +38,7 @@ const mockCollection: any = {
   doc: jest.fn(() => mockDoc),
   where: jest.fn().mockReturnThis(),
   limit: jest.fn().mockReturnThis(),
-  get: jest.fn(() => Promise.resolve({ docs: [], size: 0, empty: true })),
+  get: jest.fn(),
   orderBy: jest.fn().mockReturnThis(),
 };
 
@@ -85,10 +85,6 @@ jest.mock("firebase-admin", () => {
 });
 
 describe("Account Deletion Pipeline", () => {
-  beforeAll(() => {
-    // admin.firestore() is mocked
-  });
-
   beforeEach(() => {
     jest.clearAllMocks();
     mockDoc.data.mockReturnValue({});
@@ -111,7 +107,7 @@ describe("Account Deletion Pipeline", () => {
       ];
 
       mockCollection.get.mockResolvedValueOnce({ empty: false, size: 2, docs: mockArtifacts } as any);
-      mockDoc.data.mockReturnValueOnce({ anonymousName: "Alice" });
+      mockDoc.data.mockReturnValue({ anonymousName: "Alice" });
 
       await wrapped({ uid } as any);
 
@@ -125,14 +121,18 @@ describe("Account Deletion Pipeline", () => {
       const uid = "commenter_uid";
       const wrapped = testEnv.wrap(myFunctions.onUserDeleted);
 
-      mockCollection.get.mockResolvedValueOnce({ empty: true, size: 0, docs: [] } as any); // Artifacts
-      mockDoc.data.mockReturnValueOnce({}); // User
-
-      mockCollection.get.mockResolvedValueOnce({
-        empty: false,
-        size: 3,
-        docs: [{ ref: {}, data: () => ({}) }, { ref: {}, data: () => ({}) }, { ref: {}, data: () => ({}) }]
-      } as any); // Comments
+      mockCollection.get
+        .mockResolvedValueOnce({ empty: true, size: 0, docs: [] })
+        .mockResolvedValueOnce({ empty: false, size: 3, docs: [{}, {}, {}] })
+        .mockResolvedValueOnce({ empty: true, size: 0, docs: [] })
+        .mockResolvedValueOnce({ empty: true, size: 0, docs: [] })
+        .mockResolvedValueOnce({ empty: true, size: 0, docs: [] })
+        .mockResolvedValueOnce({ empty: true, size: 0, docs: [] })
+        .mockResolvedValueOnce({
+            empty: false,
+            size: 3,
+            docs: [{ ref: {}, data: () => ({}) }, { ref: {}, data: () => ({}) }, { ref: {}, data: () => ({}) }]
+        });
 
       await wrapped({ uid } as any);
 
@@ -158,10 +158,10 @@ describe("Account Deletion Pipeline", () => {
         }
       };
 
-      mockFirestore.get.mockResolvedValueOnce({
+      (mockFirestore as any).get = jest.fn(() => Promise.resolve({
         exists: true,
         data: () => ({ moderation: { legalHold: false }, userId })
-      });
+      }));
 
       await wrapped({ before: beforeSnapshot, after: afterSnapshot } as any, {
         params: { artifactId },

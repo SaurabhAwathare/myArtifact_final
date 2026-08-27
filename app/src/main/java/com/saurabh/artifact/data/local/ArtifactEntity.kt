@@ -2,12 +2,20 @@ package com.saurabh.artifact.data.local
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.saurabh.artifact.model.ArtifactStatus
 import com.saurabh.artifact.model.ConversationStyle
 import com.saurabh.artifact.model.Emotion
+import com.saurabh.artifact.model.RecommendationState
 
-@Entity(tableName = "artifacts")
+@Entity(
+    tableName = "artifacts",
+    indices = [
+        Index(value = ["recommendationState", "createdAt", "id"]),
+        Index(value = ["emotion", "createdAt", "id"])
+    ]
+)
 data class ArtifactEntity(
     @PrimaryKey val id: String,
     val userId: String,
@@ -34,6 +42,7 @@ data class ArtifactEntity(
     val amplitudeData: List<Float>,
     val transcriptUrl: String? = null,
     val status: ArtifactStatus = ArtifactStatus.ACTIVE,
+    @ColumnInfo(defaultValue = "ACTIVE") val recommendationState: RecommendationState = RecommendationState.ACTIVE,
     val isDraft: Boolean = false,
     val isEncrypted: Boolean = false,
     @ColumnInfo(defaultValue = "0") val identityVersion: Long = 0,

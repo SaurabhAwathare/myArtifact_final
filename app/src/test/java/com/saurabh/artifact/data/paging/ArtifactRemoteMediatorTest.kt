@@ -32,8 +32,7 @@ class ArtifactRemoteMediatorTest {
         mediator = ArtifactRemoteMediator(
             firestore = firestore,
             database = database,
-            currentUserId = currentUserId,
-            safetyPolicy = safetyPolicy
+            emotion = null
         )
     }
 
@@ -68,7 +67,7 @@ class ArtifactRemoteMediatorTest {
             transactionLambda.captured.invoke()
         }
 
-        val pagingState = PagingState<Int, com.saurabh.artifact.data.local.ArtifactEntityWithIndex>(
+        val pagingState = PagingState<Int, com.saurabh.artifact.data.local.ArtifactEntity>(
             pages = emptyList(),
             anchorPosition = null,
             config = PagingConfig(pageSize = 20),
@@ -136,7 +135,7 @@ class ArtifactRemoteMediatorTest {
             transactionLambda.captured.invoke()
         }
 
-        val pagingState = PagingState<Int, com.saurabh.artifact.data.local.ArtifactEntityWithIndex>(
+        val pagingState = PagingState<Int, com.saurabh.artifact.data.local.ArtifactEntity>(
             pages = emptyList(),
             anchorPosition = null,
             config = PagingConfig(pageSize = 20),
