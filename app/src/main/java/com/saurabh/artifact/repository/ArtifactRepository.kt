@@ -569,7 +569,12 @@ class ArtifactRepository @Inject constructor(
                         Emotion.entries.find { it.label.equals(label, ignoreCase = true) }
                     }
                 } else null
-                artifactDao.get().getArtifactsPaged(currentUserId, relatedEmotionEnums) 
+
+                if (relatedEmotionEnums != null) {
+                    artifactDao.get().getArtifactsPagedFiltered(currentUserId, relatedEmotionEnums)
+                } else {
+                    artifactDao.get().getArtifactsPaged(currentUserId)
+                }
             }
         ).flow.map { pagingData: PagingData<ArtifactEntity> ->
             var index = 0
@@ -897,7 +902,7 @@ class ArtifactRepository @Inject constructor(
      * Determines if the current authenticated user has administrative privileges.
      * Bridge to ArtifactModerationRepository.
      */
-    private suspend fun isCurrentUserAdmin(): Boolean = moderationRepository.get().isCurrentUserAdmin()
+    suspend fun isCurrentUserAdmin(): Boolean = moderationRepository.get().isCurrentUserAdmin()
 
     /**
      * Authoritatively performs remote deletion of a published artifact in Firestore.

@@ -5,8 +5,10 @@ import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Before
@@ -66,11 +68,28 @@ class ArtifactVisibilityFilterTest {
         every { doc.id } returns artifactId
         every { snapshot.documentChanges } returns listOf(change)
 
-        filter.syncReportsFromRemote(userId, scope).first() // Trigger subscription
+        // Start flow collection asynchronously to avoid deadlock
+        val job = launch {
+            filter.syncReportsFromRemote(userId, scope).collect {}
+        }
+
+        // Wait for listener to be registered (it happens when collect starts)
+        var attempts = 0
+        while (!listenerSlot.isCaptured && attempts < 50) {
+            delay(10)
+            attempts++
+        }
 
         // Simulate snapshot update
-        listenerSlot.captured.onEvent(snapshot, null)
+        if (listenerSlot.isCaptured) {
+            listenerSlot.captured.onEvent(snapshot, null)
+        } else {
+            throw AssertionError("Firestore listener was not registered in time")
+        }
 
-        io.mockk.coVerify { reportedArtifactDao.insert(any()) }
+        // Verify reportedArtifactDao.insert() is called (use timeout as it's launched in scope)
+        io.mockk.coVerify(timeout = 2000) { reportedArtifactDao.insert(any()) }
+        
+        job.cancel()
     }
 }

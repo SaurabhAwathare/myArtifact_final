@@ -100,27 +100,59 @@ describe("Contextual Evidence Elevation (CEE)", () => {
     // 4. Creator identity retrieval
     db.get.mockResolvedValueOnce({ exists: true, data: () => ({ email: "creator@example.com" }) });
 
-    const result = await wrapped({ artifactId }, { auth: { uid: adminUid } });
+    const result = await wrapped({ artifactId }, {
+      auth: { uid: adminUid },
+      rawRequest: { ip: "1.2.3.4" }
+    } as any);
 
     expect(result.creatorEmail).toBe("creator@example.com");
     expect(result.audioUrl).toBe("https://signed-url.com");
     expect(db.add).toHaveBeenCalledWith(expect.objectContaining({
       adminId: adminUid,
+      adminIp: "1.2.3.4",
       action: "EVIDENCE_REVEAL",
-      reason: "CHILD_SAFETY_REPORTING"
+      evidenceScope: ["EMAIL", "AUDIO"],
+      status: "SUCCESS"
     }));
   });
 
-  it("should return email_unavailable if creator has no email", async () => {
+  it("should reflect partial reveal if audio is missing", async () => {
+    const adminUid = "admin_user";
+    const artifactId = "art1";
+    const creatorUid = "creator1";
+
+    const bucketMock = admin.storage().bucket();
+    // @ts-ignore
+    bucketMock.file().exists.mockResolvedValueOnce([false]);
+
+    db.get.mockResolvedValueOnce({ exists: true, data: () => ({ isAdmin: true }) });
+    db.get.mockResolvedValueOnce({ exists: true, data: () => ({ userId: creatorUid, moderation: { legalHold: true } }) });
+    db.get.mockResolvedValueOnce({ empty: false, docs: [{ id: "rep1" }] });
+    db.get.mockResolvedValueOnce({ exists: true, data: () => ({ email: "creator@example.com" }) });
+
+    const result = await wrapped({ artifactId }, {
+      auth: { uid: adminUid },
+      rawRequest: { ip: "1.2.3.4" }
+    } as any);
+
+    expect(result.audioStatus).toBe("MISSING");
+    expect(db.add).toHaveBeenCalledWith(expect.objectContaining({
+      status: "PARTIAL_MISSING_EVIDENCE",
+      evidenceScope: ["EMAIL"]
+    }));
+  });
+
+  it("should fail-closed if audit write fails", async () => {
     const adminUid = "admin_user";
     db.get.mockResolvedValueOnce({ exists: true, data: () => ({ isAdmin: true }) });
     db.get.mockResolvedValueOnce({ exists: true, data: () => ({ userId: "creator1", moderation: { legalHold: true } }) });
     db.get.mockResolvedValueOnce({ empty: false, docs: [{ id: "rep1" }] });
-    // Creator has NO email
-    db.get.mockResolvedValueOnce({ exists: true, data: () => ({}) });
+    db.get.mockResolvedValueOnce({ exists: true, data: () => ({ email: "creator@example.com" }) });
 
-    const result = await wrapped({ artifactId: "art1" }, { auth: { uid: adminUid } });
+    // Mock audit write failure
+    db.add.mockRejectedValueOnce(new Error("Firestore Error"));
 
-    expect(result.creatorEmail).toBe("email_unavailable");
+    await expect(wrapped({ artifactId: "art1" }, { auth: { uid: adminUid } }))
+      .rejects.toThrow(/An internal error occurred/);
   });
 });

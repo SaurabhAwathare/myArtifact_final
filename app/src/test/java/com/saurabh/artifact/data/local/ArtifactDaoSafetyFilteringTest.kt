@@ -46,7 +46,7 @@ class ArtifactDaoSafetyFilteringTest {
         
         dao.insertAll(listOf(active, suppressed))
         
-        val pagingSource = dao.getArtifactsPaged("user1", null)
+        val pagingSource = dao.getArtifactsPaged("user1")
         val result = pagingSource.load(
             PagingSource.LoadParams.Refresh(null, 10, false)
         ) as PagingSource.LoadResult.Page
@@ -63,7 +63,7 @@ class ArtifactDaoSafetyFilteringTest {
         
         reportedDao.insert(ReportedArtifactEntity("user1", "reported", System.currentTimeMillis()))
         
-        val pagingSource = dao.getArtifactsPaged("user1", null)
+        val pagingSource = dao.getArtifactsPaged("user1")
         val result = pagingSource.load(
             PagingSource.LoadParams.Refresh(null, 10, false)
         ) as PagingSource.LoadResult.Page

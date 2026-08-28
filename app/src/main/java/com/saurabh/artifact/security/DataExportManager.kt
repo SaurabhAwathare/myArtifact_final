@@ -60,40 +60,61 @@ class DataExportManager @Inject constructor(
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             onProgress(ExportProgress.Starting)
-            val userId = authRepository.currentUserId
-            if (userId.isEmpty()) return@withContext Result.failure(Exception("Unauthenticated export attempt"))
+            // 1. Immutable Identity Capture
+            val exportUserId = authRepository.currentUserId
+            if (exportUserId.isEmpty()) return@withContext Result.failure(Exception("Unauthenticated export attempt"))
 
             val errors = mutableListOf<String>()
             
             context.contentResolver.openOutputStream(outputUri)?.use { rawOutputStream: OutputStream ->
                 ZipOutputStream(rawOutputStream).use { zipOut ->
-                    // 1. Export README and Manifest (Placeholder)
+                    // Helper to verify session integrity before each phase
+                    fun ensureSessionIntegrity() {
+                        if (authRepository.currentUserId != exportUserId) {
+                            throw IllegalStateException("Account switch detected during export. Aborting for privacy.")
+                        }
+                    }
+
+                    // 2. Export README and Manifest (Placeholder)
                     zipOut.addTextEntry("README.txt", "Artifact Personal Data Export\nGenerated at: ${java.util.Date()}\n\nThis archive contains your personal reflections, voice recordings, and participation history.")
 
-                    // 2. Export Profile (Public Identity)
+                    // 3. Export Profile (Fixed Identity)
+                    ensureSessionIntegrity()
                     onProgress(ExportProgress.Profile)
-                    exportProfile(zipOut, errors)
+                    exportProfile(exportUserId, zipOut, errors)
 
-                    // 3. Export Artifacts (Metadata + Audio)
-                    val artifacts = exportArtifacts(userId, zipOut, errors, onProgress)
+                    // 4. Export Artifacts (Metadata + Audio)
+                    ensureSessionIntegrity()
+                    val artifacts = exportArtifacts(exportUserId, zipOut, errors, onProgress)
 
-                    // 4. Export Drafts (Metadata + Audio)
-                    val drafts = exportDrafts(userId, zipOut, errors, onProgress)
+                    // 5. Export Drafts (Metadata + Audio)
+                    ensureSessionIntegrity()
+                    val drafts = exportDrafts(exportUserId, zipOut, errors, onProgress)
 
-                    // 5. Export Participation (Comments)
+                    // 6. Export Participation (Comments)
+                    ensureSessionIntegrity()
                     onProgress(ExportProgress.Participation)
-                    val commentsAuthored = exportAuthoredComments(userId, zipOut, errors)
-                    val commentsReceived = exportReceivedComments(userId, artifacts, zipOut, errors)
+                    val commentsAuthored = exportAuthoredComments(exportUserId, zipOut, errors)
+                    val commentsReceived = exportReceivedComments(exportUserId, artifacts, zipOut, errors)
+                    val engagementCount = exportEngagement(exportUserId, zipOut, errors)
 
-                    // 6. Export Resonance (Relationships)
+                    // 7. Export Resonance (Relationships)
+                    ensureSessionIntegrity()
                     onProgress(ExportProgress.Resonance)
-                    exportResonance(userId, zipOut, errors)
+                    exportResonance(exportUserId, zipOut, errors)
 
-                    // 7. Export Saved Content
+                    // 8. Export Saved Content
+                    ensureSessionIntegrity()
                     onProgress(ExportProgress.Saved)
-                    exportSavedArtifacts(userId, zipOut, errors)
+                    exportSavedArtifacts(exportUserId, zipOut, errors)
 
-                    // 8. Final Manifest
+                    // 8.5 Export Safety (Authored Reports)
+                    ensureSessionIntegrity()
+                    onProgress(ExportProgress.Safety)
+                    val reportsCount = exportAuthoredReports(exportUserId, zipOut, errors)
+
+                    // 9. Final Manifest
+                    ensureSessionIntegrity()
                     onProgress(ExportProgress.Finalizing)
                     val manifest = ExportManifest(
                         exportedAt = java.util.Date().toString(),
@@ -101,6 +122,8 @@ class DataExportManager @Inject constructor(
                         draftCount = drafts.size,
                         commentAuthoredCount = commentsAuthored,
                         commentReceivedCount = commentsReceived,
+                        engagementCount = engagementCount,
+                        reportsAuthoredCount = reportsCount,
                         errors = errors
                     )
                     zipOut.addJsonEntry("manifest.json", manifest)
@@ -118,9 +141,9 @@ class DataExportManager @Inject constructor(
         }
     }
 
-    private suspend fun exportProfile(zipOut: ZipOutputStream, errors: MutableList<String>) {
+    private suspend fun exportProfile(userId: String, zipOut: ZipOutputStream, errors: MutableList<String>) {
         try {
-            val profile = userRepository.get().getCachedProfile()
+            val profile = userRepository.get().getCachedProfile(userId)
             if (profile != null) {
                 val export = UserIdentityExport(
                     anonymousId = profile.anonymousId,
@@ -317,6 +340,54 @@ class DataExportManager @Inject constructor(
         }
     }
 
+    private suspend fun exportEngagement(userId: String, zipOut: ZipOutputStream, errors: MutableList<String>): Int {
+        return try {
+            val snapshot = firestore.collection("users").document(userId)
+                .collection("engagement").get().await()
+            
+            val engagement = snapshot.documents.mapNotNull { doc ->
+                EngagementExport(
+                    artifactId = doc.getString("artifactId") ?: doc.id,
+                    isCommentUnlocked = doc.getBoolean("isCommentUnlocked") ?: false,
+                    unlockTimestamp = doc.getTimestamp("unlockTimestamp")?.toDate()?.toString(),
+                    engagementState = doc.getString("engagementState") ?: "LOCKED"
+                )
+            }
+            if (engagement.isNotEmpty()) {
+                zipOut.addJsonEntry("Participation/engagement_history.json", engagement)
+            }
+            engagement.size
+        } catch (e: Exception) {
+            errors.add("Failed to export engagement history: ${e.message}")
+            0
+        }
+    }
+
+    private suspend fun exportAuthoredReports(userId: String, zipOut: ZipOutputStream, errors: MutableList<String>): Int {
+        return try {
+            val snapshot = firestore.collection("reports")
+                .whereEqualTo("reporterId", userId)
+                .get().await()
+            
+            val reports = snapshot.documents.mapNotNull { doc ->
+                ReportExport(
+                    artifactId = doc.getString("artifactId") ?: "",
+                    reason = doc.getString("reason") ?: "OTHER",
+                    optionalDescription = doc.getString("optionalDescription") ?: "",
+                    createdAt = doc.getTimestamp("createdAt")?.toDate()?.toString() ?: "Unknown",
+                    status = doc.getString("status") ?: "PENDING"
+                )
+            }
+            if (reports.isNotEmpty()) {
+                zipOut.addJsonEntry("Safety/reports_authored.json", reports)
+            }
+            reports.size
+        } catch (e: Exception) {
+            errors.add("Failed to export authored reports: ${e.message}")
+            0
+        }
+    }
+
     // Helper functions
 
     private fun ZipOutputStream.addTextEntry(name: String, text: String) {
@@ -337,6 +408,8 @@ class DataExportManager @Inject constructor(
                 when (first) {
                     is ArtifactExportMetadata -> json.encodeToString(data.filterIsInstance<ArtifactExportMetadata>())
                     is CommentExport -> json.encodeToString(data.filterIsInstance<CommentExport>())
+                    is EngagementExport -> json.encodeToString(data.filterIsInstance<EngagementExport>())
+                    is ReportExport -> json.encodeToString(data.filterIsInstance<ReportExport>())
                     else -> json.encodeToString(data.toString())
                 }
             }
@@ -449,6 +522,23 @@ class DataExportManager @Inject constructor(
     )
 
     @Serializable
+    private data class EngagementExport(
+        val artifactId: String,
+        val isCommentUnlocked: Boolean,
+        val unlockTimestamp: String?,
+        val engagementState: String
+    )
+
+    @Serializable
+    private data class ReportExport(
+        val artifactId: String,
+        val reason: String,
+        val optionalDescription: String,
+        val createdAt: String,
+        val status: String
+    )
+
+    @Serializable
     private data class ExportManifest(
         val version: String = "1.0",
         val exportedAt: String,
@@ -456,6 +546,8 @@ class DataExportManager @Inject constructor(
         val draftCount: Int,
         val commentAuthoredCount: Int,
         val commentReceivedCount: Int,
+        val engagementCount: Int = 0,
+        val reportsAuthoredCount: Int = 0,
         val errors: List<String> = emptyList()
     )
 }

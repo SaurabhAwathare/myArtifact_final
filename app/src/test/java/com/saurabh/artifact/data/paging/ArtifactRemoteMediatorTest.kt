@@ -37,10 +37,12 @@ class ArtifactRemoteMediatorTest {
     }
 
     @Test
-    fun `load should filter out reported artifacts using local DAO`() = runTest {
+    fun `load should persist fetched artifacts including reported ones to ensure authoritative state`() = runTest {
         val artifactId = "reported_art"
-        coEvery { reportedArtifactDao.getReportedArtifactIds(currentUserId) } returns listOf(artifactId)
-
+        // In the current architecture, RemoteMediator no longer checks reportedArtifactDao 
+        // during the fetch loop. It persists everything and relies on the DAO query 
+        // (getArtifactsPaged) to hide suppressed/reported content.
+        
         val query = mockk<com.google.firebase.firestore.Query>(relaxed = true)
         val snapshot = mockk<com.google.firebase.firestore.QuerySnapshot>(relaxed = true)
         val doc = mockk<com.google.firebase.firestore.DocumentSnapshot>(relaxed = true)
@@ -48,6 +50,7 @@ class ArtifactRemoteMediatorTest {
         every { doc.id } returns artifactId
         every { doc.toObject(com.saurabh.artifact.model.Artifact::class.java) } returns com.saurabh.artifact.model.Artifact(id = artifactId)
         every { snapshot.documents } returns listOf(doc)
+        every { snapshot.isEmpty } returns false
         
         every { firestore.collection("artifacts") } returns mockk(relaxed = true) {
             every { whereEqualTo(any<String>(), any()) } returns this
@@ -76,8 +79,9 @@ class ArtifactRemoteMediatorTest {
 
         mediator.load(LoadType.REFRESH, pagingState)
 
-        // Verify that the reported artifact was NOT inserted into artifactDao
-        coVerify(exactly = 0) { artifactDao.insertAll(any()) }
+        // Verify that the artifact was inserted into artifactDao
+        // This ensures the local cache receives the authoritative state from Firestore
+        coVerify(exactly = 1) { artifactDao.insertAll(match { it.any { art -> art.id == artifactId } }) }
         
         unmockkStatic("androidx.room.RoomDatabaseKt")
         unmockkStatic("kotlinx.coroutines.tasks.TasksKt")

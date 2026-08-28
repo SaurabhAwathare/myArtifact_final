@@ -60,4 +60,55 @@ class LogcatDiagnosticLoggerTest {
         val expectedTag = "Artifact_CRASH"
         verify { Log.e(eq(expectedTag), match { it.contains("UNCAUGHT_EXCEPTION") }, any()) }
     }
+
+    @Test
+    fun `log should redact sensitive keys in metadata`() {
+        val metadata = mapOf(
+            "username" to "saurabh",
+            "email" to "test@example.com",
+            "password" to "secret123",
+            "mnemonic" to "word1 word2",
+            "token" to "abc.def.ghi",
+            "safe_key" to "safe_value"
+        )
+
+        logger.info(DiagnosticCategory.AUTH, "SENSITIVE_LOG", metadata)
+
+        val expectedTag = "Artifact_AUTH"
+        verify { 
+            Log.i(eq(expectedTag), match { message ->
+                message.contains("username=[REDACTED]") &&
+                message.contains("email=[REDACTED]") &&
+                message.contains("password=[REDACTED]") &&
+                message.contains("mnemonic=[REDACTED]") &&
+                message.contains("token=[REDACTED]") &&
+                message.contains("safe_key=safe_value")
+            })
+        }
+    }
+
+    @Test
+    fun `log should redact absolute paths in exception messages`() {
+        val path = "/data/user/0/com.saurabh.artifact/files/secret.txt"
+        val exception = java.io.FileNotFoundException("Could not find file: $path")
+        
+        logger.error(DiagnosticCategory.STORAGE, "FILE_ERROR", emptyMap(), exception)
+
+        verify { 
+            Log.e(any(), match { it.contains("FILE_ERROR") }, match { redacted ->
+                redacted.message?.contains("[REDACTED_PATH]") == true &&
+                !redacted.message!!.contains("/data/user/0")
+            })
+        }
+    }
+
+    @Test
+    fun `log should redact absolute paths in metadata values`() {
+        val path = "/storage/emulated/0/Download/audio.m4a"
+        logger.info(DiagnosticCategory.RECORDER, "FILE_CREATED", mapOf("path" to path))
+
+        verify { 
+            Log.i(any(), match { it.contains("path=[REDACTED_PATH]") })
+        }
+    }
 }

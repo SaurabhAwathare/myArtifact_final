@@ -24,14 +24,18 @@ class LogcatDiagnosticLogger @Inject constructor(
     ) {
         if (!shouldLog(level)) return
 
+        // 1. Sanitize input at the entry point to ensure all downstream consumers are safe.
+        val sanitizedMetadata = PrivacyScrubber.sanitizeMetadata(metadata)
+        val sanitizedThrowable = PrivacyScrubber.sanitizeThrowable(throwable)
+
         val event = DiagnosticEvent(
             category = category,
             eventName = eventName,
-            metadata = metadata,
+            metadata = sanitizedMetadata,
             sessionId = sessionManager.sessionId
         )
 
-        val logMessage = formatLog(event, throwable)
+        val logMessage = formatLog(event, sanitizedThrowable)
         val tag = "Artifact_${category.name}"
 
         // Always log to Logcat based on levels
@@ -39,13 +43,13 @@ class LogcatDiagnosticLogger @Inject constructor(
             DiagnosticLogger.Level.TRACE -> Log.v(tag, logMessage)
             DiagnosticLogger.Level.DEBUG -> Log.d(tag, logMessage)
             DiagnosticLogger.Level.INFO -> Log.i(tag, logMessage)
-            DiagnosticLogger.Level.WARN -> Log.w(tag, logMessage, throwable)
-            DiagnosticLogger.Level.ERROR -> Log.e(tag, logMessage, throwable)
+            DiagnosticLogger.Level.WARN -> Log.w(tag, logMessage, sanitizedThrowable)
+            DiagnosticLogger.Level.ERROR -> Log.e(tag, logMessage, sanitizedThrowable)
         }
 
         // Route to Crashlytics in non-debug builds
         if (!BuildConfig.DEBUG) {
-            recordToCrashlytics(event, level, logMessage, throwable)
+            recordToCrashlytics(event, level, logMessage, sanitizedThrowable)
         }
     }
 
@@ -65,6 +69,8 @@ class LogcatDiagnosticLogger @Inject constructor(
             // Set context keys for the next crash/non-fatal
             crashlytics.setCustomKey("last_event_category", event.category.name)
             crashlytics.setCustomKey("last_event_name", event.eventName)
+            
+            // Metadata is already sanitized from log() entry point
             event.metadata.forEach { (key, value) ->
                 crashlytics.setCustomKey("meta_$key", value.toString())
             }
@@ -95,5 +101,52 @@ class LogcatDiagnosticLogger @Inject constructor(
         } ?: ""
 
         return "[$session] ${event.eventName}$metaString$errorString"
+    }
+
+    /**
+     * Internal utility for redacting PII and sensitive data from logs.
+     */
+    private object PrivacyScrubber {
+        private val SENSITIVE_KEYS = setOf(
+            "username", "email", "password", "mnemonic", "token", 
+            "credential", "passphrase", "secret", "realName", "displayName"
+        )
+        
+        private val PATH_PATTERN = Regex("/(?:data|storage|emulated|mnt)/[^ |]+")
+
+        fun sanitizeMetadata(metadata: Map<String, Any>): Map<String, Any> {
+            if (metadata.isEmpty()) return metadata
+            return metadata.mapValues { (key, value) ->
+                if (SENSITIVE_KEYS.any { key.contains(it, ignoreCase = true) }) {
+                    "[REDACTED]"
+                } else {
+                    // Also check if the value itself looks like a path
+                    val stringValue = value.toString()
+                    if (stringValue.contains("/") && PATH_PATTERN.containsMatchIn(stringValue)) {
+                        stringValue.replace(PATH_PATTERN, "[REDACTED_PATH]")
+                    } else {
+                        value
+                    }
+                }
+            }
+        }
+
+        fun sanitizeThrowable(throwable: Throwable?): Throwable? {
+            if (throwable == null) return null
+            val message = throwable.message ?: return throwable
+            val sanitizedMessage = message.replace(PATH_PATTERN, "[REDACTED_PATH]")
+            
+            if (message == sanitizedMessage) return throwable
+            
+            return RedactedException(throwable.javaClass.simpleName, sanitizedMessage, throwable)
+        }
+
+        private class RedactedException(
+            className: String,
+            message: String,
+            private val originalCause: Throwable
+        ) : Exception("[$className] $message", originalCause) {
+            override fun getStackTrace(): Array<StackTraceElement> = originalCause.stackTrace
+        }
     }
 }

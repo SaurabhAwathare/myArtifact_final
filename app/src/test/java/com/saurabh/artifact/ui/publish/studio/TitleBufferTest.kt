@@ -9,7 +9,6 @@ import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.model.DraftStatus
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.RecordingRepository
-import com.saurabh.artifact.util.ArtifactLogger
 import io.mockk.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -44,11 +43,11 @@ class TitleBufferTest {
     @Before
     fun setup() {
         Dispatchers.setMain(testDispatcher)
-        mockkObject(ArtifactLogger)
-        every { ArtifactLogger.d(any(), any()) } just runs
-        every { ArtifactLogger.i(any(), any()) } just runs
-        every { ArtifactLogger.w(any(), any(), any()) } just runs
-        every { ArtifactLogger.e(any(), any(), any()) } just runs
+        mockkObject(com.saurabh.artifact.diagnostics.ArtifactLogger)
+        every { com.saurabh.artifact.diagnostics.ArtifactLogger.d(any(), any(), any()) } just runs
+        every { com.saurabh.artifact.diagnostics.ArtifactLogger.i(any(), any(), any()) } just runs
+        every { com.saurabh.artifact.diagnostics.ArtifactLogger.w(any(), any(), any(), any()) } just runs
+        every { com.saurabh.artifact.diagnostics.ArtifactLogger.e(any(), any(), any(), any()) } just runs
 
         val mockUser = mockk<com.google.firebase.auth.FirebaseUser> {
             every { uid } returns TEST_USER_ID

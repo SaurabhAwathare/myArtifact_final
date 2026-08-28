@@ -2,6 +2,9 @@ package com.saurabh.artifact.util
 
 import android.os.SystemClock
 
+import com.saurabh.artifact.diagnostics.ArtifactLogger
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+
 /**
  * Utility for tracking and logging app startup milestones.
  */
@@ -11,8 +14,11 @@ object StartupTracer {
 
     fun mark(stage: String) {
         val elapsed = getElapsed()
-        val message = "$stage at ${elapsed}ms"
-        ArtifactLogger.d("StartupTrace", message)
+        ArtifactLogger.d(
+            DiagnosticCategory.STARTUP,
+            "STARTUP_MARK",
+            mapOf("stage" to stage, "elapsedMs" to elapsed)
+        )
     }
 
     fun getElapsed(): Long = SystemClock.elapsedRealtime() - start

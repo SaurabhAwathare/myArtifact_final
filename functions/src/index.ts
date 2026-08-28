@@ -68,6 +68,42 @@ async function deleteQueryBatch(
 }
 
 /**
+ * Authoritatively updates all documents returned by a query in batches.
+ * Uses BulkWriter for high-throughput updates.
+ */
+async function updateQueryBatch(
+  db: admin.firestore.Firestore,
+  query: admin.firestore.Query,
+  updates: any,
+  label: string
+): Promise<number> {
+  let totalUpdated = 0;
+  try {
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const querySnapshot = await query.limit(500).get();
+
+      if (querySnapshot.size === 0) break;
+
+      const bulkWriter = db.bulkWriter();
+      querySnapshot.docs.forEach((doc) => {
+        bulkWriter.update(doc.ref, updates);
+      });
+      await bulkWriter.close();
+
+      totalUpdated += querySnapshot.size;
+      logger.info(`[BATCH_UPDATE] ${label} | UPDATED Batch=${querySnapshot.size} | Cumulative=${totalUpdated}`);
+
+      if (querySnapshot.size < 500) break;
+    }
+    return totalUpdated;
+  } catch (e) {
+    logger.error(`[BATCH_UPDATE] ${label} | ERROR:`, e);
+    throw e;
+  }
+}
+
+/**
  * Robust cascading cleanup triggered when an artifact's status changes to DELETED.
  * Handles Storage files, reactions, aggregates, metadata, and final document deletion.
  * Designed for idempotency and high reliability.
@@ -94,8 +130,8 @@ export const onArtifactCleanupTrigger = functions.firestore
 
     // FINAL SAFETY GUARD: Prevent deletion if Legal Hold is active.
     // We fetch the LATEST state to avoid race conditions with Admin hold placement.
-    const latestDoc = await db.collection("artifacts").doc(artifactId).get();
-    const latestData = latestDoc.data();
+    const latestDocSnapshot = await db.collection("artifacts").doc(artifactId).get();
+    const latestData = latestDocSnapshot.exists ? latestDocSnapshot.data() : null;
 
     if (latestData?.moderation?.legalHold === true) {
       logger.info(`[CLEANUP] Preservation Active | ArtifactID=${artifactId} | Skipping deletion (Fresh Read).`);
@@ -740,37 +776,34 @@ export const onUserDeleted = functions
     logger.info(`[DELETE USER] START | UID=${uid}`);
 
     try {
-    // 0. Storage Cleanup: Backups (Authoritative prefix purge)
+      // 0. Storage Cleanup: Backups (Authoritative prefix purge)
       try {
         const [files] = await bucket.getFiles({ prefix: `backups/${uid}/` });
         if (files.length > 0) {
           for (const file of files) {
             await file.delete();
-            logger.info(`[DELETE USER] Storage | File Deleted | Path=${file.name}`);
           }
           logger.info(`[DELETE USER] Storage | Backups Purged | Count=${files.length} | UID=${uid}`);
-        } else {
-          logger.info(`[DELETE USER] Storage | No Backups Found | UID=${uid}`);
         }
       } catch (e) {
         logger.error(`[DELETE USER] Storage | Backups Error | UID=${uid}:`, e);
       }
 
-      // 1. Cleanup Artifacts (SCALABLE: Bulk mark for trigger-based cleanup)
-      const artifactsQuery = db.collection("artifacts").where("userId", "==", uid);
-      const artifactsSnapshot = await artifactsQuery.get();
+      // 1. Cleanup Artifacts (SCALABLE: Paged cleanup marking)
+      let artifactsProcessed = 0;
+      while (true) {
+        const artifactsQuery = db.collection("artifacts").where("userId", "==", uid).limit(500);
+        const snapshot = await artifactsQuery.get();
+        if (snapshot.empty) break;
 
-      if (!artifactsSnapshot.empty) {
         const bulkWriter = db.bulkWriter();
-        artifactsSnapshot.docs.forEach((doc) => {
-          const artifactData = doc.data();
-          if (artifactData.status !== "DELETED") {
-          // LEGAL HOLD GUARD: Do not mark for deletion if preserved
-            if (artifactData.moderation?.legalHold === true) {
+        snapshot.docs.forEach((doc) => {
+          const data = doc.data();
+          if (data.status !== "DELETED") {
+            if (data.moderation?.legalHold === true) {
               logger.info(`[DELETE USER] Artifact Preserved (Legal Hold) | ArtifactID=${doc.id}`);
               return;
             }
-
             bulkWriter.update(doc.ref, {
               status: "DELETED",
               isPublic: false,
@@ -779,7 +812,9 @@ export const onUserDeleted = functions
           }
         });
         await bulkWriter.close();
-        logger.info(`[DELETE USER] Artifacts | Marked for cleanup: ${artifactsSnapshot.size}`);
+        artifactsProcessed += snapshot.size;
+        logger.info(`[DELETE USER] Artifacts | Marked Batch=${snapshot.size} | Total=${artifactsProcessed}`);
+        if (snapshot.size < 500) break;
       }
 
       // 2. Cleanup Notifications
@@ -789,36 +824,9 @@ export const onUserDeleted = functions
         "User Notifications"
       );
 
-      // 3. Cleanup Resonances (Counter integrity preserved)
-      try {
-        const resonanceOutSnapshot = await db.collection("users").doc(uid).collection("resonance_out").get();
-        for (const doc of resonanceOutSnapshot.docs) {
-          const targetId = doc.id;
-          await db.runTransaction(async (transaction) => {
-            transaction.delete(db.collection("users").doc(uid).collection("resonance_out").doc(targetId));
-            transaction.delete(db.collection("users").doc(targetId).collection("resonance_in").doc(uid));
-            transaction.update(db.collection("users").doc(targetId), {
-              resonanceInCount: FieldValue.increment(-1),
-              followersCount: FieldValue.increment(-1),
-            });
-          });
-        }
-
-        const resonanceInSnapshot = await db.collection("users").doc(uid).collection("resonance_in").get();
-        for (const doc of resonanceInSnapshot.docs) {
-          const followerId = doc.id;
-          await db.runTransaction(async (transaction) => {
-            transaction.delete(db.collection("users").doc(uid).collection("resonance_in").doc(followerId));
-            transaction.delete(db.collection("users").doc(followerId).collection("resonance_out").doc(uid));
-            transaction.update(db.collection("users").doc(followerId), {
-              resonanceOutCount: FieldValue.increment(-1),
-              followingCount: FieldValue.increment(-1),
-            });
-          });
-        }
-      } catch (e) {
-        logger.error("[DELETE USER] Stage=Resonance | ERROR:", e);
-      }
+      // 3. Cleanup Resonances (SCALABLE: Paged parallel transactions)
+      await scaleResonanceCleanup(db, uid, "out");
+      await scaleResonanceCleanup(db, uid, "in");
 
       // 4. Cleanup Username (Mapping removal)
       try {
@@ -827,7 +835,6 @@ export const onUserDeleted = functions
         if (username) {
           await db.collection("usernames").doc(username.toLowerCase().trim()).delete();
         }
-        // Safety Net: Cleanup any other username mappings for this UID
         await deleteQueryBatch(db, db.collection("usernames").where("uid", "==", uid), "Username Safety Net");
       } catch (e) {
         logger.error("[DELETE USER] Stage=Username | ERROR:", e);
@@ -840,19 +847,20 @@ export const onUserDeleted = functions
         "User Listening Sessions"
       );
 
-      // 5.5 Anonymize Comments (Preserve history while severing identity)
-      try {
-        const commentsQuery = db.collectionGroup("comments").where("creatorId", "==", uid);
-        const commentsSnapshot = await commentsQuery.get();
-        if (!commentsSnapshot.empty) {
-          const bulkWriter = db.bulkWriter();
-          commentsSnapshot.docs.forEach((doc) => bulkWriter.update(doc.ref, { creatorId: "" }));
-          await bulkWriter.close();
-          logger.info(`[DELETE USER] Comments | Anonymized: ${commentsSnapshot.size}`);
-        }
-      } catch (e) {
-        logger.error("[DELETE USER] Stage=Anonymize Comments | ERROR:", e);
-      }
+      // 5.5 Anonymize Comments (SCALABLE: Paged update)
+      await updateQueryBatch(
+        db,
+        db.collectionGroup("comments").where("creatorId", "==", uid),
+        { creatorId: "" },
+        "Comments Anonymization"
+      );
+
+      // 5.6 Cleanup Authored Reports (SCALABLE: Paged delete)
+      await deleteQueryBatch(
+        db,
+        db.collection("reports").where("reporterId", "==", uid),
+        "Authored Reports"
+      );
 
       // 6. Root Collection Cleanup (User-agnostic but UID-scoped data)
       const globalCollections = [
@@ -871,7 +879,6 @@ export const onUserDeleted = functions
       }
 
       // 7. FINAL: Recursive User Tree Destruction
-      // This authoritatively handles ALL nested subcollections (engagement, published_artifacts, intents, etc.)
       const userRef = db.collection("users").doc(uid);
       await db.recursiveDelete(userRef);
 
@@ -881,9 +888,73 @@ export const onUserDeleted = functions
       return null;
     } catch (error) {
       logger.error(`[DELETE USER] FATAL ERROR | UID=${uid}:`, error);
-      throw error; // Trigger retry for transient failures
+      throw error;
     }
   });
+
+/**
+ * Scales resonance cleanup by processing in pages and using parallel transactions.
+ */
+async function scaleResonanceCleanup(
+  db: admin.firestore.Firestore,
+  uid: string,
+  type: "in" | "out"
+): Promise<number> {
+  const collectionName = type === "in" ? "resonance_in" : "resonance_out";
+  const batchSize = 100;
+  let totalProcessed = 0;
+
+  try {
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const snapshot = await db.collection("users").doc(uid).collection(collectionName).limit(batchSize).get();
+      if (snapshot.empty) break;
+
+      const promises = snapshot.docs.map(async (doc) => {
+        const otherUserId = doc.id;
+        return db.runTransaction(async (transaction) => {
+          const markerRef = doc.ref;
+          const otherUserRef = db.collection("users").doc(otherUserId);
+
+          let reciprocalRef;
+          let updateData: any = {};
+
+          if (type === "out") {
+            reciprocalRef = otherUserRef.collection("resonance_in").doc(uid);
+            updateData = {
+              resonanceInCount: FieldValue.increment(-1),
+              followersCount: FieldValue.increment(-1)
+            };
+          } else {
+            reciprocalRef = otherUserRef.collection("resonance_out").doc(uid);
+            updateData = {
+              resonanceOutCount: FieldValue.increment(-1),
+              followingCount: FieldValue.increment(-1)
+            };
+          }
+
+          const markerDoc = await transaction.get(markerRef);
+          if (!markerDoc.exists) return;
+
+          transaction.delete(markerRef);
+          transaction.delete(reciprocalRef);
+          transaction.update(otherUserRef, updateData);
+        });
+      });
+
+      await Promise.all(promises);
+      totalProcessed += snapshot.size;
+      logger.info(`[DELETE USER] Resonance | type=${type} | Batch=${snapshot.size} | Total=${totalProcessed}`);
+
+      if (snapshot.size < batchSize) break;
+    }
+  } catch (e) {
+    logger.error(`[DELETE USER] Resonance Cleanup Error | type=${type}:`, e);
+    throw e;
+  }
+  return totalProcessed;
+}
+
 
 /**
  * Authoritative backend validator for the "Listen Before You Respond" feature.
@@ -1495,7 +1566,7 @@ export const revealModerationEvidence = functions.https.onCall(async (data, cont
     // 5. Data Retrieval: Creator Identity
     const creatorSettings = await db.collection("users").doc(creatorUid)
       .collection("private").doc("settings").get();
-    const creatorEmail = creatorSettings.data()?.email || "email_unavailable";
+    const creatorEmail = creatorSettings.data()?.email;
 
     // 6. Data Retrieval: Audio Evidence (Signed URL)
     const bucket = admin.storage().bucket();
@@ -1517,24 +1588,34 @@ export const revealModerationEvidence = functions.https.onCall(async (data, cont
       signedAudioUrl = url;
       expiresAt = expirationDate.toISOString();
     } else {
-      logger.error(`[CEE] Audio file missing for held artifact | Path=${audioPath}`);
+      logger.warn(`[CEE] Audio file missing for held artifact | Path=${audioPath}`);
     }
 
-    // 7. Authoritative Audit Log (Write BEFORE returning data)
+    // 7. Audit Log Preparation
+    const evidenceScope: string[] = [];
+    if (creatorEmail) evidenceScope.push("EMAIL");
+    if (exists) evidenceScope.push("AUDIO");
+
+    const status = (creatorEmail && exists) ? "SUCCESS" : "PARTIAL_MISSING_EVIDENCE";
+    const adminIp = context.rawRequest?.ip || "unknown";
+
+    // 8. Authoritative Audit Log (Write BEFORE returning data)
     await db.collection("moderation_audit_logs").add({
       adminId: adminUid,
+      adminIp: adminIp,
       artifactId: artifactId,
       creatorId: creatorUid,
       action: "EVIDENCE_REVEAL",
-      reason: "CHILD_SAFETY_REPORTING",
+      evidenceScope: evidenceScope,
+      status: status,
       timestamp: FieldValue.serverTimestamp(),
     });
 
-    logger.info(`[CEE] Evidence Revealed | AdminID=${adminUid} | ArtifactID=${artifactId} | CreatorID=${creatorUid}`);
+    logger.info(`[CEE] Evidence Revealed | AdminID=${adminUid} | ArtifactID=${artifactId} | CreatorID=${creatorUid} | Scope=${evidenceScope.join(",")}`);
 
     return {
       creatorUid: creatorUid,
-      creatorEmail: creatorEmail,
+      creatorEmail: creatorEmail || "email_unavailable",
       audioUrl: signedAudioUrl,
       expiresAt: expiresAt,
       audioStatus: exists ? "AVAILABLE" : "MISSING",

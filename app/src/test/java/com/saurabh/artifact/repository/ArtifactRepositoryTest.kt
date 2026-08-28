@@ -329,4 +329,14 @@ class ArtifactRepositoryTest {
         
         verify { diagnosticLogger.warn(DiagnosticCategory.FIRESTORE, "DETAIL_REACTION_COUNTS_CACHE_MISS", any()) }
     }
+
+    @Test
+    fun `isCurrentUserAdmin should delegate to ModerationRepository`() = runBlocking {
+        coEvery { moderationRepository.isCurrentUserAdmin() } returns true
+        
+        val result = repository.isCurrentUserAdmin()
+        
+        assert(result)
+        coVerify { moderationRepository.isCurrentUserAdmin() }
+    }
 }

@@ -336,12 +336,12 @@ class UserRepository @Inject constructor(
      * Fetches the user profile from the local cache.
      * Useful for offline-first scenarios or when network is unavailable.
      */
-    suspend fun getCachedProfile(): User? = withContext(Dispatchers.IO) {
-        val currentUserId = auth.currentUser?.uid ?: return@withContext null
+    suspend fun getCachedProfile(userId: String? = null): User? = withContext(Dispatchers.IO) {
+        val targetUserId = userId ?: auth.currentUser?.uid ?: return@withContext null
         return@withContext try {
-            userDao.get().getProfile(currentUserId)?.let { mapLocalToUser(it) }
+            userDao.get().getProfile(targetUserId)?.let { mapLocalToUser(it) }
         } catch (e: Exception) {
-            diagnosticLogger.error(DiagnosticCategory.DATABASE, "USER_PROFILE_FETCH_CACHED_FAILED", mapOf(LogKeys.USER_ID to currentUserId), e)
+            diagnosticLogger.error(DiagnosticCategory.DATABASE, "USER_PROFILE_FETCH_CACHED_FAILED", mapOf(LogKeys.USER_ID to targetUserId), e)
             null
         }
     }

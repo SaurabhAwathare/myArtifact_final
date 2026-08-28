@@ -1,10 +1,11 @@
 package com.saurabh.artifact.repository
 
-import android.util.Log
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.saurabh.artifact.model.*
-import com.saurabh.artifact.util.ArtifactLogger
+import com.saurabh.artifact.diagnostics.ArtifactLogger
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.LogKeys
 import dagger.Lazy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
@@ -44,12 +45,19 @@ class ReactionRepository @Inject constructor(
             )
             pendingInteractionDao.get().deleteByType(artifactId, userId, com.saurabh.artifact.data.local.InteractionType.REACTION)
             pendingInteractionDao.get().insert(pending)
-            com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
-            
-            ArtifactLogger.i("ReactionRepository", "Reaction interaction queued locally for $artifactId")
+            ArtifactLogger.i(
+                DiagnosticCategory.RESONANCE, 
+                "REACTION_QUEUED_LOCALLY", 
+                mapOf(LogKeys.ARTIFACT_ID to artifactId)
+            )
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("ReactionRepository", "Failed to react to artifact", e)
+            ArtifactLogger.e(
+                DiagnosticCategory.RESONANCE, 
+                "REACTION_ENQUEUE_FAILED", 
+                mapOf(LogKeys.ARTIFACT_ID to artifactId),
+                e
+            )
             Result.failure(e)
         }
     }
@@ -73,10 +81,19 @@ class ReactionRepository @Inject constructor(
             pendingInteractionDao.get().insert(pending)
             com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
             
-            ArtifactLogger.i("ReactionRepository", "Reaction removal interaction queued locally for $artifactId")
+            ArtifactLogger.i(
+                DiagnosticCategory.RESONANCE, 
+                "REACTION_REMOVAL_QUEUED_LOCALLY", 
+                mapOf(LogKeys.ARTIFACT_ID to artifactId)
+            )
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("ReactionRepository", "Failed to remove reaction", e)
+            ArtifactLogger.e(
+                DiagnosticCategory.RESONANCE, 
+                "REACTION_REMOVAL_ENQUEUE_FAILED", 
+                mapOf(LogKeys.ARTIFACT_ID to artifactId),
+                e
+            )
             Result.failure(e)
         }
     }
@@ -204,7 +221,7 @@ class ReactionRepository @Inject constructor(
         val now = System.currentTimeMillis()
         val lastToggle = debounceMap[artifactId] ?: 0L
         if (now - lastToggle < DEBOUNCE_MS) {
-            ArtifactLogger.d("ReactionRepository", "Reaction toggle debounced for $artifactId")
+            ArtifactLogger.d(DiagnosticCategory.RESONANCE, "REACTION_TOGGLE_DEBOUNCED", mapOf(LogKeys.ARTIFACT_ID to artifactId))
             return@withContext Result.success(Unit)
         }
         debounceMap[artifactId] = now
@@ -249,7 +266,12 @@ class ReactionRepository @Inject constructor(
                 com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
                 Result.success(Unit)
             } else {
-                Log.e("ReactionRepository", "Failed to toggle reaction", e)
+                ArtifactLogger.e(
+                    DiagnosticCategory.RESONANCE,
+                    "REACTION_TOGGLE_FAILED",
+                    mapOf(LogKeys.ARTIFACT_ID to artifactId),
+                    e
+                )
                 Result.failure(e)
             }
         }
@@ -272,7 +294,12 @@ class ReactionRepository @Inject constructor(
             }.await()
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("ReactionRepository", "Failed to update visibility mode", e)
+            ArtifactLogger.e(
+                DiagnosticCategory.RESONANCE,
+                "REACTION_VISIBILITY_UPDATE_FAILED",
+                mapOf(LogKeys.ARTIFACT_ID to artifactId, "mode" to mode.name),
+                e
+            )
             Result.failure(e)
         }
     }

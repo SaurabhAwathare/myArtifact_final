@@ -26,6 +26,9 @@ sealed class ExportProgress {
     object Saved : ExportProgress()
     
     @Serializable
+    object Safety : ExportProgress()
+    
+    @Serializable
     object Finalizing : ExportProgress()
     
     @Serializable

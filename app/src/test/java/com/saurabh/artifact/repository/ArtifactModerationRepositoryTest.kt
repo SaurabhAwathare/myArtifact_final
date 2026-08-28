@@ -226,4 +226,25 @@ class ArtifactModerationRepositoryTest {
         verify { transaction.update(artifactRef, "isPublic", false) }
         verify { transaction.update(artifactRef, "deletedAt", any()) }
     }
+
+    @Test
+    fun `isCurrentUserAdmin should return true if isAdmin field is true in Firestore`() = runBlocking {
+        val userId = "admin123"
+        every { auth.currentUser?.uid } returns userId
+        
+        val settingsRef = mockk<DocumentReference>(relaxed = true)
+        every { firestore.collection("users").document(userId).collection("private").document("settings") } returns settingsRef
+        
+        val snapshot = mockk<com.google.firebase.firestore.DocumentSnapshot>(relaxed = true)
+        val task = mockk<com.google.android.gms.tasks.Task<com.google.firebase.firestore.DocumentSnapshot>>(relaxed = true)
+        
+        every { settingsRef.get() } returns task
+        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        coEvery { task.await() } returns snapshot
+        every { snapshot.getBoolean("isAdmin") } returns true
+        
+        val isAdmin = repository.isCurrentUserAdmin()
+        
+        assertTrue(isAdmin)
+    }
 }

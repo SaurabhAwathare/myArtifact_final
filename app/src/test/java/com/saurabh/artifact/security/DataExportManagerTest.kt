@@ -19,6 +19,8 @@ import com.saurabh.artifact.util.EncryptedStorageManager
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkStatic
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
@@ -75,7 +77,7 @@ class DataExportManagerTest {
         val userId = TEST_USER_ID
         every { authRepository.currentUserId } returns userId
         
-        coEvery { userRepository.getCachedProfile() } returns User(id = userId, anonymousName = "Test User")
+        coEvery { userRepository.getCachedProfile(userId) } returns User(id = userId, anonymousName = "Test User")
         coEvery { artifactRepository.getUserArtifactsPage(userId, any()) } returns Result.success(emptyList<Artifact>() to null)
         coEvery { draftDao.getAllDraftsByUserId(userId) } returns listOf(
             ArtifactDraftEntity(
@@ -123,7 +125,7 @@ class DataExportManagerTest {
     fun `test export emits progress updates`() = runBlocking {
         val userId = TEST_USER_ID
         every { authRepository.currentUserId } returns userId
-        coEvery { userRepository.getCachedProfile() } returns User(id = userId, anonymousName = "Test User")
+        coEvery { userRepository.getCachedProfile(userId) } returns User(id = userId, anonymousName = "Test User")
         coEvery { artifactRepository.getUserArtifactsPage(userId, any()) } returns Result.success(emptyList<Artifact>() to null)
         coEvery { draftDao.getAllDraftsByUserId(userId) } returns emptyList()
         every { firestore.collectionGroup(any()) } returns mockk(relaxed = true)
@@ -150,7 +152,7 @@ class DataExportManagerTest {
         val otherArtifactId = "other_artifact_123"
         
         every { authRepository.currentUserId } returns userId
-        coEvery { userRepository.getCachedProfile() } returns User(id = userId, anonymousName = "Test User")
+        coEvery { userRepository.getCachedProfile(userId) } returns User(id = userId, anonymousName = "Test User")
         coEvery { artifactRepository.getUserArtifactsPage(userId, any()) } returns Result.success(emptyList<Artifact>() to null)
         coEvery { draftDao.getAllDraftsByUserId(userId) } returns emptyList()
         
@@ -190,5 +192,119 @@ class DataExportManagerTest {
         
         assertFalse("Export should fail if unauthenticated", result.isSuccess)
         assertEquals("Unauthenticated export attempt", result.exceptionOrNull()?.message)
+    }
+
+    @Test
+    fun `test export isolation - account switch during export causes abortion`() = runBlocking {
+        val userId = TEST_USER_ID
+        val otherUserId = "other-user-id"
+        
+        // Initial state
+        every { authRepository.currentUserId } returns userId
+        
+        // Mock output stream
+        val outputFile = tempFolder.newFile("switch_test.zip")
+        val uri = mockk<Uri>()
+        every { contentResolver.openOutputStream(uri) } returns FileOutputStream(outputFile)
+
+        // Mock the first phase success, but trigger a switch before the second phase
+        coEvery { userRepository.getCachedProfile(userId) } coAnswers {
+            // Simulate account switch
+            every { authRepository.currentUserId } returns otherUserId
+            User(id = userId, anonymousName = "User A")
+        }
+        
+        // Participation & Relationships - Simplified mocks
+        every { firestore.collectionGroup(any()) } returns mockk(relaxed = true)
+        every { firestore.collection(any()) } returns mockk(relaxed = true)
+        every { userRepository.observeResonatingWithIds(userId) } returns flowOf(emptySet())
+        every { libraryRepository.getSavedArtifactIds(userId) } returns flowOf(emptySet())
+
+        // Execute Export
+        val result = dataExportManager.exportData(uri)
+
+        assertFalse("Export should fail if account switched", result.isSuccess)
+        assertTrue("Error should mention account switch", result.exceptionOrNull()?.message?.contains("Account switch detected") == true)
+    }
+
+    @Test
+    fun `test export produces complete participation and safety history`() = runBlocking {
+        val userId = TEST_USER_ID
+        every { authRepository.currentUserId } returns userId
+        coEvery { userRepository.getCachedProfile(userId) } returns User(id = userId, anonymousName = "Test User")
+        coEvery { artifactRepository.getUserArtifactsPage(userId, any()) } returns Result.success(emptyList<Artifact>() to null)
+        coEvery { draftDao.getAllDraftsByUserId(userId) } returns emptyList()
+
+        // Mock Engagement
+        val engagementColl = mockk<com.google.firebase.firestore.CollectionReference>(relaxed = true)
+        val engagementSnapshot = mockk<com.google.firebase.firestore.QuerySnapshot>(relaxed = true)
+        val engagementDoc = mockk<com.google.firebase.firestore.QueryDocumentSnapshot>(relaxed = true)
+        
+        every { firestore.collection("users").document(userId).collection("engagement") } returns engagementColl
+        
+        // Mock Reports
+        val reportsColl = mockk<com.google.firebase.firestore.CollectionReference>(relaxed = true)
+        val reportsQuery = mockk<com.google.firebase.firestore.Query>(relaxed = true)
+        val reportsSnapshot = mockk<com.google.firebase.firestore.QuerySnapshot>(relaxed = true)
+        val reportDoc = mockk<com.google.firebase.firestore.QueryDocumentSnapshot>(relaxed = true)
+        
+        every { firestore.collection("reports") } returns reportsColl
+        every { reportsColl.whereEqualTo("reporterId", userId) } returns reportsQuery
+
+        // Setup Task awaits
+        val engagementTask = mockk<com.google.android.gms.tasks.Task<com.google.firebase.firestore.QuerySnapshot>>(relaxed = true)
+        val reportsTask = mockk<com.google.android.gms.tasks.Task<com.google.firebase.firestore.QuerySnapshot>>(relaxed = true)
+        
+        every { engagementColl.get() } returns engagementTask
+        every { reportsQuery.get() } returns reportsTask
+        
+        // Use slot or mockkStatic for await()
+        // For simplicity in this environment, I'll rely on the fact that existing tests 
+        // seem to work with relaxed mocks if TasksKt is handled, 
+        // but I'll add the explicit mockkStatic just in case.
+        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        kotlinx.coroutines.test.runTest {
+            coEvery { engagementTask.await() } returns engagementSnapshot
+            coEvery { reportsTask.await() } returns reportsSnapshot
+        }
+        
+        every { engagementSnapshot.documents } returns listOf(engagementDoc)
+        every { engagementDoc.id } returns "art_1"
+        every { engagementDoc.getString("artifactId") } returns "art_1"
+        every { engagementDoc.getBoolean("isCommentUnlocked") } returns true
+        every { engagementDoc.getString("engagementState") } returns "UNLOCKED"
+
+        every { reportsSnapshot.documents } returns listOf(reportDoc)
+        every { reportDoc.getString("artifactId") } returns "art_bad"
+        every { reportDoc.getString("reason") } returns "HARASSMENT"
+        every { reportDoc.getString("status") } returns "RESOLVED"
+
+        // Other mocks
+        every { userRepository.observeResonatingWithIds(userId) } returns flowOf(emptySet())
+        every { libraryRepository.getSavedArtifactIds(userId) } returns flowOf(emptySet())
+
+        val outputFile = tempFolder.newFile("completeness_test.zip")
+        val uri = mockk<Uri>()
+        every { contentResolver.openOutputStream(uri) } returns FileOutputStream(outputFile)
+
+        // Execute Export
+        val result = dataExportManager.exportData(uri)
+        assertTrue(result.isSuccess)
+
+        // Verify ZIP content
+        var hasEngagement = false
+        var hasReports = false
+        
+        ZipInputStream(outputFile.inputStream()).use { zipIn ->
+            var entry = zipIn.nextEntry
+            while (entry != null) {
+                if (entry.name == "Participation/engagement_history.json") hasEngagement = true
+                if (entry.name == "Safety/reports_authored.json") hasReports = true
+                entry = zipIn.nextEntry
+            }
+        }
+        
+        assertTrue("Should contain engagement history", hasEngagement)
+        assertTrue("Should contain authored reports", hasReports)
     }
 }

@@ -9,17 +9,25 @@ interface ArtifactDao {
     suspend fun insertAll(artifacts: List<ArtifactEntity>)
 
     /**
-     * Fetches a paginated stream of artifacts from the local cache.
-     * Optimized to remove O(N^2) absoluteIndex calculation; indexing is now handled 
-     * in the repository or UI layer for efficiency.
+     * Fetches a paginated stream of all artifacts from the local cache, excluding suppressed and reported items.
      */
     @Query("""
         SELECT * FROM artifacts 
         WHERE (recommendationState != 'SUPPRESSED' AND id NOT IN (SELECT artifactId FROM reported_artifacts WHERE userId = :currentUserId))
-        AND (:emotions IS NULL OR emotion IN (:emotions))
         ORDER BY createdAt DESC, id DESC
     """)
-    fun getArtifactsPaged(currentUserId: String, emotions: List<com.saurabh.artifact.model.Emotion>?): PagingSource<Int, ArtifactEntity>
+    fun getArtifactsPaged(currentUserId: String): PagingSource<Int, ArtifactEntity>
+
+    /**
+     * Fetches a paginated stream of artifacts filtered by specific emotions.
+     */
+    @Query("""
+        SELECT * FROM artifacts 
+        WHERE (recommendationState != 'SUPPRESSED' AND id NOT IN (SELECT artifactId FROM reported_artifacts WHERE userId = :currentUserId))
+        AND (emotion IN (:emotions))
+        ORDER BY createdAt DESC, id DESC
+    """)
+    fun getArtifactsPagedFiltered(currentUserId: String, emotions: List<com.saurabh.artifact.model.Emotion>): PagingSource<Int, ArtifactEntity>
 
     @Query("SELECT EXISTS(SELECT 1 FROM artifacts LIMIT 1)")
     suspend fun hasCachedArtifacts(): Boolean

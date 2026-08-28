@@ -64,6 +64,13 @@ class ModerationViewModel @Inject constructor(
 
     fun revealEvidence(artifactId: String) {
         viewModelScope.launch {
+            // UX/Noise-Reduction Guard: Do not attempt reveal if not an admin locally.
+            // Authority remains on the backend.
+            if (!artifactRepository.isCurrentUserAdmin()) {
+                diagnosticLogger.warn(DiagnosticCategory.SECURITY, "EVIDENCE_REVEAL_BLOCKED_NON_ADMIN", mapOf("artifactId" to artifactId))
+                return@launch
+            }
+
             _uiState.update { state ->
                 if (state is ModerationUiState.Success) {
                     val items = state.items.map { 

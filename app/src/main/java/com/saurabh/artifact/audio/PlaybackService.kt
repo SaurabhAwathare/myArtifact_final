@@ -130,7 +130,8 @@ class PlaybackService : MediaSessionService() {
         // Wait for basic metadata to be ready before attaching to session
         player.addListener(object : Player.Listener {
             override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
-                ArtifactLogger.v(DiagnosticCategory.PLAYER, "METADATA_UPDATED", mapOf("title" to (mediaMetadata.title ?: "null")))
+                // Redact user-generated title from logs even in debug
+                ArtifactLogger.v(DiagnosticCategory.PLAYER, "METADATA_UPDATED", mapOf("hasTitle" to (mediaMetadata.title != null)))
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {

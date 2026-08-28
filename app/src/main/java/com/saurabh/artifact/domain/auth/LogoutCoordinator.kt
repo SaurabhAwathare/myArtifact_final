@@ -119,6 +119,13 @@ class LogoutCoordinator @Inject constructor(
                 // PHASE A: Stop Active Work (Prevent new IO/writes)
                 diagnosticLogger.debug(DiagnosticCategory.AUTH, "LOGOUT_CLEANUP_PHASE_A")
                 
+                // 0. Stop active data export (Crucial for account isolation)
+                try {
+                    context.stopService(Intent(context, com.saurabh.artifact.security.ExportService::class.java))
+                } catch (e: Exception) {
+                    diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_STOP_EXPORT_FAILED", throwable = e)
+                }
+
                 // 1. Stop active recording
                 try {
                     withContext(mainDispatcher) {

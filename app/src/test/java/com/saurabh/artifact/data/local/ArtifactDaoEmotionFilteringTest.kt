@@ -5,9 +5,11 @@ import androidx.paging.PagingSource
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.saurabh.artifact.model.Emotion
+import com.saurabh.artifact.model.RecommendationState
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -19,6 +21,7 @@ class ArtifactDaoEmotionFilteringTest {
 
     private lateinit var database: AppDatabase
     private lateinit var dao: ArtifactDao
+    private lateinit var reportedDao: ReportedArtifactDao
 
     @Before
     fun setup() {
@@ -27,6 +30,7 @@ class ArtifactDaoEmotionFilteringTest {
             .allowMainThreadQueries()
             .build()
         dao = database.artifactDao()
+        reportedDao = database.reportedArtifactDao()
     }
 
     @After
@@ -43,7 +47,7 @@ class ArtifactDaoEmotionFilteringTest {
         )
         dao.insertAll(artifacts)
 
-        val pagingSource = dao.getArtifactsPaged("", listOf(Emotion.HAPPY))
+        val pagingSource = dao.getArtifactsPagedFiltered("", listOf(Emotion.HAPPY))
         val result = pagingSource.load(
             PagingSource.LoadParams.Refresh(
                 key = null,
@@ -69,7 +73,7 @@ class ArtifactDaoEmotionFilteringTest {
         dao.insertAll(artifacts)
 
         val filter = listOf(Emotion.HAPPY, Emotion.MOTIVATED)
-        val pagingSource = dao.getArtifactsPaged("", filter)
+        val pagingSource = dao.getArtifactsPagedFiltered("", filter)
         val result = pagingSource.load(
             PagingSource.LoadParams.Refresh(
                 key = null,
@@ -84,14 +88,14 @@ class ArtifactDaoEmotionFilteringTest {
     }
 
     @Test
-    fun `should return all artifacts when emotion filter is null`() = runBlocking {
+    fun `should return all artifacts when no filter is applied`() = runBlocking {
         val artifacts = listOf(
             createArtifact(id = "H1", emotion = Emotion.HAPPY),
             createArtifact(id = "S1", emotion = Emotion.SAD)
         )
         dao.insertAll(artifacts)
 
-        val pagingSource = dao.getArtifactsPaged("", null)
+        val pagingSource = dao.getArtifactsPaged("")
         val result = pagingSource.load(
             PagingSource.LoadParams.Refresh(
                 key = null,
@@ -104,7 +108,40 @@ class ArtifactDaoEmotionFilteringTest {
     }
 
     @Test
-    fun `should delete artifacts by emotion category`() = runBlocking {
+    fun `getArtifactsPagedFiltered should exclude SUPPRESSED artifacts`() = runBlocking {
+        val active = createArtifact(id = "active", emotion = Emotion.HAPPY, state = RecommendationState.ACTIVE)
+        val suppressed = createArtifact(id = "suppressed", emotion = Emotion.HAPPY, state = RecommendationState.SUPPRESSED)
+        
+        dao.insertAll(listOf(active, suppressed))
+        
+        val pagingSource = dao.getArtifactsPagedFiltered("user1", listOf(Emotion.HAPPY))
+        val result = pagingSource.load(
+            PagingSource.LoadParams.Refresh(null, 10, false)
+        ) as PagingSource.LoadResult.Page
+        
+        val ids = result.data.map { it.id }
+        assertTrue("Active artifact should be visible", ids.contains("active"))
+        assertFalse("Suppressed artifact should be hidden", ids.contains("suppressed"))
+    }
+
+    @Test
+    fun `getArtifactsPagedFiltered should exclude locally reported artifacts`() = runBlocking {
+        val artifact = createArtifact(id = "reported", emotion = Emotion.HAPPY)
+        dao.insertAll(listOf(artifact))
+        
+        reportedDao.insert(ReportedArtifactEntity("user1", "reported", System.currentTimeMillis()))
+        
+        val pagingSource = dao.getArtifactsPagedFiltered("user1", listOf(Emotion.HAPPY))
+        val result = pagingSource.load(
+            PagingSource.LoadParams.Refresh(null, 10, false)
+        ) as PagingSource.LoadResult.Page
+        
+        val ids = result.data.map { it.id }
+        assertFalse("Reported artifact should be hidden", ids.contains("reported"))
+    }
+
+    @Test
+    fun `should delete artifacts by emotion list`() = runBlocking {
         val artifacts = listOf(
             createArtifact(id = "H1", emotion = Emotion.HAPPY),
             createArtifact(id = "H2", emotion = Emotion.HAPPY),
@@ -114,7 +151,7 @@ class ArtifactDaoEmotionFilteringTest {
 
         dao.deleteArtifactsByEmotions(listOf(Emotion.HAPPY))
 
-        val remaining = dao.getArtifactsPaged("", null).load(
+        val remaining = dao.getArtifactsPaged("").load(
             PagingSource.LoadParams.Refresh(null, 10, false)
         ) as PagingSource.LoadResult.Page
 
@@ -122,7 +159,11 @@ class ArtifactDaoEmotionFilteringTest {
         assertEquals("S1", remaining.data[0].id)
     }
 
-    private fun createArtifact(id: String, emotion: Emotion): ArtifactEntity {
+    private fun createArtifact(
+        id: String, 
+        emotion: Emotion, 
+        state: RecommendationState = RecommendationState.ACTIVE
+    ): ArtifactEntity {
         return ArtifactEntity(
             id = id,
             userId = "user",
@@ -141,7 +182,8 @@ class ArtifactDaoEmotionFilteringTest {
             emotionTag = emotion.label,
             playCount = 0,
             reactionCount = 0,
-            amplitudeData = emptyList()
+            amplitudeData = emptyList(),
+            recommendationState = state
         )
     }
 }

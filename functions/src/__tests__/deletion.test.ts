@@ -106,7 +106,20 @@ describe("Account Deletion Pipeline", () => {
         { ref: { id: "art2" }, data: () => ({ status: "ACTIVE" }) }
       ];
 
-      mockCollection.get.mockResolvedValueOnce({ empty: false, size: 2, docs: mockArtifacts } as any);
+      let artifactsFetched = false;
+      mockCollection.get.mockImplementation(async () => {
+        const mockCalls = (mockCollection.where as jest.Mock).mock.calls;
+        const lastWhereCall = mockCalls[mockCalls.length - 1];
+
+        if (lastWhereCall && lastWhereCall[0] === "userId" && lastWhereCall[2] === uid) {
+            if (!artifactsFetched) {
+                artifactsFetched = true;
+                return { empty: false, size: 2, docs: mockArtifacts };
+            }
+        }
+        return { empty: true, size: 0, docs: [] };
+      });
+
       mockDoc.data.mockReturnValue({ anonymousName: "Alice" });
 
       await wrapped({ uid } as any);
@@ -121,23 +134,33 @@ describe("Account Deletion Pipeline", () => {
       const uid = "commenter_uid";
       const wrapped = testEnv.wrap(myFunctions.onUserDeleted);
 
-      mockCollection.get
-        .mockResolvedValueOnce({ empty: true, size: 0, docs: [] })
-        .mockResolvedValueOnce({ empty: false, size: 3, docs: [{}, {}, {}] })
-        .mockResolvedValueOnce({ empty: true, size: 0, docs: [] })
-        .mockResolvedValueOnce({ empty: true, size: 0, docs: [] })
-        .mockResolvedValueOnce({ empty: true, size: 0, docs: [] })
-        .mockResolvedValueOnce({ empty: true, size: 0, docs: [] })
-        .mockResolvedValueOnce({
-            empty: false,
-            size: 3,
-            docs: [{ ref: {}, data: () => ({}) }, { ref: {}, data: () => ({}) }, { ref: {}, data: () => ({}) }]
-        });
+      // Use a more flexible mock for paged queries
+      let commentsFetched = false;
+      mockCollection.get.mockImplementation(async () => {
+        // Find which collection is being queried by checking the last "collection" call if possible,
+        // but here we can just use a sequence that matches the code flow.
+        // Or better, check if where("creatorId", "==", uid) was used.
+        const mockCalls = (mockCollection.where as jest.Mock).mock.calls;
+        const lastWhereCall = mockCalls[mockCalls.length - 1];
+
+        if (lastWhereCall && lastWhereCall[0] === "creatorId") {
+            if (!commentsFetched) {
+                commentsFetched = true;
+                return {
+                    empty: false,
+                    size: 3,
+                    docs: [{ ref: {}, data: () => ({}) }, { ref: {}, data: () => ({}) }, { ref: {}, data: () => ({}) }]
+                };
+            }
+        }
+        return { empty: true, size: 0, docs: [] };
+      });
 
       await wrapped({ uid } as any);
 
       expect(mockBulkWriter.update).toHaveBeenCalledWith(expect.anything(), { creatorId: "" });
     });
+
   });
 
   describe("onArtifactCleanupTrigger", () => {
@@ -158,10 +181,9 @@ describe("Account Deletion Pipeline", () => {
         }
       };
 
-      (mockFirestore as any).get = jest.fn(() => Promise.resolve({
-        exists: true,
-        data: () => ({ moderation: { legalHold: false }, userId })
-      }));
+      // Mock the latest document state for the safety guard
+      mockDoc.exists = true;
+      mockDoc.data.mockReturnValue({ moderation: { legalHold: false }, userId });
 
       await wrapped({ before: beforeSnapshot, after: afterSnapshot } as any, {
         params: { artifactId },
