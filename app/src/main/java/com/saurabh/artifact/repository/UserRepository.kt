@@ -32,6 +32,7 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -50,6 +51,7 @@ class UserRepository @Inject constructor(
     private val identityProtectionPolicy: com.saurabh.artifact.domain.IdentityProtectionPolicy,
     private val registrationCoordinator: Lazy<com.saurabh.artifact.domain.auth.RegistrationCoordinator>,
     private val pendingInteractionDao: Lazy<com.saurabh.artifact.data.local.PendingInteractionDao>,
+    private val ignoredUserDao: Lazy<com.saurabh.artifact.data.local.IgnoredUserDao>,
     private val diagnosticLogger: DiagnosticLogger
 ) {
     private val usersCollection = firestore.collection("users")
@@ -1017,5 +1019,94 @@ class UserRepository @Inject constructor(
         } catch (e: Exception) {
             diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "DECREMENT_ARTIFACTS_COUNT_FAILED", mapOf(LogKeys.USER_ID to userId), e)
         }
+    }
+
+    /**
+     * Privately ignores a Presence (User).
+     * Synchronizes to Firestore private collection and local Room cache.
+     */
+    suspend fun ignoreUser(targetUserId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val currentUserId = getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
+        if (currentUserId == targetUserId) return@withContext Result.failure(AppError.InvalidInput("Cannot ignore yourself"))
+
+        try {
+            // 1. Remote Write
+            usersCollection.document(currentUserId)
+                .collection("private").document("ignored_users")
+                .collection("users").document(targetUserId)
+                .set(mapOf("ignoredAt" to FieldValue.serverTimestamp()))
+                .await()
+
+            // 2. Local Write
+            ignoredUserDao.get().insert(com.saurabh.artifact.data.local.IgnoredUserEntity(targetUserId))
+            
+            diagnosticLogger.info(DiagnosticCategory.RESONANCE, "USER_IGNORED", mapOf("targetUserId" to targetUserId))
+            Result.success(Unit)
+        } catch (e: Exception) {
+            diagnosticLogger.error(DiagnosticCategory.RESONANCE, "USER_IGNORE_FAILED", mapOf("targetUserId" to targetUserId), e)
+            Result.failure(AppError.from(e))
+        }
+    }
+
+    /**
+     * Removes an ignore relationship privately.
+     */
+    suspend fun unignoreUser(targetUserId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val currentUserId = getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
+
+        try {
+            // 1. Remote Delete
+            usersCollection.document(currentUserId)
+                .collection("private").document("ignored_users")
+                .collection("users").document(targetUserId)
+                .delete()
+                .await()
+
+            // 2. Local Delete
+            ignoredUserDao.get().delete(targetUserId)
+            
+            diagnosticLogger.info(DiagnosticCategory.RESONANCE, "USER_UNIGNORED", mapOf("targetUserId" to targetUserId))
+            Result.success(Unit)
+        } catch (e: Exception) {
+            diagnosticLogger.error(DiagnosticCategory.RESONANCE, "USER_UNIGNORE_FAILED", mapOf("targetUserId" to targetUserId), e)
+            Result.failure(AppError.from(e))
+        }
+    }
+
+    /**
+     * Synchronizes the user's private ignore list from Firestore to Room.
+     */
+    suspend fun syncIgnoredUsers(): Result<Unit> = withContext(Dispatchers.IO) {
+        val userId = getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
+
+        try {
+            val snapshot = usersCollection.document(userId)
+                .collection("private").document("ignored_users")
+                .collection("users")
+                .get()
+                .await()
+
+            val ignoredUserIds = snapshot.documents.map { it.id }
+            
+            // Atomic Refresh
+            val dao = ignoredUserDao.get()
+            dao.deleteAll()
+            ignoredUserIds.forEach { targetId ->
+                dao.insert(com.saurabh.artifact.data.local.IgnoredUserEntity(targetId))
+            }
+
+            diagnosticLogger.info(DiagnosticCategory.RESONANCE, "IGNORED_USERS_SYNCED", mapOf("count" to ignoredUserIds.size))
+            Result.success(Unit)
+        } catch (e: Exception) {
+            diagnosticLogger.error(DiagnosticCategory.RESONANCE, "IGNORED_USERS_SYNC_FAILED", throwable = e)
+            Result.failure(AppError.from(e))
+        }
+    }
+
+    /**
+     * Streams the set of ignored user IDs for the current user.
+     */
+    fun observeIgnoredUsers(): Flow<Set<String>> {
+        return ignoredUserDao.get().observeAllIgnoredUserIds().map { it.toSet() }
     }
 }

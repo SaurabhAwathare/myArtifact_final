@@ -446,6 +446,17 @@ export const onFollowIntentCreated = functions.firestore
         .collection("private").doc("settings")
         .get();
 
+      // Silent Ignore Boundary Check (Phase 6.3.1)
+      const ignoreDoc = await db.collection("users").doc(targetId)
+        .collection("private").document("ignored_users")
+        .collection("users").doc(uid)
+        .get();
+
+      if (ignoreDoc.exists) {
+        logger.info(`[FOLLOW_NOTIF] Suppressed due to ignore | Recipient=${targetId} | Sender=${uid}`);
+        return;
+      }
+
       if (targetSettingsDoc.data()?.notificationsEnabled !== false) {
         // Create Notification
         await admin.firestore().collection("notifications").add({
@@ -553,6 +564,17 @@ export const onReactionIntentCreated = functions.firestore
         const ownerSettingsDoc = await db.collection("users").doc(ownerId)
           .collection("private").doc("settings")
           .get();
+
+        // Silent Ignore Boundary Check (Phase 6.3.1)
+        const ignoreDoc = await db.collection("users").doc(ownerId)
+          .collection("private").document("ignored_users")
+          .collection("users").doc(uid)
+          .get();
+
+        if (ignoreDoc.exists) {
+          logger.info(`[REACTION_NOTIF] Suppressed due to ignore | Recipient=${ownerId} | Sender=${uid}`);
+          return;
+        }
 
         if (ownerSettingsDoc.data()?.notificationsEnabled !== false) {
           await db.collection("notifications").add({
@@ -1475,12 +1497,13 @@ export const onNotificationCreated = functions.firestore
           recipientId: userId, // Internal Recipient Guard (Internal security field)
           notificationType: data.type || "",
           notificationId: context.params.notificationId,
+          channelId: key === "PRESENCE_RESONATED" ? "resonances_channel" : "interactions_channel",
         },
         android: {
-          priority: "high",
+          priority: key === "PRESENCE_RESONATED" ? "normal" : "high",
           notification: {
-            channelId: "interactions_channel",
-            sound: "default",
+            channelId: key === "PRESENCE_RESONATED" ? "resonances_channel" : "interactions_channel",
+            sound: key === "PRESENCE_RESONATED" ? undefined : "default",
           }
         }
       };

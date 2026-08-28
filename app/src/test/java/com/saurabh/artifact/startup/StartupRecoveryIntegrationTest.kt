@@ -66,6 +66,7 @@ class StartupRecoveryIntegrationTest {
             maintenanceRepository,
             sessionManager,
             userProfileManager,
+            mockk(relaxed = true), // userRepository
             observeStealthModeUseCase,
             startupCoordinator,
             savedStateHandle,

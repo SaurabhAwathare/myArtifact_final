@@ -187,16 +187,20 @@ service cloud.firestore {
         allow write: if false;
       }
 
+      match /private/ignored_users/{targetId} {
+        allow read, write: if isOwner(uid);
+      }
+
       match /private/{document=**} {
         allow read: if isOwner(uid);
         allow write: if isOwner(uid) && (document != /settings);
       }
 
-      // Resonance
-      match /resonance_in/{targetId} { allow read: if isAuth(); allow write: if false; }
-      match /resonance_out/{targetId} { allow read: if isAuth(); allow write: if false; }
-      match /followers/{targetId} { allow read: if isAuth(); allow write: if false; }
-      match /following/{targetId} { allow read: if isAuth(); allow write: if false; }
+      // Resonance (Privacy Hardened in Phase 6.2.2)
+      match /resonance_in/{targetId} { allow read: if isOwner(uid); allow write: if false; }
+      match /resonance_out/{targetId} { allow read: if isOwner(uid); allow write: if false; }
+      match /followers/{targetId} { allow read: if isOwner(uid); allow write: if false; }
+      match /following/{targetId} { allow read: if isOwner(uid); allow write: if false; }
 
       // Saved Artifacts
       match /savedArtifacts/{artifactId} {

@@ -52,6 +52,10 @@ object NotificationHelper {
     const val CHANNEL_NAME_INTERACTIONS = "Resonances"
     const val CHANNEL_DESC_INTERACTIONS = "Quiet notifications for reactions to your shared artifacts."
 
+    const val CHANNEL_ID_RESONANCES = "resonances_channel"
+    const val CHANNEL_NAME_RESONANCES = "Connections"
+    const val CHANNEL_DESC_RESONANCES = "Subtle notifications when someone joins your journey."
+
     const val CHANNEL_ID_REMINDERS = "reminders_channel"
     const val CHANNEL_NAME_REMINDERS = "Reminders"
     const val CHANNEL_DESC_REMINDERS = "Gentle nudges to help you stay connected with your feelings."
@@ -86,6 +90,15 @@ object NotificationHelper {
                 NotificationManager.IMPORTANCE_DEFAULT,
             ).apply {
                 description = CHANNEL_DESC_INTERACTIONS
+            }
+
+            // Create Resonances (Follow) Channel (IMPORTANCE_LOW)
+            val resonancesChannel = NotificationChannel(
+                CHANNEL_ID_RESONANCES,
+                CHANNEL_NAME_RESONANCES,
+                NotificationManager.IMPORTANCE_LOW,
+            ).apply {
+                description = CHANNEL_DESC_RESONANCES
             }
             
             // Create Reminders Channel (IMPORTANCE_LOW for subtlety)
@@ -127,7 +140,7 @@ object NotificationHelper {
             }
             
             notificationManager.createNotificationChannels(
-                listOf(interactionsChannel, remindersChannel, uploadsChannel, exportsChannel, playbackChannel)
+                listOf(interactionsChannel, resonancesChannel, remindersChannel, uploadsChannel, exportsChannel, playbackChannel)
             )
         }
     }

@@ -81,7 +81,7 @@ class ArtifactApplication : Application(), ImageLoaderFactory, Configuration.Pro
         val initScope = CoroutineScope(
             Dispatchers.Default + 
             SupervisorJob() + 
-            CoroutineExceptionHandlerUtils.create("ArtifactApp", "InitScope failure")
+            CoroutineExceptionHandlerUtils.create(DiagnosticCategory.APP, "InitScope failure")
         )
         
         // Defer coordinator slightly to allow App onCreate to complete and UI to bind
@@ -105,7 +105,7 @@ class ArtifactApplication : Application(), ImageLoaderFactory, Configuration.Pro
         // If the app stays alive for 15 seconds, consider it a successful startup
         CoroutineScope(
             Dispatchers.Default + 
-            CoroutineExceptionHandlerUtils.create("ArtifactApp", "RescueTracker scope failure") {
+            CoroutineExceptionHandlerUtils.create(DiagnosticCategory.APP, "RescueTracker scope failure") {
                 rescueTracker.noteCrash()
             }
         ).launch {

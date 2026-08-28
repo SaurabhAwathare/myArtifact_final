@@ -124,7 +124,9 @@ fun ProfileScreen(
                             sigilConfig = uiState.sigilConfig,
                             isSelf = uiState.isSelf,
                             isResonating = uiState.isResonating,
+                            isIgnored = uiState.isIgnored,
                             onResonateClick = { viewModel.toggleResonance() },
+                            onIgnoreClick = { viewModel.toggleIgnore() },
                             onEditClick = onEditIdentity,
                             onResonatorsClick = {
                                 uiState.userProfile?.id?.let { id ->

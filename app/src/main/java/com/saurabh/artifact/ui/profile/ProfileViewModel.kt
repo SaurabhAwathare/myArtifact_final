@@ -45,6 +45,7 @@ data class ProfileUiState(
     val sigilConfig: SigilConfig = SigilConfig(),
     val isSelf: Boolean = false,
     val isResonating: Boolean = false,
+    val isIgnored: Boolean = false,
     val selectedTab: ProfileTab = ProfileTab.PUBLISHED,
     val publishedArtifacts: List<Artifact> = emptyList(),
     val cloudDrafts: List<Artifact> = emptyList(),
@@ -92,6 +93,7 @@ class ProfileViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val authRepository: AuthRepository,
     private val artifactRepository: ArtifactRepository,
+    private val userRepository: UserRepository,
     userProfileManager: UserProfileManager,
     private val savedArtifactManager: SavedArtifactManager,
     private val playbackCoordinator: PlaybackCoordinator,
@@ -257,12 +259,13 @@ class ProfileViewModel @Inject constructor(
         val isActuallySelf = (targetId == null) || (targetId == currentUid)
         val isLoading = data == null
 
-        val state = ProfileUiState(
-            userProfile = data?.userProfile,
-            sigilConfig = content.sigilConfig,
-            isSelf = isActuallySelf,
-            isResonating = data?.isResonating ?: false,
-            selectedTab = content.selectedTab,
+            val state = ProfileUiState(
+                userProfile = data?.userProfile,
+                sigilConfig = content.sigilConfig,
+                isSelf = isActuallySelf,
+                isResonating = data?.isResonating ?: false,
+                isIgnored = data?.isIgnored ?: false,
+                selectedTab = content.selectedTab,
             publishedArtifacts = content.mappedPublishedArtifacts,
             cloudDrafts = content.mappedCloudDrafts,
             localDrafts = content.mappedLocalDrafts,
@@ -362,6 +365,27 @@ class ProfileViewModel @Inject constructor(
                 .onFailure { e ->
                     _message.value = ErrorMessageMapper.map(e)
                 }
+            _isActionLoading.value = false
+        }
+    }
+
+    /**
+     * Toggles the "Silent Ignore" state for the target profile.
+     */
+    fun toggleIgnore() {
+        val targetId = _targetUserId.value ?: return
+        val currentId = currentUserId ?: return
+        if (targetId == currentId) return
+
+        val wasIgnored = uiState.value.isIgnored
+
+        viewModelScope.launch {
+            _isActionLoading.value = true
+            if (wasIgnored) {
+                userRepository.unignoreUser(targetId)
+            } else {
+                userRepository.ignoreUser(targetId)
+            }
             _isActionLoading.value = false
         }
     }

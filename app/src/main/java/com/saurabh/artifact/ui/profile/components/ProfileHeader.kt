@@ -31,7 +31,9 @@ fun ProfileHeader(
     sigilConfig: SigilConfig,
     isSelf: Boolean,
     isResonating: Boolean,
+    isIgnored: Boolean = false,
     onResonateClick: () -> Unit,
+    onIgnoreClick: () -> Unit = {},
     onEditClick: () -> Unit,
     modifier: Modifier = Modifier,
     onResonatorsClick: () -> Unit = {},
@@ -123,12 +125,14 @@ fun ProfileHeader(
                 StatItem(
                     label = "following", 
                     displayValue = QualitativeLanguage.getResonanceLabel(followingCount),
-                    onClick = onResonatingClick
+                    onClick = onResonatingClick,
+                    enabled = isSelf
                 )
                 StatItem(
                     label = "resonators", 
                     displayValue = QualitativeLanguage.getResonanceLabel(resonatorsCount),
-                    onClick = onResonatorsClick
+                    onClick = onResonatorsClick,
+                    enabled = isSelf
                 )
             }
         }
@@ -146,15 +150,28 @@ fun ProfileHeader(
             ) {
                 Text(if (isResonating) "Following" else "Follow")
             }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            TextButton(
+                onClick = onIgnoreClick,
+                modifier = Modifier.alpha(0.6f)
+            ) {
+                Text(
+                    text = if (isIgnored) "Stop Ignoring" else "Ignore Presence",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = ArtifactTheme.colors.onSurfaceMuted
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun StatItem(label: String, displayValue: String, onClick: () -> Unit = {}) {
+private fun StatItem(label: String, displayValue: String, enabled: Boolean = true, onClick: () -> Unit = {}) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.clickable(enabled = true) { onClick() }
+        modifier = Modifier.clickable(enabled = enabled) { onClick() }
     ) {
         Text(
             text = displayValue,

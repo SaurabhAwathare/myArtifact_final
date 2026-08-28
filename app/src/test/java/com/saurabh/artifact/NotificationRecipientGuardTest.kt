@@ -76,6 +76,7 @@ class NotificationRecipientGuardTest {
             maintenanceRepository,
             sessionManager,
             userProfileManager,
+            mockk(relaxed = true), // userRepository
             observeStealthModeUseCase,
             startupCoordinator,
             savedStateHandle,

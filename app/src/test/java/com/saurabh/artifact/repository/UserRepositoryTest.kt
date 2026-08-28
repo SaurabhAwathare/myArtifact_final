@@ -42,6 +42,7 @@ class UserRepositoryTest {
             identityPolicy,
             Lazy { regCoordinator },
             mockk(relaxed = true), // pendingInteractionDao
+            mockk(relaxed = true), // ignoredUserDao
             logger
         )
     }

@@ -21,8 +21,12 @@ class SafetyPolicy @Inject constructor() {
     fun isEligibleForDiscovery(
         artifact: Artifact,
         currentUserId: String?,
-        isSuppressedByUser: Boolean = false
+        isSuppressedByUser: Boolean = false,
+        ignoredUserIds: Set<String> = emptySet()
     ): Boolean {
+        // 0. Ignore List Suppression
+        if (ignoredUserIds.contains(artifact.userId)) return false
+
         // 1. User-Specific Suppression (Reporter-side hiding)
         if (isSuppressedByUser) return false
         

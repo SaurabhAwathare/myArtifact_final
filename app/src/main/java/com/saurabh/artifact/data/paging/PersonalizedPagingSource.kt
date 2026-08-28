@@ -22,6 +22,7 @@ class PersonalizedPagingSource(
 
     private val emittedIds = mutableSetOf<String>()
     private var suppressedIdsSnapshot: Set<String>? = null
+    private var ignoredUserIdsSnapshot: Set<String>? = null
 
     data class PageKey(
         val resonatedLast: DocumentSnapshot? = null,
@@ -61,10 +62,13 @@ class PersonalizedPagingSource(
                 val suppressed = suppressedIdsSnapshot ?: visibilityFilter.getSuppressedIdsSnapshot(userId).also {
                     suppressedIdsSnapshot = it
                 }
+                val ignored = ignoredUserIdsSnapshot ?: visibilityFilter.getIgnoredUserIdsSnapshot().also {
+                    ignoredUserIdsSnapshot = it
+                }
 
                 val combined = (resonatedResult.artifacts + discoveryResult.artifacts)
                     .asSequence()
-                    .filter { (it.id !in emittedIds) && (it.id !in suppressed) }
+                    .filter { (it.id !in emittedIds) && (it.id !in suppressed) && (it.userId !in ignored) }
                     .distinctBy { it.id }
                     .toList()
 

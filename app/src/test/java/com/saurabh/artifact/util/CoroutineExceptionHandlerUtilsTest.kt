@@ -34,11 +34,10 @@ class CoroutineExceptionHandlerUtilsTest {
 
     @Test
     fun `handler should log exception to ArtifactLogger`() = runBlocking {
-        val tag = "TestTag"
         val message = "Test Message"
         val exception = RuntimeException("Boom")
         
-        val handler = CoroutineExceptionHandlerUtils.create(tag, message)
+        val handler = CoroutineExceptionHandlerUtils.create(com.saurabh.artifact.diagnostics.DiagnosticCategory.APP, message)
         
         // Use a separate scope to test the handler
         val scope = CoroutineScope(Dispatchers.Unconfined + handler)
@@ -48,7 +47,7 @@ class CoroutineExceptionHandlerUtilsTest {
         }.join()
 
         // Verify ArtifactLogger.e was called (which calls Log.e)
-        verify { Log.e(tag, message, exception) }
+        verify { Log.e(com.saurabh.artifact.diagnostics.DiagnosticCategory.APP.name, message, exception) }
     }
 
     @Test
@@ -56,7 +55,7 @@ class CoroutineExceptionHandlerUtilsTest {
         var callbackCalled = false
         val exception = RuntimeException("Boom")
         
-        val handler = CoroutineExceptionHandlerUtils.create("Tag", "Msg") {
+        val handler = CoroutineExceptionHandlerUtils.create(com.saurabh.artifact.diagnostics.DiagnosticCategory.APP, "Msg") {
             callbackCalled = true
         }
         

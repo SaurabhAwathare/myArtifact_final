@@ -15,12 +15,14 @@ import androidx.room.TypeConverters
         UserLocalEntity::class,
         DeadLetterInteractionEntity::class,
         ReportedArtifactEntity::class,
+        IgnoredUserEntity::class,
     ],
-    version = 67,
+    version = 68,
     autoMigrations = [
         androidx.room.AutoMigration(from = 64, to = 65),
         androidx.room.AutoMigration(from = 65, to = 66),
-        androidx.room.AutoMigration(from = 66, to = 67)
+        androidx.room.AutoMigration(from = 66, to = 67),
+        androidx.room.AutoMigration(from = 67, to = 68)
     ],
     exportSchema = true,
 )
@@ -35,4 +37,5 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun deadLetterInteractionDao(): DeadLetterInteractionDao
     abstract fun userDao(): UserDao
     abstract fun reportedArtifactDao(): ReportedArtifactDao
+    abstract fun ignoredUserDao(): IgnoredUserDao
 }

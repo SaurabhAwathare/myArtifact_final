@@ -175,6 +175,7 @@ class MainViewModelSafetySyncTest {
         maintenanceRepository,
         sessionManager,
         userProfileManager,
+        mockk(relaxed = true),
         observeStealthModeUseCase,
         startupCoordinator,
         savedStateHandle,

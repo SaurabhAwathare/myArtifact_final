@@ -49,6 +49,7 @@ class MainViewModel @Inject constructor(
     private val maintenanceRepository: com.saurabh.artifact.repository.MaintenanceRepository,
     private val sessionManager: com.saurabh.artifact.data.local.UserSessionManager,
     private val userProfileManager: com.saurabh.artifact.repository.UserProfileManager,
+    private val userRepository: com.saurabh.artifact.repository.UserRepository,
     observeStealthModeUseCase: ObserveStealthModeUseCase,
     private val startupCoordinator: StartupCoordinator,
     private val savedStateHandle: SavedStateHandle,
@@ -452,6 +453,9 @@ class MainViewModel @Inject constructor(
     private fun markAuthReady() {
         startupCoordinator.emitReadiness(StartupComponent.AUTH)
         StartupMetrics.onAuthReady()
+        viewModelScope.launch {
+            userRepository.syncIgnoredUsers()
+        }
     }
 
     fun onLaunchIntent(intent: android.content.Intent?) {

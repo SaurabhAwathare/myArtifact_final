@@ -64,6 +64,7 @@ class FeedRepository @Inject constructor(
             if (resonatedUserIds.isEmpty()) return@withContext Result.success(PaginatedArtifacts(emptyList(), null))
 
             val suppressedIds = visibilityFilter.getSuppressedIdsSnapshot(userId)
+            val ignoredUserIds = visibilityFilter.getIgnoredUserIdsSnapshot()
 
             val chunks = resonatedUserIds.chunked(10)
             val allArtifacts = mutableListOf<Artifact>()
@@ -104,7 +105,8 @@ class FeedRepository @Inject constructor(
                     val isEligible = safetyPolicy.isEligibleForDiscovery(
                         artifact = artifactSnapshot,
                         currentUserId = userId,
-                        isSuppressedByUser = suppressedIds.contains(doc.id)
+                        isSuppressedByUser = suppressedIds.contains(doc.id),
+                        ignoredUserIds = ignoredUserIds
                     )
                     
                     if (isEligible) {
@@ -166,6 +168,7 @@ class FeedRepository @Inject constructor(
 
             val snapshot = query.get().await()
             val suppressedIds = userId?.let { visibilityFilter.getSuppressedIdsSnapshot(it) } ?: emptySet()
+            val ignoredUserIds = visibilityFilter.getIgnoredUserIdsSnapshot()
 
             val rawArtifacts = snapshot.documents.mapNotNull { doc ->
                 val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
@@ -184,7 +187,8 @@ class FeedRepository @Inject constructor(
                 val isEligible = safetyPolicy.isEligibleForDiscovery(
                     artifact = artifactSnapshot,
                     currentUserId = userId,
-                    isSuppressedByUser = suppressedIds.contains(doc.id)
+                    isSuppressedByUser = suppressedIds.contains(doc.id),
+                    ignoredUserIds = ignoredUserIds
                 )
 
                 if (isEligible) {

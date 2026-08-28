@@ -52,7 +52,7 @@ class PlaybackSessionManager @Inject constructor(
     private val scope = CoroutineScope(
         SupervisorJob() + 
         Dispatchers.Main + 
-        CoroutineExceptionHandlerUtils.create("PlaybackSessionManager", "Playback scope failure")
+        CoroutineExceptionHandlerUtils.create(DiagnosticCategory.PLAYER, "Playback scope failure")
     )
     private val controllerLock = Mutex()
     

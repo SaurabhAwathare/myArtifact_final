@@ -15,6 +15,7 @@ data class ProfileData(
     val cloudDrafts: List<Artifact>,
     val localDrafts: List<ArtifactDraftEntity>,
     val isResonating: Boolean,
+    val isIgnored: Boolean = false,
     val isSelf: Boolean
 )
 
@@ -39,6 +40,7 @@ class GetProfileDataUseCase @Inject constructor(
                 artifactRepository.getUserArtifacts(finalId, onlyActive = !isSelf),
                 if (isSelf) recordingRepository.observeDrafts() else flowOf(emptyList()),
                 if (currentUserId.isNotEmpty()) userRepository.observeIsResonating(currentUserId, finalId) else flowOf(false),
+                if (currentUserId.isNotEmpty() && !isSelf) userRepository.observeIgnoredUsers().map { it.contains(finalId) } else flowOf(false),
                 visibilityFilter.observeSuppressedIds(currentUserId)
             ) { params ->
                 @Suppress("UNCHECKED_CAST")
@@ -48,8 +50,9 @@ class GetProfileDataUseCase @Inject constructor(
                 @Suppress("UNCHECKED_CAST")
                 val localDrafts = params[2] as List<ArtifactDraftEntity>
                 val isResonating = params[3] as Boolean
+                val isIgnored = params[4] as Boolean
                 @Suppress("UNCHECKED_CAST")
-                val suppressedIds = params[4] as Set<String>
+                val suppressedIds = params[5] as Set<String>
 
                 val (allArtifacts, lastDoc) = artifactsWithSnapshot
                 val statusPublished = com.saurabh.artifact.model.ArtifactStatus.ACTIVE
@@ -70,6 +73,7 @@ class GetProfileDataUseCase @Inject constructor(
                     },
                     localDrafts = localDrafts,
                     isResonating = isResonating,
+                    isIgnored = isIgnored,
                     isSelf = isSelf
                 )
             }

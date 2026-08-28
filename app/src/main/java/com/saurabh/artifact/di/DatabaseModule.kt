@@ -77,4 +77,9 @@ object DatabaseModule {
     fun provideReportedArtifactDao(database: AppDatabase): com.saurabh.artifact.data.local.ReportedArtifactDao {
         return database.reportedArtifactDao()
     }
+
+    @Provides
+    fun provideIgnoredUserDao(database: AppDatabase): com.saurabh.artifact.data.local.IgnoredUserDao {
+        return database.ignoredUserDao()
+    }
 }

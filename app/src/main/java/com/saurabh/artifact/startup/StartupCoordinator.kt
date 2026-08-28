@@ -7,6 +7,7 @@ import com.google.android.gms.common.GoogleApiAvailability
 import com.google.android.gms.security.ProviderInstaller
 import android.content.Intent
 import com.saurabh.artifact.security.PreloadResult
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.util.CoroutineExceptionHandlerUtils
 import com.saurabh.artifact.util.StartupTracer
 import com.saurabh.artifact.domain.auth.SessionConstants
@@ -59,7 +60,7 @@ class StartupCoordinator @Inject constructor(
     private val scope = CoroutineScope(
         Dispatchers.Main + 
         SupervisorJob() + 
-        CoroutineExceptionHandlerUtils.create("StartupCoordinator", "Orchestrator failure")
+        CoroutineExceptionHandlerUtils.create(DiagnosticCategory.STARTUP, "Orchestrator failure")
     )
     
     private val _stage = MutableStateFlow(StartupStage.ARRIVAL)

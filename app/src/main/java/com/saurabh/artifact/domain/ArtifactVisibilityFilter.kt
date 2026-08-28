@@ -20,8 +20,9 @@ import javax.inject.Singleton
  */
 @Singleton
 class ArtifactVisibilityFilter @Inject constructor(
-    private val reportedArtifactDao: ReportedArtifactDao,
-    private val firestore: FirebaseFirestore
+    private val reportedArtifactDao: com.saurabh.artifact.data.local.ReportedArtifactDao,
+    private val ignoredUserDao: com.saurabh.artifact.data.local.IgnoredUserDao,
+    private val firestore: com.google.firebase.firestore.FirebaseFirestore
 ) {
     /**
      * Fetches a one-shot snapshot of suppressed artifact IDs from Room.
@@ -35,6 +36,20 @@ class ArtifactVisibilityFilter @Inject constructor(
      */
     fun observeSuppressedIds(userId: String): Flow<Set<String>> {
         return reportedArtifactDao.observeReportedArtifactIds(userId).map { it.toSet() }
+    }
+
+    /**
+     * Fetches a one-shot snapshot of ignored user IDs from Room.
+     */
+    suspend fun getIgnoredUserIdsSnapshot(): Set<String> {
+        return ignoredUserDao.getAllIgnoredUserIds().toSet()
+    }
+
+    /**
+     * Provides a reactive stream of ignored user IDs from Room.
+     */
+    fun observeIgnoredUserIds(): Flow<Set<String>> {
+        return ignoredUserDao.observeAllIgnoredUserIds().map { it.toSet() }
     }
 
     /**
@@ -71,6 +86,48 @@ class ArtifactVisibilityFilter @Inject constructor(
                             }
                             DocumentChange.Type.REMOVED -> {
                                 reportedArtifactDao.delete(userId, artifactId)
+                            }
+                        }
+                    }
+                    trySend(Unit)
+                }
+            }
+        }
+        awaitClose { registration.remove() }
+    }
+
+    /**
+     * Synchronizes the user's private ignore list from Firestore to Room.
+     */
+    fun syncIgnoredUsersFromRemote(userId: String, scope: CoroutineScope): Flow<Unit> = callbackFlow {
+        if (userId.isEmpty()) {
+            trySend(Unit)
+            close()
+            return@callbackFlow
+        }
+
+        // Path: users/{uid}/private/ignored_users/users/{targetUid}
+        val collectionRef = firestore.collection("users").document(userId)
+            .collection("private").document("ignored_users")
+            .collection("users")
+
+        val registration = collectionRef.addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                trySend(Unit)
+                close(error)
+                return@addSnapshotListener
+            }
+
+            if (snapshot != null) {
+                scope.launch {
+                    snapshot.documentChanges.forEach { change ->
+                        val targetUid = change.document.id
+                        when (change.type) {
+                            DocumentChange.Type.ADDED, DocumentChange.Type.MODIFIED -> {
+                                ignoredUserDao.insert(com.saurabh.artifact.data.local.IgnoredUserEntity(targetUid))
+                            }
+                            DocumentChange.Type.REMOVED -> {
+                                ignoredUserDao.delete(targetUid)
                             }
                         }
                     }

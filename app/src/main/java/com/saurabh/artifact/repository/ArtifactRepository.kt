@@ -92,7 +92,7 @@ class ArtifactRepository @Inject constructor(
     private val repositoryScope = CoroutineScope(
         SupervisorJob() + 
         Dispatchers.Main + 
-        CoroutineExceptionHandlerUtils.create("ArtifactRepository", "RepositoryScope failure")
+        CoroutineExceptionHandlerUtils.create(DiagnosticCategory.DATABASE, "RepositoryScope failure")
     )
 
     suspend fun getArtifact(artifactId: String): Result<Artifact> = withContext(Dispatchers.IO) {

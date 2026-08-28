@@ -13,6 +13,10 @@ import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.diagnostics.LogKeys
+import com.saurabh.artifact.domain.PublishingOrchestrator
 import com.saurabh.artifact.util.CoroutineExceptionHandlerUtils
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
@@ -21,10 +25,6 @@ import com.saurabh.artifact.R
 import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.data.local.RecordingStatus
 import com.saurabh.artifact.data.local.UserSessionManager
-import com.saurabh.artifact.diagnostics.DiagnosticCategory
-import com.saurabh.artifact.diagnostics.DiagnosticLogger
-import com.saurabh.artifact.diagnostics.LogKeys
-import com.saurabh.artifact.domain.PublishingOrchestrator
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.RecordingRepository
@@ -52,7 +52,7 @@ class RecordingService : Service() {
     private val serviceScope = CoroutineScope(
         Dispatchers.Main + 
         SupervisorJob() + 
-        CoroutineExceptionHandlerUtils.create("RecordingService", "ServiceScope failure")
+        CoroutineExceptionHandlerUtils.create(DiagnosticCategory.RECORDER, "ServiceScope failure")
     )
     
     private var audioRecorder: AudioRecorder? = null

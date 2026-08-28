@@ -22,7 +22,7 @@ class ArtifactVisibilityFilterTest {
 
     @Before
     fun setup() {
-        filter = ArtifactVisibilityFilter(reportedArtifactDao, firestore)
+        filter = ArtifactVisibilityFilter(reportedArtifactDao, mockk(relaxed = true), firestore)
     }
 
     @Test

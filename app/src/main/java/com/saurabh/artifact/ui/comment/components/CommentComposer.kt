@@ -124,6 +124,7 @@ fun CommentComposerPreview() {
             text = "",
             isSubmitting = false,
             unlockState = CommentUnlockState.UNLOCKED,
+            reflectivePrompt = "What part of this story stayed with you?",
             onTextChanged = {},
             onSubmit = {}
         )
@@ -166,6 +167,7 @@ fun CommentComposerTypingPreview() {
             text = "This really spoke to me...",
             isSubmitting = false,
             unlockState = CommentUnlockState.UNLOCKED,
+            reflectivePrompt = "How did hearing this change your perspective?",
             onTextChanged = {},
             onSubmit = {}
         )

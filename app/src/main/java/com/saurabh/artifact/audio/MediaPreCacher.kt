@@ -9,6 +9,7 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.CacheWriter
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.util.CoroutineExceptionHandlerUtils
 import kotlinx.coroutines.*
 import java.util.concurrent.ConcurrentHashMap
@@ -22,7 +23,7 @@ object MediaPreCacher {
     private val scope = CoroutineScope(
         SupervisorJob() + 
         Dispatchers.IO + 
-        CoroutineExceptionHandlerUtils.create("MediaPreCacher", "Caching failure")
+        CoroutineExceptionHandlerUtils.create(DiagnosticCategory.PLAYER, "Caching failure")
     )
     private val activeJobs = ConcurrentHashMap<String, Job>()
 
