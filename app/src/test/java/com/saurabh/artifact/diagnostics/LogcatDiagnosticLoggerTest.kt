@@ -103,6 +103,51 @@ class LogcatDiagnosticLoggerTest {
     }
 
     @Test
+    fun `log should redact emails in exception messages`() {
+        val email = "saurabh@example.com"
+        val exception = Exception("Auth failed for $email")
+        
+        logger.error(DiagnosticCategory.AUTH, "AUTH_ERROR", emptyMap(), exception)
+
+        verify { 
+            Log.e(any(), match { it.contains("AUTH_ERROR") }, match { redacted ->
+                redacted.message?.contains("[REDACTED_EMAIL]") == true &&
+                !redacted.message!!.contains(email)
+            })
+        }
+    }
+
+    @Test
+    fun `log should redact sensitive keywords in exception messages`() {
+        val mnemonic = "apple banana cherry dragon elephant"
+        val exception = Exception("Failed to load mnemonic: $mnemonic")
+        
+        logger.error(DiagnosticCategory.AUTH, "MNEMONIC_ERROR", emptyMap(), exception)
+
+        verify { 
+            Log.e(any(), match { it.contains("MNEMONIC_ERROR") }, match { redacted ->
+                redacted.message?.contains("mnemonic=[REDACTED]") == true &&
+                !redacted.message!!.contains("apple banana")
+            })
+        }
+    }
+
+    @Test
+    fun `log should recursively redact causes`() {
+        val path = "/data/user/0/app/files/db.sqlite"
+        val cause = Exception("Path violation: $path")
+        val exception = Exception("Outer failure", cause)
+        
+        logger.error(DiagnosticCategory.DATABASE, "DB_ERROR", emptyMap(), exception)
+
+        verify { 
+            Log.e(any(), match { it.contains("DB_ERROR") }, match { redacted ->
+                redacted.cause?.message?.contains("[REDACTED_PATH]") == true
+            })
+        }
+    }
+
+    @Test
     fun `log should redact absolute paths in metadata values`() {
         val path = "/storage/emulated/0/Download/audio.m4a"
         logger.info(DiagnosticCategory.RECORDER, "FILE_CREATED", mapOf("path" to path))

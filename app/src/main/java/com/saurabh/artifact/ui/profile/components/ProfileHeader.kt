@@ -18,6 +18,7 @@ import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.components.ArtifactSigil
 import com.saurabh.artifact.model.SigilConfig
 import com.saurabh.artifact.ui.components.state.LoadingPlaceholder
+import com.saurabh.artifact.util.QualitativeLanguage
 
 /**
  * Redesigned ProfileHeader: Compact, Dense, Instagram-style hierarchy.
@@ -117,16 +118,16 @@ fun ProfileHeader(
 
                 StatItem(
                     label = "artifacts",
-                    count = user?.artifactsCount ?: 0L
+                    displayValue = (user?.artifactsCount ?: 0L).toString()
                 )
                 StatItem(
                     label = "following", 
-                    count = followingCount,
+                    displayValue = QualitativeLanguage.getResonanceLabel(followingCount),
                     onClick = onResonatingClick
                 )
                 StatItem(
                     label = "resonators", 
-                    count = resonatorsCount,
+                    displayValue = QualitativeLanguage.getResonanceLabel(resonatorsCount),
                     onClick = onResonatorsClick
                 )
             }
@@ -150,13 +151,13 @@ fun ProfileHeader(
 }
 
 @Composable
-private fun StatItem(label: String, count: Long, onClick: () -> Unit = {}) {
+private fun StatItem(label: String, displayValue: String, onClick: () -> Unit = {}) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.clickable(enabled = true) { onClick() }
     ) {
         Text(
-            text = count.toString(),
+            text = displayValue,
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
             color = ArtifactTheme.colors.onSurfaceMain

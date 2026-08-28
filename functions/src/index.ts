@@ -30,7 +30,7 @@ async function deleteQueryBatch(
   try {
     // eslint-disable-next-line no-constant-condition
     while (true) {
-      // 1. Fetch at most 500 documents (limit of one WriteBatch)
+      // 1. Fetch at most 500 documents (BulkWriter will manage internal batches)
       const querySnapshot = await query.limit(500).get();
 
       // 2. Return immediately when no documents remain
@@ -43,12 +43,12 @@ async function deleteQueryBatch(
         break;
       }
 
-      // 3. Delete the fetched documents in one WriteBatch
-      const batch = db.batch();
-      querySnapshot.docs.forEach((doc) => batch.delete(doc.ref));
+      // 3. Delete the fetched documents using BulkWriter for improved efficiency
+      const bulkWriter = db.bulkWriter();
+      querySnapshot.docs.forEach((doc) => bulkWriter.delete(doc.ref));
 
-      // 4. Commit the batch
-      await batch.commit();
+      // 4. Wait for the operations to complete
+      await bulkWriter.close();
 
       totalDeleted += querySnapshot.size;
       logger.info(`[BATCH_DELETE] ${label} | DELETED Batch=${querySnapshot.size} | Cumulative=${totalDeleted}`);
@@ -108,8 +108,12 @@ async function updateQueryBatch(
  * Handles Storage files, reactions, aggregates, metadata, and final document deletion.
  * Designed for idempotency and high reliability.
  */
-export const onArtifactCleanupTrigger = functions.firestore
-  .document("artifacts/{artifactId}")
+export const onArtifactCleanupTrigger = functions
+  .runWith({
+    timeoutSeconds: 540,
+    memory: "512MB",
+  })
+  .firestore.document("artifacts/{artifactId}")
   .onUpdate(async (change, context) => {
     const newData = change.after.data();
     const oldData = change.before.data();
@@ -319,37 +323,34 @@ export const onReactionCreated = functions.firestore
     const artifactId = data.artifactId;
     const typeId = data.type;
     const db = admin.firestore();
+    const eventId = context.eventId;
 
-    console.log(`Incrementing counts for artifact ${artifactId}, type ${typeId}`);
+    return withIdempotency(`react_inc_${eventId}`, async () => {
+      logger.info(`[REACTION] Incrementing counts | ArtifactID=${artifactId} | Type=${typeId}`);
 
-    const batch = db.batch();
+      const batch = db.batch();
 
-    // 1. Update Aggregate Document
-    const aggregateRef = db.collection("artifact_reaction_counts").doc(artifactId);
-    batch.set(
-      aggregateRef,
-      {
-        totalCount: FieldValue.increment(1),
-        [`breakdown.${typeId}`]: FieldValue.increment(1),
-        lastUpdated: FieldValue.serverTimestamp(),
-      },
-      {merge: true}
-    );
+      // 1. Update Aggregate Document
+      const aggregateRef = db.collection("artifact_reaction_counts").doc(artifactId);
+      batch.set(
+        aggregateRef,
+        {
+          totalCount: FieldValue.increment(1),
+          [`breakdown.${typeId}`]: FieldValue.increment(1),
+          lastUpdated: FieldValue.serverTimestamp(),
+        },
+        {merge: true}
+      );
 
-    // 2. Update Main Artifact Metadata
-    const artifactRef = db.collection("artifacts").doc(artifactId);
-    batch.update(artifactRef, {
-      reactionCount: FieldValue.increment(1),
-    });
+      // 2. Update Main Artifact Metadata
+      const artifactRef = db.collection("artifacts").doc(artifactId);
+      batch.update(artifactRef, {
+        reactionCount: FieldValue.increment(1),
+      });
 
-    try {
       await batch.commit();
-      console.log(`Successfully updated counts for artifact ${artifactId}`);
-    } catch (error) {
-      console.error(`Failed to update counts for artifact ${artifactId}:`, error);
-    }
-
-    return null;
+      logger.info(`[REACTION] Successfully updated counts | ArtifactID=${artifactId}`);
+    });
   });
 
 /**
@@ -364,37 +365,34 @@ export const onReactionDeleted = functions.firestore
     const artifactId = data.artifactId;
     const typeId = data.type;
     const db = admin.firestore();
+    const eventId = context.eventId;
 
-    console.log(`Decrementing counts for artifact ${artifactId}, type ${typeId}`);
+    return withIdempotency(`react_dec_${eventId}`, async () => {
+      logger.info(`[REACTION] Decrementing counts | ArtifactID=${artifactId} | Type=${typeId}`);
 
-    const batch = db.batch();
+      const batch = db.batch();
 
-    // 1. Update Aggregate Document
-    const aggregateRef = db.collection("artifact_reaction_counts").doc(artifactId);
-    batch.set(
-      aggregateRef,
-      {
-        totalCount: FieldValue.increment(-1),
-        [`breakdown.${typeId}`]: FieldValue.increment(-1),
-        lastUpdated: FieldValue.serverTimestamp(),
-      },
-      {merge: true}
-    );
+      // 1. Update Aggregate Document
+      const aggregateRef = db.collection("artifact_reaction_counts").doc(artifactId);
+      batch.set(
+        aggregateRef,
+        {
+          totalCount: FieldValue.increment(-1),
+          [`breakdown.${typeId}`]: FieldValue.increment(-1),
+          lastUpdated: FieldValue.serverTimestamp(),
+        },
+        {merge: true}
+      );
 
-    // 2. Update Main Artifact Metadata
-    const artifactRef = db.collection("artifacts").doc(artifactId);
-    batch.update(artifactRef, {
-      reactionCount: FieldValue.increment(-1),
-    });
+      // 2. Update Main Artifact Metadata
+      const artifactRef = db.collection("artifacts").doc(artifactId);
+      batch.update(artifactRef, {
+        reactionCount: FieldValue.increment(-1),
+      });
 
-    try {
       await batch.commit();
-      console.log(`Successfully decremented counts for artifact ${artifactId}`);
-    } catch (error) {
-      console.error(`Failed to decrement counts for artifact ${artifactId}:`, error);
-    }
-
-    return null;
+      logger.info(`[REACTION] Successfully decremented counts | ArtifactID=${artifactId}`);
+    });
   });
 
 /**

@@ -113,6 +113,7 @@ class LogcatDiagnosticLogger @Inject constructor(
         )
         
         private val PATH_PATTERN = Regex("/(?:data|storage|emulated|mnt)/[^ |]+")
+        private val EMAIL_PATTERN = Regex("[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}")
 
         fun sanitizeMetadata(metadata: Map<String, Any>): Map<String, Any> {
             if (metadata.isEmpty()) return metadata
@@ -120,32 +121,62 @@ class LogcatDiagnosticLogger @Inject constructor(
                 if (SENSITIVE_KEYS.any { key.contains(it, ignoreCase = true) }) {
                     "[REDACTED]"
                 } else {
-                    // Also check if the value itself looks like a path
+                    // Also check if the value itself looks like a path or email
                     val stringValue = value.toString()
-                    if (stringValue.contains("/") && PATH_PATTERN.containsMatchIn(stringValue)) {
-                        stringValue.replace(PATH_PATTERN, "[REDACTED_PATH]")
-                    } else {
-                        value
+                    var processedValue = stringValue
+                    if (processedValue.contains("/") && PATH_PATTERN.containsMatchIn(processedValue)) {
+                        processedValue = processedValue.replace(PATH_PATTERN, "[REDACTED_PATH]")
                     }
+                    if (EMAIL_PATTERN.containsMatchIn(processedValue)) {
+                        processedValue = processedValue.replace(EMAIL_PATTERN, "[REDACTED_EMAIL]")
+                    }
+                    
+                    if (processedValue == stringValue) value else processedValue
                 }
             }
         }
 
         fun sanitizeThrowable(throwable: Throwable?): Throwable? {
             if (throwable == null) return null
-            val message = throwable.message ?: return throwable
-            val sanitizedMessage = message.replace(PATH_PATTERN, "[REDACTED_PATH]")
             
-            if (message == sanitizedMessage) return throwable
+            val originalMessage = throwable.message ?: ""
+            var message = originalMessage
             
-            return RedactedException(throwable.javaClass.simpleName, sanitizedMessage, throwable)
+            // 1. Redact absolute filesystem paths
+            message = message.replace(PATH_PATTERN, "[REDACTED_PATH]")
+            
+            // 2. Redact email addresses
+            message = message.replace(EMAIL_PATTERN, "[REDACTED_EMAIL]")
+            
+            // 3. Redact common sensitive keywords followed by values
+            SENSITIVE_KEYS.forEach { key ->
+                // Matches "key=value", "key: value", "key value" (case-insensitive)
+                val regex = Regex("(?i)\\b$key\\b[:= ]*([^\\s,]+)")
+                message = message.replace(regex, "$key=[REDACTED]")
+            }
+            
+            // 4. Recursively sanitize cause if present
+            val sanitizedCause = sanitizeThrowable(throwable.cause)
+
+            // Optimization: If nothing changed and no cause to sanitize, return original
+            if (message == originalMessage && sanitizedCause == throwable.cause) {
+                return throwable
+            }
+            
+            return RedactedException(
+                className = throwable.javaClass.simpleName,
+                message = message,
+                originalCause = throwable,
+                sanitizedCause = sanitizedCause
+            )
         }
 
         private class RedactedException(
             className: String,
             message: String,
-            private val originalCause: Throwable
-        ) : Exception("[$className] $message", originalCause) {
+            private val originalCause: Throwable,
+            sanitizedCause: Throwable? = null
+        ) : Exception("[$className] $message", sanitizedCause) {
             override fun getStackTrace(): Array<StackTraceElement> = originalCause.stackTrace
         }
     }

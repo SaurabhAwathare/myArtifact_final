@@ -302,4 +302,20 @@ class CommentViewModelTest {
         
         job.cancel()
     }
+
+    @Test
+    fun `reflective prompt should be initialized when artifactId is set`() = runTest {
+        val artifactId = "test-artifact-id"
+        coEvery { ownershipAuthority.isCurrentUserOwner(artifactId) } returns false
+        coEvery { getCommentsUseCase(artifactId, any(), any()) } returns Result.success(
+            PaginatedComments(emptyList(), null)
+        )
+        
+        viewModel.initialize(artifactId)
+        testDispatcher.scheduler.advanceUntilIdle()
+        
+        val prompt = viewModel.uiState.value.reflectivePrompt
+        org.junit.Assert.assertNotNull("Reflective prompt should not be null", prompt)
+        org.junit.Assert.assertTrue("Reflective prompt should not be empty", prompt!!.isNotEmpty())
+    }
 }

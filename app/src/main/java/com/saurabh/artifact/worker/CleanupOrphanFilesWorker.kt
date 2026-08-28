@@ -12,6 +12,8 @@ import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.domain.auth.SessionConstants
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import kotlinx.coroutines.withTimeout
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * Reconciles the filesystem with the Room database to remove orphaned media files
@@ -30,8 +32,19 @@ class CleanupOrphanFilesWorker @AssistedInject constructor(
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
-        // WORKER LOCK: Ensure database encryption is ready before proceeding
-        startupCoordinator.awaitComponent(com.saurabh.artifact.startup.StartupComponent.DATABASE)
+        // WORKER LOCK: Ensure database encryption is ready before proceeding with a safety timeout
+        try {
+            withTimeout(30.seconds) {
+                startupCoordinator.awaitComponent(com.saurabh.artifact.startup.StartupComponent.DATABASE)
+            }
+        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            diagnosticLogger.warn(
+                DiagnosticCategory.WORKMANAGER, 
+                "ORPHAN_CLEANUP_DATABASE_TIMEOUT", 
+                mapOf("reason" to "database_locked")
+            )
+            return Result.retry()
+        }
 
         diagnosticLogger.info(DiagnosticCategory.WORKMANAGER, "ORPHAN_CLEANUP_STARTED")
         

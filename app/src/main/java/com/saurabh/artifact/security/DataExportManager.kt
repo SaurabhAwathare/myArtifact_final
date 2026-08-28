@@ -168,48 +168,74 @@ class DataExportManager @Inject constructor(
         errors: MutableList<String>,
         onProgress: suspend (ExportProgress) -> Unit
     ): List<Artifact> {
-        return try {
-            val result = artifactRepository.get().getUserArtifactsPage(userId, limit = 1000)
-            val artifacts = result.getOrNull()?.first ?: emptyList()
-            
-            artifacts.forEachIndexed { index, artifact ->
-                onProgress(ExportProgress.Artifacts(index + 1, artifacts.size))
-                
-                val safeTitle = sanitizeFilename(artifact.title).ifBlank { "Untitled" }
-                val dirName = "Artifacts/${formatDate(artifact.createdAt)}_${safeTitle}_${artifact.id.take(5)}"
-                
-                val metadata = ArtifactExportMetadata(
-                    id = artifact.id,
-                    title = artifact.title,
-                    description = artifact.description,
-                    createdAt = artifact.createdAt.toDate().toString(),
-                    emotion = artifact.emotion,
-                    emotionTag = artifact.emotionTag,
-                    durationMs = artifact.durationMs,
-                    visibility = artifact.visibility.name,
-                    playCount = artifact.playCount,
-                    reactionCount = artifact.reactionCount,
-                    commentCount = artifact.commentCount,
-                    transcript = artifact.transcript
-                )
-                zipOut.addJsonEntry("$dirName/metadata.json", metadata)
-                
-                // Try Local Audio First
-                val localDraft = draftDao.get().getDraftByArtifactId(artifact.id, userId)
-                val audioFile = localDraft?.let { File(it.localAudioPath) }
-                
-                if (audioFile?.exists() == true) {
-                    zipOut.addFileEntry("$dirName/audio.m4a", audioFile, decrypt = localDraft.isEncrypted)
-                } else if (artifact.audioUrl.isNotEmpty()) {
-                    zipOut.addRemoteAudioEntry("$dirName/audio.m4a", artifact.audioUrl, errors)
-                } else {
-                    errors.add("Audio missing for artifact: ${artifact.id}")
+        val allArtifacts = mutableListOf<Artifact>()
+        var lastVisible: com.google.firebase.firestore.DocumentSnapshot? = null
+        
+        // 1. Get total count for progress reporting (if available)
+        val profile = userRepository.get().getCachedProfile(userId)
+        val totalExpected = profile?.artifactsCount?.toInt() ?: 0
+
+        try {
+            while (true) {
+                // 2. Privacy Boundary: Abort immediately if account switched
+                if (authRepository.currentUserId != userId) {
+                    throw IllegalStateException("Account switch detected during export. Aborting for privacy.")
                 }
+
+                val result = artifactRepository.get().getUserArtifactsPage(userId, limit = 1000, lastVisible = lastVisible)
+                val pair = result.getOrThrow()
+                val pageArtifacts = pair.first
+                lastVisible = pair.second
+                
+                if (pageArtifacts.isEmpty()) break
+
+                pageArtifacts.forEach { artifact ->
+                    val currentCount = allArtifacts.size + 1
+                    onProgress(ExportProgress.Artifacts(currentCount, totalExpected.coerceAtLeast(currentCount)))
+                    
+                    val safeTitle = sanitizeFilename(artifact.title).ifBlank { "Untitled" }
+                    val dirName = "Artifacts/${formatDate(artifact.createdAt)}_${safeTitle}_${artifact.id.take(5)}"
+                    
+                    val metadata = ArtifactExportMetadata(
+                        id = artifact.id,
+                        title = artifact.title,
+                        description = artifact.description,
+                        createdAt = artifact.createdAt.toDate().toString(),
+                        emotion = artifact.emotion,
+                        emotionTag = artifact.emotionTag,
+                        durationMs = artifact.durationMs,
+                        visibility = artifact.visibility.name,
+                        playCount = artifact.playCount,
+                        reactionCount = artifact.reactionCount,
+                        commentCount = artifact.commentCount,
+                        transcript = artifact.transcript
+                    )
+                    zipOut.addJsonEntry("$dirName/metadata.json", metadata)
+                    
+                    // Try Local Audio First
+                    val localDraft = draftDao.get().getDraftByArtifactId(artifact.id, userId)
+                    val audioFile = localDraft?.let { File(it.localAudioPath) }
+                    
+                    if (audioFile?.exists() == true) {
+                        zipOut.addFileEntry("$dirName/audio.m4a", audioFile, decrypt = localDraft.isEncrypted)
+                    } else if (artifact.audioUrl.isNotEmpty()) {
+                        zipOut.addRemoteAudioEntry("$dirName/audio.m4a", artifact.audioUrl, errors)
+                    } else {
+                        errors.add("Audio missing for artifact: ${artifact.id}")
+                    }
+                    
+                    allArtifacts.add(artifact)
+                }
+
+                if (lastVisible == null) break
             }
-            artifacts
+            return allArtifacts
         } catch (e: Exception) {
+            diagnosticLogger.error(DiagnosticCategory.SETTINGS, "EXPORT_ARTIFACTS_FETCH_FAILED", throwable = e)
             errors.add("Failed to fetch artifacts: ${e.message}")
-            emptyList()
+            // Re-throw account switch to terminate service cleanly
+            if (e is IllegalStateException && e.message?.contains("Account switch") == true) throw e
+            return allArtifacts
         }
     }
 

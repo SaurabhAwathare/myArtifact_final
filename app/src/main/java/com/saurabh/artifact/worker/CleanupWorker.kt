@@ -25,6 +25,8 @@ import dagger.assisted.AssistedInject
 import androidx.room.withTransaction
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
+import kotlinx.coroutines.withTimeout
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * Background worker for reliable local file cleanup after an artifact is deleted
@@ -49,8 +51,19 @@ class CleanupWorker @AssistedInject constructor(
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
-        // WORKER LOCK: Ensure database encryption is ready before proceeding
-        startupCoordinator.awaitComponent(com.saurabh.artifact.startup.StartupComponent.DATABASE)
+        // WORKER LOCK: Ensure database encryption is ready before proceeding with a safety timeout
+        try {
+            withTimeout(30.seconds) {
+                startupCoordinator.awaitComponent(com.saurabh.artifact.startup.StartupComponent.DATABASE)
+            }
+        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            diagnosticLogger.warn(
+                DiagnosticCategory.WORKMANAGER, 
+                "CLEANUP_DATABASE_TIMEOUT", 
+                mapOf("reason" to "database_locked_recovery")
+            )
+            return Result.retry()
+        }
 
         val isEmergency = inputData.getBoolean(KEY_EMERGENCY_MODE, false)
         

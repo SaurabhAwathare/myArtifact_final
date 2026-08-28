@@ -6,7 +6,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -33,6 +32,7 @@ fun CommentComposer(
     onTextChanged: (String) -> Unit,
     onSubmit: () -> Unit,
     modifier: Modifier = Modifier,
+    reflectivePrompt: String? = null,
     onRetryUnlock: () -> Unit = {}
 ) {
     val isUnlocked = unlockState == CommentUnlockState.UNLOCKED
@@ -43,7 +43,16 @@ fun CommentComposer(
             .fillMaxWidth()
             .padding(horizontal = Spacing.Large, vertical = Spacing.Medium)
     ) {
-        if (!isUnlocked) {
+        if (isUnlocked) {
+            reflectivePrompt?.let { prompt ->
+                Text(
+                    text = prompt,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = ArtifactTheme.colors.onSurfaceMuted,
+                    modifier = Modifier.padding(bottom = Spacing.Small)
+                )
+            }
+        } else {
             UnlockMessage(state = unlockState, onRetry = onRetryUnlock)
             Spacer(modifier = Modifier.height(Spacing.Medium))
         }

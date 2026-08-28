@@ -128,6 +128,7 @@ fun CommentSheet(
                     text = inputText,
                     isSubmitting = uiState.isSubmitting,
                     unlockState = uiState.unlockState,
+                    reflectivePrompt = uiState.reflectivePrompt,
                     onTextChanged = { inputText = it },
                     onSubmit = { onSubmit(inputText) },
                     onRetryUnlock = onRetryUnlock,

@@ -17,6 +17,7 @@ import com.saurabh.artifact.model.SyncState
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.LogKeys
+import com.saurabh.artifact.util.CommentPromptBank
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -99,7 +100,10 @@ class CommentViewModel @Inject constructor(
         unlockObservationJob?.cancel()
         lastVisibleCursor = null
         _uiState.update { 
-            CommentUiState(unlockState = if (isOwner) CommentUnlockState.UNLOCKED else CommentUnlockState.LOCKED)
+            CommentUiState(
+                unlockState = if (isOwner) CommentUnlockState.UNLOCKED else CommentUnlockState.LOCKED,
+                reflectivePrompt = if (artifactId.isNotEmpty()) CommentPromptBank.getStablePrompt(artifactId) else null
+            )
         }
     }
 
