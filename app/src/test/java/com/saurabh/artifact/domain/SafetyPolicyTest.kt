@@ -14,6 +14,12 @@ class SafetyPolicyTest {
     private val safetyPolicy = SafetyPolicy()
 
     @Test
+    fun `isEligibleForDiscovery should return false if creator is ignored`() {
+        val artifact = createArtifact(status = ArtifactStatus.ACTIVE, userId = "userB")
+        assertFalse(safetyPolicy.isEligibleForDiscovery(artifact, "userA", ignoredUserIds = setOf("userB")))
+    }
+
+    @Test
     fun `isEligibleForDiscovery should return true for active safe artifact`() {
         val artifact = createArtifact(status = ArtifactStatus.ACTIVE)
         assertTrue(safetyPolicy.isEligibleForDiscovery(artifact, "user1"))
@@ -73,10 +79,12 @@ class SafetyPolicyTest {
         reportCount: Long = 0,
         safetyConcernCount: Long = 0,
         moderationStatus: ModerationStatus = ModerationStatus.SAFE,
-        audioUrl: String = "https://audio.com"
+        audioUrl: String = "https://audio.com",
+        userId: String = "creator"
     ): Artifact {
         return Artifact(
             id = "test-id",
+            userId = userId,
             status = status,
             recommendationState = recommendationState,
             reportCount = reportCount,

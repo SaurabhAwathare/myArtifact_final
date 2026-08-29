@@ -250,13 +250,15 @@ class IdentityViewModel @Inject constructor(
 
     /**
      * Triggers an emergency identity reset for privacy protection.
+     *
+     * @param severRelationships If true, severs all inbound and outbound Follow Journey relationships.
      */
-    fun emergencyReset(onSuccess: () -> Unit) {
+    fun emergencyReset(severRelationships: Boolean, onSuccess: () -> Unit) {
         val userId = authRepository.currentUser.value?.uid ?: return
         
         viewModelScope.launch {
             _uiState.value = IdentityUiState.Loading
-            userProfileManager.emergencyIdentityReset(userId)
+            userProfileManager.emergencyIdentityReset(userId, severRelationships)
                 .onSuccess {
                     _uiState.value = IdentityUiState.Idle
                     onSuccess()

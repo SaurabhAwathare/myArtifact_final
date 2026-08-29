@@ -238,12 +238,14 @@ class UserProfileManager @Inject constructor(
     /**
      * Immediately randomizes the user's identity and synchronizes both local and remote state.
      * Acts as the coordinator for the emergency reset flow.
+     *
+     * @param severRelationships If true, severs all inbound and outbound Follow Journey relationships.
      */
-    suspend fun emergencyIdentityReset(userId: String): Result<Unit> {
-        Log.i("UserProfileManager", "Starting emergency identity reset orchestration for $userId")
+    suspend fun emergencyIdentityReset(userId: String, severRelationships: Boolean = false): Result<Unit> {
+        Log.i("UserProfileManager", "Starting emergency identity reset orchestration for $userId (sever=$severRelationships)")
         
         // 1. Trigger Remote Reset (Authority)
-        val result = userRepository.emergencyIdentityReset(userId)
+        val result = userRepository.emergencyIdentityReset(userId, severRelationships)
         
         if (result.isSuccess) {
             val newVersion = result.getOrThrow()

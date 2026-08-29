@@ -448,7 +448,7 @@ export const onFollowIntentCreated = functions.firestore
 
       // Silent Ignore Boundary Check (Phase 6.3.1)
       const ignoreDoc = await db.collection("users").doc(targetId)
-        .collection("private").document("ignored_users")
+        .collection("private").doc("ignored_users")
         .collection("users").doc(uid)
         .get();
 
@@ -567,7 +567,7 @@ export const onReactionIntentCreated = functions.firestore
 
         // Silent Ignore Boundary Check (Phase 6.3.1)
         const ignoreDoc = await db.collection("users").doc(ownerId)
-          .collection("private").document("ignored_users")
+          .collection("private").doc("ignored_users")
           .collection("users").doc(uid)
           .get();
 
@@ -753,6 +753,14 @@ export const onUserIdentityReset = functions
       const commentsQuery = db.collectionGroup("comments").where("creatorId", "==", uid);
       await updateIdentitySafe(db, commentsQuery, authorUpdate, newVersion, "User Comments");
 
+      // 3.5 Optional Relationship Severing (Phase 6.4 Clean Break)
+      const shouldSever = newData.identityMetadata?.severRelationships === true;
+      if (shouldSever) {
+        logger.info(`[IDENTITY_PROPAGATION] SEVERING RELATIONSHIPS | UID=${uid}`);
+        await scaleResonanceCleanup(db, uid, "out");
+        await scaleResonanceCleanup(db, uid, "in");
+      }
+
       // 4. Finalize: Update lastCompletedIdentityVersion (Atomic Transaction)
       await db.runTransaction(async (transaction) => {
         const userRef = db.collection("users").doc(uid);
@@ -760,13 +768,23 @@ export const onUserIdentityReset = functions
         if (!userDoc.exists) return;
 
         const currentCompleted = userDoc.data()?.identityMetadata?.lastCompletedIdentityVersion || 0;
-        // Ensure we don't regress the completion version if a newer reset finished first
-        if (newVersion > currentCompleted) {
-          transaction.update(userRef, {
-            "identityMetadata.lastCompletedIdentityVersion": newVersion,
-            "identityMetadata.resetCompletedAt": FieldValue.serverTimestamp(),
-          });
+
+        const finalUpdate: any = {
+          "identityMetadata.lastCompletedIdentityVersion": Math.max(newVersion, currentCompleted),
+          "identityMetadata.resetCompletedAt": FieldValue.serverTimestamp(),
+          // Purge the trigger flag
+          "identityMetadata.severRelationships": FieldValue.delete(),
+        };
+
+        // If relationships were severed, reset counters to 0 to prevent ghost counts
+        if (shouldSever) {
+          finalUpdate.resonanceInCount = 0;
+          finalUpdate.followersCount = 0;
+          finalUpdate.resonanceOutCount = 0;
+          finalUpdate.followingCount = 0;
         }
+
+        transaction.update(userRef, finalUpdate);
       });
 
       logger.info(`[IDENTITY_PROPAGATION] SUCCESS | UID=${uid} | Version=${newVersion}`);
@@ -1347,10 +1365,22 @@ export const onCommentCreated = functions.firestore
       await artifactRef.update({
         commentCount: FieldValue.increment(1),
       });
+      logger.info(`[AGGREGATE] commentCount incremented | ArtifactID=${artifactId} | CommentID=${commentId}`);
 
       // Create Notification if commenter is not the owner
       const commenterId = data.creatorId;
       if (ownerId && ownerId !== commenterId) {
+        // Silent Ignore Boundary Check (Phase 6.3.1 Remediation)
+        const ignoreDoc = await db.collection("users").doc(ownerId)
+          .collection("private").doc("ignored_users")
+          .collection("users").doc(commenterId)
+          .get();
+
+        if (ignoreDoc.exists) {
+          logger.info(`[COMMENT_NOTIF] Suppressed due to ignore | Recipient=${ownerId} | Sender=${commenterId}`);
+          return;
+        }
+
         // Authoritative Preference Check
         const userSettingsDoc = await db.collection("users").doc(ownerId)
           .collection("private").doc("settings")
@@ -1372,8 +1402,6 @@ export const onCommentCreated = functions.firestore
         });
         logger.info(`[NOTIFICATION] Created for owner ${ownerId} | ArtifactID=${artifactId}`);
       }
-
-      logger.info(`[AGGREGATE] commentCount incremented | ArtifactID=${artifactId} | CommentID=${commentId}`);
     });
   });
 

@@ -21,6 +21,7 @@ import javax.inject.Singleton
 @Singleton
 class FirestoreCommentRepository @Inject constructor(
     private val firestore: FirebaseFirestore,
+    private val ignoredUserDao: dagger.Lazy<com.saurabh.artifact.data.local.IgnoredUserDao>,
     private val diagnosticLogger: DiagnosticLogger
 ) : CommentRepository {
 
@@ -40,7 +41,12 @@ class FirestoreCommentRepository @Inject constructor(
             }
 
             val snapshot = query.get().await()
+            val ignoredIds = ignoredUserDao.get().getAllIgnoredUserIds().toSet()
+            
             val comments = snapshot.documents.mapNotNull { doc ->
+                val creatorId = doc.getString("creatorId")
+                if (creatorId != null && ignoredIds.contains(creatorId)) return@mapNotNull null
+                
                 doc.toObject(CommentDto::class.java)?.copy(id = doc.id)?.toDomain()
             }
 

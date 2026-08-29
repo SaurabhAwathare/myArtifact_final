@@ -3,8 +3,13 @@ package com.saurabh.artifact.security
 import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
+import com.google.firebase.firestore.CollectionReference
+import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.QuerySnapshot
 import com.google.firebase.storage.FirebaseStorage
+import com.google.android.gms.tasks.Tasks
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
@@ -19,8 +24,6 @@ import com.saurabh.artifact.util.EncryptedStorageManager
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.mockkStatic
-import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
@@ -48,6 +51,11 @@ class DataExportManagerTest {
     private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
     private val contentResolver = mockk<ContentResolver>()
 
+    private val mockDoc = mockk<DocumentReference>(relaxed = true)
+    private val mockColl = mockk<CollectionReference>(relaxed = true)
+    private val mockQuery = mockk<Query>(relaxed = true)
+    private val mockTask = Tasks.forResult(mockk<QuerySnapshot>(relaxed = true))
+
     private lateinit var dataExportManager: DataExportManager
 
     private companion object {
@@ -57,6 +65,20 @@ class DataExportManagerTest {
     @Before
     fun setup() {
         every { context.contentResolver } returns contentResolver
+        
+        // Provide consistent mocks to avoid hangs
+        every { mockQuery.get() } returns mockTask
+        every { mockQuery.whereEqualTo(any<String>(), any()) } returns mockQuery
+        
+        every { mockColl.get() } returns mockTask
+        every { mockColl.whereEqualTo(any<String>(), any()) } returns mockQuery
+        every { mockColl.document(any()) } returns mockDoc
+        
+        every { mockDoc.collection(any()) } returns mockColl
+        
+        every { firestore.collection(any()) } returns mockColl
+        every { firestore.collectionGroup(any()) } returns mockQuery
+
         dataExportManager = DataExportManager(
             context,
             { draftDao },
@@ -88,8 +110,6 @@ class DataExportManagerTest {
             )
         )
         // Participation & Relationships - Simplified mocks
-        every { firestore.collectionGroup(any()) } returns mockk(relaxed = true)
-        every { firestore.collection(any()) } returns mockk(relaxed = true)
         every { userRepository.observeResonatingWithIds(userId) } returns flowOf(emptySet())
         every { libraryRepository.getSavedArtifactIds(userId) } returns flowOf(emptySet())
 
@@ -128,8 +148,6 @@ class DataExportManagerTest {
         coEvery { userRepository.getCachedProfile(userId) } returns User(id = userId, anonymousName = "Test User")
         coEvery { artifactRepository.getUserArtifactsPage(userId, any()) } returns Result.success(emptyList<Artifact>() to null)
         coEvery { draftDao.getAllDraftsByUserId(userId) } returns emptyList()
-        every { firestore.collectionGroup(any()) } returns mockk(relaxed = true)
-        every { firestore.collection(any()) } returns mockk(relaxed = true)
         every { userRepository.observeResonatingWithIds(userId) } returns flowOf(emptySet())
         every { libraryRepository.getSavedArtifactIds(userId) } returns flowOf(emptySet())
 
@@ -160,8 +178,6 @@ class DataExportManagerTest {
         every { libraryRepository.getSavedArtifactIds(userId) } returns flowOf(setOf(otherArtifactId))
         
         // Other mocks
-        every { firestore.collectionGroup(any()) } returns mockk(relaxed = true)
-        every { firestore.collection(any()) } returns mockk(relaxed = true)
         every { userRepository.observeResonatingWithIds(userId) } returns flowOf(emptySet())
 
         val outputFile = tempFolder.newFile("isolation_stay_with_me.zip")
@@ -215,8 +231,6 @@ class DataExportManagerTest {
         }
         
         // Participation & Relationships - Simplified mocks
-        every { firestore.collectionGroup(any()) } returns mockk(relaxed = true)
-        every { firestore.collection(any()) } returns mockk(relaxed = true)
         every { userRepository.observeResonatingWithIds(userId) } returns flowOf(emptySet())
         every { libraryRepository.getSavedArtifactIds(userId) } returns flowOf(emptySet())
 
@@ -236,37 +250,22 @@ class DataExportManagerTest {
         coEvery { draftDao.getAllDraftsByUserId(userId) } returns emptyList()
 
         // Mock Engagement
-        val engagementColl = mockk<com.google.firebase.firestore.CollectionReference>(relaxed = true)
-        val engagementSnapshot = mockk<com.google.firebase.firestore.QuerySnapshot>(relaxed = true)
+        val engagementColl = mockk<CollectionReference>(relaxed = true)
+        val engagementSnapshot = mockk<QuerySnapshot>(relaxed = true)
         val engagementDoc = mockk<com.google.firebase.firestore.QueryDocumentSnapshot>(relaxed = true)
         
         every { firestore.collection("users").document(userId).collection("engagement") } returns engagementColl
+        every { engagementColl.get() } returns Tasks.forResult(engagementSnapshot)
         
         // Mock Reports
-        val reportsColl = mockk<com.google.firebase.firestore.CollectionReference>(relaxed = true)
-        val reportsQuery = mockk<com.google.firebase.firestore.Query>(relaxed = true)
-        val reportsSnapshot = mockk<com.google.firebase.firestore.QuerySnapshot>(relaxed = true)
+        val reportsColl = mockk<CollectionReference>(relaxed = true)
+        val reportsQuery = mockk<Query>(relaxed = true)
+        val reportsSnapshot = mockk<QuerySnapshot>(relaxed = true)
         val reportDoc = mockk<com.google.firebase.firestore.QueryDocumentSnapshot>(relaxed = true)
         
         every { firestore.collection("reports") } returns reportsColl
         every { reportsColl.whereEqualTo("reporterId", userId) } returns reportsQuery
-
-        // Setup Task awaits
-        val engagementTask = mockk<com.google.android.gms.tasks.Task<com.google.firebase.firestore.QuerySnapshot>>(relaxed = true)
-        val reportsTask = mockk<com.google.android.gms.tasks.Task<com.google.firebase.firestore.QuerySnapshot>>(relaxed = true)
-        
-        every { engagementColl.get() } returns engagementTask
-        every { reportsQuery.get() } returns reportsTask
-        
-        // Use slot or mockkStatic for await()
-        // For simplicity in this environment, I'll rely on the fact that existing tests 
-        // seem to work with relaxed mocks if TasksKt is handled, 
-        // but I'll add the explicit mockkStatic just in case.
-        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
-        kotlinx.coroutines.test.runTest {
-            coEvery { engagementTask.await() } returns engagementSnapshot
-            coEvery { reportsTask.await() } returns reportsSnapshot
-        }
+        every { reportsQuery.get() } returns Tasks.forResult(reportsSnapshot)
         
         every { engagementSnapshot.documents } returns listOf(engagementDoc)
         every { engagementDoc.id } returns "art_1"

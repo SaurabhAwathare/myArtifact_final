@@ -737,8 +737,10 @@ class UserRepository @Inject constructor(
     /**
      * Immediately randomizes the user's identity for emergency privacy protection.
      * Hardened with a version-based state machine and atomic transaction.
+     *
+     * @param severRelationships If true, the backend will reciprocally sever all Follow Journey relationships.
      */
-    suspend fun emergencyIdentityReset(userId: String): Result<Long> = withContext(Dispatchers.IO) {
+    suspend fun emergencyIdentityReset(userId: String, severRelationships: Boolean = false): Result<Long> = withContext(Dispatchers.IO) {
         if (userId.isBlank()) return@withContext Result.failure(AppError.InvalidInput("User ID cannot be blank"))
 
         try {
@@ -769,18 +771,22 @@ class UserRepository @Inject constructor(
                 }
 
                 // 3. Update user profile
-                val newSeed = java.util.UUID.randomUUID().toString()
-                val updateMap = mapOf(
+                val updateMap = mutableMapOf<String, Any>(
                     "anonymousName" to generatedName,
                     "anonymousSigil" to UsernameGenerator.deriveSigil(user.anonymousId),
-                    "sigilSeed" to newSeed,
-                    "sigilConfig" to user.sigilConfig.copy(seed = newSeed),
+                    "sigilSeed" to java.util.UUID.randomUUID().toString(),
+                    "sigilConfig.seed" to java.util.UUID.randomUUID().toString(),
                     "usernameUpdatedAt" to FieldValue.serverTimestamp(),
                     "identityMetadata.lastIdentityChangeAt" to FieldValue.serverTimestamp(),
                     "identityMetadata.emergencyResetCount" to FieldValue.increment(1),
                     "identityMetadata.identityResetVersion" to nextVersion,
                     "identityMetadata.resetStartedAt" to FieldValue.serverTimestamp()
                 )
+                
+                if (severRelationships) {
+                    updateMap["identityMetadata.severRelationships"] = true
+                }
+                
                 transaction.update(userRef, updateMap)
 
                 generatedName to nextVersion
@@ -887,7 +893,13 @@ class UserRepository @Inject constructor(
                 val snapshot = query.get().await()
                 if (snapshot.isEmpty) return@withContext Result.success(emptyList<User>() to null)
 
-                val userIds = snapshot.documents.map { it.id }
+                val rawUserIds = snapshot.documents.map { it.id }
+                val ignoredIds = ignoredUserDao.get().getAllIgnoredUserIds().toSet()
+                val userIds = rawUserIds.filter { !ignoredIds.contains(it) }
+
+                if (userIds.isEmpty()) {
+                    return@withContext Result.success(emptyList<User>() to snapshot.documents.lastOrNull())
+                }
 
                 // Batch fetch User documents
                 val userChunks = userIds.chunked(10)
@@ -944,8 +956,14 @@ class UserRepository @Inject constructor(
                 val snapshot = query.get().await()
                 if (snapshot.isEmpty) return@withContext Result.success(emptyList<User>() to null)
 
-                // Extract unique userIds
-                val userIds = snapshot.documents.mapNotNull { it.getString("userId") }.distinct()
+                // Extract unique userIds and filter ignored
+                val rawUserIds = snapshot.documents.mapNotNull { it.getString("userId") }.distinct()
+                val ignoredIds = ignoredUserDao.get().getAllIgnoredUserIds().toSet()
+                val userIds = rawUserIds.filter { !ignoredIds.contains(it) }
+
+                if (userIds.isEmpty()) {
+                    return@withContext Result.success(emptyList<User>() to snapshot.documents.lastOrNull())
+                }
 
                 // Batch fetch User documents
                 val userChunks = userIds.chunked(10)

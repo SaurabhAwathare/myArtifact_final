@@ -103,7 +103,7 @@ class ResonanceListViewModel @Inject constructor(
 
             result.onSuccess { (newUsers, nextLastVisible) ->
                     lastVisible = nextLastVisible
-                    isLastPage = newUsers.size < 20
+                    isLastPage = nextLastVisible == null
                     
                     _uiState.value = _uiState.value.copy(
                         users = if (refresh) newUsers else _uiState.value.users + newUsers,
