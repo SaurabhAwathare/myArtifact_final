@@ -149,6 +149,7 @@ class ArtifactRemoteMediator(
             emotionTag = artifact.emotionTag,
             playCount = artifact.playCount,
             reactionCount = artifact.reactionCount,
+            commentCount = artifact.commentCount,
             reportCount = artifact.reportCount,
             safetyConcernCount = artifact.safetyConcernCount,
             reporterIds = artifact.reporterIds,
@@ -157,6 +158,10 @@ class ArtifactRemoteMediator(
             status = artifact.status,
             recommendationState = artifact.recommendationState,
             isDraft = artifact.isDraft,
+            isEncrypted = artifact.isEncrypted,
+            identityVersion = artifact.identityVersion,
+            resonanceDepth = artifact.resonanceDepth,
+            humanIntegrityFactor = artifact.humanIntegrityFactor,
             lastUpdated = System.currentTimeMillis()
         )
     }

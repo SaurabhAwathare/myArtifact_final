@@ -81,7 +81,8 @@ data class InstantRecord(val prompt: String? = null) : Route
 data class IncomingArtifact(
     val artifactId: String,
     val source: com.saurabh.artifact.model.PlaybackSource = com.saurabh.artifact.model.PlaybackSource.DEEP_LINK,
-    val recipientId: String? = null
+    val recipientId: String? = null,
+    val actorId: String? = null
 )
 
 @Serializable

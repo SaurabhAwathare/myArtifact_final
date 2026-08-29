@@ -461,6 +461,7 @@ export const onFollowIntentCreated = functions.firestore
         // Create Notification
         await admin.firestore().collection("notifications").add({
           userId: targetId,
+          actorId: uid,
           followerId: uid,
           message: "PRESENCE_RESONATED",
           type: "FOLLOW",
@@ -579,6 +580,7 @@ export const onReactionIntentCreated = functions.firestore
         if (ownerSettingsDoc.data()?.notificationsEnabled !== false) {
           await db.collection("notifications").add({
             userId: ownerId,
+            actorId: uid,
             message: `RESONANCE|${data.type}`,
             artifactId: artifactId,
             type: "RESONANCE",
@@ -855,11 +857,23 @@ export const onUserDeleted = functions
         if (snapshot.size < 500) break;
       }
 
-      // 2. Cleanup Notifications
+      // 2. Cleanup Notifications (Received)
       await deleteQueryBatch(
         db,
         db.collection("notifications").where("userId", "==", uid),
-        "User Notifications"
+        "User Notifications (Received)"
+      );
+
+      // 2.5 Cleanup Authored Notifications (Silent Ignore cleanup)
+      await deleteQueryBatch(
+        db,
+        db.collection("notifications").where("actorId", "==", uid),
+        "Authored Notifications (Actor)"
+      );
+      await deleteQueryBatch(
+        db,
+        db.collection("notifications").where("followerId", "==", uid),
+        "Authored Notifications (Legacy Follower)"
       );
 
       // 3. Cleanup Resonances (SCALABLE: Paged parallel transactions)
@@ -1001,11 +1015,20 @@ async function scaleResonanceCleanup(
 export const onEngagementUpdated = functions.firestore
   .document("users/{uid}/engagement/{artifactId}")
   .onWrite(async (change, context) => {
+    const before = change.before.data();
     const after = change.after.data();
+
     if (!after) return null; // Deletion handled by onUserDeleted or onArtifactCleanup
 
     // 1. Loop Prevention & Idempotency
-    if (after.isCommentUnlocked === true) {
+    // We only process if coverage or hasReachedEnd changed.
+    // This prevents infinite loops from our own internal milestone/unlock updates.
+    const beforeCoverage = before?.coverage?.toBase64() || "";
+    const afterCoverage = after.coverage?.toBase64() || "";
+    const coverageChanged = beforeCoverage !== afterCoverage;
+    const endChanged = (before?.hasReachedEnd || false) !== (after.hasReachedEnd || false);
+
+    if (!coverageChanged && !endChanged) {
       return null;
     }
 
@@ -1055,20 +1078,91 @@ export const onEngagementUpdated = functions.firestore
 
       logger.info(`[UNLOCK] Validation | UserID=${uid} | ArtID=${artifactId} | Coverage=${(result.coveragePercent * 100).toFixed(2)}% | Valid=${result.isValid}`);
 
-      // 5. Authoritative Unlock
-      if (result.isValid) {
-        const policy = getPolicy(reviewTrackingVersion);
-        await change.after.ref.update({
-          "isCommentUnlocked": true,
-          "engagementState.unlocked": true,
-          "unlockReason": UnlockReason.LISTENING_THRESHOLD,
-          "unlockTimestamp": FieldValue.serverTimestamp(),
-          "updatedAt": FieldValue.serverTimestamp(),
-          "validationVersion": VALIDATION_VERSION,
-          "policyVersion": policy.version,
-        });
+      // 4.5 Milestone Processing (Phase 7.4)
+      // We use integer milestones [25, 50, 75, 100] for precision safety in Firestore.
+      const milestones = [25, 50, 75, 100];
+      const reachedBefore: number[] = after.milestonesReached || [];
+      const currentPercent = Math.floor(result.coveragePercent * 100);
+      const newlyReached = milestones.filter(m => currentPercent >= m && !reachedBefore.includes(m));
 
-        logger.info(`[UNLOCK] SUCCESS | UserID=${uid} | ArtifactID=${artifactId}`);
+      const shouldUnlock = !after.isCommentUnlocked && result.isValid;
+
+      if (newlyReached.length > 0 || shouldUnlock) {
+        const batch = db.batch();
+        const engagementRef = change.after.ref;
+
+        const engagementUpdates: any = {
+          updatedAt: FieldValue.serverTimestamp()
+        };
+
+        if (newlyReached.length > 0) {
+          engagementUpdates.milestonesReached = FieldValue.arrayUnion(...newlyReached);
+
+          // Phase 7.10: Direct Summary Aggregation
+          // We write directly to the root document to reduce read amplification in Discovery.
+          // Contention is low as milestones are reached at most 4 times per unique listener.
+          const statsRef = db.collection("artifact_stats").doc(artifactId);
+
+          const statsUpdate: any = {
+            lastUpdated: FieldValue.serverTimestamp()
+          };
+          newlyReached.forEach(m => {
+            statsUpdate[`milestones.${m}`] = FieldValue.increment(1);
+          });
+
+          if (reachedBefore.length === 0) {
+            statsUpdate.uniqueListeners = FieldValue.increment(1);
+
+            // Phase 8.3: Human Integrity Signal (HIS) Attributes
+            try {
+              const creatorId = artifactData.userId;
+              const listenerRef = db.collection("users").doc(uid);
+              const listenerDoc = await listenerRef.get();
+
+              if (listenerDoc.exists) {
+                const listenerData = listenerDoc.data()!;
+                const accountAgeDays = (Date.now() - (listenerData.createdAt?.toDate().getTime() || 0)) / (1000 * 60 * 60 * 24);
+
+                if (accountAgeDays > 30) {
+                  statsUpdate.matureListeners = FieldValue.increment(1);
+                }
+
+                // Independence: No existing relationship AND not self-listening
+                if (creatorId && uid !== creatorId) {
+                  const relationshipDoc = await listenerRef.collection("resonance_out").doc(creatorId).get();
+                  if (!relationshipDoc.exists) {
+                    statsUpdate.independentListeners = FieldValue.increment(1);
+                  }
+                }
+              }
+            } catch (e) {
+              logger.error(`[HIS] Failed to calculate trust signals for ArtID=${artifactId}:`, e);
+              // We proceed with uniqueListeners increment anyway to avoid data loss
+            }
+          }
+
+          batch.set(statsRef, statsUpdate, {merge: true});
+        }
+
+        if (shouldUnlock) {
+          const policy = getPolicy(reviewTrackingVersion);
+          Object.assign(engagementUpdates, {
+            "isCommentUnlocked": true,
+            "engagementState.unlocked": true,
+            "unlockReason": UnlockReason.LISTENING_THRESHOLD,
+            "unlockTimestamp": FieldValue.serverTimestamp(),
+            "validationVersion": VALIDATION_VERSION,
+            "policyVersion": policy.version,
+          });
+          logger.info(`[UNLOCK] SUCCESS | UserID=${uid} | ArtifactID=${artifactId}`);
+        }
+
+        batch.update(engagementRef, engagementUpdates);
+        await batch.commit();
+
+        if (newlyReached.length > 0) {
+          logger.info(`[STATS] Milestones updated | ArtifactID=${artifactId} | New=${newlyReached}`);
+        }
       }
 
       return null;
@@ -1394,6 +1488,7 @@ export const onCommentCreated = functions.firestore
 
         await db.collection("notifications").add({
           userId: ownerId,
+          actorId: commenterId,
           message: `COMMENT|${artifactData.title || "Unknown Artifact"}`,
           artifactId: artifactId,
           type: "COMMENT",
@@ -1521,7 +1616,8 @@ export const onNotificationCreated = functions.firestore
         },
         data: {
           artifactId: data.artifactId || "",
-          userId: data.followerId || "",
+          userId: data.actorId || data.followerId || "",
+          actorId: data.actorId || data.followerId || "",
           recipientId: userId, // Internal Recipient Guard (Internal security field)
           notificationType: data.type || "",
           notificationId: context.params.notificationId,
@@ -1677,6 +1773,83 @@ export const revealModerationEvidence = functions.https.onCall(async (data, cont
     throw new functions.https.HttpsError("internal", "An internal error occurred during evidence retrieval.");
   }
 });
+
+/**
+ * Scheduled task to aggregate the community's emotional atmosphere.
+ * Runs every 4 hours and scans the last 24 hours of public Artifacts.
+ */
+export const aggregateCommunityAtmosphere = functions.pubsub
+  .schedule("every 4 hours")
+  .onRun(async (context) => {
+    const db = admin.firestore();
+    const now = new Date();
+    const twentyFourHoursAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000));
+
+    logger.info(`[ATMOSPHERE] Starting aggregation | Window=${twentyFourHoursAgo.toISOString()} to ${now.toISOString()}`);
+
+    try {
+      // 1. Query candidate Artifacts (Public, Active, last 24h)
+      // Note: We use a limit to protect against OOM in extremely high-growth scenarios.
+      const snapshot = await db.collection("artifacts")
+        .where("isPublic", "==", true)
+        .where("status", "==", "ACTIVE")
+        .where("createdAt", ">=", admin.firestore.Timestamp.fromDate(twentyFourHoursAgo))
+        .orderBy("createdAt", "desc")
+        .limit(5000)
+        .get();
+
+      const totalFound = snapshot.size;
+      const MIN_SAMPLE_THRESHOLD = 10;
+
+      if (totalFound < MIN_SAMPLE_THRESHOLD) {
+        logger.info(`[ATMOSPHERE] Insufficient data (found ${totalFound}). Storing empty state.`);
+        await db.collection("community").doc("atmosphere").set({
+          generatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          windowStart: admin.firestore.Timestamp.fromDate(twentyFourHoursAgo),
+          windowEnd: admin.firestore.Timestamp.fromDate(now),
+          totalArtifacts: totalFound,
+          categoryCounts: {},
+          status: "INSUFFICIENT_DATA"
+        });
+        return null;
+      }
+
+      // 2. Perform Aggregation
+      const counts: Record<string, number> = {};
+
+      snapshot.docs.forEach(doc => {
+        const data = doc.data();
+        const internalEmotion = data.emotion || "Neutral";
+
+        // Manual TS implementation of EmotionCategoryMapper.getCategoryForEmotion
+        let category = internalEmotion;
+        switch (internalEmotion) {
+          case "Hopeful": case "Grateful": case "Motivated": category = "Happy"; break;
+          case "Lonely": category = "Sad"; break;
+          case "Overwhelmed": case "Angry": category = "Anxious"; break;
+          case "Calm": case "Confused": case "Unclear": category = "Neutral"; break;
+        }
+
+        counts[category] = (counts[category] || 0) + 1;
+      });
+
+      // 3. Persist Aggregate
+      await db.collection("community").doc("atmosphere").set({
+        generatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        windowStart: admin.firestore.Timestamp.fromDate(twentyFourHoursAgo),
+        windowEnd: admin.firestore.Timestamp.fromDate(now),
+        totalArtifacts: totalFound,
+        categoryCounts: counts,
+        status: "ACTIVE"
+      });
+
+      logger.info(`[ATMOSPHERE] Successfully aggregated ${totalFound} artifacts.`);
+      return null;
+    } catch (error) {
+      logger.error("[ATMOSPHERE] FATAL ERROR during aggregation:", error);
+      throw error;
+    }
+  });
 
 /**
  * Authoritatively heals the moderation counts for an artifact by re-scanning the reports collection.

@@ -82,6 +82,8 @@ data class Artifact(
     val authorAnonymousName: String = "",
     val authorId: String = "",
     val username: String = "",
+    val resonanceDepth: Float = 0f, // Derived score [0.0 - 1.0]
+    val humanIntegrityFactor: Float = 1.0f, // Trust signal [0.5 - 1.0]
 ) {
     /**
      * Helper to check if the artifact is in a draft state.
@@ -195,6 +197,7 @@ enum class NotificationType {
 data class NotificationItem(
     var id: String = "",
     var userId: String = "",
+    var actorId: String? = null,
     var followerId: String = "",
     var message: String = "Someone resonated with your artifact 💬",
     var artifactId: String = "",

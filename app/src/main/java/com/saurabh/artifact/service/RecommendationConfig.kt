@@ -48,7 +48,13 @@ data class RecommendationConfig(
     /**
      * Weight for resonance (reactionCount) in the internal sorting.
      */
-    val resonanceWeight: Float = 0.5f
+    val resonanceWeight: Float = 0.5f,
+
+    /**
+     * Weight for resonance depth (average completion) in the internal sorting.
+     * Significantly higher than reactionCount to prioritize integrity over popularity.
+     */
+    val resonanceDepthWeight: Float = 5.0f
 ) {
     companion object {
         val DEFAULT = RecommendationConfig()

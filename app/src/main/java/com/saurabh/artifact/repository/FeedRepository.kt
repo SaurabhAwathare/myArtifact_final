@@ -24,6 +24,7 @@ data class PaginatedArtifacts(
 @Singleton
 class FeedRepository @Inject constructor(
     private val firestore: FirebaseFirestore,
+    private val artifactRepository: ArtifactRepository,
     private val recommendationService: RecommendationService,
     private val visibilityFilter: com.saurabh.artifact.domain.ArtifactVisibilityFilter,
     private val safetyPolicy: com.saurabh.artifact.domain.SafetyPolicy,
@@ -199,7 +200,21 @@ class FeedRepository @Inject constructor(
             }
 
             // Apply Recommendation Pipeline
-            val rankedArtifacts = recommendationService.rank(rawArtifacts, userId)
+            val artifactIds = rawArtifacts.map { it.id }
+            val stats = artifactRepository.getArtifactStats(artifactIds)
+            val hydratedArtifacts = rawArtifacts.map { artifact ->
+                val artStats = stats[artifact.id]
+                if (artStats != null) {
+                    artifact.copy(
+                        resonanceDepth = artStats.calculateResonanceDepth(),
+                        humanIntegrityFactor = artStats.calculateHumanIntegrityFactor()
+                    )
+                } else {
+                    artifact
+                }
+            }
+
+            val rankedArtifacts = recommendationService.rank(hydratedArtifacts, userId)
             
             // Take the requested limit
             val finalArtifacts = rankedArtifacts.take(limit)

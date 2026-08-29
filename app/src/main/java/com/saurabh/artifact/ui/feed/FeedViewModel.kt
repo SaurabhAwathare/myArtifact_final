@@ -21,6 +21,7 @@ import com.saurabh.artifact.repository.ModerationEvent
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.NotificationRepository
 import com.saurabh.artifact.repository.SavedArtifactManager
+import com.saurabh.artifact.repository.CommunityRepository
 import com.saurabh.artifact.service.AdManager
 import com.saurabh.artifact.service.FeedComposer
 import com.saurabh.artifact.service.PersonalizationEngine
@@ -35,6 +36,7 @@ import com.saurabh.artifact.util.StartupTracer
 import com.saurabh.artifact.ui.util.UiText
 import com.saurabh.artifact.ui.util.UiError
 import com.saurabh.artifact.ui.util.ErrorMessageMapper
+import com.saurabh.artifact.ui.util.AtmosphereMapper
 import com.saurabh.artifact.R
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
@@ -71,6 +73,7 @@ data class FeedUiState(
     val isRefreshing: Boolean = false,
     val hasNewContent: Boolean = false,
     val isMnemonicSaved: Boolean = true,
+    val atmosphereStatement: String? = null,
     val error: UiError? = null
 )
 
@@ -81,6 +84,7 @@ class FeedViewModel @Inject constructor(
     private val artifactEngagementRepository: ArtifactEngagementRepository,
     private val authRepository: AuthRepository,
     private val notificationRepository: NotificationRepository,
+    private val communityRepository: CommunityRepository,
     private val personalizationEngine: PersonalizationEngine,
     private val adManager: AdManager,
     private val memoryManager: MemoryManager,
@@ -157,6 +161,8 @@ class FeedViewModel @Inject constructor(
     val currentPublishState: StateFlow<PublishState?> = publishStateManager.currentPublishState
 
     private val _refreshTrigger = MutableStateFlow(0)
+    private var previousTopFiveIds: Set<String> = emptySet()
+    private var currentPlaybackReason: FeedRecommendationReason? = null
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val artifacts: Flow<PagingData<FeedDisplayItem>> = combine(
@@ -196,6 +202,7 @@ class FeedViewModel @Inject constructor(
     val isCrisis = uiState.map { it.isCrisis }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
     val isRefreshing = uiState.map { it.isRefreshing }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
     val hasNewContent = uiState.map { it.hasNewContent }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    val atmosphereStatement = uiState.map { it.atmosphereStatement }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
     val error = uiState.map { it.error }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     init {
@@ -265,6 +272,7 @@ class FeedViewModel @Inject constructor(
                 delay(1500.milliseconds) 
                 runCatching { 
                     refreshReflectionPrompt()
+                    refreshAtmosphere()
                     StartupTracer.mark("Reflection Prompt Hydrated")
                 }.onFailure { diagnosticLogger.error(DiagnosticCategory.FEED, "FEED_PROMPT_REFRESH_FAILED", throwable = it) }
             }
@@ -311,9 +319,25 @@ class FeedViewModel @Inject constructor(
     private fun observePlaybackProgress() {
         viewModelScope.launch {
             audioPlayer.currentProgress.collect { progress ->
-                if (progress != null && progress.isValidationMet) {
+                if (progress != null) {
                     val artifactId = progress.artifactId
-                    diagnosticLogger.debug(DiagnosticCategory.FEED, "PLAYBACK_THRESHOLD_MET", mapOf("artifactId" to artifactId))
+                    
+                    // Phase 10.2: DISCOVERY_DEPTH_YIELD
+                    // Proxy: Log when an impression-eligible playback reaches validation (95%+)
+                    val reason = currentPlaybackReason
+                    if (reason != null && (reason == FeedRecommendationReason.EMOTIONAL_RESONANCE || reason == FeedRecommendationReason.DISCOVERY)) {
+                        if (progress.isValidationMet) {
+                            diagnosticLogger.info(
+                                DiagnosticCategory.FEED, 
+                                "DISCOVERY_DEPTH_YIELD", 
+                                mapOf("artifactId" to artifactId, "milestone" to "COMPLETE", "reason" to reason.name)
+                            )
+                        }
+                    }
+
+                    if (progress.isValidationMet) {
+                        diagnosticLogger.debug(DiagnosticCategory.FEED, "PLAYBACK_THRESHOLD_MET", mapOf("artifactId" to artifactId))
+                    }
                 }
             }
         }
@@ -388,6 +412,25 @@ class FeedViewModel @Inject constructor(
                     feedComposer.composeFeed(userId)
                 }
 
+                // Phase 10.2: Discovery Health Telemetry
+                val topFive = feedItems.take(5)
+                if (topFive.isNotEmpty()) {
+                    // 1. DISCOVERY_AGE_DISTRIBUTION
+                    val nowMs = System.currentTimeMillis()
+                    val avgAgeMs = topFive.map { nowMs - it.artifact.createdAt.toDate().time }.average()
+                    val avgAgeHours = avgAgeMs / (1000 * 60 * 60)
+                    diagnosticLogger.info(DiagnosticCategory.FEED, "DISCOVERY_AGE_DISTRIBUTION", mapOf("avgAgeHours" to avgAgeHours))
+
+                    // 2. DISCOVERY_CHURN_RATE
+                    val currentIds = topFive.map { it.artifact.id }.toSet()
+                    if (previousTopFiveIds.isNotEmpty()) {
+                        val newCount = currentIds.count { it !in previousTopFiveIds }
+                        val churnRate = newCount.toFloat() / currentIds.size
+                        diagnosticLogger.info(DiagnosticCategory.FEED, "DISCOVERY_CHURN_RATE", mapOf("churnRate" to churnRate))
+                    }
+                    previousTopFiveIds = currentIds
+                }
+
                 // Cache recommendation reasons for the UI
                 val reasons = feedItems.associateBy({ it.artifact.id }, { it.reason })
                 _uiState.update { it.copy(recommendationReasons = it.recommendationReasons + reasons) }
@@ -408,16 +451,32 @@ class FeedViewModel @Inject constructor(
             
             val rankedJob = loadRankedFeed()
             val promptJob = refreshReflectionPrompt()
+            val atmosphereJob = refreshAtmosphere()
             
             _refreshTrigger.value += 1
             
             rankedJob.join()
             promptJob.join()
+            atmosphereJob.join()
             
             delay(500.milliseconds)
             
             _uiState.update { it.copy(isRefreshing = false) }
             diagnosticLogger.info(DiagnosticCategory.FEED, "FEED_REFRESH_SUCCESS")
+        }
+    }
+
+    private fun refreshAtmosphere(): kotlinx.coroutines.Job {
+        return viewModelScope.launch {
+            communityRepository.getLatestAtmosphere()
+                .onSuccess { atmosphere ->
+                    val statement = AtmosphereMapper.mapToStatement(atmosphere)
+                    _uiState.update { it.copy(atmosphereStatement = statement) }
+                }
+                .onFailure { e ->
+                    diagnosticLogger.warn(DiagnosticCategory.FEED, "ATMOSPHERE_FETCH_FAILED", throwable = e)
+                    // We don't update state here to avoid showing an error for a non-critical feature
+                }
         }
     }
 
@@ -449,8 +508,9 @@ class FeedViewModel @Inject constructor(
         _uiState.update { it.copy(error = UiError(UiText.DynamicString("Resonance settings coming soon."))) }
     }
 
-    fun playAudio(artifact: Artifact) {
+    fun playAudio(artifact: Artifact, reason: FeedRecommendationReason? = null) {
         adManager.recordInteraction(artifact.id)
+        currentPlaybackReason = reason
 
         try {
             if (audioPlayer.currentArtifact.value?.id == artifact.id) {
@@ -538,6 +598,20 @@ class FeedViewModel @Inject constructor(
             current.copy(
                 artifactCache = current.artifactCache + (artifact.id to artifact),
                 hydrationLevels = current.hydrationLevels + (artifact.id to (current.hydrationLevels[artifact.id] ?: HydrationLevel.SHELL))
+            )
+        }
+    }
+
+    /**
+     * Records an impression for an artifact in the feed.
+     * Part of Phase 10.2 Discovery Health Telemetry.
+     */
+    fun recordImpression(artifactId: String, reason: FeedRecommendationReason) {
+        if (reason == FeedRecommendationReason.EMOTIONAL_RESONANCE || reason == FeedRecommendationReason.DISCOVERY) {
+            diagnosticLogger.info(
+                DiagnosticCategory.FEED, 
+                "DISCOVERY_IMPRESSION", 
+                mapOf("artifactId" to artifactId, "reason" to reason.name)
             )
         }
     }

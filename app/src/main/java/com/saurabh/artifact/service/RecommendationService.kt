@@ -3,6 +3,7 @@ package com.saurabh.artifact.service
 import com.google.firebase.Timestamp
 import com.saurabh.artifact.model.*
 import java.util.concurrent.TimeUnit
+import kotlin.math.log10
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -81,12 +82,25 @@ class RecommendationService @Inject constructor(
 
     private fun sortByQuality(artifacts: List<Artifact>, config: RecommendationConfig): List<Artifact> {
         return artifacts.sortedWith(compareByDescending<Artifact> {
-            // Recency score (normalized by a week)
+            // 1. Recency Score (normalized by a week)
+            // Range: ~1.0 per week
             val recency = it.createdAt.seconds.toFloat() / (7 * 24 * 3600)
-            // Quality score (resonance count)
-            val quality = it.reactionCount.toFloat()
             
-            (recency * config.recencyWeight) + (quality * config.resonanceWeight)
+            // 2. Resonance Depth Score (Primary Quality Signal)
+            // SmoothedRDS [0.1 - 1.0] * Weight (5.0) * Duration Factor * Integrity Factor
+            // The Integrity Factor [0.5 - 1.0] acts as a trust-multiplier.
+            val depth = it.resonanceDepth
+            val durationSeconds = it.durationMs / 1000f
+            val durationFactor = log10(durationSeconds + 1.0).toFloat()
+            val integrityFactor = it.humanIntegrityFactor
+            
+            val depthScore = depth * config.resonanceDepthWeight * durationFactor * integrityFactor
+            
+            // 3. Reaction Score (Secondary Dampened Signal)
+            // Logarithmic scaling prevents raw volume from dominating.
+            val reactionScore = log10(it.reactionCount.toDouble() + 1.0).toFloat()
+            
+            (recency * config.recencyWeight) + depthScore + reactionScore
         })
     }
 

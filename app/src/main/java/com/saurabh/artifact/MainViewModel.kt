@@ -8,6 +8,7 @@ import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.navigation.*
 import com.saurabh.artifact.model.PlaybackSource
+import com.saurabh.artifact.domain.ArtifactVisibilityFilter
 import com.saurabh.artifact.domain.auth.GetInitialDestinationUseCase
 import com.saurabh.artifact.domain.auth.InitialDestination
 import com.saurabh.artifact.domain.auth.RegistrationResult
@@ -17,6 +18,7 @@ import com.saurabh.artifact.startup.StartupCoordinator
 import com.saurabh.artifact.startup.StartupMetrics
 import com.saurabh.artifact.security.PreloadResult
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
@@ -39,7 +41,7 @@ sealed class AppStartupState {
     data class Error(val message: String) : AppStartupState()
 }
 
-@OptIn(UnstableApi::class)
+@OptIn(UnstableApi::class, ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class MainViewModel @Inject constructor(
     private val authRepository: com.saurabh.artifact.repository.AuthRepository,
@@ -49,7 +51,7 @@ class MainViewModel @Inject constructor(
     private val maintenanceRepository: com.saurabh.artifact.repository.MaintenanceRepository,
     private val sessionManager: com.saurabh.artifact.data.local.UserSessionManager,
     private val userProfileManager: com.saurabh.artifact.repository.UserProfileManager,
-    private val userRepository: com.saurabh.artifact.repository.UserRepository,
+    private val visibilityFilter: ArtifactVisibilityFilter,
     observeStealthModeUseCase: ObserveStealthModeUseCase,
     private val startupCoordinator: StartupCoordinator,
     private val savedStateHandle: SavedStateHandle,
@@ -82,6 +84,16 @@ class MainViewModel @Inject constructor(
 
     val isStealthModeEnabled = observeStealthModeUseCase()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    private val ignoredUsers = authRepository.currentUser
+        .flatMapLatest { user ->
+            if (user != null) {
+                visibilityFilter.observeIgnoredUserIds()
+            } else {
+                flowOf(emptySet())
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
 
     private val _isCurrentScreenSensitive = MutableStateFlow(false)
 
@@ -454,13 +466,30 @@ class MainViewModel @Inject constructor(
         startupCoordinator.emitReadiness(StartupComponent.AUTH)
         StartupMetrics.onAuthReady()
         viewModelScope.launch {
-            userRepository.syncIgnoredUsers()
+            val uid = authRepository.currentUserId
+            if (!uid.isNullOrBlank()) {
+                // Phase 6.10.1: Reactive Sync for Cross-Device Consistency
+                launch { visibilityFilter.syncIgnoredUsersFromRemote(uid, this).collect() }
+                launch { visibilityFilter.syncReportsFromRemote(uid, this).collect() }
+            }
         }
     }
 
     fun onLaunchIntent(intent: android.content.Intent?) {
         val event = parseIntent(intent) ?: return
         
+        // IGNORE GUARD: Block navigation from ignored actors
+        val actorId = when (event) {
+            is Profile -> event.userId
+            is IncomingArtifact -> event.actorId
+            else -> null
+        }
+        
+        if (actorId != null && ignoredUsers.value.contains(actorId)) {
+            diagnosticLogger.warn(DiagnosticCategory.AUTH, "NAVIGATION_REJECTED_IGNORED_ACTOR", mapOf("actorId" to actorId))
+            return
+        }
+
         val currentState = _startupState.value
         if (currentState is AppStartupState.Ready && authRepository.currentUser.value != null) {
             // Warm Start: Application is already ready, deliver via standard channel
@@ -501,6 +530,19 @@ class MainViewModel @Inject constructor(
 
             // 2. Deliver exactly once if event exists
             pendingStartupEvent?.let { event ->
+                val actorId = when (event) {
+                    is Profile -> event.userId
+                    is IncomingArtifact -> event.actorId
+                    else -> null
+                }
+
+                if (actorId != null && ignoredUsers.value.contains(actorId)) {
+                    diagnosticLogger.warn(DiagnosticCategory.AUTH, "STARTUP_NAVIGATION_REJECTED_IGNORED_ACTOR", mapOf("actorId" to actorId))
+                    pendingStartupEvent = null
+                    savedStateHandle.remove<String>(KEY_PENDING_EVENT_JSON)
+                    return@launch
+                }
+
                 if (event is IncomingArtifact) {
                     val currentUid = authRepository.currentUserId
                     // RECIPIENT GUARD: Verify if the notification was intended for this user
@@ -551,7 +593,8 @@ class MainViewModel @Inject constructor(
             return IncomingArtifact(
                 artifactId = artifactId, 
                 source = com.saurabh.artifact.model.PlaybackSource.NOTIFICATION,
-                recipientId = recipientId
+                recipientId = recipientId,
+                actorId = userId // userId in FCM payload is the actorId
             )
         }
 

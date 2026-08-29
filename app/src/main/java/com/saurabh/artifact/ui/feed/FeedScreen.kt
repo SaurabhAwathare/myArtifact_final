@@ -34,6 +34,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.map
 import androidx.compose.ui.zIndex
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.ui.feed.components.AtmosphereHeader
 import com.saurabh.artifact.ui.components.ArtifactCard
 import com.saurabh.artifact.ui.components.AmbientUploadBar
 import com.saurabh.artifact.ui.components.EmberLogo
@@ -96,6 +97,7 @@ fun FeedScreen(
     val publishState by viewModel.currentPublishState.collectAsStateWithLifecycle()
 
     val reflectionPrompt by viewModel.reflectionPrompt.collectAsStateWithLifecycle()
+    val atmosphereStatement by viewModel.atmosphereStatement.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val hasNewContent by viewModel.hasNewContent.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
@@ -191,6 +193,7 @@ fun FeedScreen(
                         listState = listState,
                         viewModel = viewModel,
                         reflectionPrompt = reflectionPrompt,
+                        atmosphereStatement = atmosphereStatement,
                         stage = stage,
                         onNavigateToRecord = onNavigateToRecord,
                         onReportClick = onReportArtifact,
@@ -360,6 +363,7 @@ private fun FeedContent(
     listState: androidx.compose.foundation.lazy.LazyListState,
     viewModel: FeedViewModel,
     reflectionPrompt: ReflectionPrompt?,
+    atmosphereStatement: String?,
     stage: StartupStage,
     onNavigateToRecord: (String?) -> Unit,
     onReportClick: (String) -> Unit,
@@ -381,7 +385,14 @@ private fun FeedContent(
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
             item(key = "header") {
-                FeedHeader(viewModel, reflectionPrompt, stage, onNavigateToRecord, onNavigateToSecurity = onNavigateToSecurity)
+                FeedHeader(
+                    viewModel = viewModel, 
+                    reflectionPrompt = reflectionPrompt, 
+                    stage = stage, 
+                    onNavigateToRecord = onNavigateToRecord, 
+                    atmosphereStatement = atmosphereStatement,
+                    onNavigateToSecurity = onNavigateToSecurity
+                )
             }
 
             items(
@@ -442,6 +453,7 @@ fun FeedHeader(
     reflectionPrompt: ReflectionPrompt?, 
     stage: StartupStage,
     onNavigateToRecord: (String?) -> Unit,
+    atmosphereStatement: String?,
     modifier: Modifier = Modifier,
     onNavigateToSecurity: () -> Unit = {}
 ) {
@@ -457,6 +469,10 @@ fun FeedHeader(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        if (atmosphereStatement != null) {
+            AtmosphereHeader(statement = atmosphereStatement)
+        }
+
         if (isCrisis) {
             CrisisSupportCard(
                 onCallHelp = { 
@@ -526,11 +542,12 @@ fun ArtifactItem(
     val effectiveArtifact = artifact ?: feedArtifact?.artifact
     
     effectiveArtifact?.let { art ->
+        val effectiveReason = reason ?: feedArtifact?.reason ?: com.saurabh.artifact.model.FeedRecommendationReason.DISCOVERY
+
         LaunchedEffect(Unit) {
             StartupMetrics.onFirstArtifactRendered()
+            viewModel.recordImpression(art.id, effectiveReason)
         }
-
-        val effectiveReason = reason ?: feedArtifact?.reason ?: com.saurabh.artifact.model.FeedRecommendationReason.DISCOVERY
 
         ArtifactCard(
             artifact = art,
@@ -538,7 +555,7 @@ fun ArtifactItem(
             isBuffering = isCurrentBuffering,
             hydrationLevel = hydrationLevel,
             onPlayClick = { 
-                viewModel.playAudio(art) 
+                viewModel.playAudio(art, effectiveReason) 
                 viewModel.onArtifactFocused(artifactId)
             },
             onReportClick = { onReportClick(artifactId) },

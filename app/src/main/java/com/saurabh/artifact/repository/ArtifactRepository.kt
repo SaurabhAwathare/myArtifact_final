@@ -7,7 +7,6 @@ import androidx.paging.PagingData
 import androidx.paging.map
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.storage.FirebaseStorage
@@ -24,6 +23,7 @@ import com.saurabh.artifact.model.ArtifactConversationMetadata
 import com.saurabh.artifact.model.ArtifactDetail
 import com.saurabh.artifact.model.ArtifactReactionCounts
 import com.saurabh.artifact.model.ArtifactStatus
+import com.saurabh.artifact.model.ArtifactStats
 import com.saurabh.artifact.model.EvidenceRevealResponse
 import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.model.SigilConfig
@@ -51,6 +51,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -106,6 +108,36 @@ class ArtifactRepository @Inject constructor(
             }
         } catch (e: Exception) {
             Result.failure(e)
+        }
+    }
+
+    /**
+     * Fetches listening depth statistics for a batch of artifacts.
+     * Uses the summary document directly to minimize read amplification (1 read per artifact).
+     */
+    suspend fun getArtifactStats(artifactIds: List<String>): Map<String, ArtifactStats> = withContext(Dispatchers.IO) {
+        if (artifactIds.isEmpty()) return@withContext emptyMap()
+        
+        try {
+            val chunks = artifactIds.chunked(10)
+            val allStats = mutableMapOf<String, ArtifactStats>()
+            
+            for (chunk in chunks) {
+                val snapshot = firestore.collection("artifact_stats")
+                    .whereIn(com.google.firebase.firestore.FieldPath.documentId(), chunk)
+                    .get()
+                    .await()
+                
+                snapshot.documents.forEach { doc ->
+                    doc.toObject(ArtifactStats::class.java)?.let { stats ->
+                        allStats[doc.id] = stats
+                    }
+                }
+            }
+            allStats
+        } catch (e: Exception) {
+            diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "STATS_FETCH_FAILED", mapOf("count" to artifactIds.size), e)
+            emptyMap()
         }
     }
 
@@ -620,6 +652,8 @@ class ArtifactRepository @Inject constructor(
             isDraftField = entity.isDraft,
             isEncrypted = entity.isEncrypted,
             identityVersion = entity.identityVersion,
+            resonanceDepth = entity.resonanceDepth,
+            humanIntegrityFactor = entity.humanIntegrityFactor,
             conversationMetadata = ArtifactConversationMetadata(
                 primaryStyle = entity.primaryStyle
             )
@@ -650,6 +684,7 @@ class ArtifactRepository @Inject constructor(
             emotionTag = artifact.emotionTag,
             playCount = artifact.playCount,
             reactionCount = artifact.reactionCount,
+            commentCount = artifact.commentCount,
             reportCount = artifact.reportCount,
             safetyConcernCount = artifact.safetyConcernCount,
             reporterIds = artifact.reporterIds,
@@ -660,6 +695,8 @@ class ArtifactRepository @Inject constructor(
             isDraft = artifact.isDraft,
             isEncrypted = artifact.isEncrypted,
             identityVersion = artifact.identityVersion,
+            resonanceDepth = artifact.resonanceDepth,
+            humanIntegrityFactor = artifact.humanIntegrityFactor,
             lastUpdated = System.currentTimeMillis()
         )
     }

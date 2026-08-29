@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.saurabh.artifact.model.NotificationItem
 import com.saurabh.artifact.repository.NotificationRepository
 import com.saurabh.artifact.repository.AuthRepository
+import com.saurabh.artifact.repository.UserRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
@@ -21,7 +22,8 @@ data class NotificationUiState(
 @HiltViewModel
 class NotificationViewModel @Inject constructor(
     private val notificationRepository: NotificationRepository,
-    private val authRepository: AuthRepository
+    private val authRepository: AuthRepository,
+    userRepository: UserRepository
 ) : ViewModel() {
 
     private val _additionalItems = MutableStateFlow<List<NotificationItem>>(emptyList())
@@ -50,11 +52,17 @@ class NotificationViewModel @Inject constructor(
         liveHeadFlow,
         _additionalItems,
         _isLoadingMore,
-        _hasMore
-    ) { (liveItems, _), additional, loadingMore, hasMore ->
+        _hasMore,
+        userRepository.observeIgnoredUsers()
+    ) { (liveItems, _), additional, loadingMore, hasMore, ignoredIds ->
         val allItems = (liveItems + additional).distinctBy { it.id }
+        val filteredItems = allItems.filter { item ->
+            // Legacy items (actorId == null) are always shown.
+            // New items are filtered against the ignored set.
+            item.actorId == null || !ignoredIds.contains(item.actorId)
+        }
         NotificationUiState(
-            items = allItems,
+            items = filteredItems,
             isLoading = false, // Loading is handled by initial state
             isLoadingMore = loadingMore,
             hasMore = hasMore

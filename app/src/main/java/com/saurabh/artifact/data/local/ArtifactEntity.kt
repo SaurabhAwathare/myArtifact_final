@@ -46,5 +46,7 @@ data class ArtifactEntity(
     val isDraft: Boolean = false,
     val isEncrypted: Boolean = false,
     @ColumnInfo(defaultValue = "0") val identityVersion: Long = 0,
+    @ColumnInfo(defaultValue = "0.0") val resonanceDepth: Float = 0f,
+    @ColumnInfo(defaultValue = "1.0") val humanIntegrityFactor: Float = 1.0f,
     val lastUpdated: Long = System.currentTimeMillis()
 )
