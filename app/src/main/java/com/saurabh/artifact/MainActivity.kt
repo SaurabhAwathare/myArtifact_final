@@ -81,7 +81,7 @@ class MainActivity : ComponentActivity() {
                     mainViewModel = mainViewModel,
                     recordingSessionManager = recordingSessionManager,
                     onboardingManager = onboardingManager,
-                    diagnosticLogger = diagnosticLogger
+                    diagnosticLogger = diagnosticLogger,
                 )
             }
         }
@@ -201,7 +201,7 @@ fun AppRoot(
                                 // Phase 12: Context Preservation - Only trigger playback if the artifact isn't already active.
                                 // This prevents overwriting the source during transient startup navigation collisions.
                                 val state = playerViewModel.uiState.value
-                                val isAlreadyActive = state.currentArtifact?.id == artifactId || state.currentPlayableArtifact?.id == artifactId
+                                val isAlreadyActive = (state.currentArtifact?.id == artifactId || state.currentPlayableArtifact?.id == artifactId)
                                 
                                 if (!isAlreadyActive) {
                                     // Default to DEEP_LINK for generic ID-based play requests from OS level if not specified

@@ -15,12 +15,14 @@ class RecordingFinalizationIdempotencyTest {
     private val draftDao = mockk<DraftDao>(relaxed = true)
     private val appDatabase = mockk<AppDatabase>(relaxed = true)
     private val userRepository = mockk<UserRepository>(relaxed = true)
+    private val userSessionManager = mockk<com.saurabh.artifact.data.local.UserSessionManager>(relaxed = true)
     private val recordingRepository = RecordingRepository(
         draftDao = { draftDao },
         userRepository = userRepository,
         localDraftManager = mockk(),
         wavRecoveryManager = mockk(),
         cleanupManager = mockk(),
+        userSessionManager = userSessionManager,
         draftsDatabase = { appDatabase },
         diagnosticLogger = mockk(relaxed = true)
     )

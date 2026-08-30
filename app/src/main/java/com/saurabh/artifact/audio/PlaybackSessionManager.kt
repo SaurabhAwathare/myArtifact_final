@@ -47,7 +47,7 @@ class PlaybackSessionManager @Inject constructor(
     private val analytics: PlaybackAnalyticsManager,
     private val playableArtifactRepository: Lazy<PlayableArtifactRepository>,
     private val artifactRepository: Lazy<ArtifactRepository>,
-    private val diagnosticLogger: DiagnosticLogger
+    private val diagnosticLogger: DiagnosticLogger,
 ) {
     private val scope = CoroutineScope(
         SupervisorJob() + 
@@ -329,8 +329,9 @@ class PlaybackSessionManager @Inject constructor(
         playbackType: PlaybackType = PlaybackType.ARTIFACT,
         source: com.saurabh.artifact.model.PlaybackSource = com.saurabh.artifact.model.PlaybackSource.FEED_PLAYBACK
     ) {
-        diagnosticLogger.debug(DiagnosticCategory.PLAYER, "PLAY_INVOKED", mapOf(
-            "artifactId" to artifact.id,
+        diagnosticLogger.debug(
+            DiagnosticCategory.PLAYER, "PLAY_INVOKED", mapOf(
+                "artifactId" to artifact.id,
             "type" to playbackType.name,
             "source" to source.name,
             "initialPos" to initialPosition
@@ -349,7 +350,7 @@ class PlaybackSessionManager @Inject constructor(
                 // the player remained in a non-idle state (e.g. paused or ended).
                 _currentArtifact.value = artifact
                 
-                if (initialPosition > 0 && (kotlin.math.abs(player.currentPosition - initialPosition) > 2000)) {
+                if ((initialPosition > 0) && (kotlin.math.abs(player.currentPosition - initialPosition) > 2000)) {
                     player.seekTo(initialPosition)
                 }
                 player.play()

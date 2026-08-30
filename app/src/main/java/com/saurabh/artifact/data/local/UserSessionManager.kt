@@ -82,12 +82,15 @@ class UserSessionManager @Inject constructor(
                 sigilConfig = config,
                 isAnonymous = isAnonymous,
                 resonanceInCount = resonanceIn,
-                resonanceOutCount = resonanceOut
+                resonanceOutCount = resonanceOut,
             )
         }
 
     val activePromptId: Flow<String?> = dataStore.data
         .map { preferences -> preferences[PreferencesKeys.ACTIVE_PROMPT_ID] }
+
+    val activeDraftId: Flow<String?> = dataStore.data
+        .map { preferences -> preferences[PreferencesKeys.ACTIVE_DRAFT_ID] }
 
     suspend fun setActiveDraftId(id: String?) {
         dataStore.edit { preferences ->

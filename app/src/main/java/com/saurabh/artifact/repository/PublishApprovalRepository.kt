@@ -6,12 +6,13 @@ import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.model.TranscriptSegment
 import com.saurabh.artifact.model.AppError
+import com.saurabh.artifact.model.ValidationReason
 import com.saurabh.artifact.security.UploadGuard
+import com.saurabh.artifact.util.SecureString
 import dagger.Lazy
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.security.MessageDigest
@@ -23,7 +24,8 @@ class PublishApprovalRepository @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val draftDao: Lazy<DraftDao>,
     private val uploadGuard: UploadGuard,
-    private val authRepository: AuthRepository 
+    private val authRepository: AuthRepository,
+    private val identityScout: com.saurabh.artifact.domain.IdentityScout,
 ) {
 
     suspend fun getDraft(id: String): ArtifactDraftEntity? = withContext(Dispatchers.IO) {
@@ -71,24 +73,40 @@ class PublishApprovalRepository @Inject constructor(
         // 1. Title PII Scan (UI Bypass Prevention)
         val user = authRepository.currentUser.value
         
-        val realName = user?.displayName?.let { com.saurabh.artifact.util.SecureString.fromString(it) }
-        val email = user?.email?.let { com.saurabh.artifact.util.SecureString.fromString(it) }
+        val realName = user?.displayName?.let { SecureString.fromString(it) }
+        val email = user?.email?.let { SecureString.fromString(it) }
         
-        val leaks = try {
-            com.saurabh.artifact.domain.IdentityScout().detectLeaks(title, realName, email)
+        try {
+            val leaks = identityScout.detectLeaks(title, realName, email)
+            if (leaks.isNotEmpty()) {
+                return@withContext ValidationResult(
+                    isValid = false,
+                    errorCode = "TITLE_PII_DETECTED",
+                    errorMessage = "Your title contains sensitive identity information. Please use a more anonymous title.",
+                    hasSensitiveInfo = true,
+                    sensitiveFlagCount = leaks.size
+                )
+            }
+
+            // 2. Transcript PII Scan (Phase 10: Responsible Anonymity)
+            for (segment in transcript) {
+                val transcriptLeaks = identityScout.detectLeaks(segment.text, realName, email)
+                if (transcriptLeaks.any { 
+                    it.reason == ValidationReason.REAL_NAME || 
+                    it.reason == ValidationReason.EMAIL_ADDRESS || 
+                    it.reason == ValidationReason.PHONE_NUMBER 
+                }) {
+                    return@withContext ValidationResult(
+                        isValid = false,
+                        errorCode = "TRANSCRIPT_PII_DETECTED",
+                        errorMessage = "Your transcript contains sensitive identity information. Please redact it before publishing.",
+                        hasSensitiveInfo = true
+                    )
+                }
+            }
         } finally {
             realName?.clear()
             email?.clear()
-        }
-        
-        if (leaks.isNotEmpty()) {
-            return@withContext ValidationResult(
-                isValid = false,
-                errorCode = "TITLE_PII_DETECTED",
-                errorMessage = "Your title contains sensitive identity information. Please use a more anonymous title.",
-                hasSensitiveInfo = true,
-                sensitiveFlagCount = leaks.size
-            )
         }
 
         // 2. Audio File Deterministic Checks
@@ -183,18 +201,32 @@ class PublishApprovalRepository @Inject constructor(
             val draft = draftDao.get().getDraftById(draftId, userId) 
                 ?: return@withContext Result.failure(AppError.NotFound("Draft", draftId))
             
+            // Phase 10: Mandatory Sanitization at the freeze boundary
+            val user = authRepository.currentUser.value
+            val realName = user?.displayName?.let { SecureString.fromString(it) }
+            val email = user?.email?.let { SecureString.fromString(it) }
+            
+            val sanitizedTranscript = try {
+                sanitizeTranscript(transcript, realName, email)
+            } finally {
+                realName?.clear()
+                email?.clear()
+            }
+
             // 1. Generate Immutable Snapshot
-            val transcriptJson = if (transcript.isEmpty()) null else Json.encodeToString(transcript)
+            val transcriptJson = if (sanitizedTranscript.isEmpty()) null else Json.encodeToString(sanitizedTranscript)
             val frozenAudioFile = File(context.filesDir, "frozen_audio/${draftId}_approved.m4a").apply {
                 parentFile?.mkdirs()
             }
             
             File(draft.localAudioPath).copyTo(frozenAudioFile, overwrite = true)
             
-            // 2. Generate Approval Token
-            val currentChecksum = MessageDigest.getInstance("SHA-256")
-                .digest(frozenAudioFile.readBytes())
-                .joinToString("") { "%02x".format(it) }
+            // 2. Generate Approval Token (Streaming Checksum to prevent OOM)
+            val currentChecksum = com.saurabh.artifact.util.FileIntegrity.calculateChecksum(frozenAudioFile.absolutePath)
+            
+            if (currentChecksum.isEmpty()) {
+                throw Exception("Failed to calculate checksum for frozen audio file.")
+            }
 
             val timestamp = System.currentTimeMillis()
             val fingerprint = uploadGuard.getDeviceFingerprint()
@@ -208,7 +240,7 @@ class PublishApprovalRepository @Inject constructor(
             Log.d("PublishApprovalRepo", "Approval token generation success.")
 
             // 3. Persist Snapshot
-            val secureTranscript = transcriptJson?.let { com.saurabh.artifact.util.SecureString.fromString(it) }
+            val secureTranscript = transcriptJson?.let { SecureString.fromString(it) }
             draftDao.get().freezeSnapshot(
                 id = draftId,
                 userId = userId,
@@ -223,6 +255,34 @@ class PublishApprovalRepository @Inject constructor(
         } catch (e: Exception) {
             Log.e("PublishApprovalRepo", "Failed to approve and freeze draft", e)
             Result.failure(e)
+        }
+    }
+
+    private fun sanitizeTranscript(
+        transcript: List<TranscriptSegment>,
+        realName: SecureString?,
+        email: SecureString?
+    ): List<TranscriptSegment> {
+        if (transcript.isEmpty()) return transcript
+
+        return transcript.map { segment ->
+            // PRESERVE: Existing manual redactions
+            if (segment.text == "[REDACTED]") return@map segment
+
+            val leaks = identityScout.detectLeaks(segment.text, realName, email)
+            
+            // REDACT: High-confidence PII matching user profile
+            val hasHighRiskLeak = leaks.any { 
+                it.reason == ValidationReason.REAL_NAME || 
+                it.reason == ValidationReason.EMAIL_ADDRESS || 
+                it.reason == ValidationReason.PHONE_NUMBER 
+            }
+
+            if (hasHighRiskLeak) {
+                segment.copy(text = "[REDACTED]", words = emptyList())
+            } else {
+                segment
+            }
         }
     }
 

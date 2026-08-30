@@ -52,7 +52,7 @@ class RecordingService : Service() {
     private val serviceScope = CoroutineScope(
         Dispatchers.Main + 
         SupervisorJob() + 
-        CoroutineExceptionHandlerUtils.create(DiagnosticCategory.RECORDER, "ServiceScope failure")
+        CoroutineExceptionHandlerUtils.create(DiagnosticCategory.RECORDER, "ServiceScope failure"),
     )
     
     private var audioRecorder: AudioRecorder? = null
@@ -73,13 +73,17 @@ class RecordingService : Service() {
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
                 if (_recordingState.value.status == RecordingStatus.RECORDING) {
-                    diagnosticLogger.info(DiagnosticCategory.RECORDER, "AUDIO_FOCUS_LOSS_TRANSIENT", mapOf("focusChange" to focusChange))
+                    diagnosticLogger.info(
+                        DiagnosticCategory.RECORDER,
+                        "AUDIO_FOCUS_LOSS_TRANSIENT",
+                        mapOf("focusChange" to focusChange),
+                    )
                     wasPausedByFocusLoss = true
                     pauseRecording()
                 }
             }
             AudioManager.AUDIOFOCUS_GAIN -> {
-                if (wasPausedByFocusLoss && _recordingState.value.status == RecordingStatus.PAUSED) {
+                if ((wasPausedByFocusLoss) && (_recordingState.value.status == RecordingStatus.PAUSED)) {
                     diagnosticLogger.info(DiagnosticCategory.RECORDER, "AUDIO_FOCUS_REGAINED")
                     wasPausedByFocusLoss = false
                     resumeRecording()
@@ -136,8 +140,8 @@ class RecordingService : Service() {
             }
             onInfo = { what, extra ->
                 diagnosticLogger.info(DiagnosticCategory.RECORDER, "HARDWARE_INFO", mapOf("what" to what, "extra" to extra))
-                if (what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_DURATION_REACHED || 
-                    what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_FILESIZE_REACHED) {
+                if ((what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_DURATION_REACHED) || 
+                    (what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_FILESIZE_REACHED)) {
                     if (what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_FILESIZE_REACHED) {
                         _recordingState.value = _recordingState.value.copy(errorCode = "STORAGE_FULL")
                     }
@@ -227,9 +231,9 @@ class RecordingService : Service() {
     private fun handleAction(action: String?, draftId: String) {
         when (action) {
             ACTION_START -> {
-                if (_recordingState.value.status == RecordingStatus.IDLE || 
-                    _recordingState.value.status == RecordingStatus.FAILED ||
-                    _recordingState.value.status == RecordingStatus.COMPLETED) {
+                if ((_recordingState.value.status == RecordingStatus.IDLE) || 
+                    (_recordingState.value.status == RecordingStatus.FAILED) ||
+                    (_recordingState.value.status == RecordingStatus.COMPLETED)) {
                     
                     pacingJob?.cancel()
                     // Start recording immediately to ensure reliability
@@ -345,7 +349,7 @@ class RecordingService : Service() {
                 // Initialize hardware on IO thread to prevent main-thread jank with a timeout
                 val started = withTimeoutOrNull(5000.milliseconds) {
                     withContext(Dispatchers.IO) {
-                        audioRecorder?.start(file, mode = RecordingMode.WAV_LOSSLESS, onDurableSync = { durableBytes ->
+                        audioRecorder?.start(file, mode = RecordingMode.WAV_LOSSLESS) { durableBytes ->
                             // OPTION A: Update DB checkpoint ONLY when durable sync occurs
                             val currentAmplitudes = _recordingState.value.amplitudes
                             val currentDuration = _recordingState.value.durationSeconds * 1000
@@ -359,7 +363,7 @@ class RecordingService : Service() {
                                     durableBytes = durableBytes
                                 )
                             }
-                        })
+                        }
                     }
                     true
                 } ?: false
@@ -381,10 +385,10 @@ class RecordingService : Service() {
                     draftId = finalDraftId
                 )
                 
-                draft?.let { it ->
+                draft?.let {
                     draftDao.get().update(it.copy(
                         status = it.status.copy(publication = SyncStatus.LocalOnly),
-                        lifecycle = com.saurabh.artifact.model.ArtifactLifecycle.RECORDING
+                        lifecycle = ArtifactLifecycle.RECORDING
                     ))
                 }
                 userSessionManager.setActiveDraftId(finalDraftId)
@@ -648,6 +652,23 @@ class RecordingService : Service() {
                             durationSeconds = seconds,
                             amplitudes = internalAmplitudes.toList() // Snapshot of the list
                         )
+
+                        // Phase 10: Database Heartbeat
+                        // Every 1 minute, refresh the updatedAt timestamp in the DB.
+                        // This prevents long AAC sessions from being marked as 'Zombie' drafts.
+                        if (seconds % 60 == 0L) {
+                            serviceScope.launch(Dispatchers.IO) {
+                                val currentId = _recordingState.value.draftId
+                                if (currentId.isNotEmpty()) {
+                                    recordingRepository.updateRecordingProgress(
+                                        id = currentId,
+                                        durationMs = seconds * 1000,
+                                        amplitudes = internalAmplitudes.toList(),
+                                        durableBytes = _recordingState.value.outputFile?.length() ?: 0L
+                                    )
+                                }
+                            }
+                        }
                     } else if (shouldUpdateFullState) {
                         _recordingState.value = _recordingState.value.copy(amplitudes = internalAmplitudes.toList())
                     }

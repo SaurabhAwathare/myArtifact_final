@@ -15,7 +15,6 @@ import com.saurabh.artifact.data.local.AppDatabase
 import com.saurabh.artifact.data.local.UserSessionManager
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
-import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.SettingsRepository
 import com.saurabh.artifact.security.BackupEncryptionManager
@@ -50,7 +49,7 @@ class LogoutCoordinator @Inject constructor(
     private val onboardingManager: com.saurabh.artifact.util.OnboardingManager,
     private val databaseEncryptionManager: com.saurabh.artifact.security.DatabaseEncryptionManager,
     private val personalizationEngine: dagger.Lazy<com.saurabh.artifact.service.PersonalizationEngine>,
-    private val diagnosticLogger: DiagnosticLogger
+    private val diagnosticLogger: DiagnosticLogger,
 ) {
 
     // Dispatchers can be overridden for testing
@@ -119,7 +118,16 @@ class LogoutCoordinator @Inject constructor(
                 // PHASE A: Stop Active Work (Prevent new IO/writes)
                 diagnosticLogger.debug(DiagnosticCategory.AUTH, "LOGOUT_CLEANUP_PHASE_A")
                 
-                // 0. Stop active data export (Crucial for account isolation)
+                // 0. Release Media Cache handles immediately (Crucial for physical deletion in Phase B)
+                try {
+                    MediaCache.release()
+                    diagnosticLogger.info(DiagnosticCategory.AUTH, "LOGOUT_RELEASE_CACHE_SUCCESS")
+                } catch (e: Exception) {
+                    diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_RELEASE_CACHE_FAILED", throwable = e)
+                    mediaCacheSuccess = false
+                }
+
+                // 0.5 Stop active data export (Crucial for account isolation)
                 try {
                     context.stopService(Intent(context, com.saurabh.artifact.security.ExportService::class.java))
                 } catch (e: Exception) {
@@ -154,6 +162,8 @@ class LogoutCoordinator @Inject constructor(
                 // 3. Stop background upload service
                 try {
                     context.stopService(Intent(context, UploadService::class.java))
+                    // Small delay to allow Service.onDestroy and job cancellation to finalize
+                    delay(200)
                 } catch (e: Exception) {
                     diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_STOP_UPLOAD_FAILED", throwable = e)
                     uploadsSuccess = false
@@ -276,14 +286,6 @@ class LogoutCoordinator @Inject constructor(
                 // PHASE D: Finalize
                 diagnosticLogger.debug(DiagnosticCategory.AUTH, "LOGOUT_CLEANUP_PHASE_D")
                 
-                // 11. Release Media Cache handles
-                try {
-                    MediaCache.release()
-                } catch (e: Exception) {
-                    diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_RELEASE_CACHE_FAILED", throwable = e)
-                    mediaCacheSuccess = false
-                }
-
                 CleanupResult(
                     status = CleanupStatus.COMPLETED,
                     recording = recordingSuccess,

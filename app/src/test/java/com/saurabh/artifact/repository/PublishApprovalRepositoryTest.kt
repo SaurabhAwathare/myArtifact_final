@@ -10,6 +10,7 @@ import com.saurabh.artifact.security.UploadGuard
 import io.mockk.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Rule
@@ -27,6 +28,7 @@ class PublishApprovalRepositoryTest {
     private val draftDao = mockk<DraftDao>(relaxed = true)
     private val uploadGuard = mockk<UploadGuard>(relaxed = true)
     private val authRepository = mockk<AuthRepository>(relaxed = true)
+    private val identityScout = com.saurabh.artifact.domain.IdentityScout()
     
     private lateinit var repository: PublishApprovalRepository
 
@@ -39,7 +41,13 @@ class PublishApprovalRepositoryTest {
         every { android.util.Log.w(any<String>(), any<String>()) } returns 0
         every { android.util.Log.e(any(), any()) } returns 0
         
-        repository = PublishApprovalRepository(context, { draftDao }, uploadGuard, authRepository)
+        repository = PublishApprovalRepository(
+            context = context,
+            draftDao = { draftDao },
+            uploadGuard = uploadGuard,
+            authRepository = authRepository,
+            identityScout = identityScout
+        )
         
         mockkObject(SecurityArchitecture)
         
@@ -229,5 +237,134 @@ class PublishApprovalRepositoryTest {
         // Verify side effects (freezeSnapshot and generateApprovalToken should NOT be called)
         coVerify(exactly = 0) { draftDao.freezeSnapshot(any(), any(), any(), any(), any(), any(), any()) }
         verify(exactly = 0) { uploadGuard.generateApprovalToken(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `TRANSCRIPT_PII - should fail validation if segment contains user email`() = runBlocking {
+        // Arrange
+        val audioFile = createMockAudioFile("test.m4a", byteArrayOf(
+            0x00, 0x00, 0x00, 0x20, 0x66, 0x74, 0x79, 0x70.toByte() // ftyp m4a
+        ))
+        val draft = ArtifactDraftEntity(
+            id = "d1", userId = "u1", localAudioPath = audioFile.absolutePath,
+            durationMs = 5000, title = "Clean Title"
+        )
+        val transcript = listOf(
+            com.saurabh.artifact.model.TranscriptSegment(text = "Hello, my email is john@example.com")
+        )
+        
+        val mockUser = mockk<FirebaseUser>(relaxed = true) {
+            every { email } returns "john@example.com"
+        }
+        every { authRepository.currentUser } returns MutableStateFlow(mockUser)
+
+        // Act
+        val result = repository.validateDraft(draft, transcript)
+
+        // Assert
+        assertFalse(result.isValid)
+        assertEquals("TRANSCRIPT_PII_DETECTED", result.errorCode)
+    }
+
+    @Test
+    fun `TRANSCRIPT_PII - freeze should REDACT sensitive info even if validation is bypassed`() = runTest {
+        // Arrange
+        val audioFile = createMockAudioFile("test.m4a", byteArrayOf(
+            0x00, 0x00, 0x00, 0x20, 0x66, 0x74, 0x79, 0x70.toByte() // ftyp m4a
+        ))
+        val draft = ArtifactDraftEntity(
+            id = "d1", userId = "u1", localAudioPath = audioFile.absolutePath,
+            durationMs = 5000, title = "Clean Title"
+        )
+        val transcript = listOf(
+            com.saurabh.artifact.model.TranscriptSegment(text = "My name is John Doe")
+        )
+        
+        val mockUser = mockk<FirebaseUser>(relaxed = true) {
+            every { displayName } returns "John Doe"
+            every { uid } returns "u1"
+        }
+        every { authRepository.currentUser } returns MutableStateFlow(mockUser)
+        every { authRepository.currentUserId } returns "u1"
+        coEvery { draftDao.getDraftById("d1", "u1") } returns draft
+
+        // Act
+        repository.approveAndFreeze("d1", transcript)
+
+        // Assert
+        val capturedJson = slot<com.saurabh.artifact.util.SecureString>()
+        coVerify { 
+            draftDao.freezeSnapshot(
+                id = "d1",
+                userId = "u1",
+                transcriptJson = capture(capturedJson),
+                any(), any(), any(), any()
+            )
+        }
+        
+        val json = capturedJson.captured.toUnsecureString()
+        assertTrue("JSON should contain REDACTED", json.contains("[REDACTED]"))
+        assertFalse("JSON should NOT contain real name", json.contains("John Doe"))
+    }
+
+    @Test
+    fun `CHECKSUM_EQUIVALENCE - streaming should match in-memory hash`() = runBlocking {
+        // Arrange
+        val content = "Artifact streaming checksum verification content".toByteArray()
+        val audioFile = createMockAudioFile("checksum_test.m4a", content)
+        
+        // Old manual way (in-memory)
+        val expected = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(content)
+            .joinToString("") { "%02x".format(it) }
+
+        // Act
+        val actual = com.saurabh.artifact.util.FileIntegrity.calculateChecksum(audioFile.absolutePath)
+
+        // Assert
+        assertEquals("Streaming checksum must match in-memory checksum", expected, actual)
+    }
+
+    @Test
+    fun `LARGE_FILE_CHECKSUM - should process large file without OOM`() = runBlocking {
+        // Arrange
+        val largeFile = tempFolder.newFile("oom_test.m4a")
+        // Use RandomAccessFile to create a 100MB file without allocating bytes in JVM heap
+        RandomAccessFile(largeFile, "rw").use { it.setLength(100 * 1024 * 1024) }
+        
+        // Act & Assert
+        try {
+            val checksum = com.saurabh.artifact.util.FileIntegrity.calculateChecksum(largeFile.absolutePath)
+            assertNotNull("Checksum should be calculated", checksum)
+            assertNotEquals("Checksum should not be empty", "", checksum)
+        } catch (_: OutOfMemoryError) {
+            fail("Streaming checksum should not trigger OutOfMemoryError for 100MB file")
+        }
+    }
+
+    @Test
+    fun `FREEZE_FAILURE - empty checksum should fail operation`() = runTest {
+        // Arrange
+        val audioFile = createMockAudioFile("test.m4a", byteArrayOf(0, 1, 2))
+        val draft = ArtifactDraftEntity(
+            id = "d1", userId = "u1", localAudioPath = audioFile.absolutePath,
+            durationMs = 5000, title = "Valid Title"
+        )
+        
+        every { authRepository.currentUserId } returns "u1"
+        coEvery { draftDao.getDraftById("d1", "u1") } returns draft
+        
+        // Mock FileIntegrity to fail
+        mockkObject(com.saurabh.artifact.util.FileIntegrity)
+        every { com.saurabh.artifact.util.FileIntegrity.calculateChecksum(any()) } returns ""
+
+        // Act
+        val result = repository.approveAndFreeze("d1", emptyList())
+
+        // Assert
+        assertTrue("Operation should fail if checksum is empty", result.isFailure)
+        assertEquals("Failed to calculate checksum for frozen audio file.", result.exceptionOrNull()?.message)
+        
+        unmockkObject(com.saurabh.artifact.util.FileIntegrity)
     }
 }

@@ -55,7 +55,7 @@ class MainViewModel @Inject constructor(
     observeStealthModeUseCase: ObserveStealthModeUseCase,
     private val startupCoordinator: StartupCoordinator,
     private val savedStateHandle: SavedStateHandle,
-    private val diagnosticLogger: DiagnosticLogger
+    private val diagnosticLogger: DiagnosticLogger,
 ) : ViewModel() {
 
     companion object {
@@ -134,7 +134,7 @@ class MainViewModel @Inject constructor(
         }
         .distinctUntilChanged()
         .onEach { (uid, cleaning) ->
-            if (uid != null && !cleaning) {
+            if ((uid != null) && !cleaning) {
                 userProfileManager.initializeSafetySync(uid)
             } else if (uid == null) {
                 userProfileManager.stopSafetySync()
@@ -154,7 +154,7 @@ class MainViewModel @Inject constructor(
                     val previousUid = previous?.uid
                     val currentUid = current?.uid
                     
-                    val isUidChange = previousUid != currentUid
+                    val isUidChange = (previousUid != currentUid)
                     val isTransitionToUnauthenticated = (previousUid != null && currentUid == null)
                     
                     if (isUidChange && started.get() && _startupState.value !is AppStartupState.Initializing) {
@@ -592,7 +592,7 @@ class MainViewModel @Inject constructor(
         if (!artifactId.isNullOrBlank()) {
             return IncomingArtifact(
                 artifactId = artifactId, 
-                source = com.saurabh.artifact.model.PlaybackSource.NOTIFICATION,
+                source = PlaybackSource.NOTIFICATION,
                 recipientId = recipientId,
                 actorId = userId // userId in FCM payload is the actorId
             )
@@ -607,7 +607,7 @@ class MainViewModel @Inject constructor(
                 if (pathSegments.size >= 2 && pathSegments[0] == "a") {
                     val artifactId = pathSegments[1]
                     if (artifactId.isNotBlank()) {
-                        return IncomingArtifact(artifactId, com.saurabh.artifact.model.PlaybackSource.DEEP_LINK)
+                        return IncomingArtifact(artifactId, PlaybackSource.DEEP_LINK)
                     }
                 }
             }

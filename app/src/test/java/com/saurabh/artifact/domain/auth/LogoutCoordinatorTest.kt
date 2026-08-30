@@ -56,8 +56,9 @@ class LogoutCoordinatorTest {
     fun setup() {
         mockkObject(NotificationHelper)
         every { NotificationHelper.cancelAllNotifications(any()) } just runs
-
-        // Mock WorkManager Operation and Future correctly to avoid hanging
+        
+        mockkObject(com.saurabh.artifact.audio.MediaCache)
+        every { com.saurabh.artifact.audio.MediaCache.release() } just runs
         val operationResult = mockk<Operation>(relaxed = true)
         val future = mockk<ListenableFuture<Operation.State.SUCCESS>>(relaxed = true)
         every { future.addListener(any(), any()) } answers {
@@ -186,5 +187,17 @@ class LogoutCoordinatorTest {
         // Verify sign out was still called
         coVerify { authRepository.signOut() }
         fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_BACKUP_FAILED")
+    }
+
+    @Test
+    fun `MediaCache release must happen before StorageManager cleanup`() = runTest(testDispatcher) {
+        // Act
+        coordinator.executeLogout()
+
+        // Assert
+        coVerify(ordering = Ordering.SEQUENCE) {
+            com.saurabh.artifact.audio.MediaCache.release()
+            storageManager.clearUserStorage()
+        }
     }
 }

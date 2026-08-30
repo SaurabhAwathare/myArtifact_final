@@ -10,10 +10,7 @@ object LogKeys {
     const val DRAFT_ID = "draft_id"
     const val PROMPT_ID = "prompt_id"
     
-    const val OPERATION_ID = "operation_id"
-    const val CORRELATION_ID = "correlation_id"
     const val WORKER_ID = "worker_id"
-    const val REQUEST_ID = "request_id"
     
     const val DURATION_MS = "duration_ms"
     const val RETRY_COUNT = "retry_count"
@@ -21,6 +18,5 @@ object LogKeys {
     
     const val EXCEPTION_CLASS = "exception_class"
     const val EXCEPTION_MESSAGE = "exception_message"
-    const val STACKTRACE_HASH = "stacktrace_hash"
 }
 

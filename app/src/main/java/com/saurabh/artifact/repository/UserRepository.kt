@@ -1018,24 +1018,54 @@ class UserRepository @Inject constructor(
     }
 
     /**
-     * Increments the artifact count for a user.
+     * Increments the artifact count for a user idempotently.
+     * Uses a marker document in users/{userId}/counters/{artifactId} to ensure
+     * that a retry of the same operation doesn't increment twice.
      */
-    suspend fun incrementArtifactsCount(userId: String) = withContext(Dispatchers.IO) {
+    suspend fun incrementArtifactsCount(userId: String, artifactId: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            usersCollection.document(userId).update("artifactsCount", FieldValue.increment(1)).await()
+            firestore.runTransaction { transaction ->
+                val userRef = usersCollection.document(userId)
+                val counterRef = userRef.collection("counters").document(artifactId)
+                
+                val counterSnapshot = transaction.get(counterRef)
+                val isCounted = counterSnapshot.getBoolean("counted") ?: false
+                
+                if (!isCounted) {
+                    transaction.update(userRef, "artifactsCount", FieldValue.increment(1))
+                    transaction.set(counterRef, mapOf("counted" to true, "updatedAt" to FieldValue.serverTimestamp()))
+                }
+            }.await()
+            Result.success(Unit)
         } catch (e: Exception) {
-            diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "INCREMENT_ARTIFACTS_COUNT_FAILED", mapOf(LogKeys.USER_ID to userId), e)
+            diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "INCREMENT_ARTIFACTS_COUNT_FAILED", mapOf(LogKeys.USER_ID to userId, LogKeys.ARTIFACT_ID to artifactId), e)
+            Result.failure(e)
         }
     }
 
     /**
-     * Decrements the artifact count for a user.
+     * Decrements the artifact count for a user idempotently.
      */
-    suspend fun decrementArtifactsCount(userId: String) = withContext(Dispatchers.IO) {
+    suspend fun decrementArtifactsCount(userId: String, artifactId: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            usersCollection.document(userId).update("artifactsCount", FieldValue.increment(-1)).await()
+            firestore.runTransaction { transaction ->
+                val userRef = usersCollection.document(userId)
+                val counterRef = userRef.collection("counters").document(artifactId)
+                
+                val counterSnapshot = transaction.get(counterRef)
+                val isCounted = counterSnapshot.getBoolean("counted") ?: false
+                
+                if (isCounted) {
+                    transaction.update(userRef, "artifactsCount", FieldValue.increment(-1))
+                    // We delete the marker to allow re-increment if ever published again (unlikely but safe)
+                    // or just set to false. Deleting is cleaner for storage.
+                    transaction.delete(counterRef)
+                }
+            }.await()
+            Result.success(Unit)
         } catch (e: Exception) {
-            diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "DECREMENT_ARTIFACTS_COUNT_FAILED", mapOf(LogKeys.USER_ID to userId), e)
+            diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "DECREMENT_ARTIFACTS_COUNT_FAILED", mapOf(LogKeys.USER_ID to userId, LogKeys.ARTIFACT_ID to artifactId), e)
+            Result.failure(e)
         }
     }
 

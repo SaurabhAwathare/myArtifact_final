@@ -30,6 +30,7 @@ class RecordingRepositoryTest {
     private val deletionManager = mockk<DraftDeletionManager>(relaxed = true)
     private val cleanupManager = mockk<ArtifactCleanupManager>(relaxed = true)
     private val draftsDatabase = mockk<AppDatabase>(relaxed = true)
+    private val userSessionManager = mockk<com.saurabh.artifact.data.local.UserSessionManager>(relaxed = true)
     private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
 
     private lateinit var repository: RecordingRepository
@@ -55,6 +56,7 @@ class RecordingRepositoryTest {
             localDraftManager = localDraftManager,
             wavRecoveryManager = wavRecoveryManager,
             cleanupManager = cleanupManager,
+            userSessionManager = userSessionManager,
             draftsDatabase = Lazy { draftsDatabase },
             diagnosticLogger = diagnosticLogger
         )

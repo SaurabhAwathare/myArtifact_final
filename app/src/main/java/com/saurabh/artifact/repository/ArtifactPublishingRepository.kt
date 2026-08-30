@@ -49,6 +49,7 @@ class ArtifactPublishingRepository @Inject constructor(
     private val firestore: FirebaseFirestore,
     private val storage: FirebaseStorage,
     private val draftRepository: dagger.Lazy<DraftRepository>,
+    private val storageManager: com.saurabh.artifact.util.StorageManager,
     private val diagnosticLogger: DiagnosticLogger
 ) {
 
@@ -93,12 +94,14 @@ class ArtifactPublishingRepository @Inject constructor(
             return@withContext Result.failure(Exception("File is empty, aborting upload"))
         }
 
-        // DECRYPTION: Create a temporary unencrypted file for upload
-        val tempFile = File.createTempFile("decrypted_${workingDraft.id}_", ".m4a", context.cacheDir)
+        // DECRYPTION: Create a deterministic temporary unencrypted file for upload
+        val tempFile = File(storageManager.tempUploadDirectory, "decrypted_${workingDraft.id}.m4a")
+        var shouldKeepTempFile = true // DEFAULT: Keep for resumability on process restart
         
         try {
             diagnosticLogger.debug(DiagnosticCategory.STORAGE, "DECRYPTION_FOR_UPLOAD_START", mapOf(LogKeys.DRAFT_ID to workingDraft.id))
             SecurityArchitecture.openDecryptingStream(context, originalFile).use { input ->
+                // Overwrites existing deterministic temp file (handles partially written files from previous attempts)
                 FileOutputStream(tempFile).use { output ->
                     input.copyTo(output)
                 }
@@ -160,6 +163,7 @@ class ArtifactPublishingRepository @Inject constructor(
                             ?: throw Exception("Upload succeeded but URL retrieval timed out.")
                     }
 
+                    shouldKeepTempFile = false // SUCCESS: Remove decrypted file
                     return@withContext Result.success(downloadUrl)
 
                 } catch (e: Exception) {
@@ -175,6 +179,7 @@ class ArtifactPublishingRepository @Inject constructor(
                             mapOf(LogKeys.DRAFT_ID to workingDraft.id), 
                             e
                         )
+                        shouldKeepTempFile = false // TERMINAL: Remove decrypted file
                         return@withContext Result.failure(e)
                     } else {
                         currentRetry++
@@ -185,6 +190,7 @@ class ArtifactPublishingRepository @Inject constructor(
                                 mapOf(LogKeys.DRAFT_ID to workingDraft.id), 
                                 e
                             )
+                            shouldKeepTempFile = false // EXHAUSTED: Remove decrypted file
                             return@withContext Result.failure(e)
                         } else {
                             val delayTime = (2.0.pow(currentRetry.toDouble()).toLong() * 1000L)
@@ -209,9 +215,10 @@ class ArtifactPublishingRepository @Inject constructor(
             Result.failure(Exception("Upload failed after $maxRetries retries"))
         } catch (e: Exception) {
             diagnosticLogger.error(DiagnosticCategory.STORAGE, "DECRYPTION_FAILED_FOR_UPLOAD", mapOf(LogKeys.DRAFT_ID to workingDraft.id), e)
+            shouldKeepTempFile = false // Corrupt or inaccessible, don't preserve
             Result.failure(e)
         } finally {
-            if (tempFile.exists()) {
+            if (!shouldKeepTempFile && tempFile.exists()) {
                 val deleted = tempFile.delete()
                 diagnosticLogger.debug(DiagnosticCategory.STORAGE, "TEMP_FILE_CLEANUP", mapOf(LogKeys.DRAFT_ID to workingDraft.id, "success" to deleted))
             }

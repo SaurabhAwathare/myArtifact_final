@@ -65,15 +65,15 @@ class WavRecorder(
 
             other as AudioBuffer
 
-            if (!data.contentEquals(other.data)) return false
-            if (size != other.size) return false
-
-            return true
+            if (data.contentEquals(other.data)) {
+                return (size == other.size)
+            }
+            return false
         }
 
         override fun hashCode(): Int {
             var result = data.contentHashCode()
-            result = 31 * result + size
+            result = (31 * result) + size
             return result
         }
     }
@@ -115,7 +115,7 @@ class WavRecorder(
                         .setSampleRate(sampleRate)
                         .setChannelMask(channelConfig)
                         .setEncoding(audioFormat)
-                        .build()
+                        .build(),
                 )
                 .setBufferSizeInBytes(minBufferSize * 2)
                 .build()
@@ -279,17 +279,27 @@ class WavRecorder(
         // Loops will terminate and flush via isPaused flag
     }
 
-    fun stop() {
+    suspend fun stop() {
         isRecording = false
         isPaused = false
-        // The loops will terminate gracefully via isRecording flag and channel closing
+        
+        // 1. Stop hardware immediately to free microphone
         audioRecord?.apply {
             if (state == AudioRecord.STATE_INITIALIZED) {
-                stop()
+                try {
+                    stop()
+                } catch (_: Exception) {}
             }
             release()
         }
         audioRecord = null
+
+        // 2. Close channel to signal writer to finish after draining
+        audioChannel.close()
+
+        // 3. Await writer completion to ensure all buffered data is durable
+        writerJob?.join()
+        writerJob = null
     }
 
     /**
@@ -297,7 +307,12 @@ class WavRecorder(
      * Should be called when the recorder is no longer needed.
      */
     fun release() {
-        stop()
+        // Force immediate shutdown
+        isRecording = false
+        isPaused = false
+        audioRecord?.release()
+        audioRecord = null
+        
         scope.cancel()
         executor.shutdown()
         audioChannel.close()

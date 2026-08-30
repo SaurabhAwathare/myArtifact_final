@@ -6,7 +6,6 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -123,7 +122,7 @@ fun FeedScreen(
             val result = snackbarHostState.showSnackbar(
                 message = uiError.message.asString(context),
                 actionLabel = uiError.actionLabel?.asString(context),
-                duration = if (uiError.actionLabel != null) SnackbarDuration.Indefinite else SnackbarDuration.Short
+                duration = if (uiError.actionLabel != null) SnackbarDuration.Indefinite else SnackbarDuration.Short,
             )
             if (result == SnackbarResult.ActionPerformed) {
                 uiError.onAction?.invoke()
@@ -167,9 +166,8 @@ fun FeedScreen(
 
             AmbientUploadBar(
                 state = publishState,
-                onRetry = { viewModel.retryPublish(it) },
-                onCancel = { viewModel.cancelPublish() }
-            )
+                onRetry = { viewModel.retryPublish(it) }
+            ) { viewModel.cancelPublish() }
 
             Box(modifier = Modifier.weight(1f)) {
                 PullToRefreshBox(
@@ -489,7 +487,7 @@ fun FeedHeader(
             )
         }
 
-        if (!isMnemonicSaved && stage >= StartupStage.IMMERSION) {
+        if (!isMnemonicSaved && (stage >= StartupStage.IMMERSION)) {
             SecurityNudgeCard(onClick = onNavigateToSecurity)
         }
 

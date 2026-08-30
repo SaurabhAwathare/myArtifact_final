@@ -137,6 +137,7 @@ class CleanupWorker @AssistedInject constructor(
             diagnosticLogger.info(DiagnosticCategory.WORKMANAGER, "CLEANUP_SUCCESS", mapOf(LogKeys.ARTIFACT_ID to artifactId))
             Result.success()
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             diagnosticLogger.error(DiagnosticCategory.WORKMANAGER, "CLEANUP_FAILED", mapOf(LogKeys.ARTIFACT_ID to artifactId), e)
             
             // 6. Handle Retries
@@ -179,6 +180,7 @@ class CleanupWorker @AssistedInject constructor(
             diagnosticLogger.info(DiagnosticCategory.STORAGE, "EMERGENCY_CLEANUP_SUCCESS")
             Result.success()
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             diagnosticLogger.error(DiagnosticCategory.STORAGE, "EMERGENCY_CLEANUP_FAILED", throwable = e)
             Result.retry()
         }

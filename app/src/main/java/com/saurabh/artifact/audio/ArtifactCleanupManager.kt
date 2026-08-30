@@ -5,10 +5,13 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.saurabh.artifact.data.local.DraftDao
+import com.saurabh.artifact.data.local.UploadTaskDao
 import com.saurabh.artifact.diagnostics.ArtifactLogger
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.model.LocalCleanupStatus
+import com.saurabh.artifact.model.SyncStatus
 import com.saurabh.artifact.repository.ArtifactRepository
+import com.saurabh.artifact.repository.UserRepository
 import com.saurabh.artifact.worker.CleanupWorker
 import dagger.Lazy
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,7 +36,9 @@ import androidx.media3.common.util.UnstableApi
 class ArtifactCleanupManager @Inject constructor(
     private val artifactRepository: ArtifactRepository,
     private val authRepository: com.saurabh.artifact.repository.AuthRepository,
+    private val userRepository: Lazy<UserRepository>,
     private val draftDao: Lazy<DraftDao>,
+    private val uploadTaskDao: Lazy<UploadTaskDao>,
     private val workManager: WorkManager,
 ) {
     private val managerScope = CoroutineScope(Dispatchers.IO)
@@ -65,16 +70,42 @@ class ArtifactCleanupManager @Inject constructor(
     }
 
     /**
-     * Cleans up any stale temporary decrypted files in the cache directory.
+     * Cleans up any stale temporary decrypted files in the cache directory and upload temp.
      */
     fun cleanStaleTempFiles(cacheDir: File) {
         managerScope.launch {
             try {
-                cacheDir.listFiles()?.forEach { file ->
-                    if (file.name.startsWith("decrypted_") && file.name.endsWith(".m4a")) {
-                        val deleted = file.delete()
-                        if (deleted) {
-                            ArtifactLogger.d(DiagnosticCategory.STORAGE, "TEMP_FILE_CLEANUP_SUCCESS", mapOf("file_name" to file.name))
+                // Fetch all active tasks once to avoid repeated DB hits in the loop
+                val activeTasks = uploadTaskDao.get().getAllTasks().associateBy { it.draftId }
+                
+                val targets = listOf(
+                    cacheDir, // Legacy Root Cache
+                    File(cacheDir, "upload_temp") // New Target Location
+                )
+
+                targets.forEach { dir ->
+                    if (!dir.exists()) return@forEach
+                    
+                    dir.listFiles()?.forEach { file ->
+                        if (file.name.startsWith("decrypted_") && file.name.endsWith(".m4a")) {
+                            // Deterministic naming: decrypted_${draftId}.m4a
+                            val draftId = file.name.substringAfter("decrypted_").substringBefore(".m4a")
+                            val task = activeTasks[draftId]
+                            
+                            val shouldDelete = when {
+                                task == null -> true // Orphan: No record of this upload task
+                                task.status is SyncStatus.Failed -> true // Permanent failure: Cleanup cleartext source
+                                // If task hasn't been updated in 12 hours, assume it's a zombie copy
+                                System.currentTimeMillis() - task.lastUpdated > 12 * 60 * 60 * 1000L -> true
+                                else -> false // Task is active, queued, or recently updated - PRESERVE for resumability
+                            }
+
+                            if (shouldDelete) {
+                                val deleted = file.delete()
+                                if (deleted) {
+                                    ArtifactLogger.d(DiagnosticCategory.STORAGE, "TEMP_FILE_CLEANUP_SUCCESS", mapOf("file_name" to file.name, "parent" to dir.name))
+                                }
+                            }
                         }
                     }
                 }
@@ -101,6 +132,10 @@ class ArtifactCleanupManager @Inject constructor(
             
             if (result.isSuccess) {
                 ArtifactLogger.i(DiagnosticCategory.PUBLISH, "ARTIFACT_REMOTE_DELETION_SUCCESS", mapOf("artifactId" to artifactId))
+                
+                // Decrement artifactsCount for the user
+                userRepository.get().enqueueArtifactCountDecrement(userId, artifactId)
+                
                 scheduleLocalCleanup(artifactId, purgeRemote = true)
             } else {
                 ArtifactLogger.e(DiagnosticCategory.PUBLISH, "ARTIFACT_REMOTE_DELETION_FAILED", mapOf("artifactId" to artifactId))

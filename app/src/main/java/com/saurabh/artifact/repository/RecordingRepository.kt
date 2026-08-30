@@ -11,10 +11,12 @@ import com.saurabh.artifact.audio.WavHeaderUtils
 import com.saurabh.artifact.audio.WavRecoveryManager
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.data.local.DraftDao
+import com.saurabh.artifact.data.local.UserSessionManager
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.model.*
+import android.media.MediaMetadataRetriever
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.*
@@ -31,6 +33,7 @@ class RecordingRepository @Inject constructor(
     private val localDraftManager: LocalDraftManager,
     private val wavRecoveryManager: WavRecoveryManager,
     private val cleanupManager: ArtifactCleanupManager,
+    private val userSessionManager: UserSessionManager,
     private val draftsDatabase: dagger.Lazy<com.saurabh.artifact.data.local.AppDatabase>,
     private val diagnosticLogger: DiagnosticLogger
 ) {
@@ -66,9 +69,6 @@ class RecordingRepository @Inject constructor(
             )
             draftDao.get().insert(draft)
             
-            // Increment artifactsCount asynchronously to avoid blocking recording start
-            userRepository.enqueueArtifactCountIncrement(currentUserId, id)
-
             Result.success(id)
         } catch (e: Exception) {
             Result.failure(AppError.from(e))
@@ -283,14 +283,20 @@ class RecordingRepository @Inject constructor(
             diagnosticLogger.info(DiagnosticCategory.RECORDING, "INTERRUPTED_DRAFTS_RECOVERY_STARTED", mapOf(LogKeys.USER_ID to userId))
             
             val now = System.currentTimeMillis()
+            
+            // Phase 10: Active Draft Protection - Never recover the draft currently in use.
+            val activeDraftId = userSessionManager.activeDraftId.first()
 
             // 1. Recover interrupted recordings (RECORDING lifecycle)
             val recordings = draftDao.get().getActiveRecordings(userId)
             val interrupted = mutableListOf<ArtifactDraftEntity>()
             
             recordings.forEach { draft ->
-                // If no checkpoint for > 60s, consider it interrupted
-                if ((now - draft.lastCheckpointTimestamp) > 60_000) {
+                // CRITICAL: Skip the active recording even if metadata is stale (e.g. long AAC session)
+                if (draft.id == activeDraftId) return@forEach
+
+                // If no checkpoint for > 10s, consider it interrupted
+                if ((now - draft.lastCheckpointTimestamp) > 10_000) {
                     val file = File(draft.localAudioPath)
                     
                     // Durability Drift Logging
@@ -311,32 +317,41 @@ class RecordingRepository @Inject constructor(
                         }
                     }
 
-                    val recoveryResult = wavRecoveryManager.recover(file, lastDurableBytes = draft.durableBytes)
+                    // Phase 10: Format-Aware Recovery
+                    val isWav = draft.mimeType == "audio/wav" || draft.localAudioPath.endsWith(".wav", ignoreCase = true)
                     
-                    val (newLifecycle, newProcessing) = when (recoveryResult) {
-                        WavRecoveryManager.RecoveryResult.REPAIRED,
-                        WavRecoveryManager.RecoveryResult.FULLY_RECOVERED,
-                        WavRecoveryManager.RecoveryResult.TRUNCATED -> 
-                            ArtifactLifecycle.PROCESSING to ProcessingStatus.Idle
-                        WavRecoveryManager.RecoveryResult.CORRUPTED,
-                        WavRecoveryManager.RecoveryResult.NOT_FOUND ->
-                            ArtifactLifecycle.DELETED to ProcessingStatus.Failed
+                    val recoveryInfo = if (isWav) {
+                        val recoveryResult = wavRecoveryManager.recover(file, lastDurableBytes = draft.durableBytes)
+                        
+                        val (lifecycle, status) = when (recoveryResult) {
+                            WavRecoveryManager.RecoveryResult.REPAIRED,
+                            WavRecoveryManager.RecoveryResult.FULLY_RECOVERED,
+                            WavRecoveryManager.RecoveryResult.TRUNCATED -> 
+                                ArtifactLifecycle.PROCESSING to ProcessingStatus.Idle
+                            else -> 
+                                ArtifactLifecycle.DELETED to ProcessingStatus.Failed
+                        }
+
+                        val audioBytes = file.length() - WavHeaderUtils.HEADER_SIZE
+                        val duration = WavHeaderUtils.calculateDurationMs(
+                            audioDataLength = audioBytes.coerceAtLeast(0),
+                            sampleRate = 44100,
+                            channels = 1,
+                            bitsPerSample = 16
+                        )
+                        
+                        RecoveryInfo(lifecycle, status, duration, audioBytes.coerceAtLeast(0))
+                    } else {
+                        // AAC/M4A Path - Non-destructive metadata check
+                        val (lifecycle, status, duration) = recoverAAC(file, draft.durableBytes)
+                        RecoveryInfo(lifecycle, status, duration, file.length())
                     }
 
-                    // Calculate recovered duration
-                    val recoveredAudioBytes = file.length() - WavHeaderUtils.HEADER_SIZE
-                    val recoveredDurationMs = WavHeaderUtils.calculateDurationMs(
-                        audioDataLength = recoveredAudioBytes.coerceAtLeast(0),
-                        sampleRate = 44100, // Matching WavRecoveryManager defaults
-                        channels = 1,
-                        bitsPerSample = 16
-                    )
-
                     val updated = draft.copy(
-                        status = draft.status.copy(processing = newProcessing),
-                        lifecycle = newLifecycle,
-                        durationMs = if (newLifecycle == ArtifactLifecycle.PROCESSING) recoveredDurationMs else draft.durationMs,
-                        durableBytes = if (newLifecycle == ArtifactLifecycle.PROCESSING) recoveredAudioBytes.coerceAtLeast(0) else draft.durableBytes,
+                        status = draft.status.copy(processing = recoveryInfo.status),
+                        lifecycle = recoveryInfo.lifecycle,
+                        durationMs = if (recoveryInfo.lifecycle == ArtifactLifecycle.PROCESSING) recoveryInfo.duration else draft.durationMs,
+                        durableBytes = if (recoveryInfo.lifecycle == ArtifactLifecycle.PROCESSING) recoveryInfo.durableBytes else draft.durableBytes,
                         updatedAt = System.currentTimeMillis()
                     )
                     draftDao.get().update(updated, isRecovery = true)
@@ -344,8 +359,8 @@ class RecordingRepository @Inject constructor(
                     
                     diagnosticLogger.info(
                         DiagnosticCategory.RECORDING,
-                        "RECOVERY_DRAFT_REPAIRED",
-                        mapOf(LogKeys.DRAFT_ID to draft.id, "result" to recoveryResult.name, "newLifecycle" to newLifecycle.name)
+                        "RECOVERY_DRAFT_PROCESSED",
+                        mapOf(LogKeys.DRAFT_ID to draft.id, "format" to (if (isWav) "WAV" else "AAC"), "newLifecycle" to recoveryInfo.lifecycle.name)
                     )
                 }
             }
@@ -425,17 +440,25 @@ class RecordingRepository @Inject constructor(
 
     /**
      * Identifies and purges "zombie" drafts: abandoned recordings with no duration/data.
+     * 
+     * Phase 10: Active Draft Protection - Never purges the draft currently in use.
      */
     private suspend fun purgeZombieDrafts() {
         val now = System.currentTimeMillis()
-        val zombieThreshold = 30 * 60 * 1000 // 30 minutes
+        val zombieThreshold = 30 * 60 * 1000L // 30 minutes
         
+        // Safety: Retrieve the active session ID to prevent purging active recordings
+        val activeDraftId = userSessionManager.activeDraftId.first()
+
         // Purge is system-wide maintenance (unfiltered)
         val activeDrafts = draftDao.get().getAllDrafts().filter {
             it.lifecycle == ArtifactLifecycle.RECORDING || it.lifecycle == ArtifactLifecycle.PROCESSING 
         }
         
         activeDrafts.forEach { draft ->
+            // CRITICAL: Skip the active recording even if metadata is stale (e.g. long AAC session)
+            if (draft.id == activeDraftId) return@forEach
+
             val isZombieCandidate = draft.durationMs == 0L || draft.durableBytes == 0L
             val isOldEnough = (now - draft.updatedAt) > zombieThreshold
             
@@ -445,6 +468,45 @@ class RecordingRepository @Inject constructor(
             }
         }
     }
+
+    private fun recoverAAC(file: File, lastDurableBytes: Long): Triple<ArtifactLifecycle, ProcessingStatus, Long> {
+        if (!file.exists() || file.length() == 0L) {
+            return Triple(ArtifactLifecycle.DELETED, ProcessingStatus.Failed, 0L)
+        }
+
+        // Safety check: if file is significantly smaller than last checkpoint, something is wrong
+        if (file.length() < lastDurableBytes) {
+            diagnosticLogger.warn(DiagnosticCategory.RECORDING, "AAC_RECOVERY_TRUNCATED", mapOf("file" to file.name, "expected" to lastDurableBytes, "actual" to file.length()))
+        }
+
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(file.absolutePath)
+            val hasAudio = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO)
+            val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+            val durationMs = durationStr?.toLong() ?: 0L
+
+            if (hasAudio == "yes" && durationMs > 0) {
+                Triple(ArtifactLifecycle.PROCESSING, ProcessingStatus.Idle, durationMs)
+            } else {
+                Triple(ArtifactLifecycle.DELETED, ProcessingStatus.Failed, 0L)
+            }
+        } catch (e: Exception) {
+            diagnosticLogger.error(DiagnosticCategory.RECORDING, "AAC_RECOVERY_FAILED", mapOf("file" to file.name), e)
+            Triple(ArtifactLifecycle.DELETED, ProcessingStatus.Failed, 0L)
+        } finally {
+            try {
+                retriever.release()
+            } catch (_: Exception) {}
+        }
+    }
+
+    private data class RecoveryInfo(
+        val lifecycle: ArtifactLifecycle,
+        val status: ProcessingStatus,
+        val duration: Long,
+        val durableBytes: Long
+    )
 
     companion object {
         private const val STALE_PROCESSING_TIMEOUT_MS = 15 * 60 * 1000L

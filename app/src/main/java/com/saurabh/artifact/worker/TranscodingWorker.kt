@@ -70,22 +70,33 @@ class TranscodingWorker @AssistedInject constructor(
 
             updateDraftStatus(draftId, userId, ProcessingStage.TRANSCODING)
             
-            // 0. Defense-in-Depth: Validate and repair WAV header before transcoding
-            val recoveryResult = wavRecoveryManager.recover(rawFile)
-            if (recoveryResult == WavRecoveryManager.RecoveryResult.CORRUPTED) {
-                diagnosticLogger.error(DiagnosticCategory.RECORDING, "TRANSCODING_WAV_CORRUPTED", mapOf(LogKeys.DRAFT_ID to draftId))
-                updateDraftStatus(draftId, userId, null, "Unrecoverable WAV header")
-                return@withContext Result.failure()
+            // 0. Phase 10: Format-Aware Recovery Gate
+            val isWav = draft.mimeType == "audio/wav" || rawFile.name.endsWith(".wav", ignoreCase = true)
+            
+            if (isWav) {
+                val recoveryResult = wavRecoveryManager.recover(rawFile)
+                if (recoveryResult == WavRecoveryManager.RecoveryResult.CORRUPTED) {
+                    diagnosticLogger.error(DiagnosticCategory.RECORDING, "TRANSCODING_WAV_CORRUPTED", mapOf(LogKeys.DRAFT_ID to draftId))
+                    updateDraftStatus(draftId, userId, null, "Unrecoverable WAV header")
+                    return@withContext Result.failure()
+                }
+            } else {
+                diagnosticLogger.debug(DiagnosticCategory.RECORDING, "TRANSCODING_SKIP_REPAIR_AAC", mapOf(LogKeys.DRAFT_ID to draftId))
             }
 
-            // 1. Transcode raw WAV to temporary M4A (Unencrypted)
+            // 1. Convert to temporary M4A (Unencrypted)
             val finalAudioFile = localDraftManager.createDraftFile(draftId, "m4a")
             val tempM4aFile = File.createTempFile("transcoding_${draftId}", ".m4a", applicationContext.cacheDir)
             
-            diagnosticLogger.debug(DiagnosticCategory.RECORDING, "TRANSCODING_PROCESSING", mapOf(LogKeys.DRAFT_ID to draftId))
+            diagnosticLogger.debug(DiagnosticCategory.RECORDING, "TRANSCODING_PROCESSING", mapOf(LogKeys.DRAFT_ID to draftId, "isWav" to isWav))
             
             try {
-                audioTranscoder.transcodeWavToAac(rawFile, tempM4aFile)
+                if (isWav) {
+                    audioTranscoder.transcodeWavToAac(rawFile, tempM4aFile)
+                } else {
+                    // Already AAC (Low-storage mode), just perform an integrity copy to temp for encryption pass
+                    rawFile.copyTo(tempM4aFile, overwrite = true)
+                }
                 
                 // 2. Output Validation (Structural)
                 if (!validateM4A(tempM4aFile)) {
@@ -117,6 +128,7 @@ class TranscodingWorker @AssistedInject constructor(
                 }
             }
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             diagnosticLogger.error(DiagnosticCategory.RECORDING, "TRANSCODING_FAILED", mapOf(LogKeys.DRAFT_ID to draftId), e)
             updateDraftStatus(draftId, userId, null, "Transcoding failed: ${e.message}")
             Result.retry()

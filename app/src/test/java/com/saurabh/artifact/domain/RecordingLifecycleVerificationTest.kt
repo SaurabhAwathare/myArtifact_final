@@ -11,6 +11,7 @@ import com.saurabh.artifact.audio.RecordingService
 import com.saurabh.artifact.audio.WavRecoveryManager
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.data.local.DraftDao
+import com.saurabh.artifact.data.local.UploadTaskDao
 import com.saurabh.artifact.data.local.UserSessionManager
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.model.ArtifactLifecycle
@@ -23,6 +24,7 @@ import com.saurabh.artifact.data.local.AppDatabase
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
@@ -45,6 +47,7 @@ class RecordingLifecycleVerificationTest {
 
     private lateinit var context: Context
     private val draftDao = mockk<DraftDao>(relaxed = true)
+    private val uploadTaskDao = mockk<UploadTaskDao>(relaxed = true)
     private val userRepository = mockk<UserRepository>(relaxed = true)
     private val storageManager = mockk<StorageManager>(relaxed = true)
     private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
@@ -80,7 +83,9 @@ class RecordingLifecycleVerificationTest {
         cleanupManager = ArtifactCleanupManager(
             mockk(relaxed = true), // artifactRepository
             authRepository,
+            Lazy { userRepository },
             Lazy { draftDao },
+            Lazy { uploadTaskDao },
             workManager
         )
 
@@ -90,6 +95,7 @@ class RecordingLifecycleVerificationTest {
             localDraftManager = localDraftManager,
             wavRecoveryManager = wavRecoveryManager,
             cleanupManager = cleanupManager,
+            userSessionManager = userSessionManager,
             draftsDatabase = Lazy { database },
             diagnosticLogger = diagnosticLogger
         )
@@ -102,6 +108,7 @@ class RecordingLifecycleVerificationTest {
         
         every { userRepository.getCurrentUserId() } returns "user_1"
         every { authRepository.currentUserId } returns "user_1"
+        every { userSessionManager.activeDraftId } returns flowOf(null)
     }
 
     @Test
@@ -147,7 +154,7 @@ class RecordingLifecycleVerificationTest {
             userId = "user_1",
             localAudioPath = audioFile.absolutePath,
             lifecycle = ArtifactLifecycle.RECORDING,
-            lastCheckpointTimestamp = System.currentTimeMillis() - 70_000, // 70s old (> 60s)
+            lastCheckpointTimestamp = System.currentTimeMillis() - 70_000, // 70s old (> 10s)
             durableBytes = 500L
         )
         
@@ -177,7 +184,7 @@ class RecordingLifecycleVerificationTest {
             userId = "user_1",
             lifecycle = ArtifactLifecycle.RECORDING,
             localAudioPath = "/tmp/audio.wav",
-            lastCheckpointTimestamp = System.currentTimeMillis() - 10_000 // 10s old (< 60s)
+            lastCheckpointTimestamp = System.currentTimeMillis() - 5_000 // 5s old (< 10s)
         )
         
         coEvery { draftDao.getActiveRecordings("user_1") } returns listOf(recentDraft)
@@ -189,6 +196,40 @@ class RecordingLifecycleVerificationTest {
 
         // Assert
         coVerify(exactly = 0) { draftDao.update(any(), isRecovery = true) }
+    }
+
+    @Test
+    fun `Stale recording just over 10s should be recovered`() = runTest(testDispatcher) {
+        // Arrange
+        val draftId = "just_stale"
+        val audioFile = File(testDraftsDir, "draft_$draftId/audio.wav").apply { 
+            parentFile.mkdirs()
+            writeBytes(ByteArray(1000) { 0x01 }) 
+        }
+        val staleDraft = ArtifactDraftEntity(
+            id = draftId,
+            userId = "user_1",
+            localAudioPath = audioFile.absolutePath,
+            lifecycle = ArtifactLifecycle.RECORDING,
+            lastCheckpointTimestamp = System.currentTimeMillis() - 11_000, // 11s old (> 10s)
+            durableBytes = 500L
+        )
+        
+        coEvery { draftDao.getActiveRecordings("user_1") } returns listOf(staleDraft)
+        coEvery { draftDao.getDraftsByLifecycle(any(), any()) } returns emptyList()
+        coEvery { draftDao.getAllDrafts() } returns listOf(staleDraft)
+        
+        every { wavRecoveryManager.recover(any(), any()) } returns WavRecoveryManager.RecoveryResult.REPAIRED
+
+        // Act
+        recordingRepository.recoverInterruptedDrafts()
+
+        // Assert
+        coVerify { 
+            draftDao.update(match { 
+                it.id == draftId && it.lifecycle == ArtifactLifecycle.PROCESSING 
+            }, isRecovery = true) 
+        }
     }
 
     @Test
@@ -252,5 +293,129 @@ class RecordingLifecycleVerificationTest {
                 it.id == draftId && it.lifecycle == ArtifactLifecycle.DELETED 
             }, isRecovery = true) 
         }
+    }
+
+    @Test
+    fun `Interrupted AAC recording should skip WAV repair and use metadata retriever`() = runTest(testDispatcher) {
+        // Arrange
+        val draftId = "aac_interrupted"
+        val audioFile = File(testDraftsDir, "draft_$draftId/audio.m4a").apply { 
+            parentFile?.mkdirs()
+            writeBytes(byteArrayOf(0, 0, 0, 0, 0x66, 0x74, 0x79, 0x70)) // ftyp magic
+        }
+        
+        val aacDraft = ArtifactDraftEntity(
+            id = draftId,
+            userId = "user_1",
+            localAudioPath = audioFile.absolutePath,
+            lifecycle = ArtifactLifecycle.RECORDING,
+            mimeType = "audio/mp4",
+            lastCheckpointTimestamp = System.currentTimeMillis() - 70_000,
+            durableBytes = 8L
+        )
+        
+        coEvery { draftDao.getActiveRecordings("user_1") } returns listOf(aacDraft)
+        coEvery { draftDao.getDraftsByLifecycle(any(), any()) } returns emptyList()
+        coEvery { draftDao.getAllDrafts() } returns listOf(aacDraft)
+        
+        // Act
+        recordingRepository.recoverInterruptedDrafts()
+
+        // Assert:
+        // 1. WAV repair was NOT called
+        verify(exactly = 0) { wavRecoveryManager.recover(any(), any()) }
+        
+        // 2. Draft should be DELETED because we don't have a real duration mock for Retriever
+        // In a real device/Robolectric environment with shadows, it might be PROCESSING if duration > 0.
+        // Without full mocking, MediaMetadataRetriever will return nulls.
+        coVerify { 
+            draftDao.update(match { 
+                it.id == draftId && it.lifecycle == ArtifactLifecycle.DELETED 
+            }, isRecovery = true) 
+        }
+    }
+
+    @Test
+    fun `Active WAV draft should be skipped by recovery regardless of timestamp`() = runTest(testDispatcher) {
+        // Arrange
+        val draftId = "active_wav"
+        val audioFile = File(testDraftsDir, "draft_$draftId/audio.wav").apply { 
+            parentFile.mkdirs()
+            writeBytes(ByteArray(1000) { 0x01 }) 
+        }
+        val activeDraft = ArtifactDraftEntity(
+            id = draftId,
+            userId = "user_1",
+            localAudioPath = audioFile.absolutePath,
+            lifecycle = ArtifactLifecycle.RECORDING,
+            lastCheckpointTimestamp = System.currentTimeMillis() - 70_000 // 70s old (> 10s)
+        )
+        
+        every { userSessionManager.activeDraftId } returns flowOf(draftId)
+        coEvery { draftDao.getActiveRecordings("user_1") } returns listOf(activeDraft)
+        coEvery { draftDao.getDraftsByLifecycle(any(), any()) } returns emptyList()
+        coEvery { draftDao.getAllDrafts() } returns listOf(activeDraft)
+
+        // Act
+        recordingRepository.recoverInterruptedDrafts()
+
+        // Assert: No recovery action taken
+        verify(exactly = 0) { wavRecoveryManager.recover(any(), any()) }
+        coVerify(exactly = 0) { draftDao.update(any(), isRecovery = true) }
+    }
+
+    @Test
+    fun `Active AAC draft should be skipped by recovery regardless of timestamp`() = runTest(testDispatcher) {
+        // Arrange
+        val draftId = "active_aac"
+        val aacDraft = ArtifactDraftEntity(
+            id = draftId,
+            userId = "user_1",
+            lifecycle = ArtifactLifecycle.RECORDING,
+            mimeType = "audio/mp4",
+            localAudioPath = "/tmp/audio.m4a",
+            lastCheckpointTimestamp = System.currentTimeMillis() - 120_000 // 2 mins old (> 10s)
+        )
+        
+        every { userSessionManager.activeDraftId } returns flowOf(draftId)
+        coEvery { draftDao.getActiveRecordings("user_1") } returns listOf(aacDraft)
+        coEvery { draftDao.getDraftsByLifecycle(any(), any()) } returns emptyList()
+        coEvery { draftDao.getAllDrafts() } returns listOf(aacDraft)
+
+        // Act
+        recordingRepository.recoverInterruptedDrafts()
+
+        // Assert: No recovery action taken
+        coVerify(exactly = 0) { draftDao.update(any(), isRecovery = true) }
+    }
+
+    @Test
+    fun `Null activeDraftId should not block recovery of stale drafts`() = runTest(testDispatcher) {
+        // Arrange
+        val draftId = "stale_wav"
+        val audioFile = File(testDraftsDir, "draft_$draftId/audio.wav").apply { 
+            parentFile.mkdirs()
+            writeBytes(ByteArray(1000) { 0x01 }) 
+        }
+        val staleDraft = ArtifactDraftEntity(
+            id = draftId,
+            userId = "user_1",
+            localAudioPath = audioFile.absolutePath,
+            lifecycle = ArtifactLifecycle.RECORDING,
+            lastCheckpointTimestamp = System.currentTimeMillis() - 70_000,
+            durableBytes = 500L
+        )
+        
+        every { userSessionManager.activeDraftId } returns flowOf(null)
+        coEvery { draftDao.getActiveRecordings("user_1") } returns listOf(staleDraft)
+        coEvery { draftDao.getDraftsByLifecycle(any(), any()) } returns emptyList()
+        coEvery { draftDao.getAllDrafts() } returns listOf(staleDraft)
+        every { wavRecoveryManager.recover(any(), any()) } returns WavRecoveryManager.RecoveryResult.REPAIRED
+
+        // Act
+        recordingRepository.recoverInterruptedDrafts()
+
+        // Assert: Recovery proceeds
+        coVerify { draftDao.update(any(), isRecovery = true) }
     }
 }

@@ -10,7 +10,6 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.saurabh.artifact.diagnostics.ArtifactLogger
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
-import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.User
 import com.saurabh.artifact.startup.StartupCoordinator
@@ -30,7 +29,7 @@ class AuthRepository @Inject constructor(
     private val firebaseAuth: FirebaseAuth,
     private val firestore: FirebaseFirestore,
     private val credentialManager: CredentialManager,
-    private val startupCoordinator: StartupCoordinator
+    private val startupCoordinator: StartupCoordinator,
 ) {
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -78,7 +77,8 @@ class AuthRepository @Inject constructor(
             }
         }
 
-        firebaseAuth.addIdTokenListener(object : FirebaseAuth.IdTokenListener {
+        firebaseAuth.addIdTokenListener(
+            object : FirebaseAuth.IdTokenListener {
             override fun onIdTokenChanged(auth: FirebaseAuth) {
                 val user = auth.currentUser
                 user?.getIdToken(false)?.addOnSuccessListener { result ->
@@ -198,7 +198,7 @@ class AuthRepository @Inject constructor(
                     )
                 )
 
-                if (snapshot != null && snapshot.exists()) {
+                if ((snapshot != null) && snapshot.exists()) {
                     _userData.value = snapshot.toObject(User::class.java)?.copy(id = snapshot.id)
                 } else {
                     _userData.value = null

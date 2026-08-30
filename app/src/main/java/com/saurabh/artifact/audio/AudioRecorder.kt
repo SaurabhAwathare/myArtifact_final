@@ -38,9 +38,9 @@ class AudioRecorder(private val context: Context) {
     fun start(
         outputFile: File,
         mode: RecordingMode = RecordingMode.WAV_LOSSLESS,
-        onDurableSync: ((Long) -> Unit)? = null
+        onDurableSync: ((Long) -> Unit)? = null,
     ) {
-        if (isRecording && mode == currentMode) {
+        if (isRecording && (mode == currentMode)) {
             ArtifactLogger.w(DiagnosticCategory.RECORDER, "RECORDING_START_IGNORED", mapOf("reason" to "ALREADY_RECORDING"))
             return
         }
@@ -57,7 +57,7 @@ class AudioRecorder(private val context: Context) {
             ArtifactLogger.d(DiagnosticCategory.RECORDER, "RECORDING_STARTED", mapOf("mode" to mode.name, "file" to outputFile.name))
         } catch (e: Exception) {
             ArtifactLogger.e(DiagnosticCategory.RECORDER, "RECORDING_CRITICAL_FAILURE", mapOf("mode" to mode.name), e)
-            stop()
+            release()
             if (outputFile.exists() && mode == RecordingMode.AAC_HIGH_BITRATE) outputFile.delete()
             throw e
         }
@@ -143,7 +143,7 @@ class AudioRecorder(private val context: Context) {
         }
     }
 
-    fun stop() {
+    suspend fun stop() {
         if (!isRecording) return
         
         try {
@@ -157,10 +157,7 @@ class AudioRecorder(private val context: Context) {
                     mediaRecorder = null
                 }
                 RecordingMode.WAV_LOSSLESS -> {
-                    wavRecorder?.stop()
-                    // We don't null out wavRecorder here if we want to reuse it, 
-                    // but since startWAV creates a new one, we should release it.
-                    wavRecorder?.release()
+                    wavRecorder?.stop() // Now awaits the writer
                     wavRecorder = null
                 }
             }
@@ -175,7 +172,13 @@ class AudioRecorder(private val context: Context) {
      * Releases all underlying resources.
      */
     fun release() {
-        stop()
+        // Immediate hardware release only
+        mediaRecorder?.release()
+        mediaRecorder = null
+        wavRecorder?.release()
+        wavRecorder = null
+        
+        isRecording = false
         onError = null
         onInfo = null
     }

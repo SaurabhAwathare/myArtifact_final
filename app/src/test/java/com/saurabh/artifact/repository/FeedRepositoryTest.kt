@@ -20,6 +20,7 @@ import org.junit.Test
 class FeedRepositoryTest {
 
     private val firestore = mockk<FirebaseFirestore>(relaxed = true)
+    private val artifactRepository = mockk<ArtifactRepository>(relaxed = true)
     private val recommendationService = mockk<RecommendationService>(relaxed = true)
     private val visibilityFilter = mockk<ArtifactVisibilityFilter>(relaxed = true)
     private val safetyPolicy = SafetyPolicy()
@@ -32,6 +33,7 @@ class FeedRepositoryTest {
     fun setup() {
         repository = FeedRepository(
             firestore = firestore,
+            artifactRepository = artifactRepository,
             recommendationService = recommendationService,
             visibilityFilter = visibilityFilter,
             safetyPolicy = safetyPolicy,

@@ -113,7 +113,7 @@ class InteractionSyncWorker @AssistedInject constructor(
                     }
                 } else {
                     // Permanent error (e.g. 404, 403)
-                    ArtifactLogger.logInteraction(errorInteraction, "PERMANENT_FAILURE", mapOf("error" to error.message, "exception" to error.javaClass.simpleName))
+                    ArtifactLogger.logInteraction(errorInteraction, "PERMANENT_FAILURE", mapOf("artifactId" to interaction.artifactId, "error" to error.message))
                     moveToDeadLetterQueue(errorInteraction, "PERMANENT", error.message)
                     pendingInteractionDao.get().delete(interaction)
                 }
@@ -294,17 +294,17 @@ class InteractionSyncWorker @AssistedInject constructor(
                 }
                 InteractionType.ARTIFACT_COUNT -> {
                     if (interaction.action == InteractionAction.ADD) {
-                        userRepository.incrementArtifactsCount(userId)
+                        userRepository.incrementArtifactsCount(userId, interaction.artifactId)
                     } else {
-                        userRepository.decrementArtifactsCount(userId)
+                        userRepository.decrementArtifactsCount(userId, interaction.artifactId)
                     }
-                    KResult.success(Unit)
                 }
                 else -> throw Exception("Unknown interaction type: ${interaction.interactionType}")
             }
             
             if (result.isSuccess) KResult.success(Unit) else KResult.failure(result.exceptionOrNull() ?: Exception("Sync failed"))
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             KResult.failure(e)
         }
     }

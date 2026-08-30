@@ -23,8 +23,10 @@ import com.saurabh.artifact.audio.DraftDeletionManager
 import com.saurabh.artifact.data.local.AppDatabase
 import com.saurabh.artifact.data.local.UploadTaskDao
 import com.saurabh.artifact.data.local.ArtifactDao
+import com.saurabh.artifact.data.local.UserSessionManager
 import io.mockk.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
@@ -54,6 +56,7 @@ class ResourceCleanupVerificationTest {
     private val artifactRepository = mockk<ArtifactRepository>(relaxed = true)
     private val userRepository = mockk<UserRepository>(relaxed = true)
     private val authRepository = mockk<AuthRepository>(relaxed = true)
+    private val userSessionManager = mockk<UserSessionManager>(relaxed = true)
     private val database = mockk<AppDatabase>(relaxed = true)
     private val startupCoordinator = mockk<com.saurabh.artifact.startup.StartupCoordinator>(relaxed = true)
     private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
@@ -66,6 +69,7 @@ class ResourceCleanupVerificationTest {
         testDraftsDir = Files.createTempDirectory("test_drafts").toFile()
         
         every { authRepository.currentUserId } returns "user_1"
+        every { userSessionManager.activeDraftId } returns flowOf(null)
         coEvery { startupCoordinator.awaitComponent(com.saurabh.artifact.startup.StartupComponent.DATABASE) } returns Unit
         
         storageManager = mockk<StorageManager> {
@@ -88,7 +92,9 @@ class ResourceCleanupVerificationTest {
         cleanupManager = ArtifactCleanupManager(
             artifactRepository,
             authRepository,
+            Lazy { userRepository },
             Lazy { draftDao },
+            Lazy { uploadTaskDao },
             workManager
         )
 
@@ -98,6 +104,7 @@ class ResourceCleanupVerificationTest {
             localDraftManager = localDraftManager,
             wavRecoveryManager = mockk(relaxed = true),
             cleanupManager = cleanupManager,
+            userSessionManager = userSessionManager,
             draftsDatabase = Lazy { database },
             diagnosticLogger = diagnosticLogger
         )

@@ -81,7 +81,7 @@ class ArtifactRepository @Inject constructor(
     private val draftDao: dagger.Lazy<DraftDao>,
     private val userRepository: dagger.Lazy<UserRepository>,
     private val artifactDao: dagger.Lazy<ArtifactDao>,
-    private val database: dagger.Lazy<com.saurabh.artifact.data.local.AppDatabase>,
+    private val database: dagger.Lazy<AppDatabase>,
     private val artifactLibraryRepository: dagger.Lazy<ArtifactLibraryRepository>,
     val moderationRepository: dagger.Lazy<ArtifactModerationRepository>,
     private val publishingRepository: dagger.Lazy<ArtifactPublishingRepository>,
@@ -89,7 +89,7 @@ class ArtifactRepository @Inject constructor(
     private val reflectionPromptManager: dagger.Lazy<ReflectionPromptManager>,
     private val visibilityFilter: dagger.Lazy<com.saurabh.artifact.domain.ArtifactVisibilityFilter>,
     private val safetyPolicy: com.saurabh.artifact.domain.SafetyPolicy,
-    private val diagnosticLogger: DiagnosticLogger
+    private val diagnosticLogger: DiagnosticLogger,
 ) {
     private val repositoryScope = CoroutineScope(
         SupervisorJob() + 
@@ -212,7 +212,7 @@ class ArtifactRepository @Inject constructor(
                 close(error)
                 return@addSnapshotListener
             }
-            if (snapshot != null && snapshot.exists()) {
+            if ((snapshot != null) && snapshot.exists()) {
                 val artifact = snapshot.toObject(Artifact::class.java)?.copy(id = snapshot.id)
                 trySend(artifact)
             } else {
@@ -230,7 +230,7 @@ class ArtifactRepository @Inject constructor(
                 if (local != null) {
                     // HARDENING: Implement 2-hour TTL for metadata freshness
                     val twoHoursMillis = 2 * 60 * 60 * 1000L
-                    if (System.currentTimeMillis() - local.lastUpdated < twoHoursMillis) {
+                    if ((System.currentTimeMillis() - local.lastUpdated) < twoHoursMillis) {
                         return@withContext Result.success(mapArtifactEntityToArtifact(local))
                     } else {
                         diagnosticLogger.debug(DiagnosticCategory.DATABASE, "ARTIFACT_CACHE_EXPIRED", mapOf(LogKeys.ARTIFACT_ID to artifactId))
@@ -594,9 +594,9 @@ class ArtifactRepository @Inject constructor(
                 firestore = firestore, 
                 database = database.get(), 
                 emotion = emotion
-            ),
-            pagingSourceFactory = { 
-                val relatedEmotionEnums = if (!emotion.isNullOrEmpty() && emotion != "All") {
+            )
+        ) { 
+            val relatedEmotionEnums = if (!emotion.isNullOrEmpty() && emotion != "All") {
                     com.saurabh.artifact.util.EmotionCategoryMapper.getRelatedEmotions(emotion).mapNotNull { label ->
                         Emotion.entries.find { it.label.equals(label, ignoreCase = true) }
                     }
@@ -607,8 +607,7 @@ class ArtifactRepository @Inject constructor(
                 } else {
                     artifactDao.get().getArtifactsPaged(currentUserId)
                 }
-            }
-        ).flow.map { pagingData: PagingData<ArtifactEntity> ->
+            }.flow.map { pagingData: PagingData<ArtifactEntity> ->
             var index = 0
             pagingData.map { entity -> 
                 mapArtifactEntityToArtifact(entity) to index++
@@ -766,13 +765,6 @@ class ArtifactRepository @Inject constructor(
         onProgress: suspend (Long, Long, Uri?) -> Unit = { _, _, _ -> }
     ): Result<String> = publishingRepository.get().uploadArtifactResumable(userId, draft, onProgress)
 
-    /**
-     * Determines if an error is transient (retriable) or terminal.
-     */
-    fun isTransientError(e: Throwable): Boolean {
-        return NetworkUtils.isTransientError(e)
-    }
-
     suspend fun createArtifactDocument(
         userId: String,
         author: AuthorSnapshot,
@@ -861,8 +853,9 @@ class ArtifactRepository @Inject constructor(
             val exceptionChain = mutableListOf<Map<String, String>>()
             var currentCause: Throwable? = e
             while (currentCause != null) {
-                exceptionChain.add(mapOf(
-                    "class" to currentCause.javaClass.name,
+                exceptionChain.add(
+                    mapOf(
+                        "class" to currentCause.javaClass.name,
                     "message" to (currentCause.message ?: "null"),
                     "stackTrace" to currentCause.stackTraceToString()
                 ))

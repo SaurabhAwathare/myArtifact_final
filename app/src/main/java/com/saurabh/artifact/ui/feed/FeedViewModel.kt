@@ -74,7 +74,7 @@ data class FeedUiState(
     val hasNewContent: Boolean = false,
     val isMnemonicSaved: Boolean = true,
     val atmosphereStatement: String? = null,
-    val error: UiError? = null
+    val error: UiError? = null,
 )
 
 @HiltViewModel
@@ -325,7 +325,7 @@ class FeedViewModel @Inject constructor(
                     // Phase 10.2: DISCOVERY_DEPTH_YIELD
                     // Proxy: Log when an impression-eligible playback reaches validation (95%+)
                     val reason = currentPlaybackReason
-                    if (reason != null && (reason == FeedRecommendationReason.EMOTIONAL_RESONANCE || reason == FeedRecommendationReason.DISCOVERY)) {
+                    if ((reason != null) && (reason == FeedRecommendationReason.EMOTIONAL_RESONANCE || reason == FeedRecommendationReason.DISCOVERY)) {
                         if (progress.isValidationMet) {
                             diagnosticLogger.info(
                                 DiagnosticCategory.FEED, 
@@ -432,7 +432,7 @@ class FeedViewModel @Inject constructor(
                 }
 
                 // Cache recommendation reasons for the UI
-                val reasons = feedItems.associateBy({ it.artifact.id }, { it.reason })
+                val reasons = feedItems.associateBy({ it.artifact.id }) { it.reason }
                 _uiState.update { it.copy(recommendationReasons = it.recommendationReasons + reasons) }
 
                 diagnosticLogger.info(DiagnosticCategory.FEED, "FEED_LOAD_SUCCESS", mapOf("count" to feedItems.size))
@@ -614,10 +614,6 @@ class FeedViewModel @Inject constructor(
                 mapOf("artifactId" to artifactId, "reason" to reason.name)
             )
         }
-    }
-
-    fun dismissPublishSession() {
-        publishStateManager.dismissSession()
     }
 
     fun retryPublish(draftId: String) {

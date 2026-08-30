@@ -140,11 +140,13 @@ class PlaybackService : MediaSessionService() {
                 
                 when (playbackState) {
                     Player.STATE_READY -> {
-                        ArtifactLogger.i(DiagnosticCategory.PLAYER, "STATE_READY", mapOf(
-                            "artifactId" to artifact,
-                            "pos" to pos,
-                            "playWhenReady" to player.playWhenReady
-                        ))
+                        ArtifactLogger.i(
+                            DiagnosticCategory.PLAYER, "STATE_READY", mapOf(
+                                "artifactId" to artifact,
+                                "pos" to pos,
+                                "playWhenReady" to player.playWhenReady
+                            )
+                        )
                         if (player.playWhenReady) {
                             ArtifactLogger.i(DiagnosticCategory.PLAYER, "PLAYBACK_STARTED", mapOf("artifactId" to artifact))
                         }

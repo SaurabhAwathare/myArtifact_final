@@ -22,7 +22,7 @@ class SafetyPolicy @Inject constructor() {
         artifact: Artifact,
         currentUserId: String?,
         isSuppressedByUser: Boolean = false,
-        ignoredUserIds: Set<String> = emptySet()
+        ignoredUserIds: Set<String> = emptySet(),
     ): Boolean {
         // 0. Ignore List Suppression
         if (ignoredUserIds.contains(artifact.userId)) return false

@@ -55,6 +55,7 @@ class StartupCoordinator @Inject constructor(
     private val environmentProvider: com.saurabh.artifact.util.EnvironmentProvider,
     private val cleanupManager: dagger.Lazy<com.saurabh.artifact.audio.ArtifactCleanupManager>,
     private val maintenanceRepository: com.saurabh.artifact.repository.MaintenanceRepository,
+    private val userSessionManager: com.saurabh.artifact.data.local.UserSessionManager,
     private val logoutCoordinator: dagger.Lazy<com.saurabh.artifact.domain.auth.LogoutCoordinator>
 ) {
     private val scope = CoroutineScope(
@@ -148,6 +149,13 @@ class StartupCoordinator @Inject constructor(
             if (_isRescueModeActive) {
                 initializeRescueMode()
                 return@launch
+            }
+
+            // Phase 10: Clear stale recording session ID if the service is not active.
+            // This ensures that an interrupted recording (due to crash) can be recovered.
+            if (com.saurabh.artifact.audio.RecordingService.recordingState.value.status == com.saurabh.artifact.data.local.RecordingStatus.IDLE) {
+                Log.i("Startup", "Clearing stale activeDraftId (Service is IDLE)")
+                userSessionManager.setActiveDraftId(null)
             }
 
             // DURABLE RECOVERY: Check for interrupted account deletion

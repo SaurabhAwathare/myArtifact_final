@@ -11,7 +11,7 @@ import javax.inject.Singleton
 @Singleton
 class FeedComposer @Inject constructor(
     private val repository: FeedRepository,
-    private val pacingEngine: PacingEngine
+    private val pacingEngine: PacingEngine,
 ) {
 
     /**
@@ -49,8 +49,10 @@ class FeedComposer @Inject constructor(
 
         // 3. Blend & Rank
         val combined = (resonatedItems + discoveryItems)
-            .sortedWith(compareByDescending<FeedArtifact> { it.reason == FeedRecommendationReason.RESONATING_PRESENCE }
-                .thenByDescending { it.compatibilityScore }
+            .sortedWith(
+                compareByDescending<FeedArtifact> { 
+                    it.reason == FeedRecommendationReason.RESONATING_PRESENCE 
+                }.thenByDescending { it.compatibilityScore }
             )
 
         // 4. Apply Emotional Pacing

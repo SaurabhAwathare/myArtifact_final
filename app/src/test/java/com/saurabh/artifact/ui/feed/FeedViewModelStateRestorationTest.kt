@@ -40,6 +40,7 @@ class FeedViewModelStateRestorationTest {
     private val artifactEngagementRepository = mockk<ArtifactEngagementRepository>(relaxed = true)
     private val authRepository = mockk<AuthRepository>(relaxed = true)
     private val notificationRepository = mockk<NotificationRepository>(relaxed = true)
+    private val communityRepository = mockk<com.saurabh.artifact.repository.CommunityRepository>(relaxed = true)
     private val personalizationEngine = mockk<PersonalizationEngine>(relaxed = true)
     private val adManager = mockk<AdManager>(relaxed = true)
     private val memoryManager = mockk<MemoryManager>(relaxed = true)
@@ -87,6 +88,7 @@ class FeedViewModelStateRestorationTest {
             artifactEngagementRepository = artifactEngagementRepository,
             authRepository = authRepository,
             notificationRepository = notificationRepository,
+            communityRepository = communityRepository,
             personalizationEngine = personalizationEngine,
             adManager = adManager,
             memoryManager = memoryManager,

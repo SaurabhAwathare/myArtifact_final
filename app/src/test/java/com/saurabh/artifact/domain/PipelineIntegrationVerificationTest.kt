@@ -56,9 +56,11 @@ class PipelineIntegrationVerificationTest {
         val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
         val connectivityObserver = mockk<ConnectivityObserver>(relaxed = true)
         val uploadGuard = mockk<UploadGuard>(relaxed = true)
+        val identityScout = mockk<com.saurabh.artifact.domain.IdentityScout>(relaxed = true)
         val startupCoordinator = mockk<StartupCoordinator>(relaxed = true)
         coEvery { startupCoordinator.awaitComponent(StartupComponent.DATABASE) } returns Unit
 
+        val userSessionManager = mockk<com.saurabh.artifact.data.local.UserSessionManager>(relaxed = true)
         WorkManagerTestInitHelper.initializeTestWorkManager(appContext)
         val workManager = WorkManager.getInstance(appContext)
         
@@ -99,6 +101,7 @@ class PipelineIntegrationVerificationTest {
             localDraftManager = localDraftManager,
             wavRecoveryManager = mockk(relaxed = true),
             cleanupManager = mockk(relaxed = true),
+            userSessionManager = userSessionManager,
             draftsDatabase = Lazy { database },
             diagnosticLogger = diagnosticLogger
         )
@@ -106,14 +109,14 @@ class PipelineIntegrationVerificationTest {
         val orchestrator = PublishingOrchestrator(
             context = appContext,
             draftRepository = draftRepository,
-            approvalRepository = PublishApprovalRepository(appContext, Lazy { draftDao }, uploadGuard, authRepository),
+            approvalRepository = PublishApprovalRepository(appContext, Lazy { draftDao }, uploadGuard, authRepository, identityScout),
             connectivityObserver = connectivityObserver,
             uploadGuard = uploadGuard,
             authRepository = authRepository,
             workManager = workManager
         )
 
-        val approvalRepositoryReal = PublishApprovalRepository(appContext, Lazy { draftDao }, uploadGuard, authRepository)
+        val approvalRepositoryReal = PublishApprovalRepository(appContext, Lazy { draftDao }, uploadGuard, authRepository, identityScout)
         
         val publishUseCase = PublishArtifactUseCase(
             recordingRepository = recordingRepository,

@@ -185,6 +185,9 @@ class PublishingManager @Inject constructor(
 
             cleanupManager.scheduleRetentionCleanup(draftId)
             
+            // Increment artifactsCount now that it is ACTIVE and public
+            userRepository.enqueueArtifactCountIncrement(firebaseUser.uid, draftId)
+            
             diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISH_SUCCESS", mapOf(LogKeys.ARTIFACT_ID to draftId))
             Result.success(Unit)
         } catch (e: Exception) {

@@ -34,3 +34,10 @@ tasks.register<Exec>("login") {
     val command = if (isWindows) "firebase.cmd" else "firebase"
     commandLine(command, "login")
 }
+
+tasks.register<Exec>("runIsolationTests") {
+    group = "verification"
+    val isWindows = System.getProperty("os.name").lowercase().contains("windows")
+    val gradlew = if (isWindows) ".\\gradlew.bat" else "./gradlew"
+    commandLine(gradlew, ":app:testDebugUnitTest", "--tests", "com.saurabh.artifact.domain.auth.MediaIsolationIsolationTest", "--tests", "com.saurabh.artifact.util.StorageManagerIsolationTest")
+}

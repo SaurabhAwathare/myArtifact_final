@@ -72,7 +72,9 @@ class StorageManager @Inject constructor(
         get() = File(context.cacheDir, "transcoding_temp")
 
     val tempUploadDirectory: File
-        get() = File(context.cacheDir, "upload_temp")
+        get() = File(context.cacheDir, "upload_temp").apply {
+            if (!exists()) mkdirs()
+        }
 
     val mediaCacheDirectory: File
         get() = File(context.cacheDir, "media_cache")
@@ -186,7 +188,21 @@ class StorageManager @Inject constructor(
             }
         }
 
-        // Also clear external cache if it exists (all of it, as it's typically transient)
+        // Defensive Root-Cache Sweep (Legacy Hardening)
+        // Cleanup decrypted files that might have been orphaned in the root cacheDir in previous versions
+        try {
+            context.cacheDir.listFiles()?.forEach { file ->
+                if (file.name.startsWith("decrypted_") && file.name.endsWith(".m4a")) {
+                    if (file.delete()) {
+                        deleted.add("Legacy Root Cache: ${file.name}")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("StorageManager", "Failed to perform legacy root cache sweep", e)
+        }
+
+        // Also clear external cache if it exists
         try {
             context.externalCacheDir?.let { dir ->
                 if (dir.exists()) {
