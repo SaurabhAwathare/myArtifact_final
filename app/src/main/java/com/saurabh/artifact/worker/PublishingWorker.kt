@@ -105,6 +105,7 @@ class PublishingWorker @AssistedInject constructor(
 
             val result = publishingManager.performPublish(
                 draftId = draftId,
+                expectedOwner = UploadOwner.WORKER,
                 onProgress = { transferred, total, _ ->
                     val now = System.currentTimeMillis()
                     if (now - lastProgressUpdateTime > 500L || transferred == total) {

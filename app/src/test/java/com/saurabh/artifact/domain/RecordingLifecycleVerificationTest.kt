@@ -83,7 +83,6 @@ class RecordingLifecycleVerificationTest {
         cleanupManager = ArtifactCleanupManager(
             mockk(relaxed = true), // artifactRepository
             authRepository,
-            Lazy { userRepository },
             Lazy { draftDao },
             Lazy { uploadTaskDao },
             workManager

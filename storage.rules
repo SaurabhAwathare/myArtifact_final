@@ -9,29 +9,46 @@ service firebase.storage {
       return artifact.isPublic == true && artifact.status == "ACTIVE";
     }
 
-    // 1. Artifacts: Flat structure with userId prefix (e.g., artifacts/UID_ID.m4a)
-    match /artifacts/{fileName} {
-      // Allow read if:
-      // 1. User is the owner (UID prefix match)
-      // 2. Artifact is public and active in Firestore (verified via draftId metadata)
-      allow read: if request.auth != null && (
-        fileName.matches("^" + request.auth.uid + "_.*") ||
-        (resource.metadata != null && resource.metadata.draftId != null && isPublicArtifact(resource.metadata.draftId))
-      );
-      allow write: if request.auth != null && fileName.matches("^" + request.auth.uid + "_.*");
+    // Helper: Authorizes via the private Firestore ownership registry
+    function isArtifactOwner(draftId) {
+      return request.auth != null &&
+             firestore.exists(/databases/(default)/documents/users/$(request.auth.uid)/private/published_artifacts/artifacts/$(draftId));
     }
 
-    // 2. Transcripts: Flat structure with userId prefix (e.g., transcripts/UID_ID.json)
-    match /transcripts/{fileName} {
-      // Mirror authorization from artifacts for consistency
+    // 1. Artifacts: Resource-based structure (artifacts/ID.m4a)
+    match /artifacts/{fileName} {
+      // Allow read if:
+      // 1. User is the owner (via registry or legacy prefix)
+      // 2. Artifact is public and active in Firestore
       allow read: if request.auth != null && (
         fileName.matches("^" + request.auth.uid + "_.*") ||
+        isArtifactOwner(fileName.replace(".m4a", "")) ||
         (resource.metadata != null && resource.metadata.draftId != null && isPublicArtifact(resource.metadata.draftId))
       );
-      allow write: if request.auth != null && fileName.matches("^" + request.auth.uid + "_.*");
+
+      // Allow write if owner (verified via registry or legacy prefix)
+      // For new files, the registry entry MUST be created in Firestore BEFORE upload.
+      allow write: if request.auth != null && (
+        fileName.matches("^" + request.auth.uid + "_.*") ||
+        isArtifactOwner(fileName.replace(".m4a", ""))
+      );
+    }
+
+    // 2. Transcripts: Resource-based structure (transcripts/ID.json)
+    match /transcripts/{fileName} {
+      allow read: if request.auth != null && (
+        fileName.matches("^" + request.auth.uid + "_.*") ||
+        isArtifactOwner(fileName.replace(".json", "")) ||
+        (resource.metadata != null && resource.metadata.draftId != null && isPublicArtifact(resource.metadata.draftId))
+      );
+      allow write: if request.auth != null && (
+        fileName.matches("^" + request.auth.uid + "_.*") ||
+        isArtifactOwner(fileName.replace(".json", ""))
+      );
     }
 
     // 3. Backups: Folder structure (backups/UID/file.enc)
+    // NOTE: This uses UID as a top-level partition, which is acceptable for private backups.
     match /backups/{userId}/{allPaths=**} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }

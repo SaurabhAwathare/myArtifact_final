@@ -20,6 +20,9 @@ interface PendingInteractionDao {
     @Query("DELETE FROM pending_interactions WHERE artifactId = :artifactId AND userId = :userId AND interactionType = :type")
     suspend fun deleteByType(artifactId: String, userId: String, type: String)
 
+    @Query("SELECT * FROM pending_interactions WHERE artifactId = :artifactId AND userId = :userId AND interactionType = :type")
+    suspend fun getPendingByType(artifactId: String, userId: String, type: String): List<PendingInteractionEntity>
+
     @Query("SELECT COUNT(*) FROM pending_interactions WHERE userId = :userId")
     fun getCount(userId: String): Flow<Int>
 

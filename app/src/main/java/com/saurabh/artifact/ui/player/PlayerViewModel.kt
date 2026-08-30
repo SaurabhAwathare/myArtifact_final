@@ -184,9 +184,10 @@ class PlayerViewModel @Inject constructor(
             else -> PlayerMode.MINI
         }
 
-        val internalOwnerId = artifact?.userId ?: ""
-        if (artifact != null && internalOwnerId.isEmpty()) {
-            diagnosticLogger.warn(DiagnosticCategory.PLAYER, "PLAYER_INTERNAL_OWNER_ID_EMPTY", mapOf(LogKeys.ARTIFACT_ID to artifact.id))
+        val internalOwnerId = if (artifact != null) {
+            artifact.userId.ifBlank { artifact.author.anonymousId }
+        } else {
+            ""
         }
 
         PlayerStaticState(

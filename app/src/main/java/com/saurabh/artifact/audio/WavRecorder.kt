@@ -16,6 +16,7 @@ import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.Executors
+import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * A robust lossless PCM WAV recorder using AudioRecord.
@@ -54,9 +55,9 @@ class WavRecorder(
 
     /**
      * Internal channel acting as a pressure valve for storage stalls.
-     * Capacity of 100 buffers (~180ms each) provides ~18 seconds of safety buffer.
+     * Capacity of 50 buffers (~180ms each) provides ~9 seconds of safety buffer.
      */
-    private val audioChannel = Channel<AudioBuffer>(capacity = 100)
+    private val audioChannel = Channel<AudioBuffer>(capacity = 50)
 
     private data class AudioBuffer(val data: ByteArray, val size: Int) {
         override fun equals(other: Any?): Boolean {
@@ -284,15 +285,7 @@ class WavRecorder(
         isPaused = false
         
         // 1. Stop hardware immediately to free microphone
-        audioRecord?.apply {
-            if (state == AudioRecord.STATE_INITIALIZED) {
-                try {
-                    stop()
-                } catch (_: Exception) {}
-            }
-            release()
-        }
-        audioRecord = null
+        stopHardware()
 
         // 2. Close channel to signal writer to finish after draining
         audioChannel.close()
@@ -303,6 +296,59 @@ class WavRecorder(
     }
 
     /**
+     * Immediately stops and releases the AudioRecord hardware to ensure microphone privacy.
+     * Does not destroy the coroutine scope or writer job.
+     */
+    fun stopHardware() {
+        audioRecord?.apply {
+            if (state == AudioRecord.STATE_INITIALIZED) {
+                try {
+                    stop()
+                } catch (e: Exception) {
+                    Log.e("WavRecorder", "Failed to stop AudioRecord", e)
+                }
+            }
+            release()
+        }
+        audioRecord = null
+    }
+
+    /**
+     * Bounded emergency finalization path for bounded shutdown (e.g. Service.onDestroy).
+     * Stops hardware, closes channel, and attempts to drain pending buffers within timeout.
+     */
+    suspend fun drainAndRelease(timeoutMs: Long) {
+        if (!isRecording) {
+            release()
+            return
+        }
+        
+        // 1. Block new samples
+        isRecording = false
+        isPaused = false
+
+        // 2. Immediate hardware release
+        stopHardware()
+
+        // 3. Close channel to signal writer to finish draining
+        audioChannel.close()
+
+        try {
+            // 4. Attempt bounded drain of pending I/O
+            withTimeout(timeoutMs.milliseconds) {
+                writerJob?.join()
+            }
+        } catch (_: TimeoutCancellationException) {
+            Log.w("WavRecorder", "Emergency drain timed out after ${timeoutMs}ms")
+        } catch (e: Exception) {
+            Log.e("WavRecorder", "Emergency drain failed", e)
+        } finally {
+            // 5. Hard release of remaining resources
+            release()
+        }
+    }
+
+    /**
      * Fully releases all resources, including threads and scopes.
      * Should be called when the recorder is no longer needed.
      */
@@ -310,12 +356,11 @@ class WavRecorder(
         // Force immediate shutdown
         isRecording = false
         isPaused = false
-        audioRecord?.release()
-        audioRecord = null
+        stopHardware()
         
+        audioChannel.close()
         scope.cancel()
         executor.shutdown()
-        audioChannel.close()
     }
 
 }

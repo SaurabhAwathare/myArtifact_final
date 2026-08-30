@@ -95,7 +95,7 @@ data class Artifact(
     @get:Exclude
     val authorSigilConfig: SigilConfig
         get() = author.sigilConfig
-            .copy(seed = author.sigilConfig.seed.ifEmpty { author.sigilSeed.ifEmpty { userId } })
+            .copy(seed = author.sigilConfig.seed.ifEmpty { author.sigilSeed.ifEmpty { author.anonymousId.ifEmpty { id } } })
 
     /**
      * Returns a lightweight version of the artifact suitable for large lists (feed).

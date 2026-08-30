@@ -376,105 +376,86 @@ class UserRepository @Inject constructor(
         )
     }
 
-    /**
-     * Streams the user profile in real-time from Firestore.
-     * Refactored for production stability and crash prevention.
-     */
-    fun streamUserProfile(userId: String?): Flow<User?> = callbackFlow {
-        // 1. Defensive Validation
-        if (userId.isNullOrBlank()) {
-            diagnosticLogger.warn(DiagnosticCategory.FIRESTORE, "USER_PROFILE_STREAM_MISSING_ID")
+    fun streamPublicProfile(personaId: String): Flow<User?> = callbackFlow<User?> {
+        if (personaId.isBlank()) {
             trySend(null)
             close()
             return@callbackFlow
         }
 
-        diagnosticLogger.info(
-            DiagnosticCategory.FIRESTORE,
-            "FIRESTORE_LISTENER_REGISTERED",
-            mapOf(
-                "path" to "users/$userId",
-                "uid" to (auth.currentUser?.uid ?: "null"),
-                "thread" to Thread.currentThread().name,
-                "timestamp" to System.currentTimeMillis()
-            )
-        )
+        val docRef = firestore.collection("profiles").document(personaId.trim())
+        val subscription = docRef.addSnapshotListener { snapshot, _ ->
+            if (snapshot != null && snapshot.exists()) {
+                val user = User(
+                    id = personaId,
+                    anonymousId = personaId,
+                    anonymousName = snapshot.getString("name") ?: "quiet presence",
+                    anonymousSigil = snapshot.getString("sigil") ?: "",
+                    sigilSeed = snapshot.getString("sigilSeed") ?: "",
+                    sigilColor = snapshot.getString("sigilColor") ?: "#FFD700",
+                    artifactsCount = snapshot.getLong("artifactsCount") ?: 0L,
+                    resonanceInCount = snapshot.getLong("resonanceInCount") ?: 0L,
+                    followersCount = snapshot.getLong("followersCount") ?: 0L
+                )
+                trySend(user)
+            } else {
+                trySend(null)
+            }
+        }
+        awaitClose { subscription.remove() }
+    }
 
-        // 2. Resource Reference Validation
-        val docRef = try {
-            usersCollection.document(userId.trim())
-        } catch (e: Exception) {
-            diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "USER_PROFILE_STREAM_INVALID_PATH", mapOf(LogKeys.USER_ID to userId), e)
+    fun streamUserProfile(userId: String?): Flow<User?> = callbackFlow<User?> {
+        if (userId.isNullOrBlank()) {
             trySend(null)
-            close(e)
+            close()
             return@callbackFlow
         }
 
-        // 3. Listener Implementation
+        if (userId.startsWith("usr_")) {
+            val docRef = firestore.collection("profiles").document(userId.trim())
+            val registration = docRef.addSnapshotListener { snapshot, _ ->
+                if (snapshot != null && snapshot.exists()) {
+                    val user = User(
+                        id = userId,
+                        anonymousId = userId,
+                        anonymousName = snapshot.getString("name") ?: "quiet presence",
+                        anonymousSigil = snapshot.getString("sigil") ?: "",
+                        sigilSeed = snapshot.getString("sigilSeed") ?: "",
+                        sigilColor = snapshot.getString("sigilColor") ?: "#FFD700",
+                        artifactsCount = snapshot.getLong("artifactsCount") ?: 0L,
+                        resonanceInCount = snapshot.getLong("resonanceInCount") ?: 0L,
+                        followersCount = snapshot.getLong("followersCount") ?: 0L
+                    )
+                    trySend(user)
+                } else {
+                    trySend(null)
+                }
+            }
+            awaitClose { registration.remove() }
+            return@callbackFlow
+        }
+
+        val docRef = usersCollection.document(userId.trim())
         val registration = docRef.addSnapshotListener { snapshot, error ->
             if (error != null) {
-                diagnosticLogger.error(
-                    DiagnosticCategory.FIRESTORE,
-                    "SNAPSHOT_CALLBACK",
-                    mapOf(
-                        "path" to "users/$userId",
-                        "type" to "ERROR",
-                        "code" to error.code.name,
-                        "message" to (error.message ?: ""),
-                        "cause" to (error.cause?.toString() ?: "null"),
-                        "timestamp" to System.currentTimeMillis()
-                    ),
-                    error
-                )
-
-                diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "USER_PROFILE_STREAM_FAILED", mapOf(LogKeys.USER_ID to userId), error)
-                // HARDENING: If it's a permanent error (Permission Denied), we emit null and close.
-                // However, we MUST trySend(null) first to unblock any 'combine' operators.
                 trySend(null)
-                if (error.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
-                    close(error)
-                }
                 return@addSnapshotListener
             }
 
-            diagnosticLogger.info(
-                DiagnosticCategory.FIRESTORE,
-                "SNAPSHOT_CALLBACK",
-                mapOf(
-                    "path" to "users/$userId",
-                    "type" to "SUCCESS",
-                    "exists" to (snapshot?.exists() ?: false),
-                    "timestamp" to System.currentTimeMillis()
-                )
-            )
-
-            if ((snapshot != null) && snapshot.exists()) {
+            if (snapshot != null && snapshot.exists()) {
                 try {
                     val user = snapshot.toObject(User::class.java)?.copy(id = snapshot.id)
-                    
-
-
                     trySend(user)
-                } catch (e: Exception) {
-                    diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "USER_PROFILE_STREAM_PARSE_ERROR", mapOf(LogKeys.USER_ID to userId), e)
+                } catch (_: Exception) {
                     trySend(null)
                 }
             } else {
-                diagnosticLogger.info(DiagnosticCategory.FIRESTORE, "USER_PROFILE_NOT_FOUND", mapOf(LogKeys.USER_ID to userId))
                 trySend(null)
             }
         }
-
-        // 4. Graceful Cleanup
-        awaitClose {
-            diagnosticLogger.info(DiagnosticCategory.FIRESTORE, "LISTENER_TERMINATED", mapOf("path" to "users/$userId", "timestamp" to System.currentTimeMillis()))
-            diagnosticLogger.debug(DiagnosticCategory.FIRESTORE, "USER_PROFILE_STREAM_CLOSED", mapOf(LogKeys.USER_ID to userId))
-            registration.remove()
-        }
-    }.catch { e ->
-        diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "USER_PROFILE_STREAM_CRASHED", throwable = e)
-        emit(null)
-    }
+        awaitClose { registration.remove() }
+    }.catch { emit(null) }
 
     /**
      * Establishes a resonance relationship between two presences atomically.
@@ -540,23 +521,23 @@ class UserRepository @Inject constructor(
      * INTERNAL SYNC API: Intended exclusively for InteractionSyncWorker.
      * Performs direct Firestore write without enqueuing.
      */
-    internal suspend fun syncFollowToFirestore(currentUserId: String, targetUserId: String): Result<Unit> = withContext(Dispatchers.IO) {
+    internal suspend fun syncFollowToFirestore(currentUserId: String, targetAnonymousId: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val intentRef = usersCollection.document(currentUserId)
                 .collection("private").document("intents")
-                .collection("follow").document(targetUserId)
+                .collection("follow").document(targetAnonymousId)
             
             intentRef.set(mapOf(
-                "targetUserId" to targetUserId,
+                "targetAnonymousId" to targetAnonymousId,
                 "action" to "FOLLOW",
                 "timestamp" to FieldValue.serverTimestamp(),
                 "version" to 1
             )).await()
             
-            diagnosticLogger.info(DiagnosticCategory.RESONANCE, "FOLLOW_INTENT_CREATED", mapOf("targetUserId" to targetUserId))
+            diagnosticLogger.info(DiagnosticCategory.RESONANCE, "FOLLOW_INTENT_CREATED", mapOf("targetAnonymousId" to targetAnonymousId))
             Result.success(Unit)
         } catch (e: Exception) {
-            diagnosticLogger.error(DiagnosticCategory.RESONANCE, "FOLLOW_INTENT_FAILED", mapOf("targetUserId" to targetUserId), e)
+            diagnosticLogger.error(DiagnosticCategory.RESONANCE, "FOLLOW_INTENT_FAILED", mapOf("targetAnonymousId" to targetAnonymousId), e)
             Result.failure(e)
         }
     }
@@ -566,18 +547,18 @@ class UserRepository @Inject constructor(
      * INTERNAL SYNC API: Intended exclusively for InteractionSyncWorker.
      * Performs direct Firestore write without enqueuing.
      */
-    internal suspend fun syncUnfollowFromFirestore(currentUserId: String, targetUserId: String): Result<Unit> = withContext(Dispatchers.IO) {
+    internal suspend fun syncUnfollowFromFirestore(currentUserId: String, targetAnonymousId: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val intentRef = usersCollection.document(currentUserId)
                 .collection("private").document("intents")
-                .collection("follow").document(targetUserId)
+                .collection("follow").document(targetAnonymousId)
             
             intentRef.delete().await()
             
-            diagnosticLogger.info(DiagnosticCategory.RESONANCE, "FOLLOW_INTENT_REMOVED", mapOf("targetUserId" to targetUserId))
+            diagnosticLogger.info(DiagnosticCategory.RESONANCE, "FOLLOW_INTENT_REMOVED", mapOf("targetAnonymousId" to targetAnonymousId))
             Result.success(Unit)
         } catch (e: Exception) {
-            diagnosticLogger.error(DiagnosticCategory.RESONANCE, "FOLLOW_INTENT_REMOVE_FAILED", mapOf("targetUserId" to targetUserId), e)
+            diagnosticLogger.error(DiagnosticCategory.RESONANCE, "FOLLOW_INTENT_REMOVE_FAILED", mapOf("targetAnonymousId" to targetAnonymousId), e)
             Result.failure(e)
         }
     }
@@ -586,23 +567,21 @@ class UserRepository @Inject constructor(
      * Streams the resonance relationship status between two users.
      * Upgraded to be fully reactive across both modern and legacy collections.
      */
-    fun observeIsResonating(currentUserId: String, targetUserId: String): Flow<Boolean> {
-        if (currentUserId.isBlank() || targetUserId.isBlank()) {
+    fun observeIsResonating(currentUserId: String, targetPersonaId: String): Flow<Boolean> {
+        if (currentUserId.isBlank() || targetPersonaId.isBlank()) {
             return flowOf(value = false)
         }
 
         val modernRef = usersCollection.document(currentUserId.trim())
-            .collection("resonance_out").document(targetUserId.trim())
+            .collection("resonance_out").document(targetPersonaId.trim())
 
         val legacyRef = usersCollection.document(currentUserId.trim())
-            .collection("following").document(targetUserId.trim())
+            .collection("following").document(targetPersonaId.trim())
 
         return combine(
             observeDocumentExists(modernRef),
             observeDocumentExists(legacyRef)
-        ) { modern, legacy ->
-            modern || legacy
-        }.distinctUntilChanged()
+        ) { modern, legacy -> modern || legacy }
     }
 
     fun observeResonatingWithIds(userId: String): Flow<Set<String>> {
@@ -770,10 +749,13 @@ class UserRepository @Inject constructor(
                     transaction.delete(usernamesCollection.document(oldName))
                 }
 
-                // 3. Update user profile
+                // 3. Update user profile (Sanitization: Refresh anonymousId for true anonymity)
+                val newAnonId = "usr_${java.util.UUID.randomUUID().toString().take(5).uppercase()}"
+                
                 val updateMap = mutableMapOf<String, Any>(
+                    "anonymousId" to newAnonId,
                     "anonymousName" to generatedName,
-                    "anonymousSigil" to UsernameGenerator.deriveSigil(user.anonymousId),
+                    "anonymousSigil" to UsernameGenerator.deriveSigil(newAnonId),
                     "sigilSeed" to java.util.UUID.randomUUID().toString(),
                     "sigilConfig.seed" to java.util.UUID.randomUUID().toString(),
                     "usernameUpdatedAt" to FieldValue.serverTimestamp(),
@@ -874,17 +856,28 @@ class UserRepository @Inject constructor(
     /**
      * Fetches a paginated list of users who are either "resonators" (resonance_in)
      * or being "resonated with" (resonance_out) by the target user.
+     * Uses anonymous personas for public decoupling.
      */
     suspend fun getResonanceUsers(
-        userId: String,
+        userId: String, // This may be UID (self) or anonymousId (others)
         type: String, // "resonance_in" or "resonance_out"
         limit: Int = 20,
         lastVisible: DocumentSnapshot? = null
     ): Result<Pair<List<User>, DocumentSnapshot?>> {
         return withContext(Dispatchers.IO) {
             try {
-                var query = usersCollection.document(userId.trim())
-                    .collection(type)
+                // If it's resonance_out for self, we use UID.
+                // If it's resonance_in for anyone, or resonance_out for others, we are effectively 
+                // browsing a persona's social graph.
+                
+                // For simplicity in this remediation, we assume 'userId' is the document path pivot.
+                val rootRef = if (userId.startsWith("usr_")) {
+                    firestore.collection("profiles").document(userId)
+                } else {
+                    usersCollection.document(userId)
+                }
+
+                var query = rootRef.collection(type)
                     .orderBy("createdAt", Query.Direction.DESCENDING)
                     .limit(limit.toLong())
 
@@ -893,29 +886,32 @@ class UserRepository @Inject constructor(
                 val snapshot = query.get().await()
                 if (snapshot.isEmpty) return@withContext Result.success(emptyList<User>() to null)
 
-                val rawUserIds = snapshot.documents.map { it.id }
-                val ignoredIds = ignoredUserDao.get().getAllIgnoredUserIds().toSet()
-                val userIds = rawUserIds.filter { !ignoredIds.contains(it) }
-
-                if (userIds.isEmpty()) {
-                    return@withContext Result.success(emptyList<User>() to snapshot.documents.lastOrNull())
-                }
-
-                // Batch fetch User documents
-                val userChunks = userIds.chunked(10)
+                // The IDs in resonance collection are now anonymousIds
+                val personaIds = snapshot.documents.map { it.id }
+                
+                // Batch fetch from 'profiles'
                 val users = mutableListOf<User>()
-
-                for (chunk in userChunks) {
-                    val userSnapshot = usersCollection.whereIn(FieldPath.documentId(), chunk).get().await()
-                    users.addAll(
-                        userSnapshot.documents.mapNotNull { doc ->
-                            doc.toObject(User::class.java)?.copy(id = doc.id)
-                        }
-                    )
+                for (chunk in personaIds.chunked(10)) {
+                    val profileSnapshot = firestore.collection("profiles")
+                        .whereIn(FieldPath.documentId(), chunk).get().await()
+                    
+                    users.addAll(profileSnapshot.documents.mapNotNull { doc ->
+                        User(
+                            id = doc.id,
+                            anonymousId = doc.id,
+                            anonymousName = doc.getString("name") ?: "quiet presence",
+                            anonymousSigil = doc.getString("sigil") ?: "",
+                            sigilSeed = doc.getString("sigilSeed") ?: "",
+                            sigilColor = doc.getString("sigilColor") ?: "#FFD700",
+                            artifactsCount = doc.getLong("artifactsCount") ?: 0L,
+                            resonanceInCount = doc.getLong("resonanceInCount") ?: 0L,
+                            followersCount = doc.getLong("followersCount") ?: 0L
+                        )
+                    })
                 }
 
-                // Ensure order matches the resonance timestamp order
-                val orderedUsers = userIds.mapNotNull { id -> users.find { it.id == id } }
+                // Maintain original order
+                val orderedUsers = personaIds.mapNotNull { id -> users.find { it.anonymousId == id } }
 
                 Result.success(orderedUsers to snapshot.documents.lastOrNull())
             } catch (e: Exception) {
@@ -927,6 +923,7 @@ class UserRepository @Inject constructor(
 
     /**
      * Fetches a paginated list of users who resonated with a specific artifact.
+     * Sanitized: Maps authorAnonymousId to public profile documents.
      */
     suspend fun getArtifactResonators(
         artifactId: String,
@@ -940,7 +937,6 @@ class UserRepository @Inject constructor(
                     .whereEqualTo("artifactId", artifactId)
 
                 // OWNER PATH: If the user is the owner, add the proving filter to satisfy security rules.
-                // This satisfies the 'artifactOwnerId == request.auth.uid' rule branch.
                 if (isOwner) {
                     val currentUserId = getCurrentUserId()
                     if (currentUserId != null) {
@@ -956,30 +952,36 @@ class UserRepository @Inject constructor(
                 val snapshot = query.get().await()
                 if (snapshot.isEmpty) return@withContext Result.success(emptyList<User>() to null)
 
-                // Extract unique userIds and filter ignored
-                val rawUserIds = snapshot.documents.mapNotNull { it.getString("userId") }.distinct()
-                val ignoredIds = ignoredUserDao.get().getAllIgnoredUserIds().toSet()
-                val userIds = rawUserIds.filter { !ignoredIds.contains(it) }
-
-                if (userIds.isEmpty()) {
+                // Extract unique anonymousIds
+                val personaIds = snapshot.documents.mapNotNull { it.getString("authorAnonymousId") }.distinct()
+                
+                if (personaIds.isEmpty()) {
                     return@withContext Result.success(emptyList<User>() to snapshot.documents.lastOrNull())
                 }
 
-                // Batch fetch User documents
-                val userChunks = userIds.chunked(10)
+                // Batch fetch from 'profiles'
                 val users = mutableListOf<User>()
-
-                for (chunk in userChunks) {
-                    val userSnapshot = usersCollection.whereIn(FieldPath.documentId(), chunk).get().await()
-                    users.addAll(
-                        userSnapshot.documents.mapNotNull { doc ->
-                            doc.toObject(User::class.java)?.copy(id = doc.id)
-                        }
-                    )
+                for (chunk in personaIds.chunked(10)) {
+                    val profileSnapshot = firestore.collection("profiles")
+                        .whereIn(FieldPath.documentId(), chunk).get().await()
+                    
+                    users.addAll(profileSnapshot.documents.mapNotNull { doc ->
+                        User(
+                            id = doc.id,
+                            anonymousId = doc.id,
+                            anonymousName = doc.getString("name") ?: "quiet presence",
+                            anonymousSigil = doc.getString("sigil") ?: "",
+                            sigilSeed = doc.getString("sigilSeed") ?: "",
+                            sigilColor = doc.getString("sigilColor") ?: "#FFD700",
+                            artifactsCount = doc.getLong("artifactsCount") ?: 0L,
+                            resonanceInCount = doc.getLong("resonanceInCount") ?: 0L,
+                            followersCount = doc.getLong("followersCount") ?: 0L
+                        )
+                    })
                 }
 
                 // Maintain original order
-                val orderedUsers = userIds.mapNotNull { id -> users.find { it.id == id } }
+                val orderedUsers = personaIds.mapNotNull { id -> users.find { it.anonymousId == id } }
 
                 Result.success(orderedUsers to snapshot.documents.lastOrNull())
             } catch (e: Exception) {
@@ -1005,13 +1007,28 @@ class UserRepository @Inject constructor(
 
     /**
      * Enqueues an artifact count decrement operation to be processed asynchronously.
+     * Hardened against duplicates to prevent double-decrementing user profile metadata.
      */
     suspend fun enqueueArtifactCountDecrement(userId: String, artifactId: String) {
+        val type = com.saurabh.artifact.data.local.InteractionType.ARTIFACT_COUNT
+        val action = com.saurabh.artifact.data.local.InteractionAction.REMOVE
+
+        // Concurrency Guard: Check for existing pending decrement for this specific artifact
+        val existing = pendingInteractionDao.get().getPendingByType(artifactId, userId, type)
+        if (existing.any { it.action == action }) {
+            diagnosticLogger.info(
+                DiagnosticCategory.SYNC,
+                "DECREMENT_ENQUEUE_SKIPPED_DUPLICATE",
+                mapOf(LogKeys.ARTIFACT_ID to artifactId)
+            )
+            return
+        }
+
         val interaction = com.saurabh.artifact.data.local.PendingInteractionEntity(
             userId = userId,
             artifactId = artifactId,
-            interactionType = com.saurabh.artifact.data.local.InteractionType.ARTIFACT_COUNT,
-            action = com.saurabh.artifact.data.local.InteractionAction.REMOVE
+            interactionType = type,
+            action = action
         )
         pendingInteractionDao.get().insert(interaction)
         com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)

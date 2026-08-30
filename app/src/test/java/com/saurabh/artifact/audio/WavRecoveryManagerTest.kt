@@ -105,20 +105,49 @@ class WavRecoveryManagerTest {
     }
 
     @Test
-    fun `test recovery with checkpoint truncation`() {
-        // 1. Create a corrupted WAV with more data than checkpoint
+    fun `test recovery does NOT truncate based on checkpoint`() {
+        // 1. Create a corrupted WAV with more data than checkpoint (1000 bytes total)
         val file = tempFolder.newFile("checkpoint.wav")
         val data = ByteArray(1000) 
         file.writeBytes(data)
 
-        // 2. Run recovery with checkpoint at 500 bytes
+        // 2. Run recovery with checkpoint at 500 bytes (which we now ignore for truncation)
         val result = recoveryManager.recover(file, lastDurableBytes = 500L)
 
-        // 3. Verify result is TRUNCATED
-        assertEquals(WavRecoveryManager.RecoveryResult.TRUNCATED, result)
+        // 3. Verify result is REPAIRED (since it matched actual size, not checkpoint)
+        assertEquals(WavRecoveryManager.RecoveryResult.REPAIRED, result)
         
-        // 4. Verify file length (44 header + 500 data)
-        assertEquals(544L, file.length())
+        // 4. Verify file length remains 1000 bytes (NOT truncated to 544)
+        assertEquals(1000L, file.length())
+        
+        // 5. Verify header reflects full data chunk: 1000 - 44 = 956
+        val header = file.readBytes().sliceArray(0..43)
+        val buffer = ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN)
+        buffer.position(40)
+        assertEquals(956, buffer.getInt())
+    }
+
+    @Test
+    fun `test recovery aligns to 2-byte boundary`() {
+        // 1. Create a file with an odd number of bytes (1001)
+        val file = tempFolder.newFile("odd_size.wav")
+        val data = ByteArray(1001)
+        file.writeBytes(data)
+
+        // 2. Run recovery
+        val result = recoveryManager.recover(file)
+
+        // 3. Verify result is TRUNCATED (due to alignment trim)
+        assertEquals(WavRecoveryManager.RecoveryResult.TRUNCATED, result)
+
+        // 4. Verify file size is now 1000
+        assertEquals(1000L, file.length())
+
+        // 5. Verify header reflects 956 bytes of data
+        val header = file.readBytes().sliceArray(0..43)
+        val buffer = ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN)
+        buffer.position(40)
+        assertEquals(956, buffer.getInt())
     }
 
     @Test

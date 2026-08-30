@@ -162,6 +162,13 @@ class DraftRepository @Inject constructor(
             draftsDatabase.get().withTransaction {
                 val draft = draftDao.get().getDraftById(draftId, userId) ?: throw Exception("Draft not found")
                 
+                // Concurrency Defense: Check for an existing active ownership lock.
+                // We must not destroy a lock belonging to a currently running Service or Worker.
+                val existingTask = uploadTaskDao.get().getTaskByDraftId(draftId)
+                val isAlreadyOwned = existingTask != null && 
+                                    existingTask.owner != null && 
+                                    existingTask.status !is SyncStatus.Failed
+
                 // 1. Calculate actual size for early progress accuracy
                 val actualSize = File(draft.frozenAudioPath ?: draft.localAudioPath).length()
 
@@ -171,21 +178,32 @@ class DraftRepository @Inject constructor(
                 // Sync the actual size to the main draft table too
                 draftDao.get().updateSyncProgress(draftId, userId, 0, actualSize, draft.uploadSessionUri)
                 
-                // 3. Initialize the separated upload task
-                uploadTaskDao.get().insert(UploadTaskEntity(
-                    draftId = draftId,
-                    workerId = null,
-                    status = initialStatus,
-                    uploadedBytes = 0,
-                    totalBytes = actualSize,
-                    sessionUri = draft.uploadSessionUri,
-                    audioUrl = draft.uploadedAudioUrl
-                ))
+                // 3. Initialize or Update the separated upload task
+                if (!isAlreadyOwned) {
+                    // Safe to (re)initialize since no active owner is holding the lock
+                    uploadTaskDao.get().insert(UploadTaskEntity(
+                        draftId = draftId,
+                        workerId = null,
+                        status = initialStatus,
+                        uploadedBytes = 0,
+                        totalBytes = actualSize,
+                        sessionUri = draft.uploadSessionUri,
+                        audioUrl = draft.uploadedAudioUrl
+                    ))
+                } else {
+                    // IDEMPOTENCY: An active process is already publishing.
+                    // We update the status if requested, but MUST PRESERVE the owner and existing progress.
+                    uploadTaskDao.get().updateStatus(draftId, initialStatus)
+                }
             }
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(AppError.from(e))
         }
+    }
+
+    suspend fun getUploadTask(draftId: String): UploadTaskEntity? = withContext(Dispatchers.IO) {
+        uploadTaskDao.get().getTaskByDraftId(draftId)
     }
 
     suspend fun updateDraft(draftId: String, transform: (ArtifactDraftEntity) -> ArtifactDraftEntity): Result<Unit> = withContext(Dispatchers.IO) {

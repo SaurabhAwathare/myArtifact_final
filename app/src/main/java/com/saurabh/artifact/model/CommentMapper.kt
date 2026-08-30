@@ -32,6 +32,7 @@ fun Comment.toDto(): CommentDto {
         id = id,
         artifactId = artifactId,
         creatorId = creatorId,
+        authorAnonymousId = author.anonymousId,
         author = author,
         text = text,
         createdAt = createdAt,

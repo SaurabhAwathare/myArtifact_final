@@ -399,23 +399,38 @@ export const onReactionDeleted = functions.firestore
  * Authoritatively handles follow/resonance intents.
  */
 export const onFollowIntentCreated = functions.firestore
-  .document("users/{uid}/private/intents/follow/{targetId}")
+  .document("users/{uid}/private/intents/follow/{targetAnonId}")
   .onCreate(async (snapshot, context) => {
     const uid = context.params.uid;
-    const targetId = context.params.targetId;
+    const targetAnonId = context.params.targetAnonId;
     const data = snapshot.data();
 
     if (!data || data.action !== "FOLLOW") return null;
 
-    const idempotencyKey = `follow_${uid}_${targetId}_${data.timestamp?.seconds || "initial"}`;
+    const idempotencyKey = `follow_${uid}_${targetAnonId}_${data.timestamp?.seconds || "initial"}`;
 
     return withIdempotency(idempotencyKey, async () => {
       const db = admin.firestore();
-      const currentUserRef = db.collection("users").doc(uid);
-      const targetUserRef = db.collection("users").doc(targetId);
 
-      const resonanceOutRef = currentUserRef.collection("resonance_out").doc(targetId);
-      const resonanceInRef = targetUserRef.collection("resonance_in").doc(uid);
+      // Resolve recipient UID from anonymousId via private mapping
+      const mappingDoc = await db.collection("persona_mapping").doc(targetAnonId).get();
+      let finalTargetUserId = mappingDoc.data()?.userId;
+
+      if (!finalTargetUserId) {
+        // Fallback: search users collection
+        const userQuery = await db.collection("users").where("anonymousId", "==", targetAnonId).limit(1).get();
+        if (userQuery.empty) {
+          logger.error(`[FOLLOW] Target persona not found: ${targetAnonId}`);
+          return;
+        }
+        finalTargetUserId = userQuery.docs[0].id;
+      }
+
+      const currentUserRef = db.collection("users").doc(uid);
+      const targetUserRef = db.collection("users").doc(finalTargetUserId);
+
+      const resonanceOutRef = currentUserRef.collection("resonance_out").doc(targetAnonId);
+      const resonanceInRef = targetUserRef.collection("resonance_in").doc(uid); // Internal UID for tracking is okay in private registry
 
       await db.runTransaction(async (transaction) => {
         const outDoc = await transaction.get(resonanceOutRef);
@@ -458,11 +473,14 @@ export const onFollowIntentCreated = functions.firestore
       }
 
       if (targetSettingsDoc.data()?.notificationsEnabled !== false) {
-        // Create Notification
+        // Create Notification (Sanitized actorId)
+        const actorDoc = await db.collection("users").doc(uid).get();
+        const actorAnonId = actorDoc.data()?.anonymousId || "unknown";
+
         await admin.firestore().collection("notifications").add({
           userId: targetId,
-          actorId: uid,
-          followerId: uid,
+          actorId: actorAnonId,
+          followerId: actorAnonId,
           message: "PRESENCE_RESONATED",
           type: "FOLLOW",
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -478,14 +496,25 @@ export const onFollowIntentCreated = functions.firestore
  * Handles unfollow intent.
  */
 export const onFollowIntentDeleted = functions.firestore
-  .document("users/{uid}/private/intents/follow/{targetId}")
+  .document("users/{uid}/private/intents/follow/{targetAnonId}")
   .onDelete(async (snapshot, context) => {
     const uid = context.params.uid;
-    const targetId = context.params.targetId;
+    const targetAnonId = context.params.targetAnonId;
 
     const db = admin.firestore();
+
+    // Resolve recipient UID
+    const mappingDoc = await db.collection("persona_mapping").doc(targetAnonId).get();
+    let finalTargetUserId = mappingDoc.data()?.userId;
+
+    if (!finalTargetUserId) {
+      const userQuery = await db.collection("users").where("anonymousId", "==", targetAnonId).limit(1).get();
+      if (userQuery.empty) return;
+      finalTargetUserId = userQuery.docs[0].id;
+    }
+
     const currentUserRef = db.collection("users").doc(uid);
-    const targetUserRef = db.collection("users").doc(targetId);
+    const targetUserRef = db.collection("users").doc(finalTargetUserId);
 
     const resonanceOutRef = currentUserRef.collection("resonance_out").doc(targetId);
     const resonanceInRef = targetUserRef.collection("resonance_in").doc(uid);
@@ -541,20 +570,20 @@ export const onReactionIntentCreated = functions.firestore
         return;
       }
 
-      const ownerId = artifactData.userId;
+      const actorDoc = await db.collection("users").doc(uid).get();
+      const actorAnonId = actorDoc.data()?.anonymousId || "unknown";
 
-      const reactionId = `${artifactId}_${uid}`;
+      const reactionId = `${artifactId}_${actorAnonId}`;
       const globalRef = db.collection("artifact_reactions").doc(reactionId);
 
       await db.runTransaction(async (transaction) => {
         const globalDoc = await transaction.get(globalRef);
         if (globalDoc.exists) return;
 
-        // 2. Create Global Reaction Marker (Zero-Trust)
+        // 2. Create Global Reaction Marker (Sanitized: No raw UIDs)
         transaction.set(globalRef, {
           artifactId: artifactId,
-          userId: uid,
-          artifactOwnerId: ownerId,
+          authorAnonymousId: actorAnonId, // Public identity pivot
           type: data.type,
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
         });
@@ -578,9 +607,13 @@ export const onReactionIntentCreated = functions.firestore
         }
 
         if (ownerSettingsDoc.data()?.notificationsEnabled !== false) {
+          // Create Notification (Sanitized actorId)
+          const actorDoc = await db.collection("users").doc(uid).get();
+          const actorAnonId = actorDoc.data()?.anonymousId || "unknown";
+
           await db.collection("notifications").add({
             userId: ownerId,
-            actorId: uid,
+            actorId: actorAnonId,
             message: `RESONANCE|${data.type}`,
             artifactId: artifactId,
             type: "RESONANCE",
@@ -604,9 +637,15 @@ export const onReactionIntentDeleted = functions.firestore
     const artifactId = context.params.artifactId;
 
     const db = admin.firestore();
-    const reactionId = `${artifactId}_${uid}`;
 
-    await db.collection("artifact_reactions").doc(reactionId).delete();
+    // Fetch anonymousId to find the global reaction doc
+    const userDoc = await db.collection("users").doc(uid).get();
+    const anonId = userDoc.data()?.anonymousId;
+
+    if (anonId) {
+      const reactionId = `${artifactId}_${anonId}`;
+      await db.collection("artifact_reactions").doc(reactionId).delete();
+    }
 
     logger.interaction("REACTION_REMOVED", {userId: uid, artifactId: artifactId}, "SUCCESS");
     return null;
@@ -736,10 +775,9 @@ export const onUserIdentityReset = functions
 
     logger.info(`[IDENTITY_PROPAGATION] START | UID=${uid} | Version=${newVersion}`);
 
-    // 1. Prepare AuthorSnapshot Update (Nested field notation for deep merge)
+    // 1. Prepare AuthorSnapshot Update (Non-retroactive anonymousId)
     const authorUpdate = {
       "author.name": newData.anonymousName || "quiet presence",
-      "author.anonymousId": newData.anonymousId || "",
       "author.sigil": newData.anonymousSigil || "",
       "author.sigilSeed": newData.sigilSeed || "",
       "author.sigilColor": newData.sigilColor || "#FFD700",
@@ -798,7 +836,47 @@ export const onUserIdentityReset = functions
   });
 
 /**
- * Authoritatively handles permanent account cleanup when a user is deleted.
+ * Authoritatively syncs public profile metadata to the sanitized profiles collection.
+ * Triggered on any update to a user document.
+ */
+export const onUserProfileUpdated = functions.firestore
+  .document("users/{uid}")
+  .onWrite(async (change, context) => {
+    const newData = change.after.data();
+    if (!newData) {
+      // Deletion handled by onUserDeleted
+      return null;
+    }
+
+    const anonymousId = newData.anonymousId;
+    if (!anonymousId) return null;
+
+    const profileData = {
+      id: anonymousId,
+      name: newData.anonymousName || "quiet presence",
+      sigil: newData.anonymousSigil || "",
+      sigilSeed: newData.sigilSeed || "",
+      sigilColor: newData.sigilColor || "#FFD700",
+      sigilConfig: newData.sigilConfig || {},
+      artifactsCount: newData.artifactsCount || 0,
+      resonanceInCount: newData.resonanceInCount || 0,
+      followersCount: newData.followersCount || 0,
+      identityVersion: newData.identityMetadata?.identityResetVersion || 0,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    const db = admin.firestore();
+    await db.collection("profiles").doc(anonymousId).set(profileData, {merge: true});
+
+    // Internal Routing Mapping (Private)
+    await db.collection("persona_mapping").doc(anonymousId).set({
+      userId: context.params.uid,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    logger.info(`[PROFILE_SYNC] Synced ${anonymousId} for UID ${context.params.uid}`);
+    return null;
+  });
  * Hardened for idempotency and scalability with increased timeout and memory.
  */
 export const onUserDeleted = functions
@@ -1449,7 +1527,12 @@ export const onCommentCreated = functions.firestore
 
       // Privacy Boundary: Block notifications for non-public artifacts
       // Exception: Owner always receives notifications for their own artifacts
-      if (!artifactData.isPublic && artifactData.userId !== data.creatorId) {
+
+      const actorAnonId = data.authorAnonymousId;
+      const mappingDoc = await db.collection("persona_mapping").doc(actorAnonId).get();
+      const commenterId = mappingDoc.data()?.userId;
+
+      if (!artifactData.isPublic && artifactData.userId !== commenterId) {
         logger.info(`[NOTIFICATION] Suppressed for private artifact | ArtifactID=${artifactId}`);
         return;
       }
@@ -1462,7 +1545,6 @@ export const onCommentCreated = functions.firestore
       logger.info(`[AGGREGATE] commentCount incremented | ArtifactID=${artifactId} | CommentID=${commentId}`);
 
       // Create Notification if commenter is not the owner
-      const commenterId = data.creatorId;
       if (ownerId && ownerId !== commenterId) {
         // Silent Ignore Boundary Check (Phase 6.3.1 Remediation)
         const ignoreDoc = await db.collection("users").doc(ownerId)
@@ -1486,9 +1568,13 @@ export const onCommentCreated = functions.firestore
           return;
         }
 
+        // Create Notification (Sanitized actorId)
+        const actorDoc = await db.collection("users").doc(commenterId).get();
+        const actorAnonId = actorDoc.data()?.anonymousId || "unknown";
+
         await db.collection("notifications").add({
           userId: ownerId,
-          actorId: commenterId,
+          actorId: actorAnonId,
           message: `COMMENT|${artifactData.title || "Unknown Artifact"}`,
           artifactId: artifactId,
           type: "COMMENT",

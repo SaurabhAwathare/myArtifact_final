@@ -43,21 +43,25 @@ class WavRecoveryManager(
             val hasValidHeader = checkWavHeaderValidity(file)
 
             if (hasValidHeader) {
-                // Even if header is valid, we might want to truncate if DB checkpoint is much smaller.
-                // But generally, we trust the file header if it's consistent with file size.
+                // Even if header is valid, we might want to log if DB checkpoint is significantly behind.
+                lastDurableBytes?.let {
+                    val audioBytes = actualSize - WavHeaderUtils.HEADER_SIZE
+                    if (it < audioBytes) {
+                        Log.d("WavRecoveryManager", "Recovery drift detected: File has ${audioBytes - it} bytes more than last checkpoint.")
+                    }
+                }
                 RecoveryResult.FULLY_RECOVERED
             } else {
-                // Determine the "safe" size to recover.
-                // If we have a checkpoint, we use it to ensure we don't recover partial/corrupt blocks.
-                val targetSize = lastDurableBytes?.let { 
-                    val expectedTotal = it + WavHeaderUtils.HEADER_SIZE
-                    if (expectedTotal <= actualSize) expectedTotal else actualSize 
-                } ?: actualSize
+                // Determine the "safe" size to recover based on physical file size.
+                // PCM 16-bit requires 2-byte alignment for the data chunk.
+                val audioDataLength = (actualSize - WavHeaderUtils.HEADER_SIZE).coerceAtLeast(0)
+                val alignedAudioLength = (audioDataLength / 2) * 2
+                val targetSize = alignedAudioLength + WavHeaderUtils.HEADER_SIZE
 
                 repairHeader(file, targetSize)
                 
                 if (targetSize < actualSize) {
-                    Log.i("WavRecoveryManager", "Truncated ${file.name} to $targetSize bytes (Checkpointed: $lastDurableBytes)")
+                    Log.i("WavRecoveryManager", "Aligned ${file.name} to $targetSize bytes (Trimmed incomplete sample)")
                     RecoveryResult.TRUNCATED 
                 } else {
                     Log.i("WavRecoveryManager", "Repaired header for ${file.name} (Size: $targetSize)")

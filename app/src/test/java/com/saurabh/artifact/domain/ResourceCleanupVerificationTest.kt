@@ -92,7 +92,6 @@ class ResourceCleanupVerificationTest {
         cleanupManager = ArtifactCleanupManager(
             artifactRepository,
             authRepository,
-            Lazy { userRepository },
             Lazy { draftDao },
             Lazy { uploadTaskDao },
             workManager

@@ -77,7 +77,6 @@ class FCMService : FirebaseMessagingService() {
             .collection("private").document("settings")
         
         privateSettingsRef.set(mapOf("fcmToken" to token), SetOptions.merge())
-            .addOnSuccessListener { Log.d("FCM", "Token updated for user: $userId") }
             .addOnFailureListener { e -> Log.e("FCM", "Failed to update token", e) }
     }
 }

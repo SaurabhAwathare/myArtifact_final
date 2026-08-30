@@ -14,6 +14,7 @@ import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.DraftRepository
 import com.saurabh.artifact.repository.UserRepository
 import com.saurabh.artifact.security.UploadGuard
+import com.saurabh.artifact.data.local.UploadOwner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
@@ -33,9 +34,10 @@ class PublishingManager @Inject constructor(
 
     suspend fun performPublish(
         draftId: String,
+        expectedOwner: UploadOwner,
         onProgress: suspend (Long, Long, String?) -> Unit = { _, _, _ -> }
     ): Result<Unit> = withContext(Dispatchers.IO) {
-        diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISH_STARTED", mapOf(LogKeys.DRAFT_ID to draftId))
+        diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISH_STARTED", mapOf(LogKeys.DRAFT_ID to draftId, "owner" to expectedOwner.name))
         try {
             val draft = draftRepository.getDraft(draftId).getOrNull() 
                 ?: return@withContext Result.failure<Unit>(Exception("Draft not found")).also {
@@ -47,7 +49,20 @@ class PublishingManager @Inject constructor(
                     diagnosticLogger.error(DiagnosticCategory.PUBLISH, "PUBLISH_FAILED", mapOf(LogKeys.DRAFT_ID to draftId, "reason" to "UNAUTHENTICATED"))
                 }
 
-            // Phase 3: Explicit Ownership Verification
+            // Phase 3.5: Authoritative Ownership Re-validation (Concurrency Defense)
+            // Ensures that this execution path still authoritatively owns the lock in the database.
+            val currentTask = draftRepository.getUploadTask(draftId)
+            if (currentTask?.owner != expectedOwner) {
+                val errorMsg = "Ownership lost to another process (Current: ${currentTask?.owner}, Expected: $expectedOwner)"
+                diagnosticLogger.error(
+                    DiagnosticCategory.PUBLISH, 
+                    "PUBLISH_OWNERSHIP_LOST", 
+                    mapOf(LogKeys.DRAFT_ID to draftId, "reason" to errorMsg)
+                )
+                return@withContext Result.failure(Exception(errorMsg))
+            }
+
+            // Phase 3: Explicit User-Identity Verification
             diagnosticLogger.debug(DiagnosticCategory.PUBLISH, "PUBLISH_OWNERSHIP_CHECK", mapOf(LogKeys.DRAFT_ID to draftId))
             if (draft.userId != firebaseUser.uid) {
                 val errorMsg = "Ownership verification failed: Draft belongs to another account."

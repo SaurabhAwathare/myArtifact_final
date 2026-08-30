@@ -30,7 +30,8 @@ data class AuthorSnapshot(
             // Defense in Depth: Precondition check
             val isIdentityIncomplete = user.anonymousId.isBlank() || 
                                       user.anonymousName.isBlank() || 
-                                      user.anonymousSigil.isBlank()
+                                      user.anonymousSigil.isBlank() ||
+                                      user.sigilSeed.isBlank()
 
             if (isIdentityIncomplete) {
                 val errorMsg = "Attempted to create AuthorSnapshot from incomplete User identity (UID: ${user.id})"

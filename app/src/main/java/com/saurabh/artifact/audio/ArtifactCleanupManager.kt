@@ -11,7 +11,6 @@ import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.model.LocalCleanupStatus
 import com.saurabh.artifact.model.SyncStatus
 import com.saurabh.artifact.repository.ArtifactRepository
-import com.saurabh.artifact.repository.UserRepository
 import com.saurabh.artifact.worker.CleanupWorker
 import dagger.Lazy
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,7 +35,6 @@ import androidx.media3.common.util.UnstableApi
 class ArtifactCleanupManager @Inject constructor(
     private val artifactRepository: ArtifactRepository,
     private val authRepository: com.saurabh.artifact.repository.AuthRepository,
-    private val userRepository: Lazy<UserRepository>,
     private val draftDao: Lazy<DraftDao>,
     private val uploadTaskDao: Lazy<UploadTaskDao>,
     private val workManager: WorkManager,
@@ -77,6 +75,7 @@ class ArtifactCleanupManager @Inject constructor(
             try {
                 // Fetch all active tasks once to avoid repeated DB hits in the loop
                 val activeTasks = uploadTaskDao.get().getAllTasks().associateBy { it.draftId }
+                val now = System.currentTimeMillis()
                 
                 val targets = listOf(
                     cacheDir, // Legacy Root Cache
@@ -88,16 +87,32 @@ class ArtifactCleanupManager @Inject constructor(
                     
                     dir.listFiles()?.forEach { file ->
                         if (file.name.startsWith("decrypted_") && file.name.endsWith(".m4a")) {
-                            // Deterministic naming: decrypted_${draftId}.m4a
-                            val draftId = file.name.substringAfter("decrypted_").substringBefore(".m4a")
-                            val task = activeTasks[draftId]
+                            // Extraction Logic: 
+                            // Format A (Legacy): decrypted_${draftId}.m4a
+                            // Format B (Current): decrypted_${draftId}_${suffix}.m4a
+                            val content = file.name.substringAfter("decrypted_").substringBeforeLast(".m4a")
+                            
+                            // Check for exact match first (Legacy or if draftId has underscores)
+                            var task = activeTasks[content]
+                            
+                            // If not found, attempt to strip the unique suffix (last part after underscore)
+                            if (task == null && content.contains('_')) {
+                                val potentialId = content.substringBeforeLast('_')
+                                task = activeTasks[potentialId]
+                            }
+                            
+                            val isStale = (now - file.lastModified()) > 30 * 60 * 1000L // 30 min grace period
                             
                             val shouldDelete = when {
-                                task == null -> true // Orphan: No record of this upload task
-                                task.status is SyncStatus.Failed -> true // Permanent failure: Cleanup cleartext source
-                                // If task hasn't been updated in 12 hours, assume it's a zombie copy
-                                System.currentTimeMillis() - task.lastUpdated > 12 * 60 * 60 * 1000L -> true
-                                else -> false // Task is active, queued, or recently updated - PRESERVE for resumability
+                                task != null -> {
+                                    // Task exists: Cleanup if failed or genuinely zombie (12h)
+                                    task.status is SyncStatus.Failed || (now - task.lastUpdated > 12 * 60 * 60 * 1000L)
+                                }
+                                else -> {
+                                    // No task found: Only delete if grace period expired (Orphan)
+                                    // This protects against database races and the new suffix format.
+                                    isStale
+                                }
                             }
 
                             if (shouldDelete) {
@@ -133,8 +148,8 @@ class ArtifactCleanupManager @Inject constructor(
             if (result.isSuccess) {
                 ArtifactLogger.i(DiagnosticCategory.PUBLISH, "ARTIFACT_REMOTE_DELETION_SUCCESS", mapOf("artifactId" to artifactId))
                 
-                // Decrement artifactsCount for the user
-                userRepository.get().enqueueArtifactCountDecrement(userId, artifactId)
+                // Authoritative Note: Artifact count decrement is now handled directly by 
+                // ArtifactRepository.performRemoteDelete to prevent double-enqueuing.
                 
                 scheduleLocalCleanup(artifactId, purgeRemote = true)
             } else {

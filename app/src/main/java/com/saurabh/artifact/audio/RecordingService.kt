@@ -770,8 +770,32 @@ class RecordingService : Service() {
         }
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        diagnosticLogger.info(DiagnosticCategory.RECORDER, "SERVICE_TASK_REMOVED")
+        // Initiate graceful stop on swipe-away
+        if (_recordingState.value.status == RecordingStatus.RECORDING || 
+            _recordingState.value.status == RecordingStatus.PAUSED) {
+            stopRecording()
+        }
+    }
+
     override fun onDestroy() {
         diagnosticLogger.debug(DiagnosticCategory.RECORDER, "SERVICE_DESTROY_INVOKED")
+        
+        // Bounded emergency finalization if still recording
+        if (_recordingState.value.status == RecordingStatus.RECORDING || 
+            _recordingState.value.status == RecordingStatus.PAUSED) {
+            
+            runBlocking {
+                try {
+                    // Best-effort 500ms flush
+                    audioRecorder?.drainAndRelease(500)
+                } catch (e: Exception) {
+                    diagnosticLogger.error(DiagnosticCategory.RECORDER, "EMERGENCY_DRAIN_FAILED", throwable = e)
+                }
+            }
+        }
         
         // 1. Stop hardware and release resources synchronously first
         cleanup()

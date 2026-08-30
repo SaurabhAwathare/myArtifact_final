@@ -392,51 +392,94 @@ class ArtifactRepository @Inject constructor(
         limit: Int = 20
     ): Flow<Pair<List<Artifact>, com.google.firebase.firestore.DocumentSnapshot?>> = callbackFlow {
         val currentUserId = auth.currentUser?.uid
-        val isPublicOnly = userId != currentUserId
+        val isSelf = userId == currentUserId
 
-        var query = firestore.collection("artifacts")
-            .whereEqualTo("userId", userId)
-            
-        if (isPublicOnly) {
-            query = query.whereEqualTo("isPublic", true)
-        }
+        if (isSelf) {
+            // SELF PATH: Fetch from private ownership registry
+            // This ensures "My Reflections" shows all artifacts regardless of persona.
+            val registryQuery = firestore.collection("users").document(userId)
+                .collection("private").document("published_artifacts")
+                .collection("artifacts")
+                .orderBy("createdAt", Query.Direction.DESCENDING)
+                .limit(limit.toLong())
 
-        if (onlyActive) {
-            query = query.whereEqualTo("status", ArtifactStatus.ACTIVE.name)
-        }
-        
-        query = query.orderBy("createdAt", Query.Direction.DESCENDING)
-            .limit(limit.toLong())
+            val subscription = registryQuery.addSnapshotListener { registrySnapshot, error ->
+                if (error != null) {
+                    diagnosticLogger.error(DiagnosticCategory.PROFILE, "SELF_REGISTRY_QUERY_FAILED", mapOf("userId" to userId), error)
+                    trySend(emptyList<Artifact>() to null)
+                    return@addSnapshotListener
+                }
 
-        val subscription = query.addSnapshotListener { snapshot, error ->
-            if (error != null) {
-                diagnosticLogger.error(
-                    category = DiagnosticCategory.PROFILE,
-                    eventName = "PROFILE_ARTIFACT_QUERY_FAILED",
-                    metadata = mapOf(
-                        "userId" to userId,
-                        "errorCode" to error.code.name,
-                        "errorMessage" to error.message.orEmpty(),
-                        "isPublicOnly" to isPublicOnly
-                    ),
-                    throwable = error
-                )
-                trySend(emptyList<Artifact>() to null)
-                return@addSnapshotListener
+                if (registrySnapshot == null || registrySnapshot.isEmpty) {
+                    trySend(emptyList<Artifact>() to null)
+                    return@addSnapshotListener
+                }
+
+                repositoryScope.launch(Dispatchers.IO) {
+                    try {
+                        val artifactIds = registrySnapshot.documents.map { it.id }
+                        
+                        // FETCH DOCUMENTS: Use whereIn for batch retrieval (limit 30)
+                        val artifactsQuery = firestore.collection("artifacts")
+                            .whereIn(com.google.firebase.firestore.FieldPath.documentId(), artifactIds.take(30))
+
+                        val artifactsSnapshot = artifactsQuery.get().await()
+                        val artifacts = artifactsSnapshot.documents.mapNotNull { doc ->
+                            doc.toObject(Artifact::class.java)?.copy(
+                                id = doc.id,
+                                userId = userId // Re-populate for own reflections
+                            )
+                        }.sortedByDescending { it.createdAt }
+
+                        trySend(artifacts to registrySnapshot.documents.lastOrNull())
+                    } catch (e: Exception) {
+                        diagnosticLogger.error(DiagnosticCategory.PROFILE, "SELF_ARTIFACT_BATCH_FETCH_FAILED", mapOf("userId" to userId), e)
+                        trySend(emptyList<Artifact>() to null)
+                    }
+                }
+            }
+            awaitClose { subscription.remove() }
+        } else {
+            // OTHER PATH: Query by anonymous persona ID (Responsible Anonymity)
+            // Assuming the passed userId for others IS the anonymousId
+            var query = firestore.collection("artifacts")
+                .whereEqualTo("author.anonymousId", userId)
+                .whereEqualTo("isPublic", true)
+
+            if (onlyActive) {
+                query = query.whereEqualTo("status", ArtifactStatus.ACTIVE.name)
             }
             
-            repositoryScope.launch(Dispatchers.Default) {
-                val suppressedIds = currentUserId?.let { 
-                    visibilityFilter.get().getSuppressedIdsSnapshot(it)
-                } ?: emptySet()
+            query = query.orderBy("createdAt", Query.Direction.DESCENDING)
+                .limit(limit.toLong())
 
-                val artifacts = snapshot?.documents?.mapNotNull { doc ->
-                    try {
-                        val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
-                        if (artifact == null) return@mapNotNull null
+            val subscription = query.addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    diagnosticLogger.error(
+                        category = DiagnosticCategory.PROFILE,
+                        eventName = "PROFILE_ARTIFACT_QUERY_FAILED",
+                        metadata = mapOf(
+                            "personaId" to userId,
+                            "errorCode" to error.code.name,
+                            "errorMessage" to error.message.orEmpty()
+                        ),
+                        throwable = error
+                    )
+                    trySend(emptyList<Artifact>() to null)
+                    return@addSnapshotListener
+                }
+                
+                repositoryScope.launch(Dispatchers.Default) {
+                    val suppressedIds = currentUserId?.let { 
+                        visibilityFilter.get().getSuppressedIdsSnapshot(it)
+                    } ?: emptySet()
 
-                        // If viewing someone else's profile, apply safety policy
-                        if (isPublicOnly) {
+                    val artifacts = snapshot?.documents?.mapNotNull { doc ->
+                        try {
+                            val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
+                            if (artifact == null) return@mapNotNull null
+
+                            // Apply safety policy for other-user profile view
                             val reportCount = doc.getLong("reportCount") ?: 0L
                             val safetyConcernCount = doc.getLong("safetyConcernCount") ?: 0L
                             
@@ -453,31 +496,26 @@ class ArtifactRepository @Inject constructor(
                             )
                             
                             if (isEligible) artifactSnapshot else null
-                        } else {
-                            // Self-view: Show all non-deleted artifacts
-                            if (artifact.status != ArtifactStatus.DELETED || !onlyActive) {
-                                artifact
-                            } else null
+                        } catch (e: Exception) {
+                            diagnosticLogger.error(
+                                category = DiagnosticCategory.PROFILE,
+                                eventName = "ARTIFACT_DESERIALIZATION_FAILED",
+                                metadata = mapOf(
+                                    LogKeys.ARTIFACT_ID to doc.id,
+                                    "userId" to userId,
+                                    "context" to "getUserArtifacts"
+                                ),
+                                throwable = e
+                            )
+                            null
                         }
-                    } catch (e: Exception) {
-                        diagnosticLogger.error(
-                            category = DiagnosticCategory.PROFILE,
-                            eventName = "ARTIFACT_DESERIALIZATION_FAILED",
-                            metadata = mapOf(
-                                LogKeys.ARTIFACT_ID to doc.id,
-                                "userId" to userId,
-                                "context" to "getUserArtifacts"
-                            ),
-                            throwable = e
-                        )
-                        null
-                    }
-                } ?: emptyList()
-                
-                trySend(artifacts to snapshot?.documents?.lastOrNull())
+                    } ?: emptyList()
+                    
+                    trySend(artifacts to snapshot?.documents?.lastOrNull())
+                }
             }
+            awaitClose { subscription.remove() }
         }
-        awaitClose { subscription.remove() }
     }
 
     /**
@@ -818,7 +856,7 @@ class ArtifactRepository @Inject constructor(
         transcriptJson: String
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
-            val fileName = "transcripts/${userId}_$draftId.json"
+            val fileName = "transcripts/$draftId.json"
             val fileRef = storage.reference.child(fileName)
             
             val metadata = StorageMetadata.Builder()
@@ -838,7 +876,7 @@ class ArtifactRepository @Inject constructor(
             val extraParams = mutableMapOf<String, Any>(
                 LogKeys.DRAFT_ID to draftId,
                 "userId" to userId,
-                "path" to "transcripts/${userId}_$draftId.json",
+                "path" to "transcripts/$draftId.json",
                 "exceptionType" to e.javaClass.name
             )
 

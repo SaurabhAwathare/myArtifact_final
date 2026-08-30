@@ -169,6 +169,50 @@ class AudioRecorder(private val context: Context) {
     }
 
     /**
+     * Immediately releases audio hardware without destroying the I/O pipeline.
+     */
+    fun stopHardware() {
+        try {
+            if (currentMode == RecordingMode.AAC_HIGH_BITRATE) {
+                mediaRecorder?.apply {
+                    try { stop() } catch (_: Exception) {}
+                    release()
+                }
+                mediaRecorder = null
+            } else {
+                wavRecorder?.stopHardware()
+            }
+        } catch (e: Exception) {
+            ArtifactLogger.e(DiagnosticCategory.RECORDER, "HARDWARE_RELEASE_FAILED", throwable = e)
+        }
+    }
+
+    /**
+     * Attempts a bounded drain of pending audio buffers (WAV only).
+     */
+    suspend fun drainAndRelease(timeoutMs: Long) {
+        if (!isRecording) {
+            release()
+            return
+        }
+        
+        try {
+            if (currentMode == RecordingMode.AAC_HIGH_BITRATE) {
+                // MediaRecorder doesn't have a buffered drain path
+                release()
+            } else {
+                wavRecorder?.drainAndRelease(timeoutMs)
+                wavRecorder = null
+            }
+        } catch (e: Exception) {
+            ArtifactLogger.e(DiagnosticCategory.RECORDER, "DRAIN_AND_RELEASE_FAILED", throwable = e)
+            release()
+        } finally {
+            isRecording = false
+        }
+    }
+
+    /**
      * Releases all underlying resources.
      */
     fun release() {

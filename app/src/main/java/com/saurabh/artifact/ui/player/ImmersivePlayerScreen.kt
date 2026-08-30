@@ -227,10 +227,6 @@ fun ImmersivePlayerScreen(
                                         config = safeSigilConfig,
                                         size = 200.dp,
                                         modifier = Modifier.clickable { 
-                                            android.util.Log.d("ImmersivePlayerScreen", "PLAYER_AUTHOR_CLICK: sigil click, userId=${uiState.internalOwnerId}")
-                                            if (uiState.internalOwnerId.isEmpty()) {
-                                                android.util.Log.e("ImmersivePlayerScreen", "PLAYER_AUTHOR_ID_EMPTY: sigil click")
-                                            }
                                             onAuthorClick(uiState.internalOwnerId) 
                                         }
                                     )

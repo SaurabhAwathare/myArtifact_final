@@ -55,12 +55,12 @@ service cloud.firestore {
 
     function isValidComment(data) {
       // MAX_COMMENT_LENGTH must sync with CommentConstants.kt (currently 1000)
-      let requiredFields = ['artifactId', 'creatorId', 'author', 'text', 'status'];
+      let requiredFields = ['artifactId', 'authorAnonymousId', 'author', 'text', 'status'];
       let optionalFields = ['createdAt', 'updatedAt', 'identityVersion'];
       return data.keys().hasAll(requiredFields) &&
              data.keys().hasOnly(requiredFields.concat(optionalFields)) &&
              data.artifactId is string &&
-             data.creatorId is string &&
+             data.authorAnonymousId is string &&
              data.author is map &&
              data.author.keys().hasAll(['anonymousId', 'name', 'sigil']) &&
              data.text is string &&
@@ -79,8 +79,15 @@ service cloud.firestore {
     }
 
     function isArtifactOwner(artifactId) {
-      return isAuth() &&
-             get(/databases/$(database)/documents/artifacts/$(artifactId)).data.userId == request.auth.uid;
+      return isAuth() && (
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)/private/published_artifacts/artifacts/$(artifactId)) ||
+        // Legacy fallback: check the public document field (Historical Privacy Debt)
+        get(/databases/$(database)/documents/artifacts/$(artifactId)).data.get('userId', '') == request.auth.uid
+      );
+    }
+
+    function getCurrentAnonymousId() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.anonymousId;
     }
 
     // Business Purpose: Verify if the user has unlocked comments for a specific artifact.
@@ -141,12 +148,7 @@ service cloud.firestore {
 
     // --- USERS & PROFILES ---
     match /users/{uid} {
-      allow read: if isOwner(uid) ||
-                   (isAuth() && resource != null &&
-                    !resource.data.keys().hasAny([
-                      'email', 'displayName', 'realName', 'fcmToken',
-                      'emotionPreferences', 'lastActivityTimestamp', 'softStreakCount', 'lastSeen'
-                    ]));
+      allow read: if isOwner(uid);
 
       allow update: if resource != null &&
                    isOwner(uid) &&
@@ -189,6 +191,11 @@ service cloud.firestore {
 
       match /private/ignored_users/{targetId} {
         allow read, write: if isOwner(uid);
+      }
+
+      // --- MIGRATION AUDIT (Admin Only) ---
+      match /migration_audit/{docId} {
+        allow read, write: if false; // Strict isolation from all clients
       }
 
       match /private/{document=**} {
@@ -243,7 +250,8 @@ service cloud.firestore {
       }
 
       allow create: if isAuth() &&
-                    request.resource.data.get('userId', '') == request.auth.uid &&
+                    // Registry Check: Verify user created the private ownership record first
+                    exists(/databases/$(database)/documents/users/$(request.auth.uid)/private/published_artifacts/artifacts/$(artifactId)) &&
                     request.resource.data.author.anonymousId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.anonymousId &&
                     request.resource.data.author.keys().hasAll(['anonymousId', 'name']) &&
                     request.resource.data.get('identityVersion', 0) == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.identityMetadata.get('identityResetVersion', 0) &&
@@ -261,8 +269,7 @@ service cloud.firestore {
 
       allow update: if (resource != null && isGlobalAdmin()) ||
                     (resource != null &&
-                     request.auth != null &&
-                     request.auth.uid == resource.data.get('userId', '') &&
+                     isArtifactOwner(artifactId) &&
                      isValidLifecycleTransition(resource.data, request.resource.data) &&
                      // userId and createdAt are immutable
                      request.resource.data.get('userId', '') == resource.data.get('userId', '') &&
@@ -288,7 +295,7 @@ service cloud.firestore {
         // Create: Authenticated user, matching creatorId and artifactId, valid data
         allow create: if isAuth() &&
                       isValidComment(request.resource.data) &&
-                      request.resource.data.creatorId == request.auth.uid &&
+                      request.resource.data.authorAnonymousId == getCurrentAnonymousId() &&
                       request.resource.data.artifactId == artifactId &&
                       // Artifact Visibility Boundary (Phase 2 Ch 10 Fix)
                       canReadArtifact(artifactId) &&
@@ -302,12 +309,11 @@ service cloud.firestore {
 
         // Update: Only owner can soft-delete (status: DELETED), or artifact owner can update creatorReaction
         allow update: if isAuth() && (
-                      (resource.data.get('creatorId', '') == request.auth.uid &&
+                      (request.auth.uid == get(/databases/$(database)/documents/persona_mapping/$(resource.data.authorAnonymousId)).data.userId &&
                        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']) &&
                        request.resource.data.status == 'DELETED' &&
-                       request.resource.data.get('creatorId', '') == resource.data.get('creatorId', '') &&
                        request.resource.data.get('artifactId', '') == resource.data.get('artifactId', '')) ||
-                      (request.auth.uid == get(/databases/$(database)/documents/artifacts/$(artifactId)).data.userId &&
+                      (isArtifactOwner(artifactId) &&
                        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['creatorReaction'])) ||
                       isGlobalAdmin()
                     );
@@ -330,22 +336,36 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // --- IDENTITY & ANTI-ENUMERATION ---
     match /usernames/{id} {
-      allow read: if isAuth();
+      allow read: if isAuth() && resource.data.uid == request.auth.uid;
       allow create: if isAuth() && request.resource.data.uid == request.auth.uid;
-      allow update: if isAuth() && resource.data.uid == request.auth.uid && request.resource.data.uid == request.auth.uid;
-      allow delete: if isAuth() && (resource == null || resource.data.uid == request.auth.uid);
+      allow update, delete: if isAuth() && resource.data.uid == request.auth.uid;
+    }
+
+    // --- PUBLIC PROFILES (Sanitized) ---
+    match /profiles/{anonymousId} {
+      allow read: if true;
+      allow write: if false; // Only Cloud Functions can write
+    }
+
+    // --- PERSONA MAPPING (Private Routing) ---
+    match /persona_mapping/{anonymousId} {
+      allow read, write: if false; // Strict Server-Only access
     }
 
     // --- CONSOLIDATED REACTIONS ---
     match /artifact_reactions/{id} {
       allow read: if isGlobalAdmin() ||
                    (isAuth() && (
-                     resource.data.userId == request.auth.uid ||
-                     resource.data.artifactOwnerId == request.auth.uid ||
+                     request.auth.uid == get(/databases/$(database)/documents/persona_mapping/$(resource.data.authorAnonymousId)).data.userId ||
+                     isArtifactOwner(resource.data.artifactId) ||
                      canReadResonators(resource.data.artifactId)
                    ));
+
+      // AUTHORITATIVE AUTHORIZATION: Validate persona from private record
+      allow create: if isAuth() &&
+                    request.resource.data.authorAnonymousId == getCurrentAnonymousId();
+
       allow write: if false;
     }
 

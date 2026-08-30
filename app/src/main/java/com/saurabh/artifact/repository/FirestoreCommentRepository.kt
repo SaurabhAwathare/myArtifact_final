@@ -75,7 +75,9 @@ class FirestoreCommentRepository @Inject constructor(
                 "COMMENT_SUBMIT_STARTED", 
                 mapOf(com.saurabh.artifact.diagnostics.LogKeys.ARTIFACT_ID to comment.artifactId)
             )
-            val dto = comment.toDto()
+            val dto = comment.toDto().apply {
+                authorAnonymousId = comment.author.anonymousId
+            }
             val collectionRef = firestore.collection(CommentConstants.getCommentsCollectionPath(comment.artifactId))
             
             // Use provided ID if available, otherwise generate new one

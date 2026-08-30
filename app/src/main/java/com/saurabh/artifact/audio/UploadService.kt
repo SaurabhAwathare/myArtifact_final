@@ -135,6 +135,7 @@ class UploadService : Service() {
 
                 publishingManager.performPublish(
                     draftId = draftId,
+                    expectedOwner = UploadOwner.SERVICE,
                     onProgress = { transferred, total, _ ->
                         val progress = (transferred * 100 / total).toInt()
                         NotificationHelper.updateUploadProgress(attributionContext, title, progress)

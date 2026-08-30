@@ -14,6 +14,7 @@ data class CommentDto(
     @get:Exclude var id: String = "",
     var artifactId: String = "",
     var creatorId: String = "",
+    var authorAnonymousId: String = "",
     var author: AuthorSnapshot = AuthorSnapshot(),
     var text: String = "",
     @ServerTimestamp var createdAt: Timestamp? = null,
