@@ -281,8 +281,15 @@ class DataExportManager @Inject constructor(
 
     private suspend fun exportAuthoredComments(userId: String, zipOut: ZipOutputStream, errors: MutableList<String>): Int {
         return try {
+            // Responsible Anonymity: Query by current persona ID since creatorId is removed from public surface.
+            // Note: This only exports comments for the CURRENT persona.
+            val user = userRepository.get().getCachedProfile(userId)
+            val currentAnonId = user?.anonymousId ?: ""
+            
+            if (currentAnonId.isEmpty()) return 0
+
             val snapshot = firestore.collectionGroup("comments")
-                .whereEqualTo("creatorId", userId)
+                .whereEqualTo("author.anonymousId", currentAnonId)
                 .get().await()
             
             val comments = snapshot.documents.mapNotNull { doc ->
@@ -310,6 +317,9 @@ class DataExportManager @Inject constructor(
     private suspend fun exportReceivedComments(userId: String, artifacts: List<Artifact>, zipOut: ZipOutputStream, errors: MutableList<String>): Int {
         var total = 0
         try {
+            val user = userRepository.get().getCachedProfile(userId)
+            val currentAnonId = user?.anonymousId ?: ""
+
             val allReceived = mutableListOf<CommentExport>()
             artifacts.forEach { artifact ->
                 val snapshot = firestore.collection("artifacts").document(artifact.id)
@@ -318,7 +328,7 @@ class DataExportManager @Inject constructor(
                 val comments = snapshot.documents.mapNotNull { doc ->
                     doc.toObject(CommentDto::class.java)?.copy(id = doc.id)?.let { dto ->
                         // Only include if not authored by the user themselves (to avoid duplicates)
-                        if (dto.creatorId != userId) {
+                        if (dto.author.anonymousId != currentAnonId) {
                             CommentExport(
                                 id = dto.id,
                                 artifactId = dto.artifactId,

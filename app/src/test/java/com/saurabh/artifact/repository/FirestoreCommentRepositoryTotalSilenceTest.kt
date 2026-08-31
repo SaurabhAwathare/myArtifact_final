@@ -36,8 +36,8 @@ class FirestoreCommentRepositoryTotalSilenceTest {
         val doc1 = mockk<QueryDocumentSnapshot>()
         val doc2 = mockk<QueryDocumentSnapshot>()
         
-        val dto1 = CommentDto(id = "com1", artifactId = artifactId, creatorId = "userB", text = "B", status = "ACTIVE")
-        val dto2 = CommentDto(id = "com2", artifactId = artifactId, creatorId = "userC", text = "C", status = "ACTIVE")
+        val dto1 = CommentDto(id = "com1", artifactId = artifactId, authorAnonymousId = "personaB", text = "B", status = "ACTIVE")
+        val dto2 = CommentDto(id = "com2", artifactId = artifactId, authorAnonymousId = "personaC", text = "C", status = "ACTIVE")
         
         every { doc1.getString("creatorId") } returns "userB"
         every { doc1.toObject(CommentDto::class.java) } returns dto1

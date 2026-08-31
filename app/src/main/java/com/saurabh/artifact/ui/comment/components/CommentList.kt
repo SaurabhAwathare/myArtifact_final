@@ -22,7 +22,7 @@ import com.saurabh.artifact.ui.theme.Spacing
  * @param isInitialLoading Whether the first page is currently loading.
  * @param isLoadingNextPage Whether a subsequent page is currently loading.
  * @param hasMorePages Whether there are more pages to load.
- * @param currentUserId The ID of the currently authenticated user.
+ * @param currentAnonymousId The persona ID of the currently authenticated user.
  * @param onLoadNextPage Callback to trigger loading of the next page.
  * @param onDeleteComment Callback when a comment is requested to be deleted.
  */
@@ -32,7 +32,7 @@ fun CommentList(
     isInitialLoading: Boolean,
     isLoadingNextPage: Boolean,
     hasMorePages: Boolean,
-    currentUserId: String,
+    currentAnonymousId: String,
     onLoadNextPage: () -> Unit,
     onDeleteComment: (Comment) -> Unit,
     onProfileClick: (String) -> Unit,
@@ -78,7 +78,7 @@ fun CommentList(
                 items(comments, key = { it.id }) { comment ->
                     CommentItem(
                         comment = comment,
-                        isOwner = comment.creatorId == currentUserId,
+                        isOwner = comment.author.anonymousId == currentAnonymousId,
                         onDeleteClick = { onDeleteComment(comment) },
                         onProfileClick = onProfileClick
                     )
@@ -117,7 +117,7 @@ fun CommentListPreview() {
             isInitialLoading = false,
             isLoadingNextPage = false,
             hasMorePages = true,
-            currentUserId = "me",
+            currentAnonymousId = "me",
             onLoadNextPage = {},
             onDeleteComment = {},
             onProfileClick = {}

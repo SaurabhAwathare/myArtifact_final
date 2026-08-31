@@ -63,6 +63,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val startupState by mainViewModel.startupState.collectAsStateWithLifecycle()
             val stage by mainViewModel.startupStage.collectAsStateWithLifecycle()
+            val securityStatus by mainViewModel.securityStatus.collectAsStateWithLifecycle()
 
             val isSecureFlagRequired by mainViewModel.isSecureFlagRequired.collectAsStateWithLifecycle()
 
@@ -78,6 +79,7 @@ class MainActivity : ComponentActivity() {
                 AppRoot(
                     startupState = startupState,
                     stage = stage,
+                    securityStatus = securityStatus,
                     mainViewModel = mainViewModel,
                     recordingSessionManager = recordingSessionManager,
                     onboardingManager = onboardingManager,
@@ -97,13 +99,14 @@ class MainActivity : ComponentActivity() {
 fun AppRoot(
     startupState: AppStartupState,
     stage: StartupStage,
+    securityStatus: com.saurabh.artifact.startup.SecurityStatus,
     mainViewModel: MainViewModel,
     recordingSessionManager: RecordingSessionManager,
     onboardingManager: OnboardingManager,
     diagnosticLogger: DiagnosticLogger
 ) {
     LaunchedEffect(startupState) {
-        diagnosticLogger.debug(com.saurabh.artifact.diagnostics.DiagnosticCategory.STARTUP, "STARTUP_STATE_CHANGED", mapOf("state" to startupState.javaClass.simpleName))
+        diagnosticLogger.debug(com.saurabh.artifact.diagnostics.DiagnosticCategory.STARTUP, "STARTUP_STATE_CHANGED", mapOf("state" to startupState.javaClass.simpleName, "security" to securityStatus.name))
     }
 
     LaunchedEffect(Unit) {

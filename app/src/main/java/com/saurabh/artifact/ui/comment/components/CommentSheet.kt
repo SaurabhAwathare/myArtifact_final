@@ -45,7 +45,7 @@ fun CommentSheet(
     modifier: Modifier = Modifier
 ) {
     val currentUserProfile = LocalUserProfile.current
-    val currentUserId = currentUserProfile?.id ?: ""
+    val currentAnonymousId = currentUserProfile?.anonymousId ?: ""
     
     var inputText by rememberSaveable { mutableStateOf("") }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -114,7 +114,7 @@ fun CommentSheet(
                             isInitialLoading = uiState.isInitialLoading,
                             isLoadingNextPage = uiState.isLoadingNextPage,
                             hasMorePages = uiState.hasMorePages,
-                            currentUserId = currentUserId,
+                            currentAnonymousId = currentAnonymousId,
                             onLoadNextPage = onLoadNextPage,
                             onDeleteComment = onDelete,
                             onProfileClick = onProfileClick,

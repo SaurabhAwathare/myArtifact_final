@@ -412,7 +412,7 @@ export const onFollowIntentCreated = functions.firestore
     return withIdempotency(idempotencyKey, async () => {
       const db = admin.firestore();
 
-      // Resolve recipient UID from anonymousId via private mapping
+      // 1. Resolve recipient UID from anonymousId via private mapping
       const mappingDoc = await db.collection("persona_mapping").doc(targetAnonId).get();
       let finalTargetUserId = mappingDoc.data()?.userId;
 
@@ -426,24 +426,40 @@ export const onFollowIntentCreated = functions.firestore
         finalTargetUserId = userQuery.docs[0].id;
       }
 
+      // 2. Resolve follower's own persona (Responsible Anonymity)
+      const actorDoc = await db.collection("users").doc(uid).get();
+      const actorData = actorDoc.data();
+      const actorAnonId = actorData?.anonymousId || "unknown";
+
+      if (actorAnonId === "unknown") {
+        logger.error(`[FOLLOW] Follower persona not found for UID: ${uid}`);
+        return;
+      }
+
       const currentUserRef = db.collection("users").doc(uid);
       const targetUserRef = db.collection("users").doc(finalTargetUserId);
 
       const resonanceOutRef = currentUserRef.collection("resonance_out").doc(targetAnonId);
-      const resonanceInRef = targetUserRef.collection("resonance_in").doc(uid); // Internal UID for tracking is okay in private registry
+      const resonanceInRef = targetUserRef.collection("resonance_in").doc(actorAnonId); // Sanitized: uses anonymousId
 
       await db.runTransaction(async (transaction) => {
         const outDoc = await transaction.get(resonanceOutRef);
         if (outDoc.exists) {
-          logger.info(`Follow: ${uid} is already resonating with ${targetId}`);
+          logger.info(`Follow: ${uid} is already resonating with ${finalTargetUserId}`);
           return;
         }
 
         const timestamp = FieldValue.serverTimestamp();
 
         // 1. Create Markers
-        transaction.set(resonanceOutRef, {createdAt: timestamp});
-        transaction.set(resonanceInRef, {createdAt: timestamp});
+        transaction.set(resonanceOutRef, {
+          targetAnonymousId: targetAnonId,
+          createdAt: timestamp
+        });
+        transaction.set(resonanceInRef, {
+          followerAnonymousId: actorAnonId,
+          createdAt: timestamp
+        });
 
         // 2. Update Counters
         transaction.update(currentUserRef, {
@@ -457,28 +473,25 @@ export const onFollowIntentCreated = functions.firestore
       });
 
       // 3. Authoritative Preference Check
-      const targetSettingsDoc = await db.collection("users").doc(targetId)
+      const targetSettingsDoc = await db.collection("users").doc(finalTargetUserId)
         .collection("private").doc("settings")
         .get();
 
       // Silent Ignore Boundary Check (Phase 6.3.1)
-      const ignoreDoc = await db.collection("users").doc(targetId)
+      const ignoreDoc = await db.collection("users").doc(finalTargetUserId)
         .collection("private").doc("ignored_users")
         .collection("users").doc(uid)
         .get();
 
       if (ignoreDoc.exists) {
-        logger.info(`[FOLLOW_NOTIF] Suppressed due to ignore | Recipient=${targetId} | Sender=${uid}`);
+        logger.info(`[FOLLOW_NOTIF] Suppressed due to ignore | Recipient=${finalTargetUserId} | Sender=${uid}`);
         return;
       }
 
       if (targetSettingsDoc.data()?.notificationsEnabled !== false) {
         // Create Notification (Sanitized actorId)
-        const actorDoc = await db.collection("users").doc(uid).get();
-        const actorAnonId = actorDoc.data()?.anonymousId || "unknown";
-
         await admin.firestore().collection("notifications").add({
-          userId: targetId,
+          userId: finalTargetUserId,
           actorId: actorAnonId,
           followerId: actorAnonId,
           message: "PRESENCE_RESONATED",
@@ -488,7 +501,7 @@ export const onFollowIntentCreated = functions.firestore
         });
       }
 
-      logger.interaction("FOLLOW_SUCCESS", {userId: uid, artifactId: targetId}, "SUCCESS");
+      logger.info(`FOLLOW_SUCCESS | Follower=${uid} | Target=${finalTargetUserId}`);
     });
   });
 
@@ -503,7 +516,7 @@ export const onFollowIntentDeleted = functions.firestore
 
     const db = admin.firestore();
 
-    // Resolve recipient UID
+    // 1. Resolve recipient UID
     const mappingDoc = await db.collection("persona_mapping").doc(targetAnonId).get();
     let finalTargetUserId = mappingDoc.data()?.userId;
 
@@ -513,11 +526,15 @@ export const onFollowIntentDeleted = functions.firestore
       finalTargetUserId = userQuery.docs[0].id;
     }
 
+    // 2. Resolve follower's persona (to find the resonance_in record)
+    const actorDoc = await db.collection("users").doc(uid).get();
+    const actorAnonId = actorDoc.data()?.anonymousId || "unknown";
+
     const currentUserRef = db.collection("users").doc(uid);
     const targetUserRef = db.collection("users").doc(finalTargetUserId);
 
-    const resonanceOutRef = currentUserRef.collection("resonance_out").doc(targetId);
-    const resonanceInRef = targetUserRef.collection("resonance_in").doc(uid);
+    const resonanceOutRef = currentUserRef.collection("resonance_out").doc(targetAnonId);
+    const resonanceInRef = targetUserRef.collection("resonance_in").doc(actorAnonId);
 
     await db.runTransaction(async (transaction) => {
       const outDoc = await transaction.get(resonanceOutRef);
@@ -538,7 +555,7 @@ export const onFollowIntentDeleted = functions.firestore
       });
     });
 
-    logger.interaction("UNFOLLOW_SUCCESS", {userId: uid, artifactId: targetId}, "SUCCESS");
+    logger.info(`UNFOLLOW_SUCCESS | Follower=${uid} | Target=${finalTargetUserId}`);
     return null;
   });
 
@@ -784,14 +801,20 @@ export const onUserIdentityReset = functions
       "author.sigilConfig": newData.sigilConfig || {},
     };
 
-    try {
-      // 2. Propagate to Artifacts (Version-Safe)
-      const artifactsQuery = db.collection("artifacts").where("userId", "==", uid);
-      await updateIdentitySafe(db, artifactsQuery, authorUpdate, newVersion, "User Artifacts");
+    const currentAnonId = newData.anonymousId;
 
-      // 3. Propagate to Comments (Collection Group) (Version-Safe)
-      const commentsQuery = db.collectionGroup("comments").where("creatorId", "==", uid);
-      await updateIdentitySafe(db, commentsQuery, authorUpdate, newVersion, "User Comments");
+    try {
+      // 2. Propagate to Artifacts (Persona-Bound)
+      // We only update artifacts that belong to the CURRENT persona.
+      // Legacy artifacts (with different anonymousId or UID) are isolated for Clean Break.
+      if (currentAnonId) {
+        const artifactsQuery = db.collection("artifacts").where("author.anonymousId", "==", currentAnonId);
+        await updateIdentitySafe(db, artifactsQuery, authorUpdate, newVersion, "User Artifacts");
+
+        // 3. Propagate to Comments (Persona-Bound)
+        const commentsQuery = db.collectionGroup("comments").where("author.anonymousId", "==", currentAnonId);
+        await updateIdentitySafe(db, commentsQuery, authorUpdate, newVersion, "User Comments");
+      }
 
       // 3.5 Optional Relationship Severing (Phase 6.4 Clean Break)
       const shouldSever = newData.identityMetadata?.severRelationships === true;
@@ -907,32 +930,45 @@ export const onUserDeleted = functions
         logger.error(`[DELETE USER] Storage | Backups Error | UID=${uid}:`, e);
       }
 
-      // 1. Cleanup Artifacts (SCALABLE: Paged cleanup marking)
+      // 1. Cleanup Artifacts (Registry-Driven for Sanitized Documents)
       let artifactsProcessed = 0;
       while (true) {
-        const artifactsQuery = db.collection("artifacts").where("userId", "==", uid).limit(500);
-        const snapshot = await artifactsQuery.get();
-        if (snapshot.empty) break;
+        // Query from private registry to ensure we find all artifacts including sanitized ones
+        const registryQuery = db.collection("users").doc(uid)
+          .collection("private").doc("published_artifacts")
+          .collection("artifacts")
+          .limit(500);
+
+        const registrySnapshot = await registryQuery.get();
+        if (registrySnapshot.empty) break;
 
         const bulkWriter = db.bulkWriter();
-        snapshot.docs.forEach((doc) => {
-          const data = doc.data();
-          if (data.status !== "DELETED") {
-            if (data.moderation?.legalHold === true) {
-              logger.info(`[DELETE USER] Artifact Preserved (Legal Hold) | ArtifactID=${doc.id}`);
-              return;
+        for (const regDoc of registrySnapshot.docs) {
+          const artifactId = regDoc.id;
+          const artifactRef = db.collection("artifacts").doc(artifactId);
+          const artifactDoc = await artifactRef.get();
+
+          if (artifactDoc.exists) {
+            const data = artifactDoc.data()!;
+            if (data.status !== "DELETED") {
+              if (data.moderation?.legalHold === true) {
+                logger.info(`[DELETE USER] Artifact Preserved (Legal Hold) | ArtifactID=${artifactId}`);
+                continue;
+              }
+              bulkWriter.update(artifactRef, {
+                status: "DELETED",
+                isPublic: false,
+                deletedAt: FieldValue.serverTimestamp(),
+              });
             }
-            bulkWriter.update(doc.ref, {
-              status: "DELETED",
-              isPublic: false,
-              deletedAt: FieldValue.serverTimestamp(),
-            });
           }
-        });
+          // Delete from registry to avoid infinite loop
+          bulkWriter.delete(regDoc.ref);
+        }
         await bulkWriter.close();
-        artifactsProcessed += snapshot.size;
-        logger.info(`[DELETE USER] Artifacts | Marked Batch=${snapshot.size} | Total=${artifactsProcessed}`);
-        if (snapshot.size < 500) break;
+        artifactsProcessed += registrySnapshot.size;
+        logger.info(`[DELETE USER] Artifacts | Marked Batch=${registrySnapshot.size} | Total=${artifactsProcessed}`);
+        if (registrySnapshot.size < 500) break;
       }
 
       // 2. Cleanup Notifications (Received)
@@ -977,7 +1013,8 @@ export const onUserDeleted = functions
         "User Listening Sessions"
       );
 
-      // 5.5 Anonymize Comments (SCALABLE: Paged update)
+      // 5.5 Anonymize Remaining Legacy Comments (Optional/Legacy Support)
+      // Note: New and Sanitized comments lack the creatorId field and are naturally anonymous.
       await updateQueryBatch(
         db,
         db.collectionGroup("comments").where("creatorId", "==", uid),
@@ -1544,7 +1581,7 @@ export const onCommentCreated = functions.firestore
       });
       logger.info(`[AGGREGATE] commentCount incremented | ArtifactID=${artifactId} | CommentID=${commentId}`);
 
-      // Create Notification if commenter is not the owner
+      // 3. Create Notification if commenter is not the owner
       if (ownerId && ownerId !== commenterId) {
         // Silent Ignore Boundary Check (Phase 6.3.1 Remediation)
         const ignoreDoc = await db.collection("users").doc(ownerId)
@@ -1568,13 +1605,12 @@ export const onCommentCreated = functions.firestore
           return;
         }
 
-        // Create Notification (Sanitized actorId)
-        const actorDoc = await db.collection("users").doc(commenterId).get();
-        const actorAnonId = actorDoc.data()?.anonymousId || "unknown";
-
+        // Create Notification (Sanitized actorId/followerId)
+        // Verified: actorAnonId is pulled from the comment itself, ensuring persona-bound identity.
         await db.collection("notifications").add({
           userId: ownerId,
           actorId: actorAnonId,
+          followerId: actorAnonId,
           message: `COMMENT|${artifactData.title || "Unknown Artifact"}`,
           artifactId: artifactId,
           type: "COMMENT",
@@ -1738,7 +1774,9 @@ export const onNotificationCreated = functions.firestore
  * Allows an authorized Admin to retrieve the Creator's email and a temporary audio link
  * for an artifact that is under Legal Hold and confirmed as a Child Safety violation.
  */
-export const revealModerationEvidence = functions.https.onCall(async (data, context) => {
+export const revealModerationEvidence = functions.https.onCall({
+  enforceAppCheck: true
+}, async (data, context) => {
   // 1. Authentication & Admin Authorization
   if (!context.auth) {
     throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
@@ -1941,7 +1979,9 @@ export const aggregateCommunityAtmosphere = functions.pubsub
  * Authoritatively heals the moderation counts for an artifact by re-scanning the reports collection.
  * Use this to recover from race conditions or logic errors in the incremental counter.
  */
-export const healArtifactModeration = functions.https.onCall(async (data, context) => {
+export const healArtifactModeration = functions.https.onCall({
+  enforceAppCheck: true
+}, async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
   }

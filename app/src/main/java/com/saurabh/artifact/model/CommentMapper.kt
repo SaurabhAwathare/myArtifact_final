@@ -10,7 +10,6 @@ fun CommentDto.toDomain(): Comment {
     return Comment(
         id = id,
         artifactId = artifactId,
-        creatorId = creatorId,
         author = author,
         text = text,
         createdAt = createdAt ?: Timestamp.now(),
@@ -31,7 +30,6 @@ fun Comment.toDto(): CommentDto {
     return CommentDto(
         id = id,
         artifactId = artifactId,
-        creatorId = creatorId,
         authorAnonymousId = author.anonymousId,
         author = author,
         text = text,

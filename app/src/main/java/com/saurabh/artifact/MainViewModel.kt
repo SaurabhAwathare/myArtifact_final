@@ -15,6 +15,7 @@ import com.saurabh.artifact.domain.auth.RegistrationResult
 import com.saurabh.artifact.domain.settings.ObserveStealthModeUseCase
 import com.saurabh.artifact.startup.StartupComponent
 import com.saurabh.artifact.startup.StartupCoordinator
+import com.saurabh.artifact.startup.SecurityStatus
 import com.saurabh.artifact.startup.StartupMetrics
 import com.saurabh.artifact.security.PreloadResult
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -37,6 +38,7 @@ sealed class AppStartupState {
     data class Ready(
         val startDestination: Any,
         val startupAction: Any? = null,
+        val securityStatus: SecurityStatus = SecurityStatus.PENDING
     ) : AppStartupState()
     data class Error(val message: String) : AppStartupState()
 }
@@ -81,6 +83,7 @@ class MainViewModel @Inject constructor(
     val reportingArtifactId = _reportingArtifactId.asStateFlow()
 
     val startupStage = startupCoordinator.stage
+    val securityStatus = startupCoordinator.securityStatus
 
     val isStealthModeEnabled = observeStealthModeUseCase()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
@@ -185,7 +188,10 @@ class MainViewModel @Inject constructor(
                                 _isCleaning.value = false
                                 if (currentUid == null) {
                                     // Hard Reset to Login screen only if we are now logged out
-                                    _startupState.value = AppStartupState.Ready(Login)
+                                    _startupState.value = AppStartupState.Ready(
+                                        startDestination = Login,
+                                        securityStatus = startupCoordinator.securityStatus.value
+                                    )
                                 }
                             }
                         }
@@ -238,7 +244,10 @@ class MainViewModel @Inject constructor(
                     startupCoordinator.awaitComponent(StartupComponent.DATABASE)
 
                     diagnosticLogger.info(DiagnosticCategory.STARTUP, "STARTUP_RESTORED", mapOf("destination" to destinationId, "uid" to currentUid))
-                    _startupState.value = AppStartupState.Ready(restoredDestination)
+                    _startupState.value = AppStartupState.Ready(
+                        startDestination = restoredDestination,
+                        securityStatus = startupCoordinator.securityStatus.value
+                    )
                     
                     // Process Restoration implies identity stability
                     markAuthReady()
@@ -443,7 +452,11 @@ class MainViewModel @Inject constructor(
         // Actually, for consistency with tests, we let the deferred observer handle side-effects like IncomingArtifact
         val finalAction = if (finalDestination == action || action is IncomingArtifact) null else action
 
-        updateStartupState(AppStartupState.Ready(finalDestination, finalAction))
+        updateStartupState(AppStartupState.Ready(
+            startDestination = finalDestination, 
+            startupAction = finalAction,
+            securityStatus = startupCoordinator.securityStatus.value
+        ))
         markAuthReady()
     }
 

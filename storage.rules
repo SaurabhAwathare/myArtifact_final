@@ -3,6 +3,15 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
 
+    // Business Purpose: Verify the request originates from a trusted app instance.
+    // Transition Phase: Applied to all high-risk uploads.
+    function enforceAppCheck() {
+      // Production: check request.appCheck (populated by Firebase backend)
+      // Testing: check request.auth.token.simulateAppCheck (populated by rules-unit-testing)
+      return request.get('appCheck', null) != null ||
+             (request.auth != null && request.auth.token.get('simulateAppCheck', false) == true);
+    }
+
     // Helper: Checks if the artifact is public and active in Firestore
     function isPublicArtifact(draftId) {
       let artifact = firestore.get(/databases/(default)/documents/artifacts/$(draftId)).data;
@@ -28,10 +37,10 @@ service firebase.storage {
 
       // Allow write if owner (verified via registry or legacy prefix)
       // For new files, the registry entry MUST be created in Firestore BEFORE upload.
-      allow write: if request.auth != null && (
-        fileName.matches("^" + request.auth.uid + "_.*") ||
-        isArtifactOwner(fileName.replace(".m4a", ""))
-      );
+      allow write: if request.auth != null &&
+                   enforceAppCheck() &&
+                   (fileName.matches("^" + request.auth.uid + "_.*") ||
+                    isArtifactOwner(fileName.replace(".m4a", "")));
     }
 
     // 2. Transcripts: Resource-based structure (transcripts/ID.json)
@@ -41,16 +50,17 @@ service firebase.storage {
         isArtifactOwner(fileName.replace(".json", "")) ||
         (resource.metadata != null && resource.metadata.draftId != null && isPublicArtifact(resource.metadata.draftId))
       );
-      allow write: if request.auth != null && (
-        fileName.matches("^" + request.auth.uid + "_.*") ||
-        isArtifactOwner(fileName.replace(".json", ""))
-      );
+      allow write: if request.auth != null &&
+                   enforceAppCheck() &&
+                   (fileName.matches("^" + request.auth.uid + "_.*") ||
+                    isArtifactOwner(fileName.replace(".json", "")));
     }
 
     // 3. Backups: Folder structure (backups/UID/file.enc)
     // NOTE: This uses UID as a top-level partition, which is acceptable for private backups.
     match /backups/{userId}/{allPaths=**} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow write: if request.auth != null && request.auth.uid == userId && enforceAppCheck();
     }
 
     // Default: Deny everything else

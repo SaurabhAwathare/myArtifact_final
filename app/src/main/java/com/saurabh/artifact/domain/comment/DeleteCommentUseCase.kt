@@ -23,10 +23,20 @@ class DeleteCommentUseCase @Inject constructor(
      */
     suspend operator fun invoke(comment: Comment): Result<Unit> {
         val currentUserId = authRepository.currentUserId
+        val currentAnonymousId = authRepository.currentAnonymousId
         
         // 1. Ownership Check
-        if (currentUserId.isBlank() || currentUserId != comment.creatorId) {
-            return Result.failure(AppError.PermissionDenied("You can only delete your own comments."))
+        // Deterministic attribution: Prove ownership via current persona or legacy UID
+        val isOwnedByCurrentPersona = currentAnonymousId.isNotEmpty() && currentAnonymousId == comment.author.anonymousId
+        
+        if (currentUserId.isBlank() || !isOwnedByCurrentPersona) {
+            // Note: If this is a historical comment from before an identity reset, 
+            // the local check will fail but the Firestore Security Rules will still 
+            // allow it if the UID matches via persona_mapping.
+            // We proceed with the repository call and let the backend decide.
+            if (currentUserId.isBlank()) {
+                return Result.failure(AppError.PermissionDenied("You must be signed in to delete comments."))
+            }
         }
 
         // 2. Delegate to Repository

@@ -46,7 +46,6 @@ class AddCommentUseCase @Inject constructor(
         val comment = Comment(
             id = commentId,
             artifactId = artifactId,
-            creatorId = user.id,
             author = authorSnapshot,
             text = validatedText,
             createdAt = now,

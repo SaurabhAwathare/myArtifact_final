@@ -41,7 +41,7 @@ service cloud.firestore {
     function canReadArtifact(artifactId) {
       let artifact = get(/databases/$(database)/documents/artifacts/$(artifactId)).data;
       return (artifact.get('isPublic', false) == true ||
-             (request.auth != null && artifact.get('userId', '') == request.auth.uid) ||
+             isArtifactOwner(artifactId) ||
              isGlobalAdmin());
     }
 
@@ -74,16 +74,27 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // Business Purpose: Verify the request originates from a trusted app instance.
+    // Security Purpose: Prevents bot-driven writes and malicious client bypasses.
+    function isAppCheckVerified() {
+      // Production: check request.appCheck (populated by Firebase backend)
+      // Testing: check request.auth.token.simulateAppCheck (populated by rules-unit-testing)
+      return request.get('appCheck', null) != null ||
+             (request.auth != null && request.auth.token.get('simulateAppCheck', false) == true);
+    }
+
+    // Business Purpose: Centralized enforcement for state-changing operations.
+    // Transition Phase: Only applied to high-risk writes.
+    function enforceAppCheck() {
+      return isAppCheckVerified();
+    }
+
     function isOwner(userId) {
       return request.auth != null && request.auth.uid == userId;
     }
 
     function isArtifactOwner(artifactId) {
-      return isAuth() && (
-        exists(/databases/$(database)/documents/users/$(request.auth.uid)/private/published_artifacts/artifacts/$(artifactId)) ||
-        // Legacy fallback: check the public document field (Historical Privacy Debt)
-        get(/databases/$(database)/documents/artifacts/$(artifactId)).data.get('userId', '') == request.auth.uid
-      );
+      return isAuth() && exists(/databases/$(database)/documents/users/$(request.auth.uid)/private/published_artifacts/artifacts/$(artifactId));
     }
 
     function getCurrentAnonymousId() {
@@ -152,6 +163,7 @@ service cloud.firestore {
 
       allow update: if resource != null &&
                    isOwner(uid) &&
+                   enforceAppCheck() &&
                    // Release Hardening: Block modification of privileged fields.
                    // Migration Fix: Allow deletion of legacy fields, block all other modifications (add/change).
                    !request.resource.data.diff(resource.data).changedKeys().hasAny([
@@ -190,7 +202,8 @@ service cloud.firestore {
       }
 
       match /private/ignored_users/{targetId} {
-        allow read, write: if isOwner(uid);
+        allow read: if isOwner(uid);
+        allow write: if isOwner(uid) && enforceAppCheck();
       }
 
       // --- MIGRATION AUDIT (Admin Only) ---
@@ -200,7 +213,7 @@ service cloud.firestore {
 
       match /private/{document=**} {
         allow read: if isOwner(uid);
-        allow write: if isOwner(uid) && (document != /settings);
+        allow write: if isOwner(uid) && enforceAppCheck() && (document != /settings);
       }
 
       // Resonance (Privacy Hardened in Phase 6.2.2)
@@ -211,15 +224,24 @@ service cloud.firestore {
 
       // Saved Artifacts
       match /savedArtifacts/{artifactId} {
-        allow read, write: if isOwner(uid);
+        allow read: if isOwner(uid);
+        allow write: if isOwner(uid) && enforceAppCheck();
+      }
+
+      // Interaction Counters
+      match /counters/{artifactId} {
+        allow read: if isOwner(uid);
+        allow write: if isOwner(uid) && enforceAppCheck();
       }
 
       // Engagement (Listen Before You Respond Enforcement)
       match /engagement/{artifactId} {
         allow read: if isOwner(uid);
         allow create: if isOwner(uid) &&
+                      enforceAppCheck() &&
                       !(request.resource.data.keys().hasAny(backendFields()));
         allow update: if isOwner(uid) &&
+                      enforceAppCheck() &&
                       !(request.resource.data.diff(resource.data).affectedKeys().hasAny(backendFields()));
       }
     }
@@ -250,6 +272,7 @@ service cloud.firestore {
       }
 
       allow create: if isAuth() &&
+                    enforceAppCheck() &&
                     // Registry Check: Verify user created the private ownership record first
                     exists(/databases/$(database)/documents/users/$(request.auth.uid)/private/published_artifacts/artifacts/$(artifactId)) &&
                     request.resource.data.author.anonymousId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.anonymousId &&
@@ -270,9 +293,9 @@ service cloud.firestore {
       allow update: if (resource != null && isGlobalAdmin()) ||
                     (resource != null &&
                      isArtifactOwner(artifactId) &&
+                     enforceAppCheck() &&
                      isValidLifecycleTransition(resource.data, request.resource.data) &&
-                     // userId and createdAt are immutable
-                     request.resource.data.get('userId', '') == resource.data.get('userId', '') &&
+                     // createdAt is immutable
                      request.resource.data.get('createdAt', null) == resource.data.get('createdAt', null) &&
                      // audioUrl is immutable once ACTIVE
                      (resource.data.status != 'ACTIVE' || resource.data.audioUrl == request.resource.data.audioUrl) &&
@@ -294,6 +317,7 @@ service cloud.firestore {
 
         // Create: Authenticated user, matching creatorId and artifactId, valid data
         allow create: if isAuth() &&
+                      enforceAppCheck() &&
                       isValidComment(request.resource.data) &&
                       request.resource.data.authorAnonymousId == getCurrentAnonymousId() &&
                       request.resource.data.artifactId == artifactId &&
@@ -310,10 +334,12 @@ service cloud.firestore {
         // Update: Only owner can soft-delete (status: DELETED), or artifact owner can update creatorReaction
         allow update: if isAuth() && (
                       (request.auth.uid == get(/databases/$(database)/documents/persona_mapping/$(resource.data.authorAnonymousId)).data.userId &&
+                       enforceAppCheck() &&
                        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']) &&
                        request.resource.data.status == 'DELETED' &&
                        request.resource.data.get('artifactId', '') == resource.data.get('artifactId', '')) ||
                       (isArtifactOwner(artifactId) &&
+                       enforceAppCheck() &&
                        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['creatorReaction'])) ||
                       isGlobalAdmin()
                     );
@@ -331,6 +357,7 @@ service cloud.firestore {
     match /artifact_plays/{id} {
       allow read: if isAuth() && (resource == null || resource.data.userId == request.auth.uid);
       allow create: if isAuth() &&
+                    enforceAppCheck() &&
                     request.resource.data.userId == request.auth.uid &&
                     id.matches("^play_" + request.auth.uid + "_.*");
       allow write: if false;
@@ -338,8 +365,8 @@ service cloud.firestore {
 
     match /usernames/{id} {
       allow read: if isAuth() && resource.data.uid == request.auth.uid;
-      allow create: if isAuth() && request.resource.data.uid == request.auth.uid;
-      allow update, delete: if isAuth() && resource.data.uid == request.auth.uid;
+      allow create: if isAuth() && enforceAppCheck() && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if isAuth() && enforceAppCheck() && resource.data.uid == request.auth.uid;
     }
 
     // --- PUBLIC PROFILES (Sanitized) ---
@@ -364,6 +391,7 @@ service cloud.firestore {
 
       // AUTHORITATIVE AUTHORIZATION: Validate persona from private record
       allow create: if isAuth() &&
+                    enforceAppCheck() &&
                     request.resource.data.authorAnonymousId == getCurrentAnonymousId();
 
       allow write: if false;
@@ -380,6 +408,7 @@ service cloud.firestore {
 
     match /reports/{reportId} {
       allow create: if isAuth() &&
+                    enforceAppCheck() &&
                     request.resource.data.reporterId == request.auth.uid &&
                     reportId == request.auth.uid + "_" + request.resource.data.artifactId;
       allow read: if isGlobalAdmin() || (isAuth() && reportId.matches("^" + request.auth.uid + "_.*"));
@@ -387,8 +416,9 @@ service cloud.firestore {
     }
 
     match /listening_sessions/{sessionId} {
-      allow read, write: if isAuth() && (resource == null || resource.data.userId == request.auth.uid);
-      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
+      allow read: if isAuth() && (resource == null || resource.data.userId == request.auth.uid);
+      allow write: if isAuth() && enforceAppCheck() && (resource == null || resource.data.userId == request.auth.uid);
+      allow create: if isAuth() && enforceAppCheck() && request.resource.data.userId == request.auth.uid;
     }
 
     match /isolation_test/repro_doc {
@@ -401,6 +431,7 @@ service cloud.firestore {
 
     match /feedback_private/{feedbackId} {
       allow create: if isAuth() &&
+                    enforceAppCheck() &&
                     feedbackId.startsWith(request.auth.uid + "_");
       allow read: if false; // Private to backend only
     }

@@ -54,6 +54,9 @@ class AuthRepository @Inject constructor(
     val currentUserId: String
         get() = firebaseAuth.currentUser?.uid ?: ""
 
+    val currentAnonymousId: String
+        get() = userData.value?.anonymousId ?: ""
+
     init {
         firebaseAuth.addAuthStateListener { auth ->
             val user = auth.currentUser

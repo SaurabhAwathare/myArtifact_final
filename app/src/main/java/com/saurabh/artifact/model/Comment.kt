@@ -17,7 +17,6 @@ enum class CommentStatus {
  *
  * @property id Unique identifier for the comment.
  * @property artifactId Identifier of the artifact this comment belongs to.
- * @property creatorId UID of the user who created the comment.
  * @property author A snapshot of the author's identity at the time of comment creation.
  * @property text The content of the comment.
  * @property createdAt Timestamp when the comment was created.
@@ -27,7 +26,6 @@ enum class CommentStatus {
 data class Comment(
     val id: String = "",
     val artifactId: String = "",
-    val creatorId: String = "",
     val author: AuthorSnapshot = AuthorSnapshot(),
     val text: String = "",
     val createdAt: Timestamp = Timestamp.now(),

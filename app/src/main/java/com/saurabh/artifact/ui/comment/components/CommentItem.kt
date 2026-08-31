@@ -45,7 +45,7 @@ fun CommentItem(
             config = comment.author.sigilConfig,
             size = 36.dp,
             isStatic = true,
-            modifier = Modifier.clickable { onProfileClick(comment.creatorId) }
+            modifier = Modifier.clickable { onProfileClick(comment.author.anonymousId) }
         )
 
         Column(modifier = Modifier.weight(1f)) {
@@ -58,7 +58,7 @@ fun CommentItem(
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.clickable { onProfileClick(comment.creatorId) }
+                    modifier = Modifier.clickable { onProfileClick(comment.author.anonymousId) }
                 )
                 
                 if (comment.author.sigil.isNotEmpty()) {

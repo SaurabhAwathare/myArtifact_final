@@ -40,7 +40,17 @@ enum class StartupComponent {
     AUTH,
     DATABASE,
     SECURITY,
+    APP_CHECK,
     RECOVERY
+}
+
+/**
+ * Defines the security status of the device/app based on App Check.
+ */
+enum class SecurityStatus {
+    PENDING,
+    VERIFIED,
+    UNVERIFIED
 }
 
 /**
@@ -66,6 +76,9 @@ class StartupCoordinator @Inject constructor(
     
     private val _stage = MutableStateFlow(StartupStage.ARRIVAL)
     val stage = _stage.asStateFlow()
+
+    private val _securityStatus = MutableStateFlow(SecurityStatus.PENDING)
+    val securityStatus = _securityStatus.asStateFlow()
 
     private val _readyComponents = MutableStateFlow<Set<StartupComponent>>(emptySet())
     
@@ -278,14 +291,39 @@ class StartupCoordinator @Inject constructor(
 
     private suspend fun awaitAppCheckReadiness() {
         val firebaseAppCheck = com.google.firebase.appcheck.FirebaseAppCheck.getInstance()
-        Log.d("RACE_CHECK", "APP_CHECK_TOKEN_REQUEST_START")
-        try {
-            val result = firebaseAppCheck.getAppCheckToken(false).await()
-            val token = result.token
-            Log.d("RACE_CHECK", "APP_CHECK_TOKEN_RECEIVED: ${token.take(10)}... (length=${token.length})")
-        } catch (e: Exception) {
-            Log.e("RACE_CHECK", "App Check Token initial exchange failed", e)
+        Log.d("Startup", "Starting App Check Attestation (Observational)")
+        
+        var currentAttempt = 0
+        val maxAttempts = 3
+        var success = false
+
+        while (currentAttempt < maxAttempts && !success) {
+            currentAttempt++
+            try {
+                // Phase A: Non-blocking timeout to ensure startup proceeds
+                withTimeout(5.seconds) {
+                    firebaseAppCheck.getAppCheckToken(false).await()
+                    success = true
+                }
+            } catch (e: Exception) {
+                val category = if (e is kotlinx.coroutines.TimeoutCancellationException) "TIMEOUT" else "ERROR"
+                Log.w("Startup", "App Check attempt $currentAttempt failed: $category")
+                if (currentAttempt < maxAttempts) {
+                    delay((currentAttempt * 1000).milliseconds) // Simple backoff
+                }
+            }
         }
+
+        if (success) {
+            Log.i("Startup", "App Check Verified: Attestation successful")
+            _securityStatus.value = SecurityStatus.VERIFIED
+        } else {
+            Log.w("Startup", "App Check Unverified: All attempts exhausted or failed")
+            _securityStatus.value = SecurityStatus.UNVERIFIED
+        }
+        
+        // Signal component readiness (Non-blocking for core flow in Phase A)
+        emitReadiness(StartupComponent.APP_CHECK)
     }
 
     private suspend fun initializeSecurityProviderSync() {
