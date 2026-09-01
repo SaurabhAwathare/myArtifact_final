@@ -479,7 +479,17 @@ class RecordingService : Service() {
                     _recordingState.value = _recordingState.value.copy(status = RecordingStatus.PREPARING) 
 
                     pacingJob?.cancel()
-                    audioRecorder?.stop()
+                    
+                    // 2. HARDENING: Add timeout to hardware stop to prevent UI hang if I/O stalls
+                    try {
+                        withTimeout(2000.milliseconds) {
+                            audioRecorder?.stop()
+                        }
+                    } catch (_: TimeoutCancellationException) {
+                        diagnosticLogger.error(DiagnosticCategory.RECORDER, "RECORDING_STOP_TIMEOUT")
+                        // Hardware might still be active, but we must release the UI
+                    }
+                    
                     timerJob?.cancel()
                     abandonAudioFocus()
                     restoreRingerMode()
@@ -495,11 +505,11 @@ class RecordingService : Service() {
 
                     delay(500.milliseconds)
                     
-                    // 1. HARD VALIDATION: Does the file exist and have data?
+                    // 1. HARD VALIDATION: Does the file exist and have meaningful data?
                     val fileExists = withContext(Dispatchers.IO) { capturedFile?.exists() == true }
                     val fileLength = if (fileExists) withContext(Dispatchers.IO) { capturedFile?.length() ?: 0L } else 0L
 
-                    if (capturedFile != null && fileExists && fileLength > 0) {
+                    if (capturedFile != null && fileExists && fileLength > WavHeaderUtils.HEADER_SIZE) {
                         val audioDataLength = fileLength - WavHeaderUtils.HEADER_SIZE
                         val durationMs = WavHeaderUtils.calculateDurationMs(
                             audioDataLength = audioDataLength.coerceAtLeast(0),
@@ -507,6 +517,14 @@ class RecordingService : Service() {
                             channels = 1,
                             bitsPerSample = 16
                         )
+
+                        // 3. HARDENING: Prevent 0-second false success
+                        // We require at least 500ms of audio to consider it a "Safe Artifact"
+                        if (durationMs < 500) {
+                            diagnosticLogger.warn(DiagnosticCategory.RECORDING, "RECORDING_TOO_SHORT", mapOf("durationMs" to durationMs))
+                            handleFinalizationFailure(capturedDraftId, capturedFile, "Recording too short")
+                            return@withLock
+                        }
 
                         diagnosticLogger.debug(DiagnosticCategory.RECORDING, "RECORDING_FILE_VALIDATED", mapOf("durationMs" to durationMs, "bytes" to fileLength))
 
@@ -540,17 +558,7 @@ class RecordingService : Service() {
                         }
                     } else {
                         diagnosticLogger.error(DiagnosticCategory.RECORDING, "RECORDING_FILE_INVALID", mapOf(LogKeys.DRAFT_ID to capturedDraftId, "exists" to fileExists, "length" to fileLength))
-                        if (_recordingState.value.draftId == capturedDraftId) {
-                            _recordingState.value = _recordingState.value.copy(status = RecordingStatus.FAILED)
-                        }
-                        if (fileExists) {
-                            withContext(Dispatchers.IO) { capturedFile?.delete() }
-                        }
-                        draftDao.get().internalGetDraftByIdAgnostic(capturedDraftId)?.let {
-                            draftDao.get().update(it.copy(
-                                status = it.status.copy(processing = ProcessingStatus.Failed)
-                            ))
-                        }
+                        handleFinalizationFailure(capturedDraftId, capturedFile, "Invalid or empty file")
                     }
                 } catch (e: Exception) {
                     diagnosticLogger.error(DiagnosticCategory.RECORDER, "RECORDING_STOP_FAILED", throwable = e)
@@ -561,6 +569,29 @@ class RecordingService : Service() {
                     stopSelf()
                 }
             }
+        }
+    }
+
+    private suspend fun handleFinalizationFailure(draftId: String, file: File?, reason: String) {
+        diagnosticLogger.info(DiagnosticCategory.RECORDING, "FINALIZATION_FAILURE", mapOf("reason" to reason))
+        if (_recordingState.value.draftId == draftId) {
+            _recordingState.value = _recordingState.value.copy(status = RecordingStatus.FAILED)
+        }
+        
+        withContext(Dispatchers.IO) {
+            if (file != null && file.exists()) {
+                // If the file is just a header (44 bytes), it's safe to delete as it's not a "meaningful" partial draft.
+                // Otherwise, keep it for potential worker-based recovery if it's longer.
+                if (file.length() <= WavHeaderUtils.HEADER_SIZE) {
+                    file.delete()
+                }
+            }
+        }
+        
+        draftDao.get().internalGetDraftByIdAgnostic(draftId)?.let {
+            draftDao.get().update(it.copy(
+                status = it.status.copy(processing = ProcessingStatus.Failed)
+            ))
         }
     }
 

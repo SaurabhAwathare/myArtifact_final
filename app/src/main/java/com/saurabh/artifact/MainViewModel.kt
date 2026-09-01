@@ -64,8 +64,10 @@ class MainViewModel @Inject constructor(
         private const val KEY_STARTUP_COMPLETED = "startup_completed"
         private const val KEY_RESOLVED_DESTINATION_ID = "resolved_destination_id"
         private const val KEY_RESOLVED_UID = "resolved_uid"
-        private const val KEY_PENDING_EVENT_JSON = "pending_event_json"
+        private const val KEY_PENDING_EVENTS_QUEUE = "pending_events_queue"
         
+        private const val MAX_PENDING_EVENTS = 5
+
         private const val ID_HOME = "HOME"
         private const val ID_LOGIN = "LOGIN"
         private const val ID_ONBOARDING = "ONBOARDING"
@@ -109,22 +111,14 @@ class MainViewModel @Inject constructor(
     private val _navigationEvent = Channel<Any>(capacity = Channel.BUFFERED)
     val navigationEvent = _navigationEvent.receiveAsFlow()
 
-    private var pendingStartupEvent: Any? = null
+    private val pendingStartupEvents = mutableListOf<Any>()
     private var deferredNavigationJob: Job? = null
 
     private val started = AtomicBoolean(false)
 
     init {
-        // Restore pending event from SavedState if it hasn't been consumed yet
-        savedStateHandle.get<String>(KEY_PENDING_EVENT_JSON)?.let { json ->
-            try {
-                pendingStartupEvent = Json.decodeFromString<IncomingArtifact>(json)
-                diagnosticLogger.info(DiagnosticCategory.STARTUP, "STARTUP_EVENT_RESTORED")
-            } catch (_: Exception) {
-                // Compatibility: If serialization format changed, discard the event rather than crashing
-                diagnosticLogger.warn(DiagnosticCategory.STARTUP, "STARTUP_EVENT_RESTORE_FAILED")
-            }
-        }
+        // Restore pending events from SavedState
+        restorePendingEventsFromSavedState()
 
         // Reactive Safety Sync Lifecycle Management
         // Ensures synchronization is established for every authenticated session 
@@ -254,7 +248,7 @@ class MainViewModel @Inject constructor(
                     markAuthReady()
 
                     // If there's a pending event (restored in init), start the observer
-                    if (pendingStartupEvent != null) {
+                    if (pendingStartupEvents.isNotEmpty()) {
                         startDeferredNavigationObserver()
                     }
                 }
@@ -267,11 +261,6 @@ class MainViewModel @Inject constructor(
         // ---------------------------------
 
         diagnosticLogger.info(DiagnosticCategory.STARTUP, "STARTUP_BEGIN")
-
-        if (startupCoordinator.isRescueModeActive) {
-            _startupState.value = AppStartupState.Rescue
-            return
-        }
 
         executeStartup()
     }
@@ -377,6 +366,15 @@ class MainViewModel @Inject constructor(
                 // This ensures User B never sees User A's cached DataStore/Room identity.
                 isCleaning.first { !it }
 
+                // --- RESCUE MODE HARDENING ---
+                // We check for Rescue Mode AFTER the account boundary is verified.
+                // This ensures that even in Rescue Mode, we don't expose stale user data.
+                if (startupCoordinator.isRescueModeActive) {
+                    diagnosticLogger.warn(DiagnosticCategory.STARTUP, "STARTUP_RESCUE_MODE_DETECTED")
+                    _startupState.value = AppStartupState.Rescue
+                    return@launch
+                }
+
                 startupCoordinator.start()
                 
                 // BLOCKING: Wait for Core/Security readiness (including App Check)
@@ -444,25 +442,18 @@ class MainViewModel @Inject constructor(
         }
 
         // Integration of Deep Link Intent into the first Ready state
-        val action = pendingStartupEvent
-
-        // Resolution: If the deep link is a full screen route, it becomes the startDestination
-        // if we are authenticated. 
-        val finalDestination = if (action is Route && destination == InitialDestination.AUTHENTICATED) {
-            pendingStartupEvent = null // Consume Route
-            action
+        // RESOLUTION: If the queue contains a Route, the LAST one becomes the startDestination
+        // and is removed from the queue.
+        val lastRouteIndex = pendingStartupEvents.indexOfLast { it is Route }
+        val finalDestination = if (lastRouteIndex != -1 && destination == InitialDestination.AUTHENTICATED) {
+            pendingStartupEvents.removeAt(lastRouteIndex) as Route
         } else {
             baseDestination
         }
 
-        // Only put in startupAction if NOT a Route (Routes are startDestinations)
-        // AND we are not letting the deferred observer handle it.
-        // Actually, for consistency with tests, we let the deferred observer handle side-effects like IncomingArtifact
-        val finalAction = if (finalDestination == action || action is IncomingArtifact) null else action
-
         updateStartupState(AppStartupState.Ready(
             startDestination = finalDestination, 
-            startupAction = finalAction,
+            startupAction = null, // All remaining events are handled by the deferred observer
             securityStatus = startupCoordinator.securityStatus.value
         ))
         markAuthReady()
@@ -522,17 +513,16 @@ class MainViewModel @Inject constructor(
         } else {
             // Cold Start / Initializing: Buffer for determineInitialRoute()
             diagnosticLogger.info(DiagnosticCategory.NAV, "COLD_START_INTENT_BUFFERED", mapOf("event" to event.javaClass.simpleName))
-            pendingStartupEvent = event
             
-            // Persist pending event for state restoration
-            if (event is IncomingArtifact) {
-                try {
-                    val json = Json.encodeToString(event)
-                    savedStateHandle[KEY_PENDING_EVENT_JSON] = json
-                } catch (e: Exception) {
-                    diagnosticLogger.warn(DiagnosticCategory.NAV, "PENDING_EVENT_PERSIST_FAILED")
-                }
+            // BOUNDED FIFO QUEUE: Ensure no data loss while maintaining memory safety
+            if (pendingStartupEvents.size >= MAX_PENDING_EVENTS) {
+                pendingStartupEvents.removeAt(0)
+                diagnosticLogger.warn(DiagnosticCategory.NAV, "PENDING_EVENTS_QUEUE_OVERFLOW")
             }
+            pendingStartupEvents.add(event)
+            
+            // Persist queue for state restoration
+            savePendingEventsToSavedState()
             
             // If already Ready (but maybe not authenticated or just entered Ready), the observer will pick it up
             startDeferredNavigationObserver()
@@ -552,8 +542,13 @@ class MainViewModel @Inject constructor(
                 state.startDestination !is Onboarding
             }
 
-            // 2. Deliver exactly once if event exists
-            pendingStartupEvent?.let { event ->
+            // 2. Deliver all queued events exactly once
+            val eventsToDeliver = ArrayList(pendingStartupEvents)
+            pendingStartupEvents.clear()
+            savedStateHandle.remove<List<String>>(KEY_PENDING_EVENTS_QUEUE)
+
+            eventsToDeliver.forEach { event ->
+                // IGNORE GUARD: Re-verify against latest ignored list
                 val actorId = when (event) {
                     is Profile -> event.userId
                     is IncomingArtifact -> event.actorId
@@ -562,36 +557,26 @@ class MainViewModel @Inject constructor(
 
                 if (actorId != null && ignoredUsers.value.contains(actorId)) {
                     diagnosticLogger.warn(DiagnosticCategory.AUTH, "STARTUP_NAVIGATION_REJECTED_IGNORED_ACTOR", mapOf("actorId" to actorId))
-                    pendingStartupEvent = null
-                    savedStateHandle.remove<String>(KEY_PENDING_EVENT_JSON)
-                    return@launch
+                    return@forEach
                 }
 
-                if (event is IncomingArtifact) {
+                if (event is IncomingArtifact && event.source == PlaybackSource.NOTIFICATION) {
                     val currentUid = authRepository.currentUserId
-                    // RECIPIENT GUARD: Verify if the notification was intended for this user
-                    if (event.source == PlaybackSource.NOTIFICATION && 
-                        event.recipientId != null && 
-                        event.recipientId != currentUid) {
-                        
+                    // RECIPIENT HARDENING: Fail closed if recipientId is missing or mismatched
+                    // Backend contract (functions/src/index.ts) guarantees recipientId for new notifications.
+                    if (event.recipientId == null || event.recipientId != currentUid) {
                         diagnosticLogger.error(
                             DiagnosticCategory.AUTH, 
-                            "NOTIFICATION_REJECTED_RECIPIENT_MISMATCH", 
-                            mapOf("recipientId" to event.recipientId, "currentUserId" to currentUid)
+                            "NOTIFICATION_REJECTED_INVALID_RECIPIENT", 
+                            mapOf("recipientId" to (event.recipientId ?: "null"), "currentUserId" to currentUid)
                         )
-                        pendingStartupEvent = null
-                        savedStateHandle.remove<String>(KEY_PENDING_EVENT_JSON)
-                        return@launch
+                        return@forEach
                     }
                 }
 
                 diagnosticLogger.info(DiagnosticCategory.NAV, "DEEP_LINK_DELIVERED", mapOf("event" to event.javaClass.simpleName))
                 emitNavigationEvent(event)
-                pendingStartupEvent = null
-                savedStateHandle.remove<String>(KEY_PENDING_EVENT_JSON)
             }
-            
-            // 3. Observer completes here, no long-lived collector.
         }
     }
 
@@ -641,17 +626,14 @@ class MainViewModel @Inject constructor(
     }
 
     private fun emitNavigationEvent(event: Any) {
-        if (event is IncomingArtifact) {
+        if (event is IncomingArtifact && event.source == PlaybackSource.NOTIFICATION) {
             val currentUid = authRepository.currentUserId
-            // RECIPIENT GUARD: Verify if the notification was intended for this user (Warm Start)
-            if (event.source == PlaybackSource.NOTIFICATION && 
-                event.recipientId != null && 
-                event.recipientId != currentUid) {
-                
+            // RECIPIENT HARDENING: Fail closed if recipientId is missing or mismatched (Warm Start)
+            if (event.recipientId == null || event.recipientId != currentUid) {
                 diagnosticLogger.error(
                     DiagnosticCategory.AUTH, 
-                    "NOTIFICATION_REJECTED_RECIPIENT_MISMATCH_WARM", 
-                    mapOf("recipientId" to event.recipientId, "currentUserId" to currentUid)
+                    "NOTIFICATION_REJECTED_INVALID_RECIPIENT_WARM", 
+                    mapOf("recipientId" to (event.recipientId ?: "null"), "currentUserId" to currentUid)
                 )
                 return
             }
@@ -659,6 +641,35 @@ class MainViewModel @Inject constructor(
         
         viewModelScope.launch {
             _navigationEvent.send(event)
+        }
+    }
+
+    private fun savePendingEventsToSavedState() {
+        val strings = pendingStartupEvents.mapNotNull { event ->
+            try {
+                when (event) {
+                    is IncomingArtifact -> "PLAY:" + Json.encodeToString(event)
+                    is Route -> "NAV:" + Json.encodeToString<Route>(event)
+                    else -> null
+                }
+            } catch (_: Exception) { null }
+        }
+        savedStateHandle[KEY_PENDING_EVENTS_QUEUE] = ArrayList(strings)
+    }
+
+    private fun restorePendingEventsFromSavedState() {
+        savedStateHandle.get<List<String>>(KEY_PENDING_EVENTS_QUEUE)?.forEach { encoded ->
+            try {
+                val event = when {
+                    encoded.startsWith("PLAY:") -> Json.decodeFromString<IncomingArtifact>(encoded.substring(5))
+                    encoded.startsWith("NAV:") -> Json.decodeFromString<Route>(encoded.substring(4))
+                    else -> null
+                }
+                event?.let { pendingStartupEvents.add(it) }
+            } catch (_: Exception) {}
+        }
+        if (pendingStartupEvents.isNotEmpty()) {
+            diagnosticLogger.info(DiagnosticCategory.STARTUP, "STARTUP_EVENTS_RESTORED", mapOf("count" to pendingStartupEvents.size))
         }
     }
 

@@ -33,6 +33,7 @@ class WavRecorder(
     private val audioFormat: Int = AudioFormat.ENCODING_PCM_16BIT,
     private val onDurableSync: ((Long) -> Unit)? = null,
     var onStorageError: ((Exception) -> Unit)? = null,
+    var onHardwareError: ((Int) -> Unit)? = null,
 ) {
     private var audioRecord: AudioRecord? = null
     @Volatile
@@ -98,6 +99,7 @@ class WavRecorder(
         val minBufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
         if (minBufferSize == AudioRecord.ERROR_BAD_VALUE) {
             Log.e("WavRecorder", "Invalid AudioRecord parameters")
+            onHardwareError?.invoke(AudioRecord.ERROR_BAD_VALUE)
             return
         }
 
@@ -132,6 +134,7 @@ class WavRecorder(
 
         if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
             Log.e("WavRecorder", "AudioRecord initialization failed")
+            onHardwareError?.invoke(AudioRecord.ERROR_INVALID_OPERATION)
             return
         }
 
@@ -167,16 +170,35 @@ class WavRecorder(
             while (isRecording && !isPaused && currentCoroutineContext().isActive) {
                 val data = bufferPool?.acquire() ?: ByteArray(bufferSize)
                 val read = audioRecord?.read(data, 0, bufferSize) ?: 0
-                if (read > 0) {
-                    // Send to channel. This will suspend ONLY if the 18-second safety buffer is full.
-                    audioChannel.send(AudioBuffer(data, read))
-                    calculateMaxAmplitude(data, read)
-                } else {
-                    bufferPool?.release(data)
+                
+                when {
+                    read > 0 -> {
+                        // Normal Path: Data captured successfully
+                        // Send to channel. This will suspend ONLY if the 18-second safety buffer is full.
+                        audioChannel.send(AudioBuffer(data, read))
+                        calculateMaxAmplitude(data, read)
+                    }
+                    read < 0 -> {
+                        // Error Path: Handle hardware or state errors (e.g., ERROR_DEAD_OBJECT)
+                        bufferPool?.release(data)
+                        Log.e("WavRecorder", "AudioRecord read error constant: $read")
+                        onHardwareError?.invoke(read)
+                        // Terminate loop safely to prevent busy-wait or infinite failure logs
+                        return@captureAudioLoop
+                    }
+                    else -> {
+                        // read == 0: No data available. 
+                        // Rare for blocking read, but possible if hardware state is transiently unstable.
+                        bufferPool?.release(data)
+                        delay(10.milliseconds) // Prevent busy-spinning on high-priority thread
+                    }
                 }
             }
         } catch (e: Exception) {
-            Log.e("WavRecorder", "Capture loop error", e)
+            Log.e("WavRecorder", "Capture loop exception", e)
+            if (e !is CancellationException) {
+                onHardwareError?.invoke(AudioRecord.ERROR_INVALID_OPERATION)
+            }
         } finally {
             // Only close channel if we are truly stopping, not just pausing
             if (!isPaused) {

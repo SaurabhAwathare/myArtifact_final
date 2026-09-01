@@ -112,6 +112,7 @@ class AudioRecorder(private val context: Context) {
     private fun startWAV(outputFile: File, onDurableSync: ((Long) -> Unit)? = null) {
         wavRecorder = WavRecorder(context, outputFile, onDurableSync = onDurableSync).apply {
             onStorageError = { this@AudioRecorder.onStorageError?.invoke(it) }
+            onHardwareError = { errorCode -> this@AudioRecorder.onError?.invoke(errorCode, 0) }
             start()
         }
         isRecording = true

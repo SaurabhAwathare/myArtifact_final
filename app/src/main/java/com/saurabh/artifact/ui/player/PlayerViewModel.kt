@@ -52,6 +52,8 @@ class PlayerViewModel @Inject constructor(
     private val diagnosticLogger: DiagnosticLogger
 ) : ViewModel() {
 
+    private var resolutionJob: kotlinx.coroutines.Job? = null
+
     private val _isExpanded = savedStateHandle.getStateFlow("is_expanded", false)
     private val _showAdvancedControls = MutableStateFlow(false)
 
@@ -442,7 +444,17 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun playArtifact(artifact: Artifact, collection: List<Artifact> = emptyList(), source: PlaybackSource = PlaybackSource.FEED_PLAYBACK) {
-        diagnosticLogger.debug(DiagnosticCategory.NAVIGATION, "PLAYER_SCREEN_ENTERED", mapOf("source" to "playArtifact"))
+        // 1. Guard against redundant resets for the SAME artifact
+        // Check both original artifact ID and current playable ID to cover both resolution paths
+        val isAlreadyActive = (playbackCoordinator.currentArtifact.value?.id == artifact.id || _currentPlayableArtifact.value?.id == artifact.id)
+        
+        if (isAlreadyActive && _loadState.value != PlayerLoadState.ERROR) {
+            diagnosticLogger.debug(DiagnosticCategory.NAVIGATION, "PLAYER_RE-ENTRY_SKIPPED", mapOf("artifactId" to artifact.id, "source" to source.name))
+            setExpanded(true)
+            return
+        }
+
+        diagnosticLogger.debug(DiagnosticCategory.NAVIGATION, "PLAYER_SCREEN_ENTERED", mapOf("source" to "playArtifact", "artifactId" to artifact.id))
         setExpanded(true)
         _loadState.value = PlayerLoadState.LOADED
         _currentPlayableArtifact.value = null // Clear playable as we have a real artifact
@@ -454,8 +466,21 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun playArtifactById(artifactId: String, source: PlaybackSource = PlaybackSource.FEED_PLAYBACK) {
-        viewModelScope.launch {
-            diagnosticLogger.debug(DiagnosticCategory.NAVIGATION, "PLAYER_SCREEN_ENTERED", mapOf("source" to "playArtifactById"))
+        // 1. Guard against redundant resets for the SAME artifact
+        // This prevents the UI from flickering back to LOADING when re-triggered by rotation or duplicate intents
+        val isAlreadyActive = (_currentPlayableArtifact.value?.id == artifactId || playbackCoordinator.currentArtifact.value?.id == artifactId)
+        
+        if (isAlreadyActive && _loadState.value != PlayerLoadState.ERROR) {
+            diagnosticLogger.debug(DiagnosticCategory.NAVIGATION, "PLAYER_ID_RE-ENTRY_SKIPPED", mapOf("artifactId" to artifactId, "source" to source.name))
+            setExpanded(true)
+            return
+        }
+
+        // 2. Cancel existing resolution to prevent races from rapid successive deep links
+        resolutionJob?.cancel()
+        
+        resolutionJob = viewModelScope.launch {
+            diagnosticLogger.debug(DiagnosticCategory.NAVIGATION, "PLAYER_SCREEN_ENTERED", mapOf("source" to "playArtifactById", "artifactId" to artifactId))
             setExpanded(true)
             _loadState.value = PlayerLoadState.LOADING
             _playerError.value = null
@@ -476,8 +501,11 @@ class PlayerViewModel @Inject constructor(
                     }
                 },
                 onFailure = { error ->
-                    _loadState.value = PlayerLoadState.ERROR
-                    reportError(mapAppErrorToUserMessage(error), DiagnosticCategory.PLAYER, error)
+                    // Ignore cancellation errors as they are expected when a newer request arrives
+                    if (error !is kotlinx.coroutines.CancellationException) {
+                        _loadState.value = PlayerLoadState.ERROR
+                        reportError(mapAppErrorToUserMessage(error), DiagnosticCategory.PLAYER, error)
+                    }
                 }
             )
         }

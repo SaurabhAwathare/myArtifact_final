@@ -1,7 +1,11 @@
 package com.saurabh.artifact.audio
 
 import android.util.Log
+import com.saurabh.artifact.model.DraftManifest
+import com.saurabh.artifact.util.EncryptedStorageManager
 import com.saurabh.artifact.util.StorageManager
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -9,6 +13,7 @@ import javax.inject.Singleton
 @Singleton
 class LocalDraftManager @Inject constructor(
     private val storageManager: StorageManager,
+    private val encryptedStorageManager: EncryptedStorageManager,
 ) {
     fun createDraftFile(draftId: String, extension: String = "m4a"): File {
         val dir = storageManager.getDraftDirectory(draftId)
@@ -18,6 +23,58 @@ class LocalDraftManager @Inject constructor(
     fun createTranscriptFile(draftId: String): File {
         val dir = storageManager.getDraftDirectory(draftId)
         return File(dir, "transcript.txt")
+    }
+
+    private fun getManifestFile(draftId: String): File {
+        val dir = storageManager.getDraftDirectory(draftId)
+        return File(dir, ".metadata")
+    }
+
+    /**
+     * Writes an encrypted ownership manifest to the draft directory.
+     * This serves as a recovery hint if the primary database is lost.
+     */
+    fun writeManifest(draftId: String, userId: String, createdAt: Long, mimeType: String) {
+        try {
+            val manifest = DraftManifest(draftId, userId, createdAt, mimeType)
+            val file = getManifestFile(draftId)
+            encryptedStorageManager.getEncryptedOutputStream(file).use { output ->
+                output.write(Json.encodeToString(manifest).toByteArray())
+            }
+        } catch (e: Exception) {
+            Log.e("LocalDraftManager", "Failed to write draft manifest for $draftId", e)
+        }
+    }
+
+    /**
+     * Attempts to read and decrypt the ownership manifest for a given draft.
+     */
+    fun readManifest(draftId: String): DraftManifest? {
+        val file = getManifestFile(draftId)
+        if (!file.exists()) return null
+        
+        return try {
+            encryptedStorageManager.getEncryptedInputStream(file).use { input ->
+                Json.decodeFromString<DraftManifest>(input.readBytes().decodeToString())
+            }
+        } catch (e: Exception) {
+            Log.w("LocalDraftManager", "Failed to read manifest for $draftId (likely ownership mismatch or corruption)")
+            null
+        }
+    }
+
+    /**
+     * Scans the filesystem for draft directories that are not currently indexed in the database.
+     * @param knownIds Set of IDs already present in the database.
+     */
+    fun findOrphanedDraftDirectories(knownIds: Set<String>): List<String> {
+        val rootDir = storageManager.draftsRootDirectory
+        val folders = rootDir.listFiles()?.filter { it.isDirectory && it.name.startsWith("draft_") } ?: emptyList()
+        
+        return folders.mapNotNull { folder ->
+            val draftId = folder.name.substringAfter("draft_")
+            if (draftId !in knownIds) draftId else null
+        }
     }
 
     /**

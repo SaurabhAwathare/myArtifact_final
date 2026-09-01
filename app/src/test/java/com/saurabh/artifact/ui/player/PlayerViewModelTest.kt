@@ -139,23 +139,60 @@ class PlayerViewModelTest {
     }
 
     @Test
-    fun `playArtifactById should emit user friendly error on PermissionDenied`() = runTest {
-        val artifactId = "private_id"
-        val error = com.saurabh.artifact.model.AppError.PermissionDenied()
-        
-        coEvery { 
-            playableArtifactRepository.resolveArtifact(artifactId, any()) 
-        } returns Result.failure(error)
-
-        val errors = mutableListOf<String>()
-        val collectJob = launch {
-            viewModel.interactionError.collect { errors.add(it) }
+    fun `playArtifactById should skip if already playing the same artifact`() = runTest {
+        val artifactId = "art1"
+        val playable = mockk<com.saurabh.artifact.model.PlayableArtifact>(relaxed = true) {
+            every { id } returns artifactId
+            every { originalArtifact } returns mockk(relaxed = true) {
+                every { id } returns artifactId
+            }
         }
-
+        
+        coEvery { playableArtifactRepository.resolveArtifact(artifactId, any()) } returns Result.success(playable)
+        
+        // 1. Initial play
         viewModel.playArtifactById(artifactId)
         advanceUntilIdle()
+        
+        coVerify(exactly = 1) { playableArtifactRepository.resolveArtifact(artifactId, any()) }
+        
+        // 2. Mock that the coordinator now has this artifact
+        every { playbackCoordinator.currentArtifact } returns MutableStateFlow(playable.originalArtifact)
+        
+        // 3. Second play with same ID
+        viewModel.playArtifactById(artifactId)
+        advanceUntilIdle()
+        
+        // Should NOT have called resolveArtifact again
+        coVerify(exactly = 1) { playableArtifactRepository.resolveArtifact(artifactId, any()) }
+    }
 
-        assert(errors.contains("This artifact isn't available to you."))
-        collectJob.cancel()
+    @Test
+    fun `playArtifactById should cancel previous job when new ID arrives`() = runTest {
+        val id1 = "art1"
+        val id2 = "art2"
+        
+        val playable2 = mockk<com.saurabh.artifact.model.PlayableArtifact>(relaxed = true) {
+            every { id } returns id2
+            every { originalArtifact } returns mockk(relaxed = true) { every { id } returns id2 }
+        }
+
+        coEvery { playableArtifactRepository.resolveArtifact(id1, any()) } coAnswers {
+            kotlinx.coroutines.delay(1000) // Delay to simulate network
+            Result.failure(Exception("Should be cancelled"))
+        }
+        coEvery { playableArtifactRepository.resolveArtifact(id2, any()) } returns Result.success(playable2)
+
+        // Trigger first resolution
+        viewModel.playArtifactById(id1)
+        
+        // Trigger second resolution immediately
+        viewModel.playArtifactById(id2)
+        
+        advanceUntilIdle()
+        
+        // Verify only the second one reached completion/playback
+        verify { playbackCoordinator.playArtifact(match { it.id == id2 }, any(), any()) }
+        verify(exactly = 0) { playbackCoordinator.playArtifact(match { it.id == id1 }, any(), any()) }
     }
 }

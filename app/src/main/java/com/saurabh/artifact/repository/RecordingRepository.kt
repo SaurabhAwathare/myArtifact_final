@@ -67,6 +67,10 @@ class RecordingRepository @Inject constructor(
                 createdAt = System.currentTimeMillis(),
                 updatedAt = System.currentTimeMillis()
             )
+            
+            // Phase 11: Write ownership manifest to filesystem for resilience
+            localDraftManager.writeManifest(id, currentUserId, draft.createdAt, mimeType)
+            
             draftDao.get().insert(draft)
             
             Result.success(id)
@@ -282,6 +286,10 @@ class RecordingRepository @Inject constructor(
             
             diagnosticLogger.info(DiagnosticCategory.RECORDING, "INTERRUPTED_DRAFTS_RECOVERY_STARTED", mapOf(LogKeys.USER_ID to userId))
             
+            // Phase 11: Filesystem Discovery (Metadata Resilience)
+            // Attempt to re-index any drafts that exist on disk but are missing from the DB.
+            reindexOrphanedDrafts(userId)
+
             val now = System.currentTimeMillis()
             
             // Phase 10: Active Draft Protection - Never recover the draft currently in use.
@@ -465,6 +473,52 @@ class RecordingRepository @Inject constructor(
             if (isZombieCandidate && isOldEnough) {
                 diagnosticLogger.info(DiagnosticCategory.RECORDING, "PURGING_ZOMBIE_DRAFT", mapOf(LogKeys.DRAFT_ID to draft.id, "lifecycle" to draft.lifecycle.name))
                 cleanupManager.deleteDraft(draft.id)
+            }
+        }
+    }
+
+    /**
+     * Identifies draft directories on the filesystem that lack database metadata
+     * and re-inserts them if they possess a valid encrypted ownership manifest.
+     */
+    private suspend fun reindexOrphanedDrafts(userId: String) {
+        val knownIds = draftDao.get().getAllDraftsByUserId(userId).map { it.id }.toSet()
+        val orphanedIds = localDraftManager.findOrphanedDraftDirectories(knownIds)
+        
+        if (orphanedIds.isEmpty()) return
+        
+        diagnosticLogger.info(DiagnosticCategory.RECORDING, "REINDEX_SCAN_STARTED", mapOf("orphanedCount" to orphanedIds.size))
+        
+        orphanedIds.forEach { draftId ->
+            try {
+                val manifest = localDraftManager.readManifest(draftId)
+                
+                // STRICT OWNERSHIP VALIDATION: Authenticated UID must match the manifest.
+                if (manifest != null && manifest.userId == userId) {
+                    val wavFile = localDraftManager.createDraftFile(draftId, "wav")
+                    val m4aFile = localDraftManager.createDraftFile(draftId, "m4a")
+                    
+                    val path = when {
+                        m4aFile.exists() -> m4aFile.absolutePath
+                        wavFile.exists() -> wavFile.absolutePath
+                        else -> null
+                    }
+                    
+                    if (path != null) {
+                        diagnosticLogger.info(DiagnosticCategory.RECORDING, "DRAFT_REINDEXED", mapOf(LogKeys.DRAFT_ID to draftId))
+                        
+                        // Re-insert into Room. This will trigger standard recovery logic in the next block.
+                        createDraft(
+                            id = draftId,
+                            path = path,
+                            durationMs = 0,
+                            mimeType = manifest.mimeType,
+                            isEncrypted = m4aFile.exists()
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                diagnosticLogger.warn(DiagnosticCategory.RECORDING, "REINDEX_FAILED", mapOf(LogKeys.DRAFT_ID to draftId), e)
             }
         }
     }

@@ -32,17 +32,19 @@ class CleanupOrphanFilesWorker @AssistedInject constructor(
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
-        // WORKER LOCK: Ensure database encryption is ready before proceeding with a safety timeout
+        // WORKER LOCK: Ensure database encryption and filesystem discovery are ready
         try {
             withTimeout(30.seconds) {
                 startupCoordinator.awaitComponent(com.saurabh.artifact.startup.StartupComponent.DATABASE)
+                startupCoordinator.awaitComponent(com.saurabh.artifact.startup.StartupComponent.FILESYSTEM_DISCOVERY)
             }
         } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
             diagnosticLogger.warn(
                 DiagnosticCategory.WORKMANAGER, 
-                "ORPHAN_CLEANUP_DATABASE_TIMEOUT", 
-                mapOf("reason" to "database_locked")
+                "ORPHAN_CLEANUP_DEPENDENCY_TIMEOUT", 
+                mapOf("reason" to "discovery_locked")
             )
+            // FAIL-SAFE: Prefer preservation over deletion if dependencies aren't ready
             return Result.retry()
         }
 

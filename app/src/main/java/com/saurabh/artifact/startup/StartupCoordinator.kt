@@ -43,7 +43,8 @@ enum class StartupComponent {
     DATABASE,
     SECURITY,
     APP_CHECK,
-    RECOVERY
+    RECOVERY,
+    FILESYSTEM_DISCOVERY
 }
 
 /**

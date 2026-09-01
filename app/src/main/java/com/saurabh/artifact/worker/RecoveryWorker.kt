@@ -65,6 +65,9 @@ class RecoveryWorker @AssistedInject constructor(
         } catch (e: Exception) {
             diagnosticLogger.error(DiagnosticCategory.WORKMANAGER, "RECOVERY_SCAN_FAILED", throwable = e)
             Result.retry()
+        } finally {
+            // Signal that filesystem discovery has completed for this session
+            startupCoordinator.emitReadiness(com.saurabh.artifact.startup.StartupComponent.FILESYSTEM_DISCOVERY)
         }
     }
 }

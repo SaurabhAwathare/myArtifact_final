@@ -11,12 +11,7 @@ import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.repository.RecordingRepository
 import dagger.Lazy
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -31,12 +26,14 @@ import kotlin.time.Duration.Companion.seconds
  * This class is the Single Source of Truth for the UI and other components
  * to interact with and observe the recording process.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 @Singleton
 class RecordingSessionManager @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val playbackCoordinator: PlaybackCoordinator,
     private val recordingRepository: RecordingRepository,
     private val userRepository: com.saurabh.artifact.repository.UserRepository,
+    private val authRepository: com.saurabh.artifact.repository.AuthRepository,
     private val localDraftManager: LocalDraftManager,
     private val draftDao: Lazy<DraftDao>,
     private val cleanupManager: ArtifactCleanupManager,
@@ -92,6 +89,28 @@ class RecordingSessionManager @Inject constructor(
                 }
             }
         }
+
+        // PERSONA RESET PROTECTION: Monitor identity version changes. 
+        // If a version increase is detected (indicating a Same-UID persona swap)
+        // while a recording is active, we authoritatively cancel the session.
+        // This ensures the "Clean Break" invariant: Persona A's actions do not leak to Persona B.
+        authRepository.currentUser
+            .map { it?.uid }
+            .distinctUntilChanged()
+            .flatMapLatest { uid ->
+                if (uid == null) flowOf(null)
+                else userRepository.streamUserProfile(uid)
+                    .map { it?.identityMetadata?.identityResetVersion }
+                    .distinctUntilChanged()
+            }
+            .drop(1) // Ignore first emission
+            .onEach { _ ->
+                if (isRecordingActive()) {
+                    diagnosticLogger.warn(DiagnosticCategory.RECORDING, "SESSION_CANCELLED_IDENTITY_RESET")
+                    cancelSession()
+                }
+            }
+            .launchIn(managerScope)
     }
 
     /**

@@ -446,12 +446,38 @@ fun RecordingScreen(
                                 is RecordingError.StorageFull -> "Storage is full"
                                 is RecordingError.Unknown -> "Recording failed"
                             }
-                            Text(
-                                text = errorMessage,
-                                color = Color(0xFFE91E63),
-                                style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.padding(top = 8.dp)
-                            )
+                            
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.padding(top = 12.dp)
+                            ) {
+                                Text(
+                                    text = errorMessage,
+                                    color = Color(0xFFE91E63),
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                
+                                Spacer(modifier = Modifier.height(16.dp))
+                                
+                                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                    TextButton(
+                                        onClick = { 
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            viewModel.startRecording() 
+                                        },
+                                        colors = ButtonDefaults.textButtonColors(contentColor = Color.White.copy(alpha = 0.6f))
+                                    ) {
+                                        Text("Retry")
+                                    }
+                                    
+                                    TextButton(
+                                        onClick = onBack,
+                                        colors = ButtonDefaults.textButtonColors(contentColor = Color.White.copy(alpha = 0.4f))
+                                    ) {
+                                        Text("Exit")
+                                    }
+                                }
+                            }
                         }
                     }
 

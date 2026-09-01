@@ -58,7 +58,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        mainViewModel.onLaunchIntent(intent)
+        // INTENT GUARD: Only process launch intent on fresh creation.
+        // Rotation/Recreation will have savedInstanceState != null and shouldn't re-deliver the intent.
+        if (savedInstanceState == null) {
+            mainViewModel.onLaunchIntent(intent)
+        }
 
         setContent {
             val startupState by mainViewModel.startupState.collectAsStateWithLifecycle()
@@ -91,6 +95,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        // Genuine new intent while app is running (Warm Start delivery)
         mainViewModel.onLaunchIntent(intent)
     }
 }
