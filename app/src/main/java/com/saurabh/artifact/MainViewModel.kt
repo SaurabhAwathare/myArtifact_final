@@ -202,9 +202,10 @@ class MainViewModel @Inject constructor(
         // Single observation of terminal startup errors
         startupCoordinator.terminalError
             .filterNotNull()
-            .onEach { _ ->
-                diagnosticLogger.error(DiagnosticCategory.STARTUP, "STARTUP_TERMINAL_FAILURE")
-                _startupState.value = AppStartupState.Error("Security initialization failed.")
+            .onEach { error ->
+                diagnosticLogger.error(DiagnosticCategory.STARTUP, "STARTUP_TERMINAL_FAILURE", throwable = error)
+                val message = error.message ?: "Security initialization failed."
+                _startupState.value = AppStartupState.Error(message)
             }
             .launchIn(viewModelScope)
     }
@@ -404,6 +405,13 @@ class MainViewModel @Inject constructor(
     }
 
     private suspend fun determineInitialRoute() {
+        // TERMINAL GUARD: If a timeout or other terminal failure occurred while we were waiting
+        // for database readiness, abort determination to prevent UI flickering or invalid states.
+        if (startupCoordinator.terminalError.value != null) {
+            diagnosticLogger.warn(DiagnosticCategory.STARTUP, "STARTUP_DETERMINATION_ABORTED_ERROR")
+            return
+        }
+
         val destination = getInitialDestinationUseCase()
         diagnosticLogger.info(DiagnosticCategory.STARTUP, "STARTUP_DESTINATION_RESOLVED", mapOf("destination" to destination.name))
 
@@ -461,6 +469,9 @@ class MainViewModel @Inject constructor(
     }
 
     private fun updateStartupState(state: AppStartupState.Ready) {
+        // TERMINAL GUARD: Ensure we don't transition to Ready if a terminal error was just emitted.
+        if (startupCoordinator.terminalError.value != null) return
+
         _startupState.value = state
         
         // Persist for Process Death Recovery

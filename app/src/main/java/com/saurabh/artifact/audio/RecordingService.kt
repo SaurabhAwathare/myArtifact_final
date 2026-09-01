@@ -629,12 +629,12 @@ class RecordingService : Service() {
                     val availableMb = lastKnownAvailableStorageMb
                     
                     // Update storage low flag
-                    if (_recordingState.value.isStorageLow != (availableMb < 200)) {
-                        _recordingState.value = _recordingState.value.copy(isStorageLow = availableMb < 200)
+                    if (_recordingState.value.isStorageLow != (availableMb < com.saurabh.artifact.util.StorageManager.LOW_STORAGE_THRESHOLD_MB)) {
+                        _recordingState.value = _recordingState.value.copy(isStorageLow = availableMb < com.saurabh.artifact.util.StorageManager.LOW_STORAGE_THRESHOLD_MB)
                     }
 
-                    // Emergency stop: Storage critically low (< 50MB)
-                    if (tick % 40 == 0 && availableMb < 50) { 
+                    // Emergency stop: Storage critically low
+                    if (tick % 40 == 0 && availableMb < com.saurabh.artifact.util.StorageManager.CRITICAL_STORAGE_THRESHOLD_MB) { 
                         diagnosticLogger.error(DiagnosticCategory.RECORDING, "EMERGENCY_STOP_STORAGE_LOW", mapOf("availableMb" to availableMb))
                         _recordingState.value = _recordingState.value.copy(errorCode = "STORAGE_FULL")
                         stopRecording()

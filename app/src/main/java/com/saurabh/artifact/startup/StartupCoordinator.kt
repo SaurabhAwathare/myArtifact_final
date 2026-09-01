@@ -32,6 +32,8 @@ import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 
+class StartupTimeoutException(message: String) : Exception(message)
+
 /**
  * Defines the technical components that must be ready for the app to function.
  */
@@ -87,6 +89,10 @@ class StartupCoordinator @Inject constructor(
 
     private val _preloadResult = MutableStateFlow<PreloadResult?>(null)
     val preloadResult = _preloadResult.asStateFlow()
+
+    companion object {
+        private val GLOBAL_STARTUP_TIMEOUT = 20.seconds
+    }
 
     private var isStarted = false
     private var startupJob: Job? = null
@@ -149,14 +155,16 @@ class StartupCoordinator @Inject constructor(
      * Uses intentional staggered delays combined with technical readiness signals.
      */
     fun start() {
-        if (isStarted) return
+        if (startupJob?.isActive == true) return
+        
         isStarted = true
 
         val rescueTracker = RescueTracker.getInstance(context)
         _isRescueModeActive = rescueTracker.isRescueModeRequired()
 
         startupJob = scope.launch {
-            Log.d("Startup", "Starting Optimized Sequence: ARRIVAL (RescueMode=$_isRescueModeActive)")
+            val isWarmStart = _stage.value == StartupStage.STABLE
+            Log.d("Startup", "Starting Optimized Sequence: stage=${_stage.value}, warm=$isWarmStart, RescueMode=$_isRescueModeActive")
             StartupTracer.mark("Startup Sequence Started")
             
             if (_isRescueModeActive) {
@@ -196,72 +204,104 @@ class StartupCoordinator @Inject constructor(
             }
 
             try {
-                // PHASE 1: Mandatory Core Security (Critical for UI and Backend)
-                // Note: initializeAppCheck() must be called in Application.onCreate()
-                awaitAppCheckReadiness()
-                initializeSecurityProviderSync()
+                withTimeout(GLOBAL_STARTUP_TIMEOUT) {
+                    val isWarmStart = _stage.value == StartupStage.STABLE
+                    
+                    if (isWarmStart) {
+                        Log.i("Startup", "ACCELERATED WARM START DETECTED")
+                        StartupTracer.mark("Warm Start Sequence Initiated")
+                        
+                        // In a warm start, tech components are usually already ready, 
+                        // but we re-verify just in case of transient process states.
+                        coroutineScope {
+                            launch { awaitAppCheckReadiness() }
+                            launch { initializeSecurityProviderSync() }
+                        }
+                        
+                        val result = encryptionManager.preload()
+                        if (result is PreloadResult.RecoveryRequired) {
+                            emitReadiness(StartupComponent.CORE)
+                            return@withTimeout
+                        }
+                        
+                        emitReadiness(StartupComponent.DATABASE)
+                        initializeCore()
+                        emitReadiness(StartupComponent.CORE)
+                        
+                        // Compressed "Calm Transition" for Warm Start
+                        delay(200.milliseconds)
+                        _stage.value = StartupStage.STABLE
+                        StartupTracer.mark("Warm Start Complete")
+                    } else {
+                        // PHASE 1: Mandatory Core Security (Critical for UI and Backend)
+                        // Note: initializeAppCheck() must be called in Application.onCreate()
+                        coroutineScope {
+                            launch { awaitAppCheckReadiness() }
+                            launch { initializeSecurityProviderSync() }
+                        }
 
-                // Preload database encryption before signaling CORE
-                val result = encryptionManager.preload()
-                _preloadResult.value = result
+                        // Preload database encryption before signaling CORE
+                        val result = encryptionManager.preload()
+                        _preloadResult.value = result
 
-                if (result is PreloadResult.RecoveryRequired) {
-                    Log.w("Startup", "DATABASE RECOVERY REQUIRED. HOLDING STARTUP.")
-                    // UNBLOCK UI: Signal that core technical evaluation is done
-                    emitReadiness(StartupComponent.CORE)
-                    // Do NOT signal DATABASE readiness yet. UI will handle navigation to Recovery.
-                    return@launch 
+                        if (result is PreloadResult.RecoveryRequired) {
+                            Log.w("Startup", "DATABASE RECOVERY REQUIRED. HOLDING STARTUP.")
+                            // UNBLOCK UI: Signal that core technical evaluation is done
+                            emitReadiness(StartupComponent.CORE)
+                            // Do NOT signal DATABASE readiness yet. UI will handle navigation to Recovery.
+                            return@withTimeout 
+                        }
+
+                        if (result is PreloadResult.FatalFailure) {
+                            throw result.throwable
+                        }
+
+                        emitReadiness(StartupComponent.DATABASE)
+
+                        initializeCore() 
+                        emitReadiness(StartupComponent.CORE)
+                        Log.d("RACE_CHECK", "CORE_READY")
+                        
+                        // STAGGER 1: Move to Presence after initial frame
+                        delay(200.milliseconds) 
+                        _stage.value = StartupStage.PRESENCE
+                        StartupTracer.mark("Transition: PRESENCE")
+                        
+                        // PHASE 2: Deferred & Background Initialization
+                        launch(Dispatchers.Default) {
+                            // BACKGROUND: Schedule tasks away from Main
+                            initializeBackground()
+                            StartupTracer.mark("Non-critical Services Initialized (Background)")
+                        }
+
+                        // WAIT FOR AUTH before moving to Discovery
+                        awaitReadiness(StartupComponent.AUTH)
+
+                        // STAGGER 2: Discovery (Partial Feed)
+                        delay(200.milliseconds)
+                        _stage.value = StartupStage.DISCOVERY
+                        StartupTracer.mark("Transition: DISCOVERY")
+
+                        // OPTIMIZATION: Removed redundant DATABASE wait here as it's guaranteed by CORE/DATABASE prerequisite.
+
+                        // STAGGER 3: Immersion (Social/Reactions)
+                        delay(300.milliseconds)
+                        _stage.value = StartupStage.IMMERSION
+                        StartupTracer.mark("Transition: IMMERSION")
+
+                        // STAGGER 4: Ritual (Media/Player)
+                        delay(500.milliseconds)
+                        _stage.value = StartupStage.RITUAL
+                        StartupTracer.mark("Transition: RITUAL")
+
+                        // STAGGER 5: Stable (Full Fidelity)
+                        delay(500.milliseconds)
+                        _stage.value = StartupStage.STABLE
+                        StartupTracer.mark("Transition: STABLE")
+                    }
                 }
 
-                if (result is PreloadResult.FatalFailure) {
-                    throw result.throwable
-                }
-
-                emitReadiness(StartupComponent.DATABASE)
-
-                initializeCore() 
-                emitReadiness(StartupComponent.CORE)
-                Log.d("RACE_CHECK", "CORE_READY")
-                
-                // STAGGER 1: Move to Presence after initial frame
-                delay(200.milliseconds) 
-                _stage.value = StartupStage.PRESENCE
-                StartupTracer.mark("Transition: PRESENCE")
-                
-                // PHASE 2: Deferred & Background Initialization
-                launch(Dispatchers.Default) {
-                    // BACKGROUND: Schedule tasks away from Main
-                    initializeBackground()
-                    StartupTracer.mark("Non-critical Services Initialized (Background)")
-                }
-
-                // WAIT FOR AUTH before moving to Discovery
-                awaitReadiness(StartupComponent.AUTH)
-
-                // STAGGER 2: Discovery (Partial Feed)
-                delay(200.milliseconds)
-                _stage.value = StartupStage.DISCOVERY
-                StartupTracer.mark("Transition: DISCOVERY")
-
-                // WAIT FOR DATABASE before Immersion (where social interactions live)
-                awaitReadiness(StartupComponent.DATABASE)
-
-                // STAGGER 3: Immersion (Social/Reactions)
-                delay(300.milliseconds)
-                _stage.value = StartupStage.IMMERSION
-                StartupTracer.mark("Transition: IMMERSION")
-
-                // STAGGER 4: Ritual (Media/Player)
-                delay(500.milliseconds)
-                _stage.value = StartupStage.RITUAL
-                StartupTracer.mark("Transition: RITUAL")
-
-                // STAGGER 5: Stable (Full Fidelity)
-                delay(500.milliseconds)
-                _stage.value = StartupStage.STABLE
-                StartupTracer.mark("Transition: STABLE")
-
-                // PHASE 4: Late Post-UI
+                // PHASE 4: Late Post-UI (Execution outside global timeout safety net)
                 initializePostUI()
                 
                 val totalDuration = com.saurabh.artifact.util.StartupTracer.getElapsed()
@@ -270,6 +310,23 @@ class StartupCoordinator @Inject constructor(
                     "STARTUP_SUCCESS", 
                     mapOf("totalDuration" to totalDuration)
                 )
+            } catch (e: TimeoutCancellationException) {
+                // RACE GUARD: If we reached STABLE but the timeout triggered just as the block was exiting,
+                // we prioritize the success state to prevent false error screens.
+                if (_stage.value == StartupStage.STABLE) {
+                    Log.i("Startup", "Timeout triggered but STABLE was reached. Treating as success.")
+                    return@launch
+                }
+
+                com.saurabh.artifact.diagnostics.ArtifactLogger.e(
+                    com.saurabh.artifact.diagnostics.DiagnosticCategory.STARTUP, 
+                    "STARTUP_TIMEOUT", 
+                    mapOf("limit" to GLOBAL_STARTUP_TIMEOUT.toString())
+                )
+                Log.e("Startup", "Global startup timeout reached", e)
+                _terminalError.value = StartupTimeoutException("Startup initialization timed out. Please check your connection and try again.")
+                // Force unblock any awaiters to allow error state to propagate
+                completeAll()
             } catch (e: Exception) {
                 com.saurabh.artifact.diagnostics.ArtifactLogger.e(
                     com.saurabh.artifact.diagnostics.DiagnosticCategory.STARTUP, 

@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.saurabh.artifact.audio.RecordingSessionManager
 import com.saurabh.artifact.data.local.RecordingStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -13,6 +14,7 @@ import javax.inject.Inject
 @HiltViewModel
 class PreRecordingViewModel @Inject constructor(
     private val recordingSessionManager: RecordingSessionManager,
+    private val storageManager: com.saurabh.artifact.util.StorageManager,
     private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -32,21 +34,32 @@ class PreRecordingViewModel @Inject constructor(
         }
     }
 
-    val uiState: StateFlow<PreRecordingWarningUiState> = recordingSessionManager.sessionState
-        .map { state ->
-            PreRecordingWarningUiState(
-                remainingSeconds = state.ritualRemainingSeconds,
-                // Include PREPARING to avoid dead-lock UI if user re-enters during 1.5s pacing
-                isRecordingActive = state.status == RecordingStatus.RECORDING || 
-                                   state.status == RecordingStatus.PAUSED ||
-                                   state.status == RecordingStatus.PREPARING
-            )
-        }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = PreRecordingWarningUiState(remainingSeconds = getInitialRemainingSeconds())
+    val uiState: StateFlow<PreRecordingWarningUiState> = combine(
+        recordingSessionManager.sessionState,
+        storageFlow()
+    ) { state, isStorageLow ->
+        PreRecordingWarningUiState(
+            remainingSeconds = state.ritualRemainingSeconds,
+            // Include PREPARING to avoid dead-lock UI if user re-enters during 1.5s pacing
+            isRecordingActive = state.status == RecordingStatus.RECORDING || 
+                               state.status == RecordingStatus.PAUSED ||
+                               state.status == RecordingStatus.PREPARING,
+            isStorageLow = isStorageLow || state.isStorageLow
         )
+    }
+    .stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = PreRecordingWarningUiState(remainingSeconds = getInitialRemainingSeconds())
+    )
+
+    private fun storageFlow(): Flow<Boolean> = flow {
+        while (true) {
+            val low = storageManager.availableStorageMb < com.saurabh.artifact.util.StorageManager.LOW_STORAGE_THRESHOLD_MB
+            emit(low)
+            delay(5000) // Periodic check
+        }
+    }
 
     private val _eventFlow = MutableSharedFlow<PreRecordingWarningEvent>()
     val eventFlow = _eventFlow.asSharedFlow()
@@ -54,6 +67,14 @@ class PreRecordingViewModel @Inject constructor(
     init {
         restoreOrStartRitual()
         observeRecordingState()
+        checkInitialStorage()
+    }
+
+    private fun checkInitialStorage() {
+        // Force a storage check update in the service if possible
+        // Actually, we can just check it here and update a local flag if needed, 
+        // but sessionState is the source of truth. 
+        // The service usually checks storage once started.
     }
 
     private fun restoreOrStartRitual() {
@@ -91,11 +112,25 @@ class PreRecordingViewModel @Inject constructor(
         savedStateHandle.remove<Long>(KEY_RITUAL_END_TIME)
         recordingSessionManager.cancelRitual()
     }
+
+    fun openStorageSettings(context: android.content.Context) {
+        val intent = android.content.Intent(android.provider.Settings.ACTION_INTERNAL_STORAGE_SETTINGS)
+        intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        try {
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            // Fallback to general settings if specific one is not available
+            val fallbackIntent = android.content.Intent(android.provider.Settings.ACTION_SETTINGS)
+            fallbackIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(fallbackIntent)
+        }
+    }
 }
 
 data class PreRecordingWarningUiState(
     val remainingSeconds: Int = 10,
-    val isRecordingActive: Boolean = false
+    val isRecordingActive: Boolean = false,
+    val isStorageLow: Boolean = false
 )
 
 sealed class PreRecordingWarningEvent {

@@ -19,7 +19,10 @@ class StorageManager @Inject constructor(
 ) {
 
     companion object {
-        private const val MIN_STORAGE_REQUIRED_MB = 100L
+        const val MIN_STORAGE_REQUIRED_MB = 600L
+        const val LOW_STORAGE_THRESHOLD_MB = 1024L
+        const val CRITICAL_STORAGE_THRESHOLD_MB = 512L
+        
     }
 
     /**
@@ -31,10 +34,8 @@ class StorageManager @Inject constructor(
 
     val availableStorageMb: Long
         get() = try {
-            val stats = StatFs(context.filesDir.absolutePath)
-            val availableBlocks = stats.availableBlocksLong
-            val blockSize = stats.blockSizeLong
-            (availableBlocks * blockSize) / (1024 * 1024)
+            val stat = StatFs(context.filesDir.path)
+            (stat.availableBlocksLong * stat.blockSizeLong) / (1024 * 1024)
         } catch (e: Exception) {
             Log.e("StorageManager", "Failed to calculate storage", e)
             0L

@@ -26,6 +26,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -35,6 +36,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -80,10 +82,13 @@ fun PreRecordingWarningScreen(
         }
     }
 
+    val context = androidx.compose.ui.platform.LocalContext.current
+
     PreRecordingWarningContent(
         uiState = uiState,
         onContinue = { onContinue(initialPrompt) },
-        onCancel = onCancel
+        onCancel = onCancel,
+        onCleanUpStorage = { viewModel.openStorageSettings(context) }
     )
 }
 
@@ -91,7 +96,8 @@ fun PreRecordingWarningScreen(
 fun PreRecordingWarningContent(
     uiState: PreRecordingWarningUiState,
     onContinue: () -> Unit,
-    onCancel: () -> Unit
+    onCancel: () -> Unit,
+    onCleanUpStorage: () -> Unit = {}
 ) {
     // Ambient cinematic glow
     val infiniteTransition = rememberInfiniteTransition(label = "Atmosphere")
@@ -179,6 +185,11 @@ fun PreRecordingWarningContent(
                     textAlign = TextAlign.Center,
                     lineHeight = 24.sp
                 )
+
+                if (uiState.isStorageLow) {
+                    Spacer(modifier = Modifier.height(24.dp))
+                    StorageWarningBanner(onCleanUpClick = onCleanUpStorage)
+                }
 
                 Spacer(modifier = Modifier.height(28.dp))
 
@@ -347,6 +358,47 @@ fun PreRecordingWarningContent(
                 }
                 
                 Spacer(modifier = Modifier.height(40.dp))
+            }
+        }
+    }
+}
+
+@Composable
+fun StorageWarningBanner(onCleanUpClick: () -> Unit) {
+    Surface(
+        color = Color(0xFFFFB74D).copy(alpha = 0.1f),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, Color(0xFFFFB74D).copy(alpha = 0.3f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Info,
+                contentDescription = null,
+                tint = Color(0xFFFFB74D),
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Storage is very low",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = Color(0xFFFFB74D)
+                )
+                Text(
+                    text = "Your recording may not be saved safely.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.7f)
+                )
+            }
+            TextButton(
+                onClick = onCleanUpClick,
+                colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFFFB74D))
+            ) {
+                Text("Clean up", fontWeight = FontWeight.SemiBold)
             }
         }
     }
