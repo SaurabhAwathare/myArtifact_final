@@ -107,7 +107,10 @@ class ProfileViewModel @Inject constructor(
     val currentUserId: String? get() = authRepository.currentUser.value?.uid
     val savedIds = savedArtifactManager.savedIds
 
-    private val _targetUserId = MutableStateFlow<String?>(savedStateHandle.toRoute<Profile>().userId)
+    private val profileRoute = savedStateHandle.toRoute<Profile>()
+    private val _targetUserId = MutableStateFlow<String?>(profileRoute.userId)
+    private val _targetPersonaId = MutableStateFlow<String?>(profileRoute.personaId)
+    
     private val _selectedTab = MutableStateFlow(ProfileTab.PUBLISHED)
     private val _logoutState = MutableStateFlow<LogoutState>(LogoutState.Idle)
     private val _message = MutableStateFlow<UiText?>(null)
@@ -146,7 +149,7 @@ class ProfileViewModel @Inject constructor(
     private var renameDebounceJob: kotlinx.coroutines.Job? = null
 
     private val profileDataFlow = _refreshTrigger.flatMapLatest {
-        getProfileDataUseCase(_targetUserId.value)
+        getProfileDataUseCase(_targetUserId.value, _targetPersonaId.value)
     }
 
     private val profileContentFlow = combine(
@@ -252,20 +255,26 @@ class ProfileViewModel @Inject constructor(
     val uiState: StateFlow<ProfileUiState> = combine(
         profileContentFlow,
         playbackStateFlow,
-        _targetUserId
-    ) { content, playback, targetId ->
+        _targetUserId,
+        _targetPersonaId
+    ) { content, playback, targetUserId, targetPersonaId ->
         val data = content.data
         val currentUid = authRepository.currentUser.value?.uid
-        val isActuallySelf = (targetId == null) || (targetId == currentUid)
+        
+        // SELF DETECTION: True if it matches current UID or matches current user's active persona
+        val isActuallySelf = (targetUserId == null && targetPersonaId == null) || 
+                            (targetUserId != null && targetUserId == currentUid) ||
+                            (data?.isSelf == true)
+
         val isLoading = data == null
 
-            val state = ProfileUiState(
-                userProfile = data?.userProfile,
-                sigilConfig = content.sigilConfig,
-                isSelf = isActuallySelf,
-                isResonating = data?.isResonating ?: false,
-                isIgnored = data?.isIgnored ?: false,
-                selectedTab = content.selectedTab,
+        ProfileUiState(
+            userProfile = data?.userProfile,
+            sigilConfig = content.sigilConfig,
+            isSelf = isActuallySelf,
+            isResonating = data?.isResonating ?: false,
+            isIgnored = data?.isIgnored ?: false,
+            selectedTab = content.selectedTab,
             publishedArtifacts = content.mappedPublishedArtifacts,
             cloudDrafts = content.mappedCloudDrafts,
             localDrafts = content.mappedLocalDrafts,
@@ -282,8 +291,6 @@ class ProfileViewModel @Inject constructor(
             currentPosition = playback.position.inWholeMilliseconds,
             durationMs = playback.duration.inWholeMilliseconds,
         )
-
-        state
     }.catch { e ->
         _message.value = ErrorMessageMapper.map(e)
     }.stateIn(
@@ -308,7 +315,7 @@ class ProfileViewModel @Inject constructor(
     }
 
     fun loadMorePublished() {
-        val userId = _targetUserId.value ?: currentUserId ?: return
+        val userId = _targetUserId.value ?: _targetPersonaId.value ?: currentUserId ?: return
         if (_isMorePublishedLoading.value || !_hasMorePublished.value) return
 
         val lastDoc = _lastArtifactDocument.value ?: return
@@ -347,7 +354,7 @@ class ProfileViewModel @Inject constructor(
     }
 
     fun toggleResonance() {
-        val targetId = _targetUserId.value ?: return
+        val targetId = _targetUserId.value ?: _targetPersonaId.value ?: return
         val currentId = currentUserId ?: return
         if (targetId == currentId) return
 
@@ -373,7 +380,7 @@ class ProfileViewModel @Inject constructor(
      * Toggles the "Silent Ignore" state for the target profile.
      */
     fun toggleIgnore() {
-        val targetId = _targetUserId.value ?: return
+        val targetId = _targetUserId.value ?: _targetPersonaId.value ?: return
         val currentId = currentUserId ?: return
         if (targetId == currentId) return
 

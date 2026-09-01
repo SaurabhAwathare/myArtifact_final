@@ -27,6 +27,7 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.decodeFromString
 import java.util.concurrent.TimeUnit
 
 @HiltWorker
@@ -39,9 +40,12 @@ class InteractionSyncWorker @AssistedInject constructor(
     private val artifactLibraryRepository: ArtifactLibraryRepository,
     private val engagementRepository: EngagementRepository,
     private val firestoreEngagementRepository: FirestoreEngagementRepository,
+    private val commentRepository: com.saurabh.artifact.repository.CommentRepository,
     private val userRepository: UserRepository,
     private val startupCoordinator: com.saurabh.artifact.startup.StartupCoordinator
 ) : CoroutineWorker(appContext, workerParams) {
+
+    private val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         // WORKER LOCK: Ensure database encryption is ready before proceeding
@@ -92,18 +96,25 @@ class InteractionSyncWorker @AssistedInject constructor(
                 val error = result.exceptionOrNull() ?: Exception("Unknown error")
                 val isTransient = ArtifactRepository.isTransientError(error)
                 
+                // R035: Handle locked artifact race for comments.
+                // If it's a comment and we get Permission Denied, it's likely the backend 
+                // hasn't flipped the isCommentUnlocked bit yet despite local evidence sync.
+                val isPermissionDenied = error is com.google.firebase.firestore.FirebaseFirestoreException &&
+                        error.code == com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED
+                val isRetryableComment = interaction.interactionType == InteractionType.COMMENT && isPermissionDenied
+
                 val errorInteraction = processingInteraction.copy(
                     lastError = error.message,
                     retryCount = processingInteraction.retryCount
                 )
                 
-                if (isTransient) {
+                if (isTransient || isRetryableComment) {
                     if (errorInteraction.retryCount >= MAX_RETRIES) {
-                        ArtifactLogger.logInteraction(errorInteraction, "RETRY_LIMIT_EXCEEDED", mapOf("error" to error.message, "exception" to error.javaClass.simpleName))
+                        ArtifactLogger.logInteraction(errorInteraction, "RETRY_LIMIT_EXCEEDED", mapOf("error" to error.message, "exception" to error.javaClass.simpleName, "isRetryableComment" to isRetryableComment))
                         moveToDeadLetterQueue(errorInteraction, "RETRY_LIMIT_EXCEEDED", error.message)
                         pendingInteractionDao.get().delete(interaction)
                     } else {
-                        ArtifactLogger.logInteraction(errorInteraction, "TRANSIENT_FAILURE", mapOf("error" to error.message, "exception" to error.javaClass.simpleName))
+                        ArtifactLogger.logInteraction(errorInteraction, if (isRetryableComment) "RETRYABLE_PERMISSION_DENIED" else "TRANSIENT_FAILURE", mapOf("error" to error.message, "exception" to error.javaClass.simpleName))
                         // Update retry count and error in DB for the next run
                         pendingInteractionDao.get().insert(errorInteraction)
                         hasInteractionTransientFailure = true
@@ -298,6 +309,11 @@ class InteractionSyncWorker @AssistedInject constructor(
                     } else {
                         userRepository.decrementArtifactsCount(userId, interaction.artifactId)
                     }
+                }
+                InteractionType.COMMENT -> {
+                    val commentJson = interaction.metadata ?: throw Exception("Comment metadata missing")
+                    val comment = json.decodeFromString<com.saurabh.artifact.model.Comment>(commentJson)
+                    commentRepository.createComment(comment).map { Unit }
                 }
                 else -> throw Exception("Unknown interaction type: ${interaction.interactionType}")
             }

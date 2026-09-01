@@ -123,12 +123,15 @@ fun GlobalOverlayHost(
                     onNavigateToDraftEdit = onNavigateToDraftEdit,
                     onNavigateToPublish = onNavigateToPublish,
                     onReportArtifact = onReportArtifact,
-                    onAuthorClick = { userId ->
-                        if (userId.isNotEmpty()) {
+                    onAuthorClick = { id ->
+                        if (id.isNotEmpty()) {
                             // Collapse the expanded player before navigation so the destination
                             // screen is immediately visible while keeping playback active.
                             playerViewModel.setExpanded(false)
-                            navController.navigate(Profile(userId)) {
+                            
+                            // Determine if id is UID or PersonaID
+                            val route = if (id.startsWith("usr_")) Profile(personaId = id) else Profile(userId = id)
+                            navController.navigate(route) {
                                 launchSingleTop = true
                             }
                         }
@@ -172,10 +175,11 @@ fun GlobalOverlayHost(
                             uiState = uiState,
                             onExpand = { playerViewModel.setExpanded(true) },
                             onTogglePlay = { playerViewModel.togglePlayPause() },
-                            onAuthorClick = { userId ->
-                                if (userId.isNotEmpty()) {
+                            onAuthorClick = { id ->
+                                if (id.isNotEmpty()) {
                                     playerViewModel.setExpanded(false)
-                                    navController.navigate(Profile(userId))
+                                    val route = if (id.startsWith("usr_")) Profile(personaId = id) else Profile(userId = id)
+                                    navController.navigate(route)
                                 }
                             }
                         )

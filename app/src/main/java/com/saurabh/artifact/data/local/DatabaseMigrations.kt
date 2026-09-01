@@ -62,10 +62,61 @@ object DatabaseMigrations {
         }
     }
     
+    /**
+     * Migration 68 -> 69: Hard Account Isolation for Engagement and Moderation.
+     * Scopes 'artifact_engagement' and 'ignored_users' by current authenticated user.
+     * Legacy global records are discarded to prevent cross-account contamination.
+     */
+    val MIGRATION_68_69 = object : Migration(68, 69) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            // R011: artifact_engagement - Recreate with (userId, artifactId) PK
+            db.execSQL("DROP TABLE IF EXISTS `artifact_engagement` ")
+            db.execSQL("""
+                CREATE TABLE `artifact_engagement` (
+                    `userId` TEXT NOT NULL, 
+                    `artifactId` TEXT NOT NULL, 
+                    `versionTag` TEXT NOT NULL, 
+                    `durationMs` INTEGER NOT NULL, 
+                    `audioChecksum` TEXT NOT NULL, 
+                    `coverage` BLOB NOT NULL, 
+                    `lastPositionMs` INTEGER NOT NULL, 
+                    `furthestPositionMs` INTEGER NOT NULL, 
+                    `hasReachedEnd` INTEGER NOT NULL, 
+                    `lastUpdated` INTEGER NOT NULL, 
+                    `syncState` TEXT NOT NULL, 
+                    `lastSyncAttempt` INTEGER NOT NULL, 
+                    `lastSyncSuccess` INTEGER NOT NULL, 
+                    `syncRetryCount` INTEGER NOT NULL, 
+                    `lastSyncError` TEXT, 
+                    `isCommentUnlocked` INTEGER NOT NULL, 
+                    `unlockTimestamp` INTEGER, 
+                    `engagementState` TEXT NOT NULL, 
+                    `unlockReason` TEXT, 
+                    `remoteUpdatedAt` INTEGER, 
+                    `reviewTrackingVersion` INTEGER NOT NULL, 
+                    `segmentSizeMs` INTEGER NOT NULL, 
+                    PRIMARY KEY(`userId`, `artifactId`)
+                )
+            """)
+
+            // R021: ignored_users - Recreate with (ownerUserId, userId) PK
+            db.execSQL("DROP TABLE IF EXISTS `ignored_users` ")
+            db.execSQL("""
+                CREATE TABLE `ignored_users` (
+                    `ownerUserId` TEXT NOT NULL, 
+                    `userId` TEXT NOT NULL, 
+                    `createdAt` INTEGER NOT NULL, 
+                    PRIMARY KEY(`ownerUserId`, `userId`)
+                )
+            """)
+        }
+    }
+    
     val ALL_MIGRATIONS = arrayOf<Migration>(
         MIGRATION_60_61,
         MIGRATION_61_62,
         MIGRATION_62_63,
-        MIGRATION_63_64
+        MIGRATION_63_64,
+        MIGRATION_68_69
     )
 }

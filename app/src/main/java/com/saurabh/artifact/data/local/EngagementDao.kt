@@ -6,11 +6,11 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface EngagementDao {
-    @Query("SELECT * FROM artifact_engagement WHERE artifactId = :artifactId")
-    suspend fun getEngagement(artifactId: String): ArtifactEngagement?
+    @Query("SELECT * FROM artifact_engagement WHERE artifactId = :artifactId AND userId = :userId")
+    suspend fun getEngagement(artifactId: String, userId: String): ArtifactEngagement?
 
-    @Query("SELECT * FROM artifact_engagement WHERE artifactId = :artifactId")
-    fun observeEngagement(artifactId: String): Flow<ArtifactEngagement?>
+    @Query("SELECT * FROM artifact_engagement WHERE artifactId = :artifactId AND userId = :userId")
+    fun observeEngagement(artifactId: String, userId: String): Flow<ArtifactEngagement?>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertEngagement(engagement: ArtifactEngagement)
@@ -21,7 +21,7 @@ interface EngagementDao {
      */
     @Transaction
     suspend fun insertEngagementMonotonic(engagement: ArtifactEngagement) {
-        val existing = getEngagement(engagement.artifactId)
+        val existing = getEngagement(engagement.artifactId, engagement.userId)
         if (existing != null && existing.isCommentUnlocked && !engagement.isCommentUnlocked) {
             insertEngagement(engagement.copy(
                 isCommentUnlocked = true,
@@ -35,27 +35,27 @@ interface EngagementDao {
         }
     }
 
-    @Query("SELECT * FROM artifact_engagement WHERE syncState = 'PENDING' OR syncState = 'FAILED'")
-    suspend fun getEngagementsRequiringSync(): List<ArtifactEngagement>
+    @Query("SELECT * FROM artifact_engagement WHERE (syncState = 'PENDING' OR syncState = 'FAILED') AND userId = :userId")
+    suspend fun getEngagementsRequiringSync(userId: String): List<ArtifactEngagement>
 
-    @Query("UPDATE artifact_engagement SET syncState = :state, lastSyncAttempt = :timestamp, lastSyncError = :error, syncRetryCount = syncRetryCount + 1 WHERE artifactId = :artifactId")
-    suspend fun updateSyncStatus(artifactId: String, state: SyncState, timestamp: Long, error: String?)
+    @Query("UPDATE artifact_engagement SET syncState = :state, lastSyncAttempt = :timestamp, lastSyncError = :error, syncRetryCount = syncRetryCount + 1 WHERE artifactId = :artifactId AND userId = :userId")
+    suspend fun updateSyncStatus(artifactId: String, userId: String, state: SyncState, timestamp: Long, error: String?)
 
-    @Query("UPDATE artifact_engagement SET syncState = 'SYNCED', lastSyncSuccess = :timestamp, syncRetryCount = 0, lastSyncError = null WHERE artifactId = :artifactId AND syncState = 'SYNCING'")
-    suspend fun markAsSynced(artifactId: String, timestamp: Long): Int
+    @Query("UPDATE artifact_engagement SET syncState = 'SYNCED', lastSyncSuccess = :timestamp, syncRetryCount = 0, lastSyncError = null WHERE artifactId = :artifactId AND userId = :userId AND syncState = 'SYNCING'")
+    suspend fun markAsSynced(artifactId: String, userId: String, timestamp: Long): Int
 
     @Query("""
     UPDATE artifact_engagement 
     SET syncState = 'PENDING' 
-    WHERE syncState = 'SYNCING'
+    WHERE syncState = 'SYNCING' AND userId = :userId
     """)
-    suspend fun reclaimOrphanedSyncs(): Int
+    suspend fun reclaimOrphanedSyncs(userId: String): Int
 
-    @Query("DELETE FROM artifact_engagement WHERE artifactId = :artifactId")
-    suspend fun deleteEngagement(artifactId: String)
+    @Query("DELETE FROM artifact_engagement WHERE artifactId = :artifactId AND userId = :userId")
+    suspend fun deleteEngagement(artifactId: String, userId: String)
     
-    @Query("UPDATE artifact_engagement SET lastPositionMs = :positionMs, lastUpdated = :timestamp, syncState = 'PENDING' WHERE artifactId = :artifactId")
-    suspend fun updateLastPosition(artifactId: String, positionMs: Long, timestamp: Long = System.currentTimeMillis()): Int
+    @Query("UPDATE artifact_engagement SET lastPositionMs = :positionMs, lastUpdated = :timestamp, syncState = 'PENDING' WHERE artifactId = :artifactId AND userId = :userId")
+    suspend fun updateLastPosition(artifactId: String, userId: String, positionMs: Long, timestamp: Long = System.currentTimeMillis()): Int
 
     @Query("""
         UPDATE artifact_engagement 
@@ -65,6 +65,7 @@ interface EngagementDao {
             unlockReason = :reason, 
             remoteUpdatedAt = :remoteUpdated 
         WHERE artifactId = :artifactId 
+        AND userId = :userId
         AND (
             remoteUpdatedAt IS NULL 
             OR remoteUpdatedAt < :remoteUpdated 
@@ -72,8 +73,8 @@ interface EngagementDao {
         )
         AND (:isUnlocked = 1 OR isCommentUnlocked = 0)
     """)
-    suspend fun updateUnlockStatus(artifactId: String, isUnlocked: Boolean, timestamp: Long?, state: String, reason: String?, remoteUpdated: Long?)
+    suspend fun updateUnlockStatus(artifactId: String, userId: String, isUnlocked: Boolean, timestamp: Long?, state: String, reason: String?, remoteUpdated: Long?)
 
-    @Query("DELETE FROM artifact_engagement WHERE lastUpdated < :timestamp")
-    suspend fun deleteOldEngagements(timestamp: Long)
+    @Query("DELETE FROM artifact_engagement WHERE lastUpdated < :timestamp AND userId = :userId")
+    suspend fun deleteOldEngagements(timestamp: Long, userId: String)
 }

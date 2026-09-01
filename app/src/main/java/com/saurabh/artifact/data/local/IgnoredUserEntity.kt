@@ -7,8 +7,12 @@ import androidx.room.PrimaryKey
  * Represents a Presence (User) that the current user has chosen to privately ignore.
  * This entity is used to filter the discovery feed locally.
  */
-@Entity(tableName = "ignored_users")
+@Entity(
+    tableName = "ignored_users",
+    primaryKeys = ["ownerUserId", "userId"]
+)
 data class IgnoredUserEntity(
-    @PrimaryKey val userId: String,
+    val ownerUserId: String,
+    val userId: String,
     val createdAt: Long = System.currentTimeMillis()
 )

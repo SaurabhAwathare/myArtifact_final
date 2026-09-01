@@ -307,8 +307,8 @@ interface DraftDao {
     suspend fun deleteById(id: String, userId: String)
 
     /** System-maintenance: Delete old published drafts for storage management. */
-    @Query("DELETE FROM artifact_drafts WHERE lifecycle = 'PUBLISHED' AND updatedAt < :timestamp")
-    suspend fun deleteOldPublishedDrafts(timestamp: Long)
+    @Query("DELETE FROM artifact_drafts WHERE lifecycle = 'PUBLISHED' AND updatedAt < :timestamp AND userId = :userId")
+    suspend fun deleteOldPublishedDrafts(timestamp: Long, userId: String)
 
     /** User-scoped: Delete all drafts belonging to a specific user. */
     @Query("DELETE FROM artifact_drafts WHERE userId = :userId")

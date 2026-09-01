@@ -63,7 +63,7 @@ class MainViewModelIgnoreGuardTest {
         every { authRepository.currentUser } returns testAuthFlow
         every { authRepository.currentUserId } answers { testAuthFlow.value?.uid ?: "" }
         every { observeStealthModeUseCase.invoke() } returns flowOf(false)
-        every { visibilityFilter.observeIgnoredUserIds() } returns ignoredUsersFlow
+        every { visibilityFilter.observeIgnoredUserIds(any()) } returns ignoredUsersFlow
         
         every { startupCoordinator.stage } returns MutableStateFlow(com.saurabh.artifact.startup.StartupStage.STABLE)
         every { startupCoordinator.preloadResult } returns MutableStateFlow(com.saurabh.artifact.security.PreloadResult.Success)

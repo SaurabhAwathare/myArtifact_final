@@ -97,6 +97,8 @@ class PlaybackSessionManager @Inject constructor(
 
     private var positionUpdateJob: Job? = null
     private var cleanupSyncJob: Job? = null
+    private var currentPlayJob: Job? = null
+    private var currentSyncJob: Job? = null
     
     private var errorRetryCount = 0
     private val maxRetries = 3
@@ -178,6 +180,14 @@ class PlaybackSessionManager @Inject constructor(
             reason: Int
         ) {
             updatePositionSync()
+            
+            // R041: Capture system-level seeks (notifications, bluetooth, etc.) 
+            // and forward them to the engagement tracker to prevent false coverage.
+            if (reason == Player.DISCONTINUITY_REASON_SEEK) {
+                scope.launch {
+                    _seekEvent.emit(newPosition.positionMs)
+                }
+            }
         }
 
         override fun onPlaybackParametersChanged(playbackParameters: androidx.media3.common.PlaybackParameters) {
@@ -294,7 +304,8 @@ class PlaybackSessionManager @Inject constructor(
         _currentPosition.value = controller.currentPosition
 
         if (currentMediaItem != null) {
-            scope.launch {
+            currentSyncJob?.cancel()
+            currentSyncJob = scope.launch {
                 // 1. Extract all media IDs in controller order
                 val mediaIds = (0 until controller.mediaItemCount).map { i ->
                     controller.getMediaItemAt(i).mediaId
@@ -307,19 +318,48 @@ class PlaybackSessionManager @Inject constructor(
                 // 3. Reconstruct the queue in the exact order defined by the controller
                 // We map from the IDs back to the fetched objects to ensure order is preserved
                 val artifactMap = artifacts.associateBy { it.id }
-                val orderedQueue = mediaIds.mapNotNull { id -> artifactMap[id] }
+                
+                // R037: Handle partial or complete resolution failure
+                val orderedQueue = mediaIds.map { id -> 
+                    artifactMap[id] ?: createPlaceholderArtifact(controller, id)
+                }
 
                 // 4. Update state atomically to prevent transient UI blanking
-                _currentArtifact.value = artifactMap[currentMediaItem.mediaId]
+                _currentArtifact.value = artifactMap[currentMediaItem.mediaId] ?: orderedQueue.find { it.id == currentMediaItem.mediaId }
                 _queue.value = orderedQueue
                 
                 diagnosticLogger.debug(
                     DiagnosticCategory.PLAYER, 
                     "SESSION_SYNCED_WITH_CONTROLLER", 
-                    mapOf("queueSize" to orderedQueue.size, "currentId" to currentMediaItem.mediaId)
+                    mapOf(
+                        "queueSize" to orderedQueue.size, 
+                        "currentId" to currentMediaItem.mediaId,
+                        "resolvedCount" to artifacts.size
+                    )
                 )
             }
         }
+    }
+
+    /**
+     * Creates a lightweight placeholder artifact using metadata available in the MediaController.
+     * Used as a fallback when repository resolution fails during foreground synchronization.
+     */
+    private fun createPlaceholderArtifact(controller: MediaController, id: String): Artifact {
+        for (i in 0 until controller.mediaItemCount) {
+            val item = controller.getMediaItemAt(i)
+            if (item.mediaId == id) {
+                val metadata = item.mediaMetadata
+                return Artifact(
+                    id = id,
+                    title = metadata.title?.toString() ?: "Artifact",
+                    author = com.saurabh.artifact.model.AuthorSnapshot(
+                        name = metadata.artist?.toString() ?: "Presence"
+                    )
+                )
+            }
+        }
+        return Artifact(id = id, title = "Artifact")
     }
 
     fun play(
@@ -340,7 +380,8 @@ class PlaybackSessionManager @Inject constructor(
         // Update active state immediately to provide synchronous feedback to state-aware guard logic
         _activePlayback.value = ActivePlayback(artifact.id, playbackType, source)
 
-        scope.launch {
+        currentPlayJob?.cancel()
+        currentPlayJob = scope.launch {
             val player = getController() ?: return@launch
             
             // Check if we are already playing this exact artifact to avoid redundant resets

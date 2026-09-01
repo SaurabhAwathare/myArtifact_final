@@ -15,6 +15,7 @@ class DatabaseMaintenanceManagerTest {
     private val engagementDao = mockk<EngagementDao>(relaxed = true)
     private val interactionDao = mockk<PendingInteractionDao>(relaxed = true)
     private val draftDao = mockk<DraftDao>(relaxed = true)
+    private val authRepository = mockk<com.saurabh.artifact.repository.AuthRepository>(relaxed = true)
     private val openHelper = mockk<SupportSQLiteOpenHelper>()
     private val writableDb = mockk<SupportSQLiteDatabase>(relaxed = true)
 
@@ -30,34 +31,37 @@ class DatabaseMaintenanceManagerTest {
 
         every { database.openHelper } returns openHelper
         every { openHelper.writableDatabase } returns writableDb
+        every { authRepository.currentUserId } returns "test_user"
         
         manager = DatabaseMaintenanceManager(
             { database },
             { engagementDao },
             { interactionDao },
-            { draftDao }
+            { draftDao },
+            authRepository
         )
     }
 
     @Test
-    fun `runMaintenance calls all prune methods with correct timestamps`() = runBlocking {
+    fun `runMaintenance calls all prune methods with correct timestamps and userId`() = runBlocking {
         val now = System.currentTimeMillis()
+        val userId = "test_user"
         
         manager.runMaintenance()
 
         // Verify Engagement pruning (60 days)
         val engagementThreshold = slot<Long>()
-        coVerify { engagementDao.deleteOldEngagements(capture(engagementThreshold)) }
+        coVerify { engagementDao.deleteOldEngagements(capture(engagementThreshold), userId) }
         assertWithinRange(engagementThreshold.captured, now - TimeUnit.DAYS.toMillis(60))
 
         // Verify Interaction pruning (30 days)
         val interactionThreshold = slot<Long>()
-        coVerify { interactionDao.deleteOldInteractions(capture(interactionThreshold)) }
+        coVerify { interactionDao.deleteOldInteractions(capture(interactionThreshold), userId) }
         assertWithinRange(interactionThreshold.captured, now - TimeUnit.DAYS.toMillis(30))
 
         // Verify Draft pruning (30 days)
         val draftThreshold = slot<Long>()
-        coVerify { draftDao.deleteOldPublishedDrafts(capture(draftThreshold)) }
+        coVerify { draftDao.deleteOldPublishedDrafts(capture(draftThreshold), userId) }
         assertWithinRange(draftThreshold.captured, now - TimeUnit.DAYS.toMillis(30))
     }
 

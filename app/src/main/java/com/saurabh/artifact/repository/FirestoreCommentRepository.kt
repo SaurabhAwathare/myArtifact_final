@@ -12,18 +12,28 @@ import com.saurabh.artifact.model.CommentStatus
 import com.saurabh.artifact.model.toDomain
 import com.saurabh.artifact.model.toDto
 import com.saurabh.artifact.util.CommentConstants
+import com.saurabh.artifact.data.local.InteractionAction
+import com.saurabh.artifact.data.local.InteractionType
+import com.saurabh.artifact.data.local.PendingInteractionEntity
+import com.saurabh.artifact.worker.InteractionSyncWorker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.encodeToString
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class FirestoreCommentRepository @Inject constructor(
+    @param:dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context,
     private val firestore: FirebaseFirestore,
     private val ignoredUserDao: dagger.Lazy<com.saurabh.artifact.data.local.IgnoredUserDao>,
+    private val pendingInteractionDao: dagger.Lazy<com.saurabh.artifact.data.local.PendingInteractionDao>,
+    private val authRepository: AuthRepository,
     private val diagnosticLogger: DiagnosticLogger
 ) : CommentRepository {
+
+    private val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
 
     override suspend fun getComments(
         artifactId: String,
@@ -41,7 +51,10 @@ class FirestoreCommentRepository @Inject constructor(
             }
 
             val snapshot = query.get().await()
-            val ignoredIds = ignoredUserDao.get().getAllIgnoredUserIds().toSet()
+            val currentUserId = authRepository.currentUserId
+            val ignoredIds = if (currentUserId.isNotEmpty()) {
+                ignoredUserDao.get().getAllIgnoredUserIds(currentUserId).toSet()
+            } else emptySet()
             
             val comments = snapshot.documents.mapNotNull { doc ->
                 val creatorId = doc.getString("creatorId")
@@ -100,6 +113,40 @@ class FirestoreCommentRepository @Inject constructor(
             diagnosticLogger.error(
                 DiagnosticCategory.COMMENT,
                 "COMMENT_SUBMIT_FAILED",
+                mapOf(com.saurabh.artifact.diagnostics.LogKeys.ARTIFACT_ID to comment.artifactId),
+                e
+            )
+            Result.failure(AppError.from(e))
+        }
+    }
+
+    override suspend fun enqueueComment(comment: Comment): Result<Unit> = withContext(Dispatchers.IO) {
+        val currentUserId = authRepository.currentUserId
+        if (currentUserId.isEmpty()) return@withContext Result.failure(AppError.Unauthenticated())
+
+        try {
+            val commentJson = json.encodeToString(comment)
+            val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
+                userId = currentUserId,
+                artifactId = comment.artifactId,
+                interactionType = com.saurabh.artifact.data.local.InteractionType.COMMENT,
+                action = com.saurabh.artifact.data.local.InteractionAction.ADD,
+                metadata = commentJson
+            )
+            
+            pendingInteractionDao.get().insert(pending)
+            com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
+            
+            diagnosticLogger.info(
+                DiagnosticCategory.COMMENT, 
+                "COMMENT_QUEUED_LOCALLY", 
+                mapOf(com.saurabh.artifact.diagnostics.LogKeys.ARTIFACT_ID to comment.artifactId, "commentId" to comment.id)
+            )
+            Result.success(Unit)
+        } catch (e: Exception) {
+            diagnosticLogger.error(
+                DiagnosticCategory.COMMENT,
+                "COMMENT_ENQUEUE_FAILED",
                 mapOf(com.saurabh.artifact.diagnostics.LogKeys.ARTIFACT_ID to comment.artifactId),
                 e
             )

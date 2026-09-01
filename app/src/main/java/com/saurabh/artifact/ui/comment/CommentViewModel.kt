@@ -438,13 +438,13 @@ class CommentViewModel @Inject constructor(
     /**
      * Initiates navigation to a user's profile.
      * 
-     * @param userId The ID of the user whose profile to navigate to.
+     * @param personaId The anonymous ID of the persona whose profile to navigate to.
      */
-    fun onProfileClick(userId: String) {
-        if (userId.isEmpty()) return
+    fun onProfileClick(personaId: String) {
+        if (personaId.isEmpty()) return
         
         viewModelScope.launch {
-            _events.emit(CommentUiEvent.NavigateToProfile(userId))
+            _events.emit(CommentUiEvent.NavigateToProfile(personaId))
         }
     }
 }

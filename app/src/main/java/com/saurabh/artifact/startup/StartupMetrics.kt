@@ -1,6 +1,7 @@
 package com.saurabh.artifact.startup
 
-import android.util.Log
+import com.saurabh.artifact.diagnostics.ArtifactLogger
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.google.firebase.perf.FirebasePerformance
 import com.google.firebase.perf.metrics.Trace
 
@@ -14,7 +15,7 @@ object StartupMetrics {
 
     fun onAppCreate(context: android.content.Context) {
         appCreateTime = System.currentTimeMillis()
-        Log.i("STARTUP_METRICS", "App Created at $appCreateTime")
+        ArtifactLogger.i(DiagnosticCategory.STARTUP, "APP_CREATED", mapOf("timestamp" to appCreateTime))
 
         try {
             // Defensive check to ensure Firebase is ready before starting trace
@@ -22,10 +23,10 @@ object StartupMetrics {
                 startupTrace = FirebasePerformance.getInstance().newTrace("startup_flow")
                 startupTrace?.start()
             } else {
-                Log.w("STARTUP_METRICS", "Firebase not initialized; skipping startup trace")
+                ArtifactLogger.w(DiagnosticCategory.STARTUP, "STARTUP_TRACE_SKIPPED_FIREBASE_NOT_READY")
             }
         } catch (e: Exception) {
-            Log.e("STARTUP_METRICS", "Failed to start Firebase trace", e)
+            ArtifactLogger.e(DiagnosticCategory.STARTUP, "STARTUP_TRACE_START_FAILED", throwable = e)
         }
     }
 
@@ -33,7 +34,7 @@ object StartupMetrics {
         if (authReadyTime != 0L) return
         authReadyTime = System.currentTimeMillis()
         val duration = authReadyTime - appCreateTime
-        Log.i("STARTUP_METRICS", "Auth Ready in ${duration}ms")
+        ArtifactLogger.i(DiagnosticCategory.STARTUP, "AUTH_READY", mapOf("durationMs" to duration))
 
         // Tag the trace with this milestone
         startupTrace?.putAttribute("auth_ready_ms", duration.toString())
@@ -42,7 +43,7 @@ object StartupMetrics {
     fun onFeedHydrationStart() {
         if (feedHydrationStartTime != 0L) return
         feedHydrationStartTime = System.currentTimeMillis()
-        Log.i("STARTUP_METRICS", "Feed Hydration Started at $feedHydrationStartTime")
+        ArtifactLogger.i(DiagnosticCategory.STARTUP, "FEED_HYDRATION_STARTED", mapOf("timestamp" to feedHydrationStartTime))
     }
 
     fun onFirstArtifactRendered() {
@@ -50,8 +51,14 @@ object StartupMetrics {
         firstArtifactRenderTime = System.currentTimeMillis()
         val totalDuration = firstArtifactRenderTime - appCreateTime
         val hydrationDuration = firstArtifactRenderTime - feedHydrationStartTime
-        Log.i("STARTUP_METRICS", "First Artifact Rendered in ${totalDuration}ms (Total)")
-        Log.i("STARTUP_METRICS", "Feed Hydration took ${hydrationDuration}ms")
+        ArtifactLogger.i(
+            DiagnosticCategory.STARTUP, 
+            "FIRST_ARTIFACT_RENDERED", 
+            mapOf(
+                "totalDurationMs" to totalDuration,
+                "hydrationDurationMs" to hydrationDuration
+            )
+        )
 
         // Finalize metrics and stop the trace
         startupTrace?.apply {

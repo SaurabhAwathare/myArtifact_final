@@ -58,8 +58,8 @@ fun NavGraphBuilder.feedNavigation(
             onNavigateToNotifications = onNavigateToNotifications,
             onNavigateToDebugMenu = onNavigateToDebugMenu,
             onReportArtifact = onReportArtifact,
-            onAuthorClick = { userId ->
-                navController.navigate(Profile(userId)) {
+            onAuthorClick = { personaId ->
+                navController.navigate(Profile(personaId = personaId)) {
                     launchSingleTop = true
                 }
             },
@@ -103,8 +103,8 @@ fun NavGraphBuilder.feedNavigation(
             onNavigateToNotifications = onNavigateToNotifications,
             onNavigateToDebugMenu = onNavigateToDebugMenu,
             onReportArtifact = onReportArtifact,
-            onAuthorClick = { userId ->
-                navController.navigate(Profile(userId)) {
+            onAuthorClick = { personaId ->
+                navController.navigate(Profile(personaId = personaId)) {
                     launchSingleTop = true
                 }
             },
@@ -121,7 +121,7 @@ fun NavGraphBuilder.feedNavigation(
                 when (notification.type) {
                     NotificationType.FOLLOW -> {
                         if (notification.followerId.isNotEmpty()) {
-                            navController.navigate(Profile(notification.followerId)) {
+                            navController.navigate(Profile(personaId = notification.followerId)) {
                                 launchSingleTop = true
                             }
                         }

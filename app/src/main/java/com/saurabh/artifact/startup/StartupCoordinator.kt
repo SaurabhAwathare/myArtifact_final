@@ -1,13 +1,14 @@
 package com.saurabh.artifact.startup
 
 import android.content.Context
-import android.util.Log
+import com.saurabh.artifact.diagnostics.ArtifactLogger
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.diagnostics.LogKeys
 import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailability
 import com.google.android.gms.security.ProviderInstaller
 import android.content.Intent
 import com.saurabh.artifact.security.PreloadResult
-import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.util.CoroutineExceptionHandlerUtils
 import com.saurabh.artifact.util.StartupTracer
 import com.saurabh.artifact.domain.auth.SessionConstants
@@ -105,7 +106,7 @@ class StartupCoordinator @Inject constructor(
      * Signals that a technical component is ready.
      */
     fun emitReadiness(component: StartupComponent) {
-        Log.d("Startup", "Readiness Signaled: $component")
+        ArtifactLogger.d(DiagnosticCategory.STARTUP, "READINESS_SIGNALED", mapOf("component" to component.name))
         _readyComponents.update { it + component }
     }
 
@@ -114,7 +115,7 @@ class StartupCoordinator @Inject constructor(
      * Use this when a terminal failure occurs.
      */
     fun completeAll() {
-        Log.w("Startup", "Force completing all readiness signals")
+        ArtifactLogger.w(DiagnosticCategory.STARTUP, "FORCE_COMPLETING_READINESS")
         _readyComponents.update { it + StartupComponent.entries.toSet() }
     }
 
@@ -122,7 +123,7 @@ class StartupCoordinator @Inject constructor(
      * Resets the coordinator state to allow for a retry.
      */
     fun reset() {
-        Log.i("Startup", "Resetting coordinator state")
+        ArtifactLogger.i(DiagnosticCategory.STARTUP, "COORDINATOR_RESET")
         startupJob?.cancel()
         startupJob = null
         isStarted = false
@@ -144,9 +145,9 @@ class StartupCoordinator @Inject constructor(
             withTimeout(15.seconds) {
                 awaitComponent(component)
             }
-            Log.d("Startup", "Readiness Confirmed: $component")
+            ArtifactLogger.d(DiagnosticCategory.STARTUP, "READINESS_CONFIRMED", mapOf("component" to component.name))
         } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
-            Log.e("Startup", "Readiness Timeout: $component. Proceeding with caution.")
+            ArtifactLogger.e(DiagnosticCategory.STARTUP, "READINESS_TIMEOUT", mapOf("component" to component.name))
             // We proceed anyway to avoid permanent splash screen
         }
     }
@@ -165,7 +166,7 @@ class StartupCoordinator @Inject constructor(
 
         startupJob = scope.launch {
             val isWarmStart = _stage.value == StartupStage.STABLE
-            Log.d("Startup", "Starting Optimized Sequence: stage=${_stage.value}, warm=$isWarmStart, RescueMode=$_isRescueModeActive")
+            ArtifactLogger.d(DiagnosticCategory.STARTUP, "SEQUENCE_STARTING", mapOf("stage" to _stage.value.name, "warm" to isWarmStart, "rescue" to _isRescueModeActive))
             StartupTracer.mark("Startup Sequence Started")
             
             if (_isRescueModeActive) {
@@ -176,7 +177,7 @@ class StartupCoordinator @Inject constructor(
             // Phase 10: Clear stale recording session ID if the service is not active.
             // This ensures that an interrupted recording (due to crash) can be recovered.
             if (com.saurabh.artifact.audio.RecordingService.recordingState.value.status == com.saurabh.artifact.data.local.RecordingStatus.IDLE) {
-                Log.i("Startup", "Clearing stale activeDraftId (Service is IDLE)")
+                ArtifactLogger.i(DiagnosticCategory.STARTUP, "STALE_DRAFT_ID_CLEARED")
                 userSessionManager.setActiveDraftId(null)
             }
 
@@ -184,24 +185,24 @@ class StartupCoordinator @Inject constructor(
             try {
                 val pendingUid = maintenanceRepository.getPendingDeletionUid()
                 if (pendingUid != null) {
-                    Log.w("Startup", "Pending account deletion detected for UID: $pendingUid. LOCKING STARTUP.")
+                    ArtifactLogger.w(DiagnosticCategory.STARTUP, "ACCOUNT_DELETION_PENDING", mapOf(LogKeys.USER_ID to pendingUid))
                     _stage.value = StartupStage.DELETION_CLEANUP
                     
                     // Execute authoritative local wipe
                     val result = logoutCoordinator.get().performFullCleanup()
                     if (result.status == com.saurabh.artifact.domain.auth.CleanupStatus.COMPLETED) {
-                        Log.i("Startup", "Recovery cleanup completed successfully. Releasing lock.")
+                        ArtifactLogger.i(DiagnosticCategory.STARTUP, "RECOVERY_CLEANUP_SUCCESS")
                         maintenanceRepository.setPendingDeletion(null)
                         // Transition back to Arrival to allow normal startup to resume
                         _stage.value = StartupStage.ARRIVAL
                     } else {
-                        Log.e("Startup", "Recovery cleanup failed. Startup remains locked.")
+                        ArtifactLogger.e(DiagnosticCategory.STARTUP, "RECOVERY_CLEANUP_FAILED")
                         _terminalError.value = Exception("Account deletion recovery failed. Please contact support.")
                         return@launch
                     }
                 }
             } catch (e: Exception) {
-                Log.e("Startup", "Failed to check maintenance state", e)
+                ArtifactLogger.e(DiagnosticCategory.STARTUP, "MAINTENANCE_CHECK_FAILED", throwable = e)
             }
 
             try {
@@ -209,7 +210,7 @@ class StartupCoordinator @Inject constructor(
                     val isWarmStart = _stage.value == StartupStage.STABLE
                     
                     if (isWarmStart) {
-                        Log.i("Startup", "ACCELERATED WARM START DETECTED")
+                        ArtifactLogger.i(DiagnosticCategory.STARTUP, "ACCELERATED_WARM_START")
                         StartupTracer.mark("Warm Start Sequence Initiated")
                         
                         // In a warm start, tech components are usually already ready, 
@@ -246,7 +247,7 @@ class StartupCoordinator @Inject constructor(
                         _preloadResult.value = result
 
                         if (result is PreloadResult.RecoveryRequired) {
-                            Log.w("Startup", "DATABASE RECOVERY REQUIRED. HOLDING STARTUP.")
+                            ArtifactLogger.w(DiagnosticCategory.STARTUP, "DATABASE_RECOVERY_REQUIRED")
                             // UNBLOCK UI: Signal that core technical evaluation is done
                             emitReadiness(StartupComponent.CORE)
                             // Do NOT signal DATABASE readiness yet. UI will handle navigation to Recovery.
@@ -261,7 +262,7 @@ class StartupCoordinator @Inject constructor(
 
                         initializeCore() 
                         emitReadiness(StartupComponent.CORE)
-                        Log.d("RACE_CHECK", "CORE_READY")
+                        ArtifactLogger.d(DiagnosticCategory.STARTUP, "CORE_READY")
                         
                         // STAGGER 1: Move to Presence after initial frame
                         delay(200.milliseconds) 
@@ -315,26 +316,24 @@ class StartupCoordinator @Inject constructor(
                 // RACE GUARD: If we reached STABLE but the timeout triggered just as the block was exiting,
                 // we prioritize the success state to prevent false error screens.
                 if (_stage.value == StartupStage.STABLE) {
-                    Log.i("Startup", "Timeout triggered but STABLE was reached. Treating as success.")
+                    ArtifactLogger.i(DiagnosticCategory.STARTUP, "STABLE_REACHED_BEFORE_TIMEOUT")
                     return@launch
                 }
 
-                com.saurabh.artifact.diagnostics.ArtifactLogger.e(
-                    com.saurabh.artifact.diagnostics.DiagnosticCategory.STARTUP, 
+                ArtifactLogger.e(
+                    DiagnosticCategory.STARTUP, 
                     "STARTUP_TIMEOUT", 
                     mapOf("limit" to GLOBAL_STARTUP_TIMEOUT.toString())
                 )
-                Log.e("Startup", "Global startup timeout reached", e)
                 _terminalError.value = StartupTimeoutException("Startup initialization timed out. Please check your connection and try again.")
                 // Force unblock any awaiters to allow error state to propagate
                 completeAll()
             } catch (e: Exception) {
-                com.saurabh.artifact.diagnostics.ArtifactLogger.e(
-                    com.saurabh.artifact.diagnostics.DiagnosticCategory.STARTUP, 
+                ArtifactLogger.e(
+                    DiagnosticCategory.STARTUP, 
                     "STARTUP_FAILED", 
                     throwable = e
                 )
-                Log.e("Startup", "Terminal failure in startup sequence", e)
                 _terminalError.value = e
                 // Force unblock any awaiters to allow error state to propagate
                 completeAll()
@@ -343,13 +342,12 @@ class StartupCoordinator @Inject constructor(
     }
 
     private fun initializeCore() {
-        Log.i("Startup", "Current Environment: ${environmentProvider.environment}")
-        Log.i("Startup", "Firebase Project ID: ${environmentProvider.firebaseProjectId}")
+        ArtifactLogger.i(DiagnosticCategory.STARTUP, "ENVIRONMENT_INFO", mapOf("env" to environmentProvider.environment, "projectId" to environmentProvider.firebaseProjectId))
     }
 
     private suspend fun awaitAppCheckReadiness() {
         val firebaseAppCheck = com.google.firebase.appcheck.FirebaseAppCheck.getInstance()
-        Log.d("Startup", "Starting App Check Attestation (Observational)")
+        ArtifactLogger.d(DiagnosticCategory.STARTUP, "APP_CHECK_START")
         
         var currentAttempt = 0
         val maxAttempts = 3
@@ -365,7 +363,7 @@ class StartupCoordinator @Inject constructor(
                 }
             } catch (e: Exception) {
                 val category = if (e is kotlinx.coroutines.TimeoutCancellationException) "TIMEOUT" else "ERROR"
-                Log.w("Startup", "App Check attempt $currentAttempt failed: $category")
+                ArtifactLogger.w(DiagnosticCategory.STARTUP, "APP_CHECK_ATTEMPT_FAILED", mapOf("attempt" to currentAttempt, "reason" to category))
                 if (currentAttempt < maxAttempts) {
                     delay((currentAttempt * 1000).milliseconds) // Simple backoff
                 }
@@ -373,10 +371,10 @@ class StartupCoordinator @Inject constructor(
         }
 
         if (success) {
-            Log.i("Startup", "App Check Verified: Attestation successful")
+            ArtifactLogger.i(DiagnosticCategory.STARTUP, "APP_CHECK_VERIFIED")
             _securityStatus.value = SecurityStatus.VERIFIED
         } else {
-            Log.w("Startup", "App Check Unverified: All attempts exhausted or failed")
+            ArtifactLogger.w(DiagnosticCategory.STARTUP, "APP_CHECK_UNVERIFIED")
             _securityStatus.value = SecurityStatus.UNVERIFIED
         }
         
@@ -385,7 +383,7 @@ class StartupCoordinator @Inject constructor(
     }
 
     private suspend fun initializeSecurityProviderSync() {
-        Log.d("Startup", "Initializing Security Provider (Suspended)")
+        ArtifactLogger.d(DiagnosticCategory.STARTUP, "SECURITY_PROVIDER_INIT_START")
         val availability = GoogleApiAvailability.getInstance()
         val resultCode = availability.isGooglePlayServicesAvailable(context)
 
@@ -393,26 +391,26 @@ class StartupCoordinator @Inject constructor(
             return suspendCancellableCoroutine { continuation ->
                 ProviderInstaller.installIfNeededAsync(context, object : ProviderInstaller.ProviderInstallListener {
                     override fun onProviderInstalled() {
-                        Log.d("Startup", "Security provider initialized")
+                        ArtifactLogger.d(DiagnosticCategory.STARTUP, "SECURITY_PROVIDER_READY")
                         emitReadiness(StartupComponent.SECURITY)
                         continuation.resume(Unit)
                     }
 
                     override fun onProviderInstallFailed(errorCode: Int, recoveryIntent: Intent?) {
-                        Log.w("Startup", "Security provider failed: $errorCode. Proceeding with caution.")
+                        ArtifactLogger.w(DiagnosticCategory.STARTUP, "SECURITY_PROVIDER_FAILED", mapOf("errorCode" to errorCode))
                         emitReadiness(StartupComponent.SECURITY)
                         continuation.resume(Unit)
                     }
                 })
             }
         } else {
-            Log.w("Startup", "Google Play Services not available: $resultCode")
+            ArtifactLogger.w(DiagnosticCategory.STARTUP, "PLAY_SERVICES_UNAVAILABLE", mapOf("resultCode" to resultCode))
             emitReadiness(StartupComponent.SECURITY)
         }
     }
 
     private fun initializeBackground() {
-        Log.d("Startup", "Initializing Background Services")
+        ArtifactLogger.d(DiagnosticCategory.STARTUP, "BACKGROUND_INIT_START")
         scheduleDailyReminder()
         scheduleOrphanCleanup()
         schedulePublishingRecovery()
@@ -471,7 +469,7 @@ class StartupCoordinator @Inject constructor(
     }
 
     private suspend fun initializePostUI() {
-        Log.d("Startup", "Initializing Post-UI Services (Deferred 5s)")
+        ArtifactLogger.d(DiagnosticCategory.STARTUP, "POST_UI_INIT_START")
         delay(5.seconds)
         
         // Trigger automated recovery worker
@@ -489,7 +487,7 @@ class StartupCoordinator @Inject constructor(
     }
 
     private fun initializeRescueMode() {
-        Log.w("Startup", "INITIALIZING IN RESCUE MODE")
+        ArtifactLogger.w(DiagnosticCategory.STARTUP, "RESCUE_MODE_ACTIVE")
         
         // Skip background tasks, skip most stagings
         // Only initialize absolute minimum for the Rescue UI
@@ -503,7 +501,7 @@ class StartupCoordinator @Inject constructor(
             
             // Signal that we are ready for the Rescue Screen
             emitReadiness(StartupComponent.RECOVERY)
-            Log.d("Startup", "Rescue Mode Readiness Emitted")
+            ArtifactLogger.d(DiagnosticCategory.STARTUP, "RESCUE_MODE_READY")
         }
     }
 }

@@ -69,6 +69,8 @@ class LogcatDiagnosticLoggerTest {
             "password" to "secret123",
             "mnemonic" to "word1 word2",
             "token" to "abc.def.ghi",
+            "user_id" to "firebase_uid_123",
+            "userId" to "another_uid_456",
             "safe_key" to "safe_value"
         )
 
@@ -82,6 +84,8 @@ class LogcatDiagnosticLoggerTest {
                 message.contains("password=[REDACTED]") &&
                 message.contains("mnemonic=[REDACTED]") &&
                 message.contains("token=[REDACTED]") &&
+                message.contains("user_id=[REDACTED]") &&
+                message.contains("userId=[REDACTED]") &&
                 message.contains("safe_key=safe_value")
             })
         }

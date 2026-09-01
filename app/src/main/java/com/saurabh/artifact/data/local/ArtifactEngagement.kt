@@ -8,9 +8,13 @@ import com.saurabh.artifact.model.SyncState
  * Persists both playback position (for resume) and listening evidence (for validation).
  * Unified source of truth for user interaction with an artifact.
  */
-@Entity(tableName = "artifact_engagement")
+@Entity(
+    tableName = "artifact_engagement",
+    primaryKeys = ["userId", "artifactId"]
+)
 data class ArtifactEngagement(
-    @PrimaryKey val artifactId: String,
+    val userId: String,
+    val artifactId: String,
     val versionTag: String,
     val durationMs: Long,
     val audioChecksum: String = "",

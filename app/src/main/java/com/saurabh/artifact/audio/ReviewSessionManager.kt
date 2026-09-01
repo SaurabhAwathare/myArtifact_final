@@ -91,14 +91,14 @@ class ReviewSessionManager @Inject constructor(
 
     private fun updatePersistedProgress(artifactId: String, progress: Float) {
         scope.launch(Dispatchers.IO) {
-            val draft = draftDao.get().internalGetDraftByIdAgnostic(artifactId) ?: return@launch
-            draftDao.get().updateReviewProgress(draft.id, draft.userId, progress)
+            val currentUserId = userRepository.getCurrentUserId() ?: return@launch
+            draftDao.get().updateReviewProgress(artifactId, currentUserId, progress)
         }
     }
 
     fun startReview(
         draftId: String, 
-        source: com.saurabh.artifact.model.PlaybackSource = com.saurabh.artifact.model.PlaybackSource.REVIEW_DRAFT
+        source: PlaybackSource = PlaybackSource.REVIEW_DRAFT
     ) {
         if (reviewProgress.value.artifactId == draftId && playbackSessionManager.isPlaying.value) {
             playbackSessionManager.updateActivePlaybackContext(source)
@@ -107,7 +107,8 @@ class ReviewSessionManager @Inject constructor(
 
         ArtifactLogger.i(DiagnosticCategory.REVIEW, "REVIEW_STARTED", mapOf("draftId" to draftId))
         scope.launch {
-            val draft = draftDao.get().internalGetDraftByIdAgnostic(draftId) ?: return@launch
+            val currentUserId = userRepository.getCurrentUserId() ?: return@launch
+            val draft = draftDao.get().getDraftById(draftId, currentUserId) ?: return@launch
             
             // Build author snapshot for the draft playback
             val currentUser = userRepository.getCachedProfile()
@@ -134,7 +135,8 @@ class ReviewSessionManager @Inject constructor(
 
     private suspend fun markReviewComplete(artifactId: String) {
         withContext(Dispatchers.IO) {
-            val draft = draftDao.get().internalGetDraftByIdAgnostic(artifactId) ?: return@withContext
+            val currentUserId = userRepository.getCurrentUserId() ?: return@withContext
+            val draft = draftDao.get().getDraftById(artifactId, currentUserId) ?: return@withContext
             
             // Idempotency guard: If already marked complete or in a post-review state, skip
             val isPostReview = when (draft.lifecycle) {
@@ -157,7 +159,7 @@ class ReviewSessionManager @Inject constructor(
                 "artifactId" to artifactId,
                 "fromLifecycle" to draft.lifecycle.name
             ))
-            draftDao.get().markReviewCompletePartial(draft.id, draft.userId)
+            draftDao.get().markReviewCompletePartial(draft.id, currentUserId)
         }
     }
 }

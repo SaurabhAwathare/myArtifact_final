@@ -65,7 +65,7 @@ class FeedRepository @Inject constructor(
             if (resonatedUserIds.isEmpty()) return@withContext Result.success(PaginatedArtifacts(emptyList(), null))
 
             val suppressedIds = visibilityFilter.getSuppressedIdsSnapshot(userId)
-            val ignoredUserIds = visibilityFilter.getIgnoredUserIdsSnapshot()
+            val ignoredUserIds = visibilityFilter.getIgnoredUserIdsSnapshot(userId)
 
             val chunks = resonatedUserIds.chunked(10)
             val allArtifacts = mutableListOf<Artifact>()
@@ -169,7 +169,7 @@ class FeedRepository @Inject constructor(
 
             val snapshot = query.get().await()
             val suppressedIds = userId?.let { visibilityFilter.getSuppressedIdsSnapshot(it) } ?: emptySet()
-            val ignoredUserIds = visibilityFilter.getIgnoredUserIdsSnapshot()
+            val ignoredUserIds = userId?.let { visibilityFilter.getIgnoredUserIdsSnapshot(it) } ?: emptySet()
 
             val rawArtifacts = snapshot.documents.mapNotNull { doc ->
                 val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)

@@ -65,7 +65,7 @@ fun CommentSheet(
                     )
                 }
                 is CommentUiEvent.NavigateToProfile -> {
-                    onNavigateToProfile(event.userId)
+                    onNavigateToProfile(event.personaId)
                 }
                 else -> {}
             }

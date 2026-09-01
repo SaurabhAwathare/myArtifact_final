@@ -23,7 +23,7 @@ sealed class CommentUiEvent {
 
     /**
      * Emitted when a user requests to view a profile from a comment.
-     * @param userId The UID of the user whose profile should be shown.
+     * @param personaId The anonymous ID of the persona whose profile should be shown.
      */
-    data class NavigateToProfile(val userId: String) : CommentUiEvent()
+    data class NavigateToProfile(val personaId: String) : CommentUiEvent()
 }

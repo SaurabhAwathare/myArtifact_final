@@ -41,6 +41,14 @@ interface CommentRepository {
     suspend fun createComment(comment: Comment): Result<Comment>
 
     /**
+     * Enqueues a comment submission for durable background synchronization.
+     *
+     * @param comment The comment to enqueue.
+     * @return A [Result] indicating if the enqueue operation was successful.
+     */
+    suspend fun enqueueComment(comment: Comment): Result<Unit>
+
+    /**
      * Deletes a comment (soft delete).
      *
      * @param artifactId The ID of the artifact.

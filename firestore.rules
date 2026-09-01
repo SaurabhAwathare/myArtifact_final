@@ -249,7 +249,7 @@ service cloud.firestore {
     // --- ARTIFACTS (The Hearth) ---
     match /artifacts/{artifactId} {
       allow read: if resource.data.isPublic == true ||
-                    (request.auth != null && resource.data.userId == request.auth.uid) ||
+                    isArtifactOwner(artifactId) ||
                     isGlobalAdmin();
 
       function isCreationStatusValid(data) {

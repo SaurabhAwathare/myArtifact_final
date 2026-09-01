@@ -18,6 +18,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import java.util.BitSet
@@ -29,12 +30,16 @@ class EngagementRepository @Inject constructor(
     private val engagementDao: dagger.Lazy<EngagementDao>,
     private val firestoreRepository: FirestoreEngagementRepository,
     private val syncScheduler: EngagementSyncScheduler,
+    private val authRepository: AuthRepository,
     @ApplicationScope private val externalScope: CoroutineScope
 ) {
 
     suspend fun getEngagement(artifactId: String): Result<EngagementEvidence> = withContext(Dispatchers.IO) {
         try {
-            val engagement = engagementDao.get().getEngagement(artifactId)?.toDomain()
+            val userId = authRepository.currentUserId
+            if (userId.isEmpty()) return@withContext Result.failure(AppError.Unauthenticated())
+            
+            val engagement = engagementDao.get().getEngagement(artifactId, userId)?.toDomain()
             if (engagement != null) {
                 Result.success(engagement)
             } else {
@@ -46,19 +51,27 @@ class EngagementRepository @Inject constructor(
     }
 
     suspend fun getEngagementsRequiringSync(): List<EngagementEvidence> = withContext(Dispatchers.IO) {
-        engagementDao.get().getEngagementsRequiringSync().map { it.toDomain() }
+        val userId = authRepository.currentUserId
+        if (userId.isEmpty()) return@withContext emptyList()
+        engagementDao.get().getEngagementsRequiringSync(userId).map { it.toDomain() }
     }
 
     suspend fun reclaimOrphanedSyncs(): Int = withContext(Dispatchers.IO) {
-        engagementDao.get().reclaimOrphanedSyncs()
+        val userId = authRepository.currentUserId
+        if (userId.isEmpty()) return@withContext 0
+        engagementDao.get().reclaimOrphanedSyncs(userId)
     }
 
     suspend fun updateSyncStatus(artifactId: String, state: SyncState, error: String? = null) = withContext(Dispatchers.IO) {
-        engagementDao.get().updateSyncStatus(artifactId, state, System.currentTimeMillis(), error)
+        val userId = authRepository.currentUserId
+        if (userId.isEmpty()) return@withContext
+        engagementDao.get().updateSyncStatus(artifactId, userId, state, System.currentTimeMillis(), error)
     }
 
     suspend fun markEngagementSynced(artifactId: String): Int = withContext(Dispatchers.IO) {
-        engagementDao.get().markAsSynced(artifactId, System.currentTimeMillis())
+        val userId = authRepository.currentUserId
+        if (userId.isEmpty()) return@withContext 0
+        engagementDao.get().markAsSynced(artifactId, userId, System.currentTimeMillis())
     }
 
     /**
@@ -66,7 +79,9 @@ class EngagementRepository @Inject constructor(
      * Use when backend verification times out.
      */
     suspend fun forceRetrySync(artifactId: String) = withContext(Dispatchers.IO) {
-        engagementDao.get().updateSyncStatus(artifactId, SyncState.PENDING, System.currentTimeMillis(), "Retry triggered by timeout")
+        val userId = authRepository.currentUserId
+        if (userId.isEmpty()) return@withContext
+        engagementDao.get().updateSyncStatus(artifactId, userId, SyncState.PENDING, System.currentTimeMillis(), "Retry triggered by timeout")
         syncScheduler.scheduleSync()
     }
 
@@ -74,15 +89,15 @@ class EngagementRepository @Inject constructor(
      * Observes engagement evidence, combining local sync state with remote authoritative unlock status.
      */
     fun observeEngagementEvidence(artifactId: String): Flow<EngagementEvidence?> {
-        val currentUserId = FirebaseAuth.getInstance().currentUser?.uid
-            ?: return engagementDao.get().observeEngagement(artifactId).map { it?.toDomain() }
+        val currentUserId = authRepository.currentUserId
+        if (currentUserId.isEmpty()) return flowOf(null)
 
-        val localFlow = engagementDao.get().observeEngagement(artifactId).distinctUntilChanged()
+        val localFlow = engagementDao.get().observeEngagement(artifactId, currentUserId).distinctUntilChanged()
         val remoteFlow = firestoreRepository.observeRemoteUnlockStatus(currentUserId, artifactId)
             .onEach { remote ->
                 if (remote != null) {
                     externalScope.launch {
-                        updateLocalUnlockCache(artifactId, remote)
+                        updateLocalUnlockCache(artifactId, currentUserId, remote)
                     }
                 }
             }
@@ -101,10 +116,11 @@ class EngagementRepository @Inject constructor(
         }
     }
 
-    private suspend fun updateLocalUnlockCache(artifactId: String, remote: UnlockStatus) {
+    private suspend fun updateLocalUnlockCache(artifactId: String, userId: String, remote: UnlockStatus) {
         withContext(Dispatchers.IO) {
             engagementDao.get().updateUnlockStatus(
                 artifactId = artifactId,
+                userId = userId,
                 isUnlocked = remote.isCommentUnlocked,
                 timestamp = remote.unlockTimestamp,
                 state = remote.engagementState.name,
@@ -116,7 +132,13 @@ class EngagementRepository @Inject constructor(
 
     suspend fun saveEngagement(evidence: EngagementEvidence): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            val entity = evidence.toEntity().copy(syncState = SyncState.PENDING)
+            val userId = authRepository.currentUserId
+            if (userId.isEmpty()) return@withContext Result.failure(AppError.Unauthenticated())
+            
+            val entity = evidence.toEntity().copy(
+                userId = userId,
+                syncState = SyncState.PENDING
+            )
             engagementDao.get().insertEngagementMonotonic(entity)
             syncScheduler.scheduleSync()
             Result.success(Unit)
@@ -127,7 +149,10 @@ class EngagementRepository @Inject constructor(
 
     suspend fun updateLastPosition(artifactId: String, positionMs: Long): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            engagementDao.get().updateLastPosition(artifactId, positionMs)
+            val userId = authRepository.currentUserId
+            if (userId.isEmpty()) return@withContext Result.failure(AppError.Unauthenticated())
+            
+            engagementDao.get().updateLastPosition(artifactId, userId, positionMs)
 
             syncScheduler.scheduleSync()
             Result.success(Unit)
@@ -161,7 +186,9 @@ class EngagementRepository @Inject constructor(
     }
 
     private fun EngagementEvidence.toEntity(): ArtifactEngagement {
+        val currentUserId = authRepository.currentUserId
         return ArtifactEngagement(
+            userId = currentUserId,
             artifactId = artifactId,
             versionTag = versionTag,
             durationMs = durationMs,

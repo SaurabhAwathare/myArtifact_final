@@ -109,7 +109,8 @@ class LogcatDiagnosticLogger @Inject constructor(
     private object PrivacyScrubber {
         private val SENSITIVE_KEYS = setOf(
             "username", "email", "password", "mnemonic", "token", 
-            "credential", "passphrase", "secret", "realName", "displayName"
+            "credential", "passphrase", "secret", "realName", "displayName",
+            "user_id", "userId"
         )
         
         private val PATH_PATTERN = Regex("/(?:data|storage|emulated|mnt)/[^ |]+")

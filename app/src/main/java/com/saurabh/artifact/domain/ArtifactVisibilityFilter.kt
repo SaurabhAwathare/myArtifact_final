@@ -41,15 +41,15 @@ class ArtifactVisibilityFilter @Inject constructor(
     /**
      * Fetches a one-shot snapshot of ignored user IDs from Room.
      */
-    suspend fun getIgnoredUserIdsSnapshot(): Set<String> {
-        return ignoredUserDao.getAllIgnoredUserIds().toSet()
+    suspend fun getIgnoredUserIdsSnapshot(ownerUserId: String): Set<String> {
+        return ignoredUserDao.getAllIgnoredUserIds(ownerUserId).toSet()
     }
 
     /**
      * Provides a reactive stream of ignored user IDs from Room.
      */
-    fun observeIgnoredUserIds(): Flow<Set<String>> {
-        return ignoredUserDao.observeAllIgnoredUserIds().map { it.toSet() }
+    fun observeIgnoredUserIds(ownerUserId: String): Flow<Set<String>> {
+        return ignoredUserDao.observeAllIgnoredUserIds(ownerUserId).map { it.toSet() }
     }
 
     /**
@@ -124,10 +124,10 @@ class ArtifactVisibilityFilter @Inject constructor(
                         val targetUid = change.document.id
                         when (change.type) {
                             DocumentChange.Type.ADDED, DocumentChange.Type.MODIFIED -> {
-                                ignoredUserDao.insert(com.saurabh.artifact.data.local.IgnoredUserEntity(targetUid))
+                                ignoredUserDao.insert(com.saurabh.artifact.data.local.IgnoredUserEntity(userId, targetUid))
                             }
                             DocumentChange.Type.REMOVED -> {
-                                ignoredUserDao.delete(targetUid)
+                                ignoredUserDao.delete(targetUid, userId)
                             }
                         }
                     }

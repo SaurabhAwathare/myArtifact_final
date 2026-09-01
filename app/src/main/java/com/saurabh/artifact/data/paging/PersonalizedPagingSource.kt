@@ -1,8 +1,9 @@
 package com.saurabh.artifact.data.paging
 
-import android.util.Log
 import androidx.paging.PagingSource
 import androidx.paging.PagingState
+import com.saurabh.artifact.diagnostics.ArtifactLogger
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.google.firebase.firestore.DocumentSnapshot
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.repository.FeedRepository
@@ -55,26 +56,24 @@ class PersonalizedPagingSource(
                     emotion = emotion
                 ).getOrDefault(PaginatedArtifacts(emptyList(), null))
 
-                Log.d("PagingSourceDiag", "Page Offset: ${key.offset}")
-                Log.d("PagingSourceDiag", "Resonating IDs: ${resonatedResult.artifacts.map { it.id }}")
-                Log.d("PagingSourceDiag", "Discovery IDs: ${discoveryResult.artifacts.map { it.id }}")
+                ArtifactLogger.d(DiagnosticCategory.FEED, "PAGING_SOURCE_LOAD", mapOf("offset" to key.offset))
 
                 val suppressed = suppressedIdsSnapshot ?: visibilityFilter.getSuppressedIdsSnapshot(userId).also {
                     suppressedIdsSnapshot = it
                 }
-                val ignored = ignoredUserIdsSnapshot ?: visibilityFilter.getIgnoredUserIdsSnapshot().also {
+                val ignored = ignoredUserIdsSnapshot ?: visibilityFilter.getIgnoredUserIdsSnapshot(userId).also {
                     ignoredUserIdsSnapshot = it
                 }
 
                 val combined = (resonatedResult.artifacts + discoveryResult.artifacts)
                     .asSequence()
-                    .filter { (it.id !in emittedIds) && (it.id !in suppressed) && (it.userId !in ignored) }
+                    .filter { (it.id !in emittedIds) && (it.id !in suppressed) && (it.author.anonymousId !in ignored) }
                     .distinctBy { it.id }
                     .toList()
 
                 emittedIds.addAll(combined.map { it.id })
 
-                Log.d("PagingSourceDiag", "Final Combined IDs (New): ${combined.map { it.id }}")
+                ArtifactLogger.d(DiagnosticCategory.FEED, "PAGING_SOURCE_COMBINED", mapOf("count" to combined.size))
 
                 val ranked = if (combined.isNotEmpty()) {
                     feedRanker.rank(combined, user = null, currentMood = emotion)

@@ -70,7 +70,8 @@ fun NavGraphBuilder.profileNavigation(
         ResonanceListScreen(
             onBack = onBack,
             onUserClick = { clickedUserId ->
-                navController.navigate(Profile(clickedUserId))
+                // clickedUserId from resonance list is a personaId (Responsible Anonymity)
+                navController.navigate(Profile(personaId = clickedUserId))
             }
         )
     }

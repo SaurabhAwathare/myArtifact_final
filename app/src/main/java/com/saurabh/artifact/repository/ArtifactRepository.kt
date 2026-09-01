@@ -530,14 +530,40 @@ class ArtifactRepository @Inject constructor(
     ): Result<Pair<List<Artifact>, com.google.firebase.firestore.DocumentSnapshot?>> = withContext(Dispatchers.IO) {
         try {
             val currentUserId = auth.currentUser?.uid
-            val isPublicOnly = userId != currentUserId
+            val isSelf = userId == currentUserId
 
-            var query = firestore.collection("artifacts")
-                .whereEqualTo("userId", userId)
-            
-            if (isPublicOnly) {
-                query = query.whereEqualTo("isPublic", true)
+            if (isSelf) {
+                // SELF PATH: Fetch from private ownership registry
+                var registryQuery = firestore.collection("users").document(userId)
+                    .collection("private").document("published_artifacts")
+                    .collection("artifacts")
+                    .orderBy("createdAt", Query.Direction.DESCENDING)
+                    .limit(limit.toLong())
+
+                if (lastVisible != null) {
+                    registryQuery = registryQuery.startAfter(lastVisible)
+                }
+
+                val registrySnapshot = registryQuery.get().await()
+                if (registrySnapshot.isEmpty) {
+                    return@withContext Result.success(emptyList<Artifact>() to null)
+                }
+
+                val artifactIds = registrySnapshot.documents.map { it.id }
+                
+                // Resolve full documents (order is maintained by getArtifactsByIds)
+                val artifactsResult = getArtifactsByIds(artifactIds)
+                val artifacts = artifactsResult.getOrDefault(emptyList()).map { artifact ->
+                    artifact.copy(userId = userId) // Restore for self-view
+                }
+                
+                return@withContext Result.success(artifacts to registrySnapshot.documents.lastOrNull())
             }
+
+            // PUBLIC PATH: Query by anonymous persona ID
+            var query = firestore.collection("artifacts")
+                .whereEqualTo("author.anonymousId", userId) // userId is personaId here
+                .whereEqualTo("isPublic", true)
 
             if (onlyActive) {
                 query = query.whereEqualTo("status", ArtifactStatus.ACTIVE.name)
@@ -559,28 +585,23 @@ class ArtifactRepository @Inject constructor(
                 val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
                 if (artifact == null) return@mapNotNull null
 
-                if (isPublicOnly) {
-                    val reportCount = doc.getLong("reportCount") ?: 0L
-                    val safetyConcernCount = doc.getLong("safetyConcernCount") ?: 0L
-                    
-                    val artifactSnapshot = artifact.copy(
-                        reportCount = reportCount,
-                        safetyConcernCount = safetyConcernCount,
-                        reporterIds = emptyList() // Deprecated
-                    )
+                // Apply safety policy for other-user profile view
+                val reportCount = doc.getLong("reportCount") ?: 0L
+                val safetyConcernCount = doc.getLong("safetyConcernCount") ?: 0L
+                
+                val artifactSnapshot = artifact.copy(
+                    reportCount = reportCount,
+                    safetyConcernCount = safetyConcernCount,
+                    reporterIds = emptyList() // Deprecated
+                )
 
-                    val isEligible = safetyPolicy.isEligibleForDiscovery(
-                        artifact = artifactSnapshot,
-                        currentUserId = currentUserId,
-                        isSuppressedByUser = suppressedIds.contains(doc.id)
-                    )
-                    
-                    if (isEligible) artifactSnapshot else null
-                } else {
-                    if (artifact.status != ArtifactStatus.DELETED || !onlyActive) {
-                        artifact
-                    } else null
-                }
+                val isEligible = safetyPolicy.isEligibleForDiscovery(
+                    artifact = artifactSnapshot,
+                    currentUserId = currentUserId,
+                    isSuppressedByUser = suppressedIds.contains(doc.id)
+                )
+                
+                if (isEligible) artifactSnapshot else null
             }
 
             Result.success(artifacts to snapshot.documents.lastOrNull())
@@ -591,7 +612,7 @@ class ArtifactRepository @Inject constructor(
                 mapOf("userId" to userId),
                 e
             )
-            Result.failure(e)
+            Result.failure(AppError.from(e))
         }
     }
 

@@ -1087,28 +1087,28 @@ class UserRepository @Inject constructor(
     }
 
     /**
-     * Privately ignores a Presence (User).
+     * Privately ignores a Presence (Persona).
      * Synchronizes to Firestore private collection and local Room cache.
+     * Use targetAnonymousId to align with Responsible Anonymity.
      */
-    suspend fun ignoreUser(targetUserId: String): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun ignoreUser(targetAnonymousId: String): Result<Unit> = withContext(Dispatchers.IO) {
         val currentUserId = getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
-        if (currentUserId == targetUserId) return@withContext Result.failure(AppError.InvalidInput("Cannot ignore yourself"))
-
+        
         try {
-            // 1. Remote Write
+            // 1. Remote Write: Store the target persona ID in the user's private ignore list
             usersCollection.document(currentUserId)
                 .collection("private").document("ignored_users")
-                .collection("users").document(targetUserId)
+                .collection("users").document(targetAnonymousId)
                 .set(mapOf("ignoredAt" to FieldValue.serverTimestamp()))
                 .await()
 
-            // 2. Local Write
-            ignoredUserDao.get().insert(com.saurabh.artifact.data.local.IgnoredUserEntity(targetUserId))
+            // 2. Local Write: Store persona ID in local Room (using 'userId' column for compatibility)
+            ignoredUserDao.get().insert(com.saurabh.artifact.data.local.IgnoredUserEntity(currentUserId, targetAnonymousId))
             
-            diagnosticLogger.info(DiagnosticCategory.RESONANCE, "USER_IGNORED", mapOf("targetUserId" to targetUserId))
+            diagnosticLogger.info(DiagnosticCategory.RESONANCE, "USER_IGNORED", mapOf("targetPersonaId" to targetAnonymousId))
             Result.success(Unit)
         } catch (e: Exception) {
-            diagnosticLogger.error(DiagnosticCategory.RESONANCE, "USER_IGNORE_FAILED", mapOf("targetUserId" to targetUserId), e)
+            diagnosticLogger.error(DiagnosticCategory.RESONANCE, "USER_IGNORE_FAILED", mapOf("targetPersonaId" to targetAnonymousId), e)
             Result.failure(AppError.from(e))
         }
     }
@@ -1116,24 +1116,24 @@ class UserRepository @Inject constructor(
     /**
      * Removes an ignore relationship privately.
      */
-    suspend fun unignoreUser(targetUserId: String): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun unignoreUser(targetAnonymousId: String): Result<Unit> = withContext(Dispatchers.IO) {
         val currentUserId = getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
 
         try {
             // 1. Remote Delete
             usersCollection.document(currentUserId)
                 .collection("private").document("ignored_users")
-                .collection("users").document(targetUserId)
+                .collection("users").document(targetAnonymousId)
                 .delete()
                 .await()
 
             // 2. Local Delete
-            ignoredUserDao.get().delete(targetUserId)
+            ignoredUserDao.get().delete(targetAnonymousId, currentUserId)
             
-            diagnosticLogger.info(DiagnosticCategory.RESONANCE, "USER_UNIGNORED", mapOf("targetUserId" to targetUserId))
+            diagnosticLogger.info(DiagnosticCategory.RESONANCE, "USER_UNIGNORED", mapOf("targetPersonaId" to targetAnonymousId))
             Result.success(Unit)
         } catch (e: Exception) {
-            diagnosticLogger.error(DiagnosticCategory.RESONANCE, "USER_UNIGNORE_FAILED", mapOf("targetUserId" to targetUserId), e)
+            diagnosticLogger.error(DiagnosticCategory.RESONANCE, "USER_UNIGNORE_FAILED", mapOf("targetPersonaId" to targetAnonymousId), e)
             Result.failure(AppError.from(e))
         }
     }
@@ -1155,9 +1155,9 @@ class UserRepository @Inject constructor(
             
             // Atomic Refresh
             val dao = ignoredUserDao.get()
-            dao.deleteAll()
+            dao.deleteAll(userId)
             ignoredUserIds.forEach { targetId ->
-                dao.insert(com.saurabh.artifact.data.local.IgnoredUserEntity(targetId))
+                dao.insert(com.saurabh.artifact.data.local.IgnoredUserEntity(userId, targetId))
             }
 
             diagnosticLogger.info(DiagnosticCategory.RESONANCE, "IGNORED_USERS_SYNCED", mapOf("count" to ignoredUserIds.size))
@@ -1172,6 +1172,7 @@ class UserRepository @Inject constructor(
      * Streams the set of ignored user IDs for the current user.
      */
     fun observeIgnoredUsers(): Flow<Set<String>> {
-        return ignoredUserDao.get().observeAllIgnoredUserIds().map { it.toSet() }
+        val userId = getCurrentUserId() ?: return flowOf(emptySet())
+        return ignoredUserDao.get().observeAllIgnoredUserIds(userId).map { it.toSet() }
     }
 }

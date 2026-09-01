@@ -42,12 +42,16 @@ class ReviewAuthorityService @Inject constructor(
     }
 
     private fun observePlayback() {
-        // Session Lifecycle
+        // Session Lifecycle: Use collectLatest to ensure only the CURRENT artifact setup is active.
         scope.launch {
-            playbackSessionManager.currentArtifact.collect { artifact ->
+            playbackSessionManager.currentArtifact.collectLatest { artifact ->
                 if (artifact == null) {
                     finalizeSession()
                 } else {
+                    // R036 Alignment: Ensure previous session is finalized before starting new one
+                    if (activeTracker != null && activeTracker?.progress?.artifactId != artifact.id) {
+                        finalizeSession()
+                    }
                     initializeSession(artifact)
                 }
             }
@@ -167,12 +171,15 @@ class ReviewAuthorityService @Inject constructor(
     }
 
     private suspend fun finalizeSession() {
-        activeTracker?.let { tracker ->
-            val progress = tracker.progress
+        val tracker = activeTracker ?: return
+        val progress = tracker.progress
+        
+        withContext(NonCancellable) {
             // Save one last time to ensure position is captured
             engagementRepository.saveEngagement(progress.evidence)
             engagementRepository.updateLastPosition(progress.artifactId, progress.evidence.lastPositionMs)
         }
+        
         activeTracker = null
         _currentProgress.value = null
     }

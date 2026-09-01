@@ -93,7 +93,7 @@ class MainViewModel @Inject constructor(
     private val ignoredUsers = authRepository.currentUser
         .flatMapLatest { user ->
             if (user != null) {
-                visibilityFilter.observeIgnoredUserIds()
+                visibilityFilter.observeIgnoredUserIds(user.uid)
             } else {
                 flowOf(emptySet())
             }
@@ -595,7 +595,7 @@ class MainViewModel @Inject constructor(
         val recipientId = intent.getStringExtra("recipientId")
 
         if (type == "FOLLOW" && !userId.isNullOrBlank()) {
-            return Profile(userId)
+            return Profile(personaId = userId)
         }
 
         if (!artifactId.isNullOrBlank()) {

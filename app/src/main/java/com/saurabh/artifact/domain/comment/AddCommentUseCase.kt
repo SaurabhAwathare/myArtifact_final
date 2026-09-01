@@ -54,7 +54,8 @@ class AddCommentUseCase @Inject constructor(
             identityVersion = user.identityMetadata.identityResetVersion
         )
 
-        // 4. Delegate to Repository
-        return commentRepository.createComment(comment)
+        // 4. Enqueue for durable background synchronization
+        // This provides durability (survives process death) and idempotency (stable commentId).
+        return commentRepository.enqueueComment(comment).map { comment }
     }
 }
