@@ -181,11 +181,13 @@ class StartupCoordinator @Inject constructor(
                 userSessionManager.setActiveDraftId(null)
             }
 
-            // DURABLE RECOVERY: Check for interrupted account deletion
+            // DURABLE RECOVERY: Check for interrupted account deletion or logout
             try {
                 val pendingUid = maintenanceRepository.getPendingDeletionUid()
-                if (pendingUid != null) {
-                    ArtifactLogger.w(DiagnosticCategory.STARTUP, "ACCOUNT_DELETION_PENDING", mapOf(LogKeys.USER_ID to pendingUid))
+                val isLoggingOut = userSessionManager.isLoggingOut.first()
+
+                if (pendingUid != null || isLoggingOut) {
+                    ArtifactLogger.w(DiagnosticCategory.STARTUP, "INTERRUPTED_CLEANUP_DETECTED", mapOf(LogKeys.USER_ID to (pendingUid ?: "unknown"), "isLogout" to isLoggingOut))
                     _stage.value = StartupStage.DELETION_CLEANUP
                     
                     // Execute authoritative local wipe

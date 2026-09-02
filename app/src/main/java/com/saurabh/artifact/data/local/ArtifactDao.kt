@@ -9,21 +9,25 @@ interface ArtifactDao {
     suspend fun insertAll(artifacts: List<ArtifactEntity>)
 
     /**
-     * Fetches a paginated stream of all artifacts from the local cache, excluding suppressed and reported items.
+     * Fetches a paginated stream of all artifacts from the local cache, excluding suppressed, reported, and ignored items.
      */
     @Query("""
         SELECT * FROM artifacts 
-        WHERE (recommendationState != 'SUPPRESSED' AND id NOT IN (SELECT artifactId FROM reported_artifacts WHERE userId = :currentUserId))
+        WHERE (recommendationState != 'SUPPRESSED' 
+          AND id NOT IN (SELECT artifactId FROM reported_artifacts WHERE userId = :currentUserId)
+          AND authorAnonymousId NOT IN (SELECT userId FROM ignored_users WHERE ownerUserId = :currentUserId))
         ORDER BY createdAt DESC, id DESC
     """)
     fun getArtifactsPaged(currentUserId: String): PagingSource<Int, ArtifactEntity>
 
     /**
-     * Fetches a paginated stream of artifacts filtered by specific emotions.
+     * Fetches a paginated stream of artifacts filtered by specific emotions and safety rules.
      */
     @Query("""
         SELECT * FROM artifacts 
-        WHERE (recommendationState != 'SUPPRESSED' AND id NOT IN (SELECT artifactId FROM reported_artifacts WHERE userId = :currentUserId))
+        WHERE (recommendationState != 'SUPPRESSED' 
+          AND id NOT IN (SELECT artifactId FROM reported_artifacts WHERE userId = :currentUserId)
+          AND authorAnonymousId NOT IN (SELECT userId FROM ignored_users WHERE ownerUserId = :currentUserId))
         AND (emotion IN (:emotions))
         ORDER BY createdAt DESC, id DESC
     """)
@@ -58,10 +62,11 @@ interface ArtifactDao {
             authorSigilColor = :color, 
             authorSigilConfigJson = :configJson,
             identityVersion = :identityVersion
-        WHERE userId = :userId
+        WHERE userId = :userId AND authorAnonymousId = :anonymousId
     """)
     suspend fun updateAuthorInfo(
         userId: String, 
+        anonymousId: String,
         name: String, 
         sigil: String, 
         seed: String, 

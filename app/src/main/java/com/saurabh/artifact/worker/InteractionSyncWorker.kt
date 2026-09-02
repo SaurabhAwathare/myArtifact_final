@@ -52,7 +52,7 @@ class InteractionSyncWorker @AssistedInject constructor(
         startupCoordinator.awaitComponent(com.saurabh.artifact.startup.StartupComponent.DATABASE)
 
         val currentUserId = FirebaseAuth.getInstance().currentUser?.uid ?: return@withContext Result.failure()
-        ArtifactLogger.i(DiagnosticCategory.WORKER, "SYNC_STARTED", mapOf("worker" to "InteractionSyncWorker"))
+        ArtifactLogger.i(DiagnosticCategory.WORKER, "SYNC_STARTED", mapOf("worker" to "InteractionSyncWorker", "uid" to currentUserId))
         
         // 0. Reclaim any records stuck in SYNCING state from a previous interrupted process
         val reclaimedCount = engagementRepository.reclaimOrphanedSyncs()
@@ -81,6 +81,21 @@ class InteractionSyncWorker @AssistedInject constructor(
         var hasInteractionTransientFailure = false
 
         for (interaction in pending) {
+            // R090: Logout/Account-Switch Boundary Guard
+            // We verify three levels of integrity before each write:
+            // 1. Worker not cancelled
+            // 2. Authenticated user has not changed since worker started
+            // 3. Current authenticated user matches the interaction owner
+            val authUid = FirebaseAuth.getInstance().currentUser?.uid
+            if (isStopped || authUid != currentUserId || interaction.userId != currentUserId) {
+                ArtifactLogger.w(
+                    DiagnosticCategory.SYNC, 
+                    "SYNC_LOOP_TERMINATED_OWNERSHIP_CHANGE", 
+                    mapOf("interactionId" to interaction.id, "workerUid" to currentUserId, "authUid" to (authUid ?: "null"))
+                )
+                return@withContext Result.failure() // Stop processing this batch
+            }
+
             val processingInteraction = interaction.copy(
                 workerId = workerId,
                 retryCount = interaction.retryCount + 1

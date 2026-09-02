@@ -281,33 +281,45 @@ class DataExportManager @Inject constructor(
 
     private suspend fun exportAuthoredComments(userId: String, zipOut: ZipOutputStream, errors: MutableList<String>): Int {
         return try {
-            // Responsible Anonymity: Query by current persona ID since creatorId is removed from public surface.
-            // Note: This only exports comments for the CURRENT persona.
-            val user = userRepository.get().getCachedProfile(userId)
-            val currentAnonId = user?.anonymousId ?: ""
+            // R050 FIX: Export comments for ALL personas used by this account
+            val personaSnapshot = firestore.collection("users").document(userId)
+                .collection("private").document("identity_history")
+                .collection("personas").get().await()
             
-            if (currentAnonId.isEmpty()) return 0
+            val personaIds = personaSnapshot.documents.map { it.id }.toMutableSet()
+            
+            // Safety: Ensure current persona is included
+            val currentProfile = userRepository.get().getCachedProfile(userId)
+            currentProfile?.anonymousId?.let { personaIds.add(it) }
 
-            val snapshot = firestore.collectionGroup("comments")
-                .whereEqualTo("author.anonymousId", currentAnonId)
-                .get().await()
+            if (personaIds.isEmpty()) return 0
+
+            val allComments = mutableListOf<CommentExport>()
             
-            val comments = snapshot.documents.mapNotNull { doc ->
-                doc.toObject(CommentDto::class.java)?.copy(id = doc.id)?.let { dto ->
-                    CommentExport(
-                        id = dto.id,
-                        artifactId = dto.artifactId,
-                        authorName = dto.author.name,
-                        text = dto.text,
-                        createdAt = dto.createdAt?.toDate()?.toString() ?: "Unknown",
-                        status = dto.status
-                    )
+            // Chunked queries by personaId (collectionGroup with whereIn limit is typically 10 or 30)
+            for (chunk in personaIds.chunked(10)) {
+                val snapshot = firestore.collectionGroup("comments")
+                    .whereIn("author.anonymousId", chunk)
+                    .get().await()
+                
+                snapshot.documents.mapNotNullTo(allComments) { doc ->
+                    doc.toObject(CommentDto::class.java)?.copy(id = doc.id)?.let { dto ->
+                        CommentExport(
+                            id = dto.id,
+                            artifactId = dto.artifactId,
+                            authorName = dto.author.name,
+                            text = dto.text,
+                            createdAt = dto.createdAt?.toDate()?.toString() ?: "Unknown",
+                            status = dto.status
+                        )
+                    }
                 }
             }
-            if (comments.isNotEmpty()) {
-                zipOut.addJsonEntry("Participation/comments_authored.json", comments)
+
+            if (allComments.isNotEmpty()) {
+                zipOut.addJsonEntry("Participation/comments_authored.json", allComments)
             }
-            comments.size
+            allComments.size
         } catch (e: Exception) {
             errors.add("Failed to export authored comments: ${e.message}")
             0
@@ -317,6 +329,12 @@ class DataExportManager @Inject constructor(
     private suspend fun exportReceivedComments(userId: String, artifacts: List<Artifact>, zipOut: ZipOutputStream, errors: MutableList<String>): Int {
         var total = 0
         try {
+            // R050 FIX: Filter out comments authored by ANY of the user's historical personas
+            val personaSnapshot = firestore.collection("users").document(userId)
+                .collection("private").document("identity_history")
+                .collection("personas").get().await()
+            val personaIds = personaSnapshot.documents.map { it.id }.toSet()
+            
             val user = userRepository.get().getCachedProfile(userId)
             val currentAnonId = user?.anonymousId ?: ""
 
@@ -327,8 +345,8 @@ class DataExportManager @Inject constructor(
                 
                 val comments = snapshot.documents.mapNotNull { doc ->
                     doc.toObject(CommentDto::class.java)?.copy(id = doc.id)?.let { dto ->
-                        // Only include if not authored by the user themselves (to avoid duplicates)
-                        if (dto.author.anonymousId != currentAnonId) {
+                        // Only include if not authored by any of the user's personas
+                        if (dto.author.anonymousId != currentAnonId && !personaIds.contains(dto.author.anonymousId)) {
                             CommentExport(
                                 id = dto.id,
                                 artifactId = dto.artifactId,

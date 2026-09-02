@@ -835,7 +835,10 @@ class UserRepository @Inject constructor(
         artifactId: String?
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            val reportRef = firestore.collection("reports").document()
+            // R063 FIX: Use deterministic ID compliant with Firestore Rules: {uid}_exposure_{target}
+            val reportId = "${reporterId}_exposure_${reportedUserId}"
+            val reportRef = firestore.collection("reports").document(reportId)
+            
             reportRef.set(mapOf(
                 "type" to "IDENTITY_EXPOSURE",
                 "priority" to "CRITICAL",

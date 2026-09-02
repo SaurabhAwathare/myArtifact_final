@@ -7,6 +7,7 @@ import com.saurabh.artifact.diagnostics.ArtifactLogger
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.model.NotificationItem
 import com.saurabh.artifact.model.NotificationType
+import com.saurabh.artifact.diagnostics.LogKeys
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -152,6 +153,35 @@ class NotificationRepository @Inject constructor(
             Result.success(Unit)
         } catch (e: Exception) {
             ArtifactLogger.e(DiagnosticCategory.APP, "NOTIF_MARK_ALL_READ_FAILED", throwable = e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Authoritatively deletes all notifications for a user.
+     * Used during Identity Reset (Clean Break) to ensure the new persona
+     * does not inherit the historical notification trail of the old persona.
+     */
+    suspend fun deleteAllNotifications(userId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        if (userId.isEmpty()) return@withContext Result.success(Unit)
+        try {
+            val snapshot = notificationsCollection
+                .whereEqualTo("userId", userId)
+                .get()
+                .await()
+
+            if (snapshot.isEmpty) return@withContext Result.success(Unit)
+
+            firestore.runBatch { batch ->
+                snapshot.documents.forEach { doc ->
+                    batch.delete(doc.reference)
+                }
+            }.await()
+
+            ArtifactLogger.i(DiagnosticCategory.APP, "NOTIFICATIONS_PURGED", mapOf(LogKeys.USER_ID to userId))
+            Result.success(Unit)
+        } catch (e: Exception) {
+            ArtifactLogger.e(DiagnosticCategory.APP, "NOTIFICATIONS_PURGE_FAILED", mapOf(LogKeys.USER_ID to userId), e)
             Result.failure(e)
         }
     }

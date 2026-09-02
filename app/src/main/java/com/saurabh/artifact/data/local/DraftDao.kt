@@ -101,8 +101,8 @@ interface DraftDao {
     }
 
     /** User-scoped: Update transcoding result with ownership enforcement. */
-    @Query("UPDATE artifact_drafts SET localAudioPath = :localAudioPath, checksum = :checksum, isEncrypted = :isEncrypted, updatedAt = :timestamp WHERE id = :id AND userId = :userId")
-    suspend fun updateTranscodingResult(id: String, userId: String, localAudioPath: String, checksum: String?, isEncrypted: Boolean, timestamp: Long = System.currentTimeMillis())
+    @Query("UPDATE artifact_drafts SET localAudioPath = :localAudioPath, mimeType = :mimeType, checksum = :checksum, isEncrypted = :isEncrypted, updatedAt = :timestamp WHERE id = :id AND userId = :userId")
+    suspend fun updateTranscodingResult(id: String, userId: String, localAudioPath: String, mimeType: String, checksum: String?, isEncrypted: Boolean, timestamp: Long = System.currentTimeMillis())
 
     /** User-scoped: Internal update for amplitude data with ownership enforcement. */
     @Query("UPDATE artifact_drafts SET amplitudeData = :amplitudeData, updatedAt = :timestamp WHERE id = :id AND userId = :userId")

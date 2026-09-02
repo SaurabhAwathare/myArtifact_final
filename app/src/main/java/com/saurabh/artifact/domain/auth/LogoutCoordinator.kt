@@ -105,6 +105,13 @@ class LogoutCoordinator @Inject constructor(
             withContext(ioDispatcher) {
                 diagnosticLogger.info(DiagnosticCategory.AUTH, "LOGOUT_CLEANUP_STARTED")
 
+                // R080: Set "Cleanup In Progress" flag early to block dirty restoration on crash/restart
+                try {
+                    sessionManager.setLoggingOut(true)
+                } catch (e: Exception) {
+                    diagnosticLogger.warn(DiagnosticCategory.AUTH, "LOGOUT_FLAG_SET_FAILED", throwable = e)
+                }
+
                 var recordingSuccess = true
                 var playbackSuccess = true
                 var uploadsSuccess = true

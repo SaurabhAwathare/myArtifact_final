@@ -11,8 +11,10 @@ import com.saurabh.artifact.domain.comment.GetCommentsUseCase
 import com.saurabh.artifact.domain.review.EngagementEvidence
 import com.saurabh.artifact.repository.EngagementRepository
 import com.saurabh.artifact.repository.AuthRepository
+import com.saurabh.artifact.repository.ArtifactModerationRepository
 import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.Comment
+import com.saurabh.artifact.model.ReportReason
 import com.saurabh.artifact.model.SyncState
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
@@ -49,6 +51,7 @@ class CommentViewModel @Inject constructor(
     private val addCommentUseCase: AddCommentUseCase,
     private val deleteCommentUseCase: DeleteCommentUseCase,
     private val engagementRepository: EngagementRepository,
+    private val moderationRepository: ArtifactModerationRepository,
     private val authRepository: AuthRepository,
     private val ownershipAuthority: ArtifactOwnershipAuthority,
     private val diagnosticLogger: DiagnosticLogger
@@ -431,6 +434,23 @@ class CommentViewModel @Inject constructor(
                 }
                 .onFailure { error ->
                     _uiState.update { it.copy(error = AppError.from(error)) }
+                }
+        }
+    }
+
+    /**
+     * Submits a report for a specific comment.
+     */
+    fun reportComment(commentId: String, reason: ReportReason, optionalDescription: String) {
+        if (artifactId.isEmpty() || commentId.isEmpty()) return
+
+        viewModelScope.launch {
+            moderationRepository.submitCommentReport(artifactId, commentId, reason, optionalDescription)
+                .onSuccess {
+                    _events.emit(CommentUiEvent.CommentReported)
+                }
+                .onFailure { error ->
+                    _events.emit(CommentUiEvent.SubmissionFailed(error.message ?: "Failed to submit report"))
                 }
         }
     }

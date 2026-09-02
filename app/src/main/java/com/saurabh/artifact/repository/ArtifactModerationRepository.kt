@@ -122,10 +122,30 @@ class ArtifactModerationRepository @Inject constructor(
         optionalDescription: String,
         deviceIdHash: Int
     ): Result<Unit> = withContext(Dispatchers.IO) {
-        return@withContext try {
-            val userId = auth.currentUser?.uid 
-                ?: return@withContext Result.failure(AppError.Unauthenticated())
+        val userId = auth.currentUser?.uid 
+            ?: return@withContext Result.failure(AppError.Unauthenticated())
 
+        // R059 FIX: Update local Room DB for immediate hiding BEFORE remote write
+        // This ensures content is suppressed even if offline or write fails.
+        try {
+            reportedArtifactDao.get().insert(
+                ReportedArtifactEntity(
+                    userId = userId,
+                    artifactId = artifactId
+                )
+            )
+            // Broadcast success for immediate UI feedback
+            _events.emit(ModerationEvent.ReportSuccess(artifactId))
+        } catch (e: Exception) {
+            diagnosticLogger.error(
+                DiagnosticCategory.DATABASE, 
+                "REPORT_LOCAL_PRE_SYNC_FAILED", 
+                mapOf(LogKeys.ARTIFACT_ID to artifactId), 
+                e
+            )
+        }
+
+        return@withContext try {
             // 1. Deterministic Report ID: {userId}_{artifactId} (Ensures idempotency)
             val reportId = "${userId}_${artifactId}"
             val reportData = mapOf(
@@ -141,33 +161,51 @@ class ArtifactModerationRepository @Inject constructor(
             // 2. Submit the report document (Overwrite if exists ensures retry safety)
             firestore.collection("reports").document(reportId).set(reportData).await()
             
-            // 3. Update local Room DB for immediate hiding
-            try {
-                reportedArtifactDao.get().insert(
-                    ReportedArtifactEntity(
-                        userId = userId,
-                        artifactId = artifactId
-                    )
-                )
-                
-                // Broadcast success for UI feedback and refresh
-                _events.emit(ModerationEvent.ReportSuccess(artifactId))
-            } catch (e: Exception) {
-                diagnosticLogger.error(
-                    DiagnosticCategory.DATABASE, 
-                    "REPORT_LOCAL_SYNC_FAILED", 
-                    mapOf(LogKeys.ARTIFACT_ID to artifactId), 
-                    e
-                )
-                // We don't fail the entire operation if local Room sync fails
-            }
-                
             Result.success(Unit)
         } catch (e: Exception) {
             diagnosticLogger.error(
                 DiagnosticCategory.FIRESTORE, 
                 "REPORT_SUBMISSION_FAILED", 
                 mapOf(LogKeys.ARTIFACT_ID to artifactId), 
+                e
+            )
+            Result.failure(AppError.from(e))
+        }
+    }
+
+    /**
+     * R052: Submits a report for a specific comment.
+     * Follows the same security and privacy invariants as artifact reporting.
+     */
+    suspend fun submitCommentReport(
+        artifactId: String,
+        commentId: String,
+        reason: ReportReason,
+        optionalDescription: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        val userId = auth.currentUser?.uid 
+            ?: return@withContext Result.failure(AppError.Unauthenticated())
+
+        return@withContext try {
+            val reportId = "${userId}_${commentId}"
+            val reportData = mapOf(
+                "artifactId" to artifactId,
+                "commentId" to commentId,
+                "reporterId" to userId,
+                "type" to "COMMENT",
+                "reason" to reason.name,
+                "optionalDescription" to optionalDescription,
+                "createdAt" to FieldValue.serverTimestamp(),
+                "status" to ReportStatus.PENDING.name
+            )
+
+            firestore.collection("reports").document(reportId).set(reportData).await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            diagnosticLogger.error(
+                DiagnosticCategory.FIRESTORE,
+                "COMMENT_REPORT_FAILED",
+                mapOf("commentId" to commentId),
                 e
             )
             Result.failure(AppError.from(e))

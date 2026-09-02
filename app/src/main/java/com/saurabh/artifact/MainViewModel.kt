@@ -275,6 +275,7 @@ class MainViewModel @Inject constructor(
         val currentUid = authRepository.currentUserId
         val owningUid = sessionManager.owningUid.first()
         val pendingDeletionUid = maintenanceRepository.getPendingDeletionUid()
+        val isLoggingOut = sessionManager.isLoggingOut.first()
         
         // Scenario 1: Interrupted deletion detected (Maintenance Lock)
         val isDeletionInterrupted = pendingDeletionUid != null
@@ -285,9 +286,10 @@ class MainViewModel @Inject constructor(
         // Scenario 3: App started logged-out but local account state exists (Dirty Logged Out)
         val isDirtyLoggedOut = currentUid.isEmpty() && owningUid != null
 
-        if (isDeletionInterrupted || isUidMismatch || isDirtyLoggedOut) {
+        if (isDeletionInterrupted || isUidMismatch || isDirtyLoggedOut || isLoggingOut) {
             val reason = when {
                 isDeletionInterrupted -> "pending_deletion"
+                isLoggingOut -> "interrupted_logout"
                 isUidMismatch -> "uid_mismatch"
                 else -> "dirty_logged_out"
             }

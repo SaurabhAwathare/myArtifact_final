@@ -69,7 +69,14 @@ class RecordingRepository @Inject constructor(
             )
             
             // Phase 11: Write ownership manifest to filesystem for resilience
-            localDraftManager.writeManifest(id, currentUserId, draft.createdAt, mimeType)
+            localDraftManager.writeManifest(
+                draftId = id, 
+                userId = currentUserId, 
+                createdAt = draft.createdAt, 
+                mimeType = mimeType,
+                title = null,
+                emotion = null
+            )
             
             draftDao.get().insert(draft)
             
@@ -171,7 +178,21 @@ class RecordingRepository @Inject constructor(
             if (trimmedTitle != null && (trimmedTitle.isEmpty() || trimmedTitle.length > 70)) {
                 return@withContext Result.failure(AppError.InvalidInput("Title length must be 1-70 characters"))
             }
+            
             draftDao.get().updateTitle(id, userId, trimmedTitle)
+            
+            // R089: Sync metadata to filesystem manifest for recovery resilience
+            draftDao.get().getDraftById(id, userId)?.let { draft ->
+                localDraftManager.writeManifest(
+                    draftId = draft.id,
+                    userId = userId,
+                    createdAt = draft.createdAt,
+                    mimeType = draft.mimeType,
+                    title = draft.title,
+                    emotion = draft.emotion
+                )
+            }
+
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(AppError.from(e))
@@ -182,6 +203,19 @@ class RecordingRepository @Inject constructor(
         try {
             val userId = userRepository.getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
             draftDao.get().updateMetadata(id, userId, title, emotion)
+
+            // R089: Sync metadata to filesystem manifest
+            draftDao.get().getDraftById(id, userId)?.let { draft ->
+                localDraftManager.writeManifest(
+                    draftId = draft.id,
+                    userId = userId,
+                    createdAt = draft.createdAt,
+                    mimeType = draft.mimeType,
+                    title = draft.title,
+                    emotion = draft.emotion
+                )
+            }
+
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(AppError.from(e))
@@ -508,13 +542,23 @@ class RecordingRepository @Inject constructor(
                         diagnosticLogger.info(DiagnosticCategory.RECORDING, "DRAFT_REINDEXED", mapOf(LogKeys.DRAFT_ID to draftId))
                         
                         // Re-insert into Room. This will trigger standard recovery logic in the next block.
-                        createDraft(
+                        val draft = ArtifactDraftEntity(
                             id = draftId,
-                            path = path,
+                            userId = userId,
+                            localAudioPath = path,
+                            rawPcmPath = if (wavFile.exists()) path else null,
                             durationMs = 0,
                             mimeType = manifest.mimeType,
-                            isEncrypted = m4aFile.exists()
+                            title = manifest.title,
+                            emotion = manifest.emotion,
+                            isEncrypted = m4aFile.exists(),
+                            uploadFormatVersion = 2,
+                            lifecycle = ArtifactLifecycle.PROCESSING,
+                            status = DraftStatus(publication = SyncStatus.LocalOnly),
+                            createdAt = manifest.createdAt,
+                            updatedAt = System.currentTimeMillis()
                         )
+                        draftDao.get().insert(draft)
                     }
                 }
             } catch (e: Exception) {

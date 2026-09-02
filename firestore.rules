@@ -244,6 +244,20 @@ service cloud.firestore {
                       enforceAppCheck() &&
                       !(request.resource.data.diff(resource.data).affectedKeys().hasAny(backendFields()));
       }
+
+      // --- ABUSE PROTECTED INTENTS ---
+      match /private/intents/follow/{targetAnonId} {
+        allow write: if isOwner(uid) && enforceAppCheck();
+      }
+
+      match /private/intents/comments/{commentId} {
+        allow create: if isOwner(uid) && enforceAppCheck() &&
+                      request.resource.data.artifactId is string &&
+                      request.resource.data.text is string &&
+                      request.resource.data.text.size() >= 1 &&
+                      request.resource.data.text.size() <= 1000 &&
+                      (isArtifactOwner(request.resource.data.artifactId) || isCommentUnlocked(uid, request.resource.data.artifactId));
+      }
     }
 
     // --- ARTIFACTS (The Hearth) ---
@@ -315,21 +329,9 @@ service cloud.firestore {
         // Read: Reuse Artifact visibility logic
         allow read: if resource == null || canReadArtifact(artifactId);
 
-        // Create: Authenticated user, matching creatorId and artifactId, valid data
-        allow create: if isAuth() &&
-                      enforceAppCheck() &&
-                      isValidComment(request.resource.data) &&
-                      request.resource.data.authorAnonymousId == getCurrentAnonymousId() &&
-                      request.resource.data.artifactId == artifactId &&
-                      // Artifact Visibility Boundary (Phase 2 Ch 10 Fix)
-                      canReadArtifact(artifactId) &&
-                      // Authoritative Unlock Enforcement (Phase 3)
-                      // Owners are exempt from the unlock requirement.
-                      (isArtifactOwner(artifactId) || isCommentUnlocked(request.auth.uid, artifactId)) &&
-                      // Ensure author.anonymousId matches user's anonymousId
-                      request.resource.data.author.anonymousId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.anonymousId &&
-                      // Ensure identityVersion matches current user version
-                      request.resource.data.get('identityVersion', 0) == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.identityMetadata.get('identityResetVersion', 0);
+        // Create: BLOCK DIRECT CREATION (Moved to intents/comments for R070 Rate Limiting)
+        // Only Admins or Internal System can create directly.
+        allow create: if isGlobalAdmin();
 
         // Update: Only owner can soft-delete (status: DELETED), or artifact owner can update creatorReaction
         allow update: if isAuth() && (
@@ -407,11 +409,16 @@ service cloud.firestore {
     }
 
     match /reports/{reportId} {
+      // Deterministic IDs are used for Artifact reports: {uid}_{artifactId}
+      // Generic IDs are used for other report types (Comment, Identity, etc.)
+      // Integrity Invariant: user can only create/read their own reports.
       allow create: if isAuth() &&
                     enforceAppCheck() &&
                     request.resource.data.reporterId == request.auth.uid &&
-                    reportId == request.auth.uid + "_" + request.resource.data.artifactId;
-      allow read: if isGlobalAdmin() || (isAuth() && reportId.matches("^" + request.auth.uid + "_.*"));
+                    (reportId == request.auth.uid + "_" + request.resource.data.get('artifactId', 'NA') ||
+                     reportId == request.auth.uid + "_" + request.resource.data.get('commentId', 'NA') ||
+                     reportId.matches("^" + request.auth.uid + "_.*"));
+      allow read: if isGlobalAdmin() || (isAuth() && (resource.data.reporterId == request.auth.uid || reportId.matches("^" + request.auth.uid + "_.*")));
       allow write: if isGlobalAdmin();
     }
 

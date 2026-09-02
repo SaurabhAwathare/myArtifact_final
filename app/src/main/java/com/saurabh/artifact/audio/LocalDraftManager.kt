@@ -2,6 +2,7 @@ package com.saurabh.artifact.audio
 
 import android.util.Log
 import com.saurabh.artifact.model.DraftManifest
+import com.saurabh.artifact.model.Emotion
 import com.saurabh.artifact.util.EncryptedStorageManager
 import com.saurabh.artifact.util.StorageManager
 import kotlinx.serialization.encodeToString
@@ -34,9 +35,16 @@ class LocalDraftManager @Inject constructor(
      * Writes an encrypted ownership manifest to the draft directory.
      * This serves as a recovery hint if the primary database is lost.
      */
-    fun writeManifest(draftId: String, userId: String, createdAt: Long, mimeType: String) {
+    fun writeManifest(
+        draftId: String, 
+        userId: String, 
+        createdAt: Long, 
+        mimeType: String,
+        title: String? = null,
+        emotion: Emotion? = null
+    ) {
         try {
-            val manifest = DraftManifest(draftId, userId, createdAt, mimeType)
+            val manifest = DraftManifest(draftId, userId, createdAt, mimeType, title, emotion)
             val file = getManifestFile(draftId)
             encryptedStorageManager.getEncryptedOutputStream(file).use { output ->
                 output.write(Json.encodeToString(manifest).toByteArray())

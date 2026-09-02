@@ -112,12 +112,24 @@ class TranscodingWorker @AssistedInject constructor(
                 encryptFinalFile(tempM4aFile, finalAudioFile)
 
                 // 5. Finalize paths in DB with targeted update (Commit before cleanup)
+                val finalMimeType = "audio/mp4" // Standard for M4A/AAC
                 draftDao.get().updateTranscodingResult(
                     id = draftId,
                     userId = userId,
                     localAudioPath = finalAudioFile.absolutePath,
+                    mimeType = finalMimeType,
                     checksum = checksum,
                     isEncrypted = true
+                )
+
+                // R089: Update filesystem manifest with new format and metadata
+                localDraftManager.writeManifest(
+                    draftId = draftId,
+                    userId = userId,
+                    createdAt = draft.createdAt,
+                    mimeType = finalMimeType,
+                    title = draft.title,
+                    emotion = draft.emotion
                 )
 
                 diagnosticLogger.info(DiagnosticCategory.RECORDING, "TRANSCODING_SUCCESS", mapOf(LogKeys.DRAFT_ID to draftId))

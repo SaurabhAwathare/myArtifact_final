@@ -7,6 +7,7 @@ import {validateCoverage} from "./util/validation/coverage";
 import {getPolicy} from "./util/validation/policy";
 import {VALIDATION_VERSION, UnlockReason} from "./util/validation/constants";
 import {ModerationConfig} from "./util/moderation/config";
+import {checkRateLimit} from "./util/moderation/rateLimit";
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -409,6 +410,18 @@ export const onFollowIntentCreated = functions.firestore
 
     const idempotencyKey = `follow_${uid}_${targetAnonId}_${data.timestamp?.seconds || "initial"}`;
 
+    // R071: Follow Churn Rate Limit
+    const rateLimit = await checkRateLimit(uid, {
+      maxCapacity: 20,
+      refillRatePerMinute: 10,
+      windowName: "follow",
+    });
+
+    if (!rateLimit.allowed) {
+      logger.warn(`[FOLLOW] Rate limit exceeded for UID=${uid}`);
+      return null;
+    }
+
     return withIdempotency(idempotencyKey, async () => {
       const db = admin.firestore();
 
@@ -514,6 +527,18 @@ export const onFollowIntentDeleted = functions.firestore
     const uid = context.params.uid;
     const targetAnonId = context.params.targetAnonId;
 
+    // R071: Follow Churn Rate Limit
+    const rateLimit = await checkRateLimit(uid, {
+      maxCapacity: 20,
+      refillRatePerMinute: 10,
+      windowName: "follow",
+    });
+
+    if (!rateLimit.allowed) {
+      logger.warn(`[UNFOLLOW] Rate limit exceeded for UID=${uid}`);
+      return null;
+    }
+
     const db = admin.firestore();
 
     // 1. Resolve recipient UID
@@ -589,6 +614,8 @@ export const onReactionIntentCreated = functions.firestore
 
       const actorDoc = await db.collection("users").doc(uid).get();
       const actorAnonId = actorDoc.data()?.anonymousId || "unknown";
+
+      const ownerId = artifactData.userId;
 
       const reactionId = `${artifactId}_${actorAnonId}`;
       const globalRef = db.collection("artifact_reactions").doc(reactionId);
@@ -820,8 +847,9 @@ export const onUserIdentityReset = functions
       const shouldSever = newData.identityMetadata?.severRelationships === true;
       if (shouldSever) {
         logger.info(`[IDENTITY_PROPAGATION] SEVERING RELATIONSHIPS | UID=${uid}`);
-        await scaleResonanceCleanup(db, uid, "out");
-        await scaleResonanceCleanup(db, uid, "in");
+        const oldAnonId = oldData.anonymousId;
+        await scaleResonanceCleanup(db, uid, "out", oldAnonId);
+        await scaleResonanceCleanup(db, uid, "in", oldAnonId);
       }
 
       // 4. Finalize: Update lastCompletedIdentityVersion (Atomic Transaction)
@@ -896,6 +924,14 @@ export const onUserProfileUpdated = functions.firestore
       userId: context.params.uid,
       updatedAt: admin.firestore.FieldValue.serverTimestamp()
     });
+
+    // R050: Identity History (Private to User) - Required for comprehensive Data Export
+    await db.collection("users").doc(context.params.uid)
+      .collection("private").doc("identity_history")
+      .collection("personas").doc(anonymousId).set({
+        anonymousId: anonymousId,
+        addedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
 
     logger.info(`[PROFILE_SYNC] Synced ${anonymousId} for UID ${context.params.uid}`);
     return null;
@@ -1065,11 +1101,13 @@ export const onUserDeleted = functions
 async function scaleResonanceCleanup(
   db: admin.firestore.Firestore,
   uid: string,
-  type: "in" | "out"
+  type: "in" | "out",
+  myPersonaId?: string
 ): Promise<number> {
   const collectionName = type === "in" ? "resonance_in" : "resonance_out";
   const batchSize = 100;
   let totalProcessed = 0;
+  let totalDeleted = 0;
 
   try {
     // eslint-disable-next-line no-constant-condition
@@ -1078,7 +1116,20 @@ async function scaleResonanceCleanup(
       if (snapshot.empty) break;
 
       const promises = snapshot.docs.map(async (doc) => {
-        const otherUserId = doc.id;
+        const otherPersonaId = doc.id;
+
+        // R045 FIX: Resolve personaId to UID via persona_mapping
+        const mappingDoc = await db.collection("persona_mapping").doc(otherPersonaId).get();
+        if (!mappingDoc.exists) {
+          logger.warn(`[RESONANCE_CLEANUP] Mapping missing for persona: ${otherPersonaId}`);
+          // Delete orphaned marker
+          await doc.ref.delete();
+          return;
+        }
+
+        const otherUserId = mappingDoc.data()?.userId;
+        if (!otherUserId) return;
+
         return db.runTransaction(async (transaction) => {
           const markerRef = doc.ref;
           const otherUserRef = db.collection("users").doc(otherUserId);
@@ -1086,14 +1137,25 @@ async function scaleResonanceCleanup(
           let reciprocalRef;
           let updateData: any = {};
 
+          // We need User A's persona ID to find the reciprocal marker.
+          let personaIdToMatch = myPersonaId;
+          if (!personaIdToMatch) {
+            const userDoc = await transaction.get(db.collection("users").doc(uid));
+            personaIdToMatch = userDoc.data()?.anonymousId;
+          }
+
+          if (!personaIdToMatch) return;
+
           if (type === "out") {
-            reciprocalRef = otherUserRef.collection("resonance_in").doc(uid);
+            // reciprocal is other user's resonance_in
+            reciprocalRef = otherUserRef.collection("resonance_in").doc(personaIdToMatch);
             updateData = {
               resonanceInCount: FieldValue.increment(-1),
               followersCount: FieldValue.increment(-1)
             };
           } else {
-            reciprocalRef = otherUserRef.collection("resonance_out").doc(uid);
+            // reciprocal is other user's resonance_out
+            reciprocalRef = otherUserRef.collection("resonance_out").doc(personaIdToMatch);
             updateData = {
               resonanceOutCount: FieldValue.increment(-1),
               followingCount: FieldValue.increment(-1)
@@ -1102,6 +1164,24 @@ async function scaleResonanceCleanup(
 
           const markerDoc = await transaction.get(markerRef);
           if (!markerDoc.exists) return;
+
+          transaction.delete(markerRef);
+          transaction.delete(reciprocalRef);
+          transaction.update(otherUserRef, updateData);
+        });
+      });
+
+      await Promise.all(promises);
+      totalDeleted += snapshot.size;
+      totalProcessed += snapshot.size;
+      if (snapshot.size < batchSize) break;
+    }
+    return totalDeleted;
+  } catch (e) {
+    logger.error(`[RESONANCE_CLEANUP] UID=${uid} | Type=${type} | ERROR:`, e);
+    throw e;
+  }
+}
 
           transaction.delete(markerRef);
           transaction.delete(reciprocalRef);
@@ -1151,6 +1231,10 @@ export const onEngagementUpdated = functions.firestore
     const artifactId = context.params.artifactId;
     const db = admin.firestore();
 
+    const now = Date.now();
+    const createTime = change.after.createTime.toMillis();
+    const elapsedSinceCreation = now - createTime;
+
     try {
       // 2. Load Authoritative Artifact Metadata
       const artifactDoc = await db.collection("artifacts").doc(artifactId).get();
@@ -1184,6 +1268,31 @@ export const onEngagementUpdated = functions.firestore
         hasReachedEnd,
         reviewTrackingVersion
       );
+
+      // R069: Temporal Progression Barrier (Anti-Forgery)
+      // We calculate how much listening time is being claimed.
+      const claimedListeningMs = result.coveragePercent * durationMs;
+
+      // Invariant: Claimed listening cannot advance faster than 2.0x real-time (allowing 2x speed)
+      // plus a modest initial offline buffer (5 minutes) per artifact.
+      const MAX_SPEED = 2.1; // 2x + jitter
+      const OFFLINE_BUFFER_MS = 5 * 60 * 1000; // 5 minute "free" budget
+
+      const maxAllowedListeningMs = (elapsedSinceCreation * MAX_SPEED) + OFFLINE_BUFFER_MS;
+
+      if (claimedListeningMs > maxAllowedListeningMs) {
+        logger.warn(`[UNLOCK] REJECTED (Forgery) | UID=${uid} | ArtID=${artifactId} | Claimed=${claimedListeningMs.toFixed(0)}ms | Allowed=${maxAllowedListeningMs.toFixed(0)}ms`);
+
+        // Anti-Forgery Action: Revert the document to the previous valid state
+        // to prevent the forged coverage from being used in HIF or UI.
+        if (before) {
+          await change.after.ref.set(before);
+        } else {
+          // If it was the first write, purge it.
+          await change.after.ref.delete();
+        }
+        return null;
+      }
 
       // Sanity Check: Malformed bitset
       if (result.cardinality > result.totalSegments + 8) { // Small buffer for byte alignment
@@ -1537,6 +1646,70 @@ export const onPrivateFeedbackWrite = functions.firestore
 
       logger.info(`[SAFETY] Aggregate success | ArtifactID=${artifactId} | NewCount=${newCount}`);
       return null;
+    });
+  });
+
+/**
+ * Authoritatively handles comment creation intents.
+ * Implements R070: Comment Rate Limiting.
+ */
+export const onCommentIntentCreated = functions.firestore
+  .document("users/{uid}/private/intents/comments/{commentId}")
+  .onCreate(async (snapshot, context) => {
+    const uid = context.params.uid;
+    const commentId = context.params.commentId;
+    const data = snapshot.data();
+
+    if (!data) return null;
+
+    const idempotencyKey = `comment_intent_${uid}_${commentId}`;
+
+    // R070: Comment Rate Limit
+    const rateLimit = await checkRateLimit(uid, {
+      maxCapacity: 10,
+      refillRatePerMinute: 5,
+      windowName: "comment",
+    });
+
+    if (!rateLimit.allowed) {
+      logger.warn(`[COMMENT] Rate limit exceeded for UID=${uid}`);
+      return null;
+    }
+
+    return withIdempotency(idempotencyKey, async () => {
+      const db = admin.firestore();
+      const artifactId = data.artifactId;
+      if (!artifactId) return;
+
+      // 1. Authoritative Unlock Check (Integrity)
+      const artifactDoc = await db.collection("artifacts").doc(artifactId).get();
+      if (!artifactDoc.exists) return;
+      const artifactData = artifactDoc.data()!;
+      const isOwner = artifactData.userId === uid;
+
+      if (!isOwner) {
+        const engagementDoc = await db.collection("users").doc(uid)
+          .collection("engagement").doc(artifactId).get();
+
+        if (!engagementDoc.exists || !engagementDoc.data()?.isCommentUnlocked) {
+          logger.error(`[COMMENT] Unauthorized attempt (LOCKED) | UID=${uid} | ArtID=${artifactId}`);
+          return;
+        }
+      }
+
+      // 2. Create the Public Comment
+      const commentRef = db.collection("artifacts").doc(artifactId)
+        .collection("comments").doc(commentId);
+
+      const commentData = {
+        ...data,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+        status: "ACTIVE",
+      };
+
+      await commentRef.set(commentData);
+      logger.info(`[COMMENT] Successfully created comment ${commentId} for ArtID=${artifactId}`);
     });
   });
 

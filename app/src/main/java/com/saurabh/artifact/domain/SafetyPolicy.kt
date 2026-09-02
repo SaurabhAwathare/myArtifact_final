@@ -24,9 +24,10 @@ class SafetyPolicy @Inject constructor() {
         isSuppressedByUser: Boolean = false,
         ignoredUserIds: Set<String> = emptySet(),
     ): Boolean {
-        // 0. Ignore List Suppression
-        if (ignoredUserIds.contains(artifact.userId)) return false
-
+        // R058 FIX: Use anonymousId for persona-based filtering
+        // The ignoredUserIds set now contains anonymousId/persona identifiers.
+        if (ignoredUserIds.contains(artifact.author.anonymousId)) return false
+        
         // 1. User-Specific Suppression (Reporter-side hiding)
         if (isSuppressedByUser) return false
         

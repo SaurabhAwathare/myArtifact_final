@@ -12,5 +12,7 @@ data class DraftManifest(
     val userId: String,
     val createdAt: Long,
     val mimeType: String,
-    val version: Int = 1
+    val title: String? = null,
+    val emotion: Emotion? = null,
+    val version: Int = 2
 )

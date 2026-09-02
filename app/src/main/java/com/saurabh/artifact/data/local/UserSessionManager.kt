@@ -31,6 +31,7 @@ class UserSessionManager @Inject constructor(
         val RESONANCE_OUT = longPreferencesKey("resonance_out")
         val ACTIVE_DRAFT_ID = stringPreferencesKey("active_draft_id")
         val ACTIVE_PROMPT_ID = stringPreferencesKey("active_prompt_id")
+        val IS_LOGGING_OUT = booleanPreferencesKey("is_logging_out")
     }
 
     /**
@@ -91,6 +92,18 @@ class UserSessionManager @Inject constructor(
 
     val activeDraftId: Flow<String?> = dataStore.data
         .map { preferences -> preferences[PreferencesKeys.ACTIVE_DRAFT_ID] }
+
+    val isLoggingOut: Flow<Boolean> = dataStore.data
+        .map { preferences -> preferences[PreferencesKeys.IS_LOGGING_OUT] ?: false }
+
+    /**
+     * Sets the "Cleanup In Progress" flag to block dirty restoration during logout.
+     */
+    suspend fun setLoggingOut(loggingOut: Boolean) {
+        dataStore.edit { preferences ->
+            preferences[PreferencesKeys.IS_LOGGING_OUT] = loggingOut
+        }
+    }
 
     suspend fun setActiveDraftId(id: String?) {
         dataStore.edit { preferences ->

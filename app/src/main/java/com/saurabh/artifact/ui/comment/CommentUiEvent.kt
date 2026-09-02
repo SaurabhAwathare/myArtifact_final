@@ -22,8 +22,7 @@ sealed class CommentUiEvent {
     data class SubmissionFailed(val error: String) : CommentUiEvent()
 
     /**
-     * Emitted when a user requests to view a profile from a comment.
-     * @param personaId The anonymous ID of the persona whose profile should be shown.
+     * Emitted when a comment has been successfully reported.
      */
-    data class NavigateToProfile(val personaId: String) : CommentUiEvent()
+    object CommentReported : CommentUiEvent()
 }

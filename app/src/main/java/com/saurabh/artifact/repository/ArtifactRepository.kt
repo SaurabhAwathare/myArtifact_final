@@ -44,6 +44,7 @@ import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
 import com.google.firebase.firestore.FirebaseFirestoreException
+import com.saurabh.artifact.audio.LocalDraftManager
 import com.saurabh.artifact.util.CoroutineExceptionHandlerUtils
 import com.saurabh.artifact.util.NetworkUtils
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -83,6 +84,7 @@ class ArtifactRepository @Inject constructor(
     private val artifactDao: dagger.Lazy<ArtifactDao>,
     private val database: dagger.Lazy<AppDatabase>,
     private val artifactLibraryRepository: dagger.Lazy<ArtifactLibraryRepository>,
+    private val localDraftManager: LocalDraftManager,
     val moderationRepository: dagger.Lazy<ArtifactModerationRepository>,
     private val publishingRepository: dagger.Lazy<ArtifactPublishingRepository>,
     private val artifactEngagementRepository: dagger.Lazy<ArtifactEngagementRepository>,
@@ -228,17 +230,23 @@ class ArtifactRepository @Inject constructor(
             if (!forceRefresh) {
                 val local = artifactDao.get().getArtifactById(artifactId)
                 if (local != null) {
-                    // HARDENING: Implement 2-hour TTL for metadata freshness
-                    val twoHoursMillis = 2 * 60 * 60 * 1000L
-                    if ((System.currentTimeMillis() - local.lastUpdated) < twoHoursMillis) {
+                    // R051 HARDENING: Authoritative Status Verification
+                    // If the artifact is cached as ACTIVE, we must still respect 
+                    // potential remote moderation changes (HIDDEN/DELETED).
+                    // We use a shorter TTL for ACTIVE items to ensure safety updates propagate.
+                    val ttl = if (local.status == ArtifactStatus.ACTIVE) 30 * 60 * 1000L else 2 * 60 * 60 * 1000L
+                    
+                    if ((System.currentTimeMillis() - local.lastUpdated) < ttl) {
                         return@withContext Result.success(mapArtifactEntityToArtifact(local))
                     } else {
-                        diagnosticLogger.debug(DiagnosticCategory.DATABASE, "ARTIFACT_CACHE_EXPIRED", mapOf(LogKeys.ARTIFACT_ID to artifactId))
+                        diagnosticLogger.debug(DiagnosticCategory.DATABASE, "ARTIFACT_CACHE_EXPIRED_OR_ACTIVE_REVERIFY", mapOf(LogKeys.ARTIFACT_ID to artifactId))
                     }
                 }
             }
 
             // 2. Fallback to Firestore (or forced refresh)
+            // This is the authoritative path. If the document is missing or status changed,
+            // the local cache will be updated or the fetch will fail (404/403).
             val doc = firestore.collection("artifacts").document(artifactId).get().await()
             if (doc.exists()) {
                 val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
@@ -973,6 +981,16 @@ class ArtifactRepository @Inject constructor(
             // Sync with local draft if it exists
             draftDao.get().internalGetDraftByArtifactIdAgnostic(artifactId)?.let { draft ->
                 draftDao.get().updateTitle(draft.id, draft.userId, trimmedTitle)
+                
+                // R089: Sync metadata to filesystem manifest for recovery resilience
+                localDraftManager.writeManifest(
+                    draftId = draft.id,
+                    userId = draft.userId,
+                    createdAt = draft.createdAt,
+                    mimeType = draft.mimeType,
+                    title = trimmedTitle,
+                    emotion = draft.emotion
+                )
             }
 
             // Sync with local ArtifactEntity cache
@@ -1049,6 +1067,7 @@ class ArtifactRepository @Inject constructor(
         try {
             artifactDao.get().updateAuthorInfo(
                 userId = userId,
+                anonymousId = snapshot.anonymousId,
                 name = snapshot.name,
                 sigil = snapshot.sigil,
                 seed = snapshot.sigilSeed,

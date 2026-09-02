@@ -6,6 +6,7 @@ import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.worker.IdentitySyncWorker
 import android.content.Context
 import android.util.Log
+import com.saurabh.artifact.service.PersonalizationEngine
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -34,6 +35,8 @@ class UserProfileManager @Inject constructor(
     private val authRepository: AuthRepository,
     private val userRepository: UserRepository,
     private val artifactRepository: ArtifactRepository,
+    private val notificationRepository: NotificationRepository,
+    private val personalizationEngine: PersonalizationEngine,
     private val visibilityFilter: Lazy<ArtifactVisibilityFilter>,
     @com.saurabh.artifact.di.ApplicationScope internal val managerScope: CoroutineScope
 ) {
@@ -244,6 +247,10 @@ class UserProfileManager @Inject constructor(
     suspend fun emergencyIdentityReset(userId: String, severRelationships: Boolean = false): Result<Unit> {
         Log.i("UserProfileManager", "Starting emergency identity reset orchestration for $userId (sever=$severRelationships)")
         
+        // R047 & R048: Clear behavioral history and notifications (Clean Break)
+        personalizationEngine.clearLocalData()
+        notificationRepository.deleteAllNotifications(userId)
+
         // 1. Trigger Remote Reset (Authority)
         val result = userRepository.emergencyIdentityReset(userId, severRelationships)
         

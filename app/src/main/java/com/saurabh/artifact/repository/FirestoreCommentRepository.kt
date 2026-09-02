@@ -15,11 +15,13 @@ import com.saurabh.artifact.util.CommentConstants
 import com.saurabh.artifact.data.local.InteractionAction
 import com.saurabh.artifact.data.local.InteractionType
 import com.saurabh.artifact.data.local.PendingInteractionEntity
+import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.worker.InteractionSyncWorker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -57,10 +59,13 @@ class FirestoreCommentRepository @Inject constructor(
             } else emptySet()
             
             val comments = snapshot.documents.mapNotNull { doc ->
-                val creatorId = doc.getString("creatorId")
-                if (creatorId != null && ignoredIds.contains(creatorId)) return@mapNotNull null
+                val commentDto = doc.toObject(CommentDto::class.java)
+                val authorAnonId = commentDto?.author?.anonymousId ?: doc.getString("authorAnonymousId")
                 
-                doc.toObject(CommentDto::class.java)?.copy(id = doc.id)?.toDomain()
+                // R068 FIX: Filter by persona ID consistently
+                if (authorAnonId != null && ignoredIds.contains(authorAnonId)) return@mapNotNull null
+                
+                commentDto?.copy(id = doc.id)?.toDomain()
             }
 
             val nextLastVisible = if (snapshot.documents.size < limit) {
@@ -82,37 +87,39 @@ class FirestoreCommentRepository @Inject constructor(
     }
 
     override suspend fun createComment(comment: Comment): Result<Comment> = withContext(Dispatchers.IO) {
+        val currentUserId = authRepository.currentUserId
+        if (currentUserId.isEmpty()) return@withContext Result.failure(AppError.Unauthenticated())
+
         try {
             diagnosticLogger.info(
                 DiagnosticCategory.COMMENT, 
-                "COMMENT_SUBMIT_STARTED", 
-                mapOf(com.saurabh.artifact.diagnostics.LogKeys.ARTIFACT_ID to comment.artifactId)
+                "COMMENT_INTENT_SUBMIT_STARTED", 
+                mapOf(LogKeys.ARTIFACT_ID to comment.artifactId)
             )
+            
+            // R070 FIX: Write to the private intent collection instead of public artifacts.
+            // This enables server-side rate limiting and authoritative unlock validation.
+            val intentRef = firestore.collection("users").document(currentUserId)
+                .collection("private").document("intents")
+                .collection("comments").document(if (comment.id.isNotEmpty()) comment.id else UUID.randomUUID().toString())
+
             val dto = comment.toDto().apply {
                 authorAnonymousId = comment.author.anonymousId
             }
-            val collectionRef = firestore.collection(CommentConstants.getCommentsCollectionPath(comment.artifactId))
-            
-            // Use provided ID if available, otherwise generate new one
-            val docRef = if (comment.id.isNotEmpty()) {
-                collectionRef.document(comment.id)
-            } else {
-                collectionRef.document()
-            }
 
-            docRef.set(dto).await()
+            intentRef.set(dto).await()
             
             diagnosticLogger.info(
                 DiagnosticCategory.COMMENT, 
-                "COMMENT_SUBMIT_SUCCESS", 
-                mapOf(com.saurabh.artifact.diagnostics.LogKeys.ARTIFACT_ID to comment.artifactId, "commentId" to docRef.id)
+                "COMMENT_INTENT_SUBMIT_SUCCESS", 
+                mapOf(LogKeys.ARTIFACT_ID to comment.artifactId, "commentId" to intentRef.id)
             )
             
-            Result.success(comment.copy(id = docRef.id))
+            Result.success(comment.copy(id = intentRef.id))
         } catch (e: Exception) {
             diagnosticLogger.error(
                 DiagnosticCategory.COMMENT,
-                "COMMENT_SUBMIT_FAILED",
+                "COMMENT_INTENT_SUBMIT_FAILED",
                 mapOf(com.saurabh.artifact.diagnostics.LogKeys.ARTIFACT_ID to comment.artifactId),
                 e
             )
