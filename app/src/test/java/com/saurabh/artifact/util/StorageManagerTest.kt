@@ -39,7 +39,23 @@ class StorageManagerTest {
     }
 
     @Test
-    fun `test clearUserStorage deletes target directories`() {
+    fun `test clearUserStorage with preserveDrafts true preserves drafts`() {
+        val draftsDir = File(filesDir, "Artifact/Drafts").apply { mkdirs() }
+        val recordingTemp = File(cacheDir, "recording_temp").apply { mkdirs() }
+
+        File(draftsDir, "test.m4a").writeText("data")
+
+        val result = storageManager.clearUserStorage(preserveDrafts = true)
+
+        assertTrue(draftsDir.exists())
+        assertFalse(recordingTemp.exists())
+
+        assertTrue(result.skippedDirectories.contains("Drafts Root"))
+        assertTrue(result.deletedDirectories.contains("Temp Recordings"))
+    }
+
+    @Test
+    fun `test clearUserStorage with preserveDrafts false deletes target directories`() {
         // Setup targets
         val draftsDir = File(filesDir, "Artifact/Drafts").apply { mkdirs() }
         val waveformsDir = File(filesDir, "waveforms").apply { mkdirs() }
@@ -49,7 +65,7 @@ class StorageManagerTest {
         File(draftsDir, "test.m4a").writeText("data")
         File(waveformsDir, "test.json").writeText("data")
         
-        val result = storageManager.clearUserStorage()
+        val result = storageManager.clearUserStorage(preserveDrafts = false)
         
         assertFalse(draftsDir.exists())
         assertFalse(waveformsDir.exists())
@@ -99,7 +115,7 @@ class StorageManagerTest {
         val draft1Audio = File(draft1, "audio.m4a").apply { writeText("audio") }
         val draft1Waveform = File(draft1, "waveform.json").apply { writeText("waveform") }
         
-        val result = storageManager.clearUserStorage()
+        val result = storageManager.clearUserStorage(preserveDrafts = false)
         
         assertFalse(draftsRoot.exists())
         assertFalse(draft1.exists())

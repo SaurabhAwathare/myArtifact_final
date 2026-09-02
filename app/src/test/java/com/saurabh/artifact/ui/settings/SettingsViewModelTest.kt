@@ -3,12 +3,15 @@ package com.saurabh.artifact.ui.settings
 import android.content.Context
 import android.net.Uri
 import com.saurabh.artifact.auth.CredentialHelper
+import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.domain.auth.LogoutCoordinator
+import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.SettingsRepository
 import com.saurabh.artifact.util.ClipboardGuard
 import com.saurabh.artifact.model.UserSettings
+import com.saurabh.artifact.repository.DraftRepository
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -27,6 +30,7 @@ class SettingsViewModelTest {
     private val authRepository = mockk<AuthRepository>(relaxed = true)
     private val clipboardGuard = mockk<ClipboardGuard>(relaxed = true)
     private val logoutCoordinator = mockk<LogoutCoordinator>(relaxed = true)
+    private val draftRepository = mockk<DraftRepository>(relaxed = true)
     private val credentialHelper = mockk<CredentialHelper>(relaxed = true)
     private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
     private val context = mockk<Context>(relaxed = true)
@@ -41,10 +45,11 @@ class SettingsViewModelTest {
         every { authRepository.currentUser } returns MutableStateFlow(null)
         every { authRepository.privateSettings } returns MutableStateFlow(null)
         every { repository.userSettings } returns MutableStateFlow(UserSettings())
+        every { draftRepository.observeDrafts() } returns MutableStateFlow(emptyList())
 
         viewModel = SettingsViewModel(
             repository, authRepository, 
-            clipboardGuard, logoutCoordinator, credentialHelper, diagnosticLogger
+            clipboardGuard, logoutCoordinator, draftRepository, credentialHelper, diagnosticLogger
         )
     }
 
@@ -52,6 +57,24 @@ class SettingsViewModelTest {
     fun tearDown() {
         Dispatchers.resetMain()
         unmockkAll()
+    }
+
+    @Test
+    fun `unfinishedDraftCount calculates non-published draft count correctly`() = runTest {
+        val draft1 = mockk<ArtifactDraftEntity> {
+            every { lifecycle } returns ArtifactLifecycle.REVIEW_REQUIRED
+        }
+        val draft2 = mockk<ArtifactDraftEntity> {
+            every { lifecycle } returns ArtifactLifecycle.PUBLISHED
+        }
+        every { draftRepository.observeDrafts() } returns MutableStateFlow(listOf(draft1, draft2))
+
+        val vm = SettingsViewModel(
+            repository, authRepository,
+            clipboardGuard, logoutCoordinator, draftRepository, credentialHelper, diagnosticLogger
+        )
+
+        assertEquals(1, vm.unfinishedDraftCount.value)
     }
 
     @Test

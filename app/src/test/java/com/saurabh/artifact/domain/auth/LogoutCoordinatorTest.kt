@@ -122,10 +122,10 @@ class LogoutCoordinatorTest {
         coVerify { playbackSettingsDataStore.clear() }
 
         // Verify Phase C: Database
-        verify { database.clearAllTables() }
+        verify { database.clearSessionTables() }
 
         // Verify Phase C.5: Storage
-        verify { storageManager.clearUserStorage() }
+        verify { storageManager.clearUserStorage(preserveDrafts = true) }
 
         // Verify backup security cleanup
         coVerify { backupEncryptionManager.clear() }
@@ -150,8 +150,8 @@ class LogoutCoordinatorTest {
     @Test
     fun `cleanup survives exceptions in individual steps`() = runTest(testDispatcher) {
         coEvery { sessionManager.clear() } throws Exception("DataStore error")
-        every { database.clearAllTables() } throws Exception("Database error")
-        every { storageManager.clearUserStorage() } throws Exception("Storage error")
+        every { database.clearSessionTables() } throws Exception("Database error")
+        every { storageManager.clearUserStorage(preserveDrafts = true) } throws Exception("Storage error")
 
         val result = coordinator.executeLogout()
 
@@ -166,7 +166,7 @@ class LogoutCoordinatorTest {
         coVerify { playbackCoordinator.release() }
         
         // Verify storage cleanup was still attempted (Phase C.5)
-        verify { storageManager.clearUserStorage() }
+        verify { storageManager.clearUserStorage(preserveDrafts = true) }
         
         // Verify sign out was still called (Final Phase)
         coVerify { authRepository.signOut() }
@@ -197,7 +197,7 @@ class LogoutCoordinatorTest {
         // Assert
         coVerify(ordering = Ordering.SEQUENCE) {
             com.saurabh.artifact.audio.MediaCache.release()
-            storageManager.clearUserStorage()
+            storageManager.clearUserStorage(preserveDrafts = true)
         }
     }
 }

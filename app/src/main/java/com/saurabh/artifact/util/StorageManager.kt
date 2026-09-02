@@ -148,28 +148,38 @@ class StorageManager @Inject constructor(
     )
 
     /**
-     * Clears all user-specific storage, including drafts and internal/external caches.
+     * Clears user-specific storage, excluding local drafts when [preserveDrafts] is true.
      * This is a privacy-critical operation.
      * 
      * Uses a whitelisting approach for cache directories to avoid deleting 
      * infrastructure or third-party cache (like image_cache or media_cache).
      */
-    fun clearUserStorage(): StorageCleanupResult {
+    fun clearUserStorage(preserveDrafts: Boolean = true): StorageCleanupResult {
         val deleted = mutableListOf<String>()
         val skipped = mutableListOf<String>()
         val failures = mutableListOf<CleanupFailure>()
 
-        val targets = listOf(
+        val draftTargets = listOf(
             "Drafts Root" to draftsRootDirectory,
             "Waveforms" to waveformsDirectory,
             "Transcripts" to transcriptsDirectory,
             "Frozen Audio" to frozenAudioDirectory,
-            "Legacy Drafts" to legacyDraftsDirectory,
+            "Legacy Drafts" to legacyDraftsDirectory
+        )
+
+        val nonDraftTargets = listOf(
             "Temp Recordings" to tempRecordingsDirectory,
             "Temp Transcoding" to tempTranscodingDirectory,
             "Temp Uploads" to tempUploadDirectory,
             "Media Cache" to mediaCacheDirectory
         )
+
+        val targets = if (preserveDrafts) {
+            draftTargets.forEach { (name, _) -> skipped.add(name) }
+            nonDraftTargets
+        } else {
+            draftTargets + nonDraftTargets
+        }
 
         targets.forEach { (name, dir) ->
             try {

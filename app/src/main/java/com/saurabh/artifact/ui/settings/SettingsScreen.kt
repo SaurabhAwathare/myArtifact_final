@@ -425,16 +425,29 @@ fun SettingsScreen(
     }
 
     if (showLogoutConfirmation) {
+        val draftCount by viewModel.unfinishedDraftCount.collectAsStateWithLifecycle()
+
         AlertDialog(
             onDismissRequest = { showLogoutConfirmation = false },
-            title = { Text("Logout?") },
+            title = { Text(if (draftCount > 0) "Unfinished Drafts" else "Logout?") },
             text = { 
-                Text(
-                    if (uiState.isAnonymousMode) 
-                        "You are currently using an anonymous account. Logging out may cause you to lose access to your data permanently unless you have backed it up."
-                    else 
-                        "Are you sure you want to log out?"
-                ) 
+                Column {
+                    if (draftCount > 0) {
+                        val countText = if (draftCount == 1) "1 unfinished Artifact in Drafts" else "$draftCount unfinished Artifacts in Drafts"
+                        Text(
+                            "You have $countText.\n\n" +
+                            "These Drafts are saved on this device. They'll remain available when you log back into this account on this device, but they won't be available on another device.",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    } else {
+                        Text(
+                            if (uiState.isAnonymousMode) 
+                                "You are currently using an anonymous account. Logging out may cause you to lose access to your data permanently unless you have backed it up."
+                            else 
+                                "Are you sure you want to log out?"
+                        ) 
+                    }
+                }
             },
             confirmButton = {
                 TextButton(

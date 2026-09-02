@@ -8,8 +8,10 @@ import com.saurabh.artifact.util.ClipboardGuard
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.saurabh.artifact.auth.CredentialHelper
+import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.model.UserSettings
 import com.saurabh.artifact.model.AppError
+import com.saurabh.artifact.repository.DraftRepository
 import com.saurabh.artifact.repository.SettingsRepository
 import com.saurabh.artifact.ui.util.UiText
 import com.saurabh.artifact.ui.util.ErrorMessageMapper
@@ -36,9 +38,14 @@ class SettingsViewModel @Inject constructor(
     private val authRepository: com.saurabh.artifact.repository.AuthRepository,
     private val clipboardGuard: ClipboardGuard,
     private val logoutCoordinator: com.saurabh.artifact.domain.auth.LogoutCoordinator,
+    private val draftRepository: DraftRepository,
     val credentialHelper: CredentialHelper,
     private val diagnosticLogger: DiagnosticLogger
 ) : ViewModel() {
+
+    val unfinishedDraftCount: StateFlow<Int> = draftRepository.observeDrafts()
+        .map { drafts -> drafts.count { it.lifecycle != ArtifactLifecycle.PUBLISHED } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     val isAnonymous = authRepository.currentUser.map { it?.isAnonymous ?: true }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)

@@ -80,7 +80,7 @@ class MediaIsolationIsolationTest {
         // Verify ordering: UploadService must be stopped in Phase A, clearUserStorage in Phase B
         verifyOrder {
             context.stopService(any()) // Simplified to avoid Intent mocking issues
-            storageManager.clearUserStorage()
+            storageManager.clearUserStorage(preserveDrafts = true)
         }
     }
 
@@ -91,6 +91,6 @@ class MediaIsolationIsolationTest {
         
         logoutCoordinator.executeLogout()
 
-        verify { storageManager.clearUserStorage() }
+        verify { storageManager.clearUserStorage(preserveDrafts = true) }
     }
 }

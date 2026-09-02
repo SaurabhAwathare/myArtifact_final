@@ -96,6 +96,7 @@ class LocalDraftManager @Inject constructor(
     ) {
         val now = System.currentTimeMillis()
         val validDraftIds = allDrafts.asSequence().map { it.id }.toSet()
+        val validOrDormantDraftIds = validDraftIds.toMutableSet()
         val knownPaths = mutableSetOf<String>()
 
         val rootDir = storageManager.draftsRootDirectory
@@ -113,6 +114,7 @@ class LocalDraftManager @Inject constructor(
             draft.rawPcmPath?.let { knownPaths.add(File(it).absolutePath) }
             draft.waveformPath?.let { knownPaths.add(File(it).absolutePath) }
             draft.frozenAudioPath?.let { knownPaths.add(File(it).absolutePath) }
+            knownPaths.add(getManifestFile(draft.id).absolutePath)
         }
 
         // 1. Clean legacy directories
@@ -126,15 +128,26 @@ class LocalDraftManager @Inject constructor(
         existingDraftFolders.forEach { draftDir ->
             val draftId = draftDir.name.substringAfter("draft_")
             if (draftId !in validDraftIds) {
-                // Check grace period: if the directory was created recently, skip it
-                if ((now - draftDir.lastModified()) > gracePeriodMs) {
-                    Log.i("LocalDraftManager", "Deleting orphaned draft directory.")
-                    storageManager.deleteDirectoryRecursively(draftDir)
+                // R091 SELECTIVE STORAGE RECONCILIATION:
+                // Check if directory contains a valid, decryptable DraftManifest.
+                val manifest = readManifest(draftId)
+                if (manifest != null) {
+                    // Valid decryptable DraftManifest exists (dormant draft from current or foreign account).
+                    // MUST be preserved on disk and registered in validOrDormantDraftIds to protect sidecars.
+                    validOrDormantDraftIds.add(draftId)
+                    Log.i("LocalDraftManager", "Preserving valid dormant draft directory: $draftId (owner: ${manifest.userId})")
+                } else {
+                    // Invalid / corrupt / unreadable draft folder without a valid manifest.
+                    // Check grace period: if the directory was created recently, skip it.
+                    if ((now - draftDir.lastModified()) > gracePeriodMs) {
+                        Log.i("LocalDraftManager", "Deleting orphaned draft directory without valid manifest: $draftId")
+                        storageManager.deleteDirectoryRecursively(draftDir)
+                    }
                 }
             } else {
                 // 3. Within a valid draft directory, prune untracked files
                 draftDir.listFiles()?.forEach { file ->
-                    if (file.isFile && file.absolutePath !in knownPaths) {
+                    if (file.isFile && file.name != ".metadata" && file.absolutePath !in knownPaths) {
                         if ((now - file.lastModified()) > gracePeriodMs) {
                             Log.i("LocalDraftManager", "Deleting untracked file in valid draft.")
                             file.delete()
@@ -152,7 +165,10 @@ class LocalDraftManager @Inject constructor(
         ).forEach { dir ->
             if (dir.exists() && dir.isDirectory) {
                 dir.listFiles()?.forEach { file ->
-                    if (file.isFile && file.absolutePath !in knownPaths && (now - file.lastModified() > gracePeriodMs)) {
+                    val isBelongingToValidDraft = file.absolutePath in knownPaths ||
+                            validOrDormantDraftIds.any { draftId -> file.name.contains(draftId) }
+
+                    if (file.isFile && !isBelongingToValidDraft && (now - file.lastModified() > gracePeriodMs)) {
                         Log.i("LocalDraftManager", "Deleting untracked sidecar file")
                         file.delete()
                     }

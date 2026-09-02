@@ -194,37 +194,21 @@ class LogoutCoordinator @Inject constructor(
                     notificationsSuccess = false
                 }
 
-                // PHASE B: Local Data Destruction (Database & Files)
+                // PHASE B: Local Data Cleanup (Database & Files)
                 // We perform this before clearing DataStores so owningUid remains as a taint flag if failure occurs.
                 diagnosticLogger.debug(DiagnosticCategory.AUTH, "LOGOUT_CLEANUP_PHASE_B")
                 
-                // 6. Database Cleanup
+                // 6. Database Cleanup - Clear session tables while preserving artifact_drafts
                 try {
-                    database.get().clearAllTables()
+                    database.get().clearSessionTables()
                 } catch (e: Exception) {
                     diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_DB_FAILED", throwable = e)
-                    
-                    // FALLBACK: If clearAllTables fails (e.g. locks), try destructive delete
-                    try {
-                        diagnosticLogger.warn(DiagnosticCategory.AUTH, "LOGOUT_DB_FALLBACK_TRIGGERED")
-                        database.get().close()
-                        val deleted = context.deleteDatabase("artifact_db")
-                        if (deleted) {
-                            diagnosticLogger.info(DiagnosticCategory.AUTH, "LOGOUT_DB_FALLBACK_SUCCESS")
-                            roomSuccess = true
-                        } else {
-                            diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_DB_FALLBACK_RETURNED_FALSE")
-                            roomSuccess = false
-                        }
-                    } catch (fallbackError: Exception) {
-                        diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_DB_FALLBACK_FAILED", throwable = fallbackError)
-                        roomSuccess = false
-                    }
+                    roomSuccess = false
                 }
 
-                // 7. User File Cleanup
+                // 7. User File Cleanup - Clear caches while preserving local Draft files
                 try {
-                    storageManager.clearUserStorage()
+                    storageManager.clearUserStorage(preserveDrafts = true)
                 } catch (e: Exception) {
                     diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_STORAGE_FAILED", throwable = e)
                 }

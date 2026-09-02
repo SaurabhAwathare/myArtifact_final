@@ -25,4 +25,9 @@ sealed class CommentUiEvent {
      * Emitted when a comment has been successfully reported.
      */
     object CommentReported : CommentUiEvent()
+
+    /**
+     * Emitted when navigation to a persona profile is requested.
+     */
+    data class NavigateToProfile(val personaId: String) : CommentUiEvent()
 }

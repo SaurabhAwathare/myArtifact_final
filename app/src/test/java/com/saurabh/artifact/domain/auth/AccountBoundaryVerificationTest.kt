@@ -161,8 +161,8 @@ class AccountBoundaryVerificationTest {
         
         coVerify {
             workManager.cancelAllWorkByTag(SessionConstants.TAG_USER_SESSION_WORK)
-            database.clearAllTables()
-            storageManager.clearUserStorage()
+            database.clearSessionTables()
+            storageManager.clearUserStorage(preserveDrafts = true)
             sessionManager.clear()
             authRepository.signOut()
         }
@@ -178,10 +178,8 @@ class AccountBoundaryVerificationTest {
         testAuthFlow.value = mockk { every { uid } returns "user_A" }
         testOwningUidFlow.value = "user_A"
         
-        // Simulate failure in both primary and fallback
-        every { database.clearAllTables() } throws RuntimeException("DB Lock Failure")
-        every { database.close() } just runs
-        every { context.deleteDatabase(any()) } returns false
+        // Simulate failure in clearSessionTables
+        every { database.clearSessionTables() } throws RuntimeException("DB Lock Failure")
         
         // Act
         val result = logoutCoordinator.executeLogout()
@@ -200,28 +198,9 @@ class AccountBoundaryVerificationTest {
         coVerify(exactly = 1) { authRepository.signOut() } // Existing behavior
     }
 
-    // 3. NUCLEAR_DATABASE_FALLBACK
+    // 3. WORKER_CANCELLATION
     @Test
-    fun `scenario 3 - NUCLEAR_DATABASE_FALLBACK triggers deleteDatabase`() = runTest {
-        // Arrange
-        every { database.clearAllTables() } throws RuntimeException("Corruption")
-        every { database.close() } just runs
-        every { context.deleteDatabase("artifact_db") } returns true
-        
-        // Act
-        val cleanupResult = logoutCoordinator.performFullCleanup()
-        advanceUntilIdle()
-        
-        // Assert
-        assertTrue(cleanupResult.room)
-        verify { database.close() }
-        verify { context.deleteDatabase("artifact_db") }
-        coVerify { sessionManager.clear() } // Should proceed if fallback succeeded
-    }
-
-    // 4. WORKER_CANCELLATION
-    @Test
-    fun `scenario 4 - WORKER_CANCELLATION occurs before destructive cleanup`() = runTest {
+    fun `scenario 3 - WORKER_CANCELLATION occurs before destructive cleanup`() = runTest {
         // Arrange
         // No specific setup needed, just verify order
         
@@ -232,7 +211,7 @@ class AccountBoundaryVerificationTest {
         // Assert
         coVerify(ordering = Ordering.SEQUENCE) {
             workManager.cancelAllWorkByTag(SessionConstants.TAG_USER_SESSION_WORK)
-            database.clearAllTables()
+            database.clearSessionTables()
         }
     }
 
