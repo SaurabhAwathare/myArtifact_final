@@ -1,6 +1,5 @@
 package com.saurabh.artifact.domain
 
-import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.storage.StorageException
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
@@ -16,6 +15,7 @@ import com.saurabh.artifact.repository.DraftRepository
 import com.saurabh.artifact.repository.UserRepository
 import com.saurabh.artifact.security.UploadGuard
 import com.saurabh.artifact.data.local.UploadOwner
+import com.saurabh.artifact.model.AuthorSnapshot
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
@@ -142,7 +142,7 @@ class PublishingManager @Inject constructor(
             val userProfile = userRepository.getOrCreateProfile().map { it.user }.getOrThrow()
 
             // NEW: Construct Complete AuthorSnapshot (Defense in Depth)
-            val authorSnapshot = com.saurabh.artifact.model.AuthorSnapshot.fromUser(userProfile)
+            val authorSnapshot = AuthorSnapshot.fromUser(userProfile)
 
             // 5. Pre-register Firestore Document
             diagnosticLogger.debug(DiagnosticCategory.FIRESTORE, "PUBLISH_STEP_5_PRE_REGISTER", mapOf(LogKeys.DRAFT_ID to draftId))
@@ -202,6 +202,7 @@ class PublishingManager @Inject constructor(
             userRepository.enqueueArtifactCountIncrement(firebaseUser.uid, draftId)
             
             diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISH_SUCCESS", mapOf(LogKeys.ARTIFACT_ID to draftId))
+            android.util.Log.e("PHASE32_VERIFY", "STEP 8 PUBLISH COMPLETED END-TO-END: SUCCEEDED")
             Result.success(Unit)
         } catch (e: Exception) {
             diagnosticLogger.error(DiagnosticCategory.PUBLISH, "UPLOAD_FAILED", mapOf(LogKeys.DRAFT_ID to draftId, "stage" to getFailureStage(e)), e)
