@@ -1,7 +1,9 @@
 package com.saurabh.artifact.security
 
 import android.content.Context
+import android.os.Looper
 import android.util.Base64
+import android.util.Log
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
@@ -21,6 +23,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import androidx.sqlite.db.SupportSQLiteOpenHelper
 import net.zetetic.database.sqlcipher.SQLiteDatabase
 import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 import java.io.File
@@ -345,10 +348,11 @@ class DatabaseEncryptionManager @Inject constructor(
     }
 
     /**
-     * Creates a SQLCipher helper factory with the persistent passphrase.
+     * Creates a lazy SQLCipher helper factory with the persistent passphrase.
+     * Passphrase acquisition is deferred until Room physically opens the database connection on a background thread.
      */
     fun getEncryptionFactory(): SupportOpenHelperFactory {
-        return SupportOpenHelperFactory(getDatabasePassphrase())
+        return LazySupportOpenHelperFactory { getDatabasePassphrase() }
     }
 
     /**
@@ -367,5 +371,13 @@ class DatabaseEncryptionManager @Inject constructor(
         
         private const val RECOVERY_SALT = "artifact_db_recovery_v1"
         private const val CURRENT_RECOVERY_VERSION = 1
+    }
+}
+
+private class LazySupportOpenHelperFactory(
+    private val passphraseProvider: () -> ByteArray
+) : SupportOpenHelperFactory(byteArrayOf()) {
+    override fun create(configuration: SupportSQLiteOpenHelper.Configuration): SupportSQLiteOpenHelper {
+        return SupportOpenHelperFactory(passphraseProvider()).create(configuration)
     }
 }

@@ -3,6 +3,8 @@ package com.saurabh.artifact.audio
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.os.Build
 import android.os.IBinder
 import androidx.core.content.ContextCompat
 import androidx.work.WorkManager
@@ -13,10 +15,12 @@ import com.saurabh.artifact.data.local.UploadTaskDao
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
+import com.saurabh.artifact.domain.PublishingManager
 import com.saurabh.artifact.model.SyncStatus
 import com.saurabh.artifact.repository.DraftRepository
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.util.NotificationHelper
+import dagger.Lazy
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -25,22 +29,22 @@ import javax.inject.Inject
 @AndroidEntryPoint
 class UploadService : Service() {
 
-    @Inject lateinit var publishingManager: com.saurabh.artifact.domain.PublishingManager
+    @Inject lateinit var publishingManager: PublishingManager
     @Inject lateinit var draftRepository: DraftRepository
     @Inject lateinit var authRepository: AuthRepository
-    @Inject lateinit var uploadTaskDao: dagger.Lazy<UploadTaskDao>
+    @Inject lateinit var uploadTaskDao: Lazy<UploadTaskDao>
     @Inject lateinit var diagnosticLogger: DiagnosticLogger
 
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var uploadJob: Job? = null
     
-    private lateinit var attributionContext: android.content.Context
+    private lateinit var attributionContext: Context
 
     override fun onCreate() {
         super.onCreate()
         _isServiceRunning.value = true
         _activeDraftId.value = null
-        attributionContext = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+        attributionContext = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             createAttributionContext("data_sync")
         } else {
             this
@@ -108,11 +112,11 @@ class UploadService : Service() {
 
             // 2. Start Foreground
             val notification = NotificationHelper.buildUploadProgressNotification(attributionContext, "Preparing...", 0)
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 startForeground(
                     NotificationHelper.UPLOAD_NOTIFICATION_ID,
                     notification,
-                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
                 )
             } else {
                 startForeground(NotificationHelper.UPLOAD_NOTIFICATION_ID, notification)
@@ -133,22 +137,25 @@ class UploadService : Service() {
 
                 val title = draft.title ?: "Artifact"
 
-                publishingManager.performPublish(
+                val publishResult = publishingManager.performPublish(
                     draftId = draftId,
                     expectedOwner = UploadOwner.SERVICE,
                     onProgress = { transferred, total, _ ->
                         val progress = (transferred * 100 / total).toInt()
                         NotificationHelper.updateUploadProgress(attributionContext, title, progress)
                     }
-                ).onSuccess {
+                )
+
+                if (publishResult.isSuccess) {
                     diagnosticLogger.info(DiagnosticCategory.PUBLISH, "UPLOAD_SERVICE_SUCCESS", mapOf(LogKeys.ARTIFACT_ID to draftId))
                     NotificationHelper.showUploadSuccessNotification(attributionContext, title)
                     
                     // Optimization: Cancel redundant fallback worker
                     WorkManager.getInstance(attributionContext).cancelUniqueWork(WorkNames.forPublishing(draftId))
-                }.onFailure { e ->
+                } else {
+                    val e = publishResult.exceptionOrNull() as? Exception ?: Exception("Upload failed")
                     diagnosticLogger.error(DiagnosticCategory.PUBLISH, "UPLOAD_SERVICE_FAILED", mapOf(LogKeys.ARTIFACT_ID to draftId), e)
-                    handleFailure(draftId, e as Exception)
+                    handleFailure(draftId, e)
                 }
             } catch (e: Exception) {
                 diagnosticLogger.error(DiagnosticCategory.PUBLISH, "UPLOAD_SERVICE_FATAL", mapOf(LogKeys.ARTIFACT_ID to draftId), e)
@@ -163,10 +170,10 @@ class UploadService : Service() {
         }
     }
 
-    private fun handleFailure(draftId: String, e: Exception) {
+    private suspend fun handleFailure(draftId: String, e: Exception) {
         val isPermanent = publishingManager.isPermanentError(e)
 
-        serviceScope.launch(Dispatchers.IO) {
+        withContext(NonCancellable + Dispatchers.IO) {
             if (isPermanent) {
                 draftRepository.updateUploadStatus(draftId, SyncStatus.Failed(e.message ?: "Permanent upload failure"))
                 NotificationHelper.showUploadErrorNotification(this@UploadService, "Permanent failure")

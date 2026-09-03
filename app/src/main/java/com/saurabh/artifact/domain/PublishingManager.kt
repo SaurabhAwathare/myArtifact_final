@@ -1,5 +1,6 @@
 package com.saurabh.artifact.domain
 
+import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.storage.StorageException
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
@@ -136,12 +137,9 @@ class PublishingManager @Inject constructor(
                 uploadResult.getOrNull()
             } else null
 
-            // 4. Fetch User Profile (Offline-First)
+            // 4. Fetch Authoritative User Profile (Fail-Closed Enforcement)
             diagnosticLogger.debug(DiagnosticCategory.PUBLISH, "PUBLISH_STEP_4_PROFILE", mapOf(LogKeys.DRAFT_ID to draftId))
-            val userProfile = userRepository.getOrCreateProfile().map { it.user }.getOrElse {
-                diagnosticLogger.warn(DiagnosticCategory.PUBLISH, "PUBLISH_PROFILE_FETCH_FAILED_RETRYING_CACHED", mapOf(LogKeys.DRAFT_ID to draftId))
-                userRepository.getCachedProfile() ?: throw Exception("User profile not available (even offline)")
-            }
+            val userProfile = userRepository.getOrCreateProfile().map { it.user }.getOrThrow()
 
             // NEW: Construct Complete AuthorSnapshot (Defense in Depth)
             val authorSnapshot = com.saurabh.artifact.model.AuthorSnapshot.fromUser(userProfile)

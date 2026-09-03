@@ -2,6 +2,7 @@ package com.saurabh.artifact.repository
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.core.net.toUri
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FirebaseFirestore
@@ -303,18 +304,19 @@ class ArtifactPublishingRepository @Inject constructor(
             )
             val artifactData = mapArtifactToFirestoreData(artifact)
             
-            // 2. Atomic Deterministic Write (Idempotent)
-            firestore.runBatch { batch ->
-                // A. Public Artifact Entry
-                val artifactRef = firestore.collection("artifacts").document(draft.id)
-                batch.set(artifactRef, artifactData)
+            // 2. Sequential Deterministic Write (Idempotent)
+            // WRITE 1: Private Ownership Registry Record First
+            // Must be committed to Firestore before artifacts/{artifactId} creation to satisfy firestore.rules:
+            // exists(/databases/$(database)/documents/users/$(request.auth.uid)/private/published_artifacts/artifacts/$(artifactId))
+            val ownershipRef = firestore.collection("users").document(userId)
+                .collection("private").document("published_artifacts")
+                .collection("artifacts").document(draft.id)
+            ownershipRef.set(mapOf("createdAt" to Timestamp.now())).await()
 
-                // B. Private Ownership Record
-                val ownershipRef = firestore.collection("users").document(userId)
-                    .collection("private").document("published_artifacts")
-                    .collection("artifacts").document(draft.id)
-                batch.set(ownershipRef, mapOf("createdAt" to Timestamp.now()))
-            }.await()
+            // WRITE 2: Public Artifact Document
+            // Executed ONLY after Write 1 succeeds and commits to Firestore
+            val artifactRef = firestore.collection("artifacts").document(draft.id)
+            artifactRef.set(artifactData).await()
             
             Result.success(draft.id)
         } catch (e: Exception) {
@@ -342,6 +344,7 @@ class ArtifactPublishingRepository @Inject constructor(
 
             firestore.collection("artifacts").document(artifactId)
                 .update(updates).await()
+            Log.e("PHASE26_VERIFY", "FINALIZE SUCCESS for $artifactId")
             Result.success(Unit)
         } catch (e: Exception) {
             diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "ARTIFACT_DOCUMENT_FINALIZE_FAILED", mapOf(LogKeys.ARTIFACT_ID to artifactId), e)

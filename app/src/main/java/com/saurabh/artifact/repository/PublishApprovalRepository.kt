@@ -221,8 +221,11 @@ class PublishApprovalRepository @Inject constructor(
             
             File(draft.localAudioPath).copyTo(frozenAudioFile, overwrite = true)
             
-            // 2. Generate Approval Token (Streaming Checksum to prevent OOM)
-            val currentChecksum = com.saurabh.artifact.util.FileIntegrity.calculateChecksum(frozenAudioFile.absolutePath)
+            // 2. Generate Approval Token (Plaintext Stream Checksum)
+            val currentChecksum = uploadGuard.calculatePlaintextChecksum(
+                frozenAudioFile.absolutePath,
+                draft.isEncrypted
+            )
             
             if (currentChecksum.isEmpty()) {
                 throw Exception("Failed to calculate checksum for frozen audio file.")

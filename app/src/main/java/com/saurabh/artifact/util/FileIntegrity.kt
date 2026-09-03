@@ -2,6 +2,7 @@ package com.saurabh.artifact.util
 
 import java.io.File
 import java.io.FileInputStream
+import java.io.InputStream
 import java.security.MessageDigest
 
 object FileIntegrity {
@@ -19,6 +20,25 @@ object FileIntegrity {
             FileInputStream(file).use { inputStream ->
                 var bytesRead: Int
                 while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                    digest.update(buffer, 0, bytesRead)
+                }
+            }
+            digest.digest().joinToString("") { "%02x".format(it) }
+        } catch (e: Exception) {
+            ""
+        }
+    }
+
+    /**
+     * Calculates the SHA-256 checksum of an InputStream.
+     */
+    fun calculateStreamChecksum(inputStream: InputStream): String {
+        return try {
+            val digest = MessageDigest.getInstance("SHA-256")
+            val buffer = ByteArray(8192)
+            inputStream.use { stream ->
+                var bytesRead: Int
+                while (stream.read(buffer).also { bytesRead = it } != -1) {
                     digest.update(buffer, 0, bytesRead)
                 }
             }

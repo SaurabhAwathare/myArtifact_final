@@ -21,6 +21,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.rememberNavController
 import com.saurabh.artifact.audio.RecordingSessionManager
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.model.PlaybackSource
 import com.saurabh.artifact.navigation.IncomingArtifact
 import com.saurabh.artifact.navigation.NavGraph
@@ -33,8 +34,11 @@ import com.saurabh.artifact.ui.player.PlayerViewModel
 import com.saurabh.artifact.ui.splash.SplashUI
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.navigation.Route
+import com.saurabh.artifact.startup.SecurityStatus
 import com.saurabh.artifact.ui.recovery.MnemonicRestoreScreen
 import com.saurabh.artifact.ui.recovery.RescueScreen
+import com.saurabh.artifact.ui.splash.StartupErrorScreen
 import com.saurabh.artifact.util.OnboardingManager
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -104,14 +108,14 @@ class MainActivity : ComponentActivity() {
 fun AppRoot(
     startupState: AppStartupState,
     stage: StartupStage,
-    securityStatus: com.saurabh.artifact.startup.SecurityStatus,
+    securityStatus: SecurityStatus,
     mainViewModel: MainViewModel,
     recordingSessionManager: RecordingSessionManager,
     onboardingManager: OnboardingManager,
     diagnosticLogger: DiagnosticLogger
 ) {
     LaunchedEffect(startupState) {
-        diagnosticLogger.debug(com.saurabh.artifact.diagnostics.DiagnosticCategory.STARTUP, "STARTUP_STATE_CHANGED", mapOf("state" to startupState.javaClass.simpleName, "security" to securityStatus.name))
+        diagnosticLogger.debug(DiagnosticCategory.STARTUP, "STARTUP_STATE_CHANGED", mapOf("state" to startupState.javaClass.simpleName, "security" to securityStatus.name))
     }
 
     LaunchedEffect(Unit) {
@@ -157,7 +161,7 @@ fun AppRoot(
                                     action.source
                                 )
                             }
-                            is com.saurabh.artifact.navigation.Route -> {
+                            is Route -> {
                                 navController.navigate(action) {
                                     launchSingleTop = true
                                 }
@@ -175,7 +179,7 @@ fun AppRoot(
                                 )
                             }
                             else -> {
-                                navController.navigate(event as com.saurabh.artifact.navigation.Route) {
+                                navController.navigate(event as Route) {
                                     launchSingleTop = true
                                 }
                             }
@@ -240,7 +244,7 @@ fun AppRoot(
             }
         }
         is AppStartupState.Error -> {
-            com.saurabh.artifact.ui.splash.StartupErrorScreen(
+            StartupErrorScreen(
                 message = startupState.message,
                 onRetry = { mainViewModel.retryStartup() }
             )

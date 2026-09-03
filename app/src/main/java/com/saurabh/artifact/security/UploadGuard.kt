@@ -7,6 +7,7 @@ import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.util.FileIntegrity
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -25,6 +26,25 @@ class UploadGuard @Inject constructor(
     }
 
     /**
+     * Calculates the canonical plaintext audio checksum of a file.
+     * Decrypts stream on-the-fly if encrypted, or calculates stream checksum directly if unencrypted.
+     */
+    fun calculatePlaintextChecksum(filePath: String, isEncrypted: Boolean): String {
+        val file = File(filePath)
+        if (!file.exists()) return ""
+        return try {
+            val inputStream = if (isEncrypted) {
+                SecurityArchitecture.openDecryptingStream(context, file)
+            } else {
+                file.inputStream()
+            }
+            FileIntegrity.calculateStreamChecksum(inputStream)
+        } catch (e: Exception) {
+            ""
+        }
+    }
+
+    /**
      * Validates that the draft is in a state allowed for upload and the token is correct.
      * Performs a strict integrity check on the frozen file.
      */
@@ -34,10 +54,12 @@ class UploadGuard @Inject constructor(
             return false
         }
 
-        // 2. Integrity check: Verify current file matches the recorded checksum
+        // 2. Integrity check: Independently calculate the plaintext audio checksum of the ACTUAL frozen file
         val audioPath = draft.frozenAudioPath ?: draft.localAudioPath
-        val currentChecksum = FileIntegrity.calculateChecksum(audioPath)
-        
+        val currentChecksum = calculatePlaintextChecksum(audioPath, draft.isEncrypted)
+
+        if (currentChecksum.isEmpty()) return false
+
         if (draft.checksum != null && draft.checksum != currentChecksum) {
             return false
         }

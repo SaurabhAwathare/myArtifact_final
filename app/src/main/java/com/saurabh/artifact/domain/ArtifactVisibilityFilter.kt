@@ -2,6 +2,8 @@ package com.saurabh.artifact.domain
 
 import com.google.firebase.firestore.DocumentChange
 import com.google.firebase.firestore.FirebaseFirestore
+import com.saurabh.artifact.data.local.IgnoredUserDao
+import com.saurabh.artifact.data.local.IgnoredUserEntity
 import com.saurabh.artifact.data.local.ReportedArtifactDao
 import com.saurabh.artifact.data.local.ReportedArtifactEntity
 import kotlinx.coroutines.CoroutineScope
@@ -10,6 +12,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import dagger.Lazy
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -20,36 +23,36 @@ import javax.inject.Singleton
  */
 @Singleton
 class ArtifactVisibilityFilter @Inject constructor(
-    private val reportedArtifactDao: com.saurabh.artifact.data.local.ReportedArtifactDao,
-    private val ignoredUserDao: com.saurabh.artifact.data.local.IgnoredUserDao,
+    private val reportedArtifactDao: Lazy<ReportedArtifactDao>,
+    private val ignoredUserDao: Lazy<IgnoredUserDao>,
     private val firestore: com.google.firebase.firestore.FirebaseFirestore
 ) {
     /**
      * Fetches a one-shot snapshot of suppressed artifact IDs from Room.
      */
     suspend fun getSuppressedIdsSnapshot(userId: String): Set<String> {
-        return reportedArtifactDao.getReportedArtifactIds(userId).toSet()
+        return reportedArtifactDao.get().getReportedArtifactIds(userId).toSet()
     }
 
     /**
      * Provides a reactive stream of suppressed artifact IDs from Room.
      */
     fun observeSuppressedIds(userId: String): Flow<Set<String>> {
-        return reportedArtifactDao.observeReportedArtifactIds(userId).map { it.toSet() }
+        return reportedArtifactDao.get().observeReportedArtifactIds(userId).map { it.toSet() }
     }
 
     /**
      * Fetches a one-shot snapshot of ignored user IDs from Room.
      */
     suspend fun getIgnoredUserIdsSnapshot(ownerUserId: String): Set<String> {
-        return ignoredUserDao.getAllIgnoredUserIds(ownerUserId).toSet()
+        return ignoredUserDao.get().getAllIgnoredUserIds(ownerUserId).toSet()
     }
 
     /**
      * Provides a reactive stream of ignored user IDs from Room.
      */
     fun observeIgnoredUserIds(ownerUserId: String): Flow<Set<String>> {
-        return ignoredUserDao.observeAllIgnoredUserIds(ownerUserId).map { it.toSet() }
+        return ignoredUserDao.get().observeAllIgnoredUserIds(ownerUserId).map { it.toSet() }
     }
 
     /**
@@ -82,10 +85,10 @@ class ArtifactVisibilityFilter @Inject constructor(
                         val artifactId = change.document.id
                         when (change.type) {
                             DocumentChange.Type.ADDED, DocumentChange.Type.MODIFIED -> {
-                                reportedArtifactDao.insert(ReportedArtifactEntity(userId, artifactId))
+                                reportedArtifactDao.get().insert(ReportedArtifactEntity(userId, artifactId))
                             }
                             DocumentChange.Type.REMOVED -> {
-                                reportedArtifactDao.delete(userId, artifactId)
+                                reportedArtifactDao.get().delete(userId, artifactId)
                             }
                         }
                     }
@@ -124,10 +127,10 @@ class ArtifactVisibilityFilter @Inject constructor(
                         val targetUid = change.document.id
                         when (change.type) {
                             DocumentChange.Type.ADDED, DocumentChange.Type.MODIFIED -> {
-                                ignoredUserDao.insert(com.saurabh.artifact.data.local.IgnoredUserEntity(userId, targetUid))
+                                ignoredUserDao.get().insert(IgnoredUserEntity(userId, targetUid))
                             }
                             DocumentChange.Type.REMOVED -> {
-                                ignoredUserDao.delete(targetUid, userId)
+                                ignoredUserDao.get().delete(targetUid, userId)
                             }
                         }
                     }
