@@ -122,6 +122,7 @@ describe("Contextual Evidence Elevation (CEE)", () => {
     const creatorUid = "creator1";
 
     const bucketMock = admin.storage().bucket();
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
     bucketMock.file().exists.mockResolvedValueOnce([false]);
 

@@ -97,8 +97,8 @@ describe("Report Lifecycle (v2) - Incremental", () => {
       const transaction = {
         get: jest.fn((ref: any) => {
           if (ref === mockDoc) {
-             // Mock artifact doc read
-             return Promise.resolve({ exists: true, data: () => ({ reportCount: 5, recommendationState: "ACTIVE" }) });
+            // Mock artifact doc read
+            return Promise.resolve({ exists: true, data: () => ({ reportCount: 5, recommendationState: "ACTIVE" }) });
           }
           return Promise.resolve({ exists: false }); // Idempotency check
         }),
@@ -147,7 +147,7 @@ describe("Report Lifecycle (v2) - Incremental", () => {
       const transaction = {
         get: jest.fn((ref: any) => {
           if (ref === mockDoc) {
-             return Promise.resolve({ exists: true, data: () => ({ reportCount: 1, recommendationState: "ACTIVE" }) });
+            return Promise.resolve({ exists: true, data: () => ({ reportCount: 1, recommendationState: "ACTIVE" }) });
           }
           return Promise.resolve({ exists: false });
         }),
@@ -191,7 +191,7 @@ describe("Report Lifecycle (v2) - Incremental", () => {
       const transaction = {
         get: jest.fn((ref: any) => {
           if (ref === mockDoc) {
-             return Promise.resolve({ exists: true, data: () => ({ reportCount: 0, recommendationState: "ACTIVE" }) });
+            return Promise.resolve({ exists: true, data: () => ({ reportCount: 0, recommendationState: "ACTIVE" }) });
           }
           return Promise.resolve({ exists: false });
         }),
@@ -230,8 +230,8 @@ describe("Report Lifecycle (v2) - Incremental", () => {
       const transaction = {
         get: jest.fn((ref: any) => {
           if (ref === mockDoc) {
-             // Mock current count at 2, adding 1 makes it 3 (threshold)
-             return Promise.resolve({ exists: true, data: () => ({ safetyConcernCount: 2, recommendationState: "ACTIVE" }) });
+            // Mock current count at 2, adding 1 makes it 3 (threshold)
+            return Promise.resolve({ exists: true, data: () => ({ safetyConcernCount: 2, recommendationState: "ACTIVE" }) });
           }
           return Promise.resolve({ exists: false });
         }),

@@ -89,11 +89,11 @@ describe("onUserIdentityReset", () => {
 
     expect(batchUpdateMock).toHaveBeenCalled();
     // Check that we updated the old document
-    const hasRef1 = batchUpdateMock.mock.calls.some(call => (call[0] as any).id === "ref1");
+    const hasRef1 = batchUpdateMock.mock.calls.some((call) => (call[0] as any).id === "ref1");
     expect(hasRef1).toBe(true);
 
     // Check that we DID NOT update the same-version document
-    const hasRef2 = batchUpdateMock.mock.calls.some(call => (call[0] as any).id === "ref2");
+    const hasRef2 = batchUpdateMock.mock.calls.some((call) => (call[0] as any).id === "ref2");
     expect(hasRef2).toBe(false);
   });
 });

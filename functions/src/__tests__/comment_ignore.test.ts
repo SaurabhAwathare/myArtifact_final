@@ -85,44 +85,54 @@ describe("onCommentCreated Ignore Check", () => {
     const mockSettingsDoc: any = { exists: true, data: () => ({ notificationsEnabled: true }) };
 
     const ownerDoc: any = {
-        collection: jest.fn((name: string) => {
-            if (name === "private") return {
-                doc: jest.fn((id: string) => {
-                    if (id === "ignored_users") return {
-                        collection: jest.fn((sub: string) => ({
-                            doc: jest.fn((uid: string) => ({
-                                get: jest.fn().mockImplementation(() => Promise.resolve(mockIgnoreDoc))
-                            }))
-                        }))
-                    };
-                    if (id === "settings") return {
-                        get: jest.fn().mockImplementation(() => Promise.resolve(mockSettingsDoc))
-                    };
-                    return mockDoc;
-                })
-            };
-            return mockCollection;
-        })
+      collection: jest.fn((name: string) => {
+        if (name === "private") {
+          return {
+            doc: jest.fn((id: string) => {
+              if (id === "ignored_users") {
+                return {
+                  collection: jest.fn((sub: string) => ({
+                    doc: jest.fn((uid: string) => ({
+                      get: jest.fn().mockImplementation(() => Promise.resolve(mockIgnoreDoc))
+                    }))
+                  }))
+                };
+              }
+              if (id === "settings") {
+                return {
+                  get: jest.fn().mockImplementation(() => Promise.resolve(mockSettingsDoc))
+                };
+              }
+              return mockDoc;
+            })
+          };
+        }
+        return mockCollection;
+      })
     };
 
     mockFirestore.collection.mockImplementation((name: string) => {
-        if (name === "users") return {
-            doc: jest.fn((id: string) => {
-                if (id === ownerId) return ownerDoc;
-                return mockDoc;
-            })
+      if (name === "users") {
+        return {
+          doc: jest.fn((id: string) => {
+            if (id === ownerId) return ownerDoc;
+            return mockDoc;
+          })
         };
-        if (name === "artifacts") return {
-            doc: jest.fn(() => ({
-                get: jest.fn().mockImplementation(() => Promise.resolve({
-                    exists: true,
-                    data: () => ({ isPublic: true, userId: ownerId, title: "My Art" })
-                })),
-                update: jest.fn(() => Promise.resolve({})),
-            }))
+      }
+      if (name === "artifacts") {
+        return {
+          doc: jest.fn(() => ({
+            get: jest.fn().mockImplementation(() => Promise.resolve({
+              exists: true,
+              data: () => ({ isPublic: true, userId: ownerId, title: "My Art" })
+            })),
+            update: jest.fn(() => Promise.resolve({})),
+          }))
         };
-        if (name === "notifications") return mockCollection;
-        return mockCollection;
+      }
+      if (name === "notifications") return mockCollection;
+      return mockCollection;
     });
 
     await wrapped(snapshot, {
@@ -149,44 +159,54 @@ describe("onCommentCreated Ignore Check", () => {
     const mockSettingsDoc: any = { exists: true, data: () => ({ notificationsEnabled: true }) };
 
     const ownerDoc: any = {
-        collection: jest.fn((name: string) => {
-            if (name === "private") return {
-                doc: jest.fn((id: string) => {
-                    if (id === "ignored_users") return {
-                        collection: jest.fn((sub: string) => ({
-                            doc: jest.fn((uid: string) => ({
-                                get: jest.fn().mockImplementation(() => Promise.resolve(mockIgnoreDoc))
-                            }))
-                        }))
-                    };
-                    if (id === "settings") return {
-                        get: jest.fn().mockImplementation(() => Promise.resolve(mockSettingsDoc))
-                    };
-                    return mockDoc;
-                })
-            };
-            return mockCollection;
-        })
+      collection: jest.fn((name: string) => {
+        if (name === "private") {
+          return {
+            doc: jest.fn((id: string) => {
+              if (id === "ignored_users") {
+                return {
+                  collection: jest.fn((sub: string) => ({
+                    doc: jest.fn((uid: string) => ({
+                      get: jest.fn().mockImplementation(() => Promise.resolve(mockIgnoreDoc))
+                    }))
+                  }))
+                };
+              }
+              if (id === "settings") {
+                return {
+                  get: jest.fn().mockImplementation(() => Promise.resolve(mockSettingsDoc))
+                };
+              }
+              return mockDoc;
+            })
+          };
+        }
+        return mockCollection;
+      })
     };
 
     mockFirestore.collection.mockImplementation((name: string) => {
-        if (name === "users") return {
-            doc: jest.fn((id: string) => {
-                if (id === ownerId) return ownerDoc;
-                return mockDoc;
-            })
+      if (name === "users") {
+        return {
+          doc: jest.fn((id: string) => {
+            if (id === ownerId) return ownerDoc;
+            return mockDoc;
+          })
         };
-        if (name === "artifacts") return {
-            doc: jest.fn(() => ({
-                get: jest.fn().mockImplementation(() => Promise.resolve({
-                    exists: true,
-                    data: () => ({ isPublic: true, userId: ownerId, title: "My Art" })
-                })),
-                update: jest.fn(() => Promise.resolve({})),
-            }))
+      }
+      if (name === "artifacts") {
+        return {
+          doc: jest.fn(() => ({
+            get: jest.fn().mockImplementation(() => Promise.resolve({
+              exists: true,
+              data: () => ({ isPublic: true, userId: ownerId, title: "My Art" })
+            })),
+            update: jest.fn(() => Promise.resolve({})),
+          }))
         };
-        if (name === "notifications") return mockCollection;
-        return mockCollection;
+      }
+      if (name === "notifications") return mockCollection;
+      return mockCollection;
     });
 
     await wrapped(snapshot, {
@@ -195,8 +215,8 @@ describe("onCommentCreated Ignore Check", () => {
 
     // Should have added a notification
     expect(mockCollection.add).toHaveBeenCalledWith(expect.objectContaining({
-        userId: ownerId,
-        type: "COMMENT"
+      userId: ownerId,
+      type: "COMMENT"
     }));
   });
 });

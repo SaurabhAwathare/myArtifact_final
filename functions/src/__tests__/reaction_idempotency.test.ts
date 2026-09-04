@@ -71,13 +71,13 @@ describe("Reaction Idempotency", () => {
 
     // Simulate first run (idempotency doc doesn't exist)
     (mockFirestore.runTransaction as any).mockImplementationOnce(async (cb: (t: any) => Promise<any>) => {
-        const transaction = {
-            get: jest.fn<any>().mockResolvedValue({ exists: false }),
-            set: jest.fn(),
-            update: jest.fn(),
-            delete: jest.fn(),
-        };
-        return cb(transaction);
+      const transaction = {
+        get: jest.fn<any>().mockResolvedValue({ exists: false }),
+        set: jest.fn(),
+        update: jest.fn(),
+        delete: jest.fn(),
+      };
+      return cb(transaction);
     });
 
     await wrapped(snapshot, {
@@ -100,13 +100,13 @@ describe("Reaction Idempotency", () => {
     const eventId = "test_event_id_del";
 
     (mockFirestore.runTransaction as any).mockImplementationOnce(async (cb: (t: any) => Promise<any>) => {
-        const transaction = {
-            get: jest.fn<any>().mockResolvedValue({ exists: false }),
-            set: jest.fn(),
-            update: jest.fn(),
-            delete: jest.fn(),
-        };
-        return cb(transaction);
+      const transaction = {
+        get: jest.fn<any>().mockResolvedValue({ exists: false }),
+        set: jest.fn(),
+        update: jest.fn(),
+        delete: jest.fn(),
+      };
+      return cb(transaction);
     });
 
     await wrapped(snapshot, {
@@ -128,16 +128,16 @@ describe("Reaction Idempotency", () => {
 
     // Simulate already succeeded
     (mockFirestore.runTransaction as any).mockImplementationOnce(async (cb: (t: any) => Promise<any>) => {
-        const transaction = {
-            get: jest.fn<any>().mockResolvedValue({
-                exists: true,
-                data: () => ({ status: "SUCCESS", result: null })
-            }),
-            set: jest.fn(),
-            update: jest.fn(),
-            delete: jest.fn(),
-        };
-        return cb(transaction);
+      const transaction = {
+        get: jest.fn<any>().mockResolvedValue({
+          exists: true,
+          data: () => ({ status: "SUCCESS", result: null })
+        }),
+        set: jest.fn(),
+        update: jest.fn(),
+        delete: jest.fn(),
+      };
+      return cb(transaction);
     });
 
     await wrapped(snapshot, {

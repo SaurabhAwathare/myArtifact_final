@@ -112,10 +112,10 @@ describe("Account Deletion Pipeline", () => {
         const lastWhereCall = mockCalls[mockCalls.length - 1];
 
         if (lastWhereCall && lastWhereCall[0] === "userId" && lastWhereCall[2] === uid) {
-            if (!artifactsFetched) {
-                artifactsFetched = true;
-                return { empty: false, size: 2, docs: mockArtifacts };
-            }
+          if (!artifactsFetched) {
+            artifactsFetched = true;
+            return { empty: false, size: 2, docs: mockArtifacts };
+          }
         }
         return { empty: true, size: 0, docs: [] };
       });
@@ -144,14 +144,14 @@ describe("Account Deletion Pipeline", () => {
         const lastWhereCall = mockCalls[mockCalls.length - 1];
 
         if (lastWhereCall && lastWhereCall[0] === "creatorId") {
-            if (!commentsFetched) {
-                commentsFetched = true;
-                return {
-                    empty: false,
-                    size: 3,
-                    docs: [{ ref: {}, data: () => ({}) }, { ref: {}, data: () => ({}) }, { ref: {}, data: () => ({}) }]
-                };
-            }
+          if (!commentsFetched) {
+            commentsFetched = true;
+            return {
+              empty: false,
+              size: 3,
+              docs: [{ ref: {}, data: () => ({}) }, { ref: {}, data: () => ({}) }, { ref: {}, data: () => ({}) }]
+            };
+          }
         }
         return { empty: true, size: 0, docs: [] };
       });
@@ -160,7 +160,6 @@ describe("Account Deletion Pipeline", () => {
 
       expect(mockBulkWriter.update).toHaveBeenCalledWith(expect.anything(), { creatorId: "" });
     });
-
   });
 
   describe("onArtifactCleanupTrigger", () => {

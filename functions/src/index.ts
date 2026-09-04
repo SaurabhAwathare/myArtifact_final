@@ -970,6 +970,7 @@ export const onUserDeleted = functions
 
       // 1. Cleanup Artifacts (Registry-Driven for Sanitized Documents)
       let artifactsProcessed = 0;
+      // eslint-disable-next-line no-constant-condition
       while (true) {
         // Query from private registry to ensure we find all artifacts including sanitized ones
         const registryQuery = db.collection("users").doc(uid)
@@ -1289,7 +1290,7 @@ export const onEngagementUpdated = functions.firestore
       const milestones = [25, 50, 75, 100];
       const reachedBefore: number[] = after.milestonesReached || [];
       const currentPercent = Math.floor(result.coveragePercent * 100);
-      const newlyReached = milestones.filter(m => currentPercent >= m && !reachedBefore.includes(m));
+      const newlyReached = milestones.filter((m) => currentPercent >= m && !reachedBefore.includes(m));
 
       const shouldUnlock = !after.isCommentUnlocked && result.isValid;
 
@@ -1312,7 +1313,7 @@ export const onEngagementUpdated = functions.firestore
           const statsUpdate: any = {
             lastUpdated: FieldValue.serverTimestamp()
           };
-          newlyReached.forEach(m => {
+          newlyReached.forEach((m) => {
             statsUpdate[`milestones.${m}`] = FieldValue.increment(1);
           });
 
@@ -2094,17 +2095,17 @@ export const aggregateCommunityAtmosphere = functions.pubsub
       // 2. Perform Aggregation
       const counts: Record<string, number> = {};
 
-      snapshot.docs.forEach(doc => {
+      snapshot.docs.forEach((doc) => {
         const data = doc.data();
         const internalEmotion = data.emotion || "Neutral";
 
         // Manual TS implementation of EmotionCategoryMapper.getCategoryForEmotion
         let category = internalEmotion;
         switch (internalEmotion) {
-          case "Hopeful": case "Grateful": case "Motivated": category = "Happy"; break;
-          case "Lonely": category = "Sad"; break;
-          case "Overwhelmed": case "Angry": category = "Anxious"; break;
-          case "Calm": case "Confused": case "Unclear": category = "Neutral"; break;
+        case "Hopeful": case "Grateful": case "Motivated": category = "Happy"; break;
+        case "Lonely": category = "Sad"; break;
+        case "Overwhelmed": case "Angry": category = "Anxious"; break;
+        case "Calm": case "Confused": case "Unclear": category = "Neutral"; break;
         }
 
         counts[category] = (counts[category] || 0) + 1;
@@ -2312,9 +2313,9 @@ export const finalizePublish = functions.https.onCall(async (data, context) => {
     // Server-Authoritative Download URL Derivation for Audio
     const encodedAudioPath = encodeURIComponent(audioPath);
     const audioDownloadToken = metadata.metadata?.firebaseStorageDownloadTokens;
-    const serverAudioUrl = audioDownloadToken
-      ? `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodedAudioPath}?alt=media&token=${audioDownloadToken}`
-      : `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodedAudioPath}?alt=media`;
+    const serverAudioUrl = audioDownloadToken ?
+      `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodedAudioPath}?alt=media&token=${audioDownloadToken}` :
+      `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodedAudioPath}?alt=media`;
 
     // Server-Authoritative Download URL Derivation for Transcript (if present in Storage)
     let serverTranscriptUrl: string | null = null;
@@ -2325,9 +2326,9 @@ export const finalizePublish = functions.https.onCall(async (data, context) => {
       const [tMetadata] = await transcriptFile.getMetadata();
       const tDownloadToken = tMetadata.metadata?.firebaseStorageDownloadTokens;
       const encodedTranscriptPath = encodeURIComponent(transcriptPath);
-      serverTranscriptUrl = tDownloadToken
-        ? `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodedTranscriptPath}?alt=media&token=${tDownloadToken}`
-        : `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodedTranscriptPath}?alt=media`;
+      serverTranscriptUrl = tDownloadToken ?
+        `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodedTranscriptPath}?alt=media&token=${tDownloadToken}` :
+        `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodedTranscriptPath}?alt=media`;
     }
 
     return await db.runTransaction(async (transaction) => {
@@ -2365,9 +2366,9 @@ export const finalizePublish = functions.https.onCall(async (data, context) => {
 
       const anonymousId = userData.anonymousId.trim();
       const anonymousName = userData.anonymousName.trim();
-      const identityResetVersion = typeof userData.identityMetadata?.identityResetVersion === "number"
-        ? userData.identityMetadata.identityResetVersion
-        : 0;
+      const identityResetVersion = typeof userData.identityMetadata?.identityResetVersion === "number" ?
+        userData.identityMetadata.identityResetVersion :
+        0;
 
       const publicArtifactPayload = {
         id: cleanDraftId,

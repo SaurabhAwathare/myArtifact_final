@@ -28,7 +28,7 @@ mockDoc.collection.mockReturnValue(mockCollection);
 
 const mockFirestore: any = {
   collection: jest.fn((name: string) => {
-      return mockCollection;
+    return mockCollection;
   }),
   collectionGroup: jest.fn(() => mockCollection),
   doc: jest.fn(() => mockDoc),
@@ -82,8 +82,8 @@ describe("onUserIdentityReset Severing", () => {
     // Setup transaction mock to track updates
     const transactionUpdate = jest.fn();
     (mockFirestore.runTransaction as any).mockImplementation(async (cb: any) => cb({
-        get: jest.fn().mockImplementation(() => Promise.resolve({ exists: true, data: () => ({}) })),
-        update: transactionUpdate,
+      get: jest.fn().mockImplementation(() => Promise.resolve({ exists: true, data: () => ({}) })),
+      update: transactionUpdate,
     }));
 
     await wrapped(change, { params: { uid } });
@@ -106,8 +106,8 @@ describe("onUserIdentityReset Severing", () => {
     // Setup transaction mock to track updates
     const transactionUpdate = jest.fn();
     (mockFirestore.runTransaction as any).mockImplementation(async (cb: any) => cb({
-        get: jest.fn().mockImplementation(() => Promise.resolve({ exists: true, data: () => ({}) })),
-        update: transactionUpdate,
+      get: jest.fn().mockImplementation(() => Promise.resolve({ exists: true, data: () => ({}) })),
+      update: transactionUpdate,
     }));
 
     // Mock scaleResonanceCleanup targets
@@ -120,10 +120,10 @@ describe("onUserIdentityReset Severing", () => {
 
     // Verify transaction update resets counters to 0
     expect(transactionUpdate).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
-        resonanceInCount: 0,
-        followersCount: 0,
-        resonanceOutCount: 0,
-        followingCount: 0
+      resonanceInCount: 0,
+      followersCount: 0,
+      resonanceOutCount: 0,
+      followingCount: 0
     }));
 
     const updateArg = transactionUpdate.mock.calls[0][1] as any;

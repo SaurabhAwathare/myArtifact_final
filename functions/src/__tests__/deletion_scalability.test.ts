@@ -119,11 +119,11 @@ describe("Account Deletion Scalability", () => {
     // Verify each transaction updated the other user's counters correctly
     expect(mockTransaction.update).toHaveBeenCalledTimes(150);
     expect(mockTransaction.update).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({
-            resonanceInCount: expect.anything(),
-            followersCount: expect.anything()
-        })
+      expect.anything(),
+      expect.objectContaining({
+        resonanceInCount: expect.anything(),
+        followersCount: expect.anything()
+      })
     );
 
     // Verify idempotency check: marker existence was checked in each transaction
@@ -145,7 +145,7 @@ describe("Account Deletion Scalability", () => {
     mockCollection.get.mockImplementation(async () => {
       const lastWhere = (mockCollection.where as jest.Mock).mock.calls.slice(-1)[0];
       if (lastWhere && lastWhere[0] === "reporterId") {
-          return { empty: false, size: 3, docs: mockReports };
+        return { empty: false, size: 3, docs: mockReports };
       }
       return { empty: true, size: 0, docs: [] };
     });
