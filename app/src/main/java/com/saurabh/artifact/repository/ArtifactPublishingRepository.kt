@@ -5,7 +5,10 @@ import android.net.Uri
 import android.util.Log
 import androidx.core.net.toUri
 import com.google.firebase.Timestamp
+import com.google.firebase.appcheck.FirebaseAppCheck
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.StorageMetadata
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
@@ -49,6 +52,7 @@ class ArtifactPublishingRepository @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val firestore: FirebaseFirestore,
     private val storage: FirebaseStorage,
+    private val functions: FirebaseFunctions,
     private val draftRepository: dagger.Lazy<DraftRepository>,
     private val storageManager: com.saurabh.artifact.util.StorageManager,
     private val diagnosticLogger: DiagnosticLogger
@@ -321,6 +325,47 @@ class ArtifactPublishingRepository @Inject constructor(
             Result.success(draft.id)
         } catch (e: Exception) {
             diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "ARTIFACT_DOCUMENT_CREATE_FAILED", mapOf(LogKeys.DRAFT_ID to draft.id), e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun preparePublish(draftId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        return@withContext try {
+            diagnosticLogger.debug(DiagnosticCategory.FIRESTORE, "PREPARE_PUBLISH_CALLABLE_START", mapOf(LogKeys.DRAFT_ID to draftId))
+            val data = mapOf("draftId" to draftId)
+            functions.getHttpsCallable("preparePublish").call(data).await()
+            diagnosticLogger.info(DiagnosticCategory.FIRESTORE, "PREPARE_PUBLISH_CALLABLE_SUCCESS", mapOf(LogKeys.DRAFT_ID to draftId))
+            Result.success(Unit)
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "PREPARE_PUBLISH_CALLABLE_FAILED", mapOf(LogKeys.DRAFT_ID to draftId), e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun finalizePublish(
+        draft: ArtifactDraftEntity
+    ): Result<String> = withContext(Dispatchers.IO) {
+        return@withContext try {
+            diagnosticLogger.debug(DiagnosticCategory.FIRESTORE, "FINALIZE_PUBLISH_CALLABLE_START", mapOf(LogKeys.DRAFT_ID to draft.id))
+            val payload = mutableMapOf<String, Any>(
+                "draftId" to draft.id,
+                "title" to (draft.title ?: "Untitled Artifact"),
+                "description" to (draft.description ?: ""),
+                "emotion" to (draft.emotion?.label ?: "Untitled"),
+                "durationMs" to draft.durationMs,
+                "amplitudeData" to draft.amplitudeData,
+                "primaryStyle" to (draft.primaryStyle?.name ?: "REFLECTIVE"),
+                "reactionVisibility" to (draft.reactionVisibility?.name ?: ReactionVisibilityMode.APPROXIMATE.name),
+                "isPublic" to draft.isPublic
+            )
+
+            functions.getHttpsCallable("finalizePublish").call(payload).await()
+            diagnosticLogger.info(DiagnosticCategory.FIRESTORE, "FINALIZE_PUBLISH_CALLABLE_SUCCESS", mapOf(LogKeys.DRAFT_ID to draft.id))
+            Result.success(draft.id)
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "FINALIZE_PUBLISH_CALLABLE_FAILED", mapOf(LogKeys.DRAFT_ID to draft.id), e)
             Result.failure(e)
         }
     }

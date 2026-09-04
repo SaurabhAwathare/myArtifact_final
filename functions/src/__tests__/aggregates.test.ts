@@ -90,7 +90,7 @@ describe("Aggregate Cloud Functions", () => {
       } as any;
 
       const transaction = {
-        get: jest.fn().mockResolvedValue({ exists: true, data: () => ({ isPublic: true, userId: "userA" }) }),
+        get: (jest.fn() as any).mockResolvedValue({ exists: true, data: () => ({ isPublic: true, userId: "userA" }) }),
         set: jest.fn(),
         update: jest.fn(),
         delete: jest.fn(),
@@ -115,7 +115,7 @@ describe("Aggregate Cloud Functions", () => {
       const snapshot = { data: () => ({ artifactId, userId: "user1" }) } as any;
 
       const transaction = {
-        get: jest.fn().mockResolvedValue({ exists: false }),
+        get: (jest.fn() as any).mockResolvedValue({ exists: false }),
         set: jest.fn(),
         update: jest.fn(),
         delete: jest.fn(),

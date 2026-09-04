@@ -936,6 +936,8 @@ export const onUserProfileUpdated = functions.firestore
     logger.info(`[PROFILE_SYNC] Synced ${anonymousId} for UID ${context.params.uid}`);
     return null;
   });
+
+/**
  * Hardened for idempotency and scalability with increased timeout and memory.
  */
 export const onUserDeleted = functions
@@ -1183,26 +1185,6 @@ async function scaleResonanceCleanup(
   }
 }
 
-          transaction.delete(markerRef);
-          transaction.delete(reciprocalRef);
-          transaction.update(otherUserRef, updateData);
-        });
-      });
-
-      await Promise.all(promises);
-      totalProcessed += snapshot.size;
-      logger.info(`[DELETE USER] Resonance | type=${type} | Batch=${snapshot.size} | Total=${totalProcessed}`);
-
-      if (snapshot.size < batchSize) break;
-    }
-  } catch (e) {
-    logger.error(`[DELETE USER] Resonance Cleanup Error | type=${type}:`, e);
-    throw e;
-  }
-  return totalProcessed;
-}
-
-
 /**
  * Authoritative backend validator for the "Listen Before You Respond" feature.
  * Triggers when a user's engagement record is updated.
@@ -1232,7 +1214,7 @@ export const onEngagementUpdated = functions.firestore
     const db = admin.firestore();
 
     const now = Date.now();
-    const createTime = change.after.createTime.toMillis();
+    const createTime = change.after.createTime ? change.after.createTime.toMillis() : Date.now();
     const elapsedSinceCreation = now - createTime;
 
     try {
@@ -1947,9 +1929,7 @@ export const onNotificationCreated = functions.firestore
  * Allows an authorized Admin to retrieve the Creator's email and a temporary audio link
  * for an artifact that is under Legal Hold and confirmed as a Child Safety violation.
  */
-export const revealModerationEvidence = functions.https.onCall({
-  enforceAppCheck: true
-}, async (data, context) => {
+export const revealModerationEvidence = functions.https.onCall(async (data: any, context: functions.https.CallableContext) => {
   // 1. Authentication & Admin Authorization
   if (!context.auth) {
     throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
@@ -2152,9 +2132,7 @@ export const aggregateCommunityAtmosphere = functions.pubsub
  * Authoritatively heals the moderation counts for an artifact by re-scanning the reports collection.
  * Use this to recover from race conditions or logic errors in the incremental counter.
  */
-export const healArtifactModeration = functions.https.onCall({
-  enforceAppCheck: true
-}, async (data, context) => {
+export const healArtifactModeration = functions.https.onCall(async (data: any, context: functions.https.CallableContext) => {
   if (!context.auth) {
     throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
   }
@@ -2218,5 +2196,223 @@ export const healArtifactModeration = functions.https.onCall({
     }
     logger.error(`[HEAL] FATAL ERROR | ArtifactID=${artifactId}:`, error);
     throw new functions.https.HttpsError("internal", "An error occurred during count reconciliation.");
+  }
+});
+
+/**
+ * Authoritatively creates a private publication reservation document under
+ * /users/{uid}/private/published_artifacts/artifacts/{draftId}
+ * before audio storage upload to satisfy storage.rules isArtifactOwner() check.
+ */
+export const preparePublish = functions.https.onCall(async (data, context) => {
+  if (!context.auth || !context.auth.uid) {
+    throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
+  }
+  const uid = context.auth.uid;
+
+  const draftId = data?.draftId;
+  if (!draftId || typeof draftId !== "string" || draftId.trim().length === 0) {
+    throw new functions.https.HttpsError("invalid-argument", "Valid draftId is required.");
+  }
+  const cleanDraftId = draftId.trim();
+
+  const db = admin.firestore();
+
+  try {
+    const userDoc = await db.doc(`users/${uid}`).get();
+    if (!userDoc.exists) {
+      throw new functions.https.HttpsError("not-found", "User profile does not exist.");
+    }
+    const userData = userDoc.data() || {};
+    const identityResetVersion = userData.identityMetadata?.identityResetVersion || 0;
+
+    const reservationRef = db.doc(`users/${uid}/private/published_artifacts/artifacts/${cleanDraftId}`);
+    const reservationDoc = await reservationRef.get();
+
+    if (!reservationDoc.exists) {
+      await reservationRef.set({
+        createdAt: FieldValue.serverTimestamp(),
+        identityResetVersion: identityResetVersion,
+      });
+      logger.info(`[PREPARE_PUBLISH] Reservation created for draft ${cleanDraftId} under user ${uid}`);
+    } else {
+      logger.info(`[PREPARE_PUBLISH] Reservation re-used for draft ${cleanDraftId} under user ${uid}`);
+    }
+
+    return {
+      status: "RESERVED",
+      draftId: cleanDraftId,
+    };
+  } catch (error) {
+    if (error instanceof functions.https.HttpsError) {
+      throw error;
+    }
+    logger.error(`[PREPARE_PUBLISH] Error for draft ${cleanDraftId}:`, error);
+    throw new functions.https.HttpsError("internal", "An error occurred during publication preparation.");
+  }
+});
+
+/**
+ * Authoritatively validates Storage upload and creates the public Artifact document
+ * under /artifacts/{draftId} in an atomic transaction.
+ * REAL USER ID IS OMITTED FROM PUBLIC DOCUMENT FIELDS TO PRESERVE RESPONSIBLE ANONYMITY!
+ */
+export const finalizePublish = functions.https.onCall(async (data, context) => {
+  if (!context.auth || !context.auth.uid) {
+    throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
+  }
+  const uid = context.auth.uid;
+
+  const draftId = data?.draftId;
+  if (!draftId || typeof draftId !== "string" || draftId.trim().length === 0) {
+    throw new functions.https.HttpsError("invalid-argument", "Valid draftId is required.");
+  }
+  const cleanDraftId = draftId.trim();
+
+  const title = data?.title;
+  if (!title || typeof title !== "string" || title.trim().length === 0 || title.trim().length > 70) {
+    throw new functions.https.HttpsError("invalid-argument", "Title is required and must not exceed 70 characters.");
+  }
+
+  const description = typeof data?.description === "string" ? data.description.trim().substring(0, 1000) : "";
+  const emotion = typeof data?.emotion === "string" ? data.emotion.trim() : "Untitled";
+  const durationMs = typeof data?.durationMs === "number" && data.durationMs > 0 ? Math.floor(data.durationMs) : 0;
+  if (durationMs <= 0) {
+    throw new functions.https.HttpsError("invalid-argument", "Valid positive durationMs is required.");
+  }
+
+  const primaryStyle = typeof data?.primaryStyle === "string" ? data.primaryStyle.trim() : "REFLECTIVE";
+  const reactionVisibility = typeof data?.reactionVisibility === "string" ? data.reactionVisibility.trim() : "APPROXIMATE";
+  const isPublic = typeof data?.isPublic === "boolean" ? data.isPublic : true;
+
+  let amplitudeData: number[] = [];
+  if (Array.isArray(data?.amplitudeData)) {
+    amplitudeData = data.amplitudeData
+      .slice(0, 100)
+      .map((v: any) => (typeof v === "number" && !isNaN(v) ? Math.max(0, Math.min(1, v)) : 0));
+  }
+
+  const db = admin.firestore();
+  const bucketName = "myartifact-555e3.firebasestorage.app";
+  const bucket = admin.storage().bucket(bucketName);
+
+  try {
+    const audioPath = `artifacts/${cleanDraftId}.m4a`;
+    const audioFile = bucket.file(audioPath);
+    const [audioExists] = await audioFile.exists();
+    if (!audioExists) {
+      throw new functions.https.HttpsError("not-found", "Audio object missing from Storage.");
+    }
+    const [metadata] = await audioFile.getMetadata();
+    const fileSize = parseInt(metadata.size as string, 10) || 0;
+    if (fileSize <= 0) {
+      throw new functions.https.HttpsError("invalid-argument", "Audio object in Storage is empty.");
+    }
+
+    // Server-Authoritative Download URL Derivation for Audio
+    const encodedAudioPath = encodeURIComponent(audioPath);
+    const audioDownloadToken = metadata.metadata?.firebaseStorageDownloadTokens;
+    const serverAudioUrl = audioDownloadToken
+      ? `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodedAudioPath}?alt=media&token=${audioDownloadToken}`
+      : `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodedAudioPath}?alt=media`;
+
+    // Server-Authoritative Download URL Derivation for Transcript (if present in Storage)
+    let serverTranscriptUrl: string | null = null;
+    const transcriptPath = `transcripts/${cleanDraftId}.json`;
+    const transcriptFile = bucket.file(transcriptPath);
+    const [transcriptExists] = await transcriptFile.exists();
+    if (transcriptExists) {
+      const [tMetadata] = await transcriptFile.getMetadata();
+      const tDownloadToken = tMetadata.metadata?.firebaseStorageDownloadTokens;
+      const encodedTranscriptPath = encodeURIComponent(transcriptPath);
+      serverTranscriptUrl = tDownloadToken
+        ? `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodedTranscriptPath}?alt=media&token=${tDownloadToken}`
+        : `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodedTranscriptPath}?alt=media`;
+    }
+
+    return await db.runTransaction(async (transaction) => {
+      const reservationRef = db.doc(`users/${uid}/private/published_artifacts/artifacts/${cleanDraftId}`);
+      const reservationDoc = await transaction.get(reservationRef);
+      if (!reservationDoc.exists) {
+        throw new functions.https.HttpsError("permission-denied", "No publication reservation found for this user.");
+      }
+
+      const artifactRef = db.doc(`artifacts/${cleanDraftId}`);
+      const artifactDoc = await transaction.get(artifactRef);
+
+      if (artifactDoc.exists) {
+        const existingData = artifactDoc.data() || {};
+        if (existingData.status === "ACTIVE") {
+          logger.info(`[FINALIZE_PUBLISH] Artifact ${cleanDraftId} is already ACTIVE for caller ${uid}. Idempotent return.`);
+          return { status: "SUCCESS", artifactId: cleanDraftId };
+        } else {
+          throw new functions.https.HttpsError("failed-precondition", `Artifact ${cleanDraftId} exists in non-active state (${existingData.status}).`);
+        }
+      }
+
+      const userRef = db.doc(`users/${uid}`);
+      const userDoc = await transaction.get(userRef);
+      if (!userDoc.exists) {
+        throw new functions.https.HttpsError("not-found", "User profile does not exist.");
+      }
+
+      const userData = userDoc.data();
+      if (!userData ||
+          !userData.anonymousId || typeof userData.anonymousId !== "string" || userData.anonymousId.trim().length === 0 ||
+          !userData.anonymousName || typeof userData.anonymousName !== "string" || userData.anonymousName.trim().length === 0) {
+        throw new functions.https.HttpsError("failed-precondition", "User profile has incomplete anonymous identity.");
+      }
+
+      const anonymousId = userData.anonymousId.trim();
+      const anonymousName = userData.anonymousName.trim();
+      const identityResetVersion = typeof userData.identityMetadata?.identityResetVersion === "number"
+        ? userData.identityMetadata.identityResetVersion
+        : 0;
+
+      const publicArtifactPayload = {
+        id: cleanDraftId,
+        author: {
+          anonymousId: anonymousId,
+          name: anonymousName,
+        },
+        audioUrl: serverAudioUrl,
+        ...(serverTranscriptUrl ? { transcriptUrl: serverTranscriptUrl } : {}),
+        title: title.trim(),
+        description: description,
+        emotion: emotion,
+        emotionTag: emotion,
+        durationMs: durationMs,
+        amplitudeData: amplitudeData,
+        conversationMetadata: {
+          primaryStyle: primaryStyle,
+          isAIGenerated: true,
+        },
+        reactionVisibility: reactionVisibility,
+        status: "ACTIVE",
+        isPublic: isPublic,
+        isDraft: false,
+        identityVersion: identityResetVersion,
+        playCount: 0,
+        reactionCount: 0,
+        commentCount: 0,
+        reportCount: 0,
+        moderation: {
+          status: "SAFE",
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        createdAt: FieldValue.serverTimestamp(),
+      };
+
+      transaction.set(artifactRef, publicArtifactPayload, { merge: false });
+
+      logger.info(`[FINALIZE_PUBLISH] Artifact ${cleanDraftId} successfully finalized and published with server-derived audioUrl.`);
+      return { status: "SUCCESS", artifactId: cleanDraftId };
+    });
+  } catch (error) {
+    if (error instanceof functions.https.HttpsError) {
+      throw error;
+    }
+    logger.error(`[FINALIZE_PUBLISH] Error for draft ${cleanDraftId}:`, error);
+    throw new functions.https.HttpsError("internal", "An error occurred during publication finalization.");
   }
 });

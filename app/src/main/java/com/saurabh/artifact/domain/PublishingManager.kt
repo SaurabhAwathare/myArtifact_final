@@ -109,56 +109,12 @@ class PublishingManager @Inject constructor(
             val audioPath = draft.frozenAudioPath ?: draft.localAudioPath
             draftRepository.updateUploadStatus(draftId, SyncStatus.Uploading)
 
-            // 3. Upload Transcript
-            diagnosticLogger.debug(DiagnosticCategory.PUBLISH, "PUBLISH_STEP_3_TRANSCRIPT", mapOf(LogKeys.DRAFT_ID to draftId))
-            val transcriptUrl = if (draft.frozenTranscriptJson != null) {
-                val uploadResult = artifactRepository.uploadTranscript(
-                    userId = firebaseUser.uid,
-                    draftId = draft.id,
-                    transcriptJson = draft.frozenTranscriptJson.toUnsecureString()
-                )
-                
-                if (uploadResult.isFailure) {
-                    val error = uploadResult.exceptionOrNull() ?: Exception("Transcript upload failed")
-                    diagnosticLogger.error(
-                        DiagnosticCategory.PUBLISH, 
-                        "TRANSCRIPT_UPLOAD_STEP_FAILED", 
-                        mapOf(
-                            LogKeys.DRAFT_ID to draftId,
-                            "lifecycle" to draft.lifecycle.name,
-                            "publicationStatus" to draft.status.publication.toString()
-                        ), 
-                        error
-                    )
-                    
-                    // Propagate as a failure to stop the workflow
-                    return@withContext Result.failure(error)
-                }
-                uploadResult.getOrNull()
-            } else null
+            // 3. Prepare Publication Reservation (Server-Authoritative)
+            diagnosticLogger.debug(DiagnosticCategory.FIRESTORE, "PUBLISH_STEP_3_PREPARE", mapOf(LogKeys.DRAFT_ID to draftId))
+            artifactRepository.preparePublish(draftId).getOrThrow()
 
-            // 4. Fetch Authoritative User Profile (Fail-Closed Enforcement)
-            diagnosticLogger.debug(DiagnosticCategory.PUBLISH, "PUBLISH_STEP_4_PROFILE", mapOf(LogKeys.DRAFT_ID to draftId))
-            val userProfile = userRepository.getOrCreateProfile().map { it.user }.getOrThrow()
-
-            // NEW: Construct Complete AuthorSnapshot (Defense in Depth)
-            val authorSnapshot = AuthorSnapshot.fromUser(userProfile)
-
-            // 5. Pre-register Firestore Document
-            diagnosticLogger.debug(DiagnosticCategory.FIRESTORE, "PUBLISH_STEP_5_PRE_REGISTER", mapOf(LogKeys.DRAFT_ID to draftId))
-            artifactRepository.createArtifactDocument(
-                userId = firebaseUser.uid,
-                author = authorSnapshot,
-                audioUrl = draft.uploadedAudioUrl ?: "",
-                draft = draft,
-                identityVersion = userProfile.identityMetadata.identityResetVersion,
-                status = if (draft.uploadedAudioUrl != null) ArtifactStatus.ACTIVE else ArtifactStatus.PENDING_UPLOAD,
-                isPublic = if (draft.uploadedAudioUrl != null) draft.isPublic else false,
-                transcriptUrl = transcriptUrl
-            ).getOrThrow()
-
-            // 6. Upload Audio (Resumable)
-            diagnosticLogger.debug(DiagnosticCategory.STORAGE, "PUBLISH_STEP_6_AUDIO", mapOf(LogKeys.DRAFT_ID to draftId))
+            // 4. Upload Audio (Resumable)
+            diagnosticLogger.debug(DiagnosticCategory.STORAGE, "PUBLISH_STEP_4_AUDIO", mapOf(LogKeys.DRAFT_ID to draftId))
             val downloadUrl = if (draft.uploadedAudioUrl != null) {
                 diagnosticLogger.info(DiagnosticCategory.STORAGE, "PUBLISH_AUDIO_CHECKPOINT_REUSE", mapOf(LogKeys.DRAFT_ID to draftId))
                 draft.uploadedAudioUrl
@@ -178,20 +134,40 @@ class PublishingManager @Inject constructor(
                 url
             }
 
+            // 5. Upload Transcript (if present)
+            diagnosticLogger.debug(DiagnosticCategory.PUBLISH, "PUBLISH_STEP_5_TRANSCRIPT", mapOf(LogKeys.DRAFT_ID to draftId))
+            val transcriptUrl = if (draft.frozenTranscriptJson != null) {
+                val uploadResult = artifactRepository.uploadTranscript(
+                    userId = firebaseUser.uid,
+                    draftId = draft.id,
+                    transcriptJson = draft.frozenTranscriptJson.toUnsecureString()
+                )
+                
+                if (uploadResult.isFailure) {
+                    val error = uploadResult.exceptionOrNull() ?: Exception("Transcript upload failed")
+                    diagnosticLogger.error(
+                        DiagnosticCategory.PUBLISH, 
+                        "TRANSCRIPT_UPLOAD_STEP_FAILED", 
+                        mapOf(
+                            LogKeys.DRAFT_ID to draftId,
+                            "lifecycle" to draft.lifecycle.name,
+                            "publicationStatus" to draft.status.publication.toString()
+                        ), 
+                        error
+                    )
+                    return@withContext Result.failure(error)
+                }
+                uploadResult.getOrNull()
+            } else null
+
             draftRepository.updateUploadStatus(draftId, SyncStatus.Finalizing)
 
-            // 7. Finalize Firestore Document
-            diagnosticLogger.debug(DiagnosticCategory.FIRESTORE, "PUBLISH_STEP_7_FINALIZE", mapOf(LogKeys.DRAFT_ID to draftId))
-            artifactRepository.finalizeArtifactDocument(
-                artifactId = draftId,
-                audioUrl = downloadUrl,
-                status = ArtifactStatus.ACTIVE,
-                isPublic = draft.isPublic,
-                transcriptUrl = transcriptUrl
-            ).getOrThrow()
+            // 6. Finalize Firestore Document (Server-Authoritative)
+            diagnosticLogger.debug(DiagnosticCategory.FIRESTORE, "PUBLISH_STEP_6_FINALIZE", mapOf(LogKeys.DRAFT_ID to draftId, "audioUrl" to downloadUrl, "transcriptUrl" to (transcriptUrl ?: "none")))
+            artifactRepository.finalizePublish(draft = draft).getOrThrow()
 
-            // 8. Success Cleanup
-            diagnosticLogger.debug(DiagnosticCategory.PUBLISH, "PUBLISH_STEP_8_CLEANUP", mapOf(LogKeys.DRAFT_ID to draftId))
+            // 7. Success Cleanup
+            diagnosticLogger.debug(DiagnosticCategory.PUBLISH, "PUBLISH_STEP_7_CLEANUP", mapOf(LogKeys.DRAFT_ID to draftId))
             withContext(NonCancellable) {
                 draftRepository.markAsPublished(draftId, draftId)
             }

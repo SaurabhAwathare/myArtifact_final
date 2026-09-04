@@ -859,6 +859,13 @@ class ArtifactRepository @Inject constructor(
         artifactId, audioUrl, status, isPublic, transcriptUrl
     )
 
+    suspend fun preparePublish(draftId: String): Result<Unit> =
+        publishingRepository.get().preparePublish(draftId)
+
+    suspend fun finalizePublish(
+        draft: ArtifactDraftEntity
+    ): Result<String> = publishingRepository.get().finalizePublish(draft)
+
     /**
      * Hardening: Specifically retries the download URL fetch to handle eventual consistency.
      * Legacy: Kept for uploadTranscript support.
