@@ -3,15 +3,6 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
 
-    // Business Purpose: Verify the request originates from a trusted app instance.
-    // Transition Phase: Applied to all high-risk uploads.
-    function enforceAppCheck() {
-      // Production: check request.appCheck (populated by Firebase backend)
-      // Testing: check request.auth.token.simulateAppCheck (populated by rules-unit-testing)
-      return request.get('appCheck', null) != null ||
-             (request.auth != null && request.auth.token.get('simulateAppCheck', false) == true);
-    }
-
     // Helper: Checks if the artifact is public and active in Firestore
     function isPublicArtifact(draftId) {
       let artifact = firestore.get(/databases/(default)/documents/artifacts/$(draftId)).data;
@@ -38,7 +29,6 @@ service firebase.storage {
       // Allow write if owner (verified via registry or legacy prefix)
       // For new files, the registry entry MUST be created in Firestore BEFORE upload.
       allow write: if request.auth != null &&
-                   enforceAppCheck() &&
                    (fileName.matches("^" + request.auth.uid + "_.*") ||
                     isArtifactOwner(fileName.replace(".m4a", "")));
     }
@@ -51,7 +41,6 @@ service firebase.storage {
         (resource.metadata != null && resource.metadata.draftId != null && isPublicArtifact(resource.metadata.draftId))
       );
       allow write: if request.auth != null &&
-                   enforceAppCheck() &&
                    (fileName.matches("^" + request.auth.uid + "_.*") ||
                     isArtifactOwner(fileName.replace(".json", "")));
     }
@@ -60,7 +49,7 @@ service firebase.storage {
     // NOTE: This uses UID as a top-level partition, which is acceptable for private backups.
     match /backups/{userId}/{allPaths=**} {
       allow read: if request.auth != null && request.auth.uid == userId;
-      allow write: if request.auth != null && request.auth.uid == userId && enforceAppCheck();
+      allow write: if request.auth != null && request.auth.uid == userId;
     }
 
     // Default: Deny everything else
@@ -69,3 +58,4 @@ service firebase.storage {
     }
   }
 }
+

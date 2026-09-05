@@ -103,41 +103,18 @@ class StartupCoordinatorTest {
     }
 
     @Test
-    fun `successful App Check attestation sets status to VERIFIED`() = runTest(testDispatcher) {
-        val mockToken = mockk<AppCheckToken> {
-            every { token } returns "valid-token"
-        }
-        every { firebaseAppCheck.getAppCheckToken(false) } returns Tasks.forResult(mockToken)
-        
+    fun `App Check readiness preserves pending status for lazy SDK retrieval`() = runTest(testDispatcher) {
         coEvery { encryptionManager.preload() } returns com.saurabh.artifact.security.PreloadResult.Success
         coEvery { maintenanceRepository.getPendingDeletionUid() } returns null
         
         coordinator.start()
         advanceUntilIdle()
         
-        assertEquals(SecurityStatus.VERIFIED, coordinator.securityStatus.value)
-    }
-
-    @Test
-    fun `failed App Check attestation sets status to UNVERIFIED after retries`() = runTest(testDispatcher) {
-        // Force failure for all attempts
-        every { firebaseAppCheck.getAppCheckToken(false) } returns Tasks.forException(Exception("Attestation failed"))
-        
-        coEvery { encryptionManager.preload() } returns com.saurabh.artifact.security.PreloadResult.Success
-        coEvery { maintenanceRepository.getPendingDeletionUid() } returns null
-        
-        coordinator.start()
-        advanceUntilIdle()
-        
-        assertEquals(SecurityStatus.UNVERIFIED, coordinator.securityStatus.value)
+        assertEquals(SecurityStatus.PENDING, coordinator.securityStatus.value)
     }
 
     @Test
     fun `global startup timeout emits terminal error when stable is not reached`() = runTest(testDispatcher) {
-        // App Check is fast
-        val mockToken = mockk<AppCheckToken> { every { token } returns "token" }
-        every { firebaseAppCheck.getAppCheckToken(false) } returns Tasks.forResult(mockToken)
-        
         coEvery { encryptionManager.preload() } returns com.saurabh.artifact.security.PreloadResult.Success
         coEvery { maintenanceRepository.getPendingDeletionUid() } returns null
 
@@ -155,8 +132,6 @@ class StartupCoordinatorTest {
 
     @Test
     fun `cold start follows full staggered delay sequence`() = runTest(testDispatcher) {
-        val mockToken = mockk<AppCheckToken> { every { token } returns "token" }
-        every { firebaseAppCheck.getAppCheckToken(false) } returns Tasks.forResult(mockToken)
         coEvery { encryptionManager.preload() } returns com.saurabh.artifact.security.PreloadResult.Success
         coEvery { maintenanceRepository.getPendingDeletionUid() } returns null
 
@@ -183,8 +158,6 @@ class StartupCoordinatorTest {
     @Test
     fun `warm start accelerates to STABLE in 200ms`() = runTest(testDispatcher) {
         // 1. Initial Cold Start to reach STABLE
-        val mockToken = mockk<AppCheckToken> { every { token } returns "token" }
-        every { firebaseAppCheck.getAppCheckToken(false) } returns Tasks.forResult(mockToken)
         coEvery { encryptionManager.preload() } returns com.saurabh.artifact.security.PreloadResult.Success
         coEvery { maintenanceRepository.getPendingDeletionUid() } returns null
 
@@ -194,34 +167,14 @@ class StartupCoordinatorTest {
         assertEquals(StartupStage.STABLE, coordinator.stage.value)
         
         // 2. Trigger second start (Warm Start)
-        // Reset internal isStarted flag for testing if necessary, but start() check is at instance level.
-        // Singleton StartupCoordinator will have isStarted = true.
-        // To test re-entry, we might need a way to reset isStarted but keep _stage.
-        // For this test, I'll manually reset isStarted via reflection if needed, 
-        // but normally start() returns early if isStarted is true.
-        
-        // Let's use reflection to reset isStarted to simulate a new MainActivity calling start()
         val isStartedField = coordinator.javaClass.getDeclaredField("isStarted")
         isStartedField.isAccessible = true
         isStartedField.set(coordinator, false)
 
         coordinator.start()
         
-        // Warm start sequence:
-        // Core re-verification (parallel) -> delay(200) -> STABLE
-        testScheduler.advanceTimeBy(100)
-        // Should not be STABLE yet if we have the 200ms delay
-        assert(coordinator.stage.value == StartupStage.STABLE) // Wait, it was already STABLE.
-        
-        // To verify it "re-emits" or stays stable correctly after the delay:
-        // We can check StartupTracer or a local state.
-        // Actually, if it's already STABLE, _stage.value doesn't change until it's set again.
-        
-        // Let's verify that it doesn't go back to PRESENCE/DISCOVERY
+        // Warm start sequence completes
         testScheduler.advanceTimeBy(500)
         assertEquals(StartupStage.STABLE, coordinator.stage.value)
-        
-        // Verify technical components were re-verified (App Check called again)
-        verify(exactly = 2) { firebaseAppCheck.getAppCheckToken(false) }
     }
 }

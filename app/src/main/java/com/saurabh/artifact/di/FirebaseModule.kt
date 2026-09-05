@@ -6,6 +6,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.functions.FirebaseFunctions
+import com.saurabh.artifact.BuildConfig
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -28,6 +29,10 @@ object FirebaseModule {
         FirebaseFirestore.setLoggingEnabled(true)
         
         val firestore = FirebaseFirestore.getInstance()
+        if (BuildConfig.DEBUG) {
+            firestore.useEmulator("10.0.2.2", 8080)
+        }
+
         // Modern way to enable offline persistence:
         val settings = com.google.firebase.firestore.firestoreSettings {
             setLocalCacheSettings(

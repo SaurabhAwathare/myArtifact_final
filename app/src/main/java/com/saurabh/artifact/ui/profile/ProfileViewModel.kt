@@ -354,7 +354,7 @@ class ProfileViewModel @Inject constructor(
     }
 
     fun toggleResonance() {
-        val targetId = _targetUserId.value ?: _targetPersonaId.value ?: return
+        val targetId = _targetPersonaId.value ?: _targetUserId.value ?: return
         val currentId = currentUserId ?: return
         if (targetId == currentId) return
 

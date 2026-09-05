@@ -348,39 +348,9 @@ class StartupCoordinator @Inject constructor(
     }
 
     private suspend fun awaitAppCheckReadiness() {
-        val firebaseAppCheck = com.google.firebase.appcheck.FirebaseAppCheck.getInstance()
-        ArtifactLogger.d(DiagnosticCategory.STARTUP, "APP_CHECK_START")
-        
-        var currentAttempt = 0
-        val maxAttempts = 3
-        var success = false
-
-        while (currentAttempt < maxAttempts && !success) {
-            currentAttempt++
-            try {
-                // Phase A: Non-blocking timeout to ensure startup proceeds
-                withTimeout(5.seconds) {
-                    firebaseAppCheck.getAppCheckToken(false).await()
-                    success = true
-                }
-            } catch (e: Exception) {
-                val category = if (e is kotlinx.coroutines.TimeoutCancellationException) "TIMEOUT" else "ERROR"
-                ArtifactLogger.w(DiagnosticCategory.STARTUP, "APP_CHECK_ATTEMPT_FAILED", mapOf("attempt" to currentAttempt, "reason" to category))
-                if (currentAttempt < maxAttempts) {
-                    delay((currentAttempt * 1000).milliseconds) // Simple backoff
-                }
-            }
-        }
-
-        if (success) {
-            ArtifactLogger.i(DiagnosticCategory.STARTUP, "APP_CHECK_VERIFIED")
-            _securityStatus.value = SecurityStatus.VERIFIED
-        } else {
-            ArtifactLogger.w(DiagnosticCategory.STARTUP, "APP_CHECK_UNVERIFIED")
-            _securityStatus.value = SecurityStatus.UNVERIFIED
-        }
-        
-        // Signal component readiness (Non-blocking for core flow in Phase A)
+        ArtifactLogger.d(DiagnosticCategory.STARTUP, "APP_CHECK_PROVIDER_ACTIVE")
+        // App Check provider is installed in Application.onCreate() / SecurityInitializer.
+        // Lazy token acquisition is managed automatically by Firebase SDKs on-demand.
         emitReadiness(StartupComponent.APP_CHECK)
     }
 
