@@ -7,6 +7,8 @@ import androidx.paging.PagingData
 import androidx.paging.map
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.FieldPath
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.storage.FirebaseStorage
@@ -396,16 +398,17 @@ class ArtifactRepository @Inject constructor(
 
     fun getUserArtifacts(
         userId: String, 
+        isSelf: Boolean? = null,
         onlyActive: Boolean = false, 
         limit: Int = 20
-    ): Flow<Pair<List<Artifact>, com.google.firebase.firestore.DocumentSnapshot?>> = callbackFlow {
+    ): Flow<Pair<List<Artifact>, DocumentSnapshot?>> = callbackFlow {
         val currentUserId = auth.currentUser?.uid
-        val isSelf = userId == currentUserId
+        val resolvedIsSelf = isSelf ?: (userId.isNotEmpty() && userId == currentUserId)
 
-        if (isSelf) {
-            // SELF PATH: Fetch from private ownership registry
-            // This ensures "My Reflections" shows all artifacts regardless of persona.
-            val registryQuery = firestore.collection("users").document(userId)
+        if (resolvedIsSelf) {
+            val authenticatedUid = currentUserId ?: userId
+            // SELF PATH: Fetch strictly from private ownership registry
+            val registryQuery = firestore.collection("users").document(authenticatedUid)
                 .collection("private").document("published_artifacts")
                 .collection("artifacts")
                 .orderBy("createdAt", Query.Direction.DESCENDING)
@@ -413,7 +416,7 @@ class ArtifactRepository @Inject constructor(
 
             val subscription = registryQuery.addSnapshotListener { registrySnapshot, error ->
                 if (error != null) {
-                    diagnosticLogger.error(DiagnosticCategory.PROFILE, "SELF_REGISTRY_QUERY_FAILED", mapOf("userId" to userId), error)
+                    diagnosticLogger.error(DiagnosticCategory.PROFILE, "SELF_REGISTRY_QUERY_FAILED", mapOf("userId" to authenticatedUid), error)
                     trySend(emptyList<Artifact>() to null)
                     return@addSnapshotListener
                 }
@@ -426,22 +429,20 @@ class ArtifactRepository @Inject constructor(
                 repositoryScope.launch(Dispatchers.IO) {
                     try {
                         val artifactIds = registrySnapshot.documents.map { it.id }
-                        
-                        // FETCH DOCUMENTS: Use whereIn for batch retrieval (limit 30)
                         val artifactsQuery = firestore.collection("artifacts")
-                            .whereIn(com.google.firebase.firestore.FieldPath.documentId(), artifactIds.take(30))
+                            .whereIn(FieldPath.documentId(), artifactIds.take(limit.coerceAtMost(30)))
 
                         val artifactsSnapshot = artifactsQuery.get().await()
                         val artifacts = artifactsSnapshot.documents.mapNotNull { doc ->
                             doc.toObject(Artifact::class.java)?.copy(
                                 id = doc.id,
-                                userId = userId // Re-populate for own reflections
+                                userId = authenticatedUid
                             )
                         }.sortedByDescending { it.createdAt }
 
                         trySend(artifacts to registrySnapshot.documents.lastOrNull())
                     } catch (e: Exception) {
-                        diagnosticLogger.error(DiagnosticCategory.PROFILE, "SELF_ARTIFACT_BATCH_FETCH_FAILED", mapOf("userId" to userId), e)
+                        diagnosticLogger.error(DiagnosticCategory.PROFILE, "SELF_ARTIFACT_BATCH_FETCH_FAILED", mapOf("userId" to authenticatedUid), e)
                         trySend(emptyList<Artifact>() to null)
                     }
                 }
@@ -449,7 +450,6 @@ class ArtifactRepository @Inject constructor(
             awaitClose { subscription.remove() }
         } else {
             // OTHER PATH: Query by anonymous persona ID (Responsible Anonymity)
-            // Assuming the passed userId for others IS the anonymousId
             var query = firestore.collection("artifacts")
                 .whereEqualTo("author.anonymousId", userId)
                 .whereEqualTo("isPublic", true)
@@ -533,16 +533,18 @@ class ArtifactRepository @Inject constructor(
     suspend fun getUserArtifactsPage(
         userId: String,
         limit: Int = 20,
-        lastVisible: com.google.firebase.firestore.DocumentSnapshot? = null,
-        onlyActive: Boolean = false
-    ): Result<Pair<List<Artifact>, com.google.firebase.firestore.DocumentSnapshot?>> = withContext(Dispatchers.IO) {
+        lastVisible: DocumentSnapshot? = null,
+        onlyActive: Boolean = false,
+        isSelf: Boolean? = null
+    ): Result<Pair<List<Artifact>, DocumentSnapshot?>> = withContext(Dispatchers.IO) {
         try {
             val currentUserId = auth.currentUser?.uid
-            val isSelf = userId == currentUserId
+            val resolvedIsSelf = isSelf ?: (userId.isNotEmpty() && userId == currentUserId)
 
-            if (isSelf) {
-                // SELF PATH: Fetch from private ownership registry
-                var registryQuery = firestore.collection("users").document(userId)
+            if (resolvedIsSelf) {
+                val authenticatedUid = currentUserId ?: userId
+                // SELF PATH: Fetch strictly from private ownership registry
+                var registryQuery = firestore.collection("users").document(authenticatedUid)
                     .collection("private").document("published_artifacts")
                     .collection("artifacts")
                     .orderBy("createdAt", Query.Direction.DESCENDING)
@@ -558,13 +560,11 @@ class ArtifactRepository @Inject constructor(
                 }
 
                 val artifactIds = registrySnapshot.documents.map { it.id }
-                
-                // Resolve full documents (order is maintained by getArtifactsByIds)
                 val artifactsResult = getArtifactsByIds(artifactIds)
                 val artifacts = artifactsResult.getOrDefault(emptyList()).map { artifact ->
-                    artifact.copy(userId = userId) // Restore for self-view
-                }
-                
+                    artifact.copy(userId = authenticatedUid)
+                }.sortedByDescending { it.createdAt }
+
                 return@withContext Result.success(artifacts to registrySnapshot.documents.lastOrNull())
             }
 

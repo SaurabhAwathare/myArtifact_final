@@ -29,6 +29,7 @@ class ArtifactRepositoryEncryptionTest {
             artifactDao = { mockk(relaxed = true) },
             database = { mockk(relaxed = true) },
             artifactLibraryRepository = { mockk(relaxed = true) },
+            localDraftManager = mockk(relaxed = true),
             moderationRepository = { mockk(relaxed = true) },
             publishingRepository = { mockk(relaxed = true) },
             artifactEngagementRepository = { mockk(relaxed = true) },

@@ -61,9 +61,9 @@ class GetProfileDataUseCaseTest {
             every { id } returns artifactId
             every { status } returns ArtifactStatus.PENDING_UPLOAD
         }
-        every { artifactRepository.getUserArtifacts("user123", any()) } returns flowOf(listOf(cloudArtifact) to null)
+        every { artifactRepository.getUserArtifacts("user123", isSelf = true, onlyActive = false) } returns flowOf(listOf(cloudArtifact) to null)
 
-        val result = useCase(null).first()
+        val result = useCase(null, null).first()
 
         assertNotNull(result)
         assertEquals(1, result!!.localDrafts.size)
@@ -81,9 +81,9 @@ class GetProfileDataUseCaseTest {
             every { id } returns "unique_cloud_id"
             every { status } returns ArtifactStatus.PENDING_UPLOAD
         }
-        every { artifactRepository.getUserArtifacts("user123", any()) } returns flowOf(listOf(cloudArtifact) to null)
+        every { artifactRepository.getUserArtifacts("user123", isSelf = true, onlyActive = false) } returns flowOf(listOf(cloudArtifact) to null)
 
-        val result = useCase(null).first()
+        val result = useCase(null, null).first()
 
         assertNotNull(result)
         assertTrue(result!!.localDrafts.isEmpty())
@@ -102,7 +102,7 @@ class GetProfileDataUseCaseTest {
             every { status } returns ArtifactStatus.ACTIVE
         }
         
-        every { artifactRepository.getUserArtifacts(any(), any()) } returns flowOf(listOf(artifact1, artifact2) to null)
+        every { artifactRepository.getUserArtifacts(any(), isSelf = any(), onlyActive = any()) } returns flowOf(listOf(artifact1, artifact2) to null)
         every { recordingRepository.observeDrafts() } returns flowOf(emptyList())
         
         val suppressedFlow = kotlinx.coroutines.flow.MutableStateFlow(emptySet<String>())
@@ -110,7 +110,7 @@ class GetProfileDataUseCaseTest {
 
         val results = mutableListOf<ProfileData?>()
         val job = launch {
-            useCase(null).collect { results.add(it) }
+            useCase(null, null).collect { results.add(it) }
         }
 
         // Initially both visible
@@ -124,5 +124,28 @@ class GetProfileDataUseCaseTest {
         assertEquals("art2", results.last()?.publishedArtifacts?.get(0)?.id)
 
         job.cancel()
+    }
+
+    @Test
+    fun `should pass isSelf true and currentUserId when viewing self profile`() = runTest {
+        every { recordingRepository.observeDrafts() } returns flowOf(emptyList())
+        every { artifactRepository.getUserArtifacts("user123", isSelf = true, onlyActive = false) } returns flowOf(emptyList<Artifact>() to null)
+
+        val result = useCase(targetUserId = "user123", targetPersonaId = null).first()
+
+        assertNotNull(result)
+        assertTrue(result!!.isSelf)
+    }
+
+    @Test
+    fun `should pass isSelf false and personaId when viewing public profile`() = runTest {
+        every { recordingRepository.observeDrafts() } returns flowOf(emptyList())
+        every { userRepository.observeIgnoredUsers() } returns flowOf(emptySet())
+        every { artifactRepository.getUserArtifacts("usr_OTHER", isSelf = false, onlyActive = true) } returns flowOf(emptyList<Artifact>() to null)
+
+        val result = useCase(targetUserId = null, targetPersonaId = "usr_OTHER").first()
+
+        assertNotNull(result)
+        assertFalse(result!!.isSelf)
     }
 }

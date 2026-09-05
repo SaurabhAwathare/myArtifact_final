@@ -15,6 +15,8 @@ import com.google.firebase.auth.FirebaseAuth
 import com.saurabh.artifact.diagnostics.ArtifactLogger
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.data.local.*
+import com.saurabh.artifact.data.remote.model.CommentPayload
+import com.saurabh.artifact.model.Comment
 import com.saurabh.artifact.model.ReactionType
 import com.saurabh.artifact.model.SyncState
 import com.saurabh.artifact.repository.ArtifactLibraryRepository
@@ -327,7 +329,12 @@ class InteractionSyncWorker @AssistedInject constructor(
                 }
                 InteractionType.COMMENT -> {
                     val commentJson = interaction.metadata ?: throw Exception("Comment metadata missing")
-                    val comment = json.decodeFromString<com.saurabh.artifact.model.Comment>(commentJson)
+                    val comment = try {
+                        val payload = json.decodeFromString(CommentPayload.serializer(), commentJson)
+                        payload.toDomain()
+                    } catch (e: Exception) {
+                        json.decodeFromString<Comment>(commentJson)
+                    }
                     commentRepository.createComment(comment).map { Unit }
                 }
                 else -> throw Exception("Unknown interaction type: ${interaction.interactionType}")

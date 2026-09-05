@@ -606,16 +606,28 @@ export const onReactionIntentCreated = functions.firestore
       if (!artifactDoc.exists) return;
       const artifactData = artifactDoc.data()!;
 
+      // Resolve Artifact Creator's Firebase Auth UID via author.anonymousId -> persona_mapping
+      const authorAnonId = artifactData.author?.anonymousId;
+      let ownerId: string | null = null;
+      if (authorAnonId) {
+        const mappingDoc = await db.collection("persona_mapping").doc(authorAnonId).get();
+        ownerId = mappingDoc.data()?.userId || null;
+        if (!ownerId) {
+          const userQuery = await db.collection("users").where("anonymousId", "==", authorAnonId).limit(1).get();
+          if (!userQuery.empty) {
+            ownerId = userQuery.docs[0].id;
+          }
+        }
+      }
+
       // Privacy Boundary: Block notifications for private artifacts if not by owner
-      if (!artifactData.isPublic && artifactData.userId !== uid) {
+      if (!artifactData.isPublic && ownerId && ownerId !== uid) {
         logger.info(`[REACTION_NOTIF] Suppressed for private artifact | ArtifactID=${artifactId}`);
         return;
       }
 
       const actorDoc = await db.collection("users").doc(uid).get();
       const actorAnonId = actorDoc.data()?.anonymousId || "unknown";
-
-      const ownerId = artifactData.userId;
 
       const reactionId = `${artifactId}_${actorAnonId}`;
       const globalRef = db.collection("artifact_reactions").doc(reactionId);
@@ -1718,19 +1730,31 @@ export const onCommentCreated = functions.firestore
       if (!artifactDoc.exists) return;
       const artifactData = artifactDoc.data()!;
 
-      // Privacy Boundary: Block notifications for non-public artifacts
-      // Exception: Owner always receives notifications for their own artifacts
+      // Resolve Artifact Creator's Firebase Auth UID via author.anonymousId -> persona_mapping
+      const artifactAuthorAnonId = artifactData.author?.anonymousId;
+      let ownerId: string | null = null;
+      if (artifactAuthorAnonId) {
+        const ownerMappingDoc = await db.collection("persona_mapping").doc(artifactAuthorAnonId).get();
+        ownerId = ownerMappingDoc.data()?.userId || null;
+        if (!ownerId) {
+          const ownerUserQuery = await db.collection("users").where("anonymousId", "==", artifactAuthorAnonId).limit(1).get();
+          if (!ownerUserQuery.empty) {
+            ownerId = ownerUserQuery.docs[0].id;
+          }
+        }
+      }
 
       const actorAnonId = data.authorAnonymousId;
-      const mappingDoc = await db.collection("persona_mapping").doc(actorAnonId).get();
-      const commenterId = mappingDoc.data()?.userId;
+      let commenterId: string | null = null;
+      if (actorAnonId) {
+        const commenterMappingDoc = await db.collection("persona_mapping").doc(actorAnonId).get();
+        commenterId = commenterMappingDoc.data()?.userId || null;
+      }
 
-      if (!artifactData.isPublic && artifactData.userId !== commenterId) {
+      if (!artifactData.isPublic && ownerId && ownerId !== commenterId) {
         logger.info(`[NOTIFICATION] Suppressed for private artifact | ArtifactID=${artifactId}`);
         return;
       }
-
-      const ownerId = artifactData.userId;
 
       await artifactRef.update({
         commentCount: FieldValue.increment(1),
@@ -1738,7 +1762,7 @@ export const onCommentCreated = functions.firestore
       logger.info(`[AGGREGATE] commentCount incremented | ArtifactID=${artifactId} | CommentID=${commentId}`);
 
       // 3. Create Notification if commenter is not the owner
-      if (ownerId && ownerId !== commenterId) {
+      if (ownerId && commenterId && ownerId !== commenterId) {
         // Silent Ignore Boundary Check (Phase 6.3.1 Remediation)
         const ignoreDoc = await db.collection("users").doc(ownerId)
           .collection("private").doc("ignored_users")

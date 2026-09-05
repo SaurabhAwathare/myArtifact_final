@@ -11,6 +11,9 @@ import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.repository.RecordingRepository
 import com.saurabh.artifact.security.DatabaseEncryptionManager
 import com.saurabh.artifact.domain.PublishingOrchestrator
+import com.saurabh.artifact.repository.ArtifactRepository
+import com.saurabh.artifact.repository.AuthRepository
+import dagger.Lazy
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
@@ -60,6 +63,7 @@ class RecoveryWorker @AssistedInject constructor(
                     }
                 }
             }
+
             diagnosticLogger.info(DiagnosticCategory.WORKMANAGER, "RECOVERY_SCAN_SUCCESS")
             Result.success()
         } catch (e: Exception) {

@@ -41,16 +41,30 @@ class GetProfileDataUseCase @Inject constructor(
                             (targetUserId != null && targetUserId == currentUserId) ||
                             (targetPersonaId != null && targetPersonaId == currentPersonaId)
                 
-                val finalId = targetUserId ?: targetPersonaId ?: currentUserId
+                val profileLookupId = if (isSelf) {
+                    currentUserId
+                } else {
+                    targetPersonaId ?: targetUserId ?: ""
+                }
 
-                if (finalId.isEmpty()) return@flatMapLatest flowOf(null)
+                val artifactQueryId = if (isSelf) {
+                    currentUserId
+                } else {
+                    targetPersonaId ?: targetUserId ?: ""
+                }
+
+                if (profileLookupId.isEmpty()) return@flatMapLatest flowOf(null)
 
                 combine(
-                    userRepository.streamUserProfile(finalId),
-                    artifactRepository.getUserArtifacts(finalId, onlyActive = !isSelf),
+                    userRepository.streamUserProfile(profileLookupId),
+                    artifactRepository.getUserArtifacts(
+                        userId = artifactQueryId,
+                        isSelf = isSelf,
+                        onlyActive = !isSelf
+                    ),
                     if (isSelf) recordingRepository.observeDrafts() else flowOf(emptyList()),
-                    if (currentUserId.isNotEmpty()) userRepository.observeIsResonating(currentUserId, finalId) else flowOf(false),
-                    if (currentUserId.isNotEmpty() && !isSelf) userRepository.observeIgnoredUsers().map { it.contains(finalId) } else flowOf(false),
+                    if (currentUserId.isNotEmpty() && !isSelf) userRepository.observeIsResonating(currentUserId, profileLookupId) else flowOf(false),
+                    if (currentUserId.isNotEmpty() && !isSelf) userRepository.observeIgnoredUsers().map { it.contains(profileLookupId) } else flowOf(false),
                     visibilityFilter.observeSuppressedIds(currentUserId)
                 ) { params ->
                     @Suppress("UNCHECKED_CAST")

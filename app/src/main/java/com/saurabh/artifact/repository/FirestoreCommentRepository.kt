@@ -15,6 +15,7 @@ import com.saurabh.artifact.util.CommentConstants
 import com.saurabh.artifact.data.local.InteractionAction
 import com.saurabh.artifact.data.local.InteractionType
 import com.saurabh.artifact.data.local.PendingInteractionEntity
+import com.saurabh.artifact.data.remote.model.CommentPayload
 import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.worker.InteractionSyncWorker
 import kotlinx.coroutines.Dispatchers
@@ -132,7 +133,8 @@ class FirestoreCommentRepository @Inject constructor(
         if (currentUserId.isEmpty()) return@withContext Result.failure(AppError.Unauthenticated())
 
         try {
-            val commentJson = json.encodeToString(comment)
+            val payload = CommentPayload.fromDomain(comment)
+            val commentJson = json.encodeToString(CommentPayload.serializer(), payload)
             val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
                 userId = currentUserId,
                 artifactId = comment.artifactId,

@@ -10,6 +10,8 @@ import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.repository.RecordingRepository
 import com.saurabh.artifact.security.DatabaseEncryptionManager
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.repository.ArtifactRepository
+import com.saurabh.artifact.repository.AuthRepository
 import io.mockk.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
@@ -26,8 +28,6 @@ class RecoveryWorkerTest {
     private val context = mockk<Context>(relaxed = true)
     private val workerParams = mockk<WorkerParameters>(relaxed = true)
     private val startupCoordinator = mockk<com.saurabh.artifact.startup.StartupCoordinator>(relaxed = true)
-
-    private lateinit var worker: RecoveryWorker
 
     @Before
     fun setup() {

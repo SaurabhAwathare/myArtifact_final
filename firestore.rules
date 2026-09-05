@@ -253,6 +253,10 @@ service cloud.firestore {
         allow write: if isOwner(uid) && enforceAppCheck();
       }
 
+      match /private/intents/reactions/{artifactId} {
+        allow write: if isOwner(uid) && enforceAppCheck();
+      }
+
       match /private/intents/comments/{commentId} {
         allow create: if isOwner(uid) && enforceAppCheck() &&
                       request.resource.data.artifactId is string &&

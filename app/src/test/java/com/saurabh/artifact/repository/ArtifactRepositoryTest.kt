@@ -2,11 +2,17 @@ package com.saurabh.artifact.repository
 
 import android.content.Context
 import android.util.Log
+import com.google.android.gms.tasks.Task
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.DocumentReference
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.QuerySnapshot
 import com.google.firebase.storage.FirebaseStorage
+import com.saurabh.artifact.audio.LocalDraftManager
 import com.saurabh.artifact.domain.prompt.ReflectionPromptManager
 import com.saurabh.artifact.data.local.*
 import com.saurabh.artifact.model.*
@@ -38,6 +44,7 @@ class ArtifactRepositoryTest {
     private val artifactEngagementRepository = mockk<ArtifactEngagementRepository>(relaxed = true)
     private val reflectionPromptManager = mockk<ReflectionPromptManager>(relaxed = true)
     private val visibilityFilter = mockk<com.saurabh.artifact.domain.ArtifactVisibilityFilter>(relaxed = true)
+    private val localDraftManager = mockk<LocalDraftManager>(relaxed = true)
     private val pendingInteractionDao = mockk<PendingInteractionDao>(relaxed = true)
     private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
 
@@ -63,6 +70,7 @@ class ArtifactRepositoryTest {
             artifactDao = { artifactDao },
             database = { database },
             artifactLibraryRepository = { artifactLibraryRepository },
+            localDraftManager = localDraftManager,
             moderationRepository = { moderationRepository },
             publishingRepository = { publishingRepository },
             artifactEngagementRepository = { artifactEngagementRepository },
@@ -338,5 +346,52 @@ class ArtifactRepositoryTest {
         
         assert(result)
         coVerify { moderationRepository.isCurrentUserAdmin() }
+    }
+
+    @Test
+    fun `getUserArtifactsPage for self should use private registry subcollection exclusively`() = runBlocking {
+        val userId = "user_self_123"
+        every { auth.currentUser?.uid } returns userId
+
+        val userDoc = mockk<DocumentReference>(relaxed = true)
+        every { firestore.collection("users").document(userId) } returns userDoc
+
+        val privateDoc = mockk<DocumentReference>(relaxed = true)
+        every { userDoc.collection("private").document("published_artifacts") } returns privateDoc
+
+        val registryCollection = mockk<CollectionReference>(relaxed = true)
+        every { privateDoc.collection("artifacts") } returns registryCollection
+
+        val registryQuery = mockk<Query>(relaxed = true)
+        every { registryCollection.orderBy("createdAt", Query.Direction.DESCENDING) } returns registryQuery
+        every { registryQuery.limit(20) } returns registryQuery
+
+        val regDoc1 = mockk<DocumentSnapshot>(relaxed = true)
+        every { regDoc1.id } returns "art_reg_1"
+
+        val regSnapshot = mockk<QuerySnapshot>(relaxed = true)
+        every { regSnapshot.isEmpty } returns false
+        every { regSnapshot.documents } returns listOf(regDoc1)
+
+        val regTask = mockk<Task<QuerySnapshot>>(relaxed = true)
+        every { registryQuery.get() } returns regTask
+
+        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        coEvery { regTask.await() } returns regSnapshot
+
+        val regArtifact = Artifact(id = "art_reg_1", title = "Registry Reflection", userId = userId)
+        val entity1 = repository.mapArtifactToEntity(regArtifact)
+        coEvery { artifactDao.getArtifactsByIds(listOf("art_reg_1")) } returns listOf(entity1)
+
+        val result = repository.getUserArtifactsPage(userId = userId, isSelf = true)
+
+        assert(result.isSuccess)
+        val (list, lastDoc) = result.getOrThrow()
+        assertEquals(1, list.size)
+        assertEquals("art_reg_1", list[0].id)
+        assertEquals(regDoc1, lastDoc)
+
+        // Verify root query was NOT executed
+        verify(exactly = 0) { firestore.collection("artifacts").whereEqualTo("userId", any()) }
     }
 }
