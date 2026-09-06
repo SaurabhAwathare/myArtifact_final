@@ -1,6 +1,11 @@
 package com.saurabh.artifact.domain
 
+import com.google.firebase.firestore.CollectionReference
+import com.google.firebase.firestore.EventListener
+import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.firestore.QuerySnapshot
 import com.saurabh.artifact.data.local.ReportedArtifactDao
+import dagger.Lazy
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -22,7 +27,11 @@ class ArtifactVisibilityFilterTest {
 
     @Before
     fun setup() {
-        filter = ArtifactVisibilityFilter(reportedArtifactDao, mockk(relaxed = true), firestore)
+        filter = ArtifactVisibilityFilter(
+            Lazy { reportedArtifactDao },
+            Lazy { mockk(relaxed = true) },
+            firestore
+        )
     }
 
     @Test
@@ -91,5 +100,43 @@ class ArtifactVisibilityFilterTest {
         io.mockk.coVerify(timeout = 2000) { reportedArtifactDao.insert(any()) }
         
         job.cancel()
+    }
+
+    @Test
+    fun `syncReportsFromRemote should handle PERMISSION_DENIED listener error gracefully without throwing`() = runBlocking {
+        val userId = "user1"
+        val scope = this
+
+        val collectionRef = mockk<CollectionReference>(relaxed = true)
+        every { firestore.collection("users").document(userId).collection("private").document("reports").collection("artifacts") } returns collectionRef
+
+        val listenerSlot = slot<EventListener<QuerySnapshot>>()
+        every { collectionRef.addSnapshotListener(capture(listenerSlot)) } returns mockk(relaxed = true)
+
+        val permissionDeniedException = FirebaseFirestoreException(
+            "Permission denied",
+            FirebaseFirestoreException.Code.PERMISSION_DENIED
+        )
+
+        var flowCompletedNormally = false
+        val job = launch {
+            filter.syncReportsFromRemote(userId, scope).collect {}
+            flowCompletedNormally = true
+        }
+
+        var attempts = 0
+        while (!listenerSlot.isCaptured && attempts < 50) {
+            delay(10)
+            attempts++
+        }
+
+        if (listenerSlot.isCaptured) {
+            listenerSlot.captured.onEvent(null, permissionDeniedException)
+        } else {
+            throw AssertionError("Firestore listener was not registered in time")
+        }
+
+        job.join()
+        assertEquals(true, flowCompletedNormally)
     }
 }

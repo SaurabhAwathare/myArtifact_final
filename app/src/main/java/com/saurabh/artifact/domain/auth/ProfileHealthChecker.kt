@@ -1,11 +1,14 @@
 package com.saurabh.artifact.domain.auth
 
+import android.util.Log
 import com.saurabh.artifact.diagnostics.ArtifactLogger
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreException
 import com.saurabh.artifact.model.User
 import com.saurabh.artifact.model.UserPrivateSettings
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeout
 import javax.inject.Inject
@@ -32,49 +35,74 @@ class ProfileHealthChecker @Inject constructor(
         android.util.Log.d("RACE_CHECK", "Profile Health Check Started: ${System.currentTimeMillis()}")
 
         return try {
-            val userRef = firestore.collection("users").document(userId)
-            val privateRef = userRef.collection("private").document("settings")
-
-            ArtifactLogger.d(DiagnosticCategory.AUTH, "PROFILE_CHECK_FETCH_USER")
-            android.util.Log.d("RACE_CHECK", "FIRST_FIRESTORE_REQUEST")
-            val userSnapshot = withTimeout(10.seconds) {
-                userRef.get().await()
-            }
-            if (!userSnapshot.exists()) {
-                ArtifactLogger.w(DiagnosticCategory.AUTH, "PROFILE_CHECK_USER_MISSING")
-                return HealthStatus.Missing
-            }
-
-            // Verify basic fields
-            val user = userSnapshot.toObject(User::class.java)?.copy(id = userSnapshot.id)
-            if (user == null || user.anonymousId.isBlank() || user.anonymousName.isBlank()) {
-                ArtifactLogger.w(DiagnosticCategory.AUTH, "PROFILE_CHECK_IDENTITY_MISSING")
-                return HealthStatus.RepairRequired
-            }
-
-            ArtifactLogger.d(DiagnosticCategory.AUTH, "PROFILE_CHECK_FETCH_PRIVATE")
-            val privateSnapshot = withTimeout(10.seconds) {
-                privateRef.get().await()
-            }
-            if (!privateSnapshot.exists()) {
-                ArtifactLogger.w(DiagnosticCategory.AUTH, "PROFILE_CHECK_PRIVATE_MISSING")
-                return HealthStatus.RepairRequired
-            }
-
-            val privateSettings = privateSnapshot.toObject(UserPrivateSettings::class.java)
-            if (privateSettings?.accountStatus == "TERMINATED") {
-                ArtifactLogger.e(DiagnosticCategory.AUTH, "PROFILE_CHECK_TERMINATED")
-                return HealthStatus.Terminated
-            }
-
-            ArtifactLogger.i(DiagnosticCategory.AUTH, "PROFILE_CHECK_SUCCESS")
-            HealthStatus.Healthy
-        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            fetchHealthStatus(userId)
+        } catch (e: TimeoutCancellationException) {
             ArtifactLogger.e(DiagnosticCategory.AUTH, "PROFILE_CHECK_TIMEOUT")
             HealthStatus.Missing
         } catch (e: Exception) {
-            ArtifactLogger.e(DiagnosticCategory.AUTH, "PROFILE_CHECK_FAILED", throwable = e)
-            HealthStatus.Missing // Treat as missing to trigger recovery
+            val isPermissionDenied = e is FirebaseFirestoreException &&
+                    e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED
+
+            if (isPermissionDenied) {
+                ArtifactLogger.w(DiagnosticCategory.AUTH, "PROFILE_CHECK_PERMISSION_DENIED_RETRYING")
+                try {
+                    // One explicit ID token refresh attempt on PERMISSION_DENIED
+                    currentUser.getIdToken(true).await()
+                    ArtifactLogger.i(DiagnosticCategory.AUTH, "PROFILE_CHECK_TOKEN_REFRESH_SUCCESS")
+                    // Retry authorization check once
+                    fetchHealthStatus(userId)
+                } catch (retryException: Exception) {
+                    ArtifactLogger.e(
+                        DiagnosticCategory.AUTH,
+                        "PROFILE_CHECK_PERMISSION_DENIED_PERSISTENT",
+                        throwable = retryException
+                    )
+                    HealthStatus.Unrecoverable
+                }
+            } else {
+                ArtifactLogger.e(DiagnosticCategory.AUTH, "PROFILE_CHECK_FAILED", throwable = e)
+                HealthStatus.Missing // Treat non-permission error as missing to trigger recovery/repair
+            }
         }
+    }
+
+    private suspend fun fetchHealthStatus(userId: String): HealthStatus {
+        val userRef = firestore.collection("users").document(userId)
+        val privateRef = userRef.collection("private").document("settings")
+
+        ArtifactLogger.d(DiagnosticCategory.AUTH, "PROFILE_CHECK_FETCH_USER")
+        Log.d("RACE_CHECK", "FIRST_FIRESTORE_REQUEST")
+        val userSnapshot = withTimeout(10.seconds) {
+            userRef.get().await()
+        }
+        if (!userSnapshot.exists()) {
+            ArtifactLogger.w(DiagnosticCategory.AUTH, "PROFILE_CHECK_USER_MISSING")
+            return HealthStatus.Missing
+        }
+
+        // Verify basic fields
+        val user = userSnapshot.toObject(User::class.java)?.copy(id = userSnapshot.id)
+        if (user == null || user.anonymousId.isBlank() || user.anonymousName.isBlank()) {
+            ArtifactLogger.w(DiagnosticCategory.AUTH, "PROFILE_CHECK_IDENTITY_MISSING")
+            return HealthStatus.RepairRequired
+        }
+
+        ArtifactLogger.d(DiagnosticCategory.AUTH, "PROFILE_CHECK_FETCH_PRIVATE")
+        val privateSnapshot = withTimeout(10.seconds) {
+            privateRef.get().await()
+        }
+        if (!privateSnapshot.exists()) {
+            ArtifactLogger.w(DiagnosticCategory.AUTH, "PROFILE_CHECK_PRIVATE_MISSING")
+            return HealthStatus.RepairRequired
+        }
+
+        val privateSettings = privateSnapshot.toObject(UserPrivateSettings::class.java)
+        if (privateSettings?.accountStatus == "TERMINATED") {
+            ArtifactLogger.e(DiagnosticCategory.AUTH, "PROFILE_CHECK_TERMINATED")
+            return HealthStatus.Terminated
+        }
+
+        ArtifactLogger.i(DiagnosticCategory.AUTH, "PROFILE_CHECK_SUCCESS")
+        return HealthStatus.Healthy
     }
 }

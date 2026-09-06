@@ -2,6 +2,7 @@ package com.saurabh.artifact.domain.auth
 
 import com.saurabh.artifact.diagnostics.ArtifactLogger
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.repository.UserRepository
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -63,7 +64,7 @@ class RegistrationCoordinator @Inject constructor(
                 }
                 HealthStatus.Unrecoverable -> {
                     ArtifactLogger.e(DiagnosticCategory.AUTH, "REGISTRATION_FAILURE_UNRECOVERABLE")
-                    RegistrationResult.Failure(Exception("Profile is unrecoverable"))
+                    RegistrationResult.Failure(AppError.Unauthenticated("Profile is unrecoverable: PERMISSION_DENIED or session revoked"))
                 }
             }
         } catch (e: Exception) {

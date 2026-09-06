@@ -43,6 +43,7 @@ class EngagementDaoMonotonicTest {
         // Try to update with SAME timestamp but isUnlocked = true
         dao.updateUnlockStatus(
             artifactId = artifactId,
+            userId = "test_user",
             isUnlocked = true,
             timestamp = timestamp + 10,
             state = "UNLOCKED",
@@ -50,7 +51,7 @@ class EngagementDaoMonotonicTest {
             remoteUpdated = timestamp // SAME AS INITIAL
         )
 
-        val result = dao.getEngagement(artifactId)
+        val result = dao.getEngagement(artifactId, "test_user")
         assertNotNull(result)
         assertTrue("Unlock should be successful despite equal timestamp", result!!.isCommentUnlocked)
         assertEquals(timestamp, result.remoteUpdatedAt)
@@ -69,7 +70,7 @@ class EngagementDaoMonotonicTest {
         
         dao.insertEngagementMonotonic(staleTrackerEvidence)
 
-        val result = dao.getEngagement(artifactId)
+        val result = dao.getEngagement(artifactId, "test_user")
         assertNotNull(result)
         assertTrue("Should PRESERVE unlocked state", result!!.isCommentUnlocked)
         assertEquals(2000L, result.remoteUpdatedAt)
@@ -85,7 +86,7 @@ class EngagementDaoMonotonicTest {
         val updated = createEngagement(artifactId, isUnlocked = false, position = 500L)
         dao.insertEngagementMonotonic(updated)
 
-        val result = dao.getEngagement(artifactId)
+        val result = dao.getEngagement(artifactId, "test_user")
         assertEquals(500L, result?.lastPositionMs)
         assertFalse(result!!.isCommentUnlocked)
     }
@@ -102,6 +103,7 @@ class EngagementDaoMonotonicTest {
         // Remote somehow says it's locked again at t=2000
         dao.updateUnlockStatus(
             artifactId = artifactId,
+            userId = "test_user",
             isUnlocked = false,
             timestamp = 2000L,
             state = "LOCKED",
@@ -109,7 +111,7 @@ class EngagementDaoMonotonicTest {
             remoteUpdated = 2000L
         )
 
-        val result = dao.getEngagement(artifactId)
+        val result = dao.getEngagement(artifactId, "test_user")
         assertTrue("Monotonic unlock: should NOT regress to false", result!!.isCommentUnlocked)
     }
 
@@ -120,6 +122,7 @@ class EngagementDaoMonotonicTest {
         position: Long = 0L
     ): ArtifactEngagement {
         return ArtifactEngagement(
+            userId = "test_user",
             artifactId = id,
             versionTag = "v1",
             durationMs = 10000,

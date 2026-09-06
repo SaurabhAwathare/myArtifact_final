@@ -1,5 +1,7 @@
 package com.saurabh.artifact.di
 
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.util.CoroutineExceptionHandlerUtils
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -21,5 +23,9 @@ object CoroutineModule {
     @Provides
     @Singleton
     @ApplicationScope
-    fun provideApplicationScope(): CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    fun provideApplicationScope(): CoroutineScope = CoroutineScope(
+        SupervisorJob() +
+        Dispatchers.IO +
+        CoroutineExceptionHandlerUtils.create(DiagnosticCategory.APP, "ApplicationScope failure")
+    )
 }

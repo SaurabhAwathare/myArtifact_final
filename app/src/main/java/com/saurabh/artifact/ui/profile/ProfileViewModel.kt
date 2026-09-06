@@ -354,15 +354,16 @@ class ProfileViewModel @Inject constructor(
     }
 
     fun toggleResonance() {
-        val targetId = _targetPersonaId.value ?: _targetUserId.value ?: return
         val currentId = currentUserId ?: return
-        if (targetId == currentId) return
+        val targetPersonaId = _targetPersonaId.value 
+            ?: uiState.value.userProfile?.anonymousId?.ifBlank { null }
+            ?: return
 
-
+        if (targetPersonaId == currentId || uiState.value.isSelf) return
 
         viewModelScope.launch {
             _isActionLoading.value = true
-            profileInteractionUseCase.toggleResonance(currentId, targetId, uiState.value.isResonating)
+            profileInteractionUseCase.toggleResonance(currentId, targetPersonaId, uiState.value.isResonating)
                 .onSuccess {
                     _message.value = if (uiState.value.isResonating) 
                         UiText.StringResource(R.string.unfollowed) 

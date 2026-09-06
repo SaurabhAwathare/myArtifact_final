@@ -28,6 +28,8 @@ import kotlinx.serialization.json.Json
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import androidx.annotation.OptIn
+import com.google.firebase.firestore.FirebaseFirestoreException
+import com.saurabh.artifact.model.AppError
 
 sealed class AppStartupState {
     object Initializing : AppStartupState()
@@ -430,14 +432,39 @@ class MainViewModel @Inject constructor(
                     }
                     is RegistrationResult.Failure -> {
                         diagnosticLogger.error(DiagnosticCategory.STARTUP, "STARTUP_REGISTRATION_FAILED", throwable = result.exception)
-                        val message = if (result.exception.message?.contains("terminated") == true) {
-                            result.exception.message!!
+                        
+                        val isUnauthenticatedOrDenied = result.exception is AppError.Unauthenticated ||
+                                result.exception is AppError.PermissionDenied ||
+                                (result.exception is FirebaseFirestoreException &&
+                                        result.exception.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) ||
+                                result.exception.message?.contains("Unauthenticated", ignoreCase = true) == true ||
+                                result.exception.message?.contains("PERMISSION_DENIED", ignoreCase = true) == true ||
+                                result.exception.message?.contains("Permission", ignoreCase = true) == true ||
+                                result.exception.message?.contains("denied", ignoreCase = true) == true ||
+                                result.exception.message?.contains("unauthorized", ignoreCase = true) == true ||
+                                result.exception.message?.contains("unrecoverable", ignoreCase = true) == true
+
+                        if (isUnauthenticatedOrDenied) {
+                            diagnosticLogger.warn(DiagnosticCategory.STARTUP, "STARTUP_SESSION_INVALID_RECOVERING")
+                            try {
+                                _isCleaning.value = true
+                                logoutCoordinator.performFullCleanup()
+                            } catch (cleanupErr: Exception) {
+                                diagnosticLogger.error(DiagnosticCategory.STARTUP, "STARTUP_SESSION_CLEANUP_FAILED", throwable = cleanupErr)
+                            } finally {
+                                _isCleaning.value = false
+                            }
+                            Login
                         } else {
-                            "Profile verification failed."
+                            val message = if (result.exception.message?.contains("terminated") == true) {
+                                result.exception.message!!
+                            } else {
+                                "Profile verification failed."
+                            }
+                            _startupState.value = AppStartupState.Error(message)
+                            startupCoordinator.completeAll()
+                            return
                         }
-                        _startupState.value = AppStartupState.Error(message)
-                        startupCoordinator.completeAll()
-                        return
                     }
                 }
             }

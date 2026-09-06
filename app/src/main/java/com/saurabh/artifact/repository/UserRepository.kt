@@ -4,6 +4,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.DocumentSnapshot
@@ -18,6 +19,7 @@ import com.saurabh.artifact.util.UsernameGenerator
 import com.saurabh.artifact.data.local.UserDao
 import com.saurabh.artifact.data.local.UserLocalEntity
 import android.content.Context
+import com.google.firebase.auth.FirebaseUser
 import com.saurabh.artifact.worker.IdentitySyncWorker
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
@@ -40,6 +42,8 @@ import dagger.Lazy
 import javax.inject.Inject
 import javax.inject.Singleton
 import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.firestore.SetOptions
+import java.util.UUID
 import kotlin.time.Duration.Companion.seconds
 
 @Singleton
@@ -52,7 +56,8 @@ class UserRepository @Inject constructor(
     private val registrationCoordinator: Lazy<com.saurabh.artifact.domain.auth.RegistrationCoordinator>,
     private val pendingInteractionDao: Lazy<com.saurabh.artifact.data.local.PendingInteractionDao>,
     private val ignoredUserDao: Lazy<com.saurabh.artifact.data.local.IgnoredUserDao>,
-    private val diagnosticLogger: DiagnosticLogger
+    private val diagnosticLogger: DiagnosticLogger,
+    private val functions: Lazy<FirebaseFunctions> = Lazy { FirebaseFunctions.getInstance() }
 ) {
     private val usersCollection = firestore.collection("users")
     private val usernamesCollection = firestore.collection("usernames")
@@ -159,6 +164,135 @@ class UserRepository @Inject constructor(
         }
     }
 
+    private suspend fun executeProfileTransaction(
+        userRef: DocumentReference,
+        privateRef: DocumentReference,
+        currentUser: FirebaseUser
+    ): ProfileResult = firestore.runTransaction { transaction ->
+        val snapshot = transaction[userRef]
+        
+        if (snapshot.exists()) {
+            diagnosticLogger.debug(DiagnosticCategory.FIRESTORE, "USER_PROFILE_EXISTS", mapOf(LogKeys.USER_ID to currentUser.uid))
+            
+            val user = snapshot.toObject(User::class.java)?.copy(id = snapshot.id)
+                ?: throw IllegalStateException("Failed to deserialize existing User profile")
+            
+            val privateSnapshot = transaction[privateRef]
+            val privateMissing = !privateSnapshot.exists()
+
+            // PHASE 1: Sensitive Data Migration (Atomic & Idempotent)
+            val sensitiveFields = listOf(
+                "email", "realName", "fcmToken", "isAdmin", "accountStatus", "admin",
+                "emotionPreferences", "lastActivityTimestamp", "softStreakCount", "lastSeen"
+            )
+            val fieldsToMove = mutableMapOf<String, Any>()
+            sensitiveFields.forEach { field ->
+                snapshot.get(field)?.let { value ->
+                    fieldsToMove[field] = value
+                }
+            }
+
+            if (fieldsToMove.isNotEmpty() || privateMissing) {
+                diagnosticLogger.info(DiagnosticCategory.AUTH, "USER_PROFILE_NORMALIZED", mapOf(LogKeys.USER_ID to currentUser.uid))
+
+                if (fieldsToMove.isNotEmpty()) {
+                    // 1. Move fields to private settings (Merge to preserve existing data)
+                    transaction.set(privateRef, fieldsToMove, SetOptions.merge())
+                    
+                    // 2. Remove from root document
+                    val deletions = fieldsToMove.keys.associateWith { FieldValue.delete() }
+                    transaction.update(userRef, deletions)
+                    
+                    diagnosticLogger.info(DiagnosticCategory.AUTH, "SENSITIVE_DATA_MIGRATED", mapOf(LogKeys.USER_ID to currentUser.uid, "fields" to fieldsToMove.keys.toList()))
+                }
+
+                if (privateMissing && fieldsToMove.isEmpty()) {
+                    // Standard initialization for new users or missing private doc
+                    val defaultPrivate = UserPrivateSettings(
+                        secureEmail = SecureString.fromString(currentUser.email ?: ""),
+                        secureRealName = SecureString.fromString(currentUser.displayName ?: ""),
+                        isAdmin = false,
+                        accountStatus = "ACTIVE"
+                    )
+                    transaction[privateRef] = defaultPrivate
+                }
+            }
+
+            // PHASE 2: Identity Repair (Atomic & Idempotent)
+            // Verified Fix for "Zombie Profile" condition where identity fields are missing/blank.
+            val isIdentityIncomplete = user.anonymousId.isBlank() || 
+                                      user.anonymousName.isBlank() || 
+                                      user.anonymousSigil.isBlank() ||
+                                      user.sigilSeed.isBlank()
+            
+            val repairedUser = if (isIdentityIncomplete) {
+                diagnosticLogger.info(DiagnosticCategory.AUTH, "USER_PROFILE_REPAIR_TRIGGERED", mapOf(LogKeys.USER_ID to currentUser.uid))
+                
+                val newAnonId = if (user.anonymousId.isBlank()) "usr_${UUID.randomUUID().toString().take(5).uppercase()}" else user.anonymousId
+                val newName = if (user.anonymousName.isBlank()) UsernameGenerator.generate() else user.anonymousName
+                val newSigil = if (user.anonymousSigil.isBlank()) UsernameGenerator.deriveSigil(newAnonId) else user.anonymousSigil
+                val newSeed = if (user.sigilSeed.isBlank()) UUID.randomUUID().toString() else user.sigilSeed
+                
+                val updates = mutableMapOf<String, Any>()
+                if (user.anonymousId.isBlank()) updates["anonymousId"] = newAnonId
+                if (user.anonymousName.isBlank()) updates["anonymousName"] = newName
+                if (user.anonymousSigil.isBlank()) updates["anonymousSigil"] = newSigil
+                if (user.sigilSeed.isBlank()) {
+                    updates["sigilSeed"] = newSeed
+                    updates["sigilConfig.seed"] = newSeed
+                }
+                
+                if (updates.isNotEmpty()) {
+                    transaction.update(userRef, updates)
+                    diagnosticLogger.info(DiagnosticCategory.AUTH, "USER_PROFILE_REPAIRED", mapOf(LogKeys.USER_ID to currentUser.uid, "fields" to updates.keys.toList()))
+                }
+                
+                user.copy(
+                    anonymousId = newAnonId,
+                    anonymousName = newName,
+                    anonymousSigil = newSigil,
+                    sigilSeed = newSeed,
+                    sigilConfig = user.sigilConfig.copy(seed = newSeed)
+                )
+            } else {
+                user
+            }
+
+            ProfileResult(user = repairedUser, isNewUser = false)
+        } else {
+            val anonymousId = "usr_${UUID.randomUUID().toString().take(5).uppercase()}"
+            val anonymousName = UsernameGenerator.generate()
+            val anonymousSigil = UsernameGenerator.deriveSigil(anonymousId)
+            val seed = UUID.randomUUID().toString()
+            
+            val newProfile = User(
+                id = currentUser.uid,
+                anonymousId = anonymousId,
+                anonymousName = anonymousName,
+                anonymousSigil = anonymousSigil,
+                sigilSeed = seed,
+                sigilConfig = SigilConfig(
+                    seed = seed,
+                    version = 3
+                ),
+                isAnonymous = true,
+                emotionalProfile = "New Soul"
+            )
+
+            val privateSettings = UserPrivateSettings(
+                secureEmail = SecureString.fromString(currentUser.email ?: ""),
+                secureRealName = SecureString.fromString(currentUser.displayName ?: ""),
+                isAdmin = false,
+                accountStatus = "ACTIVE"
+            )
+
+            transaction[userRef] = newProfile
+            transaction[privateRef] = privateSettings
+            
+            ProfileResult(user = newProfile, isNewUser = true)
+        }
+    }.await()
+
     suspend fun getOrCreateProfile(): Result<ProfileResult> = withContext(Dispatchers.IO) {
         // 1. Ensure Auth
         val initialUser = auth.currentUser ?: return@withContext Result.failure(AppError.Unauthenticated())
@@ -190,131 +324,26 @@ class UserRepository @Inject constructor(
             val privateRef = userRef.collection("private").document("settings")
 
             // 2. Atomic Check & Create via Transaction
-            val profileResult = withTimeout(15.seconds) {
-                firestore.runTransaction { transaction ->
-                    val snapshot = transaction[userRef]
-                    
-                    if (snapshot.exists()) {
-                        diagnosticLogger.debug(DiagnosticCategory.FIRESTORE, "USER_PROFILE_EXISTS", mapOf(LogKeys.USER_ID to currentUser.uid))
-                        
-                        val user = snapshot.toObject(User::class.java)?.copy(id = snapshot.id)
-                            ?: throw IllegalStateException("Failed to deserialize existing User profile")
-                        
-                        val privateSnapshot = transaction[privateRef]
-                        val privateMissing = !privateSnapshot.exists()
-
-                        // PHASE 1: Sensitive Data Migration (Atomic & Idempotent)
-                        val sensitiveFields = listOf(
-                            "email", "realName", "fcmToken", "isAdmin", "accountStatus", "admin",
-                            "emotionPreferences", "lastActivityTimestamp", "softStreakCount", "lastSeen"
-                        )
-                        val fieldsToMove = mutableMapOf<String, Any>()
-                        sensitiveFields.forEach { field ->
-                            snapshot.get(field)?.let { value ->
-                                fieldsToMove[field] = value
-                            }
+            val profileResult = try {
+                withTimeout(15.seconds) {
+                    executeProfileTransaction(userRef, privateRef, currentUser)
+                }
+            } catch (e: Exception) {
+                if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+                    diagnosticLogger.warn(DiagnosticCategory.AUTH, "REGISTRATION_PERMISSION_DENIED_RETRYING", mapOf(LogKeys.USER_ID to currentUser.uid))
+                    try {
+                        currentUser.getIdToken(true).await()
+                        diagnosticLogger.info(DiagnosticCategory.AUTH, "REGISTRATION_TOKEN_REFRESH_SUCCESS", mapOf(LogKeys.USER_ID to currentUser.uid))
+                        withTimeout(15.seconds) {
+                            executeProfileTransaction(userRef, privateRef, currentUser)
                         }
-
-                        if (fieldsToMove.isNotEmpty() || privateMissing) {
-                            diagnosticLogger.info(DiagnosticCategory.AUTH, "USER_PROFILE_NORMALIZED", mapOf(LogKeys.USER_ID to currentUser.uid))
-
-                            if (fieldsToMove.isNotEmpty()) {
-                                // 1. Move fields to private settings (Merge to preserve existing data)
-                                transaction.set(privateRef, fieldsToMove, com.google.firebase.firestore.SetOptions.merge())
-                                
-                                // 2. Remove from root document
-                                val deletions = fieldsToMove.keys.associateWith { FieldValue.delete() }
-                                transaction.update(userRef, deletions)
-                                
-                                diagnosticLogger.info(DiagnosticCategory.AUTH, "SENSITIVE_DATA_MIGRATED", mapOf(LogKeys.USER_ID to currentUser.uid, "fields" to fieldsToMove.keys.toList()))
-                            }
-
-                            if (privateMissing && fieldsToMove.isEmpty()) {
-                                // Standard initialization for new users or missing private doc
-                                val defaultPrivate = UserPrivateSettings(
-                                    secureEmail = SecureString.fromString(currentUser.email ?: ""),
-                                    secureRealName = SecureString.fromString(currentUser.displayName ?: ""),
-                                    isAdmin = false,
-                                    accountStatus = "ACTIVE"
-                                )
-                                transaction[privateRef] = defaultPrivate
-                            }
-                        }
-
-                        // PHASE 2: Identity Repair (Atomic & Idempotent)
-                        // Verified Fix for "Zombie Profile" condition where identity fields are missing/blank.
-                        val isIdentityIncomplete = user.anonymousId.isBlank() || 
-                                                  user.anonymousName.isBlank() || 
-                                                  user.anonymousSigil.isBlank() ||
-                                                  user.sigilSeed.isBlank()
-                        
-                        val repairedUser = if (isIdentityIncomplete) {
-                            diagnosticLogger.info(DiagnosticCategory.AUTH, "USER_PROFILE_REPAIR_TRIGGERED", mapOf(LogKeys.USER_ID to currentUser.uid))
-                            
-                            val newAnonId = if (user.anonymousId.isBlank()) "usr_${java.util.UUID.randomUUID().toString().take(5).uppercase()}" else user.anonymousId
-                            val newName = if (user.anonymousName.isBlank()) UsernameGenerator.generate() else user.anonymousName
-                            val newSigil = if (user.anonymousSigil.isBlank()) UsernameGenerator.deriveSigil(newAnonId) else user.anonymousSigil
-                            val newSeed = if (user.sigilSeed.isBlank()) java.util.UUID.randomUUID().toString() else user.sigilSeed
-                            
-                            val updates = mutableMapOf<String, Any>()
-                            if (user.anonymousId.isBlank()) updates["anonymousId"] = newAnonId
-                            if (user.anonymousName.isBlank()) updates["anonymousName"] = newName
-                            if (user.anonymousSigil.isBlank()) updates["anonymousSigil"] = newSigil
-                            if (user.sigilSeed.isBlank()) {
-                                updates["sigilSeed"] = newSeed
-                                updates["sigilConfig.seed"] = newSeed
-                            }
-                            
-                            if (updates.isNotEmpty()) {
-                                transaction.update(userRef, updates)
-                                diagnosticLogger.info(DiagnosticCategory.AUTH, "USER_PROFILE_REPAIRED", mapOf(LogKeys.USER_ID to currentUser.uid, "fields" to updates.keys.toList()))
-                            }
-                            
-                            user.copy(
-                                anonymousId = newAnonId,
-                                anonymousName = newName,
-                                anonymousSigil = newSigil,
-                                sigilSeed = newSeed,
-                                sigilConfig = user.sigilConfig.copy(seed = newSeed)
-                            )
-                        } else {
-                            user
-                        }
-
-                        ProfileResult(user = repairedUser, isNewUser = false)
-                    } else {
-                        val anonymousId = "usr_${java.util.UUID.randomUUID().toString().take(5).uppercase()}"
-                        val anonymousName = UsernameGenerator.generate()
-                        val anonymousSigil = UsernameGenerator.deriveSigil(anonymousId)
-                        val seed = java.util.UUID.randomUUID().toString()
-                        
-                        val newProfile = User(
-                            id = currentUser.uid,
-                            anonymousId = anonymousId,
-                            anonymousName = anonymousName,
-                            anonymousSigil = anonymousSigil,
-                            sigilSeed = seed,
-                            sigilConfig = SigilConfig(
-                                seed = seed,
-                                version = 3
-                            ),
-                            isAnonymous = true,
-                            emotionalProfile = "New Soul"
-                        )
-
-                        val privateSettings = UserPrivateSettings(
-                            secureEmail = SecureString.fromString(currentUser.email ?: ""),
-                            secureRealName = SecureString.fromString(currentUser.displayName ?: ""),
-                            isAdmin = false,
-                            accountStatus = "ACTIVE"
-                        )
-
-                        transaction[userRef] = newProfile
-                        transaction[privateRef] = privateSettings
-                        
-                        ProfileResult(user = newProfile, isNewUser = true)
+                    } catch (retryErr: Exception) {
+                        diagnosticLogger.error(DiagnosticCategory.AUTH, "REGISTRATION_PERMISSION_DENIED_PERSISTENT", mapOf(LogKeys.USER_ID to currentUser.uid), retryErr)
+                        return@withContext Result.failure(AppError.Unauthenticated("Session unauthorized: PERMISSION_DENIED after token refresh"))
                     }
-                }.await()
+                } else {
+                    throw e
+                }
             }
             
             // Cache the profile locally
@@ -865,58 +894,82 @@ class UserRepository @Inject constructor(
         userId: String, // This may be UID (self) or anonymousId (others)
         type: String, // "resonance_in" or "resonance_out"
         limit: Int = 20,
-        lastVisible: DocumentSnapshot? = null
-    ): Result<Pair<List<User>, DocumentSnapshot?>> {
+        lastVisible: Any? = null
+    ): Result<Pair<List<User>, Any?>> {
         return withContext(Dispatchers.IO) {
             try {
-                // If it's resonance_out for self, we use UID.
-                // If it's resonance_in for anyone, or resonance_out for others, we are effectively 
-                // browsing a persona's social graph.
-                
-                // For simplicity in this remediation, we assume 'userId' is the document path pivot.
-                val rootRef = if (userId.startsWith("usr_")) {
-                    firestore.collection("profiles").document(userId)
-                } else {
-                    usersCollection.document(userId)
+                val currentUid = auth.currentUser?.uid ?: ""
+                val ownProfile = userDao.get().getProfile(currentUid)
+                val isSelf = (userId == currentUid) || (ownProfile != null && userId == ownProfile.anonymousId)
+
+                if (isSelf && currentUid.isNotEmpty()) {
+                    // OWN SOCIAL GRAPH: Direct Firestore query authorized for owner
+                    var query = usersCollection.document(currentUid).collection(type)
+                        .orderBy("createdAt", Query.Direction.DESCENDING)
+                        .limit(limit.toLong())
+
+                    val docCursor = lastVisible as? DocumentSnapshot
+                    docCursor?.let { query = query.startAfter(it) }
+
+                    val snapshot = query.get().await()
+                    if (snapshot.isEmpty) return@withContext Result.success(emptyList<User>() to null)
+
+                    val personaIds = snapshot.documents.map { it.id }
+                    val users = mutableListOf<User>()
+                    for (chunk in personaIds.chunked(10)) {
+                        val profileSnapshot = firestore.collection("profiles")
+                            .whereIn(FieldPath.documentId(), chunk).get().await()
+
+                        users.addAll(profileSnapshot.documents.mapNotNull { doc ->
+                            User(
+                                id = doc.id,
+                                anonymousId = doc.id,
+                                anonymousName = doc.getString("name") ?: "quiet presence",
+                                anonymousSigil = doc.getString("sigil") ?: "",
+                                sigilSeed = doc.getString("sigilSeed") ?: "",
+                                sigilColor = doc.getString("sigilColor") ?: "#FFD700",
+                                artifactsCount = doc.getLong("artifactsCount") ?: 0L,
+                                resonanceInCount = doc.getLong("resonanceInCount") ?: 0L,
+                                followersCount = doc.getLong("followersCount") ?: 0L
+                            )
+                        })
+                    }
+
+                    val orderedUsers = personaIds.mapNotNull { id -> users.find { it.anonymousId == id } }
+                    return@withContext Result.success(orderedUsers to snapshot.documents.lastOrNull())
                 }
 
-                var query = rootRef.collection(type)
-                    .orderBy("createdAt", Query.Direction.DESCENDING)
-                    .limit(limit.toLong())
+                // ANOTHER USER'S PUBLIC SOCIAL GRAPH: Server-mediated Callable Function
+                val pageToken = lastVisible as? String
+                val payload = mapOf(
+                    "targetPersonaId" to userId,
+                    "type" to type,
+                    "limit" to limit,
+                    "pageToken" to pageToken
+                )
 
-                lastVisible?.let { query = query.startAfter(it) }
+                val callResult = functions.get().getHttpsCallable("getPublicResonators").call(payload).await()
+                val data = callResult.data as? Map<*, *> 
+                    ?: return@withContext Result.success(emptyList<User>() to null)
 
-                val snapshot = query.get().await()
-                if (snapshot.isEmpty) return@withContext Result.success(emptyList<User>() to null)
+                val usersList = (data["users"] as? List<*>)?.mapNotNull { raw ->
+                    val map = raw as? Map<*, *> ?: return@mapNotNull null
+                    val id = map["id"] as? String ?: return@mapNotNull null
+                    User(
+                        id = id,
+                        anonymousId = map["anonymousId"] as? String ?: id,
+                        anonymousName = map["anonymousName"] as? String ?: "quiet presence",
+                        anonymousSigil = map["anonymousSigil"] as? String ?: "",
+                        sigilSeed = map["sigilSeed"] as? String ?: "",
+                        sigilColor = map["sigilColor"] as? String ?: "#FFD700",
+                        artifactsCount = (map["artifactsCount"] as? Number)?.toLong() ?: 0L,
+                        resonanceInCount = (map["resonanceInCount"] as? Number)?.toLong() ?: 0L,
+                        followersCount = (map["followersCount"] as? Number)?.toLong() ?: 0L
+                    )
+                } ?: emptyList()
 
-                // The IDs in resonance collection are now anonymousIds
-                val personaIds = snapshot.documents.map { it.id }
-                
-                // Batch fetch from 'profiles'
-                val users = mutableListOf<User>()
-                for (chunk in personaIds.chunked(10)) {
-                    val profileSnapshot = firestore.collection("profiles")
-                        .whereIn(FieldPath.documentId(), chunk).get().await()
-                    
-                    users.addAll(profileSnapshot.documents.mapNotNull { doc ->
-                        User(
-                            id = doc.id,
-                            anonymousId = doc.id,
-                            anonymousName = doc.getString("name") ?: "quiet presence",
-                            anonymousSigil = doc.getString("sigil") ?: "",
-                            sigilSeed = doc.getString("sigilSeed") ?: "",
-                            sigilColor = doc.getString("sigilColor") ?: "#FFD700",
-                            artifactsCount = doc.getLong("artifactsCount") ?: 0L,
-                            resonanceInCount = doc.getLong("resonanceInCount") ?: 0L,
-                            followersCount = doc.getLong("followersCount") ?: 0L
-                        )
-                    })
-                }
-
-                // Maintain original order
-                val orderedUsers = personaIds.mapNotNull { id -> users.find { it.anonymousId == id } }
-
-                Result.success(orderedUsers to snapshot.documents.lastOrNull())
+                val nextPageToken = data["nextPageToken"] as? String
+                Result.success(usersList to nextPageToken)
             } catch (e: Exception) {
                 diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "RESONANCE_USERS_FETCH_FAILED", mapOf(LogKeys.USER_ID to userId, "type" to type), e)
                 Result.failure(e)

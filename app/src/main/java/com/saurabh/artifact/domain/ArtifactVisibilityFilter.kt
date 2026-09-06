@@ -6,6 +6,8 @@ import com.saurabh.artifact.data.local.IgnoredUserDao
 import com.saurabh.artifact.data.local.IgnoredUserEntity
 import com.saurabh.artifact.data.local.ReportedArtifactDao
 import com.saurabh.artifact.data.local.ReportedArtifactEntity
+import com.saurabh.artifact.diagnostics.ArtifactLogger
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -73,9 +75,14 @@ class ArtifactVisibilityFilter @Inject constructor(
         
         val registration = collectionRef.addSnapshotListener { snapshot, error ->
             if (error != null) {
-                // If it's a permission error or cancelled, we stop syncing gracefully
-                trySend(Unit) 
-                close(error)
+                ArtifactLogger.w(
+                    DiagnosticCategory.AUTH,
+                    "SYNC_REPORTS_LISTENER_ERROR",
+                    mapOf("userId" to userId, "code" to error.code.name, "message" to (error.message ?: "")),
+                    error
+                )
+                trySend(Unit)
+                close()
                 return@addSnapshotListener
             }
             
@@ -116,8 +123,14 @@ class ArtifactVisibilityFilter @Inject constructor(
 
         val registration = collectionRef.addSnapshotListener { snapshot, error ->
             if (error != null) {
+                ArtifactLogger.w(
+                    DiagnosticCategory.AUTH,
+                    "SYNC_IGNORED_USERS_LISTENER_ERROR",
+                    mapOf("userId" to userId, "code" to error.code.name, "message" to (error.message ?: "")),
+                    error
+                )
                 trySend(Unit)
-                close(error)
+                close()
                 return@addSnapshotListener
             }
 

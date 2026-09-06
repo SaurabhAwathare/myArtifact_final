@@ -43,7 +43,7 @@ class ResonanceListViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(ResonanceListUiState(title = title))
     val uiState: StateFlow<ResonanceListUiState> = _uiState.asStateFlow()
 
-    private var lastVisible: DocumentSnapshot? = null
+    private var lastVisible: Any? = null
     private var isLastPage = false
 
     init {
@@ -96,7 +96,7 @@ class ResonanceListViewModel @Inject constructor(
             )
 
             val result = if (!artifactId.isNullOrBlank()) {
-                userRepository.getArtifactResonators(artifactId, isOwner = isOwner, limit = 20, lastVisible = lastVisible)
+                userRepository.getArtifactResonators(artifactId, isOwner = isOwner, limit = 20, lastVisible = lastVisible as? DocumentSnapshot)
             } else {
                 userRepository.getResonanceUsers(userId!!, type!!, limit = 20, lastVisible = lastVisible)
             }

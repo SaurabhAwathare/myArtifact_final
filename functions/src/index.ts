@@ -2441,3 +2441,153 @@ export const finalizePublish = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError("internal", "An error occurred during publication finalization.");
   }
 });
+
+/**
+ * Authoritatively retrieves public Resonators (followers) or Following list
+ * for a target persona without exposing private UIDs or private social graphs.
+ */
+export const getPublicResonators = functions
+  .runWith({
+    timeoutSeconds: 30,
+    memory: "256MB",
+  })
+  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+    // 1. Authentication Check
+    if (!context.auth) {
+      throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
+    }
+
+    // 2. App Check Enforcement (in production)
+    if (process.env.NODE_ENV === "production" && !context.app) {
+      throw new functions.https.HttpsError(
+        "failed-precondition",
+        "App Check verification failed."
+      );
+    }
+
+    // 3. Input Validation
+    const targetPersonaId = data?.targetPersonaId;
+    let type = data?.type;
+    const limit = Math.min(Math.max(parseInt(data?.limit) || 20, 1), 50);
+    const pageToken = data?.pageToken;
+
+    if (!targetPersonaId || typeof targetPersonaId !== "string" || targetPersonaId.trim().length === 0) {
+      throw new functions.https.HttpsError("invalid-argument", "Valid targetPersonaId is required.");
+    }
+
+    const cleanTargetPersonaId = targetPersonaId.trim();
+
+    if (type === "resonance_in") type = "in";
+    if (type === "resonance_out") type = "out";
+
+    if (type !== "in" && type !== "out") {
+      throw new functions.https.HttpsError("invalid-argument", "Type must be 'in' or 'out'.");
+    }
+
+    const db = admin.firestore();
+
+    try {
+      // 4. Resolve Target UID via persona_mapping (Private Server Lookup)
+      const mappingDoc = await db.collection("persona_mapping").doc(cleanTargetPersonaId).get();
+      let targetUid = mappingDoc.data()?.userId;
+
+      if (!targetUid) {
+        const userQuery = await db.collection("users").where("anonymousId", "==", cleanTargetPersonaId).limit(1).get();
+        if (userQuery.empty) {
+          return {
+            users: [],
+            nextPageToken: null,
+            hasMore: false,
+          };
+        }
+        targetUid = userQuery.docs[0].id;
+      }
+
+      // 5. Query Primary Social Graph under target user's private collection
+      const collectionName = type === "in" ? "resonance_in" : "resonance_out";
+      let query: admin.firestore.Query = db.collection("users").doc(targetUid).collection(collectionName)
+        .orderBy("createdAt", "desc")
+        .limit(limit);
+
+      if (pageToken && typeof pageToken === "string" && pageToken.trim().length > 0) {
+        try {
+          const decoded = Buffer.from(pageToken, "base64").toString("utf8");
+          const cursor = JSON.parse(decoded);
+          if (cursor.createdAtMs && cursor.docId) {
+            const cursorTimestamp = admin.firestore.Timestamp.fromMillis(cursor.createdAtMs);
+            query = query.startAfter(cursorTimestamp, cursor.docId);
+          }
+        } catch (e) {
+          logger.warn(`[GET_PUBLIC_RESONATORS] Invalid pageToken supplied for ${cleanTargetPersonaId}: ${e}`);
+        }
+      }
+
+      const snapshot = await query.get();
+      if (snapshot.empty) {
+        return {
+          users: [],
+          nextPageToken: null,
+          hasMore: false,
+        };
+      }
+
+      // 6. Extract Persona IDs (Document IDs in resonance_in/out are persona IDs)
+      const personaIds = snapshot.docs.map((doc) => doc.id);
+
+      // 7. Batch Fetch Public Profiles (Admin SDK db.getAll)
+      const profileRefs = personaIds.map((pId) => db.collection("profiles").doc(pId));
+      const profileSnaps = await db.getAll(...profileRefs);
+
+      // 8. Build Sanitized User Payloads
+      const profileMap = new Map<string, any>();
+      profileSnaps.forEach((pSnap) => {
+        if (pSnap.exists) {
+          const pData = pSnap.data();
+          if (pData) {
+            profileMap.set(pSnap.id, {
+              id: pSnap.id,
+              anonymousId: pSnap.id,
+              anonymousName: pData.name || "quiet presence",
+              anonymousSigil: pData.sigil || "",
+              sigilSeed: pData.sigilSeed || "",
+              sigilColor: pData.sigilColor || "#FFD700",
+              artifactsCount: pData.artifactsCount || 0,
+              resonanceInCount: pData.resonanceInCount || 0,
+              followersCount: pData.followersCount || 0,
+            });
+          }
+        }
+      });
+
+      const orderedUsers = personaIds.map((id) => profileMap.get(id)).filter(Boolean);
+
+      // 9. Generate Opaque Cursor for Next Page
+      let nextPageToken: string | null = null;
+      const hasMore = snapshot.docs.length === limit;
+
+      if (hasMore && snapshot.docs.length > 0) {
+        const lastDoc = snapshot.docs[snapshot.docs.length - 1];
+        const createdAt = lastDoc.data()?.createdAt;
+        const createdAtMs = createdAt && createdAt.toMillis ? createdAt.toMillis() : Date.now();
+        const cursorData = {
+          createdAtMs: createdAtMs,
+          docId: lastDoc.id,
+        };
+        nextPageToken = Buffer.from(JSON.stringify(cursorData)).toString("base64");
+      }
+
+      logger.info(`GET_PUBLIC_RESONATORS_SUCCESS | TargetPersona=${cleanTargetPersonaId} | Type=${type} | Count=${orderedUsers.length}`);
+
+      return {
+        users: orderedUsers,
+        nextPageToken: nextPageToken,
+        hasMore: hasMore,
+      };
+    } catch (error) {
+      if (error instanceof functions.https.HttpsError) {
+        throw error;
+      }
+      logger.error(`[GET_PUBLIC_RESONATORS] Error fetching ${type} for ${cleanTargetPersonaId}:`, error);
+      throw new functions.https.HttpsError("internal", "An error occurred while retrieving resonators.");
+    }
+  });

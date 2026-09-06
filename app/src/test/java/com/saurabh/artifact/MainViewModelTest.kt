@@ -3,6 +3,8 @@ package com.saurabh.artifact
 import androidx.lifecycle.SavedStateHandle
 import android.content.Intent
 import android.util.Log
+import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.firestore.FirebaseFirestoreException
 import com.saurabh.artifact.domain.auth.CleanupResult
 import com.saurabh.artifact.domain.auth.CleanupStatus
 import com.saurabh.artifact.domain.auth.LogoutCoordinator
@@ -362,6 +364,27 @@ class MainViewModelTest {
 
         val state = viewModel.startupState.value
         assertTrue(state is AppStartupState.Ready)
+    }
+
+    @Test
+    fun `startup should recover invalid session on PERMISSION_DENIED registration failure and transition to Ready(Login)`() = runTest {
+        val user = mockk<FirebaseUser>()
+        testAuthFlow.value = user
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
+        val permissionDeniedException = FirebaseFirestoreException(
+            "PERMISSION_DENIED",
+            FirebaseFirestoreException.Code.PERMISSION_DENIED
+        )
+        coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.Failure(permissionDeniedException)
+        coEvery { logoutCoordinator.performFullCleanup() } returns CleanupResult(status = CleanupStatus.COMPLETED)
+
+        viewModel.start()
+        advanceUntilIdle()
+
+        val state = viewModel.startupState.value
+        assertTrue(state is AppStartupState.Ready)
+        assertEquals(Login, (state as AppStartupState.Ready).startDestination)
+        coVerify { logoutCoordinator.performFullCleanup() }
     }
 
     @Test

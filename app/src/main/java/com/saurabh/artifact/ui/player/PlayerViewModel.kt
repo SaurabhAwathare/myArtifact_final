@@ -187,7 +187,7 @@ class PlayerViewModel @Inject constructor(
         }
 
         val internalOwnerId = if (artifact != null) {
-            artifact.userId.ifBlank { artifact.author.anonymousId }
+            artifact.author.anonymousId.ifBlank { artifact.userId }
         } else {
             ""
         }
@@ -416,14 +416,16 @@ class PlayerViewModel @Inject constructor(
             )
             return
         }
-        val ownerId = uiState.value.internalOwnerId
-        if (ownerId == currentUserId) return
+        if (uiState.value.isOwner) return
+
+        val targetPersonaId = uiState.value.currentArtifact?.author?.anonymousId ?: uiState.value.internalOwnerId
+        if (targetPersonaId.isBlank()) return
 
         val wasResonating = metadata.value.isResonating
         
         // REFACTOR: Optimistic state handled by interaction DAO layer
         viewModelScope.launch {
-            playerInteractionUseCase.get().toggleResonanceConnection(currentUserId, ownerId, wasResonating)
+            playerInteractionUseCase.get().toggleResonanceConnection(currentUserId, targetPersonaId, wasResonating)
                 .onFailure { error ->
                     reportError(mapAppErrorToUserMessage(error), DiagnosticCategory.RESONANCE, error)
                 }

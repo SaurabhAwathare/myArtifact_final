@@ -209,8 +209,9 @@ class GetPlayerContextUseCase @Inject constructor(
         }
 
         val isResonatingFlow = userIdFlow.flatMapLatest { currentUid ->
-            if (currentUid != null && artifact.userId != currentUid) {
-                userRepository.observeIsResonating(currentUid, artifact.userId)
+            val targetPersonaId = artifact.author.anonymousId
+            if (currentUid != null && targetPersonaId.isNotEmpty() && artifact.userId != currentUid) {
+                userRepository.observeIsResonating(currentUid, targetPersonaId)
             } else {
                 flowOf(false)
             }
