@@ -43,6 +43,9 @@ import com.saurabh.artifact.model.UserReport
 import com.saurabh.artifact.model.Visibility
 import com.saurabh.artifact.domain.prompt.ReflectionPromptManager
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
 import com.google.firebase.firestore.FirebaseFirestoreException
@@ -57,6 +60,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -428,16 +432,24 @@ class ArtifactRepository @Inject constructor(
 
                 repositoryScope.launch(Dispatchers.IO) {
                     try {
-                        val artifactIds = registrySnapshot.documents.map { it.id }
-                        val artifactsQuery = firestore.collection("artifacts")
-                            .whereIn(FieldPath.documentId(), artifactIds.take(limit.coerceAtMost(30)))
-
-                        val artifactsSnapshot = artifactsQuery.get().await()
-                        val artifacts = artifactsSnapshot.documents.mapNotNull { doc ->
-                            doc.toObject(Artifact::class.java)?.copy(
-                                id = doc.id,
-                                userId = authenticatedUid
-                            )
+                        val artifactIds = registrySnapshot.documents.map { it.id }.take(limit.coerceAtMost(30))
+                        val artifacts: List<Artifact> = coroutineScope {
+                            artifactIds.map { id ->
+                                async {
+                                    try {
+                                        val doc = firestore.collection("artifacts").document(id).get().await()
+                                        if (doc.exists()) {
+                                            doc.toObject(Artifact::class.java)?.copy(
+                                                id = doc.id,
+                                                userId = authenticatedUid
+                                            )
+                                        } else null
+                                    } catch (e: Exception) {
+                                        diagnosticLogger.warn(DiagnosticCategory.PROFILE, "SELF_ARTIFACT_SINGLE_FETCH_FAILED", mapOf("artifactId" to id), e)
+                                        null
+                                    }
+                                }
+                            }.awaitAll().filterNotNull()
                         }.sortedByDescending { it.createdAt }
 
                         trySend(artifacts to registrySnapshot.documents.lastOrNull())

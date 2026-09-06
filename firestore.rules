@@ -363,6 +363,16 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /artifact_stats/{artifactId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /community/{docId} {
+      allow read: if isAuth();
+      allow write: if false;
+    }
+
     match /artifact_plays/{id} {
       allow read: if isAuth() && (resource == null || resource.data.userId == request.auth.uid);
       allow create: if isAuth() &&
