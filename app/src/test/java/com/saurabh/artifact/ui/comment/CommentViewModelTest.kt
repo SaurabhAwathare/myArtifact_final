@@ -9,6 +9,7 @@ import com.saurabh.artifact.domain.comment.AddCommentUseCase
 import com.saurabh.artifact.domain.comment.DeleteCommentUseCase
 import com.saurabh.artifact.domain.comment.GetCommentsUseCase
 import com.saurabh.artifact.model.Comment
+import com.saurabh.artifact.repository.ArtifactModerationRepository
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.EngagementRepository
 import com.saurabh.artifact.repository.PaginatedComments
@@ -35,6 +36,7 @@ class CommentViewModelTest {
     private val addCommentUseCase: AddCommentUseCase = mockk()
     private val deleteCommentUseCase: DeleteCommentUseCase = mockk()
     private val engagementRepository: EngagementRepository = mockk(relaxed = true)
+    private val moderationRepository: ArtifactModerationRepository = mockk(relaxed = true)
     private val authRepository: AuthRepository = mockk(relaxed = true)
     private val ownershipAuthority: ArtifactOwnershipAuthority = mockk()
     private val diagnosticLogger: com.saurabh.artifact.diagnostics.DiagnosticLogger = mockk(relaxed = true)
@@ -66,6 +68,7 @@ class CommentViewModelTest {
             addCommentUseCase,
             deleteCommentUseCase,
             engagementRepository,
+            moderationRepository,
             authRepository,
             ownershipAuthority,
             diagnosticLogger

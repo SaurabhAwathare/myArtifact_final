@@ -89,7 +89,12 @@ class GetPlayerContextUseCase @Inject constructor(
         artifact: Artifact,
         wasJustPublished: Boolean
     ): Flow<PlayerMetadata> {
-        val userIdFlow = authRepository.currentUser.map { it?.uid }
+        val userIdentityFlow = combine(
+            authRepository.currentUser.map { it?.uid }.distinctUntilChanged(),
+            authRepository.userData.map { it?.anonymousId }.distinctUntilChanged()
+        ) { uid, anonymousId ->
+            UserIdentity(uid = uid, anonymousId = anonymousId)
+        }
         
         // Live observation of the artifact itself for real-time counts
         // RECOVERY: Implement bounded retry for transient PERMISSION_DENIED during publishing transition
@@ -139,9 +144,13 @@ class GetPlayerContextUseCase @Inject constructor(
             .onStart { emit(artifact) }
             .filterNotNull()
 
-        val resonanceMetadataFlow = userIdFlow.flatMapLatest { currentUserId ->
+        val resonanceMetadataFlow = userIdentityFlow.flatMapLatest { identity ->
             reactionRepository.getReactionCounts(artifact.id).map { counts ->
-                val isOwner = artifact.userId == currentUserId
+                val currentUid = identity.uid
+                val currentAnonId = identity.anonymousId
+                val isOwner = (artifact.userId.isNotEmpty() && currentUid != null && artifact.userId == currentUid) ||
+                        (artifact.author.anonymousId.isNotEmpty() && currentAnonId != null && artifact.author.anonymousId == currentAnonId)
+
                 val effectiveCounts = counts ?: ArtifactReactionCounts(
                     artifactId = artifact.id,
                     totalCount = artifact.reactionCount,
@@ -161,7 +170,8 @@ class GetPlayerContextUseCase @Inject constructor(
             }
         }
 
-        val reactionsFlow = userIdFlow.flatMapLatest { uid ->
+        val reactionsFlow = userIdentityFlow.flatMapLatest { identity ->
+            val uid = identity.uid
             if (uid != null) {
                 reactionRepository.getArtifactReactions(artifact.id, uid)
             } else {
@@ -169,7 +179,8 @@ class GetPlayerContextUseCase @Inject constructor(
             }
         }
 
-        val pendingInteractionsFlow = userIdFlow.flatMapLatest { uid ->
+        val pendingInteractionsFlow = userIdentityFlow.flatMapLatest { identity ->
+            val uid = identity.uid
             if (uid != null) {
                 pendingInteractionDao.get().observePendingForArtifact(artifact.id, uid)
             } else {
@@ -208,9 +219,13 @@ class GetPlayerContextUseCase @Inject constructor(
                 ?: ReactionType.I_HEAR_YOU
         }
 
-        val isResonatingFlow = userIdFlow.flatMapLatest { currentUid ->
+        val isResonatingFlow = userIdentityFlow.flatMapLatest { identity ->
+            val currentUid = identity.uid
+            val currentAnonId = identity.anonymousId
+            val isOwner = (artifact.userId.isNotEmpty() && currentUid != null && artifact.userId == currentUid) ||
+                    (artifact.author.anonymousId.isNotEmpty() && currentAnonId != null && artifact.author.anonymousId == currentAnonId)
             val targetPersonaId = artifact.author.anonymousId
-            if (currentUid != null && targetPersonaId.isNotEmpty() && artifact.userId != currentUid) {
+            if (currentUid != null && targetPersonaId.isNotEmpty() && !isOwner) {
                 userRepository.observeIsResonating(currentUid, targetPersonaId)
             } else {
                 flowOf(false)
@@ -269,6 +284,11 @@ class GetPlayerContextUseCase @Inject constructor(
             )
         }
     }
+
+    private data class UserIdentity(
+        val uid: String? = null,
+        val anonymousId: String? = null
+    )
 
     private data class ResonanceMetadata(
         val count: Int = 0,

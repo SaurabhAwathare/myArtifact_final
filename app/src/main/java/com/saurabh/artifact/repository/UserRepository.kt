@@ -44,6 +44,8 @@ import javax.inject.Singleton
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
+import com.saurabh.artifact.data.local.InteractionAction
+import com.saurabh.artifact.data.local.InteractionType
 import java.util.UUID
 import kotlin.time.Duration.Companion.seconds
 
@@ -648,16 +650,37 @@ class UserRepository @Inject constructor(
             return flowOf(value = false)
         }
 
-        val modernRef = usersCollection.document(currentUserId.trim())
-            .collection("resonance_out").document(targetPersonaId.trim())
+        val cId = currentUserId.trim()
+        val tId = targetPersonaId.trim()
 
-        val legacyRef = usersCollection.document(currentUserId.trim())
-            .collection("following").document(targetPersonaId.trim())
+        val modernRef = usersCollection.document(cId)
+            .collection("resonance_out").document(tId)
+
+        val legacyRef = usersCollection.document(cId)
+            .collection("following").document(tId)
+
+        val intentRef = usersCollection.document(cId)
+            .collection("private").document("intents")
+            .collection("follow").document(tId)
+
+        val pendingFlow = pendingInteractionDao.get().observePendingForArtifact(tId, cId)
 
         return combine(
             observeDocumentExists(modernRef),
-            observeDocumentExists(legacyRef)
-        ) { modern, legacy -> modern || legacy }
+            observeDocumentExists(legacyRef),
+            observeDocumentExists(intentRef),
+            pendingFlow
+        ) { modern, legacy, intent, pendingList ->
+            val followPending = pendingList.filter { it.interactionType == InteractionType.FOLLOW }
+            val pendingAdd = followPending.any { it.action == InteractionAction.ADD }
+            val pendingRemove = followPending.any { it.action == InteractionAction.REMOVE }
+
+            when {
+                pendingAdd -> true
+                pendingRemove -> false
+                else -> modern || legacy || intent
+            }
+        }
     }
 
     fun observeResonatingWithIds(userId: String): Flow<Set<String>> {

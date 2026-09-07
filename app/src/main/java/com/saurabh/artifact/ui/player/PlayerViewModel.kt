@@ -171,14 +171,26 @@ class PlayerViewModel @Inject constructor(
         old?.id == new?.id
     }
 
+    private val userIdentityFlow = combine(
+        authRepository.currentUser.map { it?.uid }.distinctUntilChanged(),
+        authRepository.userData.map { it?.anonymousId }.distinctUntilChanged()
+    ) { uid, anonymousId ->
+        UserIdentity(uid = uid, anonymousId = anonymousId)
+    }
+
     private val staticState = combine(
         playbackCoordinator.currentArtifact,
         metadata,
-        authRepository.currentUser.map { it?.uid }.distinctUntilChanged(),
+        userIdentityFlow,
         _isExpanded,
         _showAdvancedControls
-    ) { artifact, md, currentUid, expanded, advanced ->
-        val isOwner = artifact?.userId == currentUid
+    ) { artifact, md, identity, expanded, advanced ->
+        val currentUid = identity.uid
+        val currentAnonId = identity.anonymousId
+        val isOwner = artifact != null && (
+            (artifact.userId.isNotEmpty() && currentUid != null && artifact.userId == currentUid) ||
+            (artifact.author.anonymousId.isNotEmpty() && currentAnonId != null && artifact.author.anonymousId == currentAnonId)
+        )
         val isMetadataSynced = artifact != null && md.artifactId == artifact.id
         val mode = when {
             artifact == null -> PlayerMode.HIDDEN
@@ -658,6 +670,11 @@ class PlayerViewModel @Inject constructor(
         playbackCoordinator.startSleepTimer(minutes.minutes)
     }
 }
+
+private data class UserIdentity(
+    val uid: String? = null,
+    val anonymousId: String? = null
+)
 
 private data class PlayerDiagnosticState(
     val artifactId: String?,

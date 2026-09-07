@@ -1,6 +1,7 @@
 package com.saurabh.artifact.domain.artifact
 
 import com.saurabh.artifact.repository.ArtifactRepository
+import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.UserRepository
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -14,7 +15,8 @@ import javax.inject.Singleton
 @Singleton
 class ArtifactOwnershipAuthority @Inject constructor(
     private val artifactRepository: ArtifactRepository,
-    private val userRepository: UserRepository
+    private val userRepository: UserRepository,
+    private val authRepository: AuthRepository
 ) {
     /**
      * Checks if the current authenticated user is the owner of the given artifact.
@@ -24,9 +26,13 @@ class ArtifactOwnershipAuthority @Inject constructor(
      */
     suspend fun isCurrentUserOwner(artifactId: String): Boolean {
         val currentUserId = userRepository.getCurrentUserId() ?: return false
+        val currentAnonId = authRepository.currentAnonymousId
         val result = artifactRepository.getArtifactById(artifactId)
         
-        return result.map { it.userId == currentUserId }.getOrDefault(false)
+        return result.map { artifact ->
+            (artifact.userId.isNotEmpty() && artifact.userId == currentUserId) ||
+            (artifact.author.anonymousId.isNotEmpty() && currentAnonId.isNotEmpty() && artifact.author.anonymousId == currentAnonId)
+        }.getOrDefault(false)
     }
 
     /**
@@ -38,8 +44,13 @@ class ArtifactOwnershipAuthority @Inject constructor(
      */
     suspend fun isOwner(artifactId: String, userId: String): Boolean {
         if (userId.isBlank()) return false
+        val currentUserId = userRepository.getCurrentUserId()
+        val currentAnonId = authRepository.currentAnonymousId
         val result = artifactRepository.getArtifactById(artifactId)
         
-        return result.map { it.userId == userId }.getOrDefault(false)
+        return result.map { artifact ->
+            (artifact.userId.isNotEmpty() && artifact.userId == userId) ||
+            (userId == currentUserId && artifact.author.anonymousId.isNotEmpty() && currentAnonId.isNotEmpty() && artifact.author.anonymousId == currentAnonId)
+        }.getOrDefault(false)
     }
 }
