@@ -104,9 +104,12 @@ class ResonanceListViewModel @Inject constructor(
             result.onSuccess { (newUsers, nextLastVisible) ->
                     lastVisible = nextLastVisible
                     isLastPage = nextLastVisible == null
+
+                    val ignoredIds = try { userRepository.observeIgnoredUsers().first() } catch (_: Exception) { emptySet() }
+                    val filteredUsers = newUsers.filter { !ignoredIds.contains(it.id) && !ignoredIds.contains(it.anonymousId) }
                     
                     _uiState.value = _uiState.value.copy(
-                        users = if (refresh) newUsers else _uiState.value.users + newUsers,
+                        users = if (refresh) filteredUsers else _uiState.value.users + filteredUsers,
                         isLoading = false,
                         isRefreshing = false,
                         error = null

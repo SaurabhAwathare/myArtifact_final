@@ -3,6 +3,7 @@ package com.saurabh.artifact.ui.notifications
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.saurabh.artifact.model.NotificationItem
+import com.saurabh.artifact.model.User
 import com.saurabh.artifact.repository.NotificationRepository
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.UserRepository
@@ -14,6 +15,7 @@ import javax.inject.Inject
 
 data class NotificationUiState(
     val items: List<NotificationItem> = emptyList(),
+    val actorProfiles: Map<String, User> = emptyMap(),
     val isLoading: Boolean = false,
     val isLoadingMore: Boolean = false,
     val hasMore: Boolean = true
@@ -23,7 +25,7 @@ data class NotificationUiState(
 class NotificationViewModel @Inject constructor(
     private val notificationRepository: NotificationRepository,
     private val authRepository: AuthRepository,
-    userRepository: UserRepository
+    private val userRepository: UserRepository
 ) : ViewModel() {
 
     private val _additionalItems = MutableStateFlow<List<NotificationItem>>(emptyList())
@@ -48,7 +50,23 @@ class NotificationViewModel @Inject constructor(
             }
         }
 
-    val uiState: StateFlow<NotificationUiState> = combine(
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val actorProfilesFlow: Flow<Map<String, User>> = liveHeadFlow
+        .flatMapLatest { (liveItems, _) ->
+            val actorIds = liveItems.mapNotNull { it.actorId }.filter { it.startsWith("usr_") }.distinct()
+            if (actorIds.isEmpty()) {
+                flowOf(emptyMap())
+            } else {
+                combine(actorIds.map { actorId ->
+                    userRepository.streamUserProfile(actorId).map { profile -> actorId to profile }
+                }) { pairs ->
+                    pairs.mapNotNull { (id, user) -> if (user != null) id to user else null }.toMap()
+                }
+            }
+        }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val baseItemsFlow = combine(
         liveHeadFlow,
         _additionalItems,
         _isLoadingMore,
@@ -61,8 +79,16 @@ class NotificationViewModel @Inject constructor(
             // New items are filtered against the ignored set.
             item.actorId == null || !ignoredIds.contains(item.actorId)
         }
+        Triple(filteredItems, loadingMore, hasMore)
+    }
+
+    val uiState: StateFlow<NotificationUiState> = combine(
+        baseItemsFlow,
+        actorProfilesFlow
+    ) { (items, loadingMore, hasMore), profiles ->
         NotificationUiState(
-            items = filteredItems,
+            items = items,
+            actorProfiles = profiles,
             isLoading = false, // Loading is handled by initial state
             isLoadingMore = loadingMore,
             hasMore = hasMore

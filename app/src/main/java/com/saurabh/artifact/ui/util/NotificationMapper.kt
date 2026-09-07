@@ -6,7 +6,7 @@ import com.saurabh.artifact.model.ReactionType
 
 object NotificationMapper {
 
-    fun mapToUiText(notification: NotificationItem): UiText {
+    fun mapToUiText(notification: NotificationItem, actorName: String? = null): UiText {
         val parts = notification.message.split("|")
         val key = parts[0]
 
@@ -29,7 +29,12 @@ object NotificationMapper {
             "RESONANCE" -> {
                 val typeId = parts.getOrNull(1) ?: ""
                 val type = ReactionType.fromId(typeId)
-                UiText.DynamicString("${type.atmosphericLabel} ${type.emoji}")
+                if (!actorName.isNullOrBlank()) {
+                    val label = type.atmosphericLabel.replace("^Someone\\s+".toRegex(RegexOption.IGNORE_CASE), "")
+                    UiText.DynamicString("$actorName ${label.lowercase()} ${type.emoji}")
+                } else {
+                    UiText.DynamicString("${type.atmosphericLabel} ${type.emoji}")
+                }
             }
             "COMMENT" -> {
                 val title = parts.getOrNull(1) ?: ""

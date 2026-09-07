@@ -126,8 +126,11 @@ fun NotificationScreen(
                         }
                     }
 
+                    val actorProfile = notification.actorId?.let { uiState.actorProfiles[it] }
+
                     NotificationCard(
                         notification = notification,
+                        actorName = actorProfile?.anonymousName,
                         onClick = {
                             viewModel.markAsRead(notification.id)
                             onNotificationClick(notification)
@@ -159,6 +162,7 @@ fun NotificationScreen(
 @Composable
 fun NotificationCard(
     notification: NotificationItem,
+    actorName: String? = null,
     onClick: () -> Unit
 ) {
     val configuration = LocalConfiguration.current
@@ -199,7 +203,7 @@ fun NotificationCard(
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = NotificationMapper.mapToUiText(notification).asString(),
+                    text = NotificationMapper.mapToUiText(notification, actorName).asString(),
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = if (notification.isRead) FontWeight.Light else FontWeight.Normal,
                     lineHeight = androidx.compose.ui.unit.TextUnit.Unspecified

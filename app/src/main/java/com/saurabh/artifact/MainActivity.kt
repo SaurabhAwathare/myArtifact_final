@@ -218,9 +218,8 @@ fun AppRoot(
                                 if (!isAlreadyActive) {
                                     // Default to DEEP_LINK for generic ID-based play requests from OS level if not specified
                                     playerViewModel.playArtifactById(artifactId, PlaybackSource.DEEP_LINK)
-                                } else {
-                                    playerViewModel.setExpanded(true)
                                 }
+                                playerViewModel.setExpanded(true)
                             },
                             playerViewModel = playerViewModel,
                             onDestinationChanged = { mainViewModel.updateSecurityStatus(it) },

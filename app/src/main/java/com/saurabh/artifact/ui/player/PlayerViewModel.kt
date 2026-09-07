@@ -262,6 +262,18 @@ class PlayerViewModel @Inject constructor(
 
         val isReviewMatching = artifact != null && review.artifactId == artifact.id
         val isListenerReviewMatching = artifact != null && listenerReview?.artifactId == artifact.id
+
+        val effectivePlayerMode = when {
+            static.isExpanded -> {
+                if (artifact != null || playable != null || loadState == PlayerLoadState.LOADING || loadState == PlayerLoadState.ERROR) {
+                    PlayerMode.FULLSCREEN
+                } else {
+                    PlayerMode.HIDDEN
+                }
+            }
+            artifact != null -> PlayerMode.MINI
+            else -> PlayerMode.HIDDEN
+        }
         
         PlayerUiState(
             currentArtifact = artifact,
@@ -277,7 +289,7 @@ class PlayerViewModel @Inject constructor(
             playbackProgress = dynamic.playbackProgress,
             listeningProgress = dynamic.listeningProgress,
             isExpanded = static.isExpanded,
-            playerMode = static.playerMode,
+            playerMode = effectivePlayerMode,
             isResonated = static.isResonated,
             resonanceSyncStatus = static.resonanceSyncStatus,
             selectedReactionType = static.selectedReactionType,

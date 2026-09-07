@@ -42,6 +42,7 @@ import dagger.Lazy
 import javax.inject.Inject
 import javax.inject.Singleton
 import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
 import java.util.UUID
 import kotlin.time.Duration.Companion.seconds
@@ -442,9 +443,17 @@ class UserRepository @Inject constructor(
         }
 
         if (userId.startsWith("usr_")) {
+            var fallbackUserRegistration: ListenerRegistration? = null
+            var fallbackMappingRegistration: ListenerRegistration? = null
+
             val docRef = firestore.collection("profiles").document(userId.trim())
-            val registration = docRef.addSnapshotListener { snapshot, _ ->
+            val profileRegistration = docRef.addSnapshotListener { snapshot, _ ->
                 if (snapshot != null && snapshot.exists()) {
+                    fallbackUserRegistration?.remove()
+                    fallbackUserRegistration = null
+                    fallbackMappingRegistration?.remove()
+                    fallbackMappingRegistration = null
+
                     val user = User(
                         id = userId,
                         anonymousId = userId,
@@ -458,10 +467,48 @@ class UserRepository @Inject constructor(
                     )
                     trySend(user)
                 } else {
-                    trySend(null)
+                    // Fallback to persona_mapping/{personaId} if profiles/{personaId} is missing
+                    if (fallbackMappingRegistration == null && fallbackUserRegistration == null) {
+                        val mappingRef = firestore.collection("persona_mapping").document(userId.trim())
+                        fallbackMappingRegistration = mappingRef.addSnapshotListener { mappingSnapshot, _ ->
+                            if (mappingSnapshot != null && mappingSnapshot.exists()) {
+                                val targetUid = mappingSnapshot.getString("userId")?.trim()
+                                if (!targetUid.isNullOrBlank()) {
+                                    fallbackUserRegistration?.remove()
+                                    val userRef = usersCollection.document(targetUid)
+                                    fallbackUserRegistration = userRef.addSnapshotListener { userSnapshot, _ ->
+                                        if (userSnapshot != null && userSnapshot.exists()) {
+                                            val user = User(
+                                                id = userId,
+                                                anonymousId = userId,
+                                                anonymousName = userSnapshot.getString("anonymousName") ?: "quiet presence",
+                                                anonymousSigil = userSnapshot.getString("anonymousSigil") ?: "",
+                                                sigilSeed = userSnapshot.getString("sigilSeed") ?: "",
+                                                sigilColor = userSnapshot.getString("sigilColor") ?: "#FFD700",
+                                                artifactsCount = userSnapshot.getLong("artifactsCount") ?: 0L,
+                                                resonanceInCount = userSnapshot.getLong("resonanceInCount") ?: 0L,
+                                                followersCount = userSnapshot.getLong("followersCount") ?: 0L
+                                            )
+                                            trySend(user)
+                                        } else {
+                                            trySend(null)
+                                        }
+                                    }
+                                } else {
+                                    trySend(null)
+                                }
+                            } else {
+                                trySend(null)
+                            }
+                        }
+                    }
                 }
             }
-            awaitClose { registration.remove() }
+            awaitClose {
+                profileRegistration.remove()
+                fallbackMappingRegistration?.remove()
+                fallbackUserRegistration?.remove()
+            }
             return@callbackFlow
         }
 
@@ -991,16 +1038,7 @@ class UserRepository @Inject constructor(
             try {
                 var query = firestore.collection("artifact_reactions")
                     .whereEqualTo("artifactId", artifactId)
-
-                // OWNER PATH: If the user is the owner, add the proving filter to satisfy security rules.
-                if (isOwner) {
-                    val currentUserId = getCurrentUserId()
-                    if (currentUserId != null) {
-                        query = query.whereEqualTo("artifactOwnerId", currentUserId)
-                    }
-                }
-
-                query = query.orderBy("createdAt", Query.Direction.DESCENDING)
+                    .orderBy("createdAt", Query.Direction.DESCENDING)
                     .limit(limit.toLong())
 
                 lastVisible?.let { query = query.startAfter(it) }
@@ -1015,13 +1053,13 @@ class UserRepository @Inject constructor(
                     return@withContext Result.success(emptyList<User>() to snapshot.documents.lastOrNull())
                 }
 
-                // Batch fetch from 'profiles'
+                // Batch fetch from 'profiles' with fallback for missing persona profiles
                 val users = mutableListOf<User>()
                 for (chunk in personaIds.chunked(10)) {
                     val profileSnapshot = firestore.collection("profiles")
                         .whereIn(FieldPath.documentId(), chunk).get().await()
                     
-                    users.addAll(profileSnapshot.documents.mapNotNull { doc ->
+                    val foundUsers = profileSnapshot.documents.mapNotNull { doc ->
                         User(
                             id = doc.id,
                             anonymousId = doc.id,
@@ -1033,7 +1071,39 @@ class UserRepository @Inject constructor(
                             resonanceInCount = doc.getLong("resonanceInCount") ?: 0L,
                             followersCount = doc.getLong("followersCount") ?: 0L
                         )
-                    })
+                    }
+                    users.addAll(foundUsers)
+
+                    val foundIds = foundUsers.map { it.anonymousId }.toSet()
+                    val missingChunkIds = chunk.filter { !foundIds.contains(it) }
+
+                    for (missingPersonaId in missingChunkIds) {
+                        try {
+                            val mappingDoc = firestore.collection("persona_mapping").document(missingPersonaId).get().await()
+                            if (mappingDoc.exists()) {
+                                val targetUid = mappingDoc.getString("userId")?.trim()
+                                if (!targetUid.isNullOrBlank()) {
+                                    val userDoc = usersCollection.document(targetUid).get().await()
+                                    if (userDoc.exists()) {
+                                        val fallbackUser = User(
+                                            id = missingPersonaId,
+                                            anonymousId = missingPersonaId,
+                                            anonymousName = userDoc.getString("anonymousName") ?: "quiet presence",
+                                            anonymousSigil = userDoc.getString("anonymousSigil") ?: "",
+                                            sigilSeed = userDoc.getString("sigilSeed") ?: "",
+                                            sigilColor = userDoc.getString("sigilColor") ?: "#FFD700",
+                                            artifactsCount = userDoc.getLong("artifactsCount") ?: 0L,
+                                            resonanceInCount = userDoc.getLong("resonanceInCount") ?: 0L,
+                                            followersCount = userDoc.getLong("followersCount") ?: 0L
+                                        )
+                                        users.add(fallbackUser)
+                                    }
+                                }
+                            }
+                        } catch (_: Exception) {
+                            // Fallback read fails quietly if permission or network error
+                        }
+                    }
                 }
 
                 // Maintain original order

@@ -163,11 +163,11 @@ private fun ResonateInteractionItem(
         // Count Target (Navigation)
         if (showCount) {
             Text(
-                text = resonanceCount.toString(),
+                text = "$resonanceCount \u203A",
                 style = MaterialTheme.typography.labelSmall,
                 color = contentColor,
-                fontSize = 10.sp,
-                fontWeight = if (isResonated) FontWeight.Bold else FontWeight.Normal,
+                fontSize = 11.sp,
+                fontWeight = if (isResonated) FontWeight.Bold else FontWeight.Medium,
                 letterSpacing = 0.2.sp,
                 modifier = Modifier
                     .offset(y = (-4).dp) // Bring closer to icon
