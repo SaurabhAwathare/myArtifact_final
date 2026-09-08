@@ -84,7 +84,7 @@ class ResourceCleanupVerificationTest {
             every { frozenAudioDirectory } returns File(context.filesDir, "frozen_audio")
         }
 
-        localDraftManager = LocalDraftManager(storageManager)
+        localDraftManager = LocalDraftManager(storageManager, mockk(relaxed = true))
         
         WorkManagerTestInitHelper.initializeTestWorkManager(context)
         val workManager = WorkManager.getInstance(context)

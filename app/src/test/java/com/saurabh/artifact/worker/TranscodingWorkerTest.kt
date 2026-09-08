@@ -137,6 +137,6 @@ class TranscodingWorkerTest {
         val result = worker.doWork()
 
         assert(result is ListenableWorker.Result.Failure)
-        coVerify(exactly = 0) { draftDao.updateTranscodingResult(any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { draftDao.updateTranscodingResult(any(), any(), any(), any(), any(), any(), any()) }
     }
 }

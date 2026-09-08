@@ -83,6 +83,6 @@ class UserRepositoryIgnoreTest {
 
         // Verify
         verify { mockDoc.delete() }
-        coVerify { ignoredUserDao.delete(targetUid) }
+        coVerify { ignoredUserDao.delete(targetUid, "userA") }
     }
 }

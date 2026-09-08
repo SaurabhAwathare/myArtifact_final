@@ -60,6 +60,8 @@ class IdentitySyncTest {
             authRepository = authRepository,
             userRepository = userRepository,
             artifactRepository = artifactRepository,
+            notificationRepository = mockk(relaxed = true),
+            personalizationEngine = mockk(relaxed = true),
             visibilityFilter = { visibilityFilter },
             managerScope = testScope.backgroundScope
         )
@@ -104,6 +106,8 @@ class IdentitySyncTest {
             authRepository = authRepository,
             userRepository = userRepository,
             artifactRepository = artifactRepository,
+            notificationRepository = mockk(relaxed = true),
+            personalizationEngine = mockk(relaxed = true),
             visibilityFilter = { visibilityFilter },
             managerScope = testScope.backgroundScope
         )

@@ -1,9 +1,12 @@
 package com.saurabh.artifact.repository
 
+import android.content.Context
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.firestore.*
 import com.saurabh.artifact.data.local.IgnoredUserDao
+import com.saurabh.artifact.data.local.PendingInteractionDao
 import com.saurabh.artifact.data.remote.model.CommentDto
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.model.CommentStatus
 import io.mockk.*
 import kotlinx.coroutines.runBlocking
@@ -14,16 +17,29 @@ import org.junit.Before
 import org.junit.Test
 
 class FirestoreCommentRepositoryTotalSilenceTest {
+    private val context = mockk<Context>(relaxed = true)
     private val firestore = mockk<FirebaseFirestore>()
     private val ignoredUserDao = mockk<IgnoredUserDao>()
-    private val diagnosticLogger = mockk<com.saurabh.artifact.diagnostics.DiagnosticLogger>(relaxed = true)
+    private val pendingInteractionDao = mockk<PendingInteractionDao>()
+    private val authRepository = mockk<AuthRepository>()
+    private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
 
     private lateinit var repository: FirestoreCommentRepository
 
+    private companion object {
+        private const val TEST_USER_ID = "userA"
+    }
+
     @Before
     fun setup() {
+        every { authRepository.currentUserId } returns TEST_USER_ID
         repository = FirestoreCommentRepository(
-            firestore, { ignoredUserDao }, diagnosticLogger
+            context,
+            firestore,
+            { ignoredUserDao },
+            { pendingInteractionDao },
+            authRepository,
+            diagnosticLogger
         )
     }
 
@@ -58,7 +74,7 @@ class FirestoreCommentRepositoryTotalSilenceTest {
         
         every { mockQuery.get() } returns Tasks.forResult(snapshot)
         
-        coEvery { ignoredUserDao.getAllIgnoredUserIds() } returns listOf("userB")
+        coEvery { ignoredUserDao.getAllIgnoredUserIds(TEST_USER_ID) } returns listOf("userB")
 
         val result = repository.getComments(artifactId, limit)
         

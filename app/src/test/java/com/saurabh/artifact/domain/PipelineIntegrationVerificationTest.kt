@@ -85,7 +85,7 @@ class PipelineIntegrationVerificationTest {
         }
 
         // 3. Setup Components
-        val localDraftManager = LocalDraftManager(storageManager)
+        val localDraftManager = LocalDraftManager(storageManager, mockk(relaxed = true))
         
         val draftRepository = DraftRepository(
             draftDao = Lazy { draftDao },

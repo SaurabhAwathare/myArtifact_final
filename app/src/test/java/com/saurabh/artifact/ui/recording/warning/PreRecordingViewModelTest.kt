@@ -3,6 +3,7 @@ package com.saurabh.artifact.ui.recording.warning
 import androidx.lifecycle.SavedStateHandle
 import com.saurabh.artifact.audio.RecordingSessionManager
 import com.saurabh.artifact.data.local.RecordingStatus
+import com.saurabh.artifact.util.StorageManager
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -20,6 +21,7 @@ class PreRecordingViewModelTest {
 
     private lateinit var viewModel: PreRecordingViewModel
     private val recordingSessionManager: RecordingSessionManager = mockk(relaxed = true)
+    private val storageManager: StorageManager = mockk(relaxed = true)
     private val savedStateHandle: SavedStateHandle = SavedStateHandle()
     
     private val testDispatcher = StandardTestDispatcher()
@@ -39,7 +41,7 @@ class PreRecordingViewModelTest {
 
     @Test
     fun `initial state uses RITUAL_DURATION_SECONDS when no saved state`() = runTest {
-        viewModel = PreRecordingViewModel(recordingSessionManager, savedStateHandle)
+        viewModel = PreRecordingViewModel(recordingSessionManager, storageManager, savedStateHandle)
         
         assertEquals(10, viewModel.uiState.value.remainingSeconds)
     }
@@ -49,7 +51,7 @@ class PreRecordingViewModelTest {
         val futureTime = System.currentTimeMillis() + 5000 // 5 seconds from now
         savedStateHandle["ritual_end_time"] = futureTime
         
-        viewModel = PreRecordingViewModel(recordingSessionManager, savedStateHandle)
+        viewModel = PreRecordingViewModel(recordingSessionManager, storageManager, savedStateHandle)
         
         // Should be approximately 5 (allowing for minor execution delay)
         val remaining = viewModel.uiState.value.remainingSeconds
@@ -58,7 +60,7 @@ class PreRecordingViewModelTest {
 
     @Test
     fun `auto-navigation triggers on RECORDING status`() = runTest {
-        viewModel = PreRecordingViewModel(recordingSessionManager, savedStateHandle)
+        viewModel = PreRecordingViewModel(recordingSessionManager, storageManager, savedStateHandle)
         
         val events = mutableListOf<PreRecordingWarningEvent>()
         val job = launch(UnconfinedTestDispatcher(testScheduler)) {
@@ -76,7 +78,7 @@ class PreRecordingViewModelTest {
 
     @Test
     fun `auto-navigation triggers on PREPARING status`() = runTest {
-        viewModel = PreRecordingViewModel(recordingSessionManager, savedStateHandle)
+        viewModel = PreRecordingViewModel(recordingSessionManager, storageManager, savedStateHandle)
         
         val events = mutableListOf<PreRecordingWarningEvent>()
         val job = launch(UnconfinedTestDispatcher(testScheduler)) {

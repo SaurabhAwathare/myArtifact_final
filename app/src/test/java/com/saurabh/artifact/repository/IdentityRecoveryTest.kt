@@ -47,6 +47,8 @@ class IdentityRecoveryTest {
             authRepository = authRepository,
             userRepository = userRepository,
             artifactRepository = artifactRepository,
+            notificationRepository = mockk(relaxed = true),
+            personalizationEngine = mockk(relaxed = true),
             visibilityFilter = { visibilityFilter },
             managerScope = testScope.backgroundScope
         )

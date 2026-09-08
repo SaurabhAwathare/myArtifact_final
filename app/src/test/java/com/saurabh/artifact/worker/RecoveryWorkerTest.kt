@@ -29,6 +29,8 @@ class RecoveryWorkerTest {
     private val workerParams = mockk<WorkerParameters>(relaxed = true)
     private val startupCoordinator = mockk<com.saurabh.artifact.startup.StartupCoordinator>(relaxed = true)
 
+    private lateinit var worker: RecoveryWorker
+
     @Before
     fun setup() {
         mockkStatic(Log::class)
