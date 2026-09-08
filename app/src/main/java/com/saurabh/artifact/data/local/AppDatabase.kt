@@ -17,7 +17,7 @@ import androidx.room.TypeConverters
         ReportedArtifactEntity::class,
         IgnoredUserEntity::class,
     ],
-    version = 69,
+    version = 70,
     autoMigrations = [
         androidx.room.AutoMigration(from = 64, to = 65),
         androidx.room.AutoMigration(from = 65, to = 66),

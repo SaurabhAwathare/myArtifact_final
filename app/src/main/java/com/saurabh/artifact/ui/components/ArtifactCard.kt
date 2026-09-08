@@ -205,7 +205,7 @@ fun ArtifactCard(
                                     config = artifact.authorSigilConfig,
                                     size = 32.dp,
                                     isStatic = true,
-                                    modifier = Modifier.clickable { onAuthorClick(artifact.userId.ifBlank { artifact.author.anonymousId }) }
+                                    modifier = Modifier.clickable { onAuthorClick(artifact.author.anonymousId.ifBlank { artifact.userId }) }
                                 )
                                 
                                 Spacer(modifier = Modifier.width(Spacing.Medium))
@@ -219,7 +219,7 @@ fun ArtifactCard(
                                             text = displayUsername,
                                             modifier = Modifier
                                                 .weight(1f, fill = false)
-                                                .clickable { onAuthorClick(artifact.userId.ifBlank { artifact.author.anonymousId }) },
+                                                .clickable { onAuthorClick(artifact.author.anonymousId.ifBlank { artifact.userId }) },
                                             style = ArtifactTheme.typography.labelLarge.copy(
                                                 fontWeight = FontWeight.SemiBold,
                                                 fontSize = 15.sp

@@ -56,14 +56,14 @@ class EngagementSyncRaceTest {
         
         // 1. Worker starts sync (State -> SYNCING)
         // ... (This happens in the worker, but we simulate repository calls)
-        
+
         // 2. User activity happens while worker is uploading (State -> PENDING)
         // In reality, updateLastPosition sets state to PENDING
         coEvery { engagementDao.updateLastPosition(artifactId, any(), any()) } returns 1
         repository.updateLastPosition(artifactId, 1000L)
         
         // 3. Worker finishes and calls markEngagementSynced
-        // DAO will have WHERE syncState = 'SYNCING' guard. 
+        // DAO will have WHERE syncState = 'SYNCING' guard.
         // We mock it returning 0 because the state is now PENDING
         coEvery { engagementDao.markAsSynced(artifactId, any()) } returns 0
         
@@ -94,10 +94,10 @@ class EngagementSyncRaceTest {
     @Test
     fun `Scenario 4 - Next sync cycle recovers correctly`() = runTest {
         val artifactId = "test_artifact"
-        
+
         // 1. Previous sync failed to mark as SYNCED because rowsAffected == 0 (Race happened)
         // 2. Record is still PENDING in DB.
-        
+
         // 3. Next worker run picks up the PENDING record
         val staleEvidence = mockk<ArtifactEngagement>(relaxed = true)
         every { staleEvidence.artifactId } returns artifactId

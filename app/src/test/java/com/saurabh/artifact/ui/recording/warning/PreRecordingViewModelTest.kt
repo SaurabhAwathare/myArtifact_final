@@ -86,7 +86,7 @@ class PreRecordingViewModelTest {
         sessionStateFlow.emit(RecordingSessionManager.SessionState(status = RecordingStatus.PREPARING))
         runCurrent()
         
-        assertTrue("Should navigate even during PREPARING state", 
+        assertTrue("Should navigate even during PREPARING state",
             events.any { it is PreRecordingWarningEvent.NavigateToRecording })
         job.cancel()
     }

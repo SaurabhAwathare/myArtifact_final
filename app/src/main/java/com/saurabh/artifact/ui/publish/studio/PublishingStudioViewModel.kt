@@ -176,11 +176,26 @@ class PublishingStudioViewModel @Inject constructor(
             initialValue = StudioSessionState()
         )
 
+    private var pendingPublishAfterRecovery = false
+
     init {
         diagnosticLogger.info(DiagnosticCategory.STUDIO, "VM_CREATED", mapOf("instanceId" to this.hashCode()))
         playbackCoordinator.stop()
 
-        // Handle playback completion for automatic state persistence (Removed in Phase 6 - Authority belongs to ReviewSessionManager)
+        viewModelScope.launch {
+            sessionState
+                .map { it.isRecoverySetup }
+                .distinctUntilChanged()
+                .collect { isSetup ->
+                    if (isSetup && pendingPublishAfterRecovery) {
+                        pendingPublishAfterRecovery = false
+                        if (_currentStepOverride.value == StudioStep.SECURITY_REQUIRED) {
+                            _currentStepOverride.value = null
+                        }
+                        performPublish()
+                    }
+                }
+        }
     }
 
     fun loadDraft(draftId: String) {
@@ -191,6 +206,7 @@ class PublishingStudioViewModel @Inject constructor(
         // Reset buffers when loading new draft
         _titleInput.value = null
         _currentStepOverride.value = null
+        pendingPublishAfterRecovery = false
 
         viewModelScope.launch {
             playbackCoordinator.playDraftPreview(draftId, source = PlaybackSource.REVIEW_DRAFT)
@@ -318,6 +334,12 @@ class PublishingStudioViewModel @Inject constructor(
         val draftId = _draftId.value ?: return
         val currentState = sessionState.value
         val currentStep = currentState.currentStep
+
+        if (currentStep == StudioStep.SECURITY_REQUIRED) {
+            _currentStepOverride.value = null
+            pendingPublishAfterRecovery = false
+            return
+        }
         
         val prevStep = when (currentStep) {
             StudioStep.DETAILS -> StudioStep.REVIEW
@@ -386,9 +408,15 @@ class PublishingStudioViewModel @Inject constructor(
         // SECURITY ENFORCEMENT: Requirement from Phase 3 Chapter 25
         if (!state.isRecoverySetup) {
             diagnosticLogger.info(DiagnosticCategory.SECURITY, "PUBLISH_REDIRECT_TO_MNEMONIC", mapOf(LogKeys.DRAFT_ID to draftId))
+            pendingPublishAfterRecovery = true
             _currentStepOverride.value = StudioStep.SECURITY_REQUIRED
             return
         }
+
+        if (_currentStepOverride.value == StudioStep.SECURITY_REQUIRED) {
+            _currentStepOverride.value = null
+        }
+        pendingPublishAfterRecovery = false
 
         // Use reviewSatisfied to allow publishing when bypass is active
         if (state.title.isBlank() || state.emotion == null || !state.reviewSatisfied) {

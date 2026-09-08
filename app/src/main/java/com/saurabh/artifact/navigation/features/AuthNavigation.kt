@@ -5,6 +5,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.composable
+import androidx.navigation.toRoute
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.domain.auth.RegistrationResult
@@ -68,18 +69,23 @@ fun NavGraphBuilder.authNavigation(
     composable<IdentityReveal> {
         IdentityRevealScreen(
             onContinue = {
-                navController.navigate(MnemonicReveal) {
+                navController.navigate(MnemonicReveal()) {
                     popUpTo(IdentityReveal) { inclusive = true }
                 }
             }
         )
     }
 
-    composable<MnemonicReveal> {
+    composable<MnemonicReveal> { backStackEntry ->
+        val route = backStackEntry.toRoute<MnemonicReveal>()
         MnemonicRevealScreen(
             onComplete = {
-                navController.navigate(Home) {
-                    popUpTo(MnemonicReveal) { inclusive = true }
+                if (!route.originDraftId.isNullOrBlank()) {
+                    navController.popBackStack()
+                } else {
+                    navController.navigate(Home) {
+                        popUpTo<MnemonicReveal> { inclusive = true }
+                    }
                 }
             }
         )

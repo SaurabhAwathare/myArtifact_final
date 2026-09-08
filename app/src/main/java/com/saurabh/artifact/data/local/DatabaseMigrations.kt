@@ -111,12 +111,52 @@ object DatabaseMigrations {
             """)
         }
     }
+
+    /**
+     * Migration 69 -> 70: Schema Repair for Moderation Tables.
+     * Idempotently restores 'reported_artifacts' and 'ignored_users' tables and
+     * the required 'index_reported_artifacts_artifactId' index if missing.
+     * Preserves all existing populated tables including 'artifact_drafts'.
+     */
+    val MIGRATION_69_70 = object : Migration(69, 70) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `reported_artifacts` (
+                    `userId` TEXT NOT NULL, 
+                    `artifactId` TEXT NOT NULL, 
+                    `reportedAt` INTEGER NOT NULL, 
+                    PRIMARY KEY(`userId`, `artifactId`)
+                )
+                """.trimIndent()
+            )
+
+            db.execSQL(
+                """
+                CREATE INDEX IF NOT EXISTS `index_reported_artifacts_artifactId` 
+                ON `reported_artifacts` (`artifactId`)
+                """.trimIndent()
+            )
+
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `ignored_users` (
+                    `ownerUserId` TEXT NOT NULL, 
+                    `userId` TEXT NOT NULL, 
+                    `createdAt` INTEGER NOT NULL, 
+                    PRIMARY KEY(`ownerUserId`, `userId`)
+                )
+                """.trimIndent()
+            )
+        }
+    }
     
     val ALL_MIGRATIONS = arrayOf<Migration>(
         MIGRATION_60_61,
         MIGRATION_61_62,
         MIGRATION_62_63,
         MIGRATION_63_64,
-        MIGRATION_68_69
+        MIGRATION_68_69,
+        MIGRATION_69_70
     )
 }

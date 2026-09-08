@@ -59,7 +59,7 @@ fun NavGraphBuilder.recordingNavigation(
                 navController.popBackStack()
             },
             onSecurityRequired = {
-                navController.navigate(MnemonicReveal)
+                navController.navigate(MnemonicReveal(originDraftId = route.draftId))
             }
         )
     }
@@ -125,7 +125,7 @@ fun NavGraphBuilder.recordingNavigation(
                 navController.popBackStack()
             },
             onSecurityRequired = {
-                navController.navigate(MnemonicReveal)
+                navController.navigate(MnemonicReveal(originDraftId = route.draftId))
             }
         )
     }

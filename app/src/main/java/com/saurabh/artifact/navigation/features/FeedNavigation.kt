@@ -4,7 +4,6 @@ import androidx.compose.runtime.remember
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.composable
-import androidx.navigation.toRoute
 import com.saurabh.artifact.audio.RecordingSessionManager
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
@@ -64,7 +63,7 @@ fun NavGraphBuilder.feedNavigation(
                 }
             },
             onNavigateToSecurity = {
-                navController.navigate(MnemonicReveal)
+                navController.navigate(MnemonicReveal())
             }
         )
     }
@@ -109,7 +108,7 @@ fun NavGraphBuilder.feedNavigation(
                 }
             },
             onNavigateToSecurity = {
-                navController.navigate(MnemonicReveal)
+                navController.navigate(MnemonicReveal())
             }
         )
     }

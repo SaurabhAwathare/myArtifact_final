@@ -103,4 +103,22 @@ class IdentityScoutTest {
         
         assertEquals(0.5f, score)
     }
+
+    @Test
+    fun `application role words in display name do not trigger false positive`() {
+        val roleName = SecureString.fromString("Artifact Creator")
+        val warnings = scout.detectLeaks("creator publish an artifact", roleName, null)
+        
+        assertTrue("Role words like 'Creator' and 'Artifact' should not be flagged as real name leaks",
+            warnings.none { it.reason == ValidationReason.REAL_NAME || it.reason == ValidationReason.MOTIF_REUSE })
+    }
+
+    @Test
+    fun `genuine personal name in title is detected when combined with role name`() {
+        val realName = SecureString.fromString("Saurabh Creator")
+        val warnings = scout.detectLeaks("creator publish an artifact by Saurabh", realName, null)
+        
+        assertTrue("Genuine personal name 'Saurabh' should still be detected",
+            warnings.any { it.reason == ValidationReason.REAL_NAME })
+    }
 }

@@ -14,6 +14,22 @@ import javax.inject.Singleton
 @Singleton
 class IdentityScout @Inject constructor() {
 
+    companion object {
+        // Known default and application-role tokens to exclude from personal real-name leak detection
+        private val IGNORED_ROLE_TOKENS = setOf(
+            "artifact",
+            "creator",
+            "user",
+            "admin",
+            "anonymous",
+            "guest",
+            "default",
+            "test",
+            "persona",
+            "system"
+        )
+    }
+
     /**
      * Scans a target string (username or content) for leaks of the user's real identity.
      */
@@ -31,10 +47,14 @@ class IdentityScout @Inject constructor() {
 
         val nameTokens = tokenizeName(plainRealName)
         val emailPrefix = extractEmailPrefix(plainEmail)
+        val targetWords = tokenizeTarget(target)
 
         // 1. Check for Real Name Tokens & Phonetic Motifs
         for (token in nameTokens) {
-            if (token.length >= 3 && normalizedTarget.contains(token)) {
+            val hasExactWordMatch = targetWords.contains(token) || 
+                Regex("\\b${Regex.escape(token)}\\b", RegexOption.IGNORE_CASE).containsMatchIn(target)
+
+            if (token.length >= 3 && hasExactWordMatch) {
                 warnings.add(
                     ModerationWarning(
                         ValidationReason.REAL_NAME,
@@ -44,14 +64,19 @@ class IdentityScout @Inject constructor() {
                 break 
             }
             
-            // Check for Motif Reuse (Phonetic similarity)
-            if (token.length >= 4 && isPhoneticallySimilar(normalizedTarget, token)) {
-                warnings.add(
-                    ModerationWarning(
-                        ValidationReason.MOTIF_REUSE,
-                        "This presence feels familiar to your real identity. Try something more distinct to stay safe."
+            // Check for Motif Reuse (Phonetic similarity on target words)
+            if (token.length >= 4) {
+                val hasPhoneticMatch = targetWords.any { word ->
+                    word.length >= 3 && isWordPhoneticallySimilar(word, token)
+                }
+                if (hasPhoneticMatch) {
+                    warnings.add(
+                        ModerationWarning(
+                            ValidationReason.MOTIF_REUSE,
+                            "This presence feels familiar to your real identity. Try something more distinct to stay safe."
+                        )
                     )
-                )
+                }
             }
         }
 
@@ -152,13 +177,26 @@ class IdentityScout @Inject constructor() {
     }
 
     /**
-     * Splits a real name into searchable tokens, filtering out common titles or very short parts.
+     * Splits a target string into word tokens for word-boundary matching.
+     */
+    private fun tokenizeTarget(target: String): List<String> {
+        if (target.isBlank()) return emptyList()
+        return target.lowercase(Locale.ROOT)
+            .split(Regex("[\\s,._\\-]+"))
+            .filter { it.isNotBlank() }
+    }
+
+    /**
+     * Splits a real name into searchable tokens, filtering out common titles,
+     * application role tokens, and short parts to prevent false positives.
      */
     private fun tokenizeName(name: String?): List<String> {
         if (name.isNullOrBlank()) return emptyList()
         return name.lowercase(Locale.ROOT)
             .split(Regex("[\\s,.-]+"))
-            .filter { it.length >= 2 }
+            .filter { token ->
+                token.length >= 3 && !IGNORED_ROLE_TOKENS.contains(token)
+            }
     }
 
     /**
@@ -167,7 +205,25 @@ class IdentityScout @Inject constructor() {
     private fun extractEmailPrefix(email: String?): String? {
         if (email.isNullOrBlank()) return null
         val prefix = email.substringBefore("@").lowercase(Locale.ROOT)
-        return normalize(prefix)
+        val normalized = normalize(prefix)
+        return if (IGNORED_ROLE_TOKENS.contains(normalized)) null else normalized
+    }
+
+    /**
+     * Checks if two individual words are phonetically similar or close in Levenshtein distance.
+     */
+    fun isWordPhoneticallySimilar(word: String, token: String): Boolean {
+        val normA = normalize(word)
+        val normB = normalize(token)
+        if (normA.isEmpty() || normB.isEmpty()) return false
+        
+        if (normA == normB) return true
+        
+        val codeA = metaphone(normA)
+        val codeB = metaphone(normB)
+        if (codeA.isNotEmpty() && codeB.isNotEmpty() && codeA == codeB) return true
+        
+        return levenshteinDistance(normA, normB) <= 2 && minOf(normA.length, normB.length) >= 4
     }
 
     /**
@@ -175,18 +231,7 @@ class IdentityScout @Inject constructor() {
      * This catches names that sound similar even if spelled differently.
      */
     fun isPhoneticallySimilar(a: String, b: String): Boolean {
-        val normA = normalize(a)
-        val normB = normalize(b)
-        
-        if (normA.contains(normB) || normB.contains(normA)) return true
-        
-        val codeA = metaphone(normA)
-        val codeB = metaphone(normB)
-        
-        if (codeA.isNotEmpty() && codeB.isNotEmpty() && codeA == codeB) return true
-        
-        // Fallback to Levenshtein check for small distances if Metaphone doesn't match
-        return levenshteinDistance(normA, normB) <= 2
+        return isWordPhoneticallySimilar(a, b)
     }
 
     /**

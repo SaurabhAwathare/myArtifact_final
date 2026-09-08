@@ -334,7 +334,7 @@ class MainViewModel @Inject constructor(
             ID_LOGIN -> Login
             ID_ONBOARDING -> Onboarding
             ID_IDENTITY_REVEAL -> IdentityReveal
-            ID_MNEMONIC_REVEAL -> MnemonicReveal
+            ID_MNEMONIC_REVEAL -> MnemonicReveal()
             else -> null
         }
     }
@@ -345,7 +345,7 @@ class MainViewModel @Inject constructor(
             Login -> ID_LOGIN
             Onboarding -> ID_ONBOARDING
             IdentityReveal -> ID_IDENTITY_REVEAL
-            MnemonicReveal -> ID_MNEMONIC_REVEAL
+            is MnemonicReveal -> ID_MNEMONIC_REVEAL
             else -> null
         }
     }

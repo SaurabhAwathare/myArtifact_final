@@ -21,7 +21,7 @@ object Login : Route
 object IdentityReveal : Route
 
 @Serializable
-object MnemonicReveal : Route
+data class MnemonicReveal(val originDraftId: String? = null) : Route
 
 // --- Main / Feed Routes ---
 
