@@ -46,6 +46,8 @@ import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
 import com.saurabh.artifact.data.local.InteractionAction
 import com.saurabh.artifact.data.local.InteractionType
+import com.saurabh.artifact.data.local.PendingInteractionEntity
+import com.saurabh.artifact.worker.InteractionSyncWorker
 import java.util.UUID
 import kotlin.time.Duration.Companion.seconds
 
@@ -540,27 +542,29 @@ class UserRepository @Inject constructor(
      * PUBLIC API: Used by ViewModels. Enqueues interaction if unified queue is enabled.
      */
     suspend fun resonateWithUser(currentUserId: String, targetUserId: String): Result<Unit> = withContext(Dispatchers.IO) {
-        if (currentUserId.isBlank() || targetUserId.isBlank()) {
+        val cId = currentUserId.trim()
+        val tId = targetUserId.trim()
+        if (cId.isBlank() || tId.isBlank()) {
             return@withContext Result.failure(AppError.InvalidInput("User IDs cannot be blank"))
         }
-        if (currentUserId == targetUserId) return@withContext Result.failure(Exception("Cannot resonate with yourself"))
+        if (cId == tId) return@withContext Result.failure(Exception("Cannot resonate with yourself"))
 
         try {
-            val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
-                userId = currentUserId,
-                artifactId = targetUserId, // Using artifactId field for targetUserId
-                interactionType = com.saurabh.artifact.data.local.InteractionType.FOLLOW,
-                action = com.saurabh.artifact.data.local.InteractionAction.ADD,
-                metadata = currentUserId
+            val pending = PendingInteractionEntity(
+                userId = cId,
+                artifactId = tId, // Using artifactId field for targetUserId
+                interactionType = InteractionType.FOLLOW,
+                action = InteractionAction.ADD,
+                metadata = cId
             )
-            pendingInteractionDao.get().deleteByType(targetUserId, currentUserId, com.saurabh.artifact.data.local.InteractionType.FOLLOW)
+            pendingInteractionDao.get().deleteByType(tId, cId, InteractionType.FOLLOW)
             pendingInteractionDao.get().insert(pending)
-            com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
+            InteractionSyncWorker.enqueue(context)
             
-            diagnosticLogger.info(DiagnosticCategory.RESONANCE, "FOLLOW_QUEUED", mapOf("targetUserId" to targetUserId))
+            diagnosticLogger.info(DiagnosticCategory.RESONANCE, "FOLLOW_QUEUED", mapOf("targetUserId" to tId))
             Result.success(Unit)
         } catch (e: Exception) {
-            diagnosticLogger.error(DiagnosticCategory.RESONANCE, "FOLLOW_QUEUE_FAILED", mapOf("targetUserId" to targetUserId), e)
+            diagnosticLogger.error(DiagnosticCategory.RESONANCE, "FOLLOW_QUEUE_FAILED", mapOf("targetUserId" to tId), e)
             Result.failure(e)
         }
     }
@@ -570,26 +574,29 @@ class UserRepository @Inject constructor(
      * PUBLIC API: Used by ViewModels. Enqueues interaction if unified queue is enabled.
      */
     suspend fun stopResonatingWithUser(currentUserId: String, targetUserId: String): Result<Unit> = withContext(Dispatchers.IO) {
-        if (currentUserId.isBlank() || targetUserId.isBlank()) {
+        val cId = currentUserId.trim()
+        val tId = targetUserId.trim()
+        if (cId.isBlank() || tId.isBlank()) {
             return@withContext Result.failure(AppError.InvalidInput("User IDs cannot be blank"))
         }
+        if (cId == tId) return@withContext Result.failure(Exception("Cannot resonate with yourself"))
 
         try {
-            val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
-                userId = currentUserId,
-                artifactId = targetUserId,
-                interactionType = com.saurabh.artifact.data.local.InteractionType.FOLLOW,
-                action = com.saurabh.artifact.data.local.InteractionAction.REMOVE,
-                metadata = currentUserId
+            val pending = PendingInteractionEntity(
+                userId = cId,
+                artifactId = tId,
+                interactionType = InteractionType.FOLLOW,
+                action = InteractionAction.REMOVE,
+                metadata = cId
             )
-            pendingInteractionDao.get().deleteByType(targetUserId, currentUserId, com.saurabh.artifact.data.local.InteractionType.FOLLOW)
+            pendingInteractionDao.get().deleteByType(tId, cId, InteractionType.FOLLOW)
             pendingInteractionDao.get().insert(pending)
-            com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
+            InteractionSyncWorker.enqueue(context)
             
-            diagnosticLogger.info(DiagnosticCategory.RESONANCE, "UNFOLLOW_QUEUED", mapOf("targetUserId" to targetUserId))
+            diagnosticLogger.info(DiagnosticCategory.RESONANCE, "UNFOLLOW_QUEUED", mapOf("targetUserId" to tId))
             Result.success(Unit)
         } catch (e: Exception) {
-            diagnosticLogger.error(DiagnosticCategory.RESONANCE, "UNFOLLOW_QUEUE_FAILED", mapOf("targetUserId" to targetUserId), e)
+            diagnosticLogger.error(DiagnosticCategory.RESONANCE, "UNFOLLOW_QUEUE_FAILED", mapOf("targetUserId" to tId), e)
             Result.failure(e)
         }
     }
@@ -600,22 +607,28 @@ class UserRepository @Inject constructor(
      * Performs direct Firestore write without enqueuing.
      */
     internal suspend fun syncFollowToFirestore(currentUserId: String, targetAnonymousId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val cId = currentUserId.trim()
+        val tId = targetAnonymousId.trim()
+        if (cId.isBlank() || tId.isBlank()) {
+            return@withContext Result.failure(AppError.InvalidInput("User IDs cannot be blank"))
+        }
+
         try {
-            val intentRef = usersCollection.document(currentUserId)
+            val intentRef = usersCollection.document(cId)
                 .collection("private").document("intents")
-                .collection("follow").document(targetAnonymousId)
+                .collection("follow").document(tId)
             
             intentRef.set(mapOf(
-                "targetAnonymousId" to targetAnonymousId,
+                "targetAnonymousId" to tId,
                 "action" to "FOLLOW",
                 "timestamp" to FieldValue.serverTimestamp(),
                 "version" to 1
             )).await()
             
-            diagnosticLogger.info(DiagnosticCategory.RESONANCE, "FOLLOW_INTENT_CREATED", mapOf("targetAnonymousId" to targetAnonymousId))
+            diagnosticLogger.info(DiagnosticCategory.RESONANCE, "FOLLOW_INTENT_CREATED", mapOf("targetAnonymousId" to tId))
             Result.success(Unit)
         } catch (e: Exception) {
-            diagnosticLogger.error(DiagnosticCategory.RESONANCE, "FOLLOW_INTENT_FAILED", mapOf("targetAnonymousId" to targetAnonymousId), e)
+            diagnosticLogger.error(DiagnosticCategory.RESONANCE, "FOLLOW_INTENT_FAILED", mapOf("targetAnonymousId" to tId), e)
             Result.failure(e)
         }
     }
@@ -626,17 +639,23 @@ class UserRepository @Inject constructor(
      * Performs direct Firestore write without enqueuing.
      */
     internal suspend fun syncUnfollowFromFirestore(currentUserId: String, targetAnonymousId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val cId = currentUserId.trim()
+        val tId = targetAnonymousId.trim()
+        if (cId.isBlank() || tId.isBlank()) {
+            return@withContext Result.failure(AppError.InvalidInput("User IDs cannot be blank"))
+        }
+
         try {
-            val intentRef = usersCollection.document(currentUserId)
+            val intentRef = usersCollection.document(cId)
                 .collection("private").document("intents")
-                .collection("follow").document(targetAnonymousId)
+                .collection("follow").document(tId)
             
             intentRef.delete().await()
             
-            diagnosticLogger.info(DiagnosticCategory.RESONANCE, "FOLLOW_INTENT_REMOVED", mapOf("targetAnonymousId" to targetAnonymousId))
+            diagnosticLogger.info(DiagnosticCategory.RESONANCE, "FOLLOW_INTENT_REMOVED", mapOf("targetAnonymousId" to tId))
             Result.success(Unit)
         } catch (e: Exception) {
-            diagnosticLogger.error(DiagnosticCategory.RESONANCE, "FOLLOW_INTENT_REMOVE_FAILED", mapOf("targetAnonymousId" to targetAnonymousId), e)
+            diagnosticLogger.error(DiagnosticCategory.RESONANCE, "FOLLOW_INTENT_REMOVE_FAILED", mapOf("targetAnonymousId" to tId), e)
             Result.failure(e)
         }
     }

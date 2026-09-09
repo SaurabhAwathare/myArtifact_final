@@ -115,6 +115,21 @@ class EngagementDaoMonotonicTest {
         assertTrue("Monotonic unlock: should NOT regress to false", result!!.isCommentUnlocked)
     }
 
+    @Test
+    fun `updateUnlockStatus on missing row returns 0 updated rows`() = runBlocking {
+        val count = dao.updateUnlockStatus(
+            artifactId = "non_existent",
+            userId = "test_user",
+            isUnlocked = true,
+            timestamp = 1000L,
+            state = "UNLOCKED",
+            reason = "THRESHOLD",
+            remoteUpdated = 1000L
+        )
+        assertEquals(0, count)
+        assertNull(dao.getEngagement("non_existent", "test_user"))
+    }
+
     private fun createEngagement(
         id: String, 
         isUnlocked: Boolean, 

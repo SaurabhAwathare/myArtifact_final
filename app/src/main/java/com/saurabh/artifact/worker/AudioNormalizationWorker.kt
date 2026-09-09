@@ -7,9 +7,13 @@ import androidx.work.WorkerParameters
 import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.model.ProcessingStage
+import com.saurabh.artifact.repository.AuthRepository
+import com.saurabh.artifact.startup.StartupComponent
+import com.saurabh.artifact.startup.StartupCoordinator
 import dagger.Lazy
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import java.io.File
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -20,25 +24,39 @@ class AudioNormalizationWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted workerParams: WorkerParameters,
     private val draftDao: Lazy<DraftDao>,
-    private val authRepository: com.saurabh.artifact.repository.AuthRepository,
-    private val startupCoordinator: com.saurabh.artifact.startup.StartupCoordinator
+    private val authRepository: AuthRepository,
+    private val startupCoordinator: StartupCoordinator
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         // WORKER LOCK: Ensure database encryption is ready before proceeding
-        startupCoordinator.awaitComponent(com.saurabh.artifact.startup.StartupComponent.DATABASE)
+        startupCoordinator.awaitComponent(StartupComponent.DATABASE)
 
         val draftId = inputData.getString(KEY_DRAFT_ID) ?: return@withContext Result.failure()
         val userId = authRepository.currentUserId
-        
+
         if (userId.isEmpty()) return@withContext Result.failure()
 
         try {
+            val draft = draftDao.get().getDraftById(draftId, userId) ?: return@withContext Result.failure()
+
+            val audioPath = draft.rawPcmPath ?: draft.localAudioPath
+            if (audioPath.isEmpty()) {
+                updateSubState(draftId, userId, null, "Audio path is missing")
+                return@withContext Result.failure()
+            }
+
+            val audioFile = File(audioPath)
+            if (!audioFile.exists() || audioFile.length() == 0L) {
+                updateSubState(draftId, userId, null, "Audio file missing or empty: $audioPath")
+                return@withContext Result.failure()
+            }
+
             updateSubState(draftId, userId, ProcessingStage.NORMALIZING)
-            
+
             // Simulation of audio normalization
             delay(2.seconds)
-            
+
             Result.success()
         } catch (e: Exception) {
             updateSubState(draftId, userId, null, "Normalization failed: ${e.message}")

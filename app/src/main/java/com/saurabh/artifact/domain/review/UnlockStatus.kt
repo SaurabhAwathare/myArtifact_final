@@ -8,5 +8,6 @@ data class UnlockStatus(
     val unlockTimestamp: Long? = null,
     val engagementState: EngagementState = EngagementState.LOCKED,
     val unlockReason: String? = null,
-    val updatedAt: Long? = null
+    val updatedAt: Long? = null,
+    val isAuthoritative: Boolean = false
 )

@@ -103,7 +103,26 @@ class EngagementRepository @Inject constructor(
             }
 
         return combine(localFlow, remoteFlow) { local, remote ->
-            if (local == null) return@combine null
+            if (local == null) {
+                if (remote != null && remote.isCommentUnlocked) {
+                    return@combine EngagementEvidence(
+                        artifactId = artifactId,
+                        versionTag = "",
+                        durationMs = 0L,
+                        audioChecksum = "",
+                        coverage = BitSet(),
+                        lastPositionMs = 0L,
+                        furthestPositionMs = 0L,
+                        hasReachedEnd = false,
+                        lastUpdated = remote.updatedAt ?: System.currentTimeMillis(),
+                        reviewTrackingVersion = ReviewTrackingVersion.LEGACY_BUCKETED,
+                        segmentSizeMs = 0L,
+                        unlockStatus = remote,
+                        syncState = SyncState.SYNCED
+                    )
+                }
+                return@combine null
+            }
 
             local.toDomain().copy(
                 unlockStatus = remote ?: UnlockStatus(
@@ -118,7 +137,8 @@ class EngagementRepository @Inject constructor(
 
     private suspend fun updateLocalUnlockCache(artifactId: String, userId: String, remote: UnlockStatus) {
         withContext(Dispatchers.IO) {
-            engagementDao.get().updateUnlockStatus(
+            val dao = engagementDao.get()
+            val updated = dao.updateUnlockStatus(
                 artifactId = artifactId,
                 userId = userId,
                 isUnlocked = remote.isCommentUnlocked,
@@ -127,6 +147,31 @@ class EngagementRepository @Inject constructor(
                 reason = remote.unlockReason,
                 remoteUpdated = remote.updatedAt
             )
+            if (updated == 0 && remote.isCommentUnlocked) {
+                val existing = dao.getEngagement(artifactId, userId)
+                if (existing == null) {
+                    dao.insertEngagement(
+                        ArtifactEngagement(
+                            userId = userId,
+                            artifactId = artifactId,
+                            versionTag = "",
+                            durationMs = 0L,
+                            audioChecksum = "",
+                            coverage = byteArrayOf(),
+                            lastPositionMs = 0L,
+                            furthestPositionMs = 0L,
+                            hasReachedEnd = false,
+                            lastUpdated = remote.updatedAt ?: System.currentTimeMillis(),
+                            syncState = SyncState.SYNCED,
+                            isCommentUnlocked = true,
+                            unlockTimestamp = remote.unlockTimestamp,
+                            engagementState = remote.engagementState.name,
+                            unlockReason = remote.unlockReason,
+                            remoteUpdatedAt = remote.updatedAt
+                        )
+                    )
+                }
+            }
         }
     }
 

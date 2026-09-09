@@ -8,7 +8,6 @@ import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
-import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.RecordingRepository
 import dagger.Lazy
@@ -48,7 +47,7 @@ class ProcessingFinalizerWorker @AssistedInject constructor(
             val draft = draftDao.get().getDraftById(draftId, userId)
 
             // 2. Targeted finalization update
-            recordingRepository.finalizeProcessing(draftId)
+            recordingRepository.finalizeProcessing(draftId).getOrThrow()
             
             // 3. Cleanup raw files only after successful finalization
             draft?.rawPcmPath?.let { path ->

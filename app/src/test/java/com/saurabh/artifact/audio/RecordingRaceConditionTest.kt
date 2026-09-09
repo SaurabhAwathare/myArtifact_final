@@ -88,7 +88,7 @@ class RecordingRaceConditionTest {
         val draftA = "draft-A"
         val fileA = mockk<File>(relaxed = true)
         every { fileA.exists() } returns true
-        every { fileA.length() } returns 1024L
+        every { fileA.length() } returns 100000L
         every { fileA.absolutePath } returns "path/A.wav"
         
         setServiceState(RecordingStatus.RECORDING, draftA, fileA)

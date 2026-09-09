@@ -11,9 +11,12 @@ import com.saurabh.artifact.data.local.UploadTaskDao
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
+import com.saurabh.artifact.domain.PublishingManager
 import com.saurabh.artifact.model.SyncStatus
 import com.saurabh.artifact.repository.DraftRepository
 import com.saurabh.artifact.repository.AuthRepository
+import com.saurabh.artifact.startup.StartupComponent
+import com.saurabh.artifact.startup.StartupCoordinator
 import com.saurabh.artifact.util.NotificationHelper
 import dagger.Lazy
 import dagger.assisted.Assisted
@@ -26,11 +29,11 @@ import kotlinx.coroutines.withContext
 class PublishingWorker @AssistedInject constructor(
     @Assisted private val appContext: Context,
     @Assisted workerParams: WorkerParameters,
-    private val publishingManager: com.saurabh.artifact.domain.PublishingManager,
+    private val publishingManager: PublishingManager,
     private val draftRepository: DraftRepository,
     private val authRepository: AuthRepository,
     private val uploadTaskDao: Lazy<UploadTaskDao>,
-    private val startupCoordinator: com.saurabh.artifact.startup.StartupCoordinator,
+    private val startupCoordinator: StartupCoordinator,
     private val diagnosticLogger: DiagnosticLogger
 ) : CoroutineWorker(appContext, workerParams) {
 
@@ -39,7 +42,7 @@ class PublishingWorker @AssistedInject constructor(
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         // WORKER LOCK: Ensure database encryption is ready before proceeding
-        startupCoordinator.awaitComponent(com.saurabh.artifact.startup.StartupComponent.DATABASE)
+        startupCoordinator.awaitComponent(StartupComponent.DATABASE)
 
         val draftId = inputData.getString(KEY_DRAFT_ID) ?: return@withContext Result.failure()
         diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISHING_WORKER_STARTED", mapOf(LogKeys.DRAFT_ID to draftId))
@@ -54,32 +57,62 @@ class PublishingWorker @AssistedInject constructor(
 
         when (acquisitionResult) {
             AcquisitionResult.ACQUIRED -> {
-                // 0. Initialize Foreground Service for long-running upload
-                // This worker has successfully acquired the lock, so it is the authoritative owner.
                 try {
-                    setForeground(getForegroundInfo())
-                    diagnosticLogger.debug(DiagnosticCategory.WORKMANAGER, "PUBLISHING_FOREGROUND_SET", mapOf(LogKeys.DRAFT_ID to draftId))
-                } catch (e: Exception) {
-                    diagnosticLogger.warn(DiagnosticCategory.WORKMANAGER, "PUBLISHING_FOREGROUND_FAILED", mapOf(LogKeys.DRAFT_ID to draftId), e)
-                }
+                    // 0. Initialize Foreground Service for long-running upload
+                    // This worker has successfully acquired the lock, so it is the authoritative owner.
+                    try {
+                        setForeground(getForegroundInfo())
+                        diagnosticLogger.debug(DiagnosticCategory.WORKMANAGER, "PUBLISHING_FOREGROUND_SET", mapOf(LogKeys.DRAFT_ID to draftId))
+                    } catch (e: Exception) {
+                        diagnosticLogger.warn(DiagnosticCategory.WORKMANAGER, "PUBLISHING_FOREGROUND_FAILED", mapOf(LogKeys.DRAFT_ID to draftId), e)
+                    }
 
-                // Phase 4: Explicit Ownership Verification
-                val draft = draftRepository.getDraft(draftId).getOrNull()
-                val currentUserId = authRepository.currentUserId
+                    // Phase 4: Explicit Ownership Verification
+                    val draft = draftRepository.getDraft(draftId).getOrNull()
+                    val currentUserId = authRepository.currentUserId
 
-                if (draft == null || currentUserId.isEmpty() || draft.userId != currentUserId) {
-                    diagnosticLogger.error(
-                        DiagnosticCategory.PUBLISH, 
-                        "PUBLISHING_WORKER_OWNERSHIP_FAILED", 
-                        mapOf(
-                            LogKeys.DRAFT_ID to draftId, 
-                            "draftOwner" to (draft?.userId ?: "null"), 
-                            "activeUser" to currentUserId
+                    if (draft == null || currentUserId.isEmpty() || draft.userId != currentUserId) {
+                        diagnosticLogger.error(
+                            DiagnosticCategory.PUBLISH, 
+                            "PUBLISHING_WORKER_OWNERSHIP_FAILED", 
+                            mapOf(
+                                LogKeys.DRAFT_ID to draftId, 
+                                "draftOwner" to (draft?.userId ?: "null"), 
+                                "activeUser" to currentUserId
+                            )
                         )
+                        return@withContext Result.failure()
+                    }
+                    diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISHING_WORKER_OWNERSHIP_VERIFIED", mapOf(LogKeys.DRAFT_ID to draftId))
+
+                    val title = draft.title ?: "Artifact"
+
+                    val result = publishingManager.performPublish(
+                        draftId = draftId,
+                        expectedOwner = UploadOwner.WORKER,
+                        onProgress = { transferred, total, _ ->
+                            val now = System.currentTimeMillis()
+                            if (now - lastProgressUpdateTime > 500L || transferred == total) {
+                                lastProgressUpdateTime = now
+                                updateNotificationIfNeeded(title, transferred, total)
+                            }
+                        }
                     )
-                    return@withContext Result.failure()
+
+                    if (result.isSuccess) {
+                        diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISHING_WORKER_SUCCESS", mapOf(LogKeys.DRAFT_ID to draftId))
+                        NotificationHelper.showUploadSuccessNotification(appContext, title)
+                        Result.success()
+                    } else {
+                        val exception = result.exceptionOrNull() ?: Exception("Publish failed")
+                        diagnosticLogger.error(DiagnosticCategory.PUBLISH, "PUBLISHING_WORKER_FAILED", mapOf(LogKeys.DRAFT_ID to draftId), exception)
+                        handleFailure(draftId, exception)
+                    }
+                } finally {
+                    withContext(NonCancellable + Dispatchers.IO) {
+                        uploadTaskDao.get().releaseOwnership(draftId)
+                    }
                 }
-                diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISHING_WORKER_OWNERSHIP_VERIFIED", mapOf(LogKeys.DRAFT_ID to draftId))
             }
             AcquisitionResult.LOCKED -> {
                 diagnosticLogger.info(
@@ -87,7 +120,7 @@ class PublishingWorker @AssistedInject constructor(
                     "PUBLISHING_OWNERSHIP_BLOCKED", 
                     mapOf(LogKeys.DRAFT_ID to draftId, "reason" to "Owned by other component")
                 )
-                return@withContext Result.retry() // Let WorkManager back off and try again if the other component fails
+                Result.retry() // Let WorkManager back off and try again if the other component fails
             }
             AcquisitionResult.MISSING -> {
                 diagnosticLogger.info(
@@ -95,43 +128,12 @@ class PublishingWorker @AssistedInject constructor(
                     "PUBLISHING_WORKER_SKIPPED", 
                     mapOf(LogKeys.DRAFT_ID to draftId, "reason" to "Task already completed or deleted")
                 )
-                return@withContext Result.success() // Terminal result - no more retries
-            }
-        }
-
-        try {
-            val draft = draftRepository.getDraft(draftId).getOrNull()
-            val title = draft?.title ?: "Artifact"
-
-            val result = publishingManager.performPublish(
-                draftId = draftId,
-                expectedOwner = UploadOwner.WORKER,
-                onProgress = { transferred, total, _ ->
-                    val now = System.currentTimeMillis()
-                    if (now - lastProgressUpdateTime > 500L || transferred == total) {
-                        lastProgressUpdateTime = now
-                        updateNotificationIfNeeded(title, transferred, total)
-                    }
-                }
-            )
-
-            if (result.isSuccess) {
-                diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISHING_WORKER_SUCCESS", mapOf(LogKeys.DRAFT_ID to draftId))
-                NotificationHelper.showUploadSuccessNotification(appContext, title)
-                Result.success()
-            } else {
-                val exception = result.exceptionOrNull() as Exception
-                diagnosticLogger.error(DiagnosticCategory.PUBLISH, "PUBLISHING_WORKER_FAILED", mapOf(LogKeys.DRAFT_ID to draftId), exception)
-                handleFailure(draftId, exception)
-            }
-        } finally {
-            withContext(Dispatchers.IO) {
-                uploadTaskDao.get().releaseOwnership(draftId)
+                Result.success() // Terminal result - no more retries
             }
         }
     }
 
-    private suspend fun handleFailure(draftId: String, e: Exception): Result {
+    private suspend fun handleFailure(draftId: String, e: Throwable): Result {
         val isPermanent = publishingManager.isPermanentError(e)
 
         return withContext(NonCancellable) {

@@ -73,7 +73,7 @@ interface EngagementDao {
         )
         AND (:isUnlocked = 1 OR isCommentUnlocked = 0)
     """)
-    suspend fun updateUnlockStatus(artifactId: String, userId: String, isUnlocked: Boolean, timestamp: Long?, state: String, reason: String?, remoteUpdated: Long?)
+    suspend fun updateUnlockStatus(artifactId: String, userId: String, isUnlocked: Boolean, timestamp: Long?, state: String, reason: String?, remoteUpdated: Long?): Int
 
     @Query("DELETE FROM artifact_engagement WHERE lastUpdated < :timestamp AND userId = :userId")
     suspend fun deleteOldEngagements(timestamp: Long, userId: String)

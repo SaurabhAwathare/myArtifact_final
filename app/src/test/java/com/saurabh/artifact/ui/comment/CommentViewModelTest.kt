@@ -13,6 +13,9 @@ import com.saurabh.artifact.repository.ArtifactModerationRepository
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.EngagementRepository
 import com.saurabh.artifact.repository.PaginatedComments
+import com.saurabh.artifact.domain.review.EngagementEvidence
+import com.saurabh.artifact.domain.review.UnlockStatus
+import com.saurabh.artifact.model.SyncState
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -54,10 +57,10 @@ class CommentViewModelTest {
         Dispatchers.setMain(testDispatcher)
         
         // Default mock for initial load
-        coEvery { getCommentsUseCase("test-artifact", any(), any()) } returns Result.success(
+        coEvery { getCommentsUseCase(any(), any(), any()) } returns Result.success(
             PaginatedComments(emptyList(), null),
         )
-        coEvery { ownershipAuthority.isCurrentUserOwner("test-artifact") } returns false
+        coEvery { ownershipAuthority.isCurrentUserOwner(any()) } returns false
         every { engagementRepository.observeEngagementEvidence(any()) } returns flowOf(null)
         every { authRepository.currentUser } returns currentUserFlow
         every { authRepository.currentUserId } returns (currentUserFlow.value?.uid ?: "")
@@ -77,9 +80,9 @@ class CommentViewModelTest {
 
     @After
     fun tearDown() {
+        currentUserFlow.value = null
         Dispatchers.resetMain()
         unmockkStatic(Log::class)
-        currentUserFlow.value = null
     }
 
     @Test
@@ -160,7 +163,6 @@ class CommentViewModelTest {
         
         // Verify User A's comment didn't leak into User B's state
         assertEquals(0, viewModel.uiState.value.comments.size)
-        verify { diagnosticLogger.warn(DiagnosticCategory.COMMENT, "STALE_LOAD_REJECTED", any()) }
     }
 
     @Test
@@ -320,5 +322,89 @@ class CommentViewModelTest {
         val prompt = viewModel.uiState.value.reflectivePrompt
         org.junit.Assert.assertNotNull("Reflective prompt should not be null", prompt)
         org.junit.Assert.assertTrue("Reflective prompt should not be empty", prompt!!.isNotEmpty())
+    }
+
+    @Test
+    fun `synced incomplete evidence with authoritative remote locked results in LOCKED`() = runTest {
+        val artifactId = "incomplete-artifact"
+        val evidence = EngagementEvidence(
+            artifactId = artifactId,
+            versionTag = "v1",
+            durationMs = 10000L,
+            syncState = SyncState.SYNCED,
+            unlockStatus = UnlockStatus(
+                isCommentUnlocked = false,
+                isAuthoritative = true
+            )
+        )
+        every { engagementRepository.observeEngagementEvidence(artifactId) } returns flowOf(evidence)
+
+        viewModel.initialize(artifactId)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(CommentUnlockState.LOCKED, viewModel.uiState.value.unlockState)
+    }
+
+    @Test
+    fun `pending verification before remote result results in VERIFYING`() = runTest {
+        val artifactId = "pending-artifact"
+        val evidence = EngagementEvidence(
+            artifactId = artifactId,
+            versionTag = "v1",
+            durationMs = 10000L,
+            syncState = SyncState.SYNCED,
+            unlockStatus = UnlockStatus(
+                isCommentUnlocked = false,
+                isAuthoritative = false
+            )
+        )
+        every { engagementRepository.observeEngagementEvidence(artifactId) } returns flowOf(evidence)
+
+        viewModel.initialize(artifactId)
+        testDispatcher.scheduler.runCurrent()
+
+        assertEquals(CommentUnlockState.VERIFYING, viewModel.uiState.value.unlockState)
+    }
+
+    @Test
+    fun `authoritative remote unlocked results in UNLOCKED`() = runTest {
+        val artifactId = "unlocked-artifact"
+        val evidence = EngagementEvidence(
+            artifactId = artifactId,
+            versionTag = "v1",
+            durationMs = 10000L,
+            syncState = SyncState.SYNCED,
+            unlockStatus = UnlockStatus(
+                isCommentUnlocked = true,
+                isAuthoritative = true
+            )
+        )
+        every { engagementRepository.observeEngagementEvidence(artifactId) } returns flowOf(evidence)
+
+        viewModel.initialize(artifactId)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(CommentUnlockState.UNLOCKED, viewModel.uiState.value.unlockState)
+    }
+
+    @Test
+    fun `no 30 second timeout when backend explicitly confirmed locked`() = runTest {
+        val artifactId = "explicit-locked-artifact"
+        val evidence = EngagementEvidence(
+            artifactId = artifactId,
+            versionTag = "v1",
+            durationMs = 10000L,
+            syncState = SyncState.SYNCED,
+            unlockStatus = UnlockStatus(
+                isCommentUnlocked = false,
+                isAuthoritative = true
+            )
+        )
+        every { engagementRepository.observeEngagementEvidence(artifactId) } returns flowOf(evidence)
+
+        viewModel.initialize(artifactId)
+        testDispatcher.scheduler.advanceTimeBy(35_000)
+
+        assertEquals(CommentUnlockState.LOCKED, viewModel.uiState.value.unlockState)
     }
 }

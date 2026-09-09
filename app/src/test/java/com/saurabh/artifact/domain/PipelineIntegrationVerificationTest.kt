@@ -1,10 +1,12 @@
 package com.saurabh.artifact.domain
 
 import android.content.Context
+import android.media.MediaMetadataRetriever
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.*
 import androidx.work.testing.WorkManagerTestInitHelper
 import androidx.work.testing.TestListenableWorkerBuilder
+import com.saurabh.artifact.audio.AudioTranscoder
 import com.saurabh.artifact.audio.LocalDraftManager
 import com.saurabh.artifact.audio.WavRecoveryManager
 import com.saurabh.artifact.audio.UploadService
@@ -159,11 +161,23 @@ class PipelineIntegrationVerificationTest {
         mockkObject(FileIntegrity)
         every { FileIntegrity.calculateChecksum(any()) } returns "checksum_123"
 
+        mockkConstructor(MediaMetadataRetriever::class)
+        every { anyConstructed<MediaMetadataRetriever>().setDataSource(any<String>()) } just Runs
+        every { anyConstructed<MediaMetadataRetriever>().extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO) } returns "yes"
+        every { anyConstructed<MediaMetadataRetriever>().extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION) } returns "5000"
+        every { anyConstructed<MediaMetadataRetriever>().release() } just Runs
+
+        val audioTranscoder = mockk<AudioTranscoder>()
+        every { audioTranscoder.transcodeWavToAac(any(), any()) } answers {
+            val outputFile = arg<File>(1)
+            outputFile.writeBytes(ByteArray(100) { 0x01 })
+        }
+
         val transcodingWorker = TestListenableWorkerBuilder<TranscodingWorker>(appContext)
             .setInputData(workDataOf("key_draft_id" to draftId))
             .setWorkerFactory(object : WorkerFactory() {
                 override fun createWorker(appContext: Context, workerClassName: String, workerParameters: WorkerParameters): ListenableWorker {
-                    return TranscodingWorker(appContext, workerParameters, Lazy { draftDao }, localDraftManager, encryptedStorageManager, mockk(relaxed = true), mockk(relaxed = true), authRepository, startupCoordinator, diagnosticLogger)
+                    return TranscodingWorker(appContext, workerParameters, Lazy { draftDao }, localDraftManager, encryptedStorageManager, audioTranscoder, mockk(relaxed = true), authRepository, startupCoordinator, diagnosticLogger)
                 }
             }).build()
         assertTrue(transcodingWorker.doWork() is ListenableWorker.Result.Success)
@@ -222,11 +236,7 @@ class PipelineIntegrationVerificationTest {
         println("EXECUTING PublishingWorker...")
         // Ensure ownership is available
         uploadTaskDao.releaseOwnership(draftId)
-        
-        // Mocking the DAO response to bypass potential race conditions in Robolectric
-        val uploadTaskDaoMock = spyk(uploadTaskDao)
-        coEvery { uploadTaskDaoMock.tryAcquireOwnership(any(), any(), any()) } returns AcquisitionResult.ACQUIRED
-        
+
         coEvery { artifactRepository.getArtifact(any()) } returns Result.failure(Exception("Not found yet"))
         coEvery { artifactRepository.uploadTranscript(any(), any(), any()) } returns Result.success("https://cdn.com/transcript.json")
         val user = mockk<User>(relaxed = true)
@@ -240,13 +250,13 @@ class PipelineIntegrationVerificationTest {
         coEvery { artifactRepository.finalizeArtifactDocument(any(), any(), any(), any(), any()) } returns Result.success(Unit)
 
         val publishingManager = PublishingManager(draftRepository, artifactRepository, userRepository, mockk(relaxed = true), uploadGuard, diagnosticLogger)
-        
+
         val pubWorker = spyk(
             TestListenableWorkerBuilder<PublishingWorker>(appContext)
                 .setInputData(workDataOf("key_draft_id" to draftId))
                 .setWorkerFactory(object : WorkerFactory() {
                     override fun createWorker(appContext: Context, workerClassName: String, workerParameters: WorkerParameters): ListenableWorker {
-                        return PublishingWorker(appContext, workerParameters, publishingManager, draftRepository, authRepository, Lazy { uploadTaskDaoMock }, startupCoordinator, diagnosticLogger)
+                        return PublishingWorker(appContext, workerParameters, publishingManager, draftRepository, authRepository, Lazy { uploadTaskDao }, startupCoordinator, diagnosticLogger)
                     }
                 }).build()
         )

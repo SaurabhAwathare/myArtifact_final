@@ -6,12 +6,10 @@ import androidx.work.ListenableWorker
 import androidx.work.WorkerParameters
 import com.saurabh.artifact.domain.PublishingOrchestrator
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
-import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.repository.RecordingRepository
 import com.saurabh.artifact.security.DatabaseEncryptionManager
-import com.saurabh.artifact.diagnostics.DiagnosticLogger
-import com.saurabh.artifact.repository.ArtifactRepository
-import com.saurabh.artifact.repository.AuthRepository
+import com.saurabh.artifact.startup.StartupComponent
+import com.saurabh.artifact.startup.StartupCoordinator
 import io.mockk.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
@@ -27,7 +25,7 @@ class RecoveryWorkerTest {
     private val publishingOrchestrator = mockk<PublishingOrchestrator>(relaxed = true)
     private val context = mockk<Context>(relaxed = true)
     private val workerParams = mockk<WorkerParameters>(relaxed = true)
-    private val startupCoordinator = mockk<com.saurabh.artifact.startup.StartupCoordinator>(relaxed = true)
+    private val startupCoordinator = mockk<StartupCoordinator>(relaxed = true)
 
     private lateinit var worker: RecoveryWorker
 
@@ -39,7 +37,7 @@ class RecoveryWorkerTest {
         every { Log.e(any(), any()) } returns 0
         every { Log.e(any(), any(), any()) } returns 0
         
-        coEvery { startupCoordinator.awaitComponent(com.saurabh.artifact.startup.StartupComponent.DATABASE) } returns Unit
+        coEvery { startupCoordinator.awaitComponent(StartupComponent.DATABASE) } returns Unit
 
         worker = RecoveryWorker(
             appContext = context,
@@ -104,5 +102,26 @@ class RecoveryWorkerTest {
 
         coVerify(exactly = 1) { publishingOrchestrator.startProcessing("d1") }
         coVerify(exactly = 0) { publishingOrchestrator.startProcessing("d2") }
+    }
+
+    @Test
+    fun `doWork should refresh encryption metadata and emit filesystem discovery readiness`() = runTest {
+        coEvery { recordingRepository.recoverInterruptedDrafts() } returns KResult.success(emptyList())
+
+        val result = worker.doWork()
+
+        assert(result is ListenableWorker.Result.Success)
+        verify(exactly = 1) { encryptionManager.refreshEncryptionMetadata() }
+        coVerify(exactly = 1) { startupCoordinator.emitReadiness(StartupComponent.FILESYSTEM_DISCOVERY) }
+    }
+
+    @Test
+    fun `doWork should return retry and emit filesystem discovery readiness on exception`() = runTest {
+        coEvery { recordingRepository.recoverInterruptedDrafts() } throws RuntimeException("Database error")
+
+        val result = worker.doWork()
+
+        assert(result is ListenableWorker.Result.Retry)
+        coVerify(exactly = 1) { startupCoordinator.emitReadiness(StartupComponent.FILESYSTEM_DISCOVERY) }
     }
 }

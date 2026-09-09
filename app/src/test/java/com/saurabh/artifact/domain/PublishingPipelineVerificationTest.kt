@@ -1,6 +1,7 @@
 package com.saurabh.artifact.domain
 
 import android.content.Context
+import android.media.MediaMetadataRetriever
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.ListenableWorker
 import androidx.work.WorkInfo
@@ -8,6 +9,7 @@ import androidx.work.WorkManager
 import androidx.work.testing.WorkManagerTestInitHelper
 import androidx.work.testing.TestListenableWorkerBuilder
 import androidx.work.workDataOf
+import com.saurabh.artifact.audio.AudioTranscoder
 import com.saurabh.artifact.audio.LocalDraftManager
 import com.saurabh.artifact.audio.WavRecoveryManager
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
@@ -45,6 +47,7 @@ import dagger.Lazy
 import com.saurabh.artifact.data.local.UploadTaskDao
 import com.saurabh.artifact.data.local.UploadOwner
 import com.saurabh.artifact.data.local.AcquisitionResult
+import java.io.InputStream
 
 @RunWith(RobolectricTestRunner::class)
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -96,6 +99,15 @@ class PublishingPipelineVerificationTest {
         every { FileIntegrity.calculateChecksum(any()) } answers { 
             val path = it.invocation.args[0] as String
             if (File(path).exists()) "checksum_${File(path).length()}" else "checksum_missing"
+        }
+        every { FileIntegrity.calculateStreamChecksum(any()) } answers {
+            val stream = it.invocation.args[0] as InputStream
+            val bytes = stream.use { s -> s.readBytes() }
+            "checksum_${bytes.size}"
+        }
+        every { FileIntegrity.hashString(any()) } answers {
+            val input = it.invocation.args[0] as String
+            "hash_${input}"
         }
     }
 
@@ -155,13 +167,25 @@ class PublishingPipelineVerificationTest {
         coEvery { wavRecoveryManager.recover(any()) } returns WavRecoveryManager.RecoveryResult.FULLY_RECOVERED
 
         // --- 2. TRANSCODING STAGE ---
+        mockkConstructor(MediaMetadataRetriever::class)
+        every { anyConstructed<MediaMetadataRetriever>().setDataSource(any<String>()) } just Runs
+        every { anyConstructed<MediaMetadataRetriever>().extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO) } returns "yes"
+        every { anyConstructed<MediaMetadataRetriever>().extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION) } returns "1000"
+        every { anyConstructed<MediaMetadataRetriever>().release() } just Runs
+
+        val audioTranscoder = mockk<AudioTranscoder>()
+        every { audioTranscoder.transcodeWavToAac(any(), any()) } answers {
+            val outputFile = it.invocation.args[1] as File
+            outputFile.writeBytes(ByteArray(100) { 0x01 })
+        }
+
         val transcodingWorker = TranscodingWorker(
             context,
             mockk(relaxed = true) { every { inputData } returns workDataOf("key_draft_id" to draftId) },
             Lazy { draftDao },
             localDraftManager,
             encryptedStorageManager,
-            mockk(relaxed = true), // AudioTranscoder
+            audioTranscoder,
             wavRecoveryManager,
             authRepository,
             startupCoordinator,

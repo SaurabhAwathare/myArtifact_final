@@ -2,10 +2,14 @@ package com.saurabh.artifact.repository
 
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Source
+import com.saurabh.artifact.data.local.InteractionAction
+import com.saurabh.artifact.data.local.InteractionType
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.diagnostics.ArtifactLogger
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.LogKeys
+import com.saurabh.artifact.worker.InteractionSyncWorker
 import dagger.Lazy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
@@ -45,6 +49,7 @@ class ReactionRepository @Inject constructor(
             )
             pendingInteractionDao.get().deleteByType(artifactId, userId, com.saurabh.artifact.data.local.InteractionType.REACTION)
             pendingInteractionDao.get().insert(pending)
+            InteractionSyncWorker.enqueue(context)
             ArtifactLogger.i(
                 DiagnosticCategory.RESONANCE, 
                 "REACTION_QUEUED_LOCALLY", 
@@ -227,12 +232,21 @@ class ReactionRepository @Inject constructor(
         debounceMap[artifactId] = now
 
         try {
-            val pulseRef = firestore.collection("users").document(userId)
-                .collection("private").document("interactions")
-                .collection("reactions").document(artifactId)
-            
-            val existingPulseDoc = pulseRef.get().await()
-            val willAdd = !existingPulseDoc.exists()
+            // Check existing pending interaction in local room DB first for immediate offline toggles
+            val existingPending = pendingInteractionDao.get().getPendingByType(artifactId, userId, InteractionType.REACTION).firstOrNull()
+            val willAdd = if (existingPending != null) {
+                existingPending.action != InteractionAction.ADD
+            } else {
+                val pulseRef = firestore.collection("users").document(userId)
+                    .collection("private").document("interactions")
+                    .collection("reactions").document(artifactId)
+                val pulseDoc = try {
+                    pulseRef.get(Source.CACHE).await()
+                } catch (e: Exception) {
+                    pulseRef.get().await()
+                }
+                !pulseDoc.exists()
+            }
 
             // 1. Record pending interaction for sync
             val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
@@ -253,15 +267,16 @@ class ReactionRepository @Inject constructor(
             // 3. Optimistic success
             Result.success(Unit)
         } catch (e: Exception) {
-            // Fallback for offline: if network fails, we still record the pending intent
+            // Fallback for offline if cache miss and network fails: record pending intent
             if (ArtifactRepository.isTransientError(e)) {
                 val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
                     userId = userId,
                     artifactId = artifactId,
                     interactionType = com.saurabh.artifact.data.local.InteractionType.REACTION,
-                    action = com.saurabh.artifact.data.local.InteractionAction.ADD, // Assumption: most toggles are additions when offline
+                    action = InteractionAction.ADD,
                     metadata = type.id
                 )
+                pendingInteractionDao.get().deleteByType(artifactId, userId, InteractionType.REACTION)
                 pendingInteractionDao.get().insert(pending)
                 com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
                 Result.success(Unit)

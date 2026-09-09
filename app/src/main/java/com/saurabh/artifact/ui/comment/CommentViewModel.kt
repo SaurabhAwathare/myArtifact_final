@@ -233,11 +233,14 @@ class CommentViewModel @Inject constructor(
         }
 
         // 3. Post-Sync Verification
-        // If we just synced (SYNCED) but backend is still false.
+        // If local state is SYNCED and we haven't unlocked yet:
         if (evidence.syncState == SyncState.SYNCED && !evidence.unlockStatus.isCommentUnlocked) {
-            // We show VERIFYING while we wait for the backend to process the latest evidence.
-            // We trust the backend's UNLOCK_TIMESTAMP or UPDATED_AT to know if it has seen our latest sync.
-            // Note: In a real app, we might use a small timeout here to transition back to LOCKED if no flip occurs.
+            // If the authoritative remote snapshot has arrived and explicitly reports isCommentUnlocked == false,
+            // the backend has explicitly confirmed the user is locked (e.g., incomplete listening evidence).
+            if (evidence.unlockStatus.isAuthoritative) {
+                return CommentUnlockState.LOCKED
+            }
+            // Only show VERIFYING when there is genuinely pending backend verification whose result has not yet arrived.
             return CommentUnlockState.VERIFYING
         }
 

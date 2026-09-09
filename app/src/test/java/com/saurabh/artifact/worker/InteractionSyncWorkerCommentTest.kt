@@ -5,6 +5,7 @@ import androidx.work.ListenableWorker
 import androidx.work.WorkerParameters
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.saurabh.artifact.data.local.*
+import com.saurabh.artifact.data.remote.model.CommentPayload
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.*
 import io.mockk.*
@@ -17,9 +18,12 @@ import kotlinx.serialization.encodeToString
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 import java.util.UUID
 
 @OptIn(ExperimentalCoroutinesApi::class)
+@RunWith(RobolectricTestRunner::class)
 class InteractionSyncWorkerCommentTest {
 
     private val context: Context = mockk(relaxed = true)
@@ -70,7 +74,7 @@ class InteractionSyncWorkerCommentTest {
         val commentId = UUID.randomUUID().toString()
         val artifactId = "art-1"
         val comment = Comment(id = commentId, artifactId = artifactId, text = "Hello")
-        val commentJson = json.encodeToString(comment)
+        val commentJson = json.encodeToString(CommentPayload.serializer(), CommentPayload.fromDomain(comment))
         
         val interaction = PendingInteractionEntity(
             userId = "test-user",
@@ -96,7 +100,7 @@ class InteractionSyncWorkerCommentTest {
     fun `R035 - COMMENT retries on PERMISSION_DENIED (locked artifact)`() = runTest {
         val commentId = UUID.randomUUID().toString()
         val comment = Comment(id = commentId, artifactId = "art-1", text = "Hello")
-        val commentJson = json.encodeToString(comment)
+        val commentJson = json.encodeToString(CommentPayload.serializer(), CommentPayload.fromDomain(comment))
         
         val interaction = PendingInteractionEntity(
             userId = "test-user",
@@ -107,9 +111,7 @@ class InteractionSyncWorkerCommentTest {
         )
 
         // Simulate Firestore Permission Denied (Listening threshold not met yet)
-        val lockedError = mockk<FirebaseFirestoreException>()
-        every { lockedError.code } returns FirebaseFirestoreException.Code.PERMISSION_DENIED
-        every { lockedError.message } returns "Locked"
+        val lockedError = FirebaseFirestoreException("Locked", FirebaseFirestoreException.Code.PERMISSION_DENIED)
 
         coEvery { commentRepository.createComment(any()) } returns Result.failure(lockedError)
         coEvery { pendingInteractionDao.getPendingForUser("test-user") } returns listOf(interaction)

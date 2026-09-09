@@ -66,6 +66,11 @@ class TranscodingWorkerTest {
         every { anyConstructed<MediaMetadataRetriever>().extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION) } returns "1000"
         every { anyConstructed<MediaMetadataRetriever>().release() } just Runs
 
+        every { audioTranscoder.transcodeWavToAac(any(), any()) } answers {
+            val outputFile = arg<File>(1)
+            outputFile.writeBytes(ByteArray(100) { 0x01 })
+        }
+
         worker = TranscodingWorker(
             appContext = context,
             workerParams = workerParams,
@@ -118,25 +123,113 @@ class TranscodingWorkerTest {
 
     @Test
     fun `doWork should fail if output file is empty`() = runTest {
+        val tempDir = Files.createTempDirectory("transcode_test_empty").toFile()
+        val rawFile = File(tempDir, "raw.wav").apply { writeText("PCM") }
+        val finalPath = File(tempDir, "final.m4a").absolutePath
+
         val draftId = "d1"
         every { workerParams.inputData } returns workDataOf("key_draft_id" to draftId)
 
-        val finalFile = mockk<File>(relaxed = true) {
-            every { exists() } returns true
-            every { length() } returns 0L // EMPTY
-        }
         val draft = mockk<ArtifactDraftEntity>(relaxed = true) {
             every { id } returns draftId
             every { userId } returns TEST_USER_ID
-            every { rawPcmPath } returns "/path/raw.wav"
+            every { rawPcmPath } returns rawFile.absolutePath
+            every { localAudioPath } returns finalPath
         }
 
         coEvery { draftDao.getDraftById(draftId, TEST_USER_ID) } returns draft
-        every { localDraftManager.createDraftFile(draftId, "m4a") } returns finalFile
+        every { localDraftManager.createDraftFile(draftId, "m4a") } returns File(finalPath)
+
+        // transcodeWavToAac does nothing, leaving tempM4aFile empty (0 bytes)
+        every { audioTranscoder.transcodeWavToAac(any(), any()) } just Runs
 
         val result = worker.doWork()
 
         assert(result is ListenableWorker.Result.Failure)
         coVerify(exactly = 0) { draftDao.updateTranscodingResult(any(), any(), any(), any(), any(), any(), any()) }
+
+        tempDir.deleteRecursively()
+    }
+
+    @Test
+    fun `doWork should skip transcoding if output already exists and is encrypted`() = runTest {
+        val tempDir = Files.createTempDirectory("transcode_test_idempotent").toFile()
+        val rawFile = File(tempDir, "raw.wav").apply { writeText("PCM") }
+        val finalFile = File(tempDir, "final.m4a").apply { writeText("ENCRYPTED_M4A_DATA") }
+
+        val draftId = "d1"
+        every { workerParams.inputData } returns workDataOf("key_draft_id" to draftId)
+
+        val draft = mockk<ArtifactDraftEntity>(relaxed = true) {
+            every { id } returns draftId
+            every { userId } returns TEST_USER_ID
+            every { rawPcmPath } returns rawFile.absolutePath
+            every { localAudioPath } returns finalFile.absolutePath
+            every { isEncrypted } returns true
+        }
+
+        coEvery { draftDao.getDraftById(draftId, TEST_USER_ID) } returns draft
+
+        val result = worker.doWork()
+
+        assert(result is ListenableWorker.Result.Success)
+        verify(exactly = 0) { audioTranscoder.transcodeWavToAac(any(), any()) }
+
+        tempDir.deleteRecursively()
+    }
+
+    @Test
+    fun `doWork should fail if WAV file is corrupted and unrecoverable`() = runTest {
+        val tempDir = Files.createTempDirectory("transcode_test_corrupt").toFile()
+        val rawFile = File(tempDir, "raw.wav").apply { writeText("CORRUPTED_HEADER") }
+        val finalPath = File(tempDir, "final.m4a").absolutePath
+
+        val draftId = "d1"
+        every { workerParams.inputData } returns workDataOf("key_draft_id" to draftId)
+
+        val draft = mockk<ArtifactDraftEntity>(relaxed = true) {
+            every { id } returns draftId
+            every { userId } returns TEST_USER_ID
+            every { rawPcmPath } returns rawFile.absolutePath
+            every { localAudioPath } returns finalPath
+            every { mimeType } returns "audio/wav"
+        }
+
+        coEvery { draftDao.getDraftById(draftId, TEST_USER_ID) } returns draft
+        every { wavRecoveryManager.recover(any()) } returns WavRecoveryManager.RecoveryResult.CORRUPTED
+
+        val result = worker.doWork()
+
+        assert(result is ListenableWorker.Result.Failure)
+        verify(exactly = 0) { audioTranscoder.transcodeWavToAac(any(), any()) }
+
+        tempDir.deleteRecursively()
+    }
+
+    @Test
+    fun `doWork should retry if transcoding throws exception`() = runTest {
+        val tempDir = Files.createTempDirectory("transcode_test_retry").toFile()
+        val rawFile = File(tempDir, "raw.wav").apply { writeText("PCM") }
+        val finalPath = File(tempDir, "final.m4a").absolutePath
+
+        val draftId = "d1"
+        every { workerParams.inputData } returns workDataOf("key_draft_id" to draftId)
+
+        val draft = mockk<ArtifactDraftEntity>(relaxed = true) {
+            every { id } returns draftId
+            every { userId } returns TEST_USER_ID
+            every { rawPcmPath } returns rawFile.absolutePath
+            every { localAudioPath } returns finalPath
+        }
+
+        coEvery { draftDao.getDraftById(draftId, TEST_USER_ID) } returns draft
+        every { localDraftManager.createDraftFile(draftId, "m4a") } returns File(finalPath)
+        every { audioTranscoder.transcodeWavToAac(any(), any()) } throws RuntimeException("Encoder initialization failed")
+
+        val result = worker.doWork()
+
+        assert(result is ListenableWorker.Result.Retry)
+
+        tempDir.deleteRecursively()
     }
 }

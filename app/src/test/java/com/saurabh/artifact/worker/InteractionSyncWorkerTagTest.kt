@@ -15,7 +15,7 @@ class InteractionSyncWorkerTagTest {
 
     @Before
     fun setup() {
-        mockkStatic(WorkManager::class)
+        mockkObject(WorkManager.Companion)
         every { WorkManager.getInstance(any()) } returns workManager
     }
 

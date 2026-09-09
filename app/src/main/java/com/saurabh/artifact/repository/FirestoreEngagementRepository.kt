@@ -91,7 +91,8 @@ class FirestoreEngagementRepository @Inject constructor(
                     unlockTimestamp = snapshot.getTimestamp("unlockTimestamp")?.toDate()?.time,
                     engagementState = parsedState,
                     unlockReason = snapshot.getString("unlockReason"),
-                    updatedAt = snapshot.getTimestamp("updatedAt")?.toDate()?.time
+                    updatedAt = snapshot.getTimestamp("updatedAt")?.toDate()?.time,
+                    isAuthoritative = true
                 )
                 trySend(status)
             } else {

@@ -61,7 +61,9 @@ class FirestoreCommentRepository @Inject constructor(
             
             val comments = snapshot.documents.mapNotNull { doc ->
                 val commentDto = doc.toObject(CommentDto::class.java)
-                val authorAnonId = commentDto?.author?.anonymousId ?: doc.getString("authorAnonymousId")
+                val authorAnonId = commentDto?.author?.anonymousId?.ifBlank { null }
+                    ?: commentDto?.authorAnonymousId?.ifBlank { null }
+                    ?: doc.getString("authorAnonymousId")
                 
                 // R068 FIX: Filter by persona ID consistently
                 if (authorAnonId != null && ignoredIds.contains(authorAnonId)) return@mapNotNull null
