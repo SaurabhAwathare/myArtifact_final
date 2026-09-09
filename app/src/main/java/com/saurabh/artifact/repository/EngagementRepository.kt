@@ -13,11 +13,13 @@ import com.saurabh.artifact.model.SyncState
 import com.saurabh.artifact.worker.EngagementSyncScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
@@ -87,51 +89,58 @@ class EngagementRepository @Inject constructor(
 
     /**
      * Observes engagement evidence, combining local sync state with remote authoritative unlock status.
+     * Reactively observes currentUser to prevent stale auth / initialization gaps.
      */
+    @OptIn(ExperimentalCoroutinesApi::class)
     fun observeEngagementEvidence(artifactId: String): Flow<EngagementEvidence?> {
-        val currentUserId = authRepository.currentUserId
-        if (currentUserId.isEmpty()) return flowOf(null)
+        return authRepository.currentUser.flatMapLatest { user ->
+            val currentUserId = user?.uid
+            if (currentUserId.isNullOrEmpty()) {
+                flowOf(null)
+            } else {
+                val localFlow = engagementDao.get().observeEngagement(artifactId, currentUserId).distinctUntilChanged()
+                val remoteFlow = firestoreRepository.observeRemoteUnlockStatus(currentUserId, artifactId)
+                    .onEach { remote ->
+                        if (remote != null) {
+                            externalScope.launch {
+                                updateLocalUnlockCache(artifactId, currentUserId, remote)
+                            }
+                        }
+                    }
 
-        val localFlow = engagementDao.get().observeEngagement(artifactId, currentUserId).distinctUntilChanged()
-        val remoteFlow = firestoreRepository.observeRemoteUnlockStatus(currentUserId, artifactId)
-            .onEach { remote ->
-                if (remote != null) {
-                    externalScope.launch {
-                        updateLocalUnlockCache(artifactId, currentUserId, remote)
+                combine(localFlow, remoteFlow) { local, remote ->
+                    if (local == null) {
+                        if (remote != null && remote.isCommentUnlocked) {
+                            EngagementEvidence(
+                                artifactId = artifactId,
+                                versionTag = "",
+                                durationMs = 0L,
+                                audioChecksum = "",
+                                coverage = BitSet(),
+                                lastPositionMs = 0L,
+                                furthestPositionMs = 0L,
+                                hasReachedEnd = false,
+                                lastUpdated = remote.updatedAt ?: System.currentTimeMillis(),
+                                reviewTrackingVersion = ReviewTrackingVersion.LEGACY_BUCKETED,
+                                segmentSizeMs = 0L,
+                                unlockStatus = remote,
+                                syncState = SyncState.SYNCED
+                            )
+                        } else {
+                            null
+                        }
+                    } else {
+                        local.toDomain().copy(
+                            unlockStatus = remote ?: UnlockStatus(
+                                isCommentUnlocked = local.isCommentUnlocked,
+                                unlockTimestamp = local.unlockTimestamp,
+                                engagementState = EngagementState.fromString(local.engagementState),
+                                unlockReason = local.unlockReason
+                            )
+                        )
                     }
                 }
             }
-
-        return combine(localFlow, remoteFlow) { local, remote ->
-            if (local == null) {
-                if (remote != null && remote.isCommentUnlocked) {
-                    return@combine EngagementEvidence(
-                        artifactId = artifactId,
-                        versionTag = "",
-                        durationMs = 0L,
-                        audioChecksum = "",
-                        coverage = BitSet(),
-                        lastPositionMs = 0L,
-                        furthestPositionMs = 0L,
-                        hasReachedEnd = false,
-                        lastUpdated = remote.updatedAt ?: System.currentTimeMillis(),
-                        reviewTrackingVersion = ReviewTrackingVersion.LEGACY_BUCKETED,
-                        segmentSizeMs = 0L,
-                        unlockStatus = remote,
-                        syncState = SyncState.SYNCED
-                    )
-                }
-                return@combine null
-            }
-
-            local.toDomain().copy(
-                unlockStatus = remote ?: UnlockStatus(
-                    isCommentUnlocked = local.isCommentUnlocked,
-                    unlockTimestamp = local.unlockTimestamp,
-                    engagementState = EngagementState.fromString(local.engagementState),
-                    unlockReason = local.unlockReason
-                )
-            )
         }
     }
 

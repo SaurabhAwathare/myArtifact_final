@@ -19,6 +19,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -26,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import com.saurabh.artifact.model.ReactionType
 import com.saurabh.artifact.model.InteractionSyncStatus
 import com.saurabh.artifact.ui.theme.GoldAura400
+import com.saurabh.artifact.ui.util.FeedbackUtils
 
 /**
  * PlayerInteractionBar - A cinematic, emotionally intentional row of actions.
@@ -48,6 +50,7 @@ fun PlayerInteractionBar(
     onSaveClick: () -> Unit,
     onCommentClick: () -> Unit,
     modifier: Modifier = Modifier,
+    isOwner: Boolean = false,
     showResonance: Boolean = true,
     showSave: Boolean = true,
     isCommentEnabled: Boolean = true,
@@ -68,6 +71,7 @@ fun PlayerInteractionBar(
                 resonanceCount = resonanceCount,
                 canShowResonators = canShowResonators,
                 syncStatus = resonanceSyncStatus,
+                isOwner = isOwner,
                 onResonateClick = { onResonateClick(ReactionType.I_HEAR_YOU) },
                 onCountClick = onResonatorsCountClick
             )
@@ -115,12 +119,18 @@ private fun ResonateInteractionItem(
     onResonateClick: () -> Unit,
     onCountClick: () -> Unit,
     syncStatus: InteractionSyncStatus = InteractionSyncStatus.SYNCED,
+    isOwner: Boolean = false,
 ) {
     val haptic = LocalHapticFeedback.current
+    val context = LocalContext.current
     val showCount = canShowResonators && resonanceCount > 0
+    val enabled = !isOwner
+    val disabledReason = if (isOwner) "You cannot resonate with your own reflection." else null
     
     val activeColor = GoldAura400
-    val contentColor = if (isResonated) {
+    val contentColor = if (!enabled) {
+        Color.White.copy(alpha = 0.2f)
+    } else if (isResonated) {
         if (syncStatus == InteractionSyncStatus.PENDING) activeColor.copy(alpha = 0.5f) else activeColor
     } else {
         if (syncStatus == InteractionSyncStatus.PENDING) Color.White.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.45f)
@@ -145,8 +155,16 @@ private fun ResonateInteractionItem(
             modifier = Modifier
                 .clip(RoundedCornerShape(12.dp))
                 .clickable {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onResonateClick()
+                    if (enabled) {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onResonateClick()
+                    } else if (disabledReason != null) {
+                        FeedbackUtils.explainDisabledAction(
+                            context,
+                            haptic,
+                            disabledReason
+                        )
+                    }
                 }
                 .padding(8.dp)
         ) {

@@ -127,7 +127,7 @@ class ExportService : Service() {
         }
     }
 
-    private fun updateNotification(progress: ExportProgress, cancelIntent: PendingIntent) {
+    private suspend fun updateNotification(progress: ExportProgress, cancelIntent: PendingIntent) {
         val (text, isIndeterminate, percent) = when (progress) {
             is ExportProgress.Starting -> Triple("Starting export...", true, 0)
             is ExportProgress.Profile -> Triple("Fetching profile...", true, 0)

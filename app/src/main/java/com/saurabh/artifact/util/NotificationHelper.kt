@@ -23,7 +23,6 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
 
 /**
  * Foundational notification infrastructure for an emotionally intelligent app.
@@ -37,12 +36,11 @@ object NotificationHelper {
         fun settingsRepository(): SettingsRepository
     }
 
-    private fun isNotificationEnabled(context: Context): Boolean {
+    private suspend fun isNotificationEnabled(context: Context): Boolean {
         return try {
             val entryPoint = EntryPointAccessors.fromApplication(context, NotificationHelperEntryPoint::class.java)
             val settingsRepository = entryPoint.settingsRepository()
-            // Preference check - use runBlocking sparingly for this short DataStore read
-            runBlocking { settingsRepository.userSettings.first().notificationsEnabled }
+            settingsRepository.userSettings.first().notificationsEnabled
         } catch (_: Exception) {
             true // Fallback to enabled if repository access fails
         }
@@ -171,7 +169,7 @@ object NotificationHelper {
             .build()
     }
 
-    fun updateExportProgress(
+    suspend fun updateExportProgress(
         context: Context,
         statusText: String,
         isIndeterminate: Boolean = true,
@@ -190,7 +188,7 @@ object NotificationHelper {
         }
     }
 
-    fun showExportResultNotification(
+    suspend fun showExportResultNotification(
         context: Context,
         title: String,
         message: String,
@@ -251,7 +249,7 @@ object NotificationHelper {
             .build()
     }
 
-    fun updateUploadProgress(
+    suspend fun updateUploadProgress(
         context: Context,
         title: String,
         progress: Int
@@ -264,7 +262,7 @@ object NotificationHelper {
         }
     }
 
-    fun showUploadSuccessNotification(context: Context, title: String) {
+    suspend fun showUploadSuccessNotification(context: Context, title: String) {
         if (!isNotificationEnabled(context)) return
 
         if (ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
@@ -280,7 +278,7 @@ object NotificationHelper {
         }
     }
 
-    fun showUploadErrorNotification(context: Context, message: String) {
+    suspend fun showUploadErrorNotification(context: Context, message: String) {
         if (!isNotificationEnabled(context)) return
 
         if (ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
@@ -300,7 +298,7 @@ object NotificationHelper {
         NotificationManagerCompat.from(context).cancelAll()
     }
 
-    fun showReminderNotification(context: Context, title: String, message: String) {
+    suspend fun showReminderNotification(context: Context, title: String, message: String) {
         if (!isNotificationEnabled(context)) return
 
         if (ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
@@ -329,7 +327,7 @@ object NotificationHelper {
      * Shows a notification for social interactions (resonances, comments).
      * Includes artifact navigation when clicked.
      */
-    fun showInteractionNotification(
+    suspend fun showInteractionNotification(
         context: Context,
         title: String,
         message: String,

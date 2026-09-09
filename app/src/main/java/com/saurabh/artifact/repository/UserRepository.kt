@@ -52,7 +52,7 @@ import java.util.UUID
 import kotlin.time.Duration.Companion.seconds
 
 @Singleton
-class UserRepository @Inject constructor(
+open class UserRepository @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val auth: FirebaseAuth,
     private val firestore: FirebaseFirestore,
@@ -70,7 +70,7 @@ class UserRepository @Inject constructor(
     /**
      * Returns the current authenticated user's ID.
      */
-    fun getCurrentUserId(): String? = auth.currentUser?.uid
+    open fun getCurrentUserId(): String? = auth.currentUser?.uid
 
     /**
      * Creates or updates a unique username for the user.
@@ -224,11 +224,14 @@ class UserRepository @Inject constructor(
             }
 
             // PHASE 2: Identity Repair (Atomic & Idempotent)
-            // Verified Fix for "Zombie Profile" condition where identity fields are missing/blank.
+            // Verified Fix for "Zombie Profile" condition where identity fields are missing/blank/mismatched.
+            val canonicalSeed = user.sigilConfig.seed.ifEmpty { user.sigilSeed }
             val isIdentityIncomplete = user.anonymousId.isBlank() || 
                                       user.anonymousName.isBlank() || 
                                       user.anonymousSigil.isBlank() ||
-                                      user.sigilSeed.isBlank()
+                                      user.sigilSeed.isBlank() ||
+                                      user.sigilSeed != canonicalSeed ||
+                                      user.sigilConfig.seed != canonicalSeed
             
             val repairedUser = if (isIdentityIncomplete) {
                 diagnosticLogger.info(DiagnosticCategory.AUTH, "USER_PROFILE_REPAIR_TRIGGERED", mapOf(LogKeys.USER_ID to currentUser.uid))
@@ -236,16 +239,14 @@ class UserRepository @Inject constructor(
                 val newAnonId = if (user.anonymousId.isBlank()) "usr_${UUID.randomUUID().toString().take(5).uppercase()}" else user.anonymousId
                 val newName = if (user.anonymousName.isBlank()) UsernameGenerator.generate() else user.anonymousName
                 val newSigil = if (user.anonymousSigil.isBlank()) UsernameGenerator.deriveSigil(newAnonId) else user.anonymousSigil
-                val newSeed = if (user.sigilSeed.isBlank()) UUID.randomUUID().toString() else user.sigilSeed
+                val newSeed = if (user.sigilSeed.isBlank() && user.sigilConfig.seed.isBlank()) UUID.randomUUID().toString() else canonicalSeed
                 
                 val updates = mutableMapOf<String, Any>()
                 if (user.anonymousId.isBlank()) updates["anonymousId"] = newAnonId
                 if (user.anonymousName.isBlank()) updates["anonymousName"] = newName
                 if (user.anonymousSigil.isBlank()) updates["anonymousSigil"] = newSigil
-                if (user.sigilSeed.isBlank()) {
-                    updates["sigilSeed"] = newSeed
-                    updates["sigilConfig.seed"] = newSeed
-                }
+                if (user.sigilSeed != newSeed) updates["sigilSeed"] = newSeed
+                if (user.sigilConfig.seed != newSeed) updates["sigilConfig.seed"] = newSeed
                 
                 if (updates.isNotEmpty()) {
                     transaction.update(userRef, updates)
@@ -816,6 +817,7 @@ class UserRepository @Inject constructor(
             userRef.update(
                 mapOf(
                     "sigilConfig" to config,
+                    "sigilSeed" to config.seed,
                     "usernameUpdatedAt" to FieldValue.serverTimestamp(),
                     "identityMetadata.lastIdentityChangeAt" to FieldValue.serverTimestamp(),
                     "identityMetadata.identityChangeCount30Days" to newCount,
@@ -843,7 +845,7 @@ class UserRepository @Inject constructor(
         try {
             val userRef = usersCollection.document(userId)
             
-            val (newName, newVersion) = firestore.runTransaction { transaction ->
+            val (newName, versionAndSeed) = firestore.runTransaction { transaction ->
                 val userSnapshot = transaction[userRef]
                 val user = userSnapshot.toObject(User::class.java)?.copy(id = userSnapshot.id)
                     ?: throw IllegalStateException("User profile not found")
@@ -869,13 +871,14 @@ class UserRepository @Inject constructor(
 
                 // 3. Update user profile (Sanitization: Refresh anonymousId for true anonymity)
                 val newAnonId = "usr_${java.util.UUID.randomUUID().toString().take(5).uppercase()}"
+                val newResetSeed = UUID.randomUUID().toString()
                 
                 val updateMap = mutableMapOf<String, Any>(
                     "anonymousId" to newAnonId,
                     "anonymousName" to generatedName,
                     "anonymousSigil" to UsernameGenerator.deriveSigil(newAnonId),
-                    "sigilSeed" to java.util.UUID.randomUUID().toString(),
-                    "sigilConfig.seed" to java.util.UUID.randomUUID().toString(),
+                    "sigilSeed" to newResetSeed,
+                    "sigilConfig.seed" to newResetSeed,
                     "usernameUpdatedAt" to FieldValue.serverTimestamp(),
                     "identityMetadata.lastIdentityChangeAt" to FieldValue.serverTimestamp(),
                     "identityMetadata.emergencyResetCount" to FieldValue.increment(1),
@@ -889,17 +892,18 @@ class UserRepository @Inject constructor(
                 
                 transaction.update(userRef, updateMap)
 
-                generatedName to nextVersion
+                generatedName to (nextVersion to newResetSeed)
             }.await()
+
+            val (newVersion, newResetSeed) = versionAndSeed
 
             // 4. Update local profile cache (Isolated/Optimistic)
             try {
                 getCachedProfile()?.let { user ->
-                    val newSeed = java.util.UUID.randomUUID().toString()
                     val updatedUser = user.copy(
                         anonymousName = newName,
-                        sigilSeed = newSeed,
-                        sigilConfig = user.sigilConfig.copy(seed = newSeed),
+                        sigilSeed = newResetSeed,
+                        sigilConfig = user.sigilConfig.copy(seed = newResetSeed),
                         identityMetadata = user.identityMetadata.copy(
                             emergencyResetCount = user.identityMetadata.emergencyResetCount + 1,
                             identityResetVersion = newVersion,

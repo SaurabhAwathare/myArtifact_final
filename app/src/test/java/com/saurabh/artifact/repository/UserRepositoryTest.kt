@@ -14,6 +14,10 @@ import com.saurabh.artifact.data.local.UserDao
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.domain.IdentityProtectionPolicy
 import com.saurabh.artifact.domain.auth.RegistrationCoordinator
+import com.saurabh.artifact.domain.auth.RegistrationResult
+import com.saurabh.artifact.model.Artifact
+import com.saurabh.artifact.model.AuthorSnapshot
+import com.saurabh.artifact.model.SigilConfig
 import com.saurabh.artifact.model.User
 import com.saurabh.artifact.worker.InteractionSyncWorker
 import dagger.Lazy
@@ -22,6 +26,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.tasks.await
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -57,6 +62,7 @@ class UserRepositoryTest {
         every { mockColl.get() } returns mockk(relaxed = true)
         
         every { firestore.collection(any()) } returns mockColl
+        every { identityPolicy.isWithinWindow(any()) } returns false
         
         repository = UserRepository(
             context, auth, firestore,
@@ -108,30 +114,83 @@ class UserRepositoryTest {
     }
 
     @Test
-    fun `getOrCreateProfile signs out on FirebaseAuthInvalidUserException during reload`() = runBlocking {
+    fun `getOrCreateProfile reconciles mismatched legacy identity seeds`() = runBlocking {
         val userId = "user123"
         val firebaseUser = mockk<FirebaseUser>()
         every { firebaseUser.uid } returns userId
-        
-        val reloadTask = mockk<Task<Void>>(relaxed = true)
-        every { firebaseUser.reload() } returns reloadTask
-        
-        val authException = mockk<FirebaseAuthInvalidUserException>(relaxed = true)
-        coEvery { reloadTask.await() } throws authException
-        
+        every { firebaseUser.email } returns "test@example.com"
+        every { firebaseUser.displayName } returns "Test User"
+        every { firebaseUser.reload() } returns mockk(relaxed = true)
         every { auth.currentUser } returns firebaseUser
-        every { auth.signOut() } just Runs
 
-        repository.getOrCreateProfile()
+        val snapshot = mockk<DocumentSnapshot>()
+        val mismatchedUser = User(
+            id = userId,
+            anonymousName = "Valid Name",
+            anonymousId = "usr_123",
+            anonymousSigil = "23",
+            sigilSeed = "seed_A",
+            sigilConfig = SigilConfig(seed = "seed_B")
+        )
+        every { snapshot.exists() } returns true
+        every { snapshot.toObject(User::class.java) } returns mismatchedUser
+        every { snapshot.id } returns userId
+        every { snapshot.get(any<String>()) } returns null
 
-        verify(exactly = 1) { auth.signOut() }
+        val transaction = mockk<Transaction>(relaxed = true)
+        every { transaction.get(any<DocumentReference>()) } returns snapshot
+
+        every { firestore.runTransaction<Any>(any()) } answers {
+            val block = firstArg<Transaction.Function<Any>>()
+            val result = block.apply(transaction)
+            val task = mockk<Task<Any>>(relaxed = true)
+            coEvery { task.await() } returns (result ?: mockk())
+            task
+        }
+
+        val result = repository.getOrCreateProfile()
+
+        val repairedUser = result.getOrNull()?.user
+        assertNotNull(repairedUser)
+        assertEquals("seed_B", repairedUser!!.sigilSeed)
+        assertEquals("seed_B", repairedUser.sigilConfig.seed)
+
         unmockkStatic("kotlinx.coroutines.tasks.TasksKt")
     }
 
     @Test
-    fun `emergencyIdentityReset with severRelationships adds flag to identityMetadata`() = runBlocking {
+    fun `updateSigilConfig writes matching sigilConfig seed and top-level sigilSeed`() = runBlocking {
+        coEvery { regCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
         val userId = "user123"
         val userRef = mockk<DocumentReference>(relaxed = true)
+        every { mockColl.document(userId) } returns userRef
+
+        val existingUser = User(id = userId, anonymousName = "Existing", sigilSeed = "old_seed", sigilConfig = SigilConfig(seed = "old_seed"))
+        val snapshot = mockk<DocumentSnapshot>()
+        every { snapshot.toObject(User::class.java) } returns existingUser
+        every { snapshot.id } returns userId
+        every { snapshot.exists() } returns true
+        
+        coEvery { any<Task<DocumentSnapshot>>().await() } returns snapshot
+
+        val updateMapSlot = slot<Map<String, Any>>()
+        val updateTask = mockk<Task<Void>>(relaxed = true)
+        every { userRef.update(capture(updateMapSlot)) } returns updateTask
+        coEvery { updateTask.await() } returns mockk(relaxed = true)
+
+        val newConfig = SigilConfig(seed = "new_seed_123", version = 3)
+        val result = repository.updateSigilConfig(userId, newConfig)
+
+        assertTrue(result.isSuccess)
+        assertEquals(newConfig, updateMapSlot.captured["sigilConfig"])
+        assertEquals("new_seed_123", updateMapSlot.captured["sigilSeed"])
+
+        unmockkStatic("kotlinx.coroutines.tasks.TasksKt")
+    }
+
+    @Test
+    fun `emergencyIdentityReset writes identical seed to sigilSeed and sigilConfig seed`() = runBlocking {
+        val userId = "user123"
         
         val user = User(id = userId, anonymousName = "OldName")
         val snapshot = mockk<DocumentSnapshot>()
@@ -155,8 +214,60 @@ class UserRepositoryTest {
         
         repository.emergencyIdentityReset(userId, severRelationships = true)
 
-        val capturedMap = updates.find { it.containsKey("identityMetadata.severRelationships") }
-        assertTrue("Captured maps should contain severRelationships", capturedMap != null)
+        val capturedMap = updates.firstOrNull()
+        assertNotNull(capturedMap)
+        val sigilSeed = capturedMap!!["sigilSeed"] as String
+        val sigilConfigSeed = capturedMap["sigilConfig.seed"] as String
+        assertEquals(sigilSeed, sigilConfigSeed)
+
+        unmockkStatic("kotlinx.coroutines.tasks.TasksKt")
+    }
+
+    @Test
+    fun `existing artifact fallback rendering behavior remains intact`() {
+        val artifactWithConfig = Artifact(
+            id = "art_1",
+            author = AuthorSnapshot(sigilSeed = "seed_snapshot", sigilConfig = SigilConfig(seed = "seed_config"))
+        )
+        assertEquals("seed_config", artifactWithConfig.authorSigilConfig.seed)
+
+        val artifactFallbackToSigilSeed = Artifact(
+            id = "art_2",
+            author = AuthorSnapshot(sigilSeed = "seed_snapshot", sigilConfig = SigilConfig(seed = ""))
+        )
+        assertEquals("seed_snapshot", artifactFallbackToSigilSeed.authorSigilConfig.seed)
+
+        val artifactFallbackToAnonymousId = Artifact(
+            id = "art_3",
+            author = AuthorSnapshot(anonymousId = "usr_99", sigilSeed = "", sigilConfig = SigilConfig(seed = ""))
+        )
+        assertEquals("usr_99", artifactFallbackToAnonymousId.authorSigilConfig.seed)
+
+        val artifactFallbackToArtifactId = Artifact(
+            id = "art_4",
+            author = AuthorSnapshot(anonymousId = "", sigilSeed = "", sigilConfig = SigilConfig(seed = ""))
+        )
+        assertEquals("art_4", artifactFallbackToArtifactId.authorSigilConfig.seed)
+    }
+
+    @Test
+    fun `getOrCreateProfile signs out on FirebaseAuthInvalidUserException during reload`() = runBlocking {
+        val userId = "user123"
+        val firebaseUser = mockk<FirebaseUser>()
+        every { firebaseUser.uid } returns userId
+        
+        val reloadTask = mockk<Task<Void>>(relaxed = true)
+        every { firebaseUser.reload() } returns reloadTask
+        
+        val authException = mockk<FirebaseAuthInvalidUserException>(relaxed = true)
+        coEvery { reloadTask.await() } throws authException
+        
+        every { auth.currentUser } returns firebaseUser
+        every { auth.signOut() } just Runs
+
+        repository.getOrCreateProfile()
+
+        verify(exactly = 1) { auth.signOut() }
         unmockkStatic("kotlinx.coroutines.tasks.TasksKt")
     }
 

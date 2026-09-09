@@ -16,6 +16,32 @@ class UsernameValidatorTest {
     }
 
     @Test
+    fun `test generated username containing space is accepted`() {
+        val result = validator.validate("Quiet Path")
+        assertTrue(result.isValid)
+        assertNull(result.reason)
+    }
+
+    @Test
+    fun `test generated username containing supported middle dot character is handled consistently`() {
+        val result = validator.validate("Quiet Path · A7")
+        assertTrue(result.isValid)
+        assertNull(result.reason)
+    }
+
+    @Test
+    fun `test max length 30 characters accepted`() {
+        val valid30 = "a".repeat(30)
+        val result30 = validator.validate(valid30)
+        assertTrue(result30.isValid)
+
+        val invalid31 = "a".repeat(31)
+        val result31 = validator.validate(invalid31)
+        assertFalse(result31.isValid)
+        assertEquals(ValidationReason.TOO_LONG, result31.reason)
+    }
+
+    @Test
     fun `test too short username`() {
         val result = validator.validate("hi")
         assertFalse(result.isValid)
@@ -23,15 +49,8 @@ class UsernameValidatorTest {
     }
 
     @Test
-    fun `test too long username`() {
-        val result = validator.validate("a".repeat(25))
-        assertFalse(result.isValid)
-        assertEquals(ValidationReason.TOO_LONG, result.reason)
-    }
-
-    @Test
     fun `test invalid characters`() {
-        val result = validator.validate("user-name")
+        val result = validator.validate("invalid_name!")
         assertFalse(result.isValid)
         assertEquals(ValidationReason.INVALID_CHARACTERS, result.reason)
     }

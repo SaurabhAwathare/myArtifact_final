@@ -158,7 +158,7 @@ class PublishingWorker @AssistedInject constructor(
         )
     }
 
-    private fun updateNotificationIfNeeded(title: String, transferred: Long, total: Long) {
+    private suspend fun updateNotificationIfNeeded(title: String, transferred: Long, total: Long) {
         val now = System.currentTimeMillis()
         val duration = now - startTime
         

@@ -7,6 +7,7 @@ import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.Artifact
+import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.model.PlayableArtifact
 import com.saurabh.artifact.model.PlaybackSource
@@ -45,7 +46,7 @@ class PlayableArtifactRepository @Inject constructor(
             }
 
             // Fallback/Standard path: Check Local Drafts
-            val draft = draftDao.get().getDraftById(id, userId)
+            val draft = draftDao.get().getDraftById(id, userId)?.takeIf { it.lifecycle != ArtifactLifecycle.PUBLISHED }
             if (draft != null) {
                 val author = userRepository.getCachedProfile()?.let { AuthorSnapshot.fromUser(it) } 
                     ?: AuthorSnapshot(name = "You")
@@ -142,7 +143,7 @@ class PlayableArtifactRepository @Inject constructor(
             // 1. Fetch all matching drafts in one go (if possible, otherwise one by one for now)
             // Note: DraftDao doesn't have getDraftsByIds yet, so we'll fetch them individually
             // or we could add it to DraftDao. For simplicity and minimum risk, we iterate.
-            val draftsMap = ids.mapNotNull { id -> draftDao.get().getDraftById(id, userId) }.associateBy { it.id }
+            val draftsMap = ids.mapNotNull { id -> draftDao.get().getDraftById(id, userId)?.takeIf { it.lifecycle != ArtifactLifecycle.PUBLISHED } }.associateBy { it.id }
             
             val author = if (draftsMap.isNotEmpty()) {
                 userRepository.getCachedProfile()?.let { AuthorSnapshot.fromUser(it) } 

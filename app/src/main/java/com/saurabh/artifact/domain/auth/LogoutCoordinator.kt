@@ -124,24 +124,15 @@ class LogoutCoordinator @Inject constructor(
 
                 // PHASE A: Stop Active Work (Prevent new IO/writes)
                 diagnosticLogger.debug(DiagnosticCategory.AUTH, "LOGOUT_CLEANUP_PHASE_A")
-                
-                // 0. Release Media Cache handles immediately (Crucial for physical deletion in Phase B)
-                try {
-                    MediaCache.release()
-                    diagnosticLogger.info(DiagnosticCategory.AUTH, "LOGOUT_RELEASE_CACHE_SUCCESS")
-                } catch (e: Exception) {
-                    diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_RELEASE_CACHE_FAILED", throwable = e)
-                    mediaCacheSuccess = false
-                }
 
-                // 0.5 Stop active data export (Crucial for account isolation)
+                // 1. Stop active data export (Crucial for account isolation)
                 try {
                     context.stopService(Intent(context, com.saurabh.artifact.security.ExportService::class.java))
                 } catch (e: Exception) {
                     diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_STOP_EXPORT_FAILED", throwable = e)
                 }
 
-                // 1. Stop active recording
+                // 2. Stop active recording
                 try {
                     withContext(mainDispatcher) {
                         if (recordingSessionManager.isRecordingActive()) {
@@ -154,7 +145,7 @@ class LogoutCoordinator @Inject constructor(
                     recordingSuccess = false
                 }
 
-                // 2. Release playback and pre-cache resources (Deterministic)
+                // 3. Release playback and pre-cache resources (Deterministic - MUST occur before MediaCache release)
                 try {
                     withContext(mainDispatcher) {
                         playbackCoordinator.release()
@@ -166,7 +157,7 @@ class LogoutCoordinator @Inject constructor(
                     playbackSuccess = false
                 }
 
-                // 3. Stop background upload service
+                // 4. Stop background upload service
                 try {
                     context.stopService(Intent(context, UploadService::class.java))
                     // Small delay to allow Service.onDestroy and job cancellation to finalize
@@ -176,7 +167,7 @@ class LogoutCoordinator @Inject constructor(
                     uploadsSuccess = false
                 }
 
-                // 4. Cancel user-scoped background workers
+                // 5. Cancel user-scoped background workers
                 try {
                     workManager.cancelAllWorkByTag(SessionConstants.TAG_USER_SESSION_WORK).result.await()
                     // Small delay to ensure WorkManager has yielded DB locks
@@ -186,12 +177,21 @@ class LogoutCoordinator @Inject constructor(
                     workersSuccess = false
                 }
 
-                // 5. Cancel notifications
+                // 6. Cancel notifications
                 try {
                     NotificationHelper.cancelAllNotifications(context)
                 } catch (e: Exception) {
                     diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_STOP_NOTIFICATIONS_FAILED", throwable = e)
                     notificationsSuccess = false
+                }
+
+                // 7. Release Media Cache handles (Safely executed AFTER all readers/writers are cancelled, prior to Phase B physical deletion)
+                try {
+                    MediaCache.release()
+                    diagnosticLogger.info(DiagnosticCategory.AUTH, "LOGOUT_RELEASE_CACHE_SUCCESS")
+                } catch (e: Exception) {
+                    diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_RELEASE_CACHE_FAILED", throwable = e)
+                    mediaCacheSuccess = false
                 }
 
                 // PHASE B: Local Data Cleanup (Database & Files)

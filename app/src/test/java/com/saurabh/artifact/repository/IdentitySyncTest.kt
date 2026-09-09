@@ -81,6 +81,7 @@ class IdentitySyncTest {
 
         every { authRepository.currentUserId } returns userId
         every { sessionManager.userProfile } returns profileFlow
+        coEvery { userRepository.getOrCreateProfile() } returns Result.success(ProfileResult(User(id = userId), false))
         coEvery { userRepository.createUsername(userId, newUsername) } returns Result.success(Unit)
 
         userProfileManager.updateUsername(newUsername)
@@ -127,6 +128,7 @@ class IdentitySyncTest {
 
         every { authRepository.currentUserId } returns userId
         every { sessionManager.userProfile } returns profileFlow
+        coEvery { userRepository.getOrCreateProfile() } returns Result.success(ProfileResult(User(id = userId), false))
         coEvery { userRepository.updateSigilConfig(userId, newConfig) } returns Result.success(Unit)
 
         userProfileManager.updateSigilConfig(newConfig)

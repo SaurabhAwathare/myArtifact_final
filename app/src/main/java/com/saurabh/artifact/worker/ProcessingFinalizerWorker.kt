@@ -44,13 +44,13 @@ class ProcessingFinalizerWorker @AssistedInject constructor(
         
         try {
             // 1. Fetch draft before finalization to get file paths
-            val draft = draftDao.get().getDraftById(draftId, userId)
+            val draft = draftDao.get().getDraftById(draftId, userId) ?: return@withContext Result.failure()
 
             // 2. Targeted finalization update
             recordingRepository.finalizeProcessing(draftId).getOrThrow()
             
             // 3. Cleanup raw files only after successful finalization
-            draft?.rawPcmPath?.let { path ->
+            draft.rawPcmPath?.let { path ->
                 val file = File(path)
                 if (file.exists() && file.delete()) {
                     diagnosticLogger.info(DiagnosticCategory.STORAGE, "PROCESSING_CLEANUP_RAW_SUCCESS", mapOf(LogKeys.DRAFT_ID to draftId))

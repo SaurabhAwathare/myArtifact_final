@@ -54,9 +54,9 @@ class UsernameValidator @Inject constructor(
 
     private fun validateFormat(username: String): UsernameValidationResult? {
         if (username.length < 3) return UsernameValidationResult(isValid = false, reason = ValidationReason.TOO_SHORT)
-        if (username.length > 24) return UsernameValidationResult(isValid = false, reason = ValidationReason.TOO_LONG)
+        if (username.length > 30) return UsernameValidationResult(isValid = false, reason = ValidationReason.TOO_LONG)
         
-        val regex = Regex("^[a-z0-9_@.]+$")
+        val regex = Regex("^[a-z0-9_@. ·]+$")
         if (!regex.matches(username)) {
             return UsernameValidationResult(isValid = false, reason = ValidationReason.INVALID_CHARACTERS)
         }

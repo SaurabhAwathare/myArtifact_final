@@ -23,6 +23,7 @@ import com.saurabh.artifact.ui.util.UiText
 import com.saurabh.artifact.ui.util.ErrorMessageMapper
 import com.saurabh.artifact.R
 import com.saurabh.artifact.domain.profile.ProfileData
+import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.navigation.Profile
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -101,8 +102,13 @@ class ProfileViewModel @Inject constructor(
     private val profileInteractionUseCase: com.saurabh.artifact.domain.profile.ProfileInteractionUseCase,
     private val logoutCoordinator: com.saurabh.artifact.domain.auth.LogoutCoordinator,
     private val diagnosticLogger: DiagnosticLogger,
-    private val draftMapper: DraftToArtifactMapper
+    private val draftMapper: DraftToArtifactMapper,
+    private val draftRepository: DraftRepository
 ) : ViewModel() {
+
+    val unfinishedDraftCount: StateFlow<Int> = draftRepository.observeDrafts()
+        .map { drafts -> drafts.count { it.lifecycle != ArtifactLifecycle.PUBLISHED } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     val currentUserId: String? get() = authRepository.currentUser.value?.uid
     val savedIds = savedArtifactManager.savedIds

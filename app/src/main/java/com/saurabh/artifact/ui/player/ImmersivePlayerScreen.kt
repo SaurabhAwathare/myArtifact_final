@@ -383,6 +383,7 @@ fun ImmersivePlayerScreen(
                     onCommentClick = onCommentClick,
                     isCommentEnabled = uiState.isThresholdMet,
                     commentDisabledReason = if (!uiState.isThresholdMet) "Listen to at least 95% of this Artifact before joining the conversation." else null,
+                    isOwner = uiState.isOwner,
                     showResonance = !uiState.isOwner,
                     showSave = !uiState.isOwner
                 )

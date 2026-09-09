@@ -9,6 +9,8 @@ import com.saurabh.artifact.domain.auth.LogoutCoordinator
 import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.SettingsRepository
+import com.saurabh.artifact.security.ExportProgress
+import com.saurabh.artifact.security.ExportService
 import com.saurabh.artifact.util.ClipboardGuard
 import com.saurabh.artifact.model.UserSettings
 import com.saurabh.artifact.repository.DraftRepository
@@ -17,13 +19,18 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.*
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
+@RunWith(RobolectricTestRunner::class)
 @OptIn(ExperimentalCoroutinesApi::class)
 class SettingsViewModelTest {
     private val repository = mockk<SettingsRepository>(relaxed = true)
@@ -42,6 +49,9 @@ class SettingsViewModelTest {
     @Before
     fun setup() {
         Dispatchers.setMain(testDispatcher)
+        mockkObject(ExportService)
+        every { ExportService.exportState } returns MutableStateFlow<ExportProgress?>(null)
+        every { ExportService.start(any(), any()) } just runs
         every { authRepository.currentUser } returns MutableStateFlow(null)
         every { authRepository.privateSettings } returns MutableStateFlow(null)
         every { repository.userSettings } returns MutableStateFlow(UserSettings())
@@ -74,27 +84,30 @@ class SettingsViewModelTest {
             clipboardGuard, logoutCoordinator, draftRepository, credentialHelper, diagnosticLogger
         )
 
-        assertEquals(1, vm.unfinishedDraftCount.value)
+        assertEquals(1, vm.unfinishedDraftCount.first())
     }
 
     @Test
     fun `isDeletionConfirmed should be true only when input is DELETE`() = runTest {
         viewModel.updateDeletionConfirmation("DELET")
-        assertTrue(!viewModel.isDeletionConfirmed.value)
+        assertFalse(viewModel.isDeletionConfirmed.first())
 
         viewModel.updateDeletionConfirmation("DELETE")
-        assertTrue(viewModel.isDeletionConfirmed.value)
+        assertTrue(viewModel.isDeletionConfirmed.first())
 
         viewModel.updateDeletionConfirmation("delete")
-        assertTrue(!viewModel.isDeletionConfirmed.value)
+        assertFalse(viewModel.isDeletionConfirmed.first())
     }
 
     @Test
     fun `exportData should emit ExportStarted event`() = runTest {
+        var event: SettingsUiEvent? = null
+        val job = backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            viewModel.events.collect { event = it }
+        }
         viewModel.exportData(context, uri)
-        
-        val event = viewModel.events.first()
         assertTrue(event is SettingsUiEvent.ExportStarted)
+        job.cancel()
     }
 
     @Test

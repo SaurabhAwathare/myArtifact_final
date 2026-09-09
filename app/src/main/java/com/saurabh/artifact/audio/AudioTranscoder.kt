@@ -124,11 +124,15 @@ class AudioTranscoder @Inject constructor() {
             try {
                 encoder.stop()
             } catch (_: Exception) {}
-            encoder.release()
+            try {
+                encoder.release()
+            } catch (_: Exception) {}
             try {
                 muxer?.stop()
             } catch (_: Exception) {}
-            muxer?.release()
+            try {
+                muxer?.release()
+            } catch (_: Exception) {}
         }
     }
 }

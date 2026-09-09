@@ -86,6 +86,11 @@ class PublishingOrchestrator @Inject constructor(
     suspend fun approvePublishing(draftId: String): Result<PublishingResult> = withContext(Dispatchers.IO) {
         val draft = draftRepository.getDraft(draftId).getOrNull() ?: return@withContext Result.failure(Exception("Draft not found"))
 
+        // 1. Check if already publishing to avoid double enqueuing
+        if (draft.lifecycle == ArtifactLifecycle.PUBLISHED) {
+            return@withContext Result.success(PublishingResult.ALREADY_IN_PROGRESS)
+        }
+
         // 0. Security Validation: Ensure tokens are present and valid
         val userId = authRepository.currentUserId
         if (!uploadGuard.validateApproval(draft, userId)) {
@@ -101,11 +106,6 @@ class PublishingOrchestrator @Inject constructor(
         if (draft.lifecycle != ArtifactLifecycle.READY_TO_PUBLISH) {
             Log.e("PublishingOrchestrator", "Attempted to publish unreviewed draft via legacy route.")
             return@withContext Result.failure(Exception("Review required before publishing."))
-        }
-
-        // 1. Check if already publishing to avoid double enqueuing
-        if (draft.lifecycle == ArtifactLifecycle.PUBLISHED) {
-            return@withContext Result.success(PublishingResult.ALREADY_IN_PROGRESS)
         }
 
         // 2. Transition to READY_TO_PUBLISH + SyncStatus.Queued or SyncStatus.WaitingForNetwork

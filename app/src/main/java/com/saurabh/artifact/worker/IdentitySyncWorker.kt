@@ -38,6 +38,15 @@ class IdentitySyncWorker @AssistedInject constructor(
             val userProfileResult = userRepository.getOrCreateProfile()
             val user = userProfileResult.getOrNull()?.user ?: return@withContext Result.retry()
 
+            if (user.id != userId) {
+                diagnosticLogger.error(
+                    DiagnosticCategory.WORKMANAGER,
+                    "IDENTITY_SYNC_USER_MISMATCH",
+                    mapOf("expectedUserId" to userId, "actualUserId" to user.id)
+                )
+                return@withContext Result.failure()
+            }
+
             val snapshot = AuthorSnapshot.fromUser(user)
 
             // 2. Sync Local Room Cache (Optimistic & Resilient)

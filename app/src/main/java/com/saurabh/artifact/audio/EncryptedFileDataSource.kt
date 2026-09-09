@@ -10,6 +10,7 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import com.saurabh.artifact.security.SecurityArchitecture
 import java.io.File
+import java.io.IOException
 import java.io.InputStream
 
 /**
@@ -80,6 +81,10 @@ class EncryptedFileDataSource(
 
             return bytesRemaining
         } catch (e: Exception) {
+            try {
+                inputStream?.close()
+            } catch (_: IOException) {}
+            inputStream = null
             val draftId = dataSpec.uri.getQueryParameter("artifact_id") ?: "unknown"
             com.saurabh.artifact.diagnostics.ArtifactLogger.e(
                 com.saurabh.artifact.diagnostics.DiagnosticCategory.SECURITY, 

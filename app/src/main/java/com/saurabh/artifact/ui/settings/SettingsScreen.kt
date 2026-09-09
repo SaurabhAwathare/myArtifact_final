@@ -436,16 +436,14 @@ fun SettingsScreen(
                         val countText = if (draftCount == 1) "1 unfinished Artifact in Drafts" else "$draftCount unfinished Artifacts in Drafts"
                         Text(
                             "You have $countText.\n\n" +
-                            "These Drafts are saved on this device. They'll remain available when you log back into this account on this device, but they won't be available on another device.",
+                            "These Drafts are saved securely on this device and will not be deleted when you log out. " +
+                            "They'll remain available when you log back into this account on this device.\n\n" +
+                            "Drafts won't automatically appear on another device. " +
+                            "If you want an Artifact to be available across devices, you can publish it anytime (publishing is optional).",
                             style = MaterialTheme.typography.bodyMedium
                         )
                     } else {
-                        Text(
-                            if (uiState.isAnonymousMode) 
-                                "You are currently using an anonymous account. Logging out may cause you to lose access to your data permanently unless you have backed it up."
-                            else 
-                                "Are you sure you want to log out?"
-                        ) 
+                        Text("Are you sure you want to log out?") 
                     }
                 }
             },

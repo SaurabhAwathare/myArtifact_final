@@ -89,8 +89,10 @@ class IdentityViewModel @Inject constructor(
         }
         viewModelScope.launch {
             userProfileManager.activeUsername.collectLatest { name ->
-                _username.value = name
-                validateUsername(name)
+                if (!_hasUserEdited.value) {
+                    _username.value = name
+                    validateUsername(name)
+                }
             }
         }
         
@@ -132,9 +134,9 @@ class IdentityViewModel @Inject constructor(
             return
         }
 
-        availabilityCheckJob = viewModelScope.launch {
-            _availability.value = UsernameAvailability.CHECKING
+        _availability.value = UsernameAvailability.CHECKING
 
+        availabilityCheckJob = viewModelScope.launch {
             // If the name is the user's current name, it's available to them
             if (name.equals(userProfile.value?.anonymousName, ignoreCase = true)) {
                 _availability.value = UsernameAvailability.AVAILABLE
@@ -143,20 +145,28 @@ class IdentityViewModel @Inject constructor(
 
             delay(500.milliseconds) // Debounce
             
+            if (_username.value != name) return@launch
+
             try {
                 userProfileManager.isUsernameAvailable(name)
                     .onSuccess { isAvailable ->
-                        _availability.value = if (isAvailable) {
-                            UsernameAvailability.AVAILABLE
-                        } else {
-                            UsernameAvailability.TAKEN
+                        if (_username.value == name) {
+                            _availability.value = if (isAvailable) {
+                                UsernameAvailability.AVAILABLE
+                            } else {
+                                UsernameAvailability.TAKEN
+                            }
                         }
                     }
                     .onFailure {
-                        _availability.value = UsernameAvailability.ERROR
+                        if (_username.value == name) {
+                            _availability.value = UsernameAvailability.ERROR
+                        }
                     }
             } catch (_: Exception) {
-                _availability.value = UsernameAvailability.ERROR
+                if (_username.value == name) {
+                    _availability.value = UsernameAvailability.ERROR
+                }
             }
         }
     }
@@ -207,10 +217,13 @@ class IdentityViewModel @Inject constructor(
                 }
             } else null,
             validationResult = if (hasEdited) {
-                validation?.copy(
-                    isValid = validation.isValid && (avail == UsernameAvailability.AVAILABLE || avail == UsernameAvailability.NONE),
-                    reason = if (avail == UsernameAvailability.TAKEN) ValidationReason.ALREADY_TAKEN else validation.reason
-                )
+                validation?.let { res ->
+                    val isTaken = avail == UsernameAvailability.TAKEN
+                    res.copy(
+                        isValid = if (isTaken) false else res.isValid,
+                        reason = if (isTaken) ValidationReason.ALREADY_TAKEN else res.reason
+                    )
+                }
             } else null,
             suggestions = suggs,
             isProcessing = uiState is IdentityUiState.Loading

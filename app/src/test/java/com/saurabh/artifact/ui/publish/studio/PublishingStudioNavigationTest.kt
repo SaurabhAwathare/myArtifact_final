@@ -76,6 +76,7 @@ class PublishingStudioNavigationTest {
         every { playbackCoordinator.playbackSpeed } returns MutableStateFlow(1.0f)
         every { playbackCoordinator.duration } returns flowOf(0.milliseconds)
         every { recordingRepository.observeRecoveryState(any(), any()) } returns flowOf(false)
+        every { databaseEncryptionManager.isRecoverySetup } returns flowOf(true)
         
         every { identityScout.detectLeaks(any(), any(), any()) } returns emptyList()
     }

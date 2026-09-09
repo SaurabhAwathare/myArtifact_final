@@ -270,11 +270,27 @@ fun ProfileScreen(
     }
 
     if (showLogoutDialog.value) {
+        val draftCount by viewModel.unfinishedDraftCount.collectAsStateWithLifecycle()
+
         AlertDialog(
             onDismissRequest = { showLogoutDialog.value = false },
             shape = RoundedCornerShape(28.dp),
-            title = { Text("Sign Out") },
-            text = { Text("Are you sure you want to leave this session?") },
+            title = { Text(if (draftCount > 0) "Unfinished Drafts" else "Sign Out?") },
+            text = {
+                if (draftCount > 0) {
+                    val countText = if (draftCount == 1) "1 unfinished Artifact in Drafts" else "$draftCount unfinished Artifacts in Drafts"
+                    Text(
+                        "You have $countText.\n\n" +
+                        "These Drafts are saved securely on this device and will not be deleted when you sign out. " +
+                        "They'll remain available when you log back into this account on this device.\n\n" +
+                        "Drafts won't automatically appear on another device. " +
+                        "If you want an Artifact to be available across devices, you can publish it anytime (publishing is optional).",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                } else {
+                    Text("Are you sure you want to sign out?")
+                }
+            },
             confirmButton = {
                 Button(
                     onClick = {

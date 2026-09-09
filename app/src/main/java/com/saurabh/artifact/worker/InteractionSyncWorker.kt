@@ -12,6 +12,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import kotlin.Result as KResult
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestoreException
 import com.saurabh.artifact.diagnostics.ArtifactLogger
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.data.local.*
@@ -74,77 +75,83 @@ class InteractionSyncWorker @AssistedInject constructor(
         }
 
         // 2. Collapse duplicate/redundant interaction events before processing
-        collapseEvents(currentUserId)
-
-        val pending = pendingInteractionDao.get().getPendingForUser(currentUserId)
-        if (pending.isEmpty() && !isRetryRequired) return@withContext Result.success()
-
-        val workerId = id.toString()
         var hasInteractionTransientFailure = false
+        val workerId = id.toString()
 
-        for (interaction in pending) {
-            // R090: Logout/Account-Switch Boundary Guard
-            // We verify three levels of integrity before each write:
-            // 1. Worker not cancelled
-            // 2. Authenticated user has not changed since worker started
-            // 3. Current authenticated user matches the interaction owner
-            val authUid = FirebaseAuth.getInstance().currentUser?.uid
-            if (isStopped || authUid != currentUserId || interaction.userId != currentUserId) {
-                ArtifactLogger.w(
-                    DiagnosticCategory.SYNC, 
-                    "SYNC_LOOP_TERMINATED_OWNERSHIP_CHANGE", 
-                    mapOf("interactionId" to interaction.id, "workerUid" to currentUserId, "authUid" to (authUid ?: "null"))
+        while (!isStopped) {
+            collapseEvents(currentUserId)
+
+            val pending = pendingInteractionDao.get().getPendingForUser(currentUserId)
+            if (pending.isEmpty()) break
+
+            for (interaction in pending) {
+                // R090: Logout/Account-Switch Boundary Guard
+                // We verify three levels of integrity before each write:
+                // 1. Worker not cancelled
+                // 2. Authenticated user has not changed since worker started
+                // 3. Current authenticated user matches the interaction owner
+                val authUid = FirebaseAuth.getInstance().currentUser?.uid
+                if (isStopped || authUid != currentUserId || interaction.userId != currentUserId) {
+                    ArtifactLogger.w(
+                        DiagnosticCategory.SYNC, 
+                        "SYNC_LOOP_TERMINATED_OWNERSHIP_CHANGE", 
+                        mapOf("interactionId" to interaction.id, "workerUid" to currentUserId, "authUid" to (authUid ?: "null"))
+                    )
+                    return@withContext Result.failure() // Stop processing this batch
+                }
+
+                val processingInteraction = interaction.copy(
+                    workerId = workerId,
+                    retryCount = interaction.retryCount + 1
                 )
-                return@withContext Result.failure() // Stop processing this batch
+                
+                ArtifactLogger.logInteraction(processingInteraction, "PROCESSING")
+
+                val result = processInteraction(processingInteraction, currentUserId)
+                if (result.isSuccess) {
+                    ArtifactLogger.logInteraction(processingInteraction, "SUCCESS")
+                    pendingInteractionDao.get().delete(interaction)
+                } else {
+                    val error = result.exceptionOrNull() ?: Exception("Unknown error")
+                    val isTransient = ArtifactRepository.isTransientError(error)
+                    
+                    // R035: Handle locked artifact race for comments.
+                    // If it's a comment and we get Permission Denied, it's likely the backend 
+                    // hasn't flipped the isCommentUnlocked bit yet despite local evidence sync.
+                    val isPermissionDenied = error is FirebaseFirestoreException &&
+                            error.code == FirebaseFirestoreException.Code.PERMISSION_DENIED
+                    val isRetryableComment = interaction.interactionType == InteractionType.COMMENT && isPermissionDenied
+
+                    val errorInteraction = processingInteraction.copy(
+                        lastError = error.message,
+                        retryCount = processingInteraction.retryCount
+                    )
+                    
+                    if (isTransient || isRetryableComment) {
+                        if (errorInteraction.retryCount >= MAX_RETRIES) {
+                            ArtifactLogger.logInteraction(errorInteraction, "RETRY_LIMIT_EXCEEDED", mapOf("error" to error.message, "exception" to error.javaClass.simpleName, "isRetryableComment" to isRetryableComment))
+                            moveToDeadLetterQueue(errorInteraction, "RETRY_LIMIT_EXCEEDED", error.message)
+                            pendingInteractionDao.get().delete(interaction)
+                        } else {
+                            ArtifactLogger.logInteraction(errorInteraction, if (isRetryableComment) "RETRYABLE_PERMISSION_DENIED" else "TRANSIENT_FAILURE", mapOf("error" to error.message, "exception" to error.javaClass.simpleName))
+                            // Update retry count and error in DB for the next run
+                            pendingInteractionDao.get().insert(errorInteraction)
+                            hasInteractionTransientFailure = true
+                            
+                            // CRITICAL: Break on transient failure to preserve sequential ordering.
+                            break
+                        }
+                    } else {
+                        // Permanent error (e.g. 404, 403)
+                        ArtifactLogger.logInteraction(errorInteraction, "PERMANENT_FAILURE", mapOf("artifactId" to interaction.artifactId, "error" to error.message))
+                        moveToDeadLetterQueue(errorInteraction, "PERMANENT", error.message)
+                        pendingInteractionDao.get().delete(interaction)
+                    }
+                }
             }
 
-            val processingInteraction = interaction.copy(
-                workerId = workerId,
-                retryCount = interaction.retryCount + 1
-            )
-            
-            ArtifactLogger.logInteraction(processingInteraction, "PROCESSING")
-
-            val result = processInteraction(processingInteraction, currentUserId)
-            if (result.isSuccess) {
-                ArtifactLogger.logInteraction(processingInteraction, "SUCCESS")
-                pendingInteractionDao.get().delete(interaction)
-            } else {
-                val error = result.exceptionOrNull() ?: Exception("Unknown error")
-                val isTransient = ArtifactRepository.isTransientError(error)
-                
-                // R035: Handle locked artifact race for comments.
-                // If it's a comment and we get Permission Denied, it's likely the backend 
-                // hasn't flipped the isCommentUnlocked bit yet despite local evidence sync.
-                val isPermissionDenied = error is com.google.firebase.firestore.FirebaseFirestoreException &&
-                        error.code == com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED
-                val isRetryableComment = interaction.interactionType == InteractionType.COMMENT && isPermissionDenied
-
-                val errorInteraction = processingInteraction.copy(
-                    lastError = error.message,
-                    retryCount = processingInteraction.retryCount
-                )
-                
-                if (isTransient || isRetryableComment) {
-                    if (errorInteraction.retryCount >= MAX_RETRIES) {
-                        ArtifactLogger.logInteraction(errorInteraction, "RETRY_LIMIT_EXCEEDED", mapOf("error" to error.message, "exception" to error.javaClass.simpleName, "isRetryableComment" to isRetryableComment))
-                        moveToDeadLetterQueue(errorInteraction, "RETRY_LIMIT_EXCEEDED", error.message)
-                        pendingInteractionDao.get().delete(interaction)
-                    } else {
-                        ArtifactLogger.logInteraction(errorInteraction, if (isRetryableComment) "RETRYABLE_PERMISSION_DENIED" else "TRANSIENT_FAILURE", mapOf("error" to error.message, "exception" to error.javaClass.simpleName))
-                        // Update retry count and error in DB for the next run
-                        pendingInteractionDao.get().insert(errorInteraction)
-                        hasInteractionTransientFailure = true
-                        
-                        // CRITICAL: Break on transient failure to preserve sequential ordering.
-                        break
-                    }
-                } else {
-                    // Permanent error (e.g. 404, 403)
-                    ArtifactLogger.logInteraction(errorInteraction, "PERMANENT_FAILURE", mapOf("artifactId" to interaction.artifactId, "error" to error.message))
-                    moveToDeadLetterQueue(errorInteraction, "PERMANENT", error.message)
-                    pendingInteractionDao.get().delete(interaction)
-                }
+            if (hasInteractionTransientFailure) {
+                break
             }
         }
 

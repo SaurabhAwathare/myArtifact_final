@@ -115,7 +115,7 @@ object UsernameGenerator {
         if (username.length < 3) return "Name must be at least 3 characters"
         if (username.length > 30) return "Name must be 30 characters or less"
         
-        val regex = Regex("^[a-zA-Z0-9 ·]+$")
+        val regex = Regex("^[a-zA-Z0-9_@. ·]+$")
         if (!regex.matches(username)) {
             return "Invalid characters in name"
         }

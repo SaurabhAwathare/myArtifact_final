@@ -7,12 +7,24 @@ import com.google.firebase.firestore.SetOptions
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import com.saurabh.artifact.util.NotificationHelper
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 /**
  * Service for receiving and handling Firebase Cloud Messaging events.
  * Responsible for token management and manual notification display for interactions.
  */
 class FCMService : FirebaseMessagingService() {
+
+    private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    override fun onDestroy() {
+        serviceScope.cancel()
+        super.onDestroy()
+    }
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
@@ -35,16 +47,18 @@ class FCMService : FirebaseMessagingService() {
             val title = notification.title ?: "Artifact"
             val body = notification.body ?: "Someone engaged with your artifact 💬"
             
-            NotificationHelper.showInteractionNotification(
-                context = this,
-                title = title,
-                message = body,
-                artifactId = artifactId,
-                userId = userId,
-                recipientId = recipientId,
-                notificationType = notificationType,
-                channelId = channelId,
-            )
+            serviceScope.launch {
+                NotificationHelper.showInteractionNotification(
+                    context = this@FCMService,
+                    title = title,
+                    message = body,
+                    artifactId = artifactId,
+                    userId = userId,
+                    recipientId = recipientId,
+                    notificationType = notificationType,
+                    channelId = channelId,
+                )
+            }
             return // Prevent duplicate notification from data payload if both exist
         }
 
@@ -53,16 +67,18 @@ class FCMService : FirebaseMessagingService() {
             val title = data["title"] ?: "New Interaction"
             val message = data["message"] ?: "Someone sent you a reaction!"
             
-            NotificationHelper.showInteractionNotification(
-                context = this,
-                title = title,
-                message = message,
-                artifactId = artifactId,
-                userId = userId,
-                recipientId = recipientId,
-                notificationType = notificationType,
-                channelId = channelId,
-            )
+            serviceScope.launch {
+                NotificationHelper.showInteractionNotification(
+                    context = this@FCMService,
+                    title = title,
+                    message = message,
+                    artifactId = artifactId,
+                    userId = userId,
+                    recipientId = recipientId,
+                    notificationType = notificationType,
+                    channelId = channelId,
+                )
+            }
         }
     }
 
