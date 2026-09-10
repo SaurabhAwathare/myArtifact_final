@@ -2,7 +2,6 @@ package com.saurabh.artifact.ui.profile
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.*
 import androidx.compose.material.icons.rounded.*
@@ -25,7 +24,6 @@ import com.saurabh.artifact.ui.components.AppSnackbarHost
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
-    onLogout: () -> Unit,
     onBack: () -> Unit,
     onEditIdentity: () -> Unit,
     onNavigateToSettings: () -> Unit,
@@ -37,7 +35,6 @@ fun ProfileScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val savedIds by viewModel.savedIds.collectAsStateWithLifecycle(emptySet())
     val savedArtifacts = viewModel.savedArtifacts.collectAsLazyPagingItems()
-    val showLogoutDialog = remember { mutableStateOf(false) }
     
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
@@ -46,20 +43,6 @@ fun ProfileScreen(
         uiState.message?.let { uiText ->
             snackbarHostState.showSnackbar(uiText.asString(context))
             viewModel.clearMessage()
-        }
-    }
-
-    LaunchedEffect(uiState.logoutState) {
-        when (val logoutState = uiState.logoutState) {
-            is LogoutState.Success -> {
-                onLogout()
-                viewModel.resetLogoutState()
-            }
-            is LogoutState.Error -> {
-                snackbarHostState.showSnackbar(logoutState.message.asString(context))
-                viewModel.resetLogoutState()
-            }
-            else -> {}
         }
     }
 
@@ -83,9 +66,6 @@ fun ProfileScreen(
                 },
                 actions = {
                     if (uiState.isSelf) {
-                        IconButton(onClick = { showLogoutDialog.value = true }) {
-                            Icon(Icons.AutoMirrored.Rounded.Logout, contentDescription = "Sign Out")
-                        }
                         IconButton(onClick = onNavigateToSettings) {
                             Icon(Icons.Rounded.Settings, contentDescription = "Settings")
                         }
@@ -267,46 +247,5 @@ fun ProfileScreen(
                 }
             }
         }
-    }
-
-    if (showLogoutDialog.value) {
-        val draftCount by viewModel.unfinishedDraftCount.collectAsStateWithLifecycle()
-
-        AlertDialog(
-            onDismissRequest = { showLogoutDialog.value = false },
-            shape = RoundedCornerShape(28.dp),
-            title = { Text(if (draftCount > 0) "Unfinished Drafts" else "Sign Out?") },
-            text = {
-                if (draftCount > 0) {
-                    val countText = if (draftCount == 1) "1 unfinished Artifact in Drafts" else "$draftCount unfinished Artifacts in Drafts"
-                    Text(
-                        "You have $countText.\n\n" +
-                        "These Drafts are saved securely on this device and will not be deleted when you sign out. " +
-                        "They'll remain available when you log back into this account on this device.\n\n" +
-                        "Drafts won't automatically appear on another device. " +
-                        "If you want an Artifact to be available across devices, you can publish it anytime (publishing is optional).",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                } else {
-                    Text("Are you sure you want to sign out?")
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showLogoutDialog.value = false
-                        viewModel.logout()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                ) {
-                    Text("Sign Out")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showLogoutDialog.value = false }) {
-                    Text("Stay")
-                }
-            }
-        )
     }
 }

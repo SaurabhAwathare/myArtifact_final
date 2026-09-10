@@ -64,6 +64,9 @@ class IdentityViewModel @Inject constructor(
         _uiState.value = IdentityUiState.Error(ErrorMessageMapper.map(e))
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    private val activeUsernameState = userProfileManager.activeUsername
+        .stateIn(viewModelScope, SharingStarted.Eagerly, "")
+
     val identityMetadata = userProfile.map { it?.identityMetadata ?: com.saurabh.artifact.model.IdentityMetadata() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.saurabh.artifact.model.IdentityMetadata())
 
@@ -92,6 +95,13 @@ class IdentityViewModel @Inject constructor(
                 if (!_hasUserEdited.value) {
                     _username.value = name
                     validateUsername(name)
+                }
+            }
+        }
+        viewModelScope.launch {
+            userProfile.collectLatest { profile ->
+                if (profile != null && _username.value.isNotEmpty()) {
+                    checkAvailability(_username.value)
                 }
             }
         }
@@ -138,7 +148,10 @@ class IdentityViewModel @Inject constructor(
 
         availabilityCheckJob = viewModelScope.launch {
             // If the name is the user's current name, it's available to them
-            if (name.equals(userProfile.value?.anonymousName, ignoreCase = true)) {
+            val currentRemoteName = userProfile.value?.anonymousName
+            val currentLocalName = activeUsernameState.value
+            if ((currentRemoteName != null && name.equals(currentRemoteName, ignoreCase = true)) ||
+                (currentLocalName.isNotEmpty() && name.equals(currentLocalName, ignoreCase = true))) {
                 _availability.value = UsernameAvailability.AVAILABLE
                 return@launch
             }
@@ -258,42 +271,6 @@ class IdentityViewModel @Inject constructor(
                 userProfileManager.updateUsername(name)
                 onSuccess()
             }
-        }
-    }
-
-    /**
-     * Triggers an emergency identity reset for privacy protection.
-     *
-     * @param severRelationships If true, severs all inbound and outbound Follow Journey relationships.
-     */
-    fun emergencyReset(severRelationships: Boolean, onSuccess: () -> Unit) {
-        val userId = authRepository.currentUser.value?.uid ?: return
-        
-        viewModelScope.launch {
-            _uiState.value = IdentityUiState.Loading
-            userProfileManager.emergencyIdentityReset(userId, severRelationships)
-                .onSuccess {
-                    _uiState.value = IdentityUiState.Idle
-                    onSuccess()
-                }
-                .onFailure { e ->
-                    diagnosticLogger.error(DiagnosticCategory.PROFILE, "EMERGENCY_RESET_FAILED", throwable = e)
-                    _uiState.value = IdentityUiState.Error(ErrorMessageMapper.map(e))
-                }
-        }
-    }
-
-    /**
-     * Reports an identity exposure incident.
-     */
-    fun reportExposure(reportedUserId: String, artifactId: String?) {
-        val reporterId = authRepository.currentUser.value?.uid ?: return
-        
-        viewModelScope.launch {
-            userRepository.reportIdentityExposure(reporterId, reportedUserId, artifactId)
-                .onFailure { e ->
-                    diagnosticLogger.error(DiagnosticCategory.PROFILE, "EXPOSURE_REPORT_FAILED", throwable = e)
-                }
         }
     }
 }

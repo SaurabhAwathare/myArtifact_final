@@ -58,6 +58,7 @@ class DraftToArtifactMapper @Inject constructor() {
     private data class MappingSignature(
         val audioPath: String,
         val title: String,
+        val emotion: String?,
         val durationMs: Long,
         val createdAt: Long,
         val amplitudeHash: Int,
@@ -79,9 +80,12 @@ class DraftToArtifactMapper @Inject constructor() {
         val transcriptHash = draft.transcriptSegmentsJson?.contentHash()
         val transcript = getOrDecodeTranscript(draft, transcriptHash)
 
+        val emotionString = draft.emotion?.label ?: draft.emotion?.name ?: ""
+
         val signature = MappingSignature(
             audioPath = draft.localAudioPath,
             title = draft.title ?: fallbackTitle,
+            emotion = emotionString,
             durationMs = draft.durationMs,
             createdAt = draft.createdAt,
             amplitudeHash = draft.amplitudeData.hashCode(),
@@ -136,6 +140,7 @@ class DraftToArtifactMapper @Inject constructor() {
             audioUrl = normalizeAudioUrl(draft.localAudioPath),
             createdAt = Timestamp(Date(draft.createdAt)),
             title = draft.title ?: fallbackTitle,
+            emotion = emotionString,
             durationMs = draft.durationMs,
             status = when (draft.lifecycle) {
                 ArtifactLifecycle.PUBLISHED -> ArtifactStatus.ACTIVE

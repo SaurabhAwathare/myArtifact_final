@@ -49,7 +49,7 @@ class UserRepositoryTest {
     @Before
     fun setup() {
         mockkStatic("kotlinx.coroutines.tasks.TasksKt")
-        
+
         val mockSnapshot = mockk<DocumentSnapshot>(relaxed = true)
         
         coEvery { any<Task<DocumentSnapshot>>().await() } returns mockSnapshot
@@ -184,41 +184,6 @@ class UserRepositoryTest {
         assertTrue(result.isSuccess)
         assertEquals(newConfig, updateMapSlot.captured["sigilConfig"])
         assertEquals("new_seed_123", updateMapSlot.captured["sigilSeed"])
-
-        unmockkStatic("kotlinx.coroutines.tasks.TasksKt")
-    }
-
-    @Test
-    fun `emergencyIdentityReset writes identical seed to sigilSeed and sigilConfig seed`() = runBlocking {
-        val userId = "user123"
-        
-        val user = User(id = userId, anonymousName = "OldName")
-        val snapshot = mockk<DocumentSnapshot>()
-        every { snapshot.toObject(User::class.java) } returns user
-        every { snapshot.exists() } returns true
-        every { snapshot.id } returns userId
-        
-        val transaction = mockk<Transaction>(relaxed = true)
-        every { transaction.get(any<DocumentReference>()) } returns snapshot
-        
-        val updates = mutableListOf<Map<String, Any>>()
-        every { transaction.update(any(), capture(updates)) } returns transaction
-        
-        every { firestore.runTransaction<Any>(any()) } answers {
-            val block = firstArg<Transaction.Function<Any>>()
-            val result = block.apply(transaction)
-            val task = mockk<Task<Any>>(relaxed = true)
-            coEvery { task.await() } returns (result ?: mockk())
-            task
-        }
-        
-        repository.emergencyIdentityReset(userId, severRelationships = true)
-
-        val capturedMap = updates.firstOrNull()
-        assertNotNull(capturedMap)
-        val sigilSeed = capturedMap!!["sigilSeed"] as String
-        val sigilConfigSeed = capturedMap["sigilConfig.seed"] as String
-        assertEquals(sigilSeed, sigilConfigSeed)
 
         unmockkStatic("kotlinx.coroutines.tasks.TasksKt")
     }

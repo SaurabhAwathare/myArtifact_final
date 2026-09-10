@@ -36,7 +36,6 @@ import com.saurabh.artifact.util.StartupTracer
 import com.saurabh.artifact.ui.util.UiText
 import com.saurabh.artifact.ui.util.UiError
 import com.saurabh.artifact.ui.util.ErrorMessageMapper
-import com.saurabh.artifact.ui.util.AtmosphereMapper
 import com.saurabh.artifact.R
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
@@ -202,7 +201,6 @@ class FeedViewModel @Inject constructor(
     val isCrisis = uiState.map { it.isCrisis }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
     val isRefreshing = uiState.map { it.isRefreshing }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
     val hasNewContent = uiState.map { it.hasNewContent }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
-    val atmosphereStatement = uiState.map { it.atmosphereStatement }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
     val error = uiState.map { it.error }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     init {
@@ -272,7 +270,6 @@ class FeedViewModel @Inject constructor(
                 delay(1500.milliseconds) 
                 runCatching { 
                     refreshReflectionPrompt()
-                    refreshAtmosphere()
                     StartupTracer.mark("Reflection Prompt Hydrated")
                 }.onFailure { diagnosticLogger.error(DiagnosticCategory.FEED, "FEED_PROMPT_REFRESH_FAILED", throwable = it) }
             }
@@ -451,32 +448,16 @@ class FeedViewModel @Inject constructor(
             
             val rankedJob = loadRankedFeed()
             val promptJob = refreshReflectionPrompt()
-            val atmosphereJob = refreshAtmosphere()
             
             _refreshTrigger.value += 1
             
             rankedJob.join()
             promptJob.join()
-            atmosphereJob.join()
             
             delay(500.milliseconds)
             
             _uiState.update { it.copy(isRefreshing = false) }
             diagnosticLogger.info(DiagnosticCategory.FEED, "FEED_REFRESH_SUCCESS")
-        }
-    }
-
-    private fun refreshAtmosphere(): kotlinx.coroutines.Job {
-        return viewModelScope.launch {
-            communityRepository.getLatestAtmosphere()
-                .onSuccess { atmosphere ->
-                    val statement = AtmosphereMapper.mapToStatement(atmosphere)
-                    _uiState.update { it.copy(atmosphereStatement = statement) }
-                }
-                .onFailure { e ->
-                    diagnosticLogger.warn(DiagnosticCategory.FEED, "ATMOSPHERE_FETCH_FAILED", throwable = e)
-                    // We don't update state here to avoid showing an error for a non-critical feature
-                }
         }
     }
 

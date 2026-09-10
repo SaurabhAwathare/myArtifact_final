@@ -4,6 +4,7 @@ import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.model.ArtifactStatus
 import com.saurabh.artifact.model.AuthorSnapshot
+import com.saurabh.artifact.model.Emotion
 import com.saurabh.artifact.model.TranscriptSegment
 import com.saurabh.artifact.model.Visibility
 import com.saurabh.artifact.util.SecureString
@@ -46,6 +47,21 @@ class DraftToArtifactMapperTest {
         assertTrue(result.isDraftField)
         assertEquals(Visibility.PRIVATE, result.visibility)
         assertEquals(author, result.author)
+    }
+
+    @Test
+    fun `map should map emotion from draft to artifact`() {
+        val draft = ArtifactDraftEntity(
+            id = "draft_emotion",
+            userId = TEST_USER_ID,
+            localAudioPath = "/path/to/audio.wav",
+            emotion = Emotion.HOPEFUL
+        )
+        val author = AuthorSnapshot(anonymousId = "user_456")
+
+        val result = mapper.map(draft, author, "Fallback")
+
+        assertEquals("Hopeful", result.emotion)
     }
 
     @Test

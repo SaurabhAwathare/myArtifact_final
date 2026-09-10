@@ -65,6 +65,8 @@ class FeedViewModelStateRestorationTest {
         Dispatchers.setMain(testDispatcher)
         
         every { authRepository.currentUser } returns MutableStateFlow(null)
+        every { artifactRepository.moderationRepository.get().events } returns MutableSharedFlow()
+        every { onboardingManager.isMnemonicSaved } returns MutableStateFlow(true)
         every { savedArtifactManager.events } returns MutableSharedFlow()
         every { startupCoordinator.stage } returns MutableStateFlow(com.saurabh.artifact.startup.StartupStage.ARRIVAL)
         every { audioPlayer.currentArtifact } returns MutableStateFlow(null)

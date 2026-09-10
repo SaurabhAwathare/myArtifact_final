@@ -72,7 +72,6 @@ fun IdentitySelectionScreen(
     
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
-    var showProtectDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(uiState) {
         if (uiState is IdentityUiState.Error) {
@@ -88,15 +87,6 @@ fun IdentitySelectionScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    TextButton(onClick = { showProtectDialog = true }) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Filled.Shield, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Protect")
-                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
@@ -295,55 +285,5 @@ fun IdentitySelectionScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
         }
-    }
-
-    if (showProtectDialog) {
-        var severRelationships by remember { mutableStateOf(false) }
-
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { showProtectDialog = false },
-            icon = { Icon(Icons.Filled.Shield, contentDescription = null) },
-            title = { Text("Protect My Identity") },
-            text = {
-                Column {
-                    Text("This will immediately randomize your name and sigil to protect your anonymity. This action is recommended if you believe your identity has been exposed.")
-                    
-                    Spacer(Modifier.height(24.dp))
-                    
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.clickable { severRelationships = !severRelationships }
-                    ) {
-                        androidx.compose.material3.Checkbox(
-                            checked = severRelationships,
-                            onCheckedChange = { severRelationships = it }
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Column {
-                            Text("Clean Break", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                            Text("Remove all current followers and following relationships for a total social reset.", style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showProtectDialog = false
-                        viewModel.emergencyReset(severRelationships) { onComplete() }
-                    },
-                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Text("Randomize Now")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showProtectDialog = false }) {
-                    Text("Cancel")
-                }
-            }
-        )
     }
 }

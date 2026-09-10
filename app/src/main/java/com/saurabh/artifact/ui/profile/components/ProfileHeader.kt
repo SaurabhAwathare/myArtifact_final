@@ -18,7 +18,6 @@ import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.components.ArtifactSigil
 import com.saurabh.artifact.model.SigilConfig
 import com.saurabh.artifact.ui.components.state.LoadingPlaceholder
-import com.saurabh.artifact.util.QualitativeLanguage
 
 /**
  * Redesigned ProfileHeader: Compact, Dense, Instagram-style hierarchy.
@@ -124,13 +123,13 @@ fun ProfileHeader(
                 )
                 StatItem(
                     label = "following", 
-                    displayValue = QualitativeLanguage.getResonanceLabel(followingCount),
+                    displayValue = followingCount.toString(),
                     onClick = onResonatingClick,
                     enabled = isSelf
                 )
                 StatItem(
                     label = "resonators", 
-                    displayValue = QualitativeLanguage.getResonanceLabel(resonatorsCount),
+                    displayValue = resonatorsCount.toString(),
                     onClick = onResonatorsClick,
                     enabled = isSelf
                 )

@@ -47,6 +47,9 @@ import com.google.firebase.firestore.SetOptions
 import com.saurabh.artifact.data.local.InteractionAction
 import com.saurabh.artifact.data.local.InteractionType
 import com.saurabh.artifact.data.local.PendingInteractionEntity
+import com.saurabh.artifact.model.sigil.SigilPalette
+import com.saurabh.artifact.model.sigil.SigilStyle
+import com.saurabh.artifact.model.sigil.SigilVariant
 import com.saurabh.artifact.worker.InteractionSyncWorker
 import java.util.UUID
 import kotlin.time.Duration.Companion.seconds
@@ -830,151 +833,6 @@ open class UserRepository @Inject constructor(
         } catch (e: Exception) {
             diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "SIGIL_CONFIG_UPDATE_FAILED", mapOf(LogKeys.USER_ID to userId), e)
             Result.failure(AppError.from(e))
-        }
-    }
-
-    /**
-     * Immediately randomizes the user's identity for emergency privacy protection.
-     * Hardened with a version-based state machine and atomic transaction.
-     *
-     * @param severRelationships If true, the backend will reciprocally sever all Follow Journey relationships.
-     */
-    suspend fun emergencyIdentityReset(userId: String, severRelationships: Boolean = false): Result<Long> = withContext(Dispatchers.IO) {
-        if (userId.isBlank()) return@withContext Result.failure(AppError.InvalidInput("User ID cannot be blank"))
-
-        try {
-            val userRef = usersCollection.document(userId)
-            
-            val (newName, versionAndSeed) = firestore.runTransaction { transaction ->
-                val userSnapshot = transaction[userRef]
-                val user = userSnapshot.toObject(User::class.java)?.copy(id = userSnapshot.id)
-                    ?: throw IllegalStateException("User profile not found")
-
-                val oldName = user.anonymousName.lowercase().trim()
-                val generatedName = UsernameGenerator.generate()
-                val normalizedNewName = generatedName.lowercase().trim()
-                
-                val currentVersion = user.identityMetadata.identityResetVersion
-                val nextVersion = currentVersion + 1
-
-                // 1. Reserve new username
-                val newUsernameRef = usernamesCollection.document(normalizedNewName)
-                transaction[newUsernameRef] = mapOf(
-                    "uid" to userId,
-                    "createdAt" to FieldValue.serverTimestamp()
-                )
-
-                // 2. Delete old username reservation
-                if (oldName.isNotEmpty()) {
-                    transaction.delete(usernamesCollection.document(oldName))
-                }
-
-                // 3. Update user profile (Sanitization: Refresh anonymousId for true anonymity)
-                val newAnonId = "usr_${java.util.UUID.randomUUID().toString().take(5).uppercase()}"
-                val newResetSeed = UUID.randomUUID().toString()
-                
-                val updateMap = mutableMapOf<String, Any>(
-                    "anonymousId" to newAnonId,
-                    "anonymousName" to generatedName,
-                    "anonymousSigil" to UsernameGenerator.deriveSigil(newAnonId),
-                    "sigilSeed" to newResetSeed,
-                    "sigilConfig.seed" to newResetSeed,
-                    "usernameUpdatedAt" to FieldValue.serverTimestamp(),
-                    "identityMetadata.lastIdentityChangeAt" to FieldValue.serverTimestamp(),
-                    "identityMetadata.emergencyResetCount" to FieldValue.increment(1),
-                    "identityMetadata.identityResetVersion" to nextVersion,
-                    "identityMetadata.resetStartedAt" to FieldValue.serverTimestamp()
-                )
-                
-                if (severRelationships) {
-                    updateMap["identityMetadata.severRelationships"] = true
-                }
-                
-                transaction.update(userRef, updateMap)
-
-                generatedName to (nextVersion to newResetSeed)
-            }.await()
-
-            val (newVersion, newResetSeed) = versionAndSeed
-
-            // 4. Update local profile cache (Isolated/Optimistic)
-            try {
-                getCachedProfile()?.let { user ->
-                    val updatedUser = user.copy(
-                        anonymousName = newName,
-                        sigilSeed = newResetSeed,
-                        sigilConfig = user.sigilConfig.copy(seed = newResetSeed),
-                        identityMetadata = user.identityMetadata.copy(
-                            emergencyResetCount = user.identityMetadata.emergencyResetCount + 1,
-                            identityResetVersion = newVersion,
-                            resetStartedAt = com.google.firebase.Timestamp.now()
-                        )
-                    )
-                    userDao.get().insertProfile(mapUserToLocal(updatedUser))
-                }
-            } catch (e: Exception) {
-                diagnosticLogger.error(DiagnosticCategory.DATABASE, "EMERGENCY_RESET_CACHE_FAILED", mapOf(LogKeys.USER_ID to userId), e)
-            }
-
-            // Zero-Trust: Notification handled by backend (optional/future)
-            // notificationRepository.createNotification(
-            //     userId = userId,
-            //     message = "IDENTITY_PROTECTED|$newName"
-            // )
-
-            // Log moderation event (Isolated)
-            try {
-                val reportRef = firestore.collection("reports").document()
-                reportRef.set(mapOf(
-                    "type" to "EMERGENCY_RESET",
-                    "userId" to userId,
-                    "reporterId" to userId,
-                    "timestamp" to FieldValue.serverTimestamp(),
-                    "reason" to "USER_TRIGGERED_PRIVACY_PROTECTION",
-                    "version" to newVersion
-                )).await()
-            } catch (e: Exception) {
-                diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "EMERGENCY_RESET_AUDIT_FAILED", mapOf(LogKeys.USER_ID to userId), e)
-            }
-
-            // Trigger global identity synchronization (supersede any existing propagation)
-            IdentitySyncWorker.enqueue(context, userId, newVersion, androidx.work.ExistingWorkPolicy.REPLACE)
-
-            diagnosticLogger.info(DiagnosticCategory.AUTH, "EMERGENCY_RESET_SUCCESS", mapOf(LogKeys.USER_ID to userId, "version" to newVersion))
-            Result.success(newVersion)
-        } catch (e: Exception) {
-            diagnosticLogger.error(DiagnosticCategory.AUTH, "EMERGENCY_RESET_FAILED", mapOf(LogKeys.USER_ID to userId), e)
-            Result.failure(AppError.from(e))
-        }
-    }
-
-    /**
-     * Reports an identity exposure (doxxing) incident.
-     */
-    suspend fun reportIdentityExposure(
-        reporterId: String,
-        reportedUserId: String,
-        artifactId: String?
-    ): Result<Unit> = withContext(Dispatchers.IO) {
-        try {
-            // R063 FIX: Use deterministic ID compliant with Firestore Rules: {uid}_exposure_{target}
-            val reportId = "${reporterId}_exposure_${reportedUserId}"
-            val reportRef = firestore.collection("reports").document(reportId)
-            
-            reportRef.set(mapOf(
-                "type" to "IDENTITY_EXPOSURE",
-                "priority" to "CRITICAL",
-                "reporterId" to reporterId,
-                "reportedUserId" to reportedUserId,
-                "artifactId" to artifactId,
-                "timestamp" to FieldValue.serverTimestamp(),
-                "status" to "PENDING"
-            )).await()
-
-            Result.success(Unit)
-        } catch (e: Exception) {
-            diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "IDENTITY_EXPOSURE_REPORT_FAILED", mapOf("reporterId" to reporterId, "reportedUserId" to reportedUserId), e)
-            Result.failure(e)
         }
     }
 
