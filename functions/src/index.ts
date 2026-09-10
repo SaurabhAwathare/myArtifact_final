@@ -921,7 +921,6 @@ export const onUserProfileUpdated = functions.firestore
       sigilSeed: newData.sigilSeed || "",
       sigilColor: newData.sigilColor || "#FFD700",
       sigilConfig: newData.sigilConfig || {},
-      artifactsCount: newData.artifactsCount || 0,
       resonanceInCount: newData.resonanceInCount || 0,
       followersCount: newData.followersCount || 0,
       identityVersion: newData.identityMetadata?.identityResetVersion || 0,
@@ -946,6 +945,97 @@ export const onUserProfileUpdated = functions.firestore
       });
 
     logger.info(`[PROFILE_SYNC] Synced ${anonymousId} for UID ${context.params.uid}`);
+    return null;
+  });
+
+/**
+ * Authoritatively maintains profiles/{personaId}.artifactsCount.
+ * Triggered on any write to artifacts/{artifactId}.
+ * Uses exact count() query and transactional timestamp guard to prevent stale overwrites.
+ */
+export const onArtifactWritten = functions.firestore
+  .document("artifacts/{artifactId}")
+  .onWrite(async (change, context) => {
+    const beforeData = change.before.exists ? change.before.data() : null;
+    const afterData = change.after.exists ? change.after.data() : null;
+
+    // Helper to extract persona ID
+    const getPersonaId = (data: any): string | null => {
+      if (!data) return null;
+      const pid = data.author?.anonymousId || data.anonymousId;
+      return (typeof pid === "string" && pid.trim().length > 0) ? pid.trim() : null;
+    };
+
+    const beforePersonaId = getPersonaId(beforeData);
+    const afterPersonaId = getPersonaId(afterData);
+
+    const isBeforeEligible = beforeData ? (beforeData.status === "ACTIVE" && beforeData.isPublic === true) : false;
+    const isAfterEligible = afterData ? (afterData.status === "ACTIVE" && afterData.isPublic === true) : false;
+
+    // If eligibility and persona ID did not change (e.g. title/audio metadata edit), exit early
+    if (beforePersonaId === afterPersonaId && isBeforeEligible === isAfterEligible && change.before.exists && change.after.exists) {
+      return null;
+    }
+
+    // Collect affected personas (can be up to 2 if persona reassignment occurred)
+    const affectedPersonas = new Set<string>();
+    if (beforePersonaId) affectedPersonas.add(beforePersonaId);
+    if (afterPersonaId) affectedPersonas.add(afterPersonaId);
+
+    if (affectedPersonas.size === 0) {
+      return null;
+    }
+
+    // Determine authoritative event timestamp
+    let eventTimestamp: admin.firestore.Timestamp;
+    if (change.after.exists && change.after.updateTime) {
+      eventTimestamp = change.after.updateTime;
+    } else if (change.before.exists && change.before.updateTime) {
+      eventTimestamp = change.before.updateTime;
+    } else if (context.timestamp) {
+      eventTimestamp = admin.firestore.Timestamp.fromDate(new Date(context.timestamp));
+    } else {
+      eventTimestamp = admin.firestore.Timestamp.now();
+    }
+
+    const db = admin.firestore();
+
+    for (const personaId of affectedPersonas) {
+      // 1. Calculate exact count outside transaction
+      const countSnap = await db.collection("artifacts")
+        .where("author.anonymousId", "==", personaId)
+        .where("isPublic", "==", true)
+        .where("status", "==", "ACTIVE")
+        .count()
+        .get();
+
+      const exactCount = countSnap.data().count;
+
+      // 2. Execute Firestore transaction with stale-write timestamp guard
+      await db.runTransaction(async (transaction) => {
+        const profileRef = db.collection("profiles").doc(personaId);
+        const profileSnap = await transaction.get(profileRef);
+
+        if (profileSnap.exists) {
+          const existingLastUpdated = profileSnap.data()?.artifactsCountLastUpdated;
+          if (existingLastUpdated && typeof existingLastUpdated.toMillis === "function") {
+            if (eventTimestamp.toMillis() <= existingLastUpdated.toMillis()) {
+              logger.info(`[ON_ARTIFACT_WRITTEN] Suppressed stale event for persona ${personaId} | EventTS=${eventTimestamp.toMillis()} <= StoredTS=${existingLastUpdated.toMillis()}`);
+              return;
+            }
+          }
+        }
+
+        transaction.set(profileRef, {
+          id: personaId,
+          artifactsCount: exactCount,
+          artifactsCountLastUpdated: eventTimestamp,
+        }, { merge: true });
+      });
+
+      logger.info(`[ON_ARTIFACT_WRITTEN] Updated profile ${personaId} | Count=${exactCount} | EventTS=${eventTimestamp.toMillis()}`);
+    }
+
     return null;
   });
 

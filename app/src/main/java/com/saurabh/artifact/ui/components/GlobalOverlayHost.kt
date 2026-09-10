@@ -128,10 +128,7 @@ fun GlobalOverlayHost(
                             // Collapse the expanded player before navigation so the destination
                             // screen is immediately visible while keeping playback active.
                             playerViewModel.setExpanded(false)
-                            
-                            // Determine if id is UID or PersonaID
-                            val route = if (id.startsWith("usr_")) Profile(personaId = id) else Profile(userId = id)
-                            navController.navigate(route) {
+                            navController.navigate(Profile(personaId = id)) {
                                 launchSingleTop = true
                             }
                         }
@@ -178,8 +175,7 @@ fun GlobalOverlayHost(
                             onAuthorClick = { id ->
                                 if (id.isNotEmpty()) {
                                     playerViewModel.setExpanded(false)
-                                    val route = if (id.startsWith("usr_")) Profile(personaId = id) else Profile(userId = id)
-                                    navController.navigate(route)
+                                    navController.navigate(Profile(personaId = id))
                                 }
                             }
                         )

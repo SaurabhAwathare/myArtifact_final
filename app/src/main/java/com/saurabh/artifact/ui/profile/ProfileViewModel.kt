@@ -321,7 +321,15 @@ class ProfileViewModel @Inject constructor(
     }
 
     fun loadMorePublished() {
-        val userId = _targetUserId.value ?: _targetPersonaId.value ?: currentUserId ?: return
+        val isSelf = uiState.value.isSelf
+        val queryId = if (isSelf) {
+            currentUserId ?: return
+        } else {
+            _targetPersonaId.value?.ifBlank { null }
+                ?: uiState.value.userProfile?.anonymousId?.ifBlank { null }
+                ?: return // Stop immediately: never fall back to targetUserId or currentUserId for other creators
+        }
+
         if (_isMorePublishedLoading.value || !_hasMorePublished.value) return
 
         val lastDoc = _lastArtifactDocument.value ?: return
@@ -330,10 +338,11 @@ class ProfileViewModel @Inject constructor(
             _isMorePublishedLoading.value = true
             
             val result = artifactRepository.getUserArtifactsPage(
-                userId = userId,
+                userId = queryId,
                 limit = 20,
                 lastVisible = lastDoc,
-                onlyActive = !uiState.value.isSelf
+                onlyActive = !isSelf,
+                isSelf = isSelf
             )
 
             result.onSuccess { (newArtifacts, newLastDoc) ->

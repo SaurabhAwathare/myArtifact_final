@@ -6,6 +6,7 @@ import com.saurabh.artifact.repository.*
 import com.saurabh.artifact.domain.ArtifactVisibilityFilter
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
@@ -112,6 +113,7 @@ class GetProfileDataUseCaseTest {
         val job = launch {
             useCase(null, null).collect { results.add(it) }
         }
+        testScheduler.advanceUntilIdle()
 
         // Initially both visible
         assertEquals(1, results.size)
@@ -119,6 +121,7 @@ class GetProfileDataUseCaseTest {
 
         // Report art1
         suppressedFlow.value = setOf("art1")
+        testScheduler.advanceUntilIdle()
         assertEquals(2, results.size)
         assertEquals(1, results.last()?.publishedArtifacts?.size)
         assertEquals("art2", results.last()?.publishedArtifacts?.get(0)?.id)
@@ -147,5 +150,97 @@ class GetProfileDataUseCaseTest {
 
         assertNotNull(result)
         assertFalse(result!!.isSelf)
+    }
+
+    @Test
+    fun `Test A - targetPersonaId exists should query using targetPersonaId`() = runTest {
+        every { recordingRepository.observeDrafts() } returns flowOf(emptyList())
+        every { userRepository.observeIgnoredUsers() } returns flowOf(emptySet())
+        every { artifactRepository.getUserArtifacts("usr_PERSONA_A", isSelf = false, onlyActive = true) } returns flowOf(emptyList<Artifact>() to null)
+
+        val result = useCase(targetUserId = null, targetPersonaId = "usr_PERSONA_A").first()
+
+        assertNotNull(result)
+        assertFalse(result!!.isSelf)
+        verify {
+            artifactRepository.getUserArtifacts("usr_PERSONA_A", isSelf = false, onlyActive = true)
+        }
+    }
+
+    @Test
+    fun `Test B - targetPersonaId absent + targetUserId exists resolves anonymousId and queries using anonymousId`() = runTest {
+        val creatorProfile = mockk<User> {
+            every { anonymousId } returns "usr_PERSONA_B"
+        }
+        every { userRepository.streamUserProfile("uid_CREATOR_B") } returns flowOf(creatorProfile)
+        every { recordingRepository.observeDrafts() } returns flowOf(emptyList())
+        every { userRepository.observeIgnoredUsers() } returns flowOf(emptySet())
+        every { artifactRepository.getUserArtifacts("usr_PERSONA_B", isSelf = false, onlyActive = true) } returns flowOf(emptyList<Artifact>() to null)
+
+        val result = useCase(targetUserId = "uid_CREATOR_B", targetPersonaId = null).first()
+
+        assertNotNull(result)
+        assertFalse(result!!.isSelf)
+        verify {
+            artifactRepository.getUserArtifacts("usr_PERSONA_B", isSelf = false, onlyActive = true)
+        }
+        verify(exactly = 0) {
+            artifactRepository.getUserArtifacts("uid_CREATOR_B", isSelf = any(), onlyActive = any())
+        }
+    }
+
+    @Test
+    fun `Test C - targetPersonaId absent + targetUserId exists + profile anonymousId missing does NOT query with UID`() = runTest {
+        every { userRepository.streamUserProfile("uid_CREATOR_C") } returns flowOf(null)
+        every { recordingRepository.observeDrafts() } returns flowOf(emptyList())
+        every { userRepository.observeIgnoredUsers() } returns flowOf(emptySet())
+        every { artifactRepository.getUserArtifacts("", isSelf = false, onlyActive = true) } returns flowOf(emptyList<Artifact>() to null)
+
+        val result = useCase(targetUserId = "uid_CREATOR_C", targetPersonaId = null).first()
+
+        assertNotNull(result)
+        assertFalse(result!!.isSelf)
+        verify {
+            artifactRepository.getUserArtifacts("", isSelf = false, onlyActive = true)
+        }
+        verify(exactly = 0) {
+            artifactRepository.getUserArtifacts("uid_CREATOR_C", isSelf = any(), onlyActive = any())
+        }
+    }
+
+    @Test
+    fun `Test D - targetPersonaId exists + targetUserId exists personaId wins`() = runTest {
+        val creatorProfile = mockk<User> {
+            every { anonymousId } returns "usr_PERSONA_D"
+        }
+        every { userRepository.streamUserProfile("usr_PERSONA_D") } returns flowOf(creatorProfile)
+        every { recordingRepository.observeDrafts() } returns flowOf(emptyList())
+        every { userRepository.observeIgnoredUsers() } returns flowOf(emptySet())
+        every { artifactRepository.getUserArtifacts("usr_PERSONA_D", isSelf = false, onlyActive = true) } returns flowOf(emptyList<Artifact>() to null)
+
+        val result = useCase(targetUserId = "uid_CREATOR_D", targetPersonaId = "usr_PERSONA_D").first()
+
+        assertNotNull(result)
+        assertFalse(result!!.isSelf)
+        verify {
+            artifactRepository.getUserArtifacts("usr_PERSONA_D", isSelf = false, onlyActive = true)
+        }
+        verify(exactly = 0) {
+            artifactRepository.getUserArtifacts("uid_CREATOR_D", isSelf = any(), onlyActive = any())
+        }
+    }
+
+    @Test
+    fun `Test G - self Profile uses existing private account-owned path`() = runTest {
+        every { recordingRepository.observeDrafts() } returns flowOf(emptyList())
+        every { artifactRepository.getUserArtifacts("user123", isSelf = true, onlyActive = false) } returns flowOf(emptyList<Artifact>() to null)
+
+        val result = useCase(targetUserId = "user123", targetPersonaId = null).first()
+
+        assertNotNull(result)
+        assertTrue(result!!.isSelf)
+        verify {
+            artifactRepository.getUserArtifacts("user123", isSelf = true, onlyActive = false)
+        }
     }
 }
