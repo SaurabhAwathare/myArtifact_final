@@ -69,6 +69,33 @@ fun ProfileScreen(
                         IconButton(onClick = onNavigateToSettings) {
                             Icon(Icons.Rounded.Settings, contentDescription = "Settings")
                         }
+                    } else if (!uiState.isLoading) {
+                        var menuExpanded by remember { mutableStateOf(false) }
+                        Box {
+                            IconButton(onClick = { menuExpanded = true }) {
+                                Icon(Icons.Rounded.MoreVert, contentDescription = "More Options")
+                            }
+                            DropdownMenu(
+                                expanded = menuExpanded,
+                                onDismissRequest = { menuExpanded = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { 
+                                        Text(if (uiState.isIgnored) "Stop Ignoring" else "Ignore Presence") 
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = if (uiState.isIgnored) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
+                                            contentDescription = null
+                                        )
+                                    },
+                                    onClick = {
+                                        menuExpanded = false
+                                        viewModel.toggleIgnore()
+                                    }
+                                )
+                            }
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -104,9 +131,7 @@ fun ProfileScreen(
                             sigilConfig = uiState.sigilConfig,
                             isSelf = uiState.isSelf,
                             isResonating = uiState.isResonating,
-                            isIgnored = uiState.isIgnored,
                             onResonateClick = { viewModel.toggleResonance() },
-                            onIgnoreClick = { viewModel.toggleIgnore() },
                             onEditClick = onEditIdentity,
                             onResonatorsClick = {
                                 uiState.userProfile?.id?.let { id ->

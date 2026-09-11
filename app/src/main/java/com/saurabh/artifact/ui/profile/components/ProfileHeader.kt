@@ -30,14 +30,12 @@ fun ProfileHeader(
     sigilConfig: SigilConfig,
     isSelf: Boolean,
     isResonating: Boolean,
-    isIgnored: Boolean = false,
     onResonateClick: () -> Unit,
-    onIgnoreClick: () -> Unit = {},
     onEditClick: () -> Unit,
     modifier: Modifier = Modifier,
     onResonatorsClick: () -> Unit = {},
     onResonatingClick: () -> Unit = {},
-    isLoading: Boolean = false
+    isLoading: Boolean = false,
 ) {
     Column(
         modifier = modifier
@@ -148,19 +146,6 @@ fun ProfileHeader(
                 modifier = Modifier.fillMaxWidth(0.6f)
             ) {
                 Text(if (isResonating) "Following" else "Follow")
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            TextButton(
-                onClick = onIgnoreClick,
-                modifier = Modifier.alpha(0.6f)
-            ) {
-                Text(
-                    text = if (isIgnored) "Stop Ignoring" else "Ignore Presence",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = ArtifactTheme.colors.onSurfaceMuted
-                )
             }
         }
     }

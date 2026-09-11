@@ -922,7 +922,9 @@ export const onUserProfileUpdated = functions.firestore
       sigilColor: newData.sigilColor || "#FFD700",
       sigilConfig: newData.sigilConfig || {},
       resonanceInCount: newData.resonanceInCount || 0,
+      resonanceOutCount: newData.resonanceOutCount || 0,
       followersCount: newData.followersCount || 0,
+      followingCount: newData.followingCount || 0,
       identityVersion: newData.identityMetadata?.identityResetVersion || 0,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };

@@ -198,11 +198,7 @@ class PlayerViewModel @Inject constructor(
             else -> PlayerMode.MINI
         }
 
-        val internalOwnerId = if (artifact != null) {
-            artifact.author.anonymousId.ifBlank { artifact.userId }
-        } else {
-            ""
-        }
+        val internalOwnerId = artifact?.author?.anonymousId ?: ""
 
         PlayerStaticState(
             artifact = artifact?.toPlayerArtifact(),

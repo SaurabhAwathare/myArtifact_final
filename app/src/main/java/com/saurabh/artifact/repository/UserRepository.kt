@@ -433,7 +433,9 @@ open class UserRepository @Inject constructor(
                     sigilColor = snapshot.getString("sigilColor") ?: "#FFD700",
                     artifactsCount = snapshot.getLong("artifactsCount") ?: 0L,
                     resonanceInCount = snapshot.getLong("resonanceInCount") ?: 0L,
-                    followersCount = snapshot.getLong("followersCount") ?: 0L
+                    resonanceOutCount = snapshot.getLong("resonanceOutCount") ?: 0L,
+                    followersCount = snapshot.getLong("followersCount") ?: 0L,
+                    followingCount = snapshot.getLong("followingCount") ?: 0L
                 )
                 trySend(user)
             } else {
@@ -471,7 +473,9 @@ open class UserRepository @Inject constructor(
                         sigilColor = snapshot.getString("sigilColor") ?: "#FFD700",
                         artifactsCount = snapshot.getLong("artifactsCount") ?: 0L,
                         resonanceInCount = snapshot.getLong("resonanceInCount") ?: 0L,
-                        followersCount = snapshot.getLong("followersCount") ?: 0L
+                        resonanceOutCount = snapshot.getLong("resonanceOutCount") ?: 0L,
+                        followersCount = snapshot.getLong("followersCount") ?: 0L,
+                        followingCount = snapshot.getLong("followingCount") ?: 0L
                     )
                     trySend(user)
                 } else {
@@ -495,7 +499,9 @@ open class UserRepository @Inject constructor(
                                                 sigilColor = userSnapshot.getString("sigilColor") ?: "#FFD700",
                                                 artifactsCount = userSnapshot.getLong("artifactsCount") ?: 0L,
                                                 resonanceInCount = userSnapshot.getLong("resonanceInCount") ?: 0L,
-                                                followersCount = userSnapshot.getLong("followersCount") ?: 0L
+                                                resonanceOutCount = userSnapshot.getLong("resonanceOutCount") ?: 0L,
+                                                followersCount = userSnapshot.getLong("followersCount") ?: 0L,
+                                                followingCount = userSnapshot.getLong("followingCount") ?: 0L
                                             )
                                             trySend(user)
                                         } else {
@@ -881,7 +887,9 @@ open class UserRepository @Inject constructor(
                                 sigilColor = doc.getString("sigilColor") ?: "#FFD700",
                                 artifactsCount = doc.getLong("artifactsCount") ?: 0L,
                                 resonanceInCount = doc.getLong("resonanceInCount") ?: 0L,
-                                followersCount = doc.getLong("followersCount") ?: 0L
+                                resonanceOutCount = doc.getLong("resonanceOutCount") ?: 0L,
+                                followersCount = doc.getLong("followersCount") ?: 0L,
+                                followingCount = doc.getLong("followingCount") ?: 0L
                             )
                         })
                     }
@@ -915,7 +923,9 @@ open class UserRepository @Inject constructor(
                         sigilColor = map["sigilColor"] as? String ?: "#FFD700",
                         artifactsCount = (map["artifactsCount"] as? Number)?.toLong() ?: 0L,
                         resonanceInCount = (map["resonanceInCount"] as? Number)?.toLong() ?: 0L,
-                        followersCount = (map["followersCount"] as? Number)?.toLong() ?: 0L
+                        resonanceOutCount = (map["resonanceOutCount"] as? Number)?.toLong() ?: 0L,
+                        followersCount = (map["followersCount"] as? Number)?.toLong() ?: 0L,
+                        followingCount = (map["followingCount"] as? Number)?.toLong() ?: 0L
                     )
                 } ?: emptyList()
 
@@ -973,7 +983,9 @@ open class UserRepository @Inject constructor(
                             sigilColor = doc.getString("sigilColor") ?: "#FFD700",
                             artifactsCount = doc.getLong("artifactsCount") ?: 0L,
                             resonanceInCount = doc.getLong("resonanceInCount") ?: 0L,
-                            followersCount = doc.getLong("followersCount") ?: 0L
+                            resonanceOutCount = doc.getLong("resonanceOutCount") ?: 0L,
+                            followersCount = doc.getLong("followersCount") ?: 0L,
+                            followingCount = doc.getLong("followingCount") ?: 0L
                         )
                     }
                     users.addAll(foundUsers)
@@ -998,7 +1010,9 @@ open class UserRepository @Inject constructor(
                                             sigilColor = userDoc.getString("sigilColor") ?: "#FFD700",
                                             artifactsCount = userDoc.getLong("artifactsCount") ?: 0L,
                                             resonanceInCount = userDoc.getLong("resonanceInCount") ?: 0L,
-                                            followersCount = userDoc.getLong("followersCount") ?: 0L
+                                            resonanceOutCount = userDoc.getLong("resonanceOutCount") ?: 0L,
+                                            followersCount = userDoc.getLong("followersCount") ?: 0L,
+                                            followingCount = userDoc.getLong("followingCount") ?: 0L
                                         )
                                         users.add(fallbackUser)
                                     }
