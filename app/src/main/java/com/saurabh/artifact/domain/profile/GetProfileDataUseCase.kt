@@ -7,6 +7,7 @@ import com.saurabh.artifact.model.User
 import com.saurabh.artifact.repository.*
 import com.saurabh.artifact.domain.ArtifactVisibilityFilter
 import com.saurabh.artifact.model.ArtifactStatus
+import com.saurabh.artifact.model.ArtifactLifecycle
 import kotlinx.coroutines.flow.*
 import javax.inject.Inject
 
@@ -99,7 +100,8 @@ class GetProfileDataUseCase @Inject constructor(
                         @Suppress("UNCHECKED_CAST")
                         val artifactsWithSnapshot = params[1] as Pair<List<Artifact>, DocumentSnapshot?>
                         @Suppress("UNCHECKED_CAST")
-                        val localDrafts = params[2] as List<ArtifactDraftEntity>
+                        val rawLocalDrafts = params[2] as List<ArtifactDraftEntity>
+                        val localDrafts = rawLocalDrafts.filter { it.lifecycle != ArtifactLifecycle.PUBLISHED }
                         val isResonating = params[3] as Boolean
                         val isIgnored = params[4] as Boolean
                         @Suppress("UNCHECKED_CAST")

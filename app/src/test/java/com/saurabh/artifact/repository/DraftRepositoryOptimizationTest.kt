@@ -44,6 +44,7 @@ class DraftRepositoryOptimizationTest {
             every { anonymousId } returns "usr_test"
             every { anonymousName } returns "Test User"
             every { anonymousSigil } returns "T"
+            every { sigilSeed } returns "seed_123"
         }
         
         val baseDraft = ArtifactDraftEntity(

@@ -620,14 +620,22 @@ export const onReactionIntentCreated = functions.firestore
         }
       }
 
+      const actorDoc = await db.collection("users").doc(uid).get();
+      const actorAnonId = actorDoc.data()?.anonymousId || "unknown";
+
+      // Defense-in-depth: Prohibit creator from reacting to their own artifact
+      if ((ownerId && ownerId === uid) || (authorAnonId && actorAnonId !== "unknown" && authorAnonId === actorAnonId)) {
+        logger.warn(`[REACTION_REJECTED] Self-Resonate prohibited | UID=${uid} | ArtifactID=${artifactId}`);
+        await db.doc(`users/${uid}/private/interactions/reactions/${artifactId}`).delete().catch(() => {});
+        await snapshot.ref.delete().catch(() => {});
+        return;
+      }
+
       // Privacy Boundary: Block notifications for private artifacts if not by owner
       if (!artifactData.isPublic && ownerId && ownerId !== uid) {
         logger.info(`[REACTION_NOTIF] Suppressed for private artifact | ArtifactID=${artifactId}`);
         return;
       }
-
-      const actorDoc = await db.collection("users").doc(uid).get();
-      const actorAnonId = actorDoc.data()?.anonymousId || "unknown";
 
       const reactionId = `${artifactId}_${actorAnonId}`;
       const globalRef = db.collection("artifact_reactions").doc(reactionId);

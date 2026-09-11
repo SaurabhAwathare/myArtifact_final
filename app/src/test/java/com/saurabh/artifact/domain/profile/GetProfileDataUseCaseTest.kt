@@ -243,4 +243,55 @@ class GetProfileDataUseCaseTest {
             artifactRepository.getUserArtifacts("user123", isSelf = true, onlyActive = false)
         }
     }
+
+    @Test
+    fun `should exclude published local drafts from profile localDrafts`() = runTest {
+        val publishedDraft = mockk<ArtifactDraftEntity> {
+            every { id } returns "published_draft_id"
+            every { lifecycle } returns ArtifactLifecycle.PUBLISHED
+        }
+        val activeDraft = mockk<ArtifactDraftEntity> {
+            every { id } returns "active_draft_id"
+            every { lifecycle } returns ArtifactLifecycle.REVIEW_REQUIRED
+        }
+        every { recordingRepository.observeDrafts() } returns flowOf(listOf(publishedDraft, activeDraft))
+        every { artifactRepository.getUserArtifacts("user123", isSelf = true, onlyActive = false) } returns flowOf(emptyList<Artifact>() to null)
+
+        val result = useCase(null, null).first()
+
+        assertNotNull(result)
+        assertEquals(1, result!!.localDrafts.size)
+        assertEquals("active_draft_id", result.localDrafts[0].id)
+        assertEquals(ArtifactLifecycle.REVIEW_REQUIRED, result.localDrafts[0].lifecycle)
+    }
+
+    @Test
+    fun `should include unfinished local drafts across all active lifecycles`() = runTest {
+        val lifecycles = listOf(
+            ArtifactLifecycle.RECORDING,
+            ArtifactLifecycle.PROCESSING,
+            ArtifactLifecycle.REVIEW_REQUIRED,
+            ArtifactLifecycle.METADATA_REQUIRED,
+            ArtifactLifecycle.READY_TO_PUBLISH
+        )
+        val activeDrafts = lifecycles.mapIndexed { index, lc ->
+            mockk<ArtifactDraftEntity> {
+                every { id } returns "draft_$index"
+                every { lifecycle } returns lc
+            }
+        }
+        val publishedDraft = mockk<ArtifactDraftEntity> {
+            every { id } returns "draft_published"
+            every { lifecycle } returns ArtifactLifecycle.PUBLISHED
+        }
+
+        every { recordingRepository.observeDrafts() } returns flowOf(activeDrafts + publishedDraft)
+        every { artifactRepository.getUserArtifacts("user123", isSelf = true, onlyActive = false) } returns flowOf(emptyList<Artifact>() to null)
+
+        val result = useCase(null, null).first()
+
+        assertNotNull(result)
+        assertEquals(5, result!!.localDrafts.size)
+        assertTrue(result.localDrafts.none { it.lifecycle == ArtifactLifecycle.PUBLISHED })
+    }
 }

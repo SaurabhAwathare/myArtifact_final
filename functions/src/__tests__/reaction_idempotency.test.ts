@@ -148,4 +148,48 @@ describe("Reaction Idempotency", () => {
     // Verify no batch was created (since task was skipped)
     expect(mockFirestore.batch).not.toHaveBeenCalled();
   });
+
+  it("onReactionIntentCreated should reject self-reaction when ownerId matches uid", async () => {
+    const wrapped = testEnv.wrap(myFunctions.onReactionIntentCreated);
+    const deleteFn = jest.fn(() => Promise.resolve());
+    const snapshot = {
+      data: () => ({ artifactId: "art1", action: "ADD", type: "RESONATE" }),
+      ref: { delete: deleteFn },
+    } as any;
+
+    (mockFirestore.runTransaction as any).mockImplementationOnce(async (cb: (t: any) => Promise<any>) => {
+      const transaction = {
+        get: jest.fn<any>().mockResolvedValue({ exists: false }),
+        set: jest.fn(),
+        update: jest.fn(),
+        delete: jest.fn(),
+      };
+      return cb(transaction);
+    });
+
+    // Mock artifactDoc
+    mockDoc.get.mockImplementation(async () => {
+      return {
+        exists: true,
+        data: () => ({
+          author: { anonymousId: "anon_creator" },
+          isPublic: true,
+        }),
+      };
+    });
+
+    // Mock persona_mapping doc lookup returning same user (ownerId == uid)
+    mockCollection.get.mockImplementation(async () => ({
+      empty: false,
+      docs: [{ id: "user_creator" }],
+    }));
+
+    await wrapped(snapshot, {
+      params: { uid: "user_creator", artifactId: "art1" },
+      eventId: "test_self_reaction_event",
+    });
+
+    // Verify intent snapshot was deleted (self-reaction rejected)
+    expect(deleteFn).toHaveBeenCalled();
+  });
 });

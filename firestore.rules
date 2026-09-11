@@ -254,7 +254,8 @@ service cloud.firestore {
       }
 
       match /private/intents/reactions/{artifactId} {
-        allow write: if isOwner(uid) && enforceAppCheck();
+        allow create: if isOwner(uid) && enforceAppCheck() && !isArtifactOwner(artifactId);
+        allow update, delete: if isOwner(uid) && enforceAppCheck();
       }
 
       match /private/intents/comments/{commentId} {
