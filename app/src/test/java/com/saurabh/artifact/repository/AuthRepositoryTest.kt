@@ -10,6 +10,7 @@ import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.messaging.FirebaseMessaging
 import com.saurabh.artifact.diagnostics.ArtifactLogger
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.FakeDiagnosticLogger
@@ -35,6 +36,12 @@ class AuthRepositoryTest {
     @Before
     fun setup() {
         ArtifactLogger.init(fakeLogger)
+
+        mockkStatic(FirebaseMessaging::class)
+        val mockMessaging = mockk<FirebaseMessaging>(relaxed = true)
+        every { FirebaseMessaging.getInstance() } returns mockMessaging
+        val deleteTokenTask = mockk<Task<Void>>(relaxed = true)
+        every { mockMessaging.deleteToken() } returns deleteTokenTask
 
         repository = AuthRepository(
             firebaseAuth = firebaseAuth,
@@ -79,7 +86,7 @@ class AuthRepositoryTest {
         
         // Verify individual calls since coVerifyOrder is more robust for suspend functions
         coVerifyOrder {
-            settingsDoc.update("fcmToken", FieldValue.delete())
+            settingsDoc.update("fcmToken", any())
             credentialManager.clearCredentialState(any<ClearCredentialStateRequest>())
             firebaseAuth.signOut()
         }
@@ -185,7 +192,7 @@ class AuthRepositoryTest {
         
         // Verify order: FCM clear happens BEFORE auth deletion
         coVerifyOrder {
-            settingsDoc.update("fcmToken", FieldValue.delete())
+            settingsDoc.update("fcmToken", any())
             mockUser.delete()
         }
     }

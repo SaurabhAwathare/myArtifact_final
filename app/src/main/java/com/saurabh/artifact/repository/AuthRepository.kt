@@ -20,6 +20,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -35,6 +37,13 @@ class AuthRepository @Inject constructor(
 
     private val _currentUser = MutableStateFlow(firebaseAuth.currentUser)
     val currentUser: StateFlow<FirebaseUser?> = _currentUser
+
+    private val _isRestored = MutableStateFlow(false)
+    val isRestored: StateFlow<Boolean> = _isRestored.asStateFlow()
+
+    suspend fun awaitAuthRestoration() {
+        _isRestored.first { it }
+    }
 
     private val _userData = MutableStateFlow<User?>(null)
     val userData: StateFlow<User?> = _userData
@@ -66,6 +75,7 @@ class AuthRepository @Inject constructor(
                 mapOf("uid" to (user?.uid ?: "null"), "timestamp" to System.currentTimeMillis())
             )
             _currentUser.value = user
+            _isRestored.value = true
             if (user != null) {
                 repositoryScope.launch {
                     startupCoordinator.awaitComponent(StartupComponent.CORE)

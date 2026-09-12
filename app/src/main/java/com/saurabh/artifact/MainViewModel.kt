@@ -28,7 +28,7 @@ import kotlinx.serialization.json.Json
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import androidx.annotation.OptIn
-import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import com.saurabh.artifact.model.AppError
 
 sealed class AppStartupState {
@@ -127,15 +127,17 @@ class MainViewModel @Inject constructor(
         // regardless of startup path, and respects the cleanup barrier.
         combine(
             authRepository.currentUser,
+            sessionManager.owningUid,
             isCleaning
-        ) { user, cleaning ->
-            user?.uid to cleaning
+        ) { user, owningUid, cleaning ->
+            Triple(user?.uid, owningUid, cleaning)
         }
         .distinctUntilChanged()
-        .onEach { (uid, cleaning) ->
-            if ((uid != null) && !cleaning) {
+        .onEach { (uid, owningUid, cleaning) ->
+            val isMismatched = uid != null && owningUid != null && owningUid != uid
+            if (uid != null && !cleaning && !isMismatched) {
                 userProfileManager.initializeSafetySync(uid)
-            } else if (uid == null) {
+            } else if (uid == null || isMismatched) {
                 userProfileManager.stopSafetySync()
             }
         }
@@ -157,20 +159,20 @@ class MainViewModel @Inject constructor(
                     val isTransitionToUnauthenticated = (previousUid != null && currentUid == null)
                     
                     if (isUidChange && started.get() && _startupState.value !is AppStartupState.Initializing) {
-                        val owningUid = sessionManager.owningUid.first()
-                        
-                        // DECISION: Trigger cleanup if:
-                        // 1. We just logged out (A -> null)
-                        // 2. We swapped users (A -> B)
-                        // 3. We logged into B but DataStore still belongs to A (null -> B and dirty)
-                        val isCleanupRequired = isTransitionToUnauthenticated || 
-                                               (currentUid != null && owningUid != null && owningUid != currentUid)
-                        
-                        if (isCleanupRequired) {
-                            diagnosticLogger.info(DiagnosticCategory.AUTH, "ACCOUNT_BOUNDARY_DETECTED", mapOf("from" to (previousUid ?: "null"), "to" to (currentUid ?: "null")))
+                        _isCleaning.value = true
+                        try {
+                            val owningUid = sessionManager.owningUid.first()
                             
-                            try {
-                                _isCleaning.value = true
+                            // DECISION: Trigger cleanup if:
+                            // 1. We just logged out (A -> null)
+                            // 2. We swapped users (A -> B)
+                            // 3. We logged into B but DataStore still belongs to A (null -> B and dirty)
+                            val isCleanupRequired = isTransitionToUnauthenticated || 
+                                                   (currentUid != null && owningUid != null && owningUid != currentUid)
+                            
+                            if (isCleanupRequired) {
+                                diagnosticLogger.info(DiagnosticCategory.AUTH, "ACCOUNT_BOUNDARY_DETECTED", mapOf("from" to (previousUid ?: "null"), "to" to (currentUid ?: "null")))
+                                
                                 // BLOCKING: Ensure cleanup completes before continuing to prevent stale data visibility
                                 val result = logoutCoordinator.performFullCleanup()
                                 if (result.isFullySuccessful) {
@@ -178,17 +180,17 @@ class MainViewModel @Inject constructor(
                                 } else {
                                     diagnosticLogger.error(DiagnosticCategory.AUTH, "ACCOUNT_CLEANUP_INCOMPLETE", mapOf("result" to result.toString()))
                                 }
-                            } catch (_: Exception) {
-                                diagnosticLogger.error(DiagnosticCategory.AUTH, "ACCOUNT_CLEANUP_FAILED")
-                            } finally {
-                                _isCleaning.value = false
-                                if (currentUid == null) {
-                                    // Hard Reset to Login screen only if we are now logged out
-                                    _startupState.value = AppStartupState.Ready(
-                                        startDestination = Login,
-                                        securityStatus = startupCoordinator.securityStatus.value
-                                    )
-                                }
+                            }
+                        } catch (_: Exception) {
+                            diagnosticLogger.error(DiagnosticCategory.AUTH, "ACCOUNT_CLEANUP_FAILED")
+                        } finally {
+                            _isCleaning.value = false
+                            if (currentUid == null) {
+                                // Hard Reset to Login screen only if we are now logged out
+                                _startupState.value = AppStartupState.Ready(
+                                    startDestination = Login,
+                                    securityStatus = startupCoordinator.securityStatus.value
+                                )
                             }
                         }
                     }
@@ -274,6 +276,7 @@ class MainViewModel @Inject constructor(
      * or false if a critical failure occurred that must block startup.
      */
     private suspend fun checkLocalAccountBoundary(): Boolean {
+        authRepository.awaitAuthRestoration()
         val currentUid = authRepository.currentUserId
         val owningUid = sessionManager.owningUid.first()
         val pendingDeletionUid = maintenanceRepository.getPendingDeletionUid()
@@ -433,18 +436,10 @@ class MainViewModel @Inject constructor(
                     is RegistrationResult.Failure -> {
                         diagnosticLogger.error(DiagnosticCategory.STARTUP, "STARTUP_REGISTRATION_FAILED", throwable = result.exception)
                         
-                        val isUnauthenticatedOrDenied = result.exception is AppError.Unauthenticated ||
-                                result.exception is AppError.PermissionDenied ||
-                                (result.exception is FirebaseFirestoreException &&
-                                        result.exception.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) ||
-                                result.exception.message?.contains("Unauthenticated", ignoreCase = true) == true ||
-                                result.exception.message?.contains("PERMISSION_DENIED", ignoreCase = true) == true ||
-                                result.exception.message?.contains("Permission", ignoreCase = true) == true ||
-                                result.exception.message?.contains("denied", ignoreCase = true) == true ||
-                                result.exception.message?.contains("unauthorized", ignoreCase = true) == true ||
-                                result.exception.message?.contains("unrecoverable", ignoreCase = true) == true
+                        val isExplicitRevocation = result.exception is FirebaseAuthInvalidUserException ||
+                                result.exception.message?.contains("terminated", ignoreCase = true) == true
 
-                        if (isUnauthenticatedOrDenied) {
+                        if (isExplicitRevocation) {
                             diagnosticLogger.warn(DiagnosticCategory.STARTUP, "STARTUP_SESSION_INVALID_RECOVERING")
                             try {
                                 _isCleaning.value = true
@@ -543,6 +538,12 @@ class MainViewModel @Inject constructor(
             // Cold Start / Initializing: Buffer for determineInitialRoute()
             diagnosticLogger.info(DiagnosticCategory.NAV, "COLD_START_INTENT_BUFFERED", mapOf("event" to event.javaClass.simpleName))
             
+            if (event is IncomingArtifact) {
+                pendingStartupEvents.removeAll { it is IncomingArtifact }
+            } else if (event is Route) {
+                pendingStartupEvents.removeAll { it is Route }
+            }
+
             // BOUNDED FIFO QUEUE: Ensure no data loss while maintaining memory safety
             if (pendingStartupEvents.size >= MAX_PENDING_EVENTS) {
                 pendingStartupEvents.removeAt(0)

@@ -16,6 +16,7 @@ class GetInitialDestinationUseCase @Inject constructor(
     private val onboardingManager: OnboardingManager
 ) {
     suspend operator fun invoke(): InitialDestination {
+        authRepository.awaitAuthRestoration()
         val firebaseUser = authRepository.currentUser.value
         val onboardingCompleted = onboardingManager.isOnboardingCompleted.first()
 
