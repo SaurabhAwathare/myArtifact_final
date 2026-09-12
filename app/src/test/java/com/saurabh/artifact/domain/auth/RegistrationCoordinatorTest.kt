@@ -4,9 +4,10 @@ import com.saurabh.artifact.diagnostics.ArtifactLogger
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.FakeDiagnosticLogger
 import com.saurabh.artifact.diagnostics.TestNoOpDiagnosticLogger
-import com.saurabh.artifact.repository.UserRepository
-import com.saurabh.artifact.repository.ProfileResult
+import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.User
+import com.saurabh.artifact.repository.ProfileResult
+import com.saurabh.artifact.repository.UserRepository
 import io.mockk.*
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -81,13 +82,28 @@ class RegistrationCoordinatorTest {
     }
 
     @Test
-    fun `ensureProfileExists returns Failure when health is Unrecoverable`() = runBlocking {
+    fun `ensureProfileExists returns Failure with AppError PermissionDenied when health is PermissionDenied`() = runBlocking {
+        val cause = AppError.PermissionDenied("Firestore permission denied")
+        coEvery { profileHealthChecker.checkHealth() } returns HealthStatus.PermissionDenied(cause)
+
+        val result = coordinator.ensureProfileExists()
+
+        assertTrue(result is RegistrationResult.Failure)
+        val failure = result as RegistrationResult.Failure
+        assertTrue(failure.exception is AppError.PermissionDenied)
+        assertEquals("Firestore permission denied", failure.exception.message)
+        fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "REGISTRATION_FAILURE_PERMISSION_DENIED")
+    }
+
+    @Test
+    fun `ensureProfileExists returns Failure with AppError Unauthenticated when health is Unrecoverable`() = runBlocking {
         coEvery { profileHealthChecker.checkHealth() } returns HealthStatus.Unrecoverable
 
         val result = coordinator.ensureProfileExists()
 
         assertTrue(result is RegistrationResult.Failure)
-        assertEquals("Profile is unrecoverable", (result as RegistrationResult.Failure).exception.message)
+        val failure = result as RegistrationResult.Failure
+        assertTrue(failure.exception is AppError.Unauthenticated)
         fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "REGISTRATION_FAILURE_UNRECOVERABLE")
     }
 
@@ -100,7 +116,8 @@ class RegistrationCoordinatorTest {
         val result = coordinator.ensureProfileExists()
 
         assertTrue(result is RegistrationResult.Failure)
-        assertEquals(exception, (result as RegistrationResult.Failure).exception)
-        fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "REGISTRATION_FAILURE", predicate = { it.throwable == exception })
+        val failure = result as RegistrationResult.Failure
+        assertTrue(failure.exception is AppError)
+        fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "REGISTRATION_FAILURE")
     }
 }

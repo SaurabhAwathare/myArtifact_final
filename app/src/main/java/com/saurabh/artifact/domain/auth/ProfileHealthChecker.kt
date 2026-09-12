@@ -1,18 +1,20 @@
 package com.saurabh.artifact.domain.auth
 
-import android.util.Log
 import com.saurabh.artifact.diagnostics.ArtifactLogger
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.saurabh.artifact.model.User
 import com.saurabh.artifact.model.UserPrivateSettings
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeout
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 sealed class HealthStatus {
@@ -22,6 +24,7 @@ sealed class HealthStatus {
     object Unrecoverable : HealthStatus()
     object Missing : HealthStatus()
     object Terminated : HealthStatus()
+    data class PermissionDenied(val cause: Throwable? = null) : HealthStatus()
 }
 
 @Singleton
@@ -29,41 +32,78 @@ class ProfileHealthChecker @Inject constructor(
     private val auth: FirebaseAuth,
     private val firestore: FirebaseFirestore
 ) {
+    companion object {
+        private const val MAX_ATTEMPTS = 5
+        private const val INITIAL_BACKOFF_MS = 200L
+        private const val MAX_BACKOFF_MS = 1000L
+    }
+
     suspend fun checkHealth(): HealthStatus {
         val currentUser = auth.currentUser ?: return HealthStatus.Missing
         val userId = currentUser.uid
-        android.util.Log.d("RACE_CHECK", "Profile Health Check Started: ${System.currentTimeMillis()}")
+        ArtifactLogger.d(DiagnosticCategory.AUTH, "PROFILE_CHECK_STARTED")
 
-        return try {
-            fetchHealthStatus(userId)
-        } catch (e: TimeoutCancellationException) {
-            ArtifactLogger.e(DiagnosticCategory.AUTH, "PROFILE_CHECK_TIMEOUT")
-            HealthStatus.Missing
-        } catch (e: Exception) {
-            val isPermissionDenied = e is FirebaseFirestoreException &&
-                    e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED
+        var tokenRefreshed = false
+        var lastPermissionException: FirebaseFirestoreException? = null
 
-            if (isPermissionDenied) {
-                ArtifactLogger.w(DiagnosticCategory.AUTH, "PROFILE_CHECK_PERMISSION_DENIED_RETRYING")
-                try {
-                    // One explicit ID token refresh attempt on PERMISSION_DENIED
-                    currentUser.getIdToken(true).await()
-                    ArtifactLogger.i(DiagnosticCategory.AUTH, "PROFILE_CHECK_TOKEN_REFRESH_SUCCESS")
-                    // Retry authorization check once
-                    fetchHealthStatus(userId)
-                } catch (retryException: Exception) {
-                    ArtifactLogger.e(
+        for (attempt in 1..MAX_ATTEMPTS) {
+            if (attempt > 1) {
+                val calculatedBackoff = INITIAL_BACKOFF_MS * (1 shl (attempt - 2))
+                val backoffMs = calculatedBackoff.coerceAtMost(MAX_BACKOFF_MS)
+                delay(backoffMs.milliseconds)
+            }
+
+            try {
+                return fetchHealthStatus(userId)
+            } catch (e: TimeoutCancellationException) {
+                ArtifactLogger.e(DiagnosticCategory.AUTH, "PROFILE_CHECK_TIMEOUT")
+                return HealthStatus.Missing
+            } catch (e: FirebaseFirestoreException) {
+                if (e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+                    lastPermissionException = e
+                    ArtifactLogger.w(
                         DiagnosticCategory.AUTH,
-                        "PROFILE_CHECK_PERMISSION_DENIED_PERSISTENT",
-                        throwable = retryException
+                        "PROFILE_CHECK_PERMISSION_DENIED_RETRYING",
+                        mapOf("attempt" to attempt, "maxAttempts" to MAX_ATTEMPTS)
                     )
-                    HealthStatus.Unrecoverable
+                    if (!tokenRefreshed) {
+                        try {
+                            // Note: getIdToken(true) refreshes FirebaseAuth token in memory,
+                            // but Firestore SDK syncs its internal credential provider asynchronously.
+                            // The bounded retry loop serves as the practical application-level readiness boundary.
+                            currentUser.getIdToken(true).await()
+                            tokenRefreshed = true
+                            ArtifactLogger.i(DiagnosticCategory.AUTH, "PROFILE_CHECK_TOKEN_REFRESH_SUCCESS")
+                        } catch (tokenException: Exception) {
+                            ArtifactLogger.w(
+                                DiagnosticCategory.AUTH,
+                                "PROFILE_CHECK_TOKEN_REFRESH_FAILED",
+                                throwable = tokenException
+                            )
+                            if (tokenException is FirebaseAuthInvalidUserException) {
+                                return HealthStatus.Unrecoverable
+                            }
+                        }
+                    }
+                } else {
+                    ArtifactLogger.e(DiagnosticCategory.AUTH, "PROFILE_CHECK_FAILED", throwable = e)
+                    return HealthStatus.Missing
                 }
-            } else {
+            } catch (e: Exception) {
                 ArtifactLogger.e(DiagnosticCategory.AUTH, "PROFILE_CHECK_FAILED", throwable = e)
-                HealthStatus.Missing // Treat non-permission error as missing to trigger recovery/repair
+                if (e is FirebaseAuthInvalidUserException) {
+                    return HealthStatus.Unrecoverable
+                }
+                return HealthStatus.Missing
             }
         }
+
+        ArtifactLogger.e(
+            DiagnosticCategory.AUTH,
+            "PROFILE_CHECK_PERMISSION_DENIED_PERSISTENT",
+            throwable = lastPermissionException
+        )
+        return HealthStatus.PermissionDenied(lastPermissionException)
     }
 
     private suspend fun fetchHealthStatus(userId: String): HealthStatus {
@@ -71,7 +111,6 @@ class ProfileHealthChecker @Inject constructor(
         val privateRef = userRef.collection("private").document("settings")
 
         ArtifactLogger.d(DiagnosticCategory.AUTH, "PROFILE_CHECK_FETCH_USER")
-        Log.d("RACE_CHECK", "FIRST_FIRESTORE_REQUEST")
         val userSnapshot = withTimeout(10.seconds) {
             userRef.get().await()
         }

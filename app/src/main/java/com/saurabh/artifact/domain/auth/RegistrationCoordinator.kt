@@ -58,18 +58,30 @@ class RegistrationCoordinator @Inject constructor(
                             },
                             onFailure = { e ->
                                 ArtifactLogger.e(DiagnosticCategory.AUTH, "REGISTRATION_FAILURE", throwable = e)
-                                RegistrationResult.Failure(e)
+                                RegistrationResult.Failure(AppError.from(e))
                             }
                         )
                 }
+                is HealthStatus.PermissionDenied -> {
+                    ArtifactLogger.e(
+                        DiagnosticCategory.AUTH,
+                        "REGISTRATION_FAILURE_PERMISSION_DENIED",
+                        throwable = status.cause
+                    )
+                    RegistrationResult.Failure(
+                        status.cause as? AppError ?: AppError.PermissionDenied(
+                            technicalMessage = status.cause?.message ?: "Profile verification failed: PERMISSION_DENIED"
+                        )
+                    )
+                }
                 HealthStatus.Unrecoverable -> {
                     ArtifactLogger.e(DiagnosticCategory.AUTH, "REGISTRATION_FAILURE_UNRECOVERABLE")
-                    RegistrationResult.Failure(AppError.Unauthenticated("Profile is unrecoverable: PERMISSION_DENIED or session revoked"))
+                    RegistrationResult.Failure(AppError.Unauthenticated("Profile is unrecoverable: Session revoked or invalid"))
                 }
             }
         } catch (e: Exception) {
             ArtifactLogger.e(DiagnosticCategory.AUTH, "REGISTRATION_FAILURE", throwable = e)
-            RegistrationResult.Failure(e)
+            RegistrationResult.Failure(AppError.from(e))
         }
     }
 }
