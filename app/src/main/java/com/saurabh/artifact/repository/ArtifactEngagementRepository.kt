@@ -2,6 +2,7 @@ package com.saurabh.artifact.repository
 
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.saurabh.artifact.diagnostics.ArtifactLogger
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
@@ -39,7 +40,7 @@ class ArtifactEngagementRepository @Inject constructor(
         if (emotion.isEmpty()) return@withContext Result.success(Unit)
         
         try {
-            com.saurabh.artifact.diagnostics.ArtifactLogger.d(DiagnosticCategory.RESONANCE, "PLAY_RECORD_STARTED", mapOf(LogKeys.ARTIFACT_ID to artifactId))
+            ArtifactLogger.d(DiagnosticCategory.RESONANCE, "PLAY_RECORD_STARTED", mapOf(LogKeys.ARTIFACT_ID to artifactId))
             
             val hasConsent = settingsRepository.get().userSettings.first().dataCollectionConsent
 
@@ -92,7 +93,7 @@ class ArtifactEngagementRepository @Inject constructor(
                 }
             }.await()
             
-            com.saurabh.artifact.diagnostics.ArtifactLogger.i(DiagnosticCategory.RESONANCE, "PLAY_RECORD_SUCCESS", mapOf(LogKeys.ARTIFACT_ID to artifactId))
+            ArtifactLogger.i(DiagnosticCategory.RESONANCE, "PLAY_RECORD_SUCCESS", mapOf(LogKeys.ARTIFACT_ID to artifactId))
             Result.success(Unit)
         } catch (e: Exception) {
             diagnosticLogger.error(DiagnosticCategory.RESONANCE, "PLAY_RECORD_FAILED", mapOf("emotion" to emotion, LogKeys.ARTIFACT_ID to artifactId), e)

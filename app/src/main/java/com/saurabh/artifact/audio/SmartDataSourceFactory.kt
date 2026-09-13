@@ -104,6 +104,7 @@ class SmartDataSourceFactory(
                     .setCache(MediaCache.getInstance(context))
                     .setUpstreamDataSourceFactory(upstreamFactory)
                     .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+                    .setCacheKeyFactory(ArtifactCacheKeyFactory)
                     .createDataSource()
                 
                 return DiagnosticDataSource(cacheDataSource, "CACHE").also { 

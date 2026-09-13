@@ -44,6 +44,7 @@ object MediaPreCacher {
                 val dataSource = CacheDataSource.Factory()
                     .setCache(cache)
                     .setUpstreamDataSourceFactory(DefaultHttpDataSource.Factory())
+                    .setCacheKeyFactory(ArtifactCacheKeyFactory)
                     .createDataSource()
                 
                 Log.d("MediaPreCacher", "Starting pre-cache for: $url")
