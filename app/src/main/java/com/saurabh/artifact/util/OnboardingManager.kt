@@ -53,6 +53,13 @@ class OnboardingManager @Inject constructor(
         }
     }
 
+    suspend fun clearUserSessionData() {
+        context.dataStore.edit { preferences ->
+            preferences.remove(mnemonicSavedKey)
+            preferences.remove(userGoalsKey)
+        }
+    }
+
     suspend fun clear() {
         context.dataStore.edit { it.clear() }
     }

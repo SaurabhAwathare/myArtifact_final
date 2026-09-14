@@ -21,8 +21,8 @@ class GetInitialDestinationUseCase @Inject constructor(
         val onboardingCompleted = onboardingManager.isOnboardingCompleted.first()
 
         return when {
-            !onboardingCompleted -> InitialDestination.ONBOARDING
             firebaseUser != null -> InitialDestination.AUTHENTICATED
+            !onboardingCompleted -> InitialDestination.ONBOARDING
             else -> InitialDestination.UNAUTHENTICATED
         }
     }

@@ -101,28 +101,24 @@ open class UserRepository @Inject constructor(
             val newCount = if (isWithinWindow) user.identityMetadata.identityChangeCount30Days + 1 else 1
 
             firestore.runTransaction { transaction ->
-                val usernameRef = usernamesCollection.document(normalizedUsername)
-
-                // 1. Check if the username is already taken
-                val usernameDoc = transaction[usernameRef]
-                if (usernameDoc.exists()) {
-                    val existingUserId = usernameDoc.getString("uid") ?: usernameDoc.getString("userId")
-                    if (existingUserId != userId) {
-                        throw AppError.UsernameTaken(normalizedUsername)
-                    }
-                }
-
-                // 2. Get current user to find old username for cleanup
                 val userDoc = transaction[userRef]
                 val oldUsername = userDoc.getString("anonymousName")?.lowercase()?.trim()
 
-                // 3. Reserve the new username
+                val usernameRef = usernamesCollection.document(normalizedUsername)
+
+                // 1. Check if the username is already taken by another profile
+                val usernameDoc = transaction[usernameRef]
+                if (usernameDoc.exists() && oldUsername != normalizedUsername) {
+                    throw AppError.UsernameTaken(normalizedUsername)
+                }
+
+                // 2. Reserve the new username (Privacy-safe reservation schema)
                 transaction[usernameRef] = mapOf(
-                    "uid" to userId,
+                    "reserved" to true,
                     "createdAt" to FieldValue.serverTimestamp()
                 )
 
-                // 4. Update the user profile
+                // 3. Update the user profile
                 transaction.update(
                     userRef, mapOf(
                         "anonymousName" to username,
@@ -133,8 +129,8 @@ open class UserRepository @Inject constructor(
                         "identityMetadata.identityResetVersion" to FieldValue.increment(1) // Trigger backend propagation
                 ))
 
-                // 5. Clean up old username reservation
-                if ((oldUsername != null) && (oldUsername != normalizedUsername)) {
+                // 4. Clean up old username reservation
+                if (oldUsername != null && oldUsername != normalizedUsername) {
                     transaction.delete(usernamesCollection.document(oldUsername))
                 }
             }.await()

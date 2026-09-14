@@ -30,6 +30,7 @@ class AuthRepositoryTest {
     private val credentialManager = mockk<CredentialManager>(relaxed = true)
     private val startupCoordinator = mockk<StartupCoordinator>(relaxed = true)
     private val fakeLogger = FakeDiagnosticLogger()
+    private val deleteTokenTask = mockk<Task<Void>>(relaxed = true)
 
     private lateinit var repository: AuthRepository
 
@@ -40,8 +41,9 @@ class AuthRepositoryTest {
         mockkStatic(FirebaseMessaging::class)
         val mockMessaging = mockk<FirebaseMessaging>(relaxed = true)
         every { FirebaseMessaging.getInstance() } returns mockMessaging
-        val deleteTokenTask = mockk<Task<Void>>(relaxed = true)
         every { mockMessaging.deleteToken() } returns deleteTokenTask
+        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        coEvery { deleteTokenTask.await() } returns mockk()
 
         repository = AuthRepository(
             firebaseAuth = firebaseAuth,
@@ -75,6 +77,7 @@ class AuthRepositoryTest {
         every { settingsDoc.update("fcmToken", any()) } returns updateTask
         
         mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        coEvery { deleteTokenTask.await() } returns mockk()
         coEvery { updateTask.await() } returns mockk()
 
         // Mock credentialManager.clearCredentialState
@@ -111,6 +114,7 @@ class AuthRepositoryTest {
         every { settingsDoc.update("fcmToken", any()) } returns updateTask
         
         mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        coEvery { deleteTokenTask.await() } returns mockk()
         coEvery { updateTask.await() } throws Exception("Firestore error")
 
         val result = repository.signOut()
@@ -141,6 +145,7 @@ class AuthRepositoryTest {
         every { settingsDoc.update("fcmToken", any()) } returns updateTask
         
         mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        coEvery { deleteTokenTask.await() } returns mockk()
         // Use mockk for the exception to avoid complex initialization of FirebaseFirestoreException
         val permissionDeniedException = mockk<FirebaseFirestoreException>()
         every { permissionDeniedException.message } returns "Permission denied"
@@ -183,6 +188,7 @@ class AuthRepositoryTest {
         every { settingsDoc.update("fcmToken", any()) } returns updateTask
         
         mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        coEvery { deleteTokenTask.await() } returns mockk()
         coEvery { updateTask.await() } returns mockk()
         coEvery { mockUser.delete().await() } returns mockk()
 

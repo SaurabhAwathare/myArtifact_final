@@ -256,9 +256,9 @@ class LogoutCoordinator @Inject constructor(
                         diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_BACKUP_FAILED", throwable = e)
                     }
 
-                    // 10.6 Clear Onboarding State
+                    // 10.6 Clear Onboarding State (User Session Only - preserve onboarding_completed)
                     try {
-                        onboardingManager.clear()
+                        onboardingManager.clearUserSessionData()
                     } catch (e: Exception) {
                         diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_ONBOARDING_FAILED", throwable = e)
                     }

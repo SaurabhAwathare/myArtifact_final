@@ -29,6 +29,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import androidx.annotation.OptIn
 import com.google.firebase.auth.FirebaseAuthInvalidUserException
+import com.saurabh.artifact.audio.RecordingService
+import com.saurabh.artifact.data.local.RecordingStatus
 import com.saurabh.artifact.model.AppError
 
 sealed class AppStartupState {
@@ -467,8 +469,8 @@ class MainViewModel @Inject constructor(
 
         // Integration of Deep Link Intent into the first Ready state
         // RESOLUTION: If the queue contains a Route, the LAST one becomes the startDestination
-        // and is removed from the queue.
-        val lastRouteIndex = pendingStartupEvents.indexOfLast { it is Route }
+        // and is removed from the queue. InstantRecord is excluded so it remains deferred over Home.
+        val lastRouteIndex = pendingStartupEvents.indexOfLast { it is Route && it !is InstantRecord }
         val finalDestination = if (lastRouteIndex != -1 && destination == InitialDestination.AUTHENTICATED) {
             pendingStartupEvents.removeAt(lastRouteIndex) as Route
         } else {
@@ -481,6 +483,10 @@ class MainViewModel @Inject constructor(
             securityStatus = startupCoordinator.securityStatus.value
         ))
         markAuthReady()
+
+        if (pendingStartupEvents.isNotEmpty()) {
+            startDeferredNavigationObserver()
+        }
     }
 
     private fun updateStartupState(state: AppStartupState.Ready) {
@@ -559,6 +565,14 @@ class MainViewModel @Inject constructor(
         }
     }
 
+    private fun isRecordingActive(): Boolean {
+        val status = RecordingService.recordingState.value.status
+        return status == RecordingStatus.RECORDING ||
+               status == RecordingStatus.PAUSED ||
+               status == RecordingStatus.PREPARING ||
+               status == RecordingStatus.COUNTDOWN
+    }
+
     private fun startDeferredNavigationObserver() {
         val job = deferredNavigationJob
         if (job != null && job.isActive) return
@@ -587,6 +601,15 @@ class MainViewModel @Inject constructor(
 
                 if (actorId != null && ignoredUsers.value.contains(actorId)) {
                     diagnosticLogger.warn(DiagnosticCategory.AUTH, "STARTUP_NAVIGATION_REJECTED_IGNORED_ACTOR", mapOf("actorId" to actorId))
+                    return@forEach
+                }
+
+                if (event is InstantRecord && !isRecordingActive()) {
+                    diagnosticLogger.warn(
+                        DiagnosticCategory.RECORDING,
+                        "DEFERRED_INSTANT_RECORD_REJECTED_INACTIVE",
+                        mapOf("status" to RecordingService.recordingState.value.status.name)
+                    )
                     return@forEach
                 }
 
@@ -656,6 +679,28 @@ class MainViewModel @Inject constructor(
     }
 
     private fun emitNavigationEvent(event: Any) {
+        if (authRepository.currentUser.value == null) {
+            diagnosticLogger.warn(DiagnosticCategory.AUTH, "NAVIGATION_EVENT_REJECTED_UNAUTHENTICATED")
+            return
+        }
+
+        if (event is InstantRecord) {
+            if (!isRecordingActive()) {
+                diagnosticLogger.warn(
+                    DiagnosticCategory.RECORDING,
+                    "INSTANT_RECORD_NAVIGATION_REJECTED_INACTIVE",
+                    mapOf("status" to RecordingService.recordingState.value.status.name)
+                )
+                return
+            }
+            val currentState = _startupState.value
+            if (currentState is AppStartupState.Ready && 
+                (currentState.startDestination is Onboarding || currentState.startDestination is Login)) {
+                diagnosticLogger.warn(DiagnosticCategory.NAV, "INSTANT_RECORD_REJECTED_ONBOARDING_OR_LOGIN")
+                return
+            }
+        }
+
         if (event is IncomingArtifact && event.source == PlaybackSource.NOTIFICATION) {
             val currentUid = authRepository.currentUserId
             // RECIPIENT HARDENING: Fail closed if recipientId is missing or mismatched (Warm Start)

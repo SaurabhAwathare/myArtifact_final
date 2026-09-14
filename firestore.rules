@@ -394,9 +394,20 @@ service cloud.firestore {
     }
 
     match /usernames/{id} {
-      allow read: if isAuth() && resource.data.uid == request.auth.uid;
-      allow create: if isAuth() && enforceAppCheck() && request.resource.data.uid == request.auth.uid;
-      allow update, delete: if isAuth() && enforceAppCheck() && resource.data.uid == request.auth.uid;
+      allow read: if isAuth();
+      allow create: if isAuth() && enforceAppCheck() &&
+                    !('uid' in request.resource.data) &&
+                    !('userId' in request.resource.data) &&
+                    request.resource.data.reserved == true &&
+                    request.resource.data.keys().hasOnly(['reserved', 'createdAt']);
+      allow update: if isAuth() && enforceAppCheck() &&
+                    get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('anonymousName', '').lower() == id &&
+                    !('uid' in request.resource.data) &&
+                    !('userId' in request.resource.data) &&
+                    request.resource.data.reserved == true &&
+                    request.resource.data.keys().hasOnly(['reserved', 'createdAt']);
+      allow delete: if isAuth() && enforceAppCheck() &&
+                    get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('anonymousName', '').lower() == id;
     }
 
     // --- PUBLIC PROFILES (Sanitized) ---

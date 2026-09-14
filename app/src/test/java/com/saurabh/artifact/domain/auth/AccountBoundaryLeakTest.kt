@@ -51,7 +51,7 @@ class AccountBoundaryLeakTest {
         assertTrue(onboardingManager.isMnemonicSaved.first())
         
         // 2. Simulate Logout
-        onboardingManager.clear()
+        onboardingManager.clearUserSessionData()
         
         // 3. Verify User B starts fresh
         assertFalse(onboardingManager.isMnemonicSaved.first())

@@ -130,6 +130,10 @@ class LogoutCoordinatorTest {
         // Verify backup security cleanup
         coVerify { backupEncryptionManager.clear() }
 
+        // Verify onboarding user-session cleanup (preserves onboarding_completed)
+        coVerify { onboardingManager.clearUserSessionData() }
+        coVerify(exactly = 0) { onboardingManager.clear() }
+
         // Verify Personalization cleanup
         verify { personalizationEngine.clearLocalData() }
 
@@ -171,7 +175,7 @@ class LogoutCoordinatorTest {
         // Verify sign out was still called (Final Phase)
         coVerify { authRepository.signOut() }
 
-        fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_SESSION_FAILED")
+        fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "LOGOUT_SKIP_DATASTORE_CLEAR")
         fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_DB_FAILED")
         fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_STORAGE_FAILED")
     }

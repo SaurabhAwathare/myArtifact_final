@@ -419,4 +419,94 @@ class UserRepositoryTest {
         val res = repository.isResonating("user123", "target123")
         assertTrue(res)
     }
+
+    @Test
+    fun `isUsernameAvailable normalizes username and checks document existence`() = runBlocking {
+        val usernameDoc = mockk<DocumentReference>(relaxed = true)
+        val snapshot = mockk<DocumentSnapshot>()
+        val mockTask = mockk<Task<DocumentSnapshot>>(relaxed = true)
+
+        every { mockColl.document("pro zach 627") } returns usernameDoc
+        every { usernameDoc.get() } returns mockTask
+        coEvery { mockTask.await() } returns snapshot
+        every { snapshot.exists() } returns false
+
+        val result = repository.isUsernameAvailable("  Pro Zach 627  ")
+
+        assertTrue(result.isSuccess)
+        assertEquals(true, result.getOrNull())
+        verify(exactly = 1) { mockColl.document("pro zach 627") }
+    }
+
+    @Test
+    fun `isUsernameAvailable returns false when username reservation exists`() = runBlocking {
+        val usernameDoc = mockk<DocumentReference>(relaxed = true)
+        val snapshot = mockk<DocumentSnapshot>()
+        val mockTask = mockk<Task<DocumentSnapshot>>(relaxed = true)
+
+        every { mockColl.document("takenuser") } returns usernameDoc
+        every { usernameDoc.get() } returns mockTask
+        coEvery { mockTask.await() } returns snapshot
+        every { snapshot.exists() } returns true
+
+        val result = repository.isUsernameAvailable("takenuser")
+
+        assertTrue(result.isSuccess)
+        assertEquals(false, result.getOrNull())
+    }
+
+    @Test
+    fun `createUsername writes privacy-safe schema without uid or userId fields`() = runBlocking {
+        every { auth.currentUser } returns mockk(relaxed = true)
+        coEvery { regCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
+
+        val userId = "user123"
+        val userRef = mockk<DocumentReference>(relaxed = true)
+        val userSnap = mockk<DocumentSnapshot>()
+        val existingUser = User(id = userId, anonymousName = "Old Name")
+        every { mockColl.document(userId) } returns userRef
+        every { userSnap.exists() } returns true
+        every { userSnap.toObject(User::class.java) } returns existingUser
+        every { userSnap.id } returns userId
+        
+        val userGetTask = mockk<Task<DocumentSnapshot>>(relaxed = true)
+        every { userRef.get() } returns userGetTask
+        coEvery { userGetTask.await() } returns userSnap
+
+        val usernameRef = mockk<DocumentReference>(relaxed = true)
+        every { mockColl.document("newname") } returns usernameRef
+
+        val usernameSnap = mockk<DocumentSnapshot>()
+        every { usernameSnap.exists() } returns false
+
+        val oldUsernameRef = mockk<DocumentReference>(relaxed = true)
+        every { mockColl.document("old name") } returns oldUsernameRef
+
+        val userDocInTx = mockk<DocumentSnapshot>()
+        every { userDocInTx.getString("anonymousName") } returns "Old Name"
+
+        val transaction = mockk<Transaction>(relaxed = true)
+        every { transaction.get(usernameRef) } returns usernameSnap
+        every { transaction.get(userRef) } returns userDocInTx
+
+        val setMapSlot = slot<Map<String, Any>>()
+        every { transaction.set(eq(usernameRef), capture(setMapSlot)) } returns transaction
+
+        every { firestore.runTransaction<Unit>(any()) } answers {
+            val block = firstArg<Transaction.Function<Unit>>()
+            block.apply(transaction)
+            val task = mockk<Task<Unit>>(relaxed = true)
+            coEvery { task.await() } returns Unit
+            task
+        }
+
+        val result = repository.createUsername(userId, "NewName")
+
+        assertTrue(result.isSuccess)
+        val mapWritten = setMapSlot.captured
+        assertEquals(true, mapWritten["reserved"])
+        assertFalse("Written schema must NOT contain uid", mapWritten.containsKey("uid"))
+        assertFalse("Written schema must NOT contain userId", mapWritten.containsKey("userId"))
+        verify(exactly = 1) { transaction.delete(oldUsernameRef) }
+    }
 }

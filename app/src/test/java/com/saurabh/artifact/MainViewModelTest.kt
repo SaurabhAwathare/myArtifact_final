@@ -20,6 +20,8 @@ import com.saurabh.artifact.startup.StartupComponent
 import com.saurabh.artifact.startup.StartupCoordinator
 import com.saurabh.artifact.startup.StartupMetrics
 import com.saurabh.artifact.domain.ArtifactVisibilityFilter
+import com.saurabh.artifact.audio.RecordingService
+import com.saurabh.artifact.data.local.RecordingStatus
 import com.saurabh.artifact.navigation.*
 import com.saurabh.artifact.startup.SecurityStatus
 import com.saurabh.artifact.security.PreloadResult
@@ -36,6 +38,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.lang.reflect.Modifier
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainViewModelTest {
@@ -221,8 +224,22 @@ class MainViewModelTest {
         verify { StartupMetrics.onAuthReady() }
     }
 
+    private fun setRecordingServiceStatus(status: RecordingStatus) {
+        val field = try {
+            RecordingService::class.java.getDeclaredField("_recordingState")
+        } catch (_: NoSuchFieldException) {
+            RecordingService.Companion::class.java.getDeclaredField("_recordingState")
+        }
+        field.isAccessible = true
+        val target = if (Modifier.isStatic(field.modifiers)) null else RecordingService.Companion
+        @Suppress("UNCHECKED_CAST")
+        val stateFlow = field.get(target) as MutableStateFlow<RecordingService.Companion.RecordingState>
+        stateFlow.value = RecordingService.Companion.RecordingState(status = status)
+    }
+
     @After
     fun tearDown() {
+        setRecordingServiceStatus(RecordingStatus.IDLE)
         Dispatchers.resetMain()
         unmockkAll()
     }
@@ -234,6 +251,7 @@ class MainViewModelTest {
         testAuthFlow.value = user
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
+        setRecordingServiceStatus(RecordingStatus.RECORDING)
         
         viewModel.start()
         testScheduler.runCurrent() // Reach Ready state
@@ -348,6 +366,7 @@ class MainViewModelTest {
         // Setup: App is Ready, but user is logged out
         testAuthFlow.value = null
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.UNAUTHENTICATED
+        setRecordingServiceStatus(RecordingStatus.RECORDING)
         
         viewModel.start()
         testScheduler.runCurrent()
@@ -365,6 +384,115 @@ class MainViewModelTest {
         advanceUntilIdle()
 
         assertTrue(navigationEvents.isEmpty())
+        job.cancel()
+    }
+
+    @Test
+    fun `recording notification with active recording should set startDestination to Home and emit InstantRecord event`() = runTest {
+        val user = mockk<FirebaseUser>(relaxed = true)
+        testAuthFlow.value = user
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
+        coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
+        setRecordingServiceStatus(RecordingStatus.RECORDING)
+
+        every { intent.getBooleanExtra("navigate_to_recording", false) } returns true
+        every { intent.getStringExtra("artifactId") } returns null
+
+        viewModel.onLaunchIntent(intent)
+
+        val navigationEvents = mutableListOf<Any>()
+        val job = launch {
+            viewModel.navigationEvent.collect { navigationEvents.add(it) }
+        }
+
+        viewModel.start()
+        advanceUntilIdle()
+
+        val state = viewModel.startupState.value
+        assertTrue(state is AppStartupState.Ready)
+        assertEquals(Home, (state as AppStartupState.Ready).startDestination)
+        assertTrue(navigationEvents.any { it is InstantRecord })
+        job.cancel()
+    }
+
+    @Test
+    fun `recording notification with idle recording state should set startDestination to Home and NOT emit InstantRecord event`() = runTest {
+        val user = mockk<FirebaseUser>(relaxed = true)
+        testAuthFlow.value = user
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
+        coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
+        setRecordingServiceStatus(RecordingStatus.IDLE)
+
+        every { intent.getBooleanExtra("navigate_to_recording", false) } returns true
+        every { intent.getStringExtra("artifactId") } returns null
+
+        viewModel.onLaunchIntent(intent)
+
+        val navigationEvents = mutableListOf<Any>()
+        val job = launch {
+            viewModel.navigationEvent.collect { navigationEvents.add(it) }
+        }
+
+        viewModel.start()
+        advanceUntilIdle()
+
+        val state = viewModel.startupState.value
+        assertTrue(state is AppStartupState.Ready)
+        assertEquals(Home, (state as AppStartupState.Ready).startDestination)
+        assertTrue(navigationEvents.none { it is InstantRecord })
+        job.cancel()
+    }
+
+    @Test
+    fun `recording notification when unauthenticated should set startDestination to Login and NOT emit InstantRecord event`() = runTest {
+        testAuthFlow.value = null
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.UNAUTHENTICATED
+        setRecordingServiceStatus(RecordingStatus.RECORDING)
+
+        every { intent.getBooleanExtra("navigate_to_recording", false) } returns true
+        every { intent.getStringExtra("artifactId") } returns null
+
+        viewModel.onLaunchIntent(intent)
+
+        val navigationEvents = mutableListOf<Any>()
+        val job = launch {
+            viewModel.navigationEvent.collect { navigationEvents.add(it) }
+        }
+
+        viewModel.start()
+        advanceUntilIdle()
+
+        val state = viewModel.startupState.value
+        assertTrue(state is AppStartupState.Ready)
+        assertEquals(Login, (state as AppStartupState.Ready).startDestination)
+        assertTrue(navigationEvents.none { it is InstantRecord })
+        job.cancel()
+    }
+
+    @Test
+    fun `recording notification when unonboarded should set startDestination to Onboarding and NOT emit InstantRecord event`() = runTest {
+        val user = mockk<FirebaseUser>(relaxed = true)
+        testAuthFlow.value = user
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.ONBOARDING
+        setRecordingServiceStatus(RecordingStatus.RECORDING)
+
+        every { intent.getBooleanExtra("navigate_to_recording", false) } returns true
+        every { intent.getStringExtra("artifactId") } returns null
+
+        viewModel.onLaunchIntent(intent)
+
+        val navigationEvents = mutableListOf<Any>()
+        val job = launch {
+            viewModel.navigationEvent.collect { navigationEvents.add(it) }
+        }
+
+        viewModel.start()
+        advanceUntilIdle()
+
+        val state = viewModel.startupState.value
+        assertTrue(state is AppStartupState.Ready)
+        assertEquals(Onboarding, (state as AppStartupState.Ready).startDestination)
+        assertTrue(navigationEvents.none { it is InstantRecord })
         job.cancel()
     }
 
