@@ -7,6 +7,7 @@ import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ListenerRegistration
 import com.saurabh.artifact.diagnostics.ArtifactLogger
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
@@ -16,7 +17,9 @@ import com.saurabh.artifact.startup.StartupCoordinator
 import com.saurabh.artifact.startup.StartupComponent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -51,10 +54,19 @@ class AuthRepository @Inject constructor(
     private val _privateSettings = MutableStateFlow<com.saurabh.artifact.model.UserPrivateSettings?>(null)
     val privateSettings: StateFlow<com.saurabh.artifact.model.UserPrivateSettings?> = _privateSettings
 
+    companion object {
+        private const val MAX_LISTENER_ATTEMPTS = 5
+        private const val INITIAL_BACKOFF_MS = 200L
+        private const val MAX_BACKOFF_MS = 1000L
+    }
+
     private var userDataListener: ListenerRegistration? = null
     private var userDataListenerId: Int = -1
     private var userDataListenerCreatedAt: Long = 0
+    private var userDataRetryJob: Job? = null
+
     private var privateSettingsListener: ListenerRegistration? = null
+    private var privateSettingsRetryJob: Job? = null
 
     private val listenerIdGenerator = java.util.concurrent.atomic.AtomicInteger(0)
 
@@ -119,7 +131,15 @@ class AuthRepository @Inject constructor(
         })
     }
 
-    private fun observeUserData(userId: String) {
+    private fun observeUserData(userId: String, attempt: Int = 1) {
+        userDataRetryJob?.cancel()
+        userDataRetryJob = null
+
+        if (firebaseAuth.currentUser?.uid != userId) {
+            ArtifactLogger.w(DiagnosticCategory.AUTH, "USER_DATA_LISTEN_ABORTED_USER_MISMATCH")
+            return
+        }
+
         // Prevent duplicate listeners
         if (userDataListener != null) {
             val lifetime = System.currentTimeMillis() - userDataListenerCreatedAt
@@ -134,6 +154,7 @@ class AuthRepository @Inject constructor(
                 )
             )
             userDataListener?.remove()
+            userDataListener = null
             ArtifactLogger.i(DiagnosticCategory.AUTH, "LISTENER_TERMINATED", mapOf("path" to "users/$userId"))
         }
 
@@ -148,6 +169,7 @@ class AuthRepository @Inject constructor(
             mapOf(
                 "listenerId" to id,
                 "path" to "users/$userId",
+                "attempt" to attempt,
                 "createdAt" to createdAt,
                 "timestamp" to System.currentTimeMillis()
             )
@@ -167,33 +189,34 @@ class AuthRepository @Inject constructor(
                             "code" to error.code.name,
                             "message" to (error.message ?: ""),
                             "cause" to (error.cause?.toString() ?: "null"),
+                            "attempt" to attempt,
                             "timestamp" to System.currentTimeMillis()
                         ),
                         error
                     )
                     
                     if (error.code == com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED) {
-                        ArtifactLogger.d(
-                            DiagnosticCategory.AUTH,
-                            "LISTENER_CALLBACK_END",
-                            mapOf(
-                                "listenerId" to id,
-                                "reason" to "PERMISSION_DENIED",
-                                "isRegistrationStillHeld" to (userDataListener != null),
-                                "timestamp" to System.currentTimeMillis()
+                        if (firebaseAuth.currentUser?.uid == userId && attempt < MAX_LISTENER_ATTEMPTS) {
+                            val calculatedBackoff = INITIAL_BACKOFF_MS * (1 shl (attempt - 1))
+                            val backoffMs = calculatedBackoff.coerceAtMost(MAX_BACKOFF_MS)
+                            ArtifactLogger.w(
+                                DiagnosticCategory.AUTH,
+                                "USER_DATA_PERMISSION_DENIED_RETRYING",
+                                mapOf("path" to "users/$userId", "attempt" to attempt, "backoffMs" to backoffMs)
                             )
-                        )
-                        ArtifactLogger.d(
-                            DiagnosticCategory.AUTH,
-                            "AUTH_REPOSITORY_STATE",
-                            mapOf(
-                                "listenerId" to id,
-                                "uid" to (firebaseAuth.currentUser?.uid ?: "null"),
-                                "userDataListenerHeld" to (userDataListener != null),
-                                "userDataPopulated" to (_userData.value != null),
-                                "timestamp" to System.currentTimeMillis()
+                            userDataRetryJob = repositoryScope.launch {
+                                delay(backoffMs)
+                                if (firebaseAuth.currentUser?.uid == userId) {
+                                    observeUserData(userId, attempt + 1)
+                                }
+                            }
+                        } else {
+                            ArtifactLogger.e(
+                                DiagnosticCategory.AUTH,
+                                "USER_DATA_PERMISSION_DENIED_PERSISTENT",
+                                mapOf("path" to "users/$userId", "attempt" to attempt)
                             )
-                        )
+                        }
                     }
                     return@addSnapshotListener
                 }
@@ -219,9 +242,18 @@ class AuthRepository @Inject constructor(
             }
     }
 
-    private fun observePrivateSettings(userId: String) {
+    private fun observePrivateSettings(userId: String, attempt: Int = 1) {
+        privateSettingsRetryJob?.cancel()
+        privateSettingsRetryJob = null
+
+        if (firebaseAuth.currentUser?.uid != userId) {
+            ArtifactLogger.w(DiagnosticCategory.AUTH, "PRIVATE_SETTINGS_LISTEN_ABORTED_USER_MISMATCH")
+            return
+        }
+
         if (privateSettingsListener != null) {
             privateSettingsListener?.remove()
+            privateSettingsListener = null
             ArtifactLogger.i(DiagnosticCategory.AUTH, "LISTENER_TERMINATED", mapOf("path" to "users/$userId/private/settings"))
         }
 
@@ -238,10 +270,35 @@ class AuthRepository @Inject constructor(
                             "path" to "users/$userId/private/settings",
                             "code" to error.code.name,
                             "message" to (error.message ?: ""),
+                            "attempt" to attempt,
                             "timestamp" to System.currentTimeMillis()
                         ),
                         error
                     )
+
+                    if (error.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+                        if (firebaseAuth.currentUser?.uid == userId && attempt < MAX_LISTENER_ATTEMPTS) {
+                            val calculatedBackoff = INITIAL_BACKOFF_MS * (1 shl (attempt - 1))
+                            val backoffMs = calculatedBackoff.coerceAtMost(MAX_BACKOFF_MS)
+                            ArtifactLogger.w(
+                                DiagnosticCategory.AUTH,
+                                "PRIVATE_SETTINGS_PERMISSION_DENIED_RETRYING",
+                                mapOf("path" to "users/$userId/private/settings", "attempt" to attempt, "backoffMs" to backoffMs)
+                            )
+                            privateSettingsRetryJob = repositoryScope.launch {
+                                delay(backoffMs)
+                                if (firebaseAuth.currentUser?.uid == userId) {
+                                    observePrivateSettings(userId, attempt + 1)
+                                }
+                            }
+                        } else {
+                            ArtifactLogger.e(
+                                DiagnosticCategory.AUTH,
+                                "PRIVATE_SETTINGS_PERMISSION_DENIED_PERSISTENT",
+                                mapOf("path" to "users/$userId/private/settings", "attempt" to attempt)
+                            )
+                        }
+                    }
                     return@addSnapshotListener
                 }
 
@@ -264,6 +321,9 @@ class AuthRepository @Inject constructor(
     }
 
     private fun cleanupListeners() {
+        userDataRetryJob?.cancel()
+        userDataRetryJob = null
+
         if (userDataListener != null) {
             val lifetime = System.currentTimeMillis() - userDataListenerCreatedAt
             ArtifactLogger.i(
@@ -281,6 +341,9 @@ class AuthRepository @Inject constructor(
         }
         userDataListener = null
         
+        privateSettingsRetryJob?.cancel()
+        privateSettingsRetryJob = null
+
         if (privateSettingsListener != null) {
             privateSettingsListener?.remove()
             ArtifactLogger.i(DiagnosticCategory.AUTH, "LISTENER_TERMINATED", mapOf("path" to "privateSettings"))

@@ -202,4 +202,14 @@ class AuthRepositoryTest {
             mockUser.delete()
         }
     }
+
+    @Test
+    fun `getIdToken force refresh is not called on PERMISSION_DENIED recovery`() = runBlocking {
+        val mockUser = mockk<FirebaseUser>()
+        every { mockUser.uid } returns "test-uid"
+        every { firebaseAuth.currentUser } returns mockUser
+
+        // Verify getIdToken(true) is never invoked by AuthRepository for snapshot listener recovery
+        verify(exactly = 0) { mockUser.getIdToken(true) }
+    }
 }

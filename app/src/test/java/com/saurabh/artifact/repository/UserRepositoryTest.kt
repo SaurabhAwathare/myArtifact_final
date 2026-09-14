@@ -1,6 +1,7 @@
 package com.saurabh.artifact.repository
 
 import android.content.Context
+import android.text.TextUtils
 import com.google.android.gms.tasks.Task
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthInvalidUserException
@@ -30,7 +31,10 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
+@RunWith(RobolectricTestRunner::class)
 class UserRepositoryTest {
     private val context = mockk<Context>()
     private val auth = mockk<FirebaseAuth>()
@@ -49,6 +53,11 @@ class UserRepositoryTest {
     @Before
     fun setup() {
         mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        mockkStatic(TextUtils::class)
+        every { TextUtils.isEmpty(any()) } answers {
+            val arg = firstArg<CharSequence?>()
+            arg == null || arg.isEmpty()
+        }
 
         val mockSnapshot = mockk<DocumentSnapshot>(relaxed = true)
         
@@ -233,6 +242,80 @@ class UserRepositoryTest {
         repository.getOrCreateProfile()
 
         verify(exactly = 1) { auth.signOut() }
+        unmockkStatic("kotlinx.coroutines.tasks.TasksKt")
+    }
+
+    @Test
+    fun `getOrCreateProfile retries on PERMISSION_DENIED and succeeds without getIdToken(true)`() = runBlocking {
+        val userId = "user123"
+        val firebaseUser = mockk<FirebaseUser>()
+        every { firebaseUser.uid } returns userId
+        every { firebaseUser.email } returns "test@example.com"
+        every { firebaseUser.displayName } returns "Test User"
+        every { firebaseUser.reload() } returns mockk(relaxed = true)
+        every { auth.currentUser } returns firebaseUser
+
+        val snapshot = mockk<DocumentSnapshot>()
+        val user = User(id = userId, anonymousName = "Name", anonymousId = "usr_123", anonymousSigil = "23", sigilSeed = "seed", sigilConfig = SigilConfig(seed = "seed", version = 3))
+        every { snapshot.exists() } returns true
+        every { snapshot.toObject(User::class.java) } returns user
+        every { snapshot.id } returns userId
+        every { snapshot.get(any<String>()) } returns null
+
+        val transaction = mockk<Transaction>(relaxed = true)
+        every { transaction.get(any<DocumentReference>()) } returns snapshot
+
+        val permissionDenied = FirebaseFirestoreException("Permission denied", FirebaseFirestoreException.Code.PERMISSION_DENIED)
+        var callCount = 0
+
+        every { firestore.runTransaction<Any>(any()) } answers {
+            callCount++
+            if (callCount == 1) {
+                val failedTask = mockk<Task<Any>>()
+                coEvery { failedTask.await() } throws permissionDenied
+                failedTask
+            } else {
+                val block = firstArg<Transaction.Function<Any>>()
+                val result = block.apply(transaction)
+                val successTask = mockk<Task<Any>>(relaxed = true)
+                coEvery { successTask.await() } returns (result ?: mockk())
+                successTask
+            }
+        }
+
+        val result = repository.getOrCreateProfile()
+
+        assertTrue("Should succeed on retry", result.isSuccess)
+        assertEquals(2, callCount)
+        verify(exactly = 0) { firebaseUser.getIdToken(any()) }
+
+        unmockkStatic("kotlinx.coroutines.tasks.TasksKt")
+    }
+
+    @Test
+    fun `getOrCreateProfile fails after bounded retries on persistent PERMISSION_DENIED`() = runBlocking {
+        val userId = "user123"
+        val firebaseUser = mockk<FirebaseUser>()
+        every { firebaseUser.uid } returns userId
+        every { firebaseUser.email } returns "test@example.com"
+        every { firebaseUser.displayName } returns "Test User"
+        every { firebaseUser.reload() } returns mockk(relaxed = true)
+        every { auth.currentUser } returns firebaseUser
+
+        val permissionDenied = FirebaseFirestoreException("Permission denied", FirebaseFirestoreException.Code.PERMISSION_DENIED)
+
+        every { firestore.runTransaction<Any>(any()) } answers {
+            val failedTask = mockk<Task<Any>>()
+            coEvery { failedTask.await() } throws permissionDenied
+            failedTask
+        }
+
+        val result = repository.getOrCreateProfile()
+
+        assertTrue("Should fail on persistent permission denied", result.isFailure)
+        verify(exactly = 5) { firestore.runTransaction<Any>(any()) }
+        verify(exactly = 0) { firebaseUser.getIdToken(any()) }
+
         unmockkStatic("kotlinx.coroutines.tasks.TasksKt")
     }
 
@@ -508,5 +591,174 @@ class UserRepositoryTest {
         assertFalse("Written schema must NOT contain uid", mapWritten.containsKey("uid"))
         assertFalse("Written schema must NOT contain userId", mapWritten.containsKey("userId"))
         verify(exactly = 1) { transaction.delete(oldUsernameRef) }
+    }
+
+    @Test
+    fun `getOrCreateProfile lastSeen migration succeeds`() = runBlocking {
+        val userId = "user123"
+        val firebaseUser = mockk<FirebaseUser>()
+        every { firebaseUser.uid } returns userId
+        every { firebaseUser.email } returns "test@example.com"
+        every { firebaseUser.displayName } returns "Test User"
+        every { firebaseUser.reload() } returns mockk(relaxed = true)
+        every { auth.currentUser } returns firebaseUser
+
+        val snapshot = mockk<DocumentSnapshot>()
+        val user = User(id = userId, anonymousName = "Name", anonymousId = "usr_123", anonymousSigil = "23", sigilSeed = "seed", sigilConfig = SigilConfig(seed = "seed", version = 3))
+        every { snapshot.exists() } returns true
+        every { snapshot.toObject(User::class.java) } returns user
+        every { snapshot.id } returns userId
+        
+        val rootData = mapOf("lastSeen" to 123456789L, "email" to "test@example.com")
+        every { snapshot.get(any<String>()) } answers {
+            val key = firstArg<String>()
+            rootData[key]
+        }
+
+        val privateSnapshot = mockk<DocumentSnapshot>()
+        every { privateSnapshot.exists() } returns true
+
+        val transaction = mockk<Transaction>(relaxed = true)
+        val fieldsMovedSlot = slot<Map<String, Any>>()
+        val deletionsSlot = slot<Map<String, Any>>()
+
+        every { transaction.get(any<DocumentReference>()) } answers {
+            val ref = firstArg<DocumentReference>()
+            if (ref.path.contains("private")) privateSnapshot else snapshot
+        }
+        every { transaction.set(any(), capture(fieldsMovedSlot), any()) } returns transaction
+        every { transaction.update(any<DocumentReference>(), capture(deletionsSlot)) } returns transaction
+
+        every { firestore.runTransaction<Any>(any()) } answers {
+            val block = firstArg<Transaction.Function<Any>>()
+            val result = block.apply(transaction)
+            val successTask = mockk<Task<Any>>(relaxed = true)
+            coEvery { successTask.await() } returns (result ?: mockk())
+            successTask
+        }
+
+        val result = repository.getOrCreateProfile()
+
+        assertTrue(result.isSuccess)
+        assertEquals(123456789L, fieldsMovedSlot.captured["lastSeen"])
+        assertEquals("test@example.com", fieldsMovedSlot.captured["email"])
+        assertFalse(fieldsMovedSlot.captured.containsKey("isAdmin"))
+        assertFalse(fieldsMovedSlot.captured.containsKey("accountStatus"))
+        assertFalse(fieldsMovedSlot.captured.containsKey("admin"))
+        assertTrue(deletionsSlot.captured.containsKey("lastSeen"))
+        assertTrue(deletionsSlot.captured.containsKey("email"))
+
+        unmockkStatic("kotlinx.coroutines.tasks.TasksKt")
+    }
+
+    @Test
+    fun `getOrCreateProfile excludes protected fields from fieldsToMove and preserves them on userRef`() = runBlocking {
+        val userId = "user123"
+        val firebaseUser = mockk<FirebaseUser>()
+        every { firebaseUser.uid } returns userId
+        every { firebaseUser.email } returns "test@example.com"
+        every { firebaseUser.displayName } returns "Test User"
+        every { firebaseUser.reload() } returns mockk(relaxed = true)
+        every { auth.currentUser } returns firebaseUser
+
+        val snapshot = mockk<DocumentSnapshot>()
+        val user = User(id = userId, anonymousName = "Name", anonymousId = "usr_123", anonymousSigil = "23", sigilSeed = "seed", sigilConfig = SigilConfig(seed = "seed", version = 3))
+        every { snapshot.exists() } returns true
+        every { snapshot.toObject(User::class.java) } returns user
+        every { snapshot.id } returns userId
+
+        val rootData = mapOf("isAdmin" to true, "accountStatus" to "ACTIVE", "admin" to true, "lastSeen" to 999999L)
+        every { snapshot.get(any<String>()) } answers {
+            val key = firstArg<String>()
+            rootData[key]
+        }
+
+        val privateSnapshot = mockk<DocumentSnapshot>()
+        every { privateSnapshot.exists() } returns true
+
+        val transaction = mockk<Transaction>(relaxed = true)
+        val fieldsMovedSlot = slot<Map<String, Any>>()
+        val deletionsSlot = slot<Map<String, Any>>()
+
+        every { transaction.get(any<DocumentReference>()) } answers {
+            val ref = firstArg<DocumentReference>()
+            if (ref.path.contains("private")) privateSnapshot else snapshot
+        }
+        every { transaction.set(any(), capture(fieldsMovedSlot), any()) } returns transaction
+        every { transaction.update(any<DocumentReference>(), capture(deletionsSlot)) } returns transaction
+
+        every { firestore.runTransaction<Any>(any()) } answers {
+            val block = firstArg<Transaction.Function<Any>>()
+            val result = block.apply(transaction)
+            val successTask = mockk<Task<Any>>(relaxed = true)
+            coEvery { successTask.await() } returns (result ?: mockk())
+            successTask
+        }
+
+        val result = repository.getOrCreateProfile()
+
+        assertTrue(result.isSuccess)
+        val fieldsToMove = fieldsMovedSlot.captured
+        assertEquals(999999L, fieldsToMove["lastSeen"])
+        assertFalse("isAdmin must not be in fieldsToMove", fieldsToMove.containsKey("isAdmin"))
+        assertFalse("accountStatus must not be in fieldsToMove", fieldsToMove.containsKey("accountStatus"))
+        assertFalse("admin must not be in fieldsToMove", fieldsToMove.containsKey("admin"))
+
+        val deletions = deletionsSlot.captured
+        assertTrue("lastSeen should be deleted from root doc", deletions.containsKey("lastSeen"))
+        assertFalse("isAdmin must NOT be deleted from root doc", deletions.containsKey("isAdmin"))
+        assertFalse("accountStatus must NOT be deleted from root doc", deletions.containsKey("accountStatus"))
+        assertFalse("admin must NOT be deleted from root doc", deletions.containsKey("admin"))
+
+        unmockkStatic("kotlinx.coroutines.tasks.TasksKt")
+    }
+
+    @Test
+    fun `getOrCreateProfile does not attempt private settings updates when document only contains protected fields`() = runBlocking {
+        val userId = "user123"
+        val firebaseUser = mockk<FirebaseUser>()
+        every { firebaseUser.uid } returns userId
+        every { firebaseUser.email } returns "test@example.com"
+        every { firebaseUser.displayName } returns "Test User"
+        every { firebaseUser.reload() } returns mockk(relaxed = true)
+        every { auth.currentUser } returns firebaseUser
+
+        val snapshot = mockk<DocumentSnapshot>()
+        val user = User(id = userId, anonymousName = "Name", anonymousId = "usr_123", anonymousSigil = "23", sigilSeed = "seed", sigilConfig = SigilConfig(seed = "seed", version = 3))
+        every { snapshot.exists() } returns true
+        every { snapshot.toObject(User::class.java) } returns user
+        every { snapshot.id } returns userId
+
+        val rootData = mapOf("isAdmin" to true, "accountStatus" to "ACTIVE", "admin" to true)
+        every { snapshot.get(any<String>()) } answers {
+            val key = firstArg<String>()
+            rootData[key]
+        }
+
+        val privateSnapshot = mockk<DocumentSnapshot>()
+        every { privateSnapshot.exists() } returns true
+
+        val transaction = mockk<Transaction>(relaxed = true)
+
+        every { transaction.get(any<DocumentReference>()) } answers {
+            val ref = firstArg<DocumentReference>()
+            if (ref.path.contains("private")) privateSnapshot else snapshot
+        }
+
+        every { firestore.runTransaction<Any>(any()) } answers {
+            val block = firstArg<Transaction.Function<Any>>()
+            val result = block.apply(transaction)
+            val successTask = mockk<Task<Any>>(relaxed = true)
+            coEvery { successTask.await() } returns (result ?: mockk())
+            successTask
+        }
+
+        val result = repository.getOrCreateProfile()
+
+        assertTrue(result.isSuccess)
+        verify(exactly = 0) { transaction.set(any(), any(), any()) }
+        verify(exactly = 0) { transaction.update(any<DocumentReference>(), any()) }
+
+        unmockkStatic("kotlinx.coroutines.tasks.TasksKt")
     }
 }

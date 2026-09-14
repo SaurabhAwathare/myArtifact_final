@@ -191,14 +191,6 @@ class ProfileHealthCheckerTest {
         every { failedTask.isCanceled } returns false
         every { failedTask.exception } returns permissionDeniedException
 
-        val tokenTask = mockk<Task<GetTokenResult>>()
-        every { tokenTask.isComplete } returns true
-        every { tokenTask.isSuccessful } returns true
-        every { tokenTask.isCanceled } returns false
-        every { tokenTask.result } returns mockk(relaxed = true)
-        every { tokenTask.exception } returns null
-        every { firebaseUser.getIdToken(true) } returns tokenTask
-
         val successUserTask = mockk<Task<DocumentSnapshot>>()
         every { successUserTask.isComplete } returns true
         every { successUserTask.isSuccessful } returns true
@@ -227,11 +219,11 @@ class ProfileHealthCheckerTest {
         val result = profileHealthChecker.checkHealth()
         assertEquals(HealthStatus.Healthy, result)
         verify(exactly = 2) { userRef.get() }
-        verify(exactly = 1) { firebaseUser.getIdToken(true) }
+        verify(exactly = 0) { firebaseUser.getIdToken(any()) }
     }
 
     @Test
-    fun `checkHealth returns PermissionDenied and bounds retries on persistent PERMISSION_DENIED`() = runTest {
+    fun `checkHealth returns PermissionDenied and bounds retries on persistent PERMISSION_DENIED without force token refresh`() = runTest {
         val userRef = mockk<DocumentReference>()
         val privateRef = mockk<DocumentReference>()
         every { firestore.collection("users").document("test_uid") } returns userRef
@@ -245,14 +237,6 @@ class ProfileHealthCheckerTest {
         every { failedTask.isCanceled } returns false
         every { failedTask.exception } returns permissionDeniedException
 
-        val tokenTask = mockk<Task<GetTokenResult>>()
-        every { tokenTask.isComplete } returns true
-        every { tokenTask.isSuccessful } returns true
-        every { tokenTask.isCanceled } returns false
-        every { tokenTask.result } returns mockk(relaxed = true)
-        every { tokenTask.exception } returns null
-        every { firebaseUser.getIdToken(true) } returns tokenTask
-
         // All calls fail with PERMISSION_DENIED
         every { userRef.get() } returns failedTask
 
@@ -261,8 +245,36 @@ class ProfileHealthCheckerTest {
         assertEquals(permissionDeniedException, (result as HealthStatus.PermissionDenied).cause)
         // Bounded to 5 attempts
         verify(exactly = 5) { userRef.get() }
-        // Token refreshed only once
-        verify(exactly = 1) { firebaseUser.getIdToken(true) }
+        // Verify getIdToken is NOT invoked by the recovery path
+        verify(exactly = 0) { firebaseUser.getIdToken(any()) }
+    }
+
+    @Test
+    fun `checkHealth aborts and returns Missing when currentUser uid changes during retries`() = runTest {
+        val userRef = mockk<DocumentReference>()
+        val privateRef = mockk<DocumentReference>()
+        every { firestore.collection("users").document("test_uid") } returns userRef
+        every { userRef.collection("private").document("settings") } returns privateRef
+
+        val permissionDeniedException = mockPermissionDeniedException()
+
+        val failedTask = mockk<Task<DocumentSnapshot>>()
+        every { failedTask.isComplete } returns true
+        every { failedTask.isSuccessful } returns false
+        every { failedTask.isCanceled } returns false
+        every { failedTask.exception } returns permissionDeniedException
+
+        every { userRef.get() } returns failedTask
+
+        // Return firebaseUser for initial checks on attempt 1, then otherUser on attempt 2
+        val otherUser = mockk<FirebaseUser>()
+        every { otherUser.uid } returns "different_uid"
+        every { auth.currentUser } returns firebaseUser andThen firebaseUser andThen firebaseUser andThen otherUser
+
+        val result = profileHealthChecker.checkHealth()
+        assertEquals(HealthStatus.Missing, result)
+        verify(exactly = 1) { userRef.get() }
+        verify(exactly = 0) { firebaseUser.getIdToken(any()) }
     }
 
     @Test
@@ -290,32 +302,25 @@ class ProfileHealthCheckerTest {
     }
 
     @Test
-    fun `checkHealth returns Unrecoverable when token refresh throws FirebaseAuthInvalidUserException`() = runTest {
+    fun `checkHealth returns Unrecoverable when exception is FirebaseAuthInvalidUserException`() = runTest {
         val userRef = mockk<DocumentReference>()
         val privateRef = mockk<DocumentReference>()
         every { firestore.collection("users").document("test_uid") } returns userRef
         every { userRef.collection("private").document("settings") } returns privateRef
 
-        val permissionDeniedException = mockPermissionDeniedException()
+        val userRevokedException = FirebaseAuthInvalidUserException("ERROR_USER_NOT_FOUND", "User revoked")
 
         val failedTask = mockk<Task<DocumentSnapshot>>()
         every { failedTask.isComplete } returns true
         every { failedTask.isSuccessful } returns false
         every { failedTask.isCanceled } returns false
-        every { failedTask.exception } returns permissionDeniedException
-
-        val tokenTask = mockk<Task<GetTokenResult>>()
-        every { tokenTask.isComplete } returns true
-        every { tokenTask.isSuccessful } returns false
-        every { tokenTask.isCanceled } returns false
-        every { tokenTask.exception } returns FirebaseAuthInvalidUserException("ERROR_USER_NOT_FOUND", "User revoked")
-        every { firebaseUser.getIdToken(true) } returns tokenTask
+        every { failedTask.exception } returns userRevokedException
 
         every { userRef.get() } returns failedTask
 
         val result = profileHealthChecker.checkHealth()
         assertEquals(HealthStatus.Unrecoverable, result)
         verify(exactly = 1) { userRef.get() }
-        verify(exactly = 1) { firebaseUser.getIdToken(true) }
+        verify(exactly = 0) { firebaseUser.getIdToken(any()) }
     }
 }

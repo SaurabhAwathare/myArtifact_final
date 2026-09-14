@@ -51,7 +51,9 @@ import com.saurabh.artifact.model.sigil.SigilPalette
 import com.saurabh.artifact.model.sigil.SigilStyle
 import com.saurabh.artifact.model.sigil.SigilVariant
 import com.saurabh.artifact.worker.InteractionSyncWorker
+import kotlinx.coroutines.delay
 import java.util.UUID
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
 @Singleton
@@ -185,8 +187,10 @@ open class UserRepository @Inject constructor(
             val privateMissing = !privateSnapshot.exists()
 
             // PHASE 1: Sensitive Data Migration (Atomic & Idempotent)
+            // Note: Protected/server-controlled fields ("isAdmin", "admin", "accountStatus") must NEVER
+            // be included in fieldsToMove sent to private/settings during client profile migration.
             val sensitiveFields = listOf(
-                "email", "realName", "fcmToken", "isAdmin", "accountStatus", "admin",
+                "email", "realName", "fcmToken",
                 "emotionPreferences", "lastActivityTimestamp", "softStreakCount", "lastSeen"
             )
             val fieldsToMove = mutableMapOf<String, Any>()
@@ -325,30 +329,64 @@ open class UserRepository @Inject constructor(
             }
 
             val currentUser = auth.currentUser ?: return@withContext Result.failure(AppError.Unauthenticated())
-            val userRef = usersCollection.document(currentUser.uid)
+            val targetUserId = currentUser.uid
+            val userRef = usersCollection.document(targetUserId)
             val privateRef = userRef.collection("private").document("settings")
 
-            // 2. Atomic Check & Create via Transaction
-            val profileResult = try {
-                withTimeout(15.seconds) {
-                    executeProfileTransaction(userRef, privateRef, currentUser)
+            // 2. Atomic Check & Create via Transaction with bounded fast retry for PERMISSION_DENIED
+            val maxAttempts = 5
+            val initialBackoffMs = 200L
+            val maxBackoffMs = 1000L
+
+            var lastException: Exception? = null
+            var profileResult: ProfileResult? = null
+
+            for (attempt in 1..maxAttempts) {
+                if (auth.currentUser?.uid != targetUserId) {
+                    return@withContext Result.failure(AppError.Unauthenticated("User changed or signed out during profile creation"))
                 }
-            } catch (e: Exception) {
-                if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
-                    diagnosticLogger.warn(DiagnosticCategory.AUTH, "REGISTRATION_PERMISSION_DENIED_RETRYING", mapOf(LogKeys.USER_ID to currentUser.uid))
-                    try {
-                        currentUser.getIdToken(true).await()
-                        diagnosticLogger.info(DiagnosticCategory.AUTH, "REGISTRATION_TOKEN_REFRESH_SUCCESS", mapOf(LogKeys.USER_ID to currentUser.uid))
-                        withTimeout(15.seconds) {
-                            executeProfileTransaction(userRef, privateRef, currentUser)
-                        }
-                    } catch (retryErr: Exception) {
-                        diagnosticLogger.error(DiagnosticCategory.AUTH, "REGISTRATION_PERMISSION_DENIED_PERSISTENT", mapOf(LogKeys.USER_ID to currentUser.uid), retryErr)
-                        return@withContext Result.failure(AppError.Unauthenticated("Session unauthorized: PERMISSION_DENIED after token refresh"))
+
+                if (attempt > 1) {
+                    val calculatedBackoff = initialBackoffMs * (1 shl (attempt - 2))
+                    val backoffMs = calculatedBackoff.coerceAtMost(maxBackoffMs)
+                    delay(Duration.parse("${backoffMs}ms"))
+                }
+
+                if (auth.currentUser?.uid != targetUserId) {
+                    return@withContext Result.failure(AppError.Unauthenticated("User changed or signed out during profile creation"))
+                }
+
+                try {
+                    profileResult = withTimeout(15.seconds) {
+                        executeProfileTransaction(userRef, privateRef, currentUser)
                     }
-                } else {
-                    throw e
+                    break
+                } catch (e: FirebaseFirestoreException) {
+                    if (e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+                        lastException = e
+                        diagnosticLogger.warn(
+                            DiagnosticCategory.AUTH,
+                            "REGISTRATION_PERMISSION_DENIED_RETRYING",
+                            mapOf<String, Any>(LogKeys.USER_ID to targetUserId, "attempt" to attempt, "maxAttempts" to maxAttempts)
+                        )
+                    } else {
+                        throw e
+                    }
                 }
+            }
+
+            if (profileResult == null) {
+                val persistentEx = lastException ?: FirebaseFirestoreException(
+                    "PERMISSION_DENIED after retries",
+                    FirebaseFirestoreException.Code.PERMISSION_DENIED
+                )
+                diagnosticLogger.error(
+                    DiagnosticCategory.AUTH,
+                    "REGISTRATION_PERMISSION_DENIED_PERSISTENT",
+                    mapOf(LogKeys.USER_ID to targetUserId),
+                    persistentEx
+                )
+                return@withContext Result.failure(AppError.Unauthenticated("Session unauthorized: PERMISSION_DENIED"))
             }
             
             // Cache the profile locally

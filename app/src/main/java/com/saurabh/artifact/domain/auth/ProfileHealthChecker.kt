@@ -43,14 +43,23 @@ class ProfileHealthChecker @Inject constructor(
         val userId = currentUser.uid
         ArtifactLogger.d(DiagnosticCategory.AUTH, "PROFILE_CHECK_STARTED")
 
-        var tokenRefreshed = false
         var lastPermissionException: FirebaseFirestoreException? = null
 
         for (attempt in 1..MAX_ATTEMPTS) {
+            if (auth.currentUser?.uid != userId) {
+                ArtifactLogger.w(DiagnosticCategory.AUTH, "PROFILE_CHECK_ABORTED_USER_CHANGED")
+                return HealthStatus.Missing
+            }
+
             if (attempt > 1) {
                 val calculatedBackoff = INITIAL_BACKOFF_MS * (1 shl (attempt - 2))
                 val backoffMs = calculatedBackoff.coerceAtMost(MAX_BACKOFF_MS)
                 delay(backoffMs.milliseconds)
+            }
+
+            if (auth.currentUser?.uid != userId) {
+                ArtifactLogger.w(DiagnosticCategory.AUTH, "PROFILE_CHECK_ABORTED_USER_CHANGED")
+                return HealthStatus.Missing
             }
 
             try {
@@ -66,25 +75,6 @@ class ProfileHealthChecker @Inject constructor(
                         "PROFILE_CHECK_PERMISSION_DENIED_RETRYING",
                         mapOf("attempt" to attempt, "maxAttempts" to MAX_ATTEMPTS)
                     )
-                    if (!tokenRefreshed) {
-                        try {
-                            // Note: getIdToken(true) refreshes FirebaseAuth token in memory,
-                            // but Firestore SDK syncs its internal credential provider asynchronously.
-                            // The bounded retry loop serves as the practical application-level readiness boundary.
-                            currentUser.getIdToken(true).await()
-                            tokenRefreshed = true
-                            ArtifactLogger.i(DiagnosticCategory.AUTH, "PROFILE_CHECK_TOKEN_REFRESH_SUCCESS")
-                        } catch (tokenException: Exception) {
-                            ArtifactLogger.w(
-                                DiagnosticCategory.AUTH,
-                                "PROFILE_CHECK_TOKEN_REFRESH_FAILED",
-                                throwable = tokenException
-                            )
-                            if (tokenException is FirebaseAuthInvalidUserException) {
-                                return HealthStatus.Unrecoverable
-                            }
-                        }
-                    }
                 } else {
                     ArtifactLogger.e(DiagnosticCategory.AUTH, "PROFILE_CHECK_FAILED", throwable = e)
                     return HealthStatus.Missing
