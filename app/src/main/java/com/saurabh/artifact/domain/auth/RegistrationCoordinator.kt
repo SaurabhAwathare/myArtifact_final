@@ -1,5 +1,6 @@
 package com.saurabh.artifact.domain.auth
 
+import com.saurabh.artifact.BuildConfig
 import com.saurabh.artifact.diagnostics.ArtifactLogger
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.model.AppError
@@ -66,11 +67,20 @@ class RegistrationCoordinator @Inject constructor(
                     ArtifactLogger.e(
                         DiagnosticCategory.AUTH,
                         "REGISTRATION_FAILURE_PERMISSION_DENIED",
+                        mapOf(
+                            "diagnostic" to "Profile verification failed with PERMISSION_DENIED. Check Firebase App Check debug token in Firebase Console if using a fresh install.",
+                            "isFixedSecretConfigured" to BuildConfig.APP_CHECK_DEBUG_SECRET.isNotBlank()
+                        ),
                         throwable = status.cause
                     )
+                    val techMsg = if (BuildConfig.DEBUG) {
+                        "Profile verification failed: PERMISSION_DENIED (DEBUG: Verify App Check debug secret is registered in Firebase Console)"
+                    } else {
+                        status.cause?.message ?: "Profile verification failed: PERMISSION_DENIED"
+                    }
                     RegistrationResult.Failure(
                         status.cause as? AppError ?: AppError.PermissionDenied(
-                            technicalMessage = status.cause?.message ?: "Profile verification failed: PERMISSION_DENIED"
+                            technicalMessage = techMsg
                         )
                     )
                 }

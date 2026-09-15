@@ -12,6 +12,8 @@ import com.saurabh.artifact.domain.player.PlayerMetadata
 import com.saurabh.artifact.domain.player.PlayerInteractionUseCase
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.model.Artifact
+import com.saurabh.artifact.model.PlayableArtifact
+import com.saurabh.artifact.model.PlaybackSource
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.PlayableArtifactRepository
@@ -172,9 +174,10 @@ class PlayerViewModelTest {
         val id1 = "art1"
         val id2 = "art2"
         
-        val playable2 = mockk<com.saurabh.artifact.model.PlayableArtifact>(relaxed = true) {
+        val artifact2 = Artifact(id = id2)
+        val playable2 = mockk<PlayableArtifact>(relaxed = true) {
             every { id } returns id2
-            every { originalArtifact } returns mockk(relaxed = true) { every { id } returns id2 }
+            every { originalArtifact } returns artifact2
         }
 
         coEvery { playableArtifactRepository.resolveArtifact(id1, any()) } coAnswers {
@@ -192,7 +195,160 @@ class PlayerViewModelTest {
         advanceUntilIdle()
         
         // Verify only the second one reached completion/playback
-        verify { playbackCoordinator.playArtifact(match { it.id == id2 }, any(), any()) }
-        verify(exactly = 0) { playbackCoordinator.playArtifact(match { it.id == id1 }, any(), any()) }
+        verify { playbackCoordinator.playArtifact(match { it.id == id2 }, any(), any(), any()) }
+        verify(exactly = 0) { playbackCoordinator.playArtifact(match { it.id == id1 }, any(), any(), any()) }
+    }
+
+    @Test
+    fun `playArtifactById resolving an Artifact eventually calls playbackCoordinator playArtifact`() = runTest {
+        val artifactId = "art1"
+        val artifact = Artifact(id = artifactId, title = "Test Artifact")
+        val playable = mockk<PlayableArtifact>(relaxed = true) {
+            every { id } returns artifactId
+            every { originalArtifact } returns artifact
+        }
+        
+        coEvery { playableArtifactRepository.resolveArtifact(artifactId, any()) } returns Result.success(playable)
+        
+        viewModel.playArtifactById(artifactId, PlaybackSource.NOTIFICATION)
+        advanceUntilIdle()
+        
+        verify { playbackCoordinator.playArtifact(match { it.id == artifactId }, any(), any(), eq(PlaybackSource.NOTIFICATION)) }
+    }
+
+    @Test
+    fun `currentPlayableArtifact matching the Artifact does NOT by itself cause PLAYER_RE-ENTRY_SKIPPED`() = runTest {
+        val artifactId = "art1"
+        val artifact = Artifact(id = artifactId, title = "Test Artifact")
+        val playable = mockk<PlayableArtifact>(relaxed = true) {
+            every { id } returns artifactId
+            every { originalArtifact } returns artifact
+        }
+        
+        coEvery { playableArtifactRepository.resolveArtifact(artifactId, any()) } returns Result.success(playable)
+        
+        // playbackCoordinator.currentArtifact remains null (not currently playing)
+        every { playbackCoordinator.currentArtifact } returns MutableStateFlow(null)
+        
+        // Calling playArtifactById populates _currentPlayableArtifact then calls playArtifact()
+        viewModel.playArtifactById(artifactId)
+        advanceUntilIdle()
+        
+        // Even though _currentPlayableArtifact was populated with playable (id = "art1"),
+        // playArtifact MUST NOT be skipped and MUST call playbackCoordinator.playArtifact
+        verify(exactly = 1) { playbackCoordinator.playArtifact(match { it.id == artifactId }, any(), any(), any()) }
+    }
+
+    @Test
+    fun `playbackCoordinator currentArtifact matching the Artifact correctly prevents unnecessary re-entry`() = runTest {
+        val artifactId = "art1"
+        val artifact = Artifact(id = artifactId)
+        
+        // Currently playing in playbackCoordinator
+        every { playbackCoordinator.currentArtifact } returns MutableStateFlow(artifact)
+        
+        // Calling playArtifact directly
+        viewModel.playArtifact(artifact)
+        advanceUntilIdle()
+        
+        // Calling playArtifactById directly
+        viewModel.playArtifactById(artifactId)
+        advanceUntilIdle()
+        
+        // Neither call should invoke playbackCoordinator.playArtifact or resolveArtifact
+        verify(exactly = 0) { playbackCoordinator.playArtifact(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { playableArtifactRepository.resolveArtifact(any(), any()) }
+    }
+
+    @Test
+    fun `notification playback path can initialize playback coordinator`() = runTest {
+        val artifactId = "notification_art_123"
+        val artifact = Artifact(id = artifactId, title = "Notification Audio")
+        val playable = mockk<PlayableArtifact>(relaxed = true) {
+            every { id } returns artifactId
+            every { originalArtifact } returns artifact
+        }
+        
+        coEvery { 
+            playableArtifactRepository.resolveArtifact(artifactId, PlaybackSource.NOTIFICATION)
+        } returns Result.success(playable)
+        
+        every { playbackCoordinator.currentArtifact } returns MutableStateFlow(null)
+        
+        viewModel.playArtifactById(artifactId, PlaybackSource.NOTIFICATION)
+        advanceUntilIdle()
+        
+        verify { 
+            playbackCoordinator.playArtifact(
+                artifact = match { it.id == artifactId },
+                collection = any(),
+                initialPosition = any(),
+                source = eq(PlaybackSource.NOTIFICATION)
+            ) 
+        }
+    }
+
+    @Test
+    fun `existing Profile and normal Feed playback behavior remains unchanged`() = runTest {
+        val profileArtifact = Artifact(id = "profile_art_1")
+        val feedArtifact = Artifact(id = "feed_art_1")
+        
+        every { playbackCoordinator.currentArtifact } returns MutableStateFlow(null)
+        
+        // Profile playback
+        viewModel.playArtifact(profileArtifact, source = PlaybackSource.PROFILE_PLAYBACK)
+        advanceUntilIdle()
+        
+        verify { 
+            playbackCoordinator.playArtifact(
+                artifact = match { it.id == "profile_art_1" },
+                collection = any(),
+                initialPosition = any(),
+                source = eq(PlaybackSource.PROFILE_PLAYBACK)
+            )
+        }
+        
+        // Feed playback
+        viewModel.playArtifact(feedArtifact, source = PlaybackSource.FEED_PLAYBACK)
+        advanceUntilIdle()
+        
+        verify { 
+            playbackCoordinator.playArtifact(
+                artifact = match { it.id == "feed_art_1" },
+                collection = any(),
+                initialPosition = any(),
+                source = eq(PlaybackSource.FEED_PLAYBACK)
+            )
+        }
+    }
+
+    @Test
+    fun `no duplicate playback initialization is introduced`() = runTest {
+        val artifactId = "art1"
+        val currentArtifactFlow = MutableStateFlow<Artifact?>(null)
+        val artifact = Artifact(id = artifactId)
+        val playable = mockk<PlayableArtifact>(relaxed = true) {
+            every { id } returns artifactId
+            every { originalArtifact } returns artifact
+        }
+        
+        every { playbackCoordinator.currentArtifact } returns currentArtifactFlow
+        coEvery { playableArtifactRepository.resolveArtifact(artifactId, any()) } returns Result.success(playable)
+        
+        // Simulate playbackCoordinator updating currentArtifact once playArtifact is called
+        every { playbackCoordinator.playArtifact(any(), any(), any(), any()) } answers {
+            currentArtifactFlow.value = artifact
+        }
+        
+        // First playArtifactById call
+        viewModel.playArtifactById(artifactId)
+        advanceUntilIdle()
+        
+        // Second playArtifactById call for same artifact
+        viewModel.playArtifactById(artifactId)
+        advanceUntilIdle()
+        
+        // Should only be called ONCE
+        verify(exactly = 1) { playbackCoordinator.playArtifact(match { it.id == artifactId }, any(), any(), any()) }
     }
 }

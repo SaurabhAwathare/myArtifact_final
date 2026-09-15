@@ -14,6 +14,7 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.startup.SecurityInitializer
 import com.saurabh.artifact.startup.StartupCoordinator
 import com.saurabh.artifact.util.MemoryManager
 import com.saurabh.artifact.util.StartupTracer
@@ -58,6 +59,7 @@ class ArtifactApplication : Application(), ImageLoaderFactory, Configuration.Pro
         // 1. Install App Check Factory IMMEDIATELY (before any Hilt/Firebase access)
         val firebaseAppCheck = com.google.firebase.appcheck.FirebaseAppCheck.getInstance()
         if (BuildConfig.DEBUG) {
+            SecurityInitializer.configureFixedDebugAppCheckSecret(this)
             firebaseAppCheck.installAppCheckProviderFactory(
                 com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory.getInstance()
             )

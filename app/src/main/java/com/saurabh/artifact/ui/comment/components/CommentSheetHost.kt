@@ -25,9 +25,9 @@ fun CommentSheetHost(
     onNavigateToProfile: (String) -> Unit,
     viewModel: CommentViewModel = hiltViewModel()
 ) {
-    // Initialize the ViewModel with the current artifact ID
+    // Initialize the ViewModel with the current artifact ID, requesting a refresh on sheet opening
     LaunchedEffect(artifactId) {
-        viewModel.initialize(artifactId)
+        viewModel.initialize(artifactId, forceRefresh = true)
     }
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()

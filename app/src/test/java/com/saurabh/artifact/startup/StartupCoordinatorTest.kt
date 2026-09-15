@@ -29,6 +29,8 @@ import com.saurabh.artifact.domain.auth.LogoutCoordinator
 import com.google.android.gms.common.GoogleApiAvailability
 import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.security.ProviderInstaller
+import com.saurabh.artifact.security.PreloadResult
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class StartupCoordinatorTest {
@@ -61,6 +63,9 @@ class StartupCoordinatorTest {
 
         mockkStatic(FirebaseAppCheck::class)
         every { FirebaseAppCheck.getInstance() } returns firebaseAppCheck
+        val mockAppCheckToken = mockk<AppCheckToken>()
+        every { mockAppCheckToken.token } returns "mock-valid-appcheck-token"
+        every { firebaseAppCheck.getAppCheckToken(false) } returns Tasks.forResult(mockAppCheckToken)
 
         every { context.applicationContext } returns context
 
@@ -115,13 +120,12 @@ class StartupCoordinatorTest {
 
     @Test
     fun `global startup timeout emits terminal error when stable is not reached`() = runTest(testDispatcher) {
-        coEvery { encryptionManager.preload() } returns com.saurabh.artifact.security.PreloadResult.Success
+        coEvery { encryptionManager.preload() } coAnswers { delay(30000); PreloadResult.Success }
         coEvery { maintenanceRepository.getPendingDeletionUid() } returns null
 
         // Start coordinator
         coordinator.start()
         
-        // We do NOT signal AUTH readiness, which should cause a timeout eventually
         // The global timeout is 20s. We advance time by 21 seconds.
         testScheduler.advanceTimeBy(21000)
         
@@ -176,5 +180,32 @@ class StartupCoordinatorTest {
         // Warm start sequence completes
         testScheduler.advanceTimeBy(500)
         assertEquals(StartupStage.STABLE, coordinator.stage.value)
+    }
+
+    @Test
+    fun `App Check token acquisition failure blocks APP_CHECK readiness and sets terminal error`() = runTest(testDispatcher) {
+        val appCheckError = Exception("Debug token invalid")
+        every { firebaseAppCheck.getAppCheckToken(false) } returns Tasks.forException(appCheckError)
+        coEvery { encryptionManager.preload() } returns PreloadResult.Success
+        coEvery { maintenanceRepository.getPendingDeletionUid() } returns null
+
+        coordinator.start()
+        advanceUntilIdle()
+
+        val terminalErr = coordinator.terminalError.value
+        assertEquals("Debug token invalid", terminalErr?.message)
+    }
+
+    @Test
+    fun `App Check token acquisition success emits APP_CHECK readiness`() = runTest(testDispatcher) {
+        val mockToken = mockk<AppCheckToken>()
+        every { mockToken.token } returns "valid-debug-token"
+        every { firebaseAppCheck.getAppCheckToken(false) } returns Tasks.forResult(mockToken)
+        coEvery { encryptionManager.preload() } returns PreloadResult.Success
+        coEvery { maintenanceRepository.getPendingDeletionUid() } returns null
+
+        coordinator.start()
+        coordinator.awaitComponent(StartupComponent.APP_CHECK)
+        // If awaitComponent succeeds without timing out, APP_CHECK component was emitted ready
     }
 }

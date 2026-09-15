@@ -1,5 +1,6 @@
 package com.saurabh.artifact.ui.comment
 
+import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -114,12 +115,20 @@ class CommentViewModel @Inject constructor(
      * Initializes the ViewModel with a specific artifactId.
      * This is useful when the ViewModel is not created via a navigation route
      * that already contains the artifactId.
+     *
+     * @param id The artifact ID to load comments for.
+     * @param forceRefresh If true, forces a re-fetch of comments even if the artifact ID
+     *                     and current user session have not changed.
      */
-    fun initialize(id: String) {
-        android.util.Log.d("CommentVM", "initialize: current=$artifactId, new=$id")
+    fun initialize(id: String, forceRefresh: Boolean = false) {
+        Log.d("CommentVM", "initialize: current=$artifactId, new=$id, forceRefresh=$forceRefresh")
         val sessionUid = authRepository.currentUserId
         
-        if (id.isEmpty() || (id == artifactId && sessionUid == currentUid)) {
+        if (id.isEmpty()) {
+            return
+        }
+
+        if (!forceRefresh && id == artifactId && sessionUid == currentUid) {
             android.util.Log.d("CommentVM", "initialize: skipping (id and session same)")
             return
         }

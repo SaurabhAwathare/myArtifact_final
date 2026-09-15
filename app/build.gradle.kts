@@ -29,14 +29,29 @@ configure<com.android.build.api.dsl.ApplicationExtension> {
         }
     }
 
+    val localPropertiesFile = rootProject.file("local.properties")
+    val localProperties = Properties()
+    if (localPropertiesFile.exists()) {
+        localPropertiesFile.inputStream().use { stream ->
+            localProperties.load(stream)
+        }
+    }
+
     fun getProp(name: String, envName: String): String? {
         return System.getenv(envName) ?: keystoreProperties.getProperty(name)
+    }
+
+    fun getSecretProp(name: String, envName: String): String? {
+        return System.getenv(envName)
+            ?: localProperties.getProperty(name)
+            ?: keystoreProperties.getProperty(name)
     }
 
     val storeFilePath = getProp("storeFile", "ARTIFACT_RELEASE_STORE_FILE")
     val storePasswordValue = getProp("storePassword", "ARTIFACT_RELEASE_STORE_PASSWORD")
     val keyAliasValue = getProp("keyAlias", "ARTIFACT_RELEASE_KEY_ALIAS")
     val keyPasswordValue = getProp("keyPassword", "ARTIFACT_RELEASE_KEY_PASSWORD")
+    val appCheckDebugSecret = getSecretProp("APP_CHECK_DEBUG_SECRET", "APP_CHECK_DEBUG_SECRET") ?: ""
 
     val storeFileObj = storeFilePath?.let {
         if (it.startsWith("/") || it.contains(":\\")) file(it) else rootProject.file(it)
@@ -82,6 +97,7 @@ configure<com.android.build.api.dsl.ApplicationExtension> {
             manifestPlaceholders["appLabel"] = "@string/app_name_debug"
             buildConfigField("String", "FIREBASE_ENV", "\"DEBUG\"")
             buildConfigField("String", "FIREBASE_PROJECT_ID", "\"myartifact-555e3\"")
+            buildConfigField("String", "APP_CHECK_DEBUG_SECRET", "\"$appCheckDebugSecret\"")
         }
         release {
             signingConfig = if (isSigningConfigured) {
@@ -92,6 +108,7 @@ configure<com.android.build.api.dsl.ApplicationExtension> {
             manifestPlaceholders["appLabel"] = "@string/app_name"
             buildConfigField("String", "FIREBASE_ENV", "\"PROD\"")
             buildConfigField("String", "FIREBASE_PROJECT_ID", "\"myartifact-555e3\"")
+            buildConfigField("String", "APP_CHECK_DEBUG_SECRET", "\"\"")
             isMinifyEnabled = true
             isShrinkResources = true
             ndk {

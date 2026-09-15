@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.*
 import org.junit.After
+import org.junit.Assert
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
@@ -406,5 +407,166 @@ class CommentViewModelTest {
         testDispatcher.scheduler.advanceTimeBy(35_000)
 
         assertEquals(CommentUnlockState.LOCKED, viewModel.uiState.value.unlockState)
+    }
+
+    @Test
+    fun `initialize with new artifactId loads comments`() = runTest {
+        val newArtifactId = "new-artifact-123"
+        val comment = Comment(id = "c1", text = "New comment")
+        coEvery { getCommentsUseCase(newArtifactId, any(), any()) } returns Result.success(
+            PaginatedComments(listOf(comment), null)
+        )
+
+        viewModel.initialize(newArtifactId)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(1, viewModel.uiState.value.comments.size)
+        assertEquals("c1", viewModel.uiState.value.comments[0].id)
+        coVerify(exactly = 1) { getCommentsUseCase(newArtifactId, any(), any()) }
+    }
+
+    @Test
+    fun `initialize with same artifactId without forceRefresh preserves existing behavior`() = runTest {
+        val artifactId = "test-artifact"
+        val comment = Comment(id = "c1", text = "Existing comment")
+        coEvery { getCommentsUseCase(artifactId, any(), any()) } returns Result.success(
+            PaginatedComments(listOf(comment), null)
+        )
+
+        // Initial load happens in init/initialize
+        viewModel.initialize(artifactId)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(1, viewModel.uiState.value.comments.size)
+
+        // Call initialize again without forceRefresh (forceRefresh = false)
+        viewModel.initialize(artifactId, forceRefresh = false)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // getCommentsUseCase should not be called again
+        coVerify(exactly = 1) { getCommentsUseCase(artifactId, any(), any()) }
+    }
+
+    @Test
+    fun `initialize with same artifactId and forceRefresh=true invokes getCommentsUseCase again`() = runTest {
+        val artifactId = "test-artifact"
+        val comment1 = Comment(id = "c1", text = "Comment 1")
+        val comment2 = Comment(id = "c2", text = "Comment 2 (new)")
+
+        coEvery { getCommentsUseCase(artifactId, any(), isNull()) } returnsMany listOf(
+            Result.success(PaginatedComments(listOf(comment1), null)),
+            Result.success(PaginatedComments(listOf(comment1, comment2), null))
+        )
+
+        viewModel.initialize(artifactId)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(1, viewModel.uiState.value.comments.size)
+
+        // Call initialize with forceRefresh = true
+        viewModel.initialize(artifactId, forceRefresh = true)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(2, viewModel.uiState.value.comments.size)
+        coVerify(exactly = 2) { getCommentsUseCase(artifactId, any(), isNull()) }
+    }
+
+    @Test
+    fun `force refresh clears stale empty state`() = runTest {
+        val artifactId = "test-artifact"
+        val newComment = Comment(id = "c-new", text = "Newly added comment")
+
+        // First load returns empty list
+        coEvery { getCommentsUseCase(artifactId, any(), isNull()) } returns Result.success(
+            PaginatedComments(emptyList(), null)
+        )
+
+        viewModel.initialize(artifactId)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(0, viewModel.uiState.value.comments.size)
+
+        // Account B posts a comment in Firestore. Next query returns the new comment.
+        coEvery { getCommentsUseCase(artifactId, any(), isNull()) } returns Result.success(
+            PaginatedComments(listOf(newComment), null)
+        )
+
+        // Account A reopens comments sheet -> forceRefresh = true
+        viewModel.initialize(artifactId, forceRefresh = true)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(1, viewModel.uiState.value.comments.size)
+        assertEquals("c-new", viewModel.uiState.value.comments[0].id)
+    }
+
+    @Test
+    fun `refresh does not create duplicate concurrent loads`() = runTest {
+        val artifactId = "test-artifact"
+        val comment = Comment(id = "c1", text = "Slow loaded comment")
+
+        coEvery { getCommentsUseCase(artifactId, any(), isNull()) } coAnswers {
+            delay(1000)
+            Result.success(PaginatedComments(listOf(comment), null))
+        }
+
+        viewModel.initialize(artifactId, forceRefresh = true)
+        testDispatcher.scheduler.advanceTimeBy(200)
+
+        // Re-trigger initialize while first load is in progress
+        viewModel.initialize(artifactId, forceRefresh = true)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // Only one final result list of 1 comment should exist (no duplicate appended)
+        assertEquals(1, viewModel.uiState.value.comments.size)
+    }
+
+    @Test
+    fun `Firestore failure remains an error rather than becoming No comments yet`() = runTest {
+        val artifactId = "test-artifact"
+        val firestoreException = Exception("Firestore PERMISSION_DENIED or network failure")
+
+        coEvery { getCommentsUseCase(artifactId, any(), any()) } returns Result.failure(firestoreException)
+
+        viewModel.initialize(artifactId, forceRefresh = true)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // State should have an error, and NOT be treated as a successful empty response
+        val state = viewModel.uiState.value
+        assertEquals(0, state.comments.size)
+        Assert.assertNotNull("Error should be set on failure", state.error)
+    }
+
+    @Test
+    fun `pagination state is correctly reset when a fresh initial load occurs`() = runTest {
+        val artifactId = "test-artifact"
+        val page1Comment = Comment(id = "c1", text = "Page 1")
+        val page2Comment = Comment(id = "c2", text = "Page 2")
+        val cursor1 = mockk<DocumentSnapshot>()
+
+        // Page 1
+        coEvery { getCommentsUseCase(artifactId, any(), isNull()) } returns Result.success(
+            PaginatedComments(listOf(page1Comment), cursor1)
+        )
+        viewModel.initialize(artifactId)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(true, viewModel.uiState.value.hasMorePages)
+
+        // Page 2
+        coEvery { getCommentsUseCase(artifactId, any(), cursor1) } returns Result.success(
+            PaginatedComments(listOf(page2Comment), null)
+        )
+        viewModel.loadNextPage()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(2, viewModel.uiState.value.comments.size)
+        assertEquals(false, viewModel.uiState.value.hasMorePages)
+
+        // Now perform force refresh which resets pagination and re-fetches Page 1
+        coEvery { getCommentsUseCase(artifactId, any(), isNull()) } returns Result.success(
+            PaginatedComments(listOf(page1Comment), null)
+        )
+        viewModel.initialize(artifactId, forceRefresh = true)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // Comments should be reset back to 1 item (page 1 only), NOT 2 items
+        assertEquals(1, viewModel.uiState.value.comments.size)
+        assertEquals("c1", viewModel.uiState.value.comments[0].id)
+        assertEquals(false, viewModel.uiState.value.hasMorePages)
     }
 }

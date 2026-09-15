@@ -1,5 +1,8 @@
 package com.saurabh.artifact.model
 
+import com.google.firebase.firestore.FirebaseFirestoreException
+import com.saurabh.artifact.BuildConfig
+
 /**
  * Represents a domain-specific error within the Artifact application.
  * Designed to separate user-facing messages from internal debugging details.
@@ -83,7 +86,14 @@ sealed class AppError : Exception() {
             is com.google.firebase.FirebaseNetworkException -> NetworkFailure()
             is com.google.firebase.firestore.FirebaseFirestoreException -> {
                 when (e.code) {
-                    com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED -> PermissionDenied()
+                    FirebaseFirestoreException.Code.PERMISSION_DENIED -> {
+                        val msg = if (BuildConfig.DEBUG) {
+                            "Permission denied (DEBUG: Verify Firebase App Check debug token is registered in Firebase Console)"
+                        } else {
+                            "Permission denied"
+                        }
+                        PermissionDenied(technicalMessage = msg)
+                    }
                     com.google.firebase.firestore.FirebaseFirestoreException.Code.UNAVAILABLE -> NetworkFailure()
                     else -> Unknown(e)
                 }

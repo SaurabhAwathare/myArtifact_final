@@ -468,8 +468,7 @@ class PlayerViewModel @Inject constructor(
 
     fun playArtifact(artifact: Artifact, collection: List<Artifact> = emptyList(), source: PlaybackSource = PlaybackSource.FEED_PLAYBACK) {
         // 1. Guard against redundant resets for the SAME artifact
-        // Check both original artifact ID and current playable ID to cover both resolution paths
-        val isAlreadyActive = (playbackCoordinator.currentArtifact.value?.id == artifact.id || _currentPlayableArtifact.value?.id == artifact.id)
+        val isAlreadyActive = playbackCoordinator.currentArtifact.value?.id == artifact.id
         
         if (isAlreadyActive && _loadState.value != PlayerLoadState.ERROR) {
             diagnosticLogger.debug(DiagnosticCategory.NAVIGATION, "PLAYER_RE-ENTRY_SKIPPED", mapOf("artifactId" to artifact.id, "source" to source.name))
@@ -491,7 +490,7 @@ class PlayerViewModel @Inject constructor(
     fun playArtifactById(artifactId: String, source: PlaybackSource = PlaybackSource.FEED_PLAYBACK) {
         // 1. Guard against redundant resets for the SAME artifact
         // This prevents the UI from flickering back to LOADING when re-triggered by rotation or duplicate intents
-        val isAlreadyActive = (_currentPlayableArtifact.value?.id == artifactId || playbackCoordinator.currentArtifact.value?.id == artifactId)
+        val isAlreadyActive = playbackCoordinator.currentArtifact.value?.id == artifactId
         
         if (isAlreadyActive && _loadState.value != PlayerLoadState.ERROR) {
             diagnosticLogger.debug(DiagnosticCategory.NAVIGATION, "PLAYER_ID_RE-ENTRY_SKIPPED", mapOf("artifactId" to artifactId, "source" to source.name))

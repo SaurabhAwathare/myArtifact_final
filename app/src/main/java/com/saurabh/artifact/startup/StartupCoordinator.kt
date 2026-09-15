@@ -22,6 +22,8 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.ExistingWorkPolicy
+import com.google.firebase.appcheck.FirebaseAppCheck
+import com.saurabh.artifact.BuildConfig
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -348,10 +350,48 @@ class StartupCoordinator @Inject constructor(
     }
 
     private suspend fun awaitAppCheckReadiness() {
-        ArtifactLogger.d(DiagnosticCategory.STARTUP, "APP_CHECK_PROVIDER_ACTIVE")
-        // App Check provider is installed in Application.onCreate() / SecurityInitializer.
-        // Lazy token acquisition is managed automatically by Firebase SDKs on-demand.
-        emitReadiness(StartupComponent.APP_CHECK)
+        ArtifactLogger.d(DiagnosticCategory.STARTUP, "APP_CHECK_READINESS_CHECK_STARTED")
+        if (BuildConfig.DEBUG) {
+            try {
+                val appCheck = FirebaseAppCheck.getInstance()
+                val tokenResult = appCheck.getAppCheckToken(false).await()
+                val token = tokenResult.token
+                if (token.isBlank()) {
+                    val errorMsg = "App Check token acquisition returned an empty token in DEBUG mode."
+                    ArtifactLogger.e(
+                        DiagnosticCategory.STARTUP,
+                        "APP_CHECK_TOKEN_ACQUISITION_FAILED",
+                        mapOf(
+                            "error" to errorMsg,
+                            "isFixedSecretConfigured" to BuildConfig.APP_CHECK_DEBUG_SECRET.isNotBlank()
+                        )
+                    )
+                    throw IllegalStateException(errorMsg)
+                }
+                ArtifactLogger.i(
+                    DiagnosticCategory.STARTUP,
+                    "APP_CHECK_TOKEN_ACQUIRED_DEBUG",
+                    mapOf(
+                        "isFixedSecretConfigured" to BuildConfig.APP_CHECK_DEBUG_SECRET.isNotBlank()
+                    )
+                )
+                emitReadiness(StartupComponent.APP_CHECK)
+            } catch (e: Exception) {
+                ArtifactLogger.e(
+                    DiagnosticCategory.STARTUP,
+                    "APP_CHECK_TOKEN_ACQUISITION_FAILED",
+                    mapOf(
+                        "message" to "Firebase App Check debug token acquisition failed. Ensure the App Check debug secret is registered in Firebase Console (App Check -> Manage Debug Tokens).",
+                        "isFixedSecretConfigured" to BuildConfig.APP_CHECK_DEBUG_SECRET.isNotBlank()
+                    ),
+                    throwable = e
+                )
+                throw e
+            }
+        } else {
+            ArtifactLogger.d(DiagnosticCategory.STARTUP, "APP_CHECK_PROVIDER_ACTIVE")
+            emitReadiness(StartupComponent.APP_CHECK)
+        }
     }
 
     private suspend fun initializeSecurityProviderSync() {

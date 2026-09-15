@@ -6,6 +6,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
+import com.saurabh.artifact.BuildConfig
 import com.saurabh.artifact.model.User
 import com.saurabh.artifact.model.UserPrivateSettings
 import kotlinx.coroutines.TimeoutCancellationException
@@ -91,6 +92,10 @@ class ProfileHealthChecker @Inject constructor(
         ArtifactLogger.e(
             DiagnosticCategory.AUTH,
             "PROFILE_CHECK_PERMISSION_DENIED_PERSISTENT",
+            mapOf(
+                "diagnostic" to "Firestore PERMISSION_DENIED during profile health check. Check if Firebase App Check debug token is registered in Firebase Console under App Check -> Manage Debug Tokens.",
+                "isFixedSecretConfigured" to BuildConfig.APP_CHECK_DEBUG_SECRET.isNotBlank()
+            ),
             throwable = lastPermissionException
         )
         return HealthStatus.PermissionDenied(lastPermissionException)
