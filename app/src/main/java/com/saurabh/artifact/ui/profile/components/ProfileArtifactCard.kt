@@ -50,6 +50,7 @@ fun ProfileArtifactCard(
     progress: Float = 0f,
     isListened: Boolean = false,
     reviewProgress: Float = 0f,
+    onResonatorsCountClick: () -> Unit = {},
 ) {
     var showMenu by remember { mutableStateOf(value = false) }
     var showRenameDialog by remember { mutableStateOf(value = false) }
@@ -233,7 +234,8 @@ fun ProfileArtifactCard(
                                     totalCount = artifact.reactionCount,
                                     visibility = artifact.reactionVisibility
                                 ),
-                                isOwner = isOwner
+                                isOwner = isOwner,
+                                onClick = onResonatorsCountClick
                             )
                         }
                     }

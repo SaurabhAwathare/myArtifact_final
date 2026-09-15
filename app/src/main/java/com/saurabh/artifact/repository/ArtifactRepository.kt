@@ -730,6 +730,7 @@ class ArtifactRepository @Inject constructor(
             isDraftField = entity.isDraft,
             isEncrypted = entity.isEncrypted,
             identityVersion = entity.identityVersion,
+            identityPropagationVersion = entity.identityPropagationVersion,
             resonanceDepth = entity.resonanceDepth,
             humanIntegrityFactor = entity.humanIntegrityFactor,
             conversationMetadata = ArtifactConversationMetadata(
@@ -773,6 +774,7 @@ class ArtifactRepository @Inject constructor(
             isDraft = artifact.isDraft,
             isEncrypted = artifact.isEncrypted,
             identityVersion = artifact.identityVersion,
+            identityPropagationVersion = artifact.identityPropagationVersion,
             resonanceDepth = artifact.resonanceDepth,
             humanIntegrityFactor = artifact.humanIntegrityFactor,
             lastUpdated = System.currentTimeMillis()
@@ -1082,7 +1084,7 @@ class ArtifactRepository @Inject constructor(
      * Optimistically updates the local Room database with new author identity information.
      * This ensures the Home Feed reflects changes immediately without waiting for a full reload.
      */
-    suspend fun updateLocalAuthorSnapshot(userId: String, snapshot: AuthorSnapshot, identityVersion: Long) = withContext(Dispatchers.IO) {
+    suspend fun updateLocalAuthorSnapshot(userId: String, snapshot: AuthorSnapshot, identityPropagationVersion: Long) = withContext(Dispatchers.IO) {
         try {
             artifactDao.get().updateAuthorInfo(
                 userId = userId,
@@ -1092,9 +1094,9 @@ class ArtifactRepository @Inject constructor(
                 seed = snapshot.sigilSeed,
                 color = snapshot.sigilColor,
                 configJson = kotlinx.serialization.json.Json.encodeToString(snapshot.sigilConfig),
-                identityVersion = identityVersion
+                identityPropagationVersion = identityPropagationVersion
             )
-            diagnosticLogger.debug(DiagnosticCategory.DATABASE, "AUTHOR_SNAPSHOT_UPDATED", mapOf(LogKeys.USER_ID to userId, "version" to identityVersion))
+            diagnosticLogger.debug(DiagnosticCategory.DATABASE, "AUTHOR_SNAPSHOT_UPDATED", mapOf(LogKeys.USER_ID to userId, "propagationVersion" to identityPropagationVersion))
         } catch (e: Exception) {
             diagnosticLogger.error(DiagnosticCategory.DATABASE, "AUTHOR_SNAPSHOT_UPDATE_FAILED", mapOf(LogKeys.USER_ID to userId), e)
         }

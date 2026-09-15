@@ -172,7 +172,7 @@ class UserProfileManager @Inject constructor(
                         sigilColor = currentProfile.sigilColor,
                         sigilConfig = config
                     ),
-                    identityVersion = currentVersion
+                    identityPropagationVersion = currentVersion
                 )
             }
         }
@@ -193,13 +193,22 @@ class UserProfileManager @Inject constructor(
      * Updates the user's anonymous username.
      */
     suspend fun updateUsername(username: String): Result<Unit> {
-        // 1. Update SSOT immediately
-        sessionManager.updateUsername(username)
-        
         val userId = authRepository.currentUserId
         Log.d("UserProfileManager", "updateUsername: userId='$userId'")
 
-        // 2. Optimistic Local Sync
+        // 1. If authenticated, update Firestore first
+        if (userId.isNotEmpty()) {
+            val result = userRepository.createUsername(userId, username)
+            if (result.isFailure) {
+                return result
+            }
+            IdentitySyncWorker.enqueue(context, userId)
+        }
+
+        // 2. Update SSOT DataStore immediately
+        sessionManager.updateUsername(username)
+
+        // 3. Optimistic Local Sync for local artifacts
         if (userId.isNotEmpty()) {
             managerScope.launch {
                 Log.d("UserProfileManager", "Launching local sync for $userId")
@@ -218,19 +227,11 @@ class UserProfileManager @Inject constructor(
                         sigilColor = currentProfile.sigilColor,
                         sigilConfig = currentProfile.sigilConfig
                     ),
-                    identityVersion = currentVersion
+                    identityPropagationVersion = currentVersion
                 )
             }
         }
 
-        // 3. Sync to Firestore if authenticated (Eventual Consistency)
-        if (userId.isNotEmpty()) {
-            val result = userRepository.createUsername(userId, username)
-            if (result.isSuccess) {
-                IdentitySyncWorker.enqueue(context, userId)
-            }
-            return result
-        }
         return Result.success(Unit)
     }
 

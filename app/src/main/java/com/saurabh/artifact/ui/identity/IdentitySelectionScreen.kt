@@ -171,6 +171,7 @@ fun IdentitySelectionScreen(
             UsernameInput(
                 state = usernameUiState,
                 onUsernameChange = { viewModel.onUsernameChange(it) },
+                onRetryAvailability = { viewModel.retryAvailabilityCheck() },
                 modifier = Modifier.fillMaxWidth(),
                 enabled = uiState !is IdentityUiState.Loading
             )

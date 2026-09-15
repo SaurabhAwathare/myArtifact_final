@@ -19,7 +19,8 @@ fun CommentDto.toDomain(): Comment {
         } catch (_: Exception) {
             CommentStatus.ACTIVE
         },
-        identityVersion = identityVersion
+        identityVersion = identityVersion,
+        identityPropagationVersion = identityPropagationVersion
     )
 }
 
@@ -36,6 +37,7 @@ fun Comment.toDto(): CommentDto {
         createdAt = createdAt,
         updatedAt = updatedAt,
         status = status.name,
-        identityVersion = identityVersion
+        identityVersion = identityVersion,
+        identityPropagationVersion = identityPropagationVersion
     )
 }

@@ -303,7 +303,8 @@ class ArtifactPublishingRepository @Inject constructor(
                     status = ModerationStatus.SAFE,
                     updatedAt = Timestamp.now()
                 ),
-                identityVersion = identityVersion
+                identityVersion = identityVersion,
+                identityPropagationVersion = identityVersion
             )
             val artifactData = mapArtifactToFirestoreData(artifact)
             
@@ -422,6 +423,7 @@ class ArtifactPublishingRepository @Inject constructor(
             "reactionVisibility" to artifact.reactionVisibility.name,
             "amplitudeData" to artifact.amplitudeData,
             "identityVersion" to artifact.identityVersion,
+            "identityPropagationVersion" to artifact.identityPropagationVersion,
             "moderation" to mapOf(
                 "status" to artifact.moderation.status.name,
                 "score" to artifact.moderation.score,

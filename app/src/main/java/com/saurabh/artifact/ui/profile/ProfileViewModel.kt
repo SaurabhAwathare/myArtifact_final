@@ -419,7 +419,14 @@ class ProfileViewModel @Inject constructor(
             return
         }
 
-        playbackCoordinator.playArtifact(artifact, source = PlaybackSource.PROFILE_PLAYBACK)
+        if (playbackCoordinator.currentArtifact.value?.id == artifact.id) {
+            playbackCoordinator.togglePlayPause()
+        } else {
+            playbackCoordinator.playArtifact(
+                artifact,
+                source = PlaybackSource.PROFILE_PLAYBACK
+            )
+        }
     }
 
     fun togglePlayback() {

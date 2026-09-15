@@ -55,8 +55,10 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.saurabh.artifact.model.Artifact
+import com.saurabh.artifact.model.ArtifactReactionCounts
 import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.ui.components.motion.PressableScale
+import com.saurabh.artifact.ui.feed.HydrationLevel
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.theme.LocalStartupStage
 import com.saurabh.artifact.ui.theme.Spacing
@@ -83,6 +85,7 @@ fun ArtifactCard(
     onFeedbackClick: () -> Unit = {},
     onSettingsClick: () -> Unit = {},
     onAuthorClick: (String) -> Unit = {},
+    onResonatorsCountClick: (String) -> Unit = {},
     currentUserId: String? = null,
     artifactDetail: com.saurabh.artifact.model.ArtifactDetail? = null,
     recommendationReason: com.saurabh.artifact.model.FeedRecommendationReason? = null,
@@ -93,7 +96,6 @@ fun ArtifactCard(
     }
 
     val isHydrated = hydrationLevel >= com.saurabh.artifact.ui.feed.HydrationLevel.METADATA
-    val stage = ArtifactTheme.stage
 
     var showOptionsSheet by remember { mutableStateOf(false) }
     var showWhySheet by remember { mutableStateOf(false) }
@@ -382,24 +384,34 @@ fun ArtifactCard(
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(Spacing.Small))
+                        val effectiveReactionCounts = remember(artifact, artifactDetail) {
+                            val detailCounts = artifactDetail?.reactionCounts
+                            if (detailCounts != null && detailCounts.totalCount > 0) {
+                                detailCounts
+                            } else {
+                                ArtifactReactionCounts(
+                                    artifactId = artifact.id,
+                                    totalCount = artifact.reactionCount,
+                                    visibility = artifact.reactionVisibility
+                                )
+                            }
+                        }
 
-                        val effectiveReactionCounts = artifactDetail?.reactionCounts ?: com.saurabh.artifact.model.ArtifactReactionCounts(
-                            artifactId = artifact.id,
-                            totalCount = artifact.reactionCount,
-                            visibility = artifact.reactionVisibility
-                        )
-
-                        if (hydrationLevel >= com.saurabh.artifact.ui.feed.HydrationLevel.METADATA &&
-                            stage >= com.saurabh.artifact.startup.StartupStage.IMMERSION &&
+                        if (hydrationLevel >= HydrationLevel.METADATA &&
                             effectiveReactionCounts.totalCount > 0
                         ) {
-                            Spacer(modifier = Modifier.height(Spacing.Small))
-                            ResonanceDisplay(
-                                counts = effectiveReactionCounts,
-                                isOwner = isOwner,
-                                modifier = Modifier.fillMaxWidth()
-                            )
+                            Spacer(modifier = Modifier.height(Spacing.ExtraSmall))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                ResonanceDisplay(
+                                    counts = effectiveReactionCounts,
+                                    isOwner = isOwner,
+                                    onClick = { onResonatorsCountClick(artifact.id) }
+                                )
+                            }
                         }
                     }
                 }

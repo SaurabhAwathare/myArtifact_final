@@ -1,5 +1,6 @@
 package com.saurabh.artifact.ui.identity
 
+import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import androidx.lifecycle.ViewModel
@@ -147,6 +148,16 @@ class IdentityViewModel @Inject constructor(
         _availability.value = UsernameAvailability.CHECKING
 
         availabilityCheckJob = viewModelScope.launch {
+            // PART 1: Wait for existing Auth restoration mechanism before issuing Firestore query
+            authRepository.awaitAuthRestoration()
+
+            if (auth.currentUser == null) {
+                if (_username.value == name) {
+                    _availability.value = UsernameAvailability.ERROR
+                }
+                return@launch
+            }
+
             // If the name is the user's current name, it's available to them
             val currentRemoteName = userProfile.value?.anonymousName
             val currentLocalName = activeUsernameState.value
@@ -204,6 +215,13 @@ class IdentityViewModel @Inject constructor(
         _username.value = suggestion
     }
 
+    fun retryAvailabilityCheck() {
+        val currentName = _username.value
+        if (currentName.isNotEmpty() && _usernameError.value == null) {
+            checkAvailability(currentName)
+        }
+    }
+
     val usernameUiState: StateFlow<UsernameUiState> = combine(
         _username,
         _availability,
@@ -219,16 +237,19 @@ class IdentityViewModel @Inject constructor(
         val uiState = params[4] as IdentityUiState
         val hasEdited = params[5] as Boolean
 
+        val isValidFormatAndSafety = validation?.isValid == true && _usernameError.value == null
+
         UsernameUiState(
             username = name,
             isValidating = avail == UsernameAvailability.CHECKING,
             isAvailable = if (hasEdited) {
-                when (avail) {
-                    UsernameAvailability.AVAILABLE -> true
-                    UsernameAvailability.TAKEN -> false
+                when {
+                    avail == UsernameAvailability.AVAILABLE && isValidFormatAndSafety -> true
+                    avail == UsernameAvailability.TAKEN || (validation != null && !isValidFormatAndSafety) -> false
                     else -> null
                 }
             } else null,
+            isAvailabilityError = avail == UsernameAvailability.ERROR,
             validationResult = if (hasEdited) {
                 validation?.let { res ->
                     val isTaken = avail == UsernameAvailability.TAKEN
@@ -254,23 +275,15 @@ class IdentityViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = IdentityUiState.Loading
             
-            val userId = authRepository.currentUser.value?.uid
-            if (userId != null) {
-                userRepository.createUsername(userId, name)
-                    .onSuccess {
-                        userProfileManager.updateSigilConfig(_sigilConfig.value)
-                        onSuccess()
-                    }
-                    .onFailure { e ->
-                        diagnosticLogger.error(DiagnosticCategory.PROFILE, "USERNAME_SAVE_FAILED", throwable = e)
-                        _uiState.value = IdentityUiState.Error(ErrorMessageMapper.map(e))
-                    }
-            } else {
-                // Anonymous fallback
-                userProfileManager.updateSigilConfig(_sigilConfig.value)
-                userProfileManager.updateUsername(name)
-                onSuccess()
-            }
+            userProfileManager.updateSigilConfig(_sigilConfig.value)
+            userProfileManager.updateUsername(name)
+                .onSuccess {
+                    onSuccess()
+                }
+                .onFailure { e ->
+                    diagnosticLogger.error(DiagnosticCategory.PROFILE, "USERNAME_SAVE_FAILED", throwable = e)
+                    _uiState.value = IdentityUiState.Error(ErrorMessageMapper.map(e))
+                }
         }
     }
 }

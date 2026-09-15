@@ -51,7 +51,8 @@ class AddCommentUseCase @Inject constructor(
             createdAt = now,
             updatedAt = now,
             status = CommentStatus.ACTIVE,
-            identityVersion = user.identityMetadata.identityResetVersion
+            identityVersion = user.identityMetadata.identityResetVersion,
+            identityPropagationVersion = user.identityMetadata.identityResetVersion
         )
 
         // 4. Enqueue for durable background synchronization

@@ -55,7 +55,7 @@ class UserSessionManager @Inject constructor(
         .map { preferences ->
             val id = preferences[PreferencesKeys.ANONYMOUS_ID] ?: ("gen_" + UUID.randomUUID().toString().take(8))
             
-            val seed = preferences[PreferencesKeys.SIGIL_SEED] ?: UUID.randomUUID().toString()
+            val seed = preferences[PreferencesKeys.SIGIL_SEED] ?: id
                 
             val username = preferences[PreferencesKeys.USERNAME] ?: com.saurabh.artifact.util.UsernameGenerator.generate()
             val sigil = preferences[PreferencesKeys.SIGIL] ?: com.saurabh.artifact.util.UsernameGenerator.deriveSigil(id)
@@ -153,7 +153,9 @@ class UserSessionManager @Inject constructor(
             preferences[PreferencesKeys.ANONYMOUS_ID] = user.anonymousId
             preferences[PreferencesKeys.USERNAME] = user.anonymousName
             preferences[PreferencesKeys.SIGIL] = user.anonymousSigil
-            preferences[PreferencesKeys.SIGIL_SEED] = user.sigilSeed
+            if (user.sigilSeed.isNotEmpty()) {
+                preferences[PreferencesKeys.SIGIL_SEED] = user.sigilSeed
+            }
             preferences[PreferencesKeys.SIGIL_COLOR] = user.sigilColor
             preferences[PreferencesKeys.SIGIL_CONFIG_JSON] = Json.encodeToString(user.sigilConfig)
             preferences[PreferencesKeys.IS_ANONYMOUS] = user.isAnonymous
@@ -188,6 +190,10 @@ class UserSessionManager @Inject constructor(
                 val idToUse = blockStoreId ?: UUID.randomUUID().toString()
                 preferences[PreferencesKeys.ANONYMOUS_ID] = idToUse
                 blockStoreManager.saveAnonymousId(idToUse)
+            }
+            if (preferences[PreferencesKeys.SIGIL_SEED] == null) {
+                val seedToUse = preferences[PreferencesKeys.ANONYMOUS_ID] ?: UUID.randomUUID().toString()
+                preferences[PreferencesKeys.SIGIL_SEED] = seedToUse
             }
         }
     }

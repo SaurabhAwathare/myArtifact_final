@@ -61,6 +61,11 @@ fun NavGraphBuilder.profileNavigation(
             },
             onNavigateToResonanceList = { id, type, title ->
                 navController.navigate(ResonanceList(userId = id, type = type, title = title))
+            },
+            onNavigateToArtifactResonators = { artifactId, isOwner ->
+                navController.navigate(ResonanceList(artifactId = artifactId, isOwner = isOwner, title = "Resonators")) {
+                    launchSingleTop = true
+                }
             }
         )
     }

@@ -21,32 +21,31 @@ class ArtifactReactionCountsTest {
     fun `getFuzzySummary should return summary for CREATOR_ONLY visibility if owner`() {
         val counts = ArtifactReactionCounts(totalCount = 10L, visibility = ReactionVisibilityMode.CREATOR_ONLY)
         val summary = counts.getFuzzySummary(isOwner = true)
-        assert(summary.isNotEmpty())
-        assert(summary.contains("Many have found resonance"))
+        assertEquals("10 Resonators", summary)
     }
 
     @Test
     fun `getFuzzySummary should return exact count message for VISIBLE visibility`() {
         val counts = ArtifactReactionCounts(totalCount = 1L, visibility = ReactionVisibilityMode.VISIBLE)
-        assertEquals("Another soul felt this", counts.getFuzzySummary())
+        assertEquals("1 Resonator", counts.getFuzzySummary())
         
         val counts2 = ArtifactReactionCounts(totalCount = 42L, visibility = ReactionVisibilityMode.VISIBLE)
-        assertEquals("42 souls felt this too", counts2.getFuzzySummary())
+        assertEquals("42 Resonators", counts2.getFuzzySummary())
     }
 
     @Test
-    fun `getFuzzySummary should return fuzzy messages for APPROXIMATE visibility`() {
+    fun `getFuzzySummary should return exact count message for APPROXIMATE visibility`() {
         val counts1 = ArtifactReactionCounts(totalCount = 1L, visibility = ReactionVisibilityMode.APPROXIMATE)
-        assertEquals("Another soul felt this", counts1.getFuzzySummary())
+        assertEquals("1 Resonator", counts1.getFuzzySummary())
         
         val counts2 = ArtifactReactionCounts(totalCount = 3L, visibility = ReactionVisibilityMode.APPROXIMATE)
-        assertEquals("A few people are holding space here", counts2.getFuzzySummary())
+        assertEquals("3 Resonators", counts2.getFuzzySummary())
         
         val counts3 = ArtifactReactionCounts(totalCount = 15L, visibility = ReactionVisibilityMode.APPROXIMATE)
-        assertEquals("Many have found resonance in your words", counts3.getFuzzySummary())
+        assertEquals("15 Resonators", counts3.getFuzzySummary())
         
         val counts4 = ArtifactReactionCounts(totalCount = 100L, visibility = ReactionVisibilityMode.APPROXIMATE)
-        assertEquals("A vast echo is returning to you", counts4.getFuzzySummary())
+        assertEquals("100 Resonators", counts4.getFuzzySummary())
     }
 
     @Test

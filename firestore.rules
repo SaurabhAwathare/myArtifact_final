@@ -56,7 +56,7 @@ service cloud.firestore {
     function isValidComment(data) {
       // MAX_COMMENT_LENGTH must sync with CommentConstants.kt (currently 1000)
       let requiredFields = ['artifactId', 'authorAnonymousId', 'author', 'text', 'status'];
-      let optionalFields = ['createdAt', 'updatedAt', 'identityVersion'];
+      let optionalFields = ['createdAt', 'updatedAt', 'identityVersion', 'identityPropagationVersion'];
       return data.keys().hasAll(requiredFields) &&
              data.keys().hasOnly(requiredFields.concat(optionalFields)) &&
              data.artifactId is string &&
@@ -310,6 +310,7 @@ service cloud.firestore {
                     request.resource.data.author.anonymousId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.anonymousId &&
                     request.resource.data.author.keys().hasAll(['anonymousId', 'name']) &&
                     request.resource.data.get('identityVersion', 0) == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.identityMetadata.get('identityResetVersion', 0) &&
+                    request.resource.data.get('identityPropagationVersion', 0) == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.identityMetadata.get('identityResetVersion', 0) &&
                     isCreationStatusValid(request.resource.data) &&
                     isCreationFieldsValid(request.resource.data);
 
@@ -332,7 +333,7 @@ service cloud.firestore {
                      // audioUrl is immutable once ACTIVE
                      (resource.data.status != 'ACTIVE' || resource.data.audioUrl == request.resource.data.audioUrl) &&
                      !(request.resource.data.diff(resource.data).affectedKeys()
-                       .hasAny(['author', 'reactionCount', 'commentCount', 'playCount', 'reportCount', 'recommendationState', 'moderation', 'moderationStatus', 'toxicityScore', 'safetyConcernCount', 'reporterIds', 'identityVersion'])));
+                       .hasAny(['author', 'reactionCount', 'commentCount', 'playCount', 'reportCount', 'recommendationState', 'moderation', 'moderationStatus', 'toxicityScore', 'safetyConcernCount', 'reporterIds', 'identityVersion', 'identityPropagationVersion'])));
 
       // Prevent users from hard-deleting the Artifact document to ensure Cloud Function trigger
       allow delete: if isGlobalAdmin();

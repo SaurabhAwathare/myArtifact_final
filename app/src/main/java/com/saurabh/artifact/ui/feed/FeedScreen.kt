@@ -78,6 +78,7 @@ fun FeedScreen(
     onNavigateToDebugMenu: () -> Unit,
     onReportArtifact: (String) -> Unit,
     onAuthorClick: (String) -> Unit = {},
+    onResonatorsCountClick: (String) -> Unit = {},
     onNavigateToSecurity: () -> Unit = {},
     viewModel: FeedViewModel = hiltViewModel(),
 ) {
@@ -193,6 +194,7 @@ fun FeedScreen(
                         onNavigateToRecord = onNavigateToRecord,
                         onReportClick = onReportArtifact,
                         onAuthorClick = onAuthorClick,
+                        onResonatorsCountClick = onResonatorsCountClick,
                         onNavigateToSecurity = onNavigateToSecurity
                     )
                 }
@@ -363,7 +365,8 @@ private fun FeedContent(
     onReportClick: (String) -> Unit,
     onAuthorClick: (String) -> Unit,
     onNavigateToSecurity: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onResonatorsCountClick: (String) -> Unit = {}
 ) {
     val currentArtifacts = if (showRankedFeed) forYouArtifacts else recentArtifacts
     val isEmpty = currentArtifacts.itemCount == 0
@@ -399,7 +402,8 @@ private fun FeedContent(
                             artifactId = item.artifact.id,
                             viewModel = viewModel,
                             onReportClick = onReportClick,
-                            onAuthorClick = onAuthorClick
+                            onAuthorClick = onAuthorClick,
+                            onResonatorsCountClick = onResonatorsCountClick
                         )
                     }
                     is FeedDisplayItem.BreakItem -> {
@@ -501,6 +505,7 @@ fun ArtifactItem(
     onReportClick: (String) -> Unit,
     onAuthorClick: (String) -> Unit,
     modifier: Modifier = Modifier,
+    onResonatorsCountClick: (String) -> Unit = {},
     feedArtifact: FeedArtifact? = null
 ) {
     // Isolated State Collection: This item ONLY recomposes when its specific artifact data or status changes
@@ -550,6 +555,7 @@ fun ArtifactItem(
             onFeedbackClick = { viewModel.submitFeedback(artifactId, FeedbackType.NOT_FOR_ME) },
             onSettingsClick = { viewModel.showSettingsComingSoon() },
             onAuthorClick = onAuthorClick,
+            onResonatorsCountClick = onResonatorsCountClick,
             currentUserId = viewModel.currentUserId,
             artifactDetail = artifactDetail,
             recommendationReason = effectiveReason,

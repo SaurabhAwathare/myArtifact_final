@@ -2,19 +2,22 @@ package com.saurabh.artifact.ui.components
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.saurabh.artifact.model.ArtifactReactionCounts
-import com.saurabh.artifact.ui.theme.MistGray
+import com.saurabh.artifact.ui.theme.ArtifactTheme
 
 /**
  * RESONANCE DISPLAY
@@ -35,25 +38,21 @@ fun ResonanceDisplay(
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = modifier
-                .padding(vertical = 8.dp)
+                .clip(MaterialTheme.shapes.small)
                 .clickable(enabled = true) { onClick() }
+                .padding(horizontal = 4.dp, vertical = 2.dp)
         ) {
-            Text(
-                text = "🐚",
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(end = 8.dp)
+            Icon(
+                imageVector = Icons.Outlined.FavoriteBorder,
+                contentDescription = null,
+                tint = ArtifactTheme.colors.waveformActive.copy(alpha = 0.8f),
+                modifier = Modifier.size(15.dp)
             )
+            Spacer(modifier = Modifier.width(4.dp))
             Text(
                 text = finalSummary,
-                style = MaterialTheme.typography.labelMedium,
-                color = MistGray.copy(alpha = 0.8f)
-            )
-            
-            Icon(
-                imageVector = Icons.Rounded.ChevronRight,
-                contentDescription = null,
-                tint = MistGray.copy(alpha = 0.4f),
-                modifier = Modifier.size(16.dp).padding(start = 2.dp)
+                style = ArtifactTheme.typography.labelSmall,
+                color = ArtifactTheme.colors.waveformActive.copy(alpha = 0.8f)
             )
         }
     }

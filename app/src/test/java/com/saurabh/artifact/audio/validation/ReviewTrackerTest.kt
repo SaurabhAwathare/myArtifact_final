@@ -105,4 +105,54 @@ class ReviewTrackerTest {
         assertFalse("Should NOT be validated if coverage is missing", progress.isValidationMet)
         assertTrue("Coverage should be low", progress.coveragePercent < 0.10f)
     }
+
+    @Test
+    fun `test terminal position updates furthestPositionMs to durationMs without invalid segment index`() {
+        val duration = 30000L // 30s
+        val evidence = EngagementEvidence("art1", "v1", duration, reviewTrackingVersion = ReviewTrackingVersion.FIXED_ONE_SECOND)
+        val policy = PublishingReviewPolicy()
+        val tracker = DefaultReviewTracker(
+            initialEvidence = evidence,
+            segmentSizer = { dur, ver -> policy.getSegmentSizeMs(dur, ver) },
+            validator = { ruleEngine.validate(it, policy) }
+        )
+
+        // 1. Tick normally until exact duration (30s)
+        for (i in 0..300) {
+            tracker.onPlaybackTick(i * 100L, 100L, 1.0f)
+        }
+        tracker.onPlaybackEnded()
+
+        val progress = tracker.progress
+        assertEquals("furthestPositionMs should equal durationMs at terminal position", duration, progress.evidence.furthestPositionMs)
+        assertEquals("lastPositionMs should equal durationMs at terminal position", duration, progress.evidence.lastPositionMs)
+        assertTrue("Coverage should be 100%", progress.coveragePercent >= 1.0f)
+        assertTrue("Validation should be met", progress.isValidationMet)
+    }
+
+    @Test
+    fun `test high speed playback terminal position updates furthestPositionMs to durationMs`() {
+        val duration = 30000L // 30s
+        val evidence = EngagementEvidence("art1", "v1", duration, reviewTrackingVersion = ReviewTrackingVersion.FIXED_ONE_SECOND)
+        val policy = PublishingReviewPolicy()
+        val tracker = DefaultReviewTracker(
+            initialEvidence = evidence,
+            segmentSizer = { dur, ver -> policy.getSegmentSizeMs(dur, ver) },
+            validator = { ruleEngine.validate(it, policy) }
+        )
+
+        // Listen at 3x speed: tick interval 100ms, playback delta 300ms
+        var pos = 0L
+        while (pos < duration) {
+            tracker.onPlaybackTick(pos, 100L, 3.0f)
+            pos += 300L
+        }
+        // Terminal tick at exact duration
+        tracker.onPlaybackTick(duration, 100L, 3.0f)
+        tracker.onPlaybackEnded()
+
+        val progress = tracker.progress
+        assertEquals("furthestPositionMs should equal durationMs at 3x speed completion", duration, progress.evidence.furthestPositionMs)
+        assertTrue("Validation should be met", progress.isValidationMet)
+    }
 }

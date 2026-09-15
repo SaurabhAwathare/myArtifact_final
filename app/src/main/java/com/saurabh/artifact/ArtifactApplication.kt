@@ -9,6 +9,8 @@ import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import coil.request.CachePolicy
+import com.google.firebase.appcheck.FirebaseAppCheck
+import com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -57,13 +59,14 @@ class ArtifactApplication : Application(), ImageLoaderFactory, Configuration.Pro
 
     override fun onCreate() {
         // 1. Install App Check Factory IMMEDIATELY (before any Hilt/Firebase access)
-        val firebaseAppCheck = com.google.firebase.appcheck.FirebaseAppCheck.getInstance()
         if (BuildConfig.DEBUG) {
             SecurityInitializer.configureFixedDebugAppCheckSecret(this)
+            val firebaseAppCheck = FirebaseAppCheck.getInstance()
             firebaseAppCheck.installAppCheckProviderFactory(
-                com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory.getInstance()
+                DebugAppCheckProviderFactory.getInstance()
             )
         } else {
+            val firebaseAppCheck = FirebaseAppCheck.getInstance()
             firebaseAppCheck.installAppCheckProviderFactory(
                 com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory.getInstance()
             )

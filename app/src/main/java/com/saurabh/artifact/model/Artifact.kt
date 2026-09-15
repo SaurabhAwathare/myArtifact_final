@@ -58,6 +58,7 @@ data class Artifact(
     val reactionVisibility: ReactionVisibilityMode = ReactionVisibilityMode.APPROXIMATE,
     val titleHistory: List<String> = emptyList(),
     val identityVersion: Long = 0,
+    val identityPropagationVersion: Long = 0,
 
     /**
      * Firestore Release compatibility.

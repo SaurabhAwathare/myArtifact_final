@@ -47,25 +47,29 @@ class DefaultReviewTracker(
         // Mark coverage only if advancing normally to prevent "painting" via seeks.
         if (isAdvancingNormally) {
             val segmentSize = segmentSizer(currentEvidence.durationMs, currentEvidence.reviewTrackingVersion)
-            val segmentIndex = (currentPosMs / segmentSize).toInt()
             val totalSegments = (currentEvidence.durationMs / segmentSize).toInt().coerceAtLeast(1)
-            
-            if (segmentIndex < totalSegments) {
-                val updatedCoverage = currentEvidence.coverage.clone() as BitSet
-                updatedCoverage.set(segmentIndex)
-                
-                var updatedFurthest = currentEvidence.furthestPositionMs
-                if (currentPosMs > updatedFurthest) {
-                    updatedFurthest = currentPosMs
-                }
-                
-                currentEvidence = currentEvidence.copy(
-                    coverage = updatedCoverage,
-                    lastPositionMs = currentPosMs,
-                    furthestPositionMs = updatedFurthest,
-                    lastUpdated = System.currentTimeMillis()
-                )
+            val rawSegmentIndex = (currentPosMs / segmentSize).toInt()
+
+            val effectivePos = currentPosMs.coerceAtMost(currentEvidence.durationMs)
+            val updatedFurthest = effectivePos.coerceAtLeast(currentEvidence.furthestPositionMs)
+
+            val updatedCoverage = currentEvidence.coverage.clone() as BitSet
+            val segmentIndexToMark = if (currentPosMs >= currentEvidence.durationMs || rawSegmentIndex >= totalSegments) {
+                (totalSegments - 1).coerceAtLeast(0)
+            } else {
+                rawSegmentIndex
             }
+
+            if (segmentIndexToMark in 0 until totalSegments) {
+                updatedCoverage.set(segmentIndexToMark)
+            }
+
+            currentEvidence = currentEvidence.copy(
+                coverage = updatedCoverage,
+                lastPositionMs = effectivePos,
+                furthestPositionMs = updatedFurthest,
+                lastUpdated = System.currentTimeMillis()
+            )
         }
 
         lastPlaybackPositionMs = currentPosMs

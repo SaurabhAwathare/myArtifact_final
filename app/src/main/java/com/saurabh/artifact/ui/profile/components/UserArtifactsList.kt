@@ -32,6 +32,7 @@ fun LazyListScope.userArtifactsList(
     onSaveClick: (Artifact) -> Unit = {},
     savedIds: Set<String> = emptySet(),
     emptyMessage: String? = null,
+    onResonatorsCountClick: (Artifact) -> Unit = {},
     onLoadMore: () -> Unit = {},
     isLoadingMore: Boolean = false,
     hasMore: Boolean = false
@@ -66,7 +67,8 @@ fun LazyListScope.userArtifactsList(
                     onPlayClick = { onPlayClick(artifact) },
                     onRename = { newTitle -> onRename(artifact, newTitle) },
                     onDelete = { onDelete(artifact) },
-                    onUnsave = { onSaveClick(artifact) }
+                    onUnsave = { onSaveClick(artifact) },
+                    onResonatorsCountClick = { onResonatorsCountClick(artifact) }
                 )
             }
         }
@@ -120,7 +122,8 @@ fun LazyListScope.userArtifactsList(
     onDelete: (Artifact) -> Unit,
     onSaveClick: (Artifact) -> Unit = {},
     savedIds: Set<String> = emptySet(),
-    emptyMessage: String? = null
+    emptyMessage: String? = null,
+    onResonatorsCountClick: (Artifact) -> Unit = {}
 ) {
     if (artifacts.itemCount > 0) {
         items(
@@ -150,7 +153,8 @@ fun LazyListScope.userArtifactsList(
                     onPlayClick = { onPlayClick(artifact) },
                     onRename = { newTitle -> onRename(artifact, newTitle) },
                     onDelete = { onDelete(artifact) },
-                    onUnsave = { onSaveClick(artifact) }
+                    onUnsave = { onSaveClick(artifact) },
+                    onResonatorsCountClick = { onResonatorsCountClick(artifact) }
                 )
             }
         }

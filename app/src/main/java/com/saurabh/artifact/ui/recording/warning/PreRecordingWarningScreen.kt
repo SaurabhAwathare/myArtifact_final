@@ -205,7 +205,7 @@ fun PreRecordingWarningContent(
                         horizontalAlignment = Alignment.Start
                     ) {
                         Text(
-                            text = "Do not mention:",
+                            text = stringResource(R.string.pre_recording_warning_heading),
                             style = MaterialTheme.typography.titleLarge.copy(
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 22.sp
@@ -215,11 +215,11 @@ fun PreRecordingWarningContent(
                         Spacer(modifier = Modifier.height(12.dp))
                         
                         val sensitiveItems = listOf(
-                            "your full name",
-                            "your mobile number",
-                            "addresses",
-                            "workplace details",
-                            "your location"
+                            stringResource(R.string.pre_recording_warning_item_full_name),
+                            stringResource(R.string.pre_recording_warning_item_phone_number),
+                            stringResource(R.string.pre_recording_warning_item_address),
+                            stringResource(R.string.pre_recording_warning_item_workplace),
+                            stringResource(R.string.pre_recording_warning_item_location)
                         )
                         
                         sensitiveItems.forEach { item ->

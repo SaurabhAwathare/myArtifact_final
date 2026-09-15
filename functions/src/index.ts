@@ -781,13 +781,14 @@ async function updateIdentitySafe(
       let updatedInBatch = 0;
 
       querySnapshot.docs.forEach((doc) => {
-        const storedVersion = doc.data().identityVersion || 0;
+        const docData = doc.data();
+        const storedPropagationVersion = docData.identityPropagationVersion !== undefined ? docData.identityPropagationVersion : 0;
         // Invariant: Only update if the incoming version is newer.
         // This handles concurrent resets and prevents stale overwrites.
-        if (newVersion > storedVersion) {
+        if (newVersion > storedPropagationVersion) {
           batch.update(doc.ref, {
             ...updateData,
-            identityVersion: newVersion,
+            identityPropagationVersion: newVersion,
           });
           updatedInBatch++;
         }
@@ -1798,6 +1799,8 @@ export const onCommentIntentCreated = functions.firestore
 
       const commentData = {
         ...data,
+        identityVersion: data.identityVersion !== undefined ? data.identityVersion : 0,
+        identityPropagationVersion: data.identityPropagationVersion !== undefined ? data.identityPropagationVersion : (data.identityVersion || 0),
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
         status: "ACTIVE",
@@ -2517,6 +2520,7 @@ export const finalizePublish = functions.https.onCall(async (data, context) => {
         isPublic: isPublic,
         isDraft: false,
         identityVersion: identityResetVersion,
+        identityPropagationVersion: identityResetVersion,
         playCount: 0,
         reactionCount: 0,
         commentCount: 0,

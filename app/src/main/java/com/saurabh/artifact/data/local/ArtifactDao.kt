@@ -61,7 +61,7 @@ interface ArtifactDao {
             authorSigilSeed = :seed, 
             authorSigilColor = :color, 
             authorSigilConfigJson = :configJson,
-            identityVersion = :identityVersion
+            identityPropagationVersion = :identityPropagationVersion
         WHERE userId = :userId AND authorAnonymousId = :anonymousId
     """)
     suspend fun updateAuthorInfo(
@@ -72,6 +72,6 @@ interface ArtifactDao {
         seed: String, 
         color: String, 
         configJson: String,
-        identityVersion: Long
+        identityPropagationVersion: Long
     )
 }

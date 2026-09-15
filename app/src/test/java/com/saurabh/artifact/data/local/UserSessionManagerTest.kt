@@ -5,8 +5,12 @@ import com.saurabh.artifact.model.SigilConfig
 import com.saurabh.artifact.model.sigil.SigilVariant
 import io.mockk.coVerify
 import io.mockk.mockk
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -15,15 +19,19 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
 
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class UserSessionManagerTest {
 
     @get:Rule
     val temporaryFolder = TemporaryFolder()
 
-    private fun createManager(fileName: String): Pair<UserSessionManager, BlockStoreManager> {
-        val testFile = File(temporaryFolder.newFolder(), fileName)
+    private fun TestScope.createManager(fileName: String): Pair<UserSessionManager, BlockStoreManager> {
+        val testFolder = temporaryFolder.newFolder()
+        val testFile = File(testFolder, fileName)
         val dataStore = PreferenceDataStoreFactory.create(
+            scope = CoroutineScope(UnconfinedTestDispatcher(testScheduler) + Job()),
             produceFile = { testFile }
         )
         val blockStoreManager = mockk<BlockStoreManager>(relaxed = true)
@@ -78,5 +86,24 @@ class UserSessionManagerTest {
         
         val profile = manager.userProfile.first()
         assertNotNull(profile.anonymousId)
+    }
+
+    @Test
+    fun `ensureAnonymousId initializes missing SIGIL_SEED once and persists it`() = runTest {
+        val (manager, _) = createManager("test_sigil_init.preferences_pb")
+        manager.ensureAnonymousId()
+        
+        val profile = manager.userProfile.first()
+        assertNotNull(profile.sigilSeed)
+    }
+
+    @Test
+    fun `existing SIGIL_SEED is never overwritten by ensureAnonymousId`() = runTest {
+        val (manager, _) = createManager("test_sigil_preserve.preferences_pb")
+        val customConfig = SigilConfig(seed = "custom_persisted_seed")
+        manager.updateSigilConfig(customConfig)
+
+        val profile = manager.userProfile.first()
+        assertEquals("custom_persisted_seed", profile.sigilSeed)
     }
 }

@@ -59,6 +59,7 @@ data class UsernameUiState(
     val username: String = "",
     val isValidating: Boolean = false,
     val isAvailable: Boolean? = null,
+    val isAvailabilityError: Boolean = false,
     val validationResult: UsernameValidationResult? = null,
     val suggestions: List<String> = emptyList(),
     val isProcessing: Boolean = false

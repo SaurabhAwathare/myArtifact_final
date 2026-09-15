@@ -19,7 +19,8 @@ data class CommentDto(
     @ServerTimestamp var createdAt: Timestamp? = null,
     @ServerTimestamp var updatedAt: Timestamp? = null,
     var status: String = "ACTIVE",
-    var identityVersion: Long = 0
+    var identityVersion: Long = 0,
+    var identityPropagationVersion: Long = 0
 ) {
     // Empty constructor for Firestore
     constructor() : this("")

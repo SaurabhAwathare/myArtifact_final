@@ -1,5 +1,7 @@
 package com.saurabh.artifact.ui.identity.components
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -10,13 +12,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Error
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.saurabh.artifact.model.UsernameUiState
@@ -28,14 +33,16 @@ fun UsernameInput(
     state: UsernameUiState,
     onUsernameChange: (String) -> Unit,
     modifier: Modifier = Modifier,
+    onRetryAvailability: (() -> Unit)? = null,
     enabled: Boolean = true
 ) {
     val isAvailable = state.isAvailable == true
     val isTaken = state.isAvailable == false && state.validationResult?.reason == ValidationReason.ALREADY_TAKEN
+    val isAvailabilityError = state.isAvailabilityError
     
     val statusColor = when {
         isAvailable -> MossSafe
-        isTaken -> MaterialTheme.colorScheme.error
+        isTaken || isAvailabilityError -> MaterialTheme.colorScheme.error
         state.validationResult?.isValid == false -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.outlineVariant
     }
@@ -49,7 +56,7 @@ fun UsernameInput(
             placeholder = { Text("Enter a name...") },
             label = { Text("Anonymous Name") },
             shape = RoundedCornerShape(16.dp),
-            isError = state.validationResult?.isValid == false || isTaken,
+            isError = state.validationResult?.isValid == false || isTaken || isAvailabilityError,
             singleLine = true,
             trailingIcon = {
                 when {
@@ -63,6 +70,16 @@ fun UsernameInput(
                         contentDescription = "Available",
                         tint = statusColor
                     )
+                    isAvailabilityError -> IconButton(
+                        onClick = { onRetryAvailability?.invoke() },
+                        enabled = enabled
+                    ) {
+                        Icon(
+                            Icons.Rounded.Refresh,
+                            contentDescription = "Retry availability check",
+                            tint = statusColor
+                        )
+                    }
                     isTaken || state.validationResult?.isValid == false -> Icon(
                         Icons.Rounded.Error,
                         contentDescription = "Attention Needed",
@@ -99,6 +116,19 @@ fun UsernameInput(
                 style = MaterialTheme.typography.labelSmall,
                 modifier = Modifier.padding(start = 16.dp, top = 4.dp)
             )
+        } else if (isAvailabilityError) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .padding(start = 16.dp, top = 4.dp)
+                    .clickable(enabled = enabled) { onRetryAvailability?.invoke() }
+            ) {
+                Text(
+                    text = "Unable to verify availability. Tap to retry.",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
         } else if (isAvailable) {
             Text(
                 text = "Name is available",

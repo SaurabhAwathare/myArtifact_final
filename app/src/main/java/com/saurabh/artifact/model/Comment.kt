@@ -31,5 +31,6 @@ data class Comment(
     val createdAt: Timestamp = Timestamp.now(),
     val updatedAt: Timestamp = Timestamp.now(),
     val status: CommentStatus = CommentStatus.ACTIVE,
-    val identityVersion: Long = 0
+    val identityVersion: Long = 0,
+    val identityPropagationVersion: Long = 0
 )

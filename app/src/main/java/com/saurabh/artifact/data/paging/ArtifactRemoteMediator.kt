@@ -160,6 +160,7 @@ class ArtifactRemoteMediator(
             isDraft = artifact.isDraft,
             isEncrypted = artifact.isEncrypted,
             identityVersion = artifact.identityVersion,
+            identityPropagationVersion = artifact.identityPropagationVersion,
             resonanceDepth = artifact.resonanceDepth,
             humanIntegrityFactor = artifact.humanIntegrityFactor,
             lastUpdated = System.currentTimeMillis()

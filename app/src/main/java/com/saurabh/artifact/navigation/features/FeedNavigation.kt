@@ -62,6 +62,11 @@ fun NavGraphBuilder.feedNavigation(
                     launchSingleTop = true
                 }
             },
+            onResonatorsCountClick = { artifactId ->
+                navController.navigate(ResonanceList(artifactId = artifactId, title = "Resonators")) {
+                    launchSingleTop = true
+                }
+            },
             onNavigateToSecurity = {
                 navController.navigate(MnemonicReveal())
             }
@@ -104,6 +109,11 @@ fun NavGraphBuilder.feedNavigation(
             onReportArtifact = onReportArtifact,
             onAuthorClick = { personaId ->
                 navController.navigate(Profile(personaId = personaId)) {
+                    launchSingleTop = true
+                }
+            },
+            onResonatorsCountClick = { artifactId ->
+                navController.navigate(ResonanceList(artifactId = artifactId, title = "Resonators")) {
                     launchSingleTop = true
                 }
             },

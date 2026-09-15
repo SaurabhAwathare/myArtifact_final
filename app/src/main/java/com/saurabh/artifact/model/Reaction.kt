@@ -77,24 +77,11 @@ data class ArtifactReactionCounts(
     fun getFuzzySummary(isOwner: Boolean = false): String {
         if (visibility == ReactionVisibilityMode.HIDDEN) return ""
         if (visibility == ReactionVisibilityMode.CREATOR_ONLY && !isOwner) return ""
-        
-        return when (visibility) {
-            ReactionVisibilityMode.VISIBLE -> {
-                when {
-                    totalCount <= 0L -> ""
-                    totalCount == 1L -> "Another soul felt this"
-                    else -> "$totalCount souls felt this too"
-                }
-            }
-            else -> { // APPROXIMATE or CREATOR_ONLY (if owner)
-                when {
-                    totalCount <= 0L -> ""
-                    totalCount == 1L -> "Another soul felt this"
-                    totalCount in 2L..5L -> "A few people are holding space here"
-                    totalCount in 6L..20L -> "Many have found resonance in your words"
-                    else -> "A vast echo is returning to you"
-                }
-            }
+
+        return when {
+            totalCount <= 0L -> ""
+            totalCount == 1L -> "1 Resonator"
+            else -> "$totalCount Resonators"
         }
     }
 }

@@ -30,6 +30,7 @@ fun ProfileScreen(
     onNavigateToReview: (String) -> Unit,
     onNavigateToPublish: (String) -> Unit = {},
     onNavigateToResonanceList: (String, String, String) -> Unit = { _, _, _ -> },
+    onNavigateToArtifactResonators: (String, Boolean) -> Unit = { _, _ -> },
     viewModel: ProfileViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -201,6 +202,9 @@ fun ProfileScreen(
                                 },
                                 onSaveClick = { viewModel.toggleSave(it) },
                                 emptyMessage = if (uiState.isSelf) "You haven't shared any reflections yet." else "This journey is just beginning.",
+                                onResonatorsCountClick = { artifact ->
+                                    onNavigateToArtifactResonators(artifact.id, artifact.userId == viewModel.currentUserId || uiState.isSelf)
+                                },
                                 onLoadMore = { viewModel.loadMorePublished() },
                                 isLoadingMore = uiState.isMorePublishedLoading,
                                 hasMore = uiState.hasMorePublished
@@ -239,6 +243,9 @@ fun ProfileScreen(
                                         },
                                         onDelete = { artifact -> 
                                             viewModel.deletePublishedArtifact(artifact.id)
+                                        },
+                                        onResonatorsCountClick = { artifact ->
+                                            onNavigateToArtifactResonators(artifact.id, true)
                                         }
                                     )
                                 }
@@ -263,7 +270,10 @@ fun ProfileScreen(
                                     viewModel.deletePublishedArtifact(artifact.id)
                                 },
                                 onSaveClick = { viewModel.toggleSave(it) },
-                                emptyMessage = "Moments that resonate with you will stay here."
+                                emptyMessage = "Moments that resonate with you will stay here.",
+                                onResonatorsCountClick = { artifact ->
+                                    onNavigateToArtifactResonators(artifact.id, artifact.userId == viewModel.currentUserId || uiState.isSelf)
+                                }
                             )
                         }
                     }

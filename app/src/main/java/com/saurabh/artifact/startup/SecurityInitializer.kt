@@ -17,13 +17,14 @@ import com.saurabh.artifact.diagnostics.DiagnosticCategory
  */
 class SecurityInitializer : Initializer<Unit> {
     override fun create(context: Context) {
-        val appCheck = FirebaseAppCheck.getInstance()
         if (BuildConfig.DEBUG) {
             configureFixedDebugAppCheckSecret(context)
+            val appCheck = FirebaseAppCheck.getInstance()
             appCheck.installAppCheckProviderFactory(
                 DebugAppCheckProviderFactory.getInstance()
             )
         } else {
+            val appCheck = FirebaseAppCheck.getInstance()
             appCheck.installAppCheckProviderFactory(
                 PlayIntegrityAppCheckProviderFactory.getInstance()
             )
@@ -40,7 +41,7 @@ class SecurityInitializer : Initializer<Unit> {
                     val persistenceKey = firebaseApp.persistenceKey
                     val prefsName = "com.google.firebase.appcheck.debug.store.$persistenceKey"
                     val prefs = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
-                    prefs.edit {
+                    prefs.edit(commit = true) {
                         putString("com.google.firebase.appcheck.debug.DEBUG_SECRET", BuildConfig.APP_CHECK_DEBUG_SECRET)
                     }
                     ArtifactLogger.i(

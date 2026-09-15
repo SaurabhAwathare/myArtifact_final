@@ -65,4 +65,12 @@
     <string name="onboarding_voice_title">Your voice carries emotion differently.</string>
     <string name="onboarding_voice_desc">Speak naturally. Pause. Breathe. Reflect.</string>
     <string name="onboarding_skip">Skip</string>
+
+    <!-- Pre-Recording Privacy Warning -->
+    <string name="pre_recording_warning_heading">Do not share:</string>
+    <string name="pre_recording_warning_item_full_name">Your full name</string>
+    <string name="pre_recording_warning_item_phone_number">Your phone number</string>
+    <string name="pre_recording_warning_item_address">Your home or exact address</string>
+    <string name="pre_recording_warning_item_workplace">Your workplace or employer details</string>
+    <string name="pre_recording_warning_item_location">Your precise location</string>
 </resources>
