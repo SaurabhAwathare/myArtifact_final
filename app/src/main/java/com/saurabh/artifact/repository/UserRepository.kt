@@ -87,7 +87,8 @@ open class UserRepository @Inject constructor(
         // SELF-HEALING: Ensure profile exists before update
         registrationCoordinator.get().ensureProfileExists()
 
-        val normalizedUsername = username.lowercase().trim()
+        val trimmedUsername = username.trim()
+        val normalizedUsername = trimmedUsername.lowercase()
         try {
             val userRef = try {
                 usersCollection.document(userId.trim())
@@ -98,9 +99,78 @@ open class UserRepository @Inject constructor(
             val userSnapshot = userRef.get().await()
             val user = userSnapshot.toObject(User::class.java)?.copy(id = userSnapshot.id)
                 ?: return@withContext Result.failure(AppError.NotFound("User", userId))
+
+            // Check for legacy leading/trailing whitespace in anonymousName and repair before identity transaction
+            val rawOldName = user.anonymousName
+            val trimmedOldName = rawOldName.trim()
+            if (rawOldName != trimmedOldName && trimmedOldName.isNotBlank()) {
+                try {
+                    userRef.update("anonymousName", trimmedOldName).await()
+                    getCachedProfile(userId.trim())?.let { cached ->
+                        userDao.get().insertProfile(mapUserToLocal(cached.copy(anonymousName = trimmedOldName)))
+                    }
+                } catch (e: Exception) {
+                    diagnosticLogger.error(
+                        DiagnosticCategory.FIRESTORE,
+                        "REPAIR_ANONYMOUS_NAME_FAILED",
+                        mapOf(LogKeys.USER_ID to userId, "rawOldName" to rawOldName),
+                        e
+                    )
+                    return@withContext Result.failure(AppError.from(e))
+                }
+            }
             
             val isWithinWindow = identityProtectionPolicy.isWithinWindow(user.identityMetadata.lastIdentityChangeAt)
             val newCount = if (isWithinWindow) user.identityMetadata.identityChangeCount30Days + 1 else 1
+
+            val normalizedCandidateName = normalizedUsername
+            val candidateName = trimmedUsername
+            val normalizedOldName = rawOldName.lowercase().trim()
+
+            var oldDocExists = false
+            var oldDocStatus = "NON_EXISTENT"
+            if (normalizedOldName.isNotBlank()) {
+                try {
+                    val oldDoc = usernamesCollection.document(normalizedOldName).get().await()
+                    oldDocExists = oldDoc.exists()
+                    if (oldDocExists) {
+                        oldDocStatus = oldDoc.getString("status") ?: "NO_STATUS"
+                    }
+                } catch (e: Exception) {
+                    oldDocStatus = "FETCH_ERROR: ${e.message}"
+                }
+            }
+
+            var candDocExists = false
+            var candDocStatus = "NON_EXISTENT"
+            if (normalizedCandidateName.isNotBlank()) {
+                try {
+                    val candDoc = usernamesCollection.document(normalizedCandidateName).get().await()
+                    candDocExists = candDoc.exists()
+                    if (candDocExists) {
+                        candDocStatus = candDoc.getString("status") ?: "NO_STATUS"
+                    }
+                } catch (e: Exception) {
+                    candDocStatus = "FETCH_ERROR: ${e.message}"
+                }
+            }
+
+            diagnosticLogger.info(
+                DiagnosticCategory.FIRESTORE,
+                "IDENTITY_DIAGNOSTIC_BEFORE_TX",
+                mapOf(
+                    "normalizedOldName" to normalizedOldName,
+                    "candidate" to candidateName,
+                    "normalizedCandidateName" to normalizedCandidateName,
+                    "oldDocExists" to oldDocExists,
+                    "oldDocStatus" to oldDocStatus,
+                    "oldNameMatchesProfile" to (user.anonymousName.lowercase().trim() == normalizedOldName),
+                    "candDocExists" to candDocExists,
+                    "candDocStatus" to candDocStatus,
+                    "identityResetVersion" to user.identityMetadata.identityResetVersion,
+                    "lastCompletedIdentityVersion" to user.identityMetadata.lastCompletedIdentityVersion
+                )
+            )
 
             firestore.runTransaction { transaction ->
                 val userDoc = transaction[userRef]
@@ -114,16 +184,23 @@ open class UserRepository @Inject constructor(
                     throw AppError.UsernameTaken(normalizedUsername)
                 }
 
-                // 2. Reserve the new username (Privacy-safe reservation schema)
+                // 2. Read old username document if changing identity (read before write)
+                val oldUsernameRef = if (oldUsername != null && oldUsername != normalizedUsername) {
+                    usernamesCollection.document(oldUsername)
+                } else null
+                val oldUsernameDoc = oldUsernameRef?.let { transaction[it] }
+
+                // 3. Reserve the new username (Privacy-safe reservation schema)
                 transaction[usernameRef] = mapOf(
                     "reserved" to true,
+                    "status" to "ACTIVE",
                     "createdAt" to FieldValue.serverTimestamp()
                 )
 
-                // 3. Update the user profile
+                // 4. Update the user profile
                 transaction.update(
                     userRef, mapOf(
-                        "anonymousName" to username,
+                        "anonymousName" to trimmedUsername,
                         "isAnonymous" to false,
                         "usernameUpdatedAt" to FieldValue.serverTimestamp(),
                         "identityMetadata.lastIdentityChangeAt" to FieldValue.serverTimestamp(),
@@ -131,9 +208,18 @@ open class UserRepository @Inject constructor(
                         "identityMetadata.identityResetVersion" to FieldValue.increment(1) // Trigger backend propagation
                 ))
 
-                // 4. Clean up old username reservation
-                if (oldUsername != null && oldUsername != normalizedUsername) {
-                    transaction.delete(usernamesCollection.document(oldUsername))
+                // 5. Transition old username to RETIRED atomically (only if old reservation doc exists)
+                if (oldUsernameRef != null && oldUsernameDoc?.exists() == true) {
+                    val oldCreatedAt = oldUsernameDoc.get("createdAt")
+                    val retiredData = mutableMapOf<String, Any>(
+                        "reserved" to true,
+                        "status" to "RETIRED",
+                        "retiredAt" to FieldValue.serverTimestamp()
+                    )
+                    if (oldCreatedAt != null) {
+                        retiredData["createdAt"] = oldCreatedAt
+                    }
+                    transaction.set(oldUsernameRef, retiredData)
                 }
             }.await()
 
@@ -144,12 +230,22 @@ open class UserRepository @Inject constructor(
             // )
 
             // Update cache
-            getCachedProfile()?.let { cached ->
-                userDao.get().insertProfile(mapUserToLocal(cached.copy(anonymousName = username, isAnonymous = false)))
+            getCachedProfile(userId.trim())?.let { cached ->
+                userDao.get().insertProfile(mapUserToLocal(cached.copy(anonymousName = trimmedUsername, isAnonymous = false)))
             }
 
             Result.success(Unit)
         } catch (e: Exception) {
+            diagnosticLogger.error(
+                DiagnosticCategory.FIRESTORE,
+                "IDENTITY_CHANGE_DIAGNOSTIC_ERROR",
+                mapOf(
+                    "exceptionClass" to e.javaClass.name,
+                    "errorMessage" to (e.message ?: "none"),
+                    "firestoreCode" to ((e as? FirebaseFirestoreException)?.code?.name ?: "N/A")
+                ),
+                e
+            )
             diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "USERNAME_CREATE_FAILED", mapOf(LogKeys.USER_ID to userId, "username" to username), e)
             Result.failure(AppError.from(e))
         }
@@ -227,10 +323,12 @@ open class UserRepository @Inject constructor(
             }
 
             // PHASE 2: Identity Repair (Atomic & Idempotent)
-            // Verified Fix for "Zombie Profile" condition where identity fields are missing/blank/mismatched.
+            // Verified Fix for "Zombie Profile" condition where identity fields are missing/blank/mismatched or contain leading/trailing whitespace.
             val canonicalSeed = user.sigilConfig.seed.ifEmpty { user.sigilSeed }
+            val hasWhitespaceAnonName = user.anonymousName != user.anonymousName.trim()
             val isIdentityIncomplete = user.anonymousId.isBlank() || 
                                       user.anonymousName.isBlank() || 
+                                      hasWhitespaceAnonName ||
                                       user.anonymousSigil.isBlank() ||
                                       user.sigilSeed.isBlank() ||
                                       user.sigilSeed != canonicalSeed ||
@@ -240,13 +338,14 @@ open class UserRepository @Inject constructor(
                 diagnosticLogger.info(DiagnosticCategory.AUTH, "USER_PROFILE_REPAIR_TRIGGERED", mapOf(LogKeys.USER_ID to currentUser.uid))
                 
                 val newAnonId = if (user.anonymousId.isBlank()) "usr_${UUID.randomUUID().toString().take(5).uppercase()}" else user.anonymousId
-                val newName = if (user.anonymousName.isBlank()) UsernameGenerator.generate() else user.anonymousName
+                val trimmedAnonName = user.anonymousName.trim()
+                val newName = if (trimmedAnonName.isBlank()) UsernameGenerator.generate().trim() else trimmedAnonName
                 val newSigil = if (user.anonymousSigil.isBlank()) UsernameGenerator.deriveSigil(newAnonId) else user.anonymousSigil
                 val newSeed = if (user.sigilSeed.isBlank() && user.sigilConfig.seed.isBlank()) UUID.randomUUID().toString() else canonicalSeed
                 
                 val updates = mutableMapOf<String, Any>()
                 if (user.anonymousId.isBlank()) updates["anonymousId"] = newAnonId
-                if (user.anonymousName.isBlank()) updates["anonymousName"] = newName
+                if (user.anonymousName != newName) updates["anonymousName"] = newName
                 if (user.anonymousSigil.isBlank()) updates["anonymousSigil"] = newSigil
                 if (user.sigilSeed != newSeed) updates["sigilSeed"] = newSeed
                 if (user.sigilConfig.seed != newSeed) updates["sigilConfig.seed"] = newSeed
@@ -267,10 +366,23 @@ open class UserRepository @Inject constructor(
                 user
             }
 
+            // Lazy username reservation check for existing/legacy profiles (read before write)
+            val currentAnonName = repairedUser.anonymousName.lowercase().trim()
+            val existingUsernameRef = if (currentAnonName.isNotBlank()) usernamesCollection.document(currentAnonName) else null
+            val existingUsernameDoc = existingUsernameRef?.let { transaction[it] }
+
+            if (existingUsernameRef != null && existingUsernameDoc?.exists() == false) {
+                transaction[existingUsernameRef] = mapOf(
+                    "reserved" to true,
+                    "status" to "ACTIVE",
+                    "createdAt" to FieldValue.serverTimestamp()
+                )
+            }
+
             ProfileResult(user = repairedUser, isNewUser = false)
         } else {
             val anonymousId = "usr_${UUID.randomUUID().toString().take(5).uppercase()}"
-            val anonymousName = UsernameGenerator.generate()
+            val anonymousName = UsernameGenerator.generate().trim()
             val anonymousSigil = UsernameGenerator.deriveSigil(anonymousId)
             val seed = UUID.randomUUID().toString()
             
@@ -295,8 +407,16 @@ open class UserRepository @Inject constructor(
                 accountStatus = "ACTIVE"
             )
 
+            val newUsernameRef = usernamesCollection.document(anonymousName.lowercase().trim())
+            transaction[newUsernameRef]
+
             transaction[userRef] = newProfile
             transaction[privateRef] = privateSettings
+            transaction[newUsernameRef] = mapOf(
+                "reserved" to true,
+                "status" to "ACTIVE",
+                "createdAt" to FieldValue.serverTimestamp()
+            )
             
             ProfileResult(user = newProfile, isNewUser = true)
         }

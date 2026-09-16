@@ -17,7 +17,6 @@ class UsernameGeneratorTest {
     @Test
     fun testGenerateWithTheme_ReturnsThemedName() {
         val name = UsernameGenerator.generate("Cosmic")
-        // Check if words exist in cosmic lists (internal but observable)
         assertNotNull(name)
         assertTrue(name.isNotEmpty())
     }
@@ -48,5 +47,72 @@ class UsernameGeneratorTest {
         assertNull(UsernameGenerator.validate("Quiet Echo · A7"))
         assertNull(UsernameGenerator.validate("Simple Name"))
         assertNotNull(UsernameGenerator.validate("invalid_name!"))
+    }
+
+    @Test
+    fun testGenerateSuggestionsForBase_ReturnsRequestedCount() {
+        val suggestions = UsernameGenerator.generateSuggestionsForBase("Saurabh", count = 4)
+        assertEquals(4, suggestions.size)
+    }
+
+    @Test
+    fun testGenerateSuggestionsForBase_DoesNotContainRawBaseString() {
+        val baseInput = "Saurabh"
+        val suggestions = UsernameGenerator.generateSuggestionsForBase(baseInput, count = 4)
+        for (suggestion in suggestions) {
+            assertFalse(
+                "Suggestion '$suggestion' should not contain base input '$baseInput' case-insensitively",
+                suggestion.lowercase().contains(baseInput.lowercase())
+            )
+        }
+    }
+
+    @Test
+    fun testGenerateSuggestionsForBase_DoesNotAppendNumbersOrSuffixes() {
+        val baseInput = "Saurabh"
+        val suggestions = UsernameGenerator.generateSuggestionsForBase(baseInput, count = 4)
+        for (suggestion in suggestions) {
+            assertFalse(
+                "Suggestion '$suggestion' should not start with raw base input '$baseInput'",
+                suggestion.lowercase().startsWith(baseInput.lowercase())
+            )
+            assertFalse(
+                "Suggestion '$suggestion' should not match raw base concatenation pattern",
+                suggestion.matches(Regex("(?i)^saurabh.*"))
+            )
+        }
+    }
+
+    @Test
+    fun testGenerateSuggestionsForBase_SatisfiesUsernameConstraints() {
+        val suggestions = UsernameGenerator.generateSuggestionsForBase("Saurabh", count = 4)
+        for (suggestion in suggestions) {
+            assertTrue("Length of '$suggestion' should be >= 3", suggestion.length >= 3)
+            assertTrue("Length of '$suggestion' should be <= 30", suggestion.length <= 30)
+            assertNull("Username '$suggestion' should be valid", UsernameGenerator.validate(suggestion))
+            assertTrue("Username '$suggestion' should pass isValid", UsernameGenerator.isValid(suggestion))
+        }
+    }
+
+    @Test
+    fun testGenerateSuggestionsForBase_ReturnsDistinctSuggestions() {
+        val count = 4
+        val suggestions = UsernameGenerator.generateSuggestionsForBase("Saurabh", count = count)
+        assertEquals("Suggestions should be distinct", suggestions.toSet().size, suggestions.size)
+    }
+
+    @Test
+    fun testGenerateSuggestionsForBase_HandlesEmptyAndShortInput() {
+        val emptyResult = UsernameGenerator.generateSuggestionsForBase("", count = 3)
+        assertEquals(3, emptyResult.size)
+        for (suggestion in emptyResult) {
+            assertNull(UsernameGenerator.validate(suggestion))
+        }
+
+        val shortResult = UsernameGenerator.generateSuggestionsForBase("Sa", count = 3)
+        assertEquals(3, shortResult.size)
+        for (suggestion in shortResult) {
+            assertNull(UsernameGenerator.validate(suggestion))
+        }
     }
 }

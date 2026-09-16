@@ -2,17 +2,26 @@ package com.saurabh.artifact.domain
 
 import com.saurabh.artifact.model.ModerationWarning
 import com.saurabh.artifact.model.ValidationReason
+import com.saurabh.artifact.repository.NameCorpusRepository
 import com.saurabh.artifact.util.SecureString
+import java.text.Normalizer
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
  * A privacy-preserving engine that detects potential identity leaks.
- * Analyzes usernames, transcripts, and content against real-world identity markers.
+ * Analyzes usernames, transcripts, and content against real-world identity markers
+ * and an offline name corpus.
  */
 @Singleton
-class IdentityScout @Inject constructor() {
+class IdentityScout @Inject constructor(
+    private val nameCorpusRepository: NameCorpusRepository
+) {
+    /**
+     * No-arg constructor for manual or test instantiation without explicit DI.
+     */
+    constructor() : this(NameCorpusRepository())
 
     companion object {
         // Known default and application-role tokens to exclude from personal real-name leak detection
@@ -28,10 +37,20 @@ class IdentityScout @Inject constructor() {
             "persona",
             "system"
         )
+
+        // Common dual-meaning words that double as names but should not trigger blocking
+        // real-name leak warnings on their own.
+        private val DUAL_MEANING_WORDS = setOf(
+            "amber", "rose", "dawn", "king", "may", "grace", "hope",
+            "faith", "summer", "autumn", "violet", "sky", "river",
+            "stone", "star", "joy", "reed", "cliff", "glen", "dale",
+            "ray", "miles", "quiet", "art", "cat"
+        )
     }
 
     /**
-     * Scans a target string (username or content) for leaks of the user's real identity.
+     * Scans a target string (username or content) for leaks of the user's real identity
+     * or real-world names from the name corpus.
      */
     fun detectLeaks(
         target: String,
@@ -49,7 +68,7 @@ class IdentityScout @Inject constructor() {
         val emailPrefix = extractEmailPrefix(plainEmail)
         val targetWords = tokenizeTarget(target)
 
-        // 1. Check for Real Name Tokens & Phonetic Motifs
+        // 1. Check for Real Name Tokens & Phonetic Motifs (User Provided Real Name)
         for (token in nameTokens) {
             val hasExactWordMatch = targetWords.contains(token) || 
                 Regex("\\b${Regex.escape(token)}\\b", RegexOption.IGNORE_CASE).containsMatchIn(target)
@@ -57,8 +76,9 @@ class IdentityScout @Inject constructor() {
             if (token.length >= 3 && hasExactWordMatch) {
                 warnings.add(
                     ModerationWarning(
-                        ValidationReason.REAL_NAME,
-                        "This looks a bit like your real name. For your safety, consider a more anonymous choice."
+                        reason = ValidationReason.REAL_NAME,
+                        message = "This looks a bit like your real name. For your safety, consider a more anonymous choice.",
+                        isBlocking = true
                     )
                 )
                 break 
@@ -72,20 +92,40 @@ class IdentityScout @Inject constructor() {
                 if (hasPhoneticMatch) {
                     warnings.add(
                         ModerationWarning(
-                            ValidationReason.MOTIF_REUSE,
-                            "This presence feels familiar to your real identity. Try something more distinct to stay safe."
+                            reason = ValidationReason.MOTIF_REUSE,
+                            message = "This presence feels familiar to your real identity. Try something more distinct to stay safe.",
+                            isBlocking = false
                         )
                     )
                 }
             }
         }
 
+        // 1.5 Check for Corpus Real Names (Offline Dictionary Lookup)
+        val corpusMatch = targetWords.firstOrNull { token ->
+            token.length >= 3 &&
+                !IGNORED_ROLE_TOKENS.contains(token) &&
+                !DUAL_MEANING_WORDS.contains(token) &&
+                nameCorpusRepository.contains(token)
+        }
+
+        if (corpusMatch != null) {
+            warnings.add(
+                ModerationWarning(
+                    reason = ValidationReason.REAL_NAME,
+                    message = "This looks like a real name. For your privacy and safety, consider a pseudonymous choice.",
+                    isBlocking = true
+                )
+            )
+        }
+
         // 2. Check for Email Prefix
         if (emailPrefix != null && emailPrefix.length >= 3 && normalizedTarget.contains(emailPrefix)) {
             warnings.add(
                 ModerationWarning(
-                    ValidationReason.EMAIL_ADDRESS,
-                    "This name is very similar to your email. Try something more unique to stay anonymous."
+                    reason = ValidationReason.EMAIL_ADDRESS,
+                    message = "This name is very similar to your email. Try something more unique to stay anonymous.",
+                    isBlocking = true
                 )
             )
         }
@@ -94,8 +134,9 @@ class IdentityScout @Inject constructor() {
         if (target.contains("@") || target.contains(".com") || target.contains(".net")) {
             warnings.add(
                 ModerationWarning(
-                    ValidationReason.EMAIL_ADDRESS,
-                    "This name looks like an email address. For your privacy, avoid using email-like names."
+                    reason = ValidationReason.EMAIL_ADDRESS,
+                    message = "This name looks like an email address. For your privacy, avoid using email-like names.",
+                    isBlocking = true
                 )
             )
         }
@@ -105,14 +146,18 @@ class IdentityScout @Inject constructor() {
         if (digits.length >= 7) {
             warnings.add(
                 ModerationWarning(
-                    ValidationReason.PHONE_NUMBER,
-                    "Using phone numbers as names can make you easy to find. Stay safe and avoid using them."
+                    reason = ValidationReason.PHONE_NUMBER,
+                    message = "Using phone numbers as names can make you easy to find. Stay safe and avoid using them.",
+                    isBlocking = true
                 )
             )
         }
 
         // 4. Behavioral Patterns (Introductions & Pivots)
         detectBehavioralLeaks(target, warnings)
+
+        // 5. Potentially Identifying Handle Patterns
+        detectPotentiallyIdentifyingHandles(target, warnings)
 
         return warnings.distinctBy { it.reason }
     }
@@ -126,8 +171,9 @@ class IdentityScout @Inject constructor() {
         if (introductionPatterns.any { lowercaseTarget.contains(it) }) {
             warnings.add(
                 ModerationWarning(
-                    ValidationReason.INTRODUCTION_PATTERN,
-                    "Self-introductions can lead to accidental identity leaks. Consider a more reflective approach."
+                    reason = ValidationReason.INTRODUCTION_PATTERN,
+                    message = "Self-introductions can lead to accidental identity leaks. Consider a more reflective approach.",
+                    isBlocking = false
                 )
             )
         }
@@ -135,8 +181,23 @@ class IdentityScout @Inject constructor() {
         if (contactPatterns.any { lowercaseTarget.contains(it) }) {
             warnings.add(
                 ModerationWarning(
-                    ValidationReason.CONTACT_PIVOT,
-                    "Directing others to external platforms can break the sanctuary of your anonymity."
+                    reason = ValidationReason.CONTACT_PIVOT,
+                    message = "Directing others to external platforms can break the sanctuary of your anonymity.",
+                    isBlocking = false
+                )
+            )
+        }
+    }
+
+    private fun detectPotentiallyIdentifyingHandles(target: String, warnings: MutableList<ModerationWarning>) {
+        val lower = target.lowercase(Locale.ROOT)
+        val identityPrefixes = listOf("real_", "official_", "iam_")
+        if (identityPrefixes.any { lower.startsWith(it) && lower.length > it.length + 2 }) {
+            warnings.add(
+                ModerationWarning(
+                    reason = ValidationReason.POTENTIALLY_IDENTIFYING,
+                    message = "This name appears to assert a personal or official identity. Consider a more anonymous choice.",
+                    isBlocking = false
                 )
             )
         }
@@ -158,6 +219,7 @@ class IdentityScout @Inject constructor() {
                 ValidationReason.CONTACT_PIVOT -> 0.7f
                 ValidationReason.INTRODUCTION_PATTERN -> 0.5f
                 ValidationReason.TRIANGULATION_RISK -> 0.5f
+                ValidationReason.POTENTIALLY_IDENTIFYING -> 0.4f
                 else -> 0.1f
             }
         }
@@ -178,12 +240,42 @@ class IdentityScout @Inject constructor() {
 
     /**
      * Splits a target string into word tokens for word-boundary matching.
+     * Supports camelCase/PascalCase boundaries, spaces, underscores, hyphens, dots,
+     * middle dots, digits, and strips diacritics.
      */
-    private fun tokenizeTarget(target: String): List<String> {
+    fun tokenizeTarget(target: String): List<String> {
         if (target.isBlank()) return emptyList()
-        return target.lowercase(Locale.ROOT)
-            .split(Regex("[\\s,._\\-]+"))
+
+        val rawTokens = target.split(Regex("[\\s,._\\-\\d·]+"))
+            .map { stripDiacritics(it).trim() }
             .filter { it.isNotBlank() }
+
+        val result = mutableListOf<String>()
+        for (raw in rawTokens) {
+            val normalized = raw.lowercase(Locale.ROOT)
+            result.add(normalized)
+
+            val camelCaseSplit = raw
+                .replace(Regex("(?<=[a-z])(?=[A-Z])"), " ")
+                .replace(Regex("(?<=[A-Za-z])(?=[0-9])"), " ")
+                .replace(Regex("(?<=[0-9])(?=[A-Za-z])"), " ")
+                .split(" ")
+                .map { it.lowercase(Locale.ROOT).trim() }
+                .filter { it.isNotBlank() }
+
+            for (sub in camelCaseSplit) {
+                if (sub != normalized) {
+                    result.add(sub)
+                }
+            }
+        }
+
+        return result.distinct()
+    }
+
+    private fun stripDiacritics(input: String): String {
+        val nfd = Normalizer.normalize(input, Normalizer.Form.NFD)
+        return nfd.replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
     }
 
     /**

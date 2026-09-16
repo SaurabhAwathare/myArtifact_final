@@ -1,61 +1,89 @@
 package com.saurabh.artifact.ui.identity
 
-import android.util.Log
 import androidx.annotation.OptIn
-import androidx.media3.common.util.UnstableApi
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.media3.common.util.UnstableApi
+import com.google.firebase.auth.FirebaseAuth
+import com.saurabh.artifact.R
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.domain.IdentityProtectionPolicy
+import com.saurabh.artifact.domain.UsernameValidator
+import com.saurabh.artifact.model.AppError
+import com.saurabh.artifact.model.IdentityMetadata
+import com.saurabh.artifact.model.SigilConfig
+import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.UserProfileManager
-import com.saurabh.artifact.util.UsernameGenerator
-import com.saurabh.artifact.util.SecureString
-import com.saurabh.artifact.model.*
-import com.saurabh.artifact.ui.util.UiText
+import com.saurabh.artifact.repository.UserRepository
 import com.saurabh.artifact.ui.util.ErrorMessageMapper
-import com.saurabh.artifact.R
+import com.saurabh.artifact.ui.util.UiText
+import com.saurabh.artifact.util.SecureString
+import com.saurabh.artifact.util.UsernameGenerator
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
-import kotlin.time.Duration.Companion.milliseconds
 
-enum class UsernameAvailability {
-    CHECKING, AVAILABLE, TAKEN, ERROR, NONE
+sealed interface CandidateBatchUiState {
+    data object Loading : CandidateBatchUiState
+    data class Success(val candidates: List<String>) : CandidateBatchUiState
+    data class Error(val message: UiText) : CandidateBatchUiState
 }
 
 @OptIn(ExperimentalCoroutinesApi::class, UnstableApi::class)
 @HiltViewModel
 class IdentityViewModel @Inject constructor(
     private val userProfileManager: UserProfileManager,
-    private val authRepository: com.saurabh.artifact.repository.AuthRepository,
-    private val userRepository: com.saurabh.artifact.repository.UserRepository,
-    private val validator: com.saurabh.artifact.domain.UsernameValidator,
-    private val identityProtectionPolicy: com.saurabh.artifact.domain.IdentityProtectionPolicy,
-    private val auth: com.google.firebase.auth.FirebaseAuth,
+    private val authRepository: AuthRepository,
+    private val userRepository: UserRepository,
+    private val validator: UsernameValidator,
+    private val identityProtectionPolicy: IdentityProtectionPolicy,
+    private val auth: FirebaseAuth,
     private val diagnosticLogger: DiagnosticLogger
 ) : ViewModel() {
 
     private val _sigilConfig = MutableStateFlow(SigilConfig())
     val sigilConfig: StateFlow<SigilConfig> = _sigilConfig.asStateFlow()
 
-    private val _username = MutableStateFlow("")
+    private val _initialSigilConfig = MutableStateFlow<SigilConfig?>(null)
 
-    private val _usernameError = MutableStateFlow<String?>(null)
+    val hasSigilChanged: StateFlow<Boolean> = combine(_sigilConfig, _initialSigilConfig) { current, initial ->
+        initial != null && current != initial
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
-    private val _availability = MutableStateFlow(UsernameAvailability.NONE)
-    
-    private val _hasUserEdited = MutableStateFlow(false)
+    private val _candidateUiState = MutableStateFlow<CandidateBatchUiState>(CandidateBatchUiState.Loading)
+    val candidateUiState: StateFlow<CandidateBatchUiState> = _candidateUiState.asStateFlow()
 
-    private val _suggestions = MutableStateFlow<List<String>>(emptyList())
-    val suggestions: StateFlow<List<String>> = _suggestions.asStateFlow()
+    private val _selectedCandidate = MutableStateFlow<String?>(null)
+    val selectedCandidate: StateFlow<String?> = _selectedCandidate.asStateFlow()
 
-    private val _validationResult = MutableStateFlow<UsernameValidationResult?>(null)
     private val _uiState = MutableStateFlow<IdentityUiState>(IdentityUiState.Idle)
     val uiState: StateFlow<IdentityUiState> = _uiState.asStateFlow()
+
+    val isSaveEnabled: StateFlow<Boolean> = combine(
+        _selectedCandidate,
+        hasSigilChanged,
+        _uiState
+    ) { candidate, sigilChanged, uiState ->
+        val hasCandidateSelected = !candidate.isNullOrEmpty()
+        (hasCandidateSelected || sigilChanged) && uiState !is IdentityUiState.Loading
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     val userProfile = authRepository.currentUser.flatMapLatest { user ->
         if (user != null) userRepository.streamUserProfile(user.uid)
@@ -65,225 +93,153 @@ class IdentityViewModel @Inject constructor(
         _uiState.value = IdentityUiState.Error(ErrorMessageMapper.map(e))
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    private val activeUsernameState = userProfileManager.activeUsername
-        .stateIn(viewModelScope, SharingStarted.Eagerly, "")
-
-    val identityMetadata = userProfile.map { it?.identityMetadata ?: com.saurabh.artifact.model.IdentityMetadata() }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.saurabh.artifact.model.IdentityMetadata())
+    val identityMetadata = userProfile.map { it?.identityMetadata ?: IdentityMetadata() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), IdentityMetadata())
 
     val changeSeverity = identityMetadata.map { 
         identityProtectionPolicy.getChangeSeverity(it.identityChangeCount30Days)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.saurabh.artifact.domain.IdentityProtectionPolicy.ChangeSeverity.NORMAL)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), IdentityProtectionPolicy.ChangeSeverity.NORMAL)
 
-    private var availabilityCheckJob: Job? = null
-
-    val isUsernameValid = combine(_username, _usernameError, _availability) { name, error, availability ->
-        (name.isNotEmpty() && error == null && availability == UsernameAvailability.AVAILABLE)
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = false,
-    )
+    private var currentGenerationId = 0L
+    private var candidateJob: Job? = null
 
     init {
         viewModelScope.launch {
             userProfileManager.activeSigilConfig.collectLatest { config ->
+                if (_initialSigilConfig.value == null) {
+                    _initialSigilConfig.value = config
+                }
                 _sigilConfig.value = config
             }
         }
-        viewModelScope.launch {
-            userProfileManager.activeUsername.collectLatest { name ->
-                if (!_hasUserEdited.value) {
-                    _username.value = name
-                    validateUsername(name)
-                }
-            }
-        }
-        viewModelScope.launch {
-            userProfile.collectLatest { profile ->
-                if (profile != null && _username.value.isNotEmpty()) {
-                    checkAvailability(_username.value)
-                }
-            }
-        }
-        
-        // Live validation and suggestions
-        viewModelScope.launch {
-            _username.collectLatest { name ->
-                validateUsername(name)
-                updateSuggestions(name)
-                checkAvailability(name)
-            }
-        }
+
+        loadCandidateBatch()
     }
 
-    private fun validateUsername(name: String) {
-        if (name.isEmpty()) {
-            _usernameError.value = null
-            _validationResult.value = null
-            return
-        }
+    fun loadCandidateBatch() {
+        candidateJob?.cancel()
+        val generationId = ++currentGenerationId
+        _candidateUiState.value = CandidateBatchUiState.Loading
 
-        val currentUser = auth.currentUser
-        val realName = currentUser?.displayName?.let { SecureString.fromString(it) }
-        val email = currentUser?.email?.let { SecureString.fromString(it) }
-        val result = validator.validate(name, realName, email)
-        
-        // Clear secure strings immediately after use
-        realName?.clear()
-        email?.clear()
-        
-        _validationResult.value = result
-        _usernameError.value = if (result.isValid) null else result.warnings.firstOrNull()?.message ?: "Invalid username"
-    }
-
-    private fun checkAvailability(name: String) {
-        availabilityCheckJob?.cancel()
-        
-        if (name.isEmpty() || _usernameError.value != null) {
-            _availability.value = UsernameAvailability.NONE
-            return
-        }
-
-        _availability.value = UsernameAvailability.CHECKING
-
-        availabilityCheckJob = viewModelScope.launch {
-            // PART 1: Wait for existing Auth restoration mechanism before issuing Firestore query
+        candidateJob = viewModelScope.launch {
             authRepository.awaitAuthRestoration()
 
+            if (generationId != currentGenerationId) return@launch
+
             if (auth.currentUser == null) {
-                if (_username.value == name) {
-                    _availability.value = UsernameAvailability.ERROR
-                }
-                return@launch
-            }
-
-            // If the name is the user's current name, it's available to them
-            val currentRemoteName = userProfile.value?.anonymousName
-            val currentLocalName = activeUsernameState.value
-            if ((currentRemoteName != null && name.equals(currentRemoteName, ignoreCase = true)) ||
-                (currentLocalName.isNotEmpty() && name.equals(currentLocalName, ignoreCase = true))) {
-                _availability.value = UsernameAvailability.AVAILABLE
-                return@launch
-            }
-
-            delay(500.milliseconds) // Debounce
-            
-            if (_username.value != name) return@launch
-
-            try {
-                userProfileManager.isUsernameAvailable(name)
-                    .onSuccess { isAvailable ->
-                        if (_username.value == name) {
-                            _availability.value = if (isAvailable) {
-                                UsernameAvailability.AVAILABLE
-                            } else {
-                                UsernameAvailability.TAKEN
-                            }
-                        }
-                    }
-                    .onFailure {
-                        if (_username.value == name) {
-                            _availability.value = UsernameAvailability.ERROR
-                        }
-                    }
-            } catch (_: Exception) {
-                if (_username.value == name) {
-                    _availability.value = UsernameAvailability.ERROR
-                }
-            }
-        }
-    }
-
-    private fun updateSuggestions(name: String) {
-        if (name.length >= 3) {
-            _suggestions.value = UsernameGenerator.generateSuggestionsForBase(name, 4)
-        } else if (name.isEmpty()) {
-            _suggestions.value = UsernameGenerator.generateSuggestions(4)
-        } else {
-            _suggestions.value = emptyList()
-        }
-    }
-
-    fun onUsernameChange(name: String) {
-        _hasUserEdited.value = true
-        _username.value = name
-    }
-
-    fun selectSuggestion(suggestion: String) {
-        _hasUserEdited.value = true
-        _username.value = suggestion
-    }
-
-    fun retryAvailabilityCheck() {
-        val currentName = _username.value
-        if (currentName.isNotEmpty() && _usernameError.value == null) {
-            checkAvailability(currentName)
-        }
-    }
-
-    val usernameUiState: StateFlow<UsernameUiState> = combine(
-        _username,
-        _availability,
-        _validationResult,
-        _suggestions,
-        _uiState,
-        _hasUserEdited
-    ) { params ->
-        val name = params[0] as String
-        val avail = params[1] as UsernameAvailability
-        val validation = params[2] as? com.saurabh.artifact.model.UsernameValidationResult
-        val suggs = params[3] as List<String>
-        val uiState = params[4] as IdentityUiState
-        val hasEdited = params[5] as Boolean
-
-        val isValidFormatAndSafety = validation?.isValid == true && _usernameError.value == null
-
-        UsernameUiState(
-            username = name,
-            isValidating = avail == UsernameAvailability.CHECKING,
-            isAvailable = if (hasEdited) {
-                when {
-                    avail == UsernameAvailability.AVAILABLE && isValidFormatAndSafety -> true
-                    avail == UsernameAvailability.TAKEN || (validation != null && !isValidFormatAndSafety) -> false
-                    else -> null
-                }
-            } else null,
-            isAvailabilityError = avail == UsernameAvailability.ERROR,
-            validationResult = if (hasEdited) {
-                validation?.let { res ->
-                    val isTaken = avail == UsernameAvailability.TAKEN
-                    res.copy(
-                        isValid = if (isTaken) false else res.isValid,
-                        reason = if (isTaken) ValidationReason.ALREADY_TAKEN else res.reason
+                if (generationId == currentGenerationId) {
+                    _candidateUiState.value = CandidateBatchUiState.Error(
+                        UiText.DynamicString("Unable to load identity candidates. Please check your connection and try again.")
                     )
                 }
-            } else null,
-            suggestions = suggs,
-            isProcessing = uiState is IdentityUiState.Loading
-        )
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = UsernameUiState()
-    )
+                return@launch
+            }
+
+            val currentUser = auth.currentUser
+            val realName = currentUser?.displayName?.let { SecureString.fromString(it) }
+            val email = currentUser?.email?.let { SecureString.fromString(it) }
+
+            try {
+                // 1. Generate candidate over-supply (15 raw suggestions)
+                val rawCandidates = UsernameGenerator.generateSuggestions(15).distinct()
+
+                // 2. Filter through UsernameValidator (privacy + safety)
+                val validCandidates = rawCandidates.filter { candidate ->
+                    val validation = validator.validate(candidate, realName, email)
+                    validation.isValid && !validation.hasBlockingError
+                }
+
+                // 3. Concurrent availability checks via coroutineScope
+                val availableCandidates = coroutineScope {
+                    validCandidates.map { candidate ->
+                        async {
+                            val result = userProfileManager.isUsernameAvailable(candidate)
+                            if (result.getOrDefault(false)) candidate else null
+                        }
+                    }.awaitAll().filterNotNull()
+                }
+
+                // Guard against stale async batches
+                if (generationId != currentGenerationId) return@launch
+
+                val finalBatch = availableCandidates.distinct().take(5)
+                if (finalBatch.isNotEmpty()) {
+                    _candidateUiState.value = CandidateBatchUiState.Success(finalBatch)
+                } else {
+                    _candidateUiState.value = CandidateBatchUiState.Error(
+                        UiText.DynamicString("Unable to load identity candidates. Please check your connection and try again.")
+                    )
+                }
+            } catch (e: Exception) {
+                if (generationId == currentGenerationId) {
+                    _candidateUiState.value = CandidateBatchUiState.Error(
+                        UiText.DynamicString("Unable to load identity candidates. Please check your connection and try again.")
+                    )
+                }
+            } finally {
+                realName?.clear()
+                email?.clear()
+            }
+        }
+    }
+
+    fun refreshCandidates() {
+        _selectedCandidate.value = null
+        loadCandidateBatch()
+    }
+
+    fun selectCandidate(name: String) {
+        _selectedCandidate.value = name
+    }
 
     fun saveIdentity(onSuccess: () -> Unit) {
-        val name = _username.value
-        if (!UsernameGenerator.isValid(name)) return
+        val candidate = _selectedCandidate.value
+        val sigilChanged = hasSigilChanged.value
+
+        if (candidate.isNullOrEmpty() && !sigilChanged) return
 
         viewModelScope.launch {
             _uiState.value = IdentityUiState.Loading
-            
-            userProfileManager.updateSigilConfig(_sigilConfig.value)
-            userProfileManager.updateUsername(name)
-                .onSuccess {
-                    onSuccess()
+
+            if (sigilChanged) {
+                val sigilResult = userProfileManager.updateSigilConfig(_sigilConfig.value)
+                if (sigilResult.isFailure && candidate.isNullOrEmpty()) {
+                    val e = sigilResult.exceptionOrNull()
+                    diagnosticLogger.error(DiagnosticCategory.PROFILE, "SIGIL_SAVE_FAILED", throwable = e)
+                    _uiState.value = IdentityUiState.Error(ErrorMessageMapper.map(e ?: Exception("Failed to update sigil")))
+                    return@launch
                 }
-                .onFailure { e ->
-                    diagnosticLogger.error(DiagnosticCategory.PROFILE, "USERNAME_SAVE_FAILED", throwable = e)
-                    _uiState.value = IdentityUiState.Error(ErrorMessageMapper.map(e))
+            }
+
+            if (!candidate.isNullOrEmpty()) {
+                if (!UsernameGenerator.isValid(candidate)) {
+                    _uiState.value = IdentityUiState.Idle
+                    return@launch
                 }
+
+                userProfileManager.updateUsername(candidate)
+                    .onSuccess {
+                        _initialSigilConfig.value = _sigilConfig.value
+                        _uiState.value = IdentityUiState.Idle
+                        onSuccess()
+                    }
+                    .onFailure { e ->
+                        diagnosticLogger.error(DiagnosticCategory.PROFILE, "USERNAME_SAVE_FAILED", throwable = e)
+                        if (e is AppError.UsernameTaken) {
+                            _selectedCandidate.value = null
+                            _uiState.value = IdentityUiState.Error(
+                                UiText.DynamicString("That identity was just reserved. Fresh options loaded.")
+                            )
+                            loadCandidateBatch()
+                        } else {
+                            _uiState.value = IdentityUiState.Error(ErrorMessageMapper.map(e))
+                        }
+                    }
+            } else {
+                _initialSigilConfig.value = _sigilConfig.value
+                _uiState.value = IdentityUiState.Idle
+                onSuccess()
+            }
         }
     }
 }

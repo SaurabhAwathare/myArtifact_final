@@ -1,7 +1,6 @@
 package com.saurabh.artifact.util
 
 import java.util.Locale
-import kotlin.random.Random
 
 /**
  * A thoughtful username generation utility that produces emotionally neutral, 
@@ -123,32 +122,57 @@ object UsernameGenerator {
         return null
     }
 
+    private val reservedSystemNames = setOf(
+        "admin", "administrator", "system", "artifact", "root", "support", "mod", "moderator", "official"
+    )
+
     /**
      * Generates a unique list of username suggestions based on a base name.
+     * Produces pseudonymous atmospheric personas rather than echoing user input.
      */
     fun generateSuggestionsForBase(base: String, count: Int = 3): List<String> {
-        if (base.length < 3) return generateSuggestions(count)
-        
-        val cleanedBase = base.lowercase(Locale.ROOT).filter { it.isLetterOrDigit() || it == '_' }
-        if (cleanedBase.isEmpty()) return generateSuggestions(count)
+        if (count <= 0) return emptyList()
 
-        val suffixes = listOf("_", "01", "dev", "user", "x", "pro", "io")
-        val suggestions = mutableSetOf<String>()
-        
-        // Strategy 1: Base + Random Numbers
-        while (suggestions.size < count / 2 + 1) {
-            val num = Random.nextInt(10, 999)
-            suggestions.add("${cleanedBase}$num".take(20))
+        val rawTrimmed = base.trim()
+        val cleanedInput = rawTrimmed.lowercase(Locale.ROOT)
+        val filterTarget = cleanedInput.filter { it.isLetterOrDigit() }
+
+        val suggestions = LinkedHashSet<String>()
+        val themes = themedLists.keys.toList()
+        var attempts = 0
+        val maxAttempts = count * 20
+
+        while (suggestions.size < count && attempts < maxAttempts) {
+            val theme = if (attempts < themes.size) themes[attempts] else themes.random()
+            val candidate = generate(theme)
+
+            val candidateLower = candidate.lowercase(Locale.ROOT)
+            val candidateNormalized = candidateLower.filter { it.isLetterOrDigit() }
+
+            val isValidFormat = validate(candidate) == null
+            val isReserved = reservedSystemNames.contains(candidateLower)
+
+            // Avoid echoing base string if base length >= 3
+            val containsRawBase = filterTarget.length >= 3 && 
+                (candidateLower.contains(filterTarget) || candidateNormalized.contains(filterTarget))
+            val matchesBase = cleanedInput.isNotEmpty() && candidateLower == cleanedInput
+
+            if (isValidFormat && !isReserved && !containsRawBase && !matchesBase) {
+                suggestions.add(candidate)
+            }
+            attempts++
         }
 
-        // Strategy 2: Base + Suffix + Random Numbers
-        while (suggestions.size < count) {
-            val suffix = suffixes.random()
-            val num = Random.nextInt(1, 99)
-            suggestions.add("${cleanedBase}_${suffix}${num}".take(20))
+        // Fallback using general generator if themes didn't yield enough unique suggestions
+        while (suggestions.size < count && attempts < maxAttempts * 2) {
+            val candidate = generate()
+            if (validate(candidate) == null) {
+                suggestions.add(candidate)
+            }
+            attempts++
         }
 
-        return suggestions.toList().filter { it != base }
+        return suggestions.toList()
     }
 
     fun isValid(username: String): Boolean = validate(username) == null

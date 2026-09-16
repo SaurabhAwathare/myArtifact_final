@@ -44,9 +44,13 @@ class UsernameValidator @Inject constructor(
 
         val riskScore = identityScout.calculateRiskScore(warnings)
 
+        val hasBlockingWarning = warnings.any { it.isBlocking }
+        val primaryReason = warnings.firstOrNull { it.isBlocking }?.reason
+            ?: warnings.firstOrNull()?.reason
+
         return UsernameValidationResult(
-            isValid = warnings.isEmpty(),
-            reason = warnings.firstOrNull()?.reason,
+            isValid = !hasBlockingWarning,
+            reason = primaryReason,
             warnings = warnings,
             riskScore = riskScore
         )
@@ -66,16 +70,18 @@ class UsernameValidator @Inject constructor(
     private fun checkSafety(username: String): ModerationWarning? {
         if (reservedNames.contains(username)) {
             return ModerationWarning(
-                ValidationReason.RESERVED_NAME,
-                "This name is reserved for system use."
+                reason = ValidationReason.RESERVED_NAME,
+                message = "This name is reserved for system use.",
+                isBlocking = true
             )
         }
 
         for (blocked in safetyBlocklist) {
             if (username.contains(blocked)) {
                 return ModerationWarning(
-                    ValidationReason.HATEFUL_LANGUAGE,
-                    "Let's keep the atmosphere respectful. Avoid violent or hateful language."
+                    reason = ValidationReason.HATEFUL_LANGUAGE,
+                    message = "Let's keep the atmosphere respectful. Avoid violent or hateful language.",
+                    isBlocking = true
                 )
             }
         }
@@ -87,8 +93,9 @@ class UsernameValidator @Inject constructor(
         for (negative in negativeToneList) {
             if (username.contains(negative)) {
                 return ModerationWarning(
-                    ValidationReason.OVERLY_NEGATIVE,
-                    "We value a reflective and kind environment. Try a more neutral or positive name."
+                    reason = ValidationReason.OVERLY_NEGATIVE,
+                    message = "We value a reflective and kind environment. Try a more neutral or positive name.",
+                    isBlocking = false
                 )
             }
         }

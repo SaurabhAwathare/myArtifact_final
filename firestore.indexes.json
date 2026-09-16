@@ -220,6 +220,20 @@
   "fieldOverrides": [
     {
       "collectionGroup": "comments",
+      "fieldPath": "author.anonymousId",
+      "indexes": [
+        {
+          "queryScope": "COLLECTION_GROUP",
+          "order": "ASCENDING"
+        },
+        {
+          "queryScope": "COLLECTION_GROUP",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "comments",
       "fieldPath": "creatorId",
       "indexes": [
         { "queryScope": "COLLECTION_GROUP", "order": "ASCENDING" },

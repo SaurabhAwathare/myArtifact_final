@@ -19,6 +19,7 @@ enum class ValidationReason {
     CONTACT_PIVOT,
     INTRODUCTION_PATTERN,
     TRIANGULATION_RISK,
+    POTENTIALLY_IDENTIFYING,
 
     // Safety
     HARASSMENT,
@@ -38,7 +39,8 @@ enum class ValidationReason {
 data class ModerationWarning(
     val reason: ValidationReason,
     val message: String,
-    val suggestion: String? = null
+    val suggestion: String? = null,
+    val isBlocking: Boolean = true
 )
 
 /**
@@ -50,7 +52,13 @@ data class UsernameValidationResult(
     val warnings: List<ModerationWarning> = emptyList(),
     val suggestions: List<String> = emptyList(),
     val riskScore: Float = 0f
-)
+) {
+    val hasBlockingError: Boolean
+        get() = !isValid || warnings.any { it.isBlocking }
+
+    val hasAdvisoryWarnings: Boolean
+        get() = warnings.any { !it.isBlocking }
+}
 
 /**
  * UI State for the username selection screen.

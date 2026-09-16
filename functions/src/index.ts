@@ -626,8 +626,8 @@ export const onReactionIntentCreated = functions.firestore
       // Defense-in-depth: Prohibit creator from reacting to their own artifact
       if ((ownerId && ownerId === uid) || (authorAnonId && actorAnonId !== "unknown" && authorAnonId === actorAnonId)) {
         logger.warn(`[REACTION_REJECTED] Self-Resonate prohibited | UID=${uid} | ArtifactID=${artifactId}`);
-        await db.doc(`users/${uid}/private/interactions/reactions/${artifactId}`).delete().catch(() => {});
-        await snapshot.ref.delete().catch(() => {});
+        await db.doc(`users/${uid}/private/interactions/reactions/${artifactId}`).delete().catch(() => undefined);
+        await snapshot.ref.delete().catch(() => undefined);
         return;
       }
 
@@ -1146,14 +1146,24 @@ export const onUserDeleted = functions
       await scaleResonanceCleanup(db, uid, "out");
       await scaleResonanceCleanup(db, uid, "in");
 
-      // 4. Cleanup Username (Mapping removal)
+      // 4. Cleanup Username (Convert active username to RETIRED)
       try {
         const userDoc = await db.collection("users").doc(uid).get();
         const username = userDoc.data()?.anonymousName;
         if (username) {
-          await db.collection("usernames").doc(username.toLowerCase().trim()).delete();
+          const usernameRef = db.collection("usernames").doc(username.toLowerCase().trim());
+          const usernameDoc = await usernameRef.get();
+          const existingData = usernameDoc.exists ? usernameDoc.data() : null;
+          const retiredData: Record<string, any> = {
+            reserved: true,
+            status: "RETIRED",
+            retiredAt: FieldValue.serverTimestamp(),
+          };
+          if (existingData?.createdAt) {
+            retiredData.createdAt = existingData.createdAt;
+          }
+          await usernameRef.set(retiredData);
         }
-        await deleteQueryBatch(db, db.collection("usernames").where("uid", "==", uid), "Username Safety Net");
       } catch (e) {
         logger.error("[DELETE USER] Stage=Username | ERROR:", e);
       }

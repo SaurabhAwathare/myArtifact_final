@@ -3,6 +3,7 @@ package com.saurabh.artifact.repository
 import android.content.Context
 import android.text.TextUtils
 import com.google.android.gms.tasks.Task
+import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import com.google.firebase.auth.FirebaseUser
@@ -568,12 +569,21 @@ class UserRepositoryTest {
         val userDocInTx = mockk<DocumentSnapshot>()
         every { userDocInTx.getString("anonymousName") } returns "Old Name"
 
+        val oldUsernameDocInTx = mockk<DocumentSnapshot>()
+        every { oldUsernameDocInTx.exists() } returns true
+        val createdAtTs = mockk<Timestamp>()
+        every { oldUsernameDocInTx.get("createdAt") } returns createdAtTs
+
         val transaction = mockk<Transaction>(relaxed = true)
         every { transaction.get(usernameRef) } returns usernameSnap
         every { transaction.get(userRef) } returns userDocInTx
+        every { transaction.get(oldUsernameRef) } returns oldUsernameDocInTx
 
         val setMapSlot = slot<Map<String, Any>>()
         every { transaction.set(eq(usernameRef), capture(setMapSlot)) } returns transaction
+
+        val retiredSetMapSlot = slot<Map<String, Any>>()
+        every { transaction.set(eq(oldUsernameRef), capture(retiredSetMapSlot)) } returns transaction
 
         every { firestore.runTransaction<Unit>(any()) } answers {
             val block = firstArg<Transaction.Function<Unit>>()
@@ -588,9 +598,17 @@ class UserRepositoryTest {
         assertTrue(result.isSuccess)
         val mapWritten = setMapSlot.captured
         assertEquals(true, mapWritten["reserved"])
+        assertEquals("ACTIVE", mapWritten["status"])
         assertFalse("Written schema must NOT contain uid", mapWritten.containsKey("uid"))
         assertFalse("Written schema must NOT contain userId", mapWritten.containsKey("userId"))
-        verify(exactly = 1) { transaction.delete(oldUsernameRef) }
+
+        val retiredMapWritten = retiredSetMapSlot.captured
+        assertEquals(true, retiredMapWritten["reserved"])
+        assertEquals("RETIRED", retiredMapWritten["status"])
+        assertEquals(createdAtTs, retiredMapWritten["createdAt"])
+        assertTrue(retiredMapWritten.containsKey("retiredAt"))
+
+        verify(exactly = 0) { transaction.delete(any()) }
     }
 
     @Test
@@ -761,4 +779,477 @@ class UserRepositoryTest {
 
         unmockkStatic("kotlinx.coroutines.tasks.TasksKt")
     }
+
+    @Test
+    fun `new profile creates an ACTIVE username reservation`() = runBlocking {
+        val userId = "user_new_123"
+        val firebaseUser = mockk<FirebaseUser>()
+        every { firebaseUser.uid } returns userId
+        every { firebaseUser.email } returns "new@example.com"
+        every { firebaseUser.displayName } returns "New User"
+        every { firebaseUser.reload() } returns mockk(relaxed = true)
+        every { auth.currentUser } returns firebaseUser
+
+        val userRef = mockk<DocumentReference>(relaxed = true)
+        val privateRef = mockk<DocumentReference>(relaxed = true)
+        every { mockColl.document(userId) } returns userRef
+        every { userRef.collection("private").document("settings") } returns privateRef
+
+        val snapshot = mockk<DocumentSnapshot>()
+        every { snapshot.exists() } returns false
+
+        val usernameSnap = mockk<DocumentSnapshot>()
+        every { usernameSnap.exists() } returns false
+
+        val transaction = mockk<Transaction>(relaxed = true)
+        every { transaction.get(userRef) } returns snapshot
+        every { transaction.get(any<DocumentReference>()) } returns usernameSnap
+
+        val setMapSlots = mutableListOf<Map<String, Any>>()
+        val setDocRefs = mutableListOf<DocumentReference>()
+        every { transaction.set(capture(setDocRefs), capture(setMapSlots)) } returns transaction
+
+        every { firestore.runTransaction<Any>(any()) } answers {
+            val block = firstArg<Transaction.Function<Any>>()
+            val result = block.apply(transaction)
+            val task = mockk<Task<Any>>(relaxed = true)
+            coEvery { task.await() } returns (result ?: mockk())
+            task
+        }
+
+        val result = repository.getOrCreateProfile()
+
+        assertTrue(result.isSuccess)
+        assertTrue("isNewUser should be true", result.getOrNull()?.isNewUser == true)
+
+        val usernameReservationIndex = setMapSlots.indexOfFirst { it["status"] == "ACTIVE" && it["reserved"] == true }
+        assertTrue("ACTIVE username reservation map should be written", usernameReservationIndex >= 0)
+        val reservationMap = setMapSlots[usernameReservationIndex]
+        assertEquals(true, reservationMap["reserved"])
+        assertEquals("ACTIVE", reservationMap["status"])
+        assertTrue("createdAt timestamp should be set", reservationMap.containsKey("createdAt"))
+
+        unmockkStatic("kotlinx.coroutines.tasks.TasksKt")
+    }
+
+    @Test
+    fun `existing profile missing a reservation receives a lazy ACTIVE reservation`() = runBlocking {
+        val userId = "user_existing_123"
+        val firebaseUser = mockk<FirebaseUser>()
+        every { firebaseUser.uid } returns userId
+        every { firebaseUser.email } returns "existing@example.com"
+        every { firebaseUser.displayName } returns "Existing User"
+        every { firebaseUser.reload() } returns mockk(relaxed = true)
+        every { auth.currentUser } returns firebaseUser
+
+        val userRef = mockk<DocumentReference>(relaxed = true)
+        val privateRef = mockk<DocumentReference>(relaxed = true)
+        val usernameRef = mockk<DocumentReference>(relaxed = true)
+
+        every { mockColl.document(userId) } returns userRef
+        every { userRef.collection("private").document("settings") } returns privateRef
+        every { mockColl.document("existing_name") } returns usernameRef
+
+        val snapshot = mockk<DocumentSnapshot>()
+        val existingUser = User(id = userId, anonymousName = "existing_name", anonymousId = "usr_123", anonymousSigil = "23", sigilSeed = "seed", sigilConfig = SigilConfig(seed = "seed", version = 3))
+        every { snapshot.exists() } returns true
+        every { snapshot.toObject(User::class.java) } returns existingUser
+        every { snapshot.id } returns userId
+        every { snapshot.get(any<String>()) } returns null
+
+        val privateSnapshot = mockk<DocumentSnapshot>()
+        every { privateSnapshot.exists() } returns true
+
+        val usernameSnap = mockk<DocumentSnapshot>()
+        every { usernameSnap.exists() } returns false // Missing reservation document!
+
+        val transaction = mockk<Transaction>(relaxed = true)
+        every { transaction.get(userRef) } returns snapshot
+        every { transaction.get(privateRef) } returns privateSnapshot
+        every { transaction.get(usernameRef) } returns usernameSnap
+
+        val setMapSlots = mutableListOf<Map<String, Any>>()
+        val setDocRefs = mutableListOf<DocumentReference>()
+        every { transaction.set(capture(setDocRefs), capture(setMapSlots)) } returns transaction
+
+        every { firestore.runTransaction<Any>(any()) } answers {
+            val block = firstArg<Transaction.Function<Any>>()
+            val result = block.apply(transaction)
+            val task = mockk<Task<Any>>(relaxed = true)
+            coEvery { task.await() } returns (result ?: mockk())
+            task
+        }
+
+        val result = repository.getOrCreateProfile()
+
+        assertTrue(result.isSuccess)
+        val lazyReservationIndex = setMapSlots.indexOfFirst { it["status"] == "ACTIVE" && it["reserved"] == true }
+        assertTrue("Lazy ACTIVE reservation should be created", lazyReservationIndex >= 0)
+        val reservationMap = setMapSlots[lazyReservationIndex]
+        assertEquals(true, reservationMap["reserved"])
+        assertEquals("ACTIVE", reservationMap["status"])
+        assertTrue(reservationMap.containsKey("createdAt"))
+
+        unmockkStatic("kotlinx.coroutines.tasks.TasksKt")
+    }
+
+    @Test
+    fun `normal identity change retires old ACTIVE reservation and creates new ACTIVE reservation`() = runBlocking {
+        every { auth.currentUser } returns mockk(relaxed = true)
+        coEvery { regCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
+
+        val userId = "user123"
+        val userRef = mockk<DocumentReference>(relaxed = true)
+        val userSnap = mockk<DocumentSnapshot>()
+        val existingUser = User(id = userId, anonymousName = "Old Name")
+        every { mockColl.document(userId) } returns userRef
+        every { userSnap.exists() } returns true
+        every { userSnap.toObject(User::class.java) } returns existingUser
+        every { userSnap.id } returns userId
+
+        val userGetTask = mockk<Task<DocumentSnapshot>>(relaxed = true)
+        every { userRef.get() } returns userGetTask
+        coEvery { userGetTask.await() } returns userSnap
+
+        val newUsernameRef = mockk<DocumentReference>(relaxed = true)
+        every { mockColl.document("newname") } returns newUsernameRef
+
+        val newUsernameSnap = mockk<DocumentSnapshot>()
+        every { newUsernameSnap.exists() } returns false
+
+        val oldUsernameRef = mockk<DocumentReference>(relaxed = true)
+        every { mockColl.document("old name") } returns oldUsernameRef
+
+        val userDocInTx = mockk<DocumentSnapshot>()
+        every { userDocInTx.getString("anonymousName") } returns "Old Name"
+
+        val oldUsernameDocInTx = mockk<DocumentSnapshot>()
+        every { oldUsernameDocInTx.exists() } returns true
+        val createdAtTs = mockk<Timestamp>()
+        every { oldUsernameDocInTx.get("createdAt") } returns createdAtTs
+
+        val transaction = mockk<Transaction>(relaxed = true)
+        every { transaction.get(newUsernameRef) } returns newUsernameSnap
+        every { transaction.get(userRef) } returns userDocInTx
+        every { transaction.get(oldUsernameRef) } returns oldUsernameDocInTx
+
+        val newSetMapSlot = slot<Map<String, Any>>()
+        every { transaction.set(eq(newUsernameRef), capture(newSetMapSlot)) } returns transaction
+
+        val oldSetMapSlot = slot<Map<String, Any>>()
+        every { transaction.set(eq(oldUsernameRef), capture(oldSetMapSlot)) } returns transaction
+
+        every { firestore.runTransaction<Unit>(any()) } answers {
+            val block = firstArg<Transaction.Function<Unit>>()
+            block.apply(transaction)
+            val task = mockk<Task<Unit>>(relaxed = true)
+            coEvery { task.await() } returns Unit
+            task
+        }
+
+        val result = repository.createUsername(userId, "NewName")
+
+        assertTrue(result.isSuccess)
+        assertEquals("ACTIVE", newSetMapSlot.captured["status"])
+        assertEquals(true, newSetMapSlot.captured["reserved"])
+
+        assertEquals("RETIRED", oldSetMapSlot.captured["status"])
+        assertEquals(true, oldSetMapSlot.captured["reserved"])
+        assertEquals(createdAtTs, oldSetMapSlot.captured["createdAt"])
+    }
+
+    @Test
+    fun `identity change with missing legacy old reservation succeeds without PERMISSION_DENIED`() = runBlocking {
+        every { auth.currentUser } returns mockk(relaxed = true)
+        coEvery { regCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
+
+        val userId = "user123"
+        val userRef = mockk<DocumentReference>(relaxed = true)
+        val userSnap = mockk<DocumentSnapshot>()
+        val existingUser = User(id = userId, anonymousName = "Legacy Old Name")
+        every { mockColl.document(userId) } returns userRef
+        every { userSnap.exists() } returns true
+        every { userSnap.toObject(User::class.java) } returns existingUser
+        every { userSnap.id } returns userId
+
+        val userGetTask = mockk<Task<DocumentSnapshot>>(relaxed = true)
+        every { userRef.get() } returns userGetTask
+        coEvery { userGetTask.await() } returns userSnap
+
+        val newUsernameRef = mockk<DocumentReference>(relaxed = true)
+        every { mockColl.document("newname") } returns newUsernameRef
+
+        val newUsernameSnap = mockk<DocumentSnapshot>()
+        every { newUsernameSnap.exists() } returns false
+
+        val oldUsernameRef = mockk<DocumentReference>(relaxed = true)
+        every { mockColl.document("legacy old name") } returns oldUsernameRef
+
+        val userDocInTx = mockk<DocumentSnapshot>()
+        every { userDocInTx.getString("anonymousName") } returns "Legacy Old Name"
+
+        val oldUsernameDocInTx = mockk<DocumentSnapshot>()
+        every { oldUsernameDocInTx.exists() } returns false
+
+        val transaction = mockk<Transaction>(relaxed = true)
+        every { transaction.get(newUsernameRef) } returns newUsernameSnap
+        every { transaction.get(userRef) } returns userDocInTx
+        every { transaction.get(oldUsernameRef) } returns oldUsernameDocInTx
+
+        val newSetMapSlot = slot<Map<String, Any>>()
+        every { transaction.set(eq(newUsernameRef), capture(newSetMapSlot)) } returns transaction
+
+        every { firestore.runTransaction<Unit>(any()) } answers {
+            val block = firstArg<Transaction.Function<Unit>>()
+            block.apply(transaction)
+            val task = mockk<Task<Unit>>(relaxed = true)
+            coEvery { task.await() } returns Unit
+            task
+        }
+
+        val result = repository.createUsername(userId, "NewName")
+
+        assertTrue("Update must succeed even when old username reservation doc is missing", result.isSuccess)
+        assertEquals("ACTIVE", newSetMapSlot.captured["status"])
+        verify(exactly = 0) { transaction.set(eq(oldUsernameRef), any()) }
+    }
+
+    @Test
+    fun `createUsername with leading and trailing whitespace stores trimmed anonymousName`() = runBlocking {
+        every { auth.currentUser } returns mockk(relaxed = true)
+        coEvery { regCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
+
+        val userId = "user123"
+        val userRef = mockk<DocumentReference>(relaxed = true)
+        val userSnap = mockk<DocumentSnapshot>()
+        val existingUser = User(id = userId, anonymousName = "OldName")
+        every { mockColl.document(userId) } returns userRef
+        every { userSnap.exists() } returns true
+        every { userSnap.toObject(User::class.java) } returns existingUser
+        every { userSnap.id } returns userId
+
+        val userGetTask = mockk<Task<DocumentSnapshot>>(relaxed = true)
+        every { userRef.get() } returns userGetTask
+        coEvery { userGetTask.await() } returns userSnap
+
+        val newUsernameRef = mockk<DocumentReference>(relaxed = true)
+        every { mockColl.document("paddedname") } returns newUsernameRef
+
+        val newUsernameSnap = mockk<DocumentSnapshot>()
+        every { newUsernameSnap.exists() } returns false
+
+        val oldUsernameRef = mockk<DocumentReference>(relaxed = true)
+        every { mockColl.document("oldname") } returns oldUsernameRef
+
+        val userDocInTx = mockk<DocumentSnapshot>()
+        every { userDocInTx.getString("anonymousName") } returns "OldName"
+
+        val oldUsernameDocInTx = mockk<DocumentSnapshot>()
+        every { oldUsernameDocInTx.exists() } returns true
+        every { oldUsernameDocInTx.get("createdAt") } returns null
+
+        val transaction = mockk<Transaction>(relaxed = true)
+        every { transaction.get(newUsernameRef) } returns newUsernameSnap
+        every { transaction.get(userRef) } returns userDocInTx
+        every { transaction.get(oldUsernameRef) } returns oldUsernameDocInTx
+
+        val newSetMapSlot = slot<Map<String, Any>>()
+        every { transaction.set(eq(newUsernameRef), capture(newSetMapSlot)) } returns transaction
+
+        val oldSetMapSlot = slot<Map<String, Any>>()
+        every { transaction.set(eq(oldUsernameRef), capture(oldSetMapSlot)) } returns transaction
+
+        val userUpdateSlot = slot<Map<String, Any>>()
+        every { transaction.update(eq(userRef), capture(userUpdateSlot)) } returns transaction
+
+        every { firestore.runTransaction<Unit>(any()) } answers {
+            val block = firstArg<Transaction.Function<Unit>>()
+            block.apply(transaction)
+            val task = mockk<Task<Unit>>(relaxed = true)
+            coEvery { task.await() } returns Unit
+            task
+        }
+
+        val result = repository.createUsername(userId, "  PaddedName  ")
+
+        assertTrue(result.isSuccess)
+        assertEquals("PaddedName", userUpdateSlot.captured["anonymousName"])
+    }
+
+    @Test
+    fun `legacy padded Jonathan profile is repaired before identity retirement and Jonathan reservation is retired`() = runBlocking {
+        every { auth.currentUser } returns mockk(relaxed = true)
+        coEvery { regCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
+
+        val userId = "user_jonathan"
+        val userRef = mockk<DocumentReference>(relaxed = true)
+        val userSnap = mockk<DocumentSnapshot>()
+        val legacyUser = User(id = userId, anonymousName = "Jonathan ")
+        every { mockColl.document(userId) } returns userRef
+        every { userSnap.exists() } returns true
+        every { userSnap.toObject(User::class.java) } returns legacyUser
+        every { userSnap.id } returns userId
+
+        val userGetTask = mockk<Task<DocumentSnapshot>>(relaxed = true)
+        every { userRef.get() } returns userGetTask
+        coEvery { userGetTask.await() } returns userSnap
+
+        val repairUpdateTask = mockk<Task<Void>>(relaxed = true)
+        every { userRef.update("anonymousName", "Jonathan") } returns repairUpdateTask
+        coEvery { repairUpdateTask.await() } returns mockk(relaxed = true)
+
+        val newUsernameRef = mockk<DocumentReference>(relaxed = true)
+        every { mockColl.document("newidentity") } returns newUsernameRef
+
+        val newUsernameSnap = mockk<DocumentSnapshot>()
+        every { newUsernameSnap.exists() } returns false
+
+        val oldUsernameRef = mockk<DocumentReference>(relaxed = true)
+        every { mockColl.document("jonathan") } returns oldUsernameRef
+
+        val userDocInTx = mockk<DocumentSnapshot>()
+        every { userDocInTx.getString("anonymousName") } returns "Jonathan"
+
+        val oldUsernameDocInTx = mockk<DocumentSnapshot>()
+        every { oldUsernameDocInTx.exists() } returns true
+        val createdAtTs = mockk<Timestamp>()
+        every { oldUsernameDocInTx.get("createdAt") } returns createdAtTs
+
+        val transaction = mockk<Transaction>(relaxed = true)
+        every { transaction.get(newUsernameRef) } returns newUsernameSnap
+        every { transaction.get(userRef) } returns userDocInTx
+        every { transaction.get(oldUsernameRef) } returns oldUsernameDocInTx
+
+        val newSetMapSlot = slot<Map<String, Any>>()
+        every { transaction.set(eq(newUsernameRef), capture(newSetMapSlot)) } returns transaction
+
+        val oldSetMapSlot = slot<Map<String, Any>>()
+        every { transaction.set(eq(oldUsernameRef), capture(oldSetMapSlot)) } returns transaction
+
+        every { firestore.runTransaction<Unit>(any()) } answers {
+            val block = firstArg<Transaction.Function<Unit>>()
+            block.apply(transaction)
+            val task = mockk<Task<Unit>>(relaxed = true)
+            coEvery { task.await() } returns Unit
+            task
+        }
+
+        val result = repository.createUsername(userId, "NewIdentity")
+
+        assertTrue(result.isSuccess)
+        verify { userRef.update("anonymousName", "Jonathan") }
+        assertEquals("RETIRED", oldSetMapSlot.captured["status"])
+        assertEquals(true, oldSetMapSlot.captured["reserved"])
+        assertEquals("ACTIVE", newSetMapSlot.captured["status"])
+    }
+
+    @Test
+    fun `legacy reservation without status field can still be retired`() = runBlocking {
+        every { auth.currentUser } returns mockk(relaxed = true)
+        coEvery { regCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
+
+        val userId = "user123"
+        val userRef = mockk<DocumentReference>(relaxed = true)
+        val userSnap = mockk<DocumentSnapshot>()
+        val existingUser = User(id = userId, anonymousName = "LegacyName")
+        every { mockColl.document(userId) } returns userRef
+        every { userSnap.exists() } returns true
+        every { userSnap.toObject(User::class.java) } returns existingUser
+        every { userSnap.id } returns userId
+
+        val userGetTask = mockk<Task<DocumentSnapshot>>(relaxed = true)
+        every { userRef.get() } returns userGetTask
+        coEvery { userGetTask.await() } returns userSnap
+
+        val newUsernameRef = mockk<DocumentReference>(relaxed = true)
+        every { mockColl.document("nextname") } returns newUsernameRef
+
+        val newUsernameSnap = mockk<DocumentSnapshot>()
+        every { newUsernameSnap.exists() } returns false
+
+        val oldUsernameRef = mockk<DocumentReference>(relaxed = true)
+        every { mockColl.document("legacyname") } returns oldUsernameRef
+
+        val userDocInTx = mockk<DocumentSnapshot>()
+        every { userDocInTx.getString("anonymousName") } returns "LegacyName"
+
+        val oldUsernameDocInTx = mockk<DocumentSnapshot>()
+        every { oldUsernameDocInTx.exists() } returns true
+        every { oldUsernameDocInTx.getString("status") } returns null
+        every { oldUsernameDocInTx.get("createdAt") } returns null
+
+        val transaction = mockk<Transaction>(relaxed = true)
+        every { transaction.get(newUsernameRef) } returns newUsernameSnap
+        every { transaction.get(userRef) } returns userDocInTx
+        every { transaction.get(oldUsernameRef) } returns oldUsernameDocInTx
+
+        val newSetMapSlot = slot<Map<String, Any>>()
+        every { transaction.set(eq(newUsernameRef), capture(newSetMapSlot)) } returns transaction
+
+        val oldSetMapSlot = slot<Map<String, Any>>()
+        every { transaction.set(eq(oldUsernameRef), capture(oldSetMapSlot)) } returns transaction
+
+        every { firestore.runTransaction<Unit>(any()) } answers {
+            val block = firstArg<Transaction.Function<Unit>>()
+            block.apply(transaction)
+            val task = mockk<Task<Unit>>(relaxed = true)
+            coEvery { task.await() } returns Unit
+            task
+        }
+
+        val result = repository.createUsername(userId, "NextName")
+
+        assertTrue(result.isSuccess)
+        assertEquals("RETIRED", oldSetMapSlot.captured["status"])
+        assertEquals(true, oldSetMapSlot.captured["reserved"])
+    }
+
+    @Test
+    fun `permanent RETIRED identities remain unavailable`() = runBlocking {
+        every { auth.currentUser } returns mockk(relaxed = true)
+        coEvery { regCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
+
+        val usernameRef = mockk<DocumentReference>(relaxed = true)
+        val usernameSnap = mockk<DocumentSnapshot>()
+        every { usernameSnap.exists() } returns true
+        every { usernameSnap.getString("status") } returns "RETIRED"
+        
+        val getTask = mockk<Task<DocumentSnapshot>>(relaxed = true)
+        every { usernameRef.get() } returns getTask
+        coEvery { getTask.await() } returns usernameSnap
+        every { mockColl.document("retiredname") } returns usernameRef
+
+        val availResult = repository.isUsernameAvailable("retiredname")
+        assertTrue(availResult.isSuccess)
+        assertFalse("Retired username must NOT be available", availResult.getOrThrow())
+    }
+
+    @Test
+    fun `repair failure prevents identity transaction from executing`() = runBlocking {
+        every { auth.currentUser } returns mockk(relaxed = true)
+        coEvery { regCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
+
+        val userId = "user123"
+        val userRef = mockk<DocumentReference>(relaxed = true)
+        val userSnap = mockk<DocumentSnapshot>()
+        val legacyUser = User(id = userId, anonymousName = "Jonathan ")
+        every { mockColl.document(userId) } returns userRef
+        every { userSnap.exists() } returns true
+        every { userSnap.toObject(User::class.java) } returns legacyUser
+        every { userSnap.id } returns userId
+
+        val userGetTask = mockk<Task<DocumentSnapshot>>(relaxed = true)
+        every { userRef.get() } returns userGetTask
+        coEvery { userGetTask.await() } returns userSnap
+
+        val repairUpdateTask = mockk<Task<Void>>(relaxed = true)
+        every { userRef.update("anonymousName", "Jonathan") } returns repairUpdateTask
+        coEvery { repairUpdateTask.await() } throws FirebaseFirestoreException("Permission denied", FirebaseFirestoreException.Code.PERMISSION_DENIED)
+
+        val result = repository.createUsername(userId, "NewName")
+
+        assertTrue(result.isFailure)
+        verify(exactly = 0) { firestore.runTransaction<Unit>(any()) }
+    }
 }
+

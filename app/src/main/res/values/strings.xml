@@ -73,4 +73,10 @@
     <string name="pre_recording_warning_item_address">Your home or exact address</string>
     <string name="pre_recording_warning_item_workplace">Your workplace or employer details</string>
     <string name="pre_recording_warning_item_location">Your precise location</string>
+
+    <!-- Username Validation & Privacy Guidance -->
+    <string name="username_advisory_title">Keep your identity anonymous</string>
+    <string name="username_advisory_default_body">Your username is visible to other Listeners. Avoid using your real name or other identifying information.</string>
+    <string name="username_advisory_identifying_body">This username may reveal personal information. Consider choosing an anonymous persona.</string>
+    <string name="username_blocking_title">Protective Guidance</string>
 </resources>

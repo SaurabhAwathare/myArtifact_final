@@ -400,15 +400,17 @@ service cloud.firestore {
                     !('uid' in request.resource.data) &&
                     !('userId' in request.resource.data) &&
                     request.resource.data.reserved == true &&
-                    request.resource.data.keys().hasOnly(['reserved', 'createdAt']);
+                    request.resource.data.status == 'ACTIVE' &&
+                    request.resource.data.keys().hasOnly(['reserved', 'status', 'createdAt']);
       allow update: if isAuth() && enforceAppCheck() &&
                     get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('anonymousName', '').lower() == id &&
+                    (!('status' in resource.data) || resource.data.status == 'ACTIVE') &&
                     !('uid' in request.resource.data) &&
                     !('userId' in request.resource.data) &&
                     request.resource.data.reserved == true &&
-                    request.resource.data.keys().hasOnly(['reserved', 'createdAt']);
-      allow delete: if isAuth() && enforceAppCheck() &&
-                    get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('anonymousName', '').lower() == id;
+                    request.resource.data.status == 'RETIRED' &&
+                    request.resource.data.keys().hasOnly(['reserved', 'status', 'createdAt', 'retiredAt']);
+      allow delete: if false;
     }
 
     // --- PUBLIC PROFILES (Sanitized) ---

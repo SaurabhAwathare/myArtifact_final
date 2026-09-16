@@ -1,167 +1,255 @@
-# Creator Profile Published Artifact Resolution — Refined Implementation Plan
+# Offline Name Corpus Integration for IdentityScout — Revised Implementation Plan
 
-Refining the Creator Profile published artifact resolution architecture to strictly enforce Responsible Anonymity invariants and prevent Firebase Auth UIDs from being used as public `author.anonymousId` query parameters.
+## Revised Implementation Goal
+Enhance `IdentityScout` with a lightweight, offline, pre-compiled given-name and surname dictionary (name corpus) to detect real-world personal name leaks in user handles and public display names, even when the user has not supplied a real name or profile email.
 
-## Problem
-In the public Creator Profile flow, querying for published artifacts was susceptible to passing a Firebase Auth UID as the query parameter for `author.anonymousId` (e.g., `artifacts.whereEqualTo("author.anonymousId", firebaseAuthUid)`).
+The system preserves strict user anonymity and privacy without introducing any cloud, network, or third-party runtime dependencies, while avoiding false positives on common English words and preserving existing UI and generator behaviors.
 
-Because public artifacts in Firestore store anonymous persona IDs (such as `usr_123`) in `author.anonymousId` and NOT Firebase Auth UIDs, executing a Firestore query using a Firebase Auth UID is both:
-1. Technically incorrect (returns zero artifacts or mismatched data).
-2. A critical privacy violation (exposing or querying by account-level Firebase Auth UIDs in public queries).
+---
 
-Furthermore, in `ProfileViewModel.kt`'s `loadMorePublished()`, pagination fell back to `_targetUserId.value` or `currentUserId`, which could trigger public artifact queries using Firebase Auth UIDs during pagination when viewing another creator's profile.
+## 1. Concrete Corpus Source & Licensing Strategy
 
-## Root Cause
-1. **Conflation in `GetProfileDataUseCase.kt`**:
-   The use case previously defined:
-   ```kotlin
-   val profileLookupId = if (isSelf) currentUserId else (targetPersonaId ?: targetUserId ?: "")
-   val artifactQueryId = if (isSelf) currentUserId else (targetPersonaId ?: targetUserId ?: "")
-   ```
-   For non-self views, `artifactQueryId` fell back to `targetUserId` (a Firebase Auth UID) if `targetPersonaId` was null/blank.
+### Legal & Licensing Framework
+- **Strict Anti-Violation Rule**: The project will **NOT** copy, dump, or bundle proprietary, copyrighted, or restricted third-party datasets into the application codebase or APK assets.
+- **Dual-Source Strategy**:
+  1. **Primary Project Seed List (`scripts/seed_names.txt`)**:
+     A hand-curated list maintained directly in the source repository under the project's own repository license (MIT/Apache/CC0). This explicitly contains regional names, Indian given names/surnames (including "Saurabh", "Awathare"), and common global names.
+  2. **Public Domain Open Government Data**:
+     Offline compilation from US Social Security Administration (SSA) public domain baby name records (top 2,000 entries) and UK Office for National Statistics (ONS) public domain datasets (Crown Copyright / Open Government Licence v3.0 compliant) processed strictly offline during build time.
 
-2. **Unsafe Fallback in `ProfileViewModel.kt`**:
-   `loadMorePublished()` resolved the pagination query target using:
-   ```kotlin
-   val userId = _targetUserId.value ?: _targetPersonaId.value ?: currentUserId ?: return
-   ```
-   When `_targetPersonaId.value` was null, this passed `_targetUserId.value` (Firebase Auth UID) into `artifactRepository.getUserArtifactsPage()`, which queried `author.anonymousId` with a Firebase Auth UID.
+### Solo Developer Governance & Maintainability
+- **Offline Build Pipeline**:
+  An offline Python script (`scripts/build_name_corpus.py`) reads `seed_names.txt` and public domain sources, normalizes, deduplicates, and compiles the result into a clean asset file (`app/src/main/assets/identity/name_corpus.txt`).
+- **No Cloud or Network Dependency**:
+  100% offline. No Firebase calls, no Gemini API, no Remote Config, and zero runtime network reads. Embedded directly inside the APK assets.
+- **Lightweight Footprint**:
+  The compiled corpus is capped at ~5,000 to 8,000 high-frequency tokens (~40 KB - 70 KB uncompressed text asset, <20 KB compressed in APK).
 
-3. **Ambiguity in Navigation & Resolution**:
-   Components like `GlobalOverlayHost` or deep links might navigate using `Profile(userId = uid)` when only the Firebase UID is known at navigation time (e.g., from notification actors or user lookups). However, the profile loading layer did not resolve `userId` -> `profile.anonymousId` BEFORE executing the public artifact query, leading to direct UID queries.
+---
 
-## Corrected Minimal Fix
+## 2. Dataset Format and Generation Process
 
-### Architectural Invariant
-For a public Creator Profile:
-- **Public Artifact Query Key MUST ALWAYS be an anonymous persona ID (`author.anonymousId`).**
-- **The query `artifacts.whereEqualTo("author.anonymousId", ...)` MUST NEVER receive a Firebase Auth UID.**
-- A Firebase Auth UID may be used **ONLY** as an internal identifier to resolve the Creator's User/Profile document (`users/{uid}`) and obtain that Creator's `anonymousId`.
+### Dataset Storage
+- **File Location**: `app/src/main/assets/identity/name_corpus.txt`
+- **Format**: Plain text, UTF-8 encoded, newline-delimited, ASCII-normalized lowercase words sorted alphabetically.
+- **Example Asset Contents**:
+  ```text
+  awathare
+  kumar
+  patel
+  saurabh
+  sharma
+  smith
+  ```
 
-### Corrected Data Flow
+### Generation Process (`scripts/build_name_corpus.py`)
+1. Read input entries from `scripts/seed_names.txt` and open datasets.
+2. Apply Unicode NFD decomposition to convert accented characters to base ASCII equivalents (e.g., "José" -> "jose", "Müller" -> "muller").
+3. Trim surrounding whitespace and convert all characters to lowercase (`Locale.ROOT`).
+4. Filter out short tokens (<3 characters).
+5. Remove common English atmospheric or dictionary words (e.g., "rose", "amber", "dawn", "king", "may", "grace", "hope", "faith") from the *blocking* dictionary to prevent false positives.
+6. Deduplicate and sort tokens alphabetically.
+7. Output compiled list to `app/src/main/assets/identity/name_corpus.txt`.
+
+---
+
+## 3. Revised Architecture
+
+### Architectural Principles
+- **Primary Integration Point**: `IdentityScout.kt` (Singleton).
+- **Corpus Repository / Asset Loader**: `NameCorpusRepository.kt` loads `assets/identity/name_corpus.txt` into an in-memory `Set<String>` (`HashSet`).
+- **Lazy Initialization**: Corpus loading is executed lazily on a background thread (`Dispatchers.IO`) when `IdentityScout` is first accessed or pre-warmed during app startup.
+- **Preserved UI & ViewModel Contracts**: `IdentityViewModel`, `UsernameInput.kt`, and `ModerationWarningCard.kt` continue consuming `UsernameValidationResult` and `ModerationWarning` without any structural or breaking changes.
+
+### Architectural Diagram
 ```
-1. Target Input Provided:
-   ├── A. targetPersonaId exists & non-blank
-   │      └── Use targetPersonaId DIRECTLY as publicArtifactQueryId
-   │
-   └── B. targetPersonaId absent BUT targetUserId exists
-          └── Step B1: Use targetUserId ONLY to stream target Creator's user profile doc (users/{uid})
-          └── Step B2: Extract targetProfile.anonymousId
-          └── Step B3: If targetProfile.anonymousId is valid -> Use as publicArtifactQueryId
-                       If targetProfile.anonymousId is missing/blank -> publicArtifactQueryId = "" (Query CANNOT run, return empty state)
-
-2. Public Query Execution:
-   ├── Self View (isSelf == true):
-   │   └── Query strictly from user's private ownership registry (users/{uid}/private/published_artifacts/artifacts)
-   │
-   └── Other Creator View (isSelf == false):
-       └── Query Firestore artifacts collection: whereEqualTo("author.anonymousId", publicArtifactQueryId)
-           ★ GUARANTEE: publicArtifactQueryId is ALWAYS a persona ID (e.g. "usr_..."), NEVER a Firebase Auth UID.
++-------------------------------------------------------------------+
+|                        UsernameInput UI                           |
++-------------------------------------------------------------------+
+                                  |
+                                  v
++-------------------------------------------------------------------+
+|                        UsernameValidator                          |
++-------------------------------------------------------------------+
+                                  |
+                                  v
++-------------------------------------------------------------------+
+|                           IdentityScout                           |
+|  1. Check User-Provided Real Name / Email                         |
+|  2. Check Token Match against NameCorpusRepository (Set<String>)  |
+|  3. Check Dual-Meaning / Common Words Exclusions                  |
+|  4. Check Email / Phone / Behavioral / Handle Patterns            |
++-------------------------------------------------------------------+
+                                  |
+                                  v
++-------------------------------------------------------------------+
+|                       NameCorpusRepository                        |
+|  Loads app/src/main/assets/identity/name_corpus.txt (Set<String>) |
++-------------------------------------------------------------------+
 ```
 
-## Public Persona ID Resolution Rules
-1. **Self Detection**:
-   `isSelf = (targetUserId == null && targetPersonaId == null) || (targetUserId != null && targetUserId == currentUserId) || (targetPersonaId != null && targetPersonaId.isNotBlank() && targetPersonaId == currentPersonaId)`
-2. **Profile Lookup ID** (for fetching profile details):
-   For Self: `currentUserId`
-   For Other: `targetPersonaId?.ifBlank { null } ?: targetUserId?.ifBlank { null } ?: ""`
-3. **Resolved Persona ID**:
-   For Self: `currentPersonaId`
-   For Other: `targetPersonaId?.ifBlank { null } ?: targetProfile?.anonymousId?.ifBlank { null }`
-4. **Public Artifact Query ID**:
-   For Self: `currentUserId` (internal key routed to private ownership subcollection in `ArtifactRepository`)
-   For Other: `resolvedPersonaId` ONLY. If `resolvedPersonaId` is null/blank, `publicArtifactQueryId` is set to `""`, resulting in a safe empty list.
-   **STRICT FORBIDDEN FALLBACK**: Never use `targetPersonaId ?: profile.anonymousId ?: targetUserId` for public artifact queries.
+---
 
-## Firebase UID Safety Rule
-- **No Query Leak**: `whereEqualTo("author.anonymousId", firebaseAuthUid)` must NEVER execute under any circumstance.
-- **Strict Boundary**: Firebase Auth UIDs are account credentials used solely for authentication and account-level profile document lookup (`users/{uid}`). Public discovery queries strictly use `author.anonymousId`.
+## 4. Detection Algorithm
 
-## Navigation Architecture & FeedNavigation Explanation
-### Why `userId` Route Can Exist
-The navigation route `Profile(userId = ...)` exists to handle cases where an incoming trigger provides a Firebase Auth UID rather than a persona ID:
-- Notification events where `actorId` is stored as Firebase Auth UID.
-- Deep links or user list lookups.
-- Internal account navigation.
+### Input Normalization & Tokenization
+1. Lowercase input string (`target`).
+2. Remove diacritics/accents via ASCII folding.
+3. Split input into discrete tokens using delimiters: whitespace, punctuation, hyphens, underscores, dots, and digits (`Regex("[\\s,._\\-\\d]+")`).
+4. Split camelCase / PascalCase boundaries (e.g., `SaurabhAwathare` -> `saurabh`, `awathare`).
+5. Retain tokens with length >= 3.
 
-### Where `userId` Conversion Occurs
-When `Profile(userId = firebaseUid)` is launched:
-1. `ProfileViewModel` receives `profileRoute.userId` (`_targetUserId`) and `profileRoute.personaId` (`_targetPersonaId` = null).
-2. `ProfileViewModel` passes `_targetUserId.value` and `_targetPersonaId.value` to `GetProfileDataUseCase`.
-3. `GetProfileDataUseCase` uses `_targetUserId` (`profileLookupId`) ONLY to fetch `userRepository.streamUserProfile(profileLookupId)`.
-4. Once `targetProfile` is emitted, `GetProfileDataUseCase` extracts `targetProfile.anonymousId` (`resolvedPersonaId`).
-5. `GetProfileDataUseCase` then passes `resolvedPersonaId` as the `userId` argument to `artifactRepository.getUserArtifacts()`.
-6. Therefore, the conversion from `userId` to `anonymousId` happens **reactively inside `GetProfileDataUseCase` BEFORE any public Artifact query is initiated.**
+### Matching Rules
+- **Exact-Token Matching ONLY**:
+  Compare each candidate token directly against `nameCorpusSet.contains(token)`.
+  **CRITICAL**: Substring matching (e.g., checking if `target.contains("art")` inside "artist") is **STRICTLY FORBIDDEN** to eliminate false positives.
+- **Exclusion Check**:
+  If token is present in `IGNORED_ROLE_TOKENS` ("artifact", "creator", "admin", "system", etc.) or `DUAL_MEANING_WORDS` ("rose", "amber", "king", "may", etc.), skip blocking flags.
 
-### Originating Artifact Preference
-If `author.anonymousId` is available on an originating artifact (e.g. `ArtifactCard`, `PlayerViewModel`, `MiniPlayer`, `ImmersivePlayerScreen`), navigation MUST prefer `Profile(personaId = artifact.author.anonymousId)`.
+---
 
-## Safe Failure Behavior
-When persona resolution fails (e.g., `targetPersonaId` is absent, and `targetUserId` points to a non-existent user profile or a profile with a blank `anonymousId`):
-- Do **NOT** fall back to querying Firestore with `targetUserId`.
-- Do **NOT** aggregate artifacts across account boundaries.
-- Do **NOT** expose Firebase Auth UID in network queries or UI logs.
-- Return an appropriate empty/unavailable Published state (`publishedArtifacts = emptyList()`, `hasMorePublished = false`).
+## 5. Blocking vs Advisory Rules
 
-## Exact Files to Modify
-1. `app/src/main/java/com/saurabh/artifact/domain/profile/GetProfileDataUseCase.kt`
-   - Refactor flow to resolve `targetProfile` first when `targetPersonaId` is absent.
-   - Separate `profileLookupId`, `resolvedPersonaId`, and `publicArtifactQueryId`.
-   - Ensure public artifact query receives `resolvedPersonaId` ONLY for non-self profiles.
-2. `app/src/main/java/com/saurabh/artifact/ui/profile/ProfileViewModel.kt`
-   - In `loadMorePublished()`:
-     Determine `queryPersonaId` using strict precedence:
-     1. `_targetPersonaId.value?.ifBlank { null }`
-     2. `uiState.value.userProfile?.anonymousId?.ifBlank { null }`
-     3. If neither is available and `!isSelf`, **STOP / do not execute query**.
-     - Keep Self profile pagination on its existing private/account-owned path using `currentUserId`.
-3. `app/src/test/java/com/saurabh/artifact/domain/profile/GetProfileDataUseCaseTest.kt`
-   - Add unit tests for resolution rules (Tests A through G).
-4. `app/src/test/java/com/saurabh/artifact/ui/profile/ProfileViewModelTest.kt`
-   - Add unit tests for `loadMorePublished()` persona resolution and safety stops.
+### BLOCKING Warnings (`isBlocking = true`, `ValidationReason.REAL_NAME`)
+Triggered when:
+1. Target token explicitly matches the user's provided real name (`realName.toUnsecureString()`).
+2. Target token explicitly matches an entry in `nameCorpusSet` AND is NOT in `IGNORED_ROLE_TOKENS` or `DUAL_MEANING_WORDS`.
 
-## Exact Files NOT to Modify
-- `repository/ArtifactRepository.kt` (existing `getUserArtifacts` and `getUserArtifactsPage` implementation correctly handles `isSelf` vs `whereEqualTo("author.anonymousId", ...)`).
-- `repository/UserRepository.kt` (profile streaming contracts remain intact).
-- `navigation/NavigationStructure.kt` (`Profile` route schema with `userId` and `personaId` parameters remains intact).
-- Firestore Rules, Cloud Functions, and Database Schemas.
+*User Message*: `"This looks like a real name. For your privacy and safety, consider a pseudonymous choice."`
 
-## Privacy / Responsible Anonymity Impact
-- Guarantees complete separation of account identity (Firebase UID) from public creative identity (Persona ID).
-- Prevents cross-persona linkability or accidental UID leaks in Firestore query parameters.
+### ADVISORY Warnings (`isBlocking = false`, `ValidationReason.MOTIF_REUSE` / `POTENTIALLY_IDENTIFYING`)
+Triggered when:
+1. Phonetic similarity (Metaphone or Levenshtein distance <= 2) is detected between a target token and a corpus name or user's real name.
+2. Exact match on a dual-meaning atmospheric word that doubles as a common name (e.g., "Amber", "Rose") when combined with other suspicious patterns.
+3. Behavioral patterns ("i'm alex", "dm me on ig", handles starting with `real_` or `official_`).
 
-## Database / Firebase Impact
-- Zero schema changes.
-- Zero rules changes.
-- Existing composite indexes on `artifacts (author.anonymousId, isPublic, status, createdAt DESC)` remain fully utilized.
+*User Message*: `"This presence feels familiar to a real name. Consider something more distinct to stay anonymous."`
 
-## Preservation of Account & Persona Model
-- **ONE email/Firebase account = ONE Artifact account.** No multiple accounts created.
-- **Persona isolation maintained**: Artifacts are queried strictly per anonymous persona ID (`author.anonymousId`). Artifacts from different personas belonging to the same underlying account are never aggregated in public view.
-- **Persona-bound history** remains unchanged.
+---
 
-## Automated Test Plan
-Expand `GetProfileDataUseCaseTest.kt` and `ProfileViewModelTest.kt` to cover:
-- **Test A**: `targetPersonaId` exists -> query uses `targetPersonaId`.
-- **Test B**: `targetPersonaId` absent + `targetUserId` exists -> profile resolves `anonymousId` -> query uses resolved `anonymousId`.
-- **Test C**: `targetPersonaId` absent + `targetUserId` exists + `profile.anonymousId` missing/blank -> public Artifact query is NOT executed with UID (returns empty artifact list).
-- **Test D**: `targetPersonaId` exists + `targetUserId` exists -> `personaId` wins.
-- **Test E**: `loadMorePublished()` pagination with `targetPersonaId` -> uses `personaId`.
-- **Test F**: `loadMorePublished()` pagination with `targetUserId` only -> resolves `userProfile.anonymousId` first; never queries with UID.
-- **Test G**: Self Profile -> existing private/account-owned path (`users/{uid}/private/published_artifacts/artifacts`) is preserved.
+## 6. False-Positive Strategy
 
-## Physical Verification Plan
-Device tests required during implementation execution:
-A. Home Feed -> Creator Profile navigation and artifact load.
-B. Mini Player -> Creator Profile navigation.
-C. Expanded / Immersive Player -> Creator Profile navigation.
-D. Multiple public ACTIVE artifacts load correctly under persona ID.
-E. Private/non-ACTIVE artifacts remain hidden for other creators.
-F. Persona isolation verified between distinct personas.
-G. Verify via Firestore logs/diagnostics that Firebase UID is NEVER used in `author.anonymousId` queries.
-H. Pagination in Creator Profile remains persona-scoped.
-I. Identity-reset / persona-boundary behavior.
-J. Self Profile view remains unchanged and loads private registry items.
+### Dual-Meaning / Common-Word Protection
+A static set `DUAL_MEANING_WORDS` will be maintained in `IdentityScout`:
+```kotlin
+private val DUAL_MEANING_WORDS = setOf(
+    "amber", "rose", "dawn", "king", "may", "grace", "hope",
+    "faith", "summer", "autumn", "violet", "sky", "river",
+    "stone", "star", "joy", "reed", "cliff", "glen", "dale"
+)
+```
+- **Rule**: If a token matches a `DUAL_MEANING_WORDS` entry, it will **NOT** trigger a BLOCKING real-name leak error on its own.
+- Standalone atmospheric names like `"Silent Amber"` or `"Ancient Rose"` remain valid pseudonyms and are allowed.
 
-## Evidence Classification
-Level 2 — Code Evidence. Runtime verification will be performed when the implementation is executed on the physical device.
+### Application Role Exclusions
+Existing `IGNORED_ROLE_TOKENS` ("artifact", "creator", "user", "admin", "anonymous", "guest", "default", "test", "persona", "system") are preserved to avoid flagging system terms.
+
+### Pseudonym Generator Protection
+`UsernameGenerator.kt` generates pseudonyms using curated atmospheric adjectives and nouns. Its output tokens are filtered to ensure generated suggestions never trigger corpus matches or echo user input.
+
+---
+
+## 7. Performance Requirements
+
+### Corrected Performance Claims
+- **Removal of Unverified Claims**:
+  Removed all claims of "<1 ms validation runtime" and "zero latency impact on first launch".
+- **Acknowledged Realities**:
+  Cold initialization requires an Android Asset Manager read and `HashSet` memory allocation.
+
+### Practical & Measurable Performance Requirements
+1. **Lazy Background Initialization**:
+   `NameCorpusRepository` loads the text asset on `Dispatchers.IO` when initialized. Asset loading does not run on the Main UI thread and does not block app cold start.
+2. **Validation Frame Budget**:
+   Once loaded into memory, token set lookup operates in $O(1)$ time per token ($O(K)$ for $K$ tokens in a handle). Total validation pipeline execution time must remain under **16 ms** (1 frame budget at 60 FPS) for standard username inputs (3-30 characters).
+3. **Memory Footprint**:
+   In-memory `HashSet<String>` containing ~5,000-8,000 tokens consumes < 1 MB of Android JVM heap memory.
+4. **Measurable Verification Target**:
+   Validation runtime and initial corpus load performance will be explicitly measured and verified in a focused unit/benchmark test (`IdentityScoutPerformanceTest`) using `System.nanoTime()`.
+
+---
+
+## 8. Focused Test Plan
+
+### Unit Test Suites (`IdentityScoutTest.kt` & `NameCorpusLoaderTest.kt`)
+
+#### 1. Corpus Detection Tests ("Saurabh" & "Awathare")
+- `detect corpus name saurabh in username is blocking` (e.g., `"saurabh_98"` -> `REAL_NAME`, `isBlocking = true`).
+- `detect corpus surname awathare in username is blocking` (e.g., `"awathare_x"` -> `REAL_NAME`, `isBlocking = true`).
+- `detect camelCase corpus name is blocking` (e.g., `"SaurabhAwathare"` -> `REAL_NAME`, `isBlocking = true`).
+- `detect hyphenated or dotted corpus name is blocking` (e.g., `"saurabh.awathare"` -> `REAL_NAME`, `isBlocking = true`).
+
+#### 2. Corpus Loader & Normalization Tests
+- Test parsing of newline-delimited corpus asset file.
+- Test ASCII folding (e.g., `"josé"` normalized to `"jose"`).
+- Test duplicate line removal and empty line handling.
+
+#### 3. Exact-Token Boundaries & Substring Protection
+- Verify naive substrings do NOT trigger false positives (e.g., `"artist"` containing `"art"` is NOT flagged; `"keyboard"` containing `"key"` is NOT flagged).
+- Test delimiter splitting (`_`, `.`, `-`, spaces, digits).
+
+#### 4. False-Positive Protection
+- Test dual-meaning words (`"Amber"`, `"Rose"`, `"King"`) do NOT trigger blocking real-name errors when used as anonymous handles (`"Amber Lantern"` -> valid, 0 blocking warnings).
+- Test role words (`"Creator"`, `"Artifact"`) do NOT trigger real-name warnings.
+
+#### 5. Preservation of Existing IdentityScout Tests
+- Verify user-supplied `realName` and `email` leak detection remains 100% intact.
+- Verify phone number pattern detection (7+ digits) remains intact.
+- Verify behavioral patterns (`"i'm alex"`, `"dm me on ig"`, `real_`) remain advisory.
+
+#### 6. Performance Benchmark Test
+- `benchmark corpus load and token validation latency`:
+  Measures time taken to load corpus asset and executes 100 consecutive `detectLeaks` calls, asserting timing targets using `System.nanoTime()`.
+
+---
+
+## 9. Risks and Unknowns
+
+| Risk / Unknown | Impact | Mitigation Strategy |
+| :--- | :--- | :--- |
+| **Asset Size Inflation** | Large corpus increases APK size and RAM usage | Cap compiled corpus at 5,000-8,000 high-frequency tokens (~50 KB text file). |
+| **Over-blocking Dictionary Words** | Valid pseudonyms blocked due to common given names | Maintain `DUAL_MEANING_WORDS` exclusion set and run build script dictionary filter. |
+| **Cold Start Stutter on Asset Read** | Reading asset on Main thread causes dropped frames | Load corpus lazily via `Dispatchers.IO` in `NameCorpusRepository`. |
+
+---
+
+## 10. Exact Implementation Sequence
+
+```
+1. Create Build Pipeline & Seed Corpus
+   ├── Create scripts/seed_names.txt (including "saurabh", "awathare", global names)
+   └── Create scripts/build_name_corpus.py script to output app/src/main/assets/identity/name_corpus.txt
+
+2. Build Corpus Asset
+   └── Execute build_name_corpus.py -> Generates app/src/main/assets/identity/name_corpus.txt
+
+3. Create NameCorpusRepository
+   └── Implement NameCorpusRepository in com.saurabh.artifact.repository (or domain)
+       Loads assets/identity/name_corpus.txt lazily on Dispatchers.IO into Set<String>
+
+4. Integrate into IdentityScout
+   ├── Inject NameCorpusRepository into IdentityScout
+   ├── Add tokenization logic (delimiter splitting + camelCase splitting)
+   ├── Add DUAL_MEANING_WORDS and exact token matching logic against nameCorpusSet
+   └── Assign ValidationReason.REAL_NAME (isBlocking = true) for corpus matches
+
+5. Comprehensive Unit Testing
+   ├── Update IdentityScoutTest.kt with tests for "Saurabh", "Awathare", delimiters, camelCase
+   ├── Add tests for dual-meaning false-positive protection ("Amber", "Rose")
+   ├── Add NameCorpusLoaderTest.kt for asset loading & normalization
+   └── Add IdentityScoutPerformanceTest.kt for nanoTime benchmark verification
+```
+
+---
+
+## 11. Revised Definition of Done
+
+- [ ] `scripts/seed_names.txt` and `scripts/build_name_corpus.py` created and documented.
+- [ ] `app/src/main/assets/identity/name_corpus.txt` generated and bundled into app module assets.
+- [ ] `NameCorpusRepository` implemented with thread-safe, lazy loading on `Dispatchers.IO`.
+- [ ] `IdentityScout` updated with camelCase/delimiter tokenization, corpus set lookup, and dual-meaning word protections.
+- [ ] Unit tests pass proving `"Saurabh"` and `"Awathare"` are blocked when present in corpus.
+- [ ] Unit tests pass proving dual-meaning words (`"Amber"`, `"Rose"`) do not produce blocking errors.
+- [ ] Existing `IdentityScout` tests remain 100% green.
+- [ ] Benchmark test confirms loading occurs lazily off main thread and token lookup runs within frame budget (<16ms).
+- [ ] 100% offline, privacy-preserving solution with zero cloud/network dependencies.
