@@ -276,6 +276,16 @@ class ArtifactPublishingRepository @Inject constructor(
                 }
             } ?: emptyList()
 
+            val effectiveDraftEmotions = if (draft.emotions.isNotEmpty()) {
+                draft.emotions
+            } else if (draft.emotion != null) {
+                listOf(draft.emotion)
+            } else {
+                emptyList()
+            }
+            val emotionLabels = effectiveDraftEmotions.map { it.label }
+            val primaryLabel = emotionLabels.firstOrNull() ?: draft.emotion?.label ?: ""
+
             val artifact = Artifact(
                 id = draft.id, // IDEMPOTENCY: Use draftId as the Firestore Document ID
                 userId = userId,
@@ -288,8 +298,9 @@ class ArtifactPublishingRepository @Inject constructor(
                 durationMs = draft.durationMs,
                 title = draft.title ?: "Untitled Artifact",
                 description = draft.description ?: "",
-                emotion = draft.emotion?.label ?: "",
-                emotionTag = draft.emotion?.label ?: "",
+                emotion = primaryLabel,
+                emotions = emotionLabels,
+                emotionTag = primaryLabel,
                 prompt = "",
                 transcript = transcript,
                 transcriptUrl = transcriptUrl,
@@ -348,11 +359,22 @@ class ArtifactPublishingRepository @Inject constructor(
     ): Result<String> = withContext(Dispatchers.IO) {
         return@withContext try {
             diagnosticLogger.debug(DiagnosticCategory.FIRESTORE, "FINALIZE_PUBLISH_CALLABLE_START", mapOf(LogKeys.DRAFT_ID to draft.id))
+            val effectiveDraftEmotions = if (draft.emotions.isNotEmpty()) {
+                draft.emotions
+            } else if (draft.emotion != null) {
+                listOf(draft.emotion)
+            } else {
+                emptyList()
+            }
+            val emotionLabels = effectiveDraftEmotions.map { it.label }
+            val primaryLabel = emotionLabels.firstOrNull() ?: draft.emotion?.label ?: "Untitled"
+
             val payload = mutableMapOf<String, Any>(
                 "draftId" to draft.id,
                 "title" to (draft.title ?: "Untitled Artifact"),
                 "description" to (draft.description ?: ""),
-                "emotion" to (draft.emotion?.label ?: "Untitled"),
+                "emotion" to primaryLabel,
+                "emotions" to emotionLabels,
                 "durationMs" to draft.durationMs,
                 "amplitudeData" to draft.amplitudeData,
                 "primaryStyle" to (draft.primaryStyle?.name ?: "REFLECTIVE"),
@@ -417,6 +439,7 @@ class ArtifactPublishingRepository @Inject constructor(
             "title" to artifact.title,
             "description" to artifact.description,
             "emotion" to artifact.emotion,
+            "emotions" to artifact.effectiveEmotions,
             "emotionTag" to artifact.emotionTag,
             "emotionConfidence" to artifact.emotionConfidence,
             "prompt" to artifact.prompt,

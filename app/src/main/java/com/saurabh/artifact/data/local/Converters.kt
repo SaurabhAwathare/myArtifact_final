@@ -78,6 +78,16 @@ class Converters {
     }
 
     @TypeConverter
+    fun fromEmotionList(value: List<Emotion>): String = Json.encodeToString(value)
+
+    @TypeConverter
+    fun toEmotionList(value: String): List<Emotion> = try {
+        Json.decodeFromString(value)
+    } catch (_: Exception) {
+        emptyList()
+    }
+
+    @TypeConverter
     fun fromStringList(value: List<String>): String = Json.encodeToString(value)
 
     @TypeConverter

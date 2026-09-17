@@ -5,6 +5,7 @@ import androidx.paging.LoadType
 import androidx.paging.PagingState
 import androidx.paging.RemoteMediator
 import androidx.room.withTransaction
+import com.google.firebase.firestore.Filter
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.saurabh.artifact.data.local.AppDatabase
@@ -66,7 +67,12 @@ class ArtifactRemoteMediator(
                 .orderBy(com.google.firebase.firestore.FieldPath.documentId(), Query.Direction.DESCENDING)
 
             if (relatedEmotions != null) {
-                query = query.whereIn("emotion", relatedEmotions)
+                query = query.where(
+                    Filter.or(
+                        Filter.inArray("emotion", relatedEmotions),
+                        Filter.arrayContainsAny("emotions", relatedEmotions)
+                    )
+                )
             }
 
             if (lastItem != null) {
@@ -128,6 +134,17 @@ class ArtifactRemoteMediator(
     }
 
     private fun mapToEntity(artifact: Artifact): ArtifactEntity {
+        val selectedEmotions = artifact.effectiveEmotions.mapNotNull { label ->
+            Emotion.entries.find { 
+                it.name.equals(label, ignoreCase = true) || 
+                it.label.equals(label, ignoreCase = true) 
+            }
+        }
+        val primaryEmotion = selectedEmotions.firstOrNull() ?: Emotion.entries.find { 
+            it.name.equals(artifact.emotion, ignoreCase = true) || 
+            it.label.equals(artifact.emotion, ignoreCase = true) 
+        } ?: Emotion.NEUTRAL
+
         return ArtifactEntity(
             id = artifact.id,
             userId = artifact.userId,
@@ -142,10 +159,8 @@ class ArtifactRemoteMediator(
             durationMs = artifact.durationMs,
             title = artifact.title,
             description = artifact.description,
-            emotion = Emotion.entries.find { 
-                it.name.equals(artifact.emotion, ignoreCase = true) || 
-                it.label.equals(artifact.emotion, ignoreCase = true) 
-            } ?: Emotion.NEUTRAL,
+            emotion = primaryEmotion,
+            emotions = selectedEmotions,
             emotionTag = artifact.emotionTag,
             playCount = artifact.playCount,
             reactionCount = artifact.reactionCount,

@@ -3,6 +3,7 @@ package com.saurabh.artifact.repository
 import android.util.Log
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.Filter
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
@@ -90,8 +91,11 @@ class FeedRepository @Inject constructor(
                     if ((artifact == null) || artifact.audioUrl.isEmpty()) return@mapNotNull null
                     
                     // Filter by emotion locally if requested (Firestore limit: only one whereIn per query)
-                    if (relatedEmotions != null && !relatedEmotions.contains(artifact.emotion)) {
-                        return@mapNotNull null
+                    if (relatedEmotions != null) {
+                        val matchesEmotion = artifact.effectiveEmotions.any { itemEmo ->
+                            relatedEmotions.any { rel -> rel.equals(itemEmo, ignoreCase = true) }
+                        }
+                        if (!matchesEmotion) return@mapNotNull null
                     }
 
                     val reportCount = doc.getLong("reportCount") ?: 0L
@@ -157,7 +161,12 @@ class FeedRepository @Inject constructor(
                 .whereEqualTo("status", ArtifactStatus.ACTIVE.name)
 
             if (relatedEmotions != null) {
-                query = query.whereIn("emotion", relatedEmotions)
+                query = query.where(
+                    Filter.or(
+                        Filter.inArray("emotion", relatedEmotions),
+                        Filter.arrayContainsAny("emotions", relatedEmotions)
+                    )
+                )
             }
 
             query = query.orderBy("createdAt", Query.Direction.DESCENDING)
@@ -222,7 +231,21 @@ class FeedRepository @Inject constructor(
             Result.success(PaginatedArtifacts(finalArtifacts, snapshot.documents.lastOrNull()))
         } catch (e: Exception) {
             diagnosticLogger.error(DiagnosticCategory.FEED, "FEED_DISCOVERY_FETCH_FAILED", throwable = e)
-            Result.failure(AppError.from(e))
+            runCatching {
+                val cachedArtifacts = artifactRepository.getRecentCachedArtifacts(
+                    currentUserId = userId ?: "",
+                    emotion = emotion,
+                    limit = limit
+                )
+                if (cachedArtifacts.isNotEmpty()) {
+                    val ranked = recommendationService.rank(cachedArtifacts, userId)
+                    Result.success(PaginatedArtifacts(ranked, null))
+                } else {
+                    Result.failure(AppError.from(e))
+                }
+            }.getOrElse {
+                Result.failure(AppError.from(e))
+            }
         }
     }
 

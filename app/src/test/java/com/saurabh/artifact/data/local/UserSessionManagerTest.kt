@@ -5,6 +5,7 @@ import com.saurabh.artifact.model.SigilConfig
 import com.saurabh.artifact.model.sigil.SigilVariant
 import io.mockk.coVerify
 import io.mockk.mockk
+import io.mockk.unmockkAll
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -12,6 +13,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Rule
@@ -27,11 +29,22 @@ class UserSessionManagerTest {
     @get:Rule
     val temporaryFolder = TemporaryFolder()
 
+    private val createdJobs = mutableListOf<Job>()
+
+    @After
+    fun tearDown() {
+        createdJobs.forEach { it.cancel() }
+        createdJobs.clear()
+        unmockkAll()
+    }
+
     private fun TestScope.createManager(fileName: String): Pair<UserSessionManager, BlockStoreManager> {
         val testFolder = temporaryFolder.newFolder()
         val testFile = File(testFolder, fileName)
+        val job = Job()
+        createdJobs.add(job)
         val dataStore = PreferenceDataStoreFactory.create(
-            scope = CoroutineScope(UnconfinedTestDispatcher(testScheduler) + Job()),
+            scope = CoroutineScope(UnconfinedTestDispatcher(testScheduler) + job),
             produceFile = { testFile }
         )
         val blockStoreManager = mockk<BlockStoreManager>(relaxed = true)

@@ -1,5 +1,6 @@
 package com.saurabh.artifact.data.local
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.saurabh.artifact.model.*
@@ -24,6 +25,7 @@ data class ArtifactDraftEntity(
     val title: String? = null,
     val description: String? = null,
     val emotion: Emotion? = null,
+    @ColumnInfo(defaultValue = "[]") val emotions: List<Emotion> = emptyList(),
     val isPublic: Boolean = true,
     val isListened: Boolean = false,
     val tags: List<String> = emptyList(),

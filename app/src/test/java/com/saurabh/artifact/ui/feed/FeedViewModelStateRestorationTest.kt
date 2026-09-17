@@ -114,8 +114,7 @@ class FeedViewModelStateRestorationTest {
     fun `initial restoration from SavedStateHandle is reflected in uiState`() = runTest {
         val savedStateHandle = SavedStateHandle(
             mapOf(
-                "selected_emotion" to "Happy",
-                "show_ranked_feed" to false
+                "selected_emotion" to "Happy"
             )
         )
         val viewModel = createViewModel(savedStateHandle)
@@ -123,19 +122,16 @@ class FeedViewModelStateRestorationTest {
         advanceUntilIdle()
         
         assertEquals("Happy", viewModel.uiState.value.selectedEmotion)
-        assertEquals(false, viewModel.uiState.value.showRankedFeed)
     }
 
     @Test
-    fun `setting filter and tab updates SavedStateHandle`() = runTest {
+    fun `setting filter updates SavedStateHandle`() = runTest {
         val savedStateHandle = SavedStateHandle()
         val viewModel = createViewModel(savedStateHandle)
         
         viewModel.setEmotionFilter("Sad")
-        viewModel.setShowRankedFeed(false)
         
         assertEquals("Sad", savedStateHandle.get<String>("selected_emotion"))
-        assertEquals(false, savedStateHandle.get<Boolean>("show_ranked_feed"))
     }
 
     @Test
@@ -144,7 +140,6 @@ class FeedViewModelStateRestorationTest {
         val viewModel1 = createViewModel(savedStateHandle)
         
         viewModel1.setEmotionFilter("Anxious")
-        viewModel1.setShowRankedFeed(false)
         
         // Simulate process recreation by reusing the same SavedStateHandle
         val viewModel2 = createViewModel(savedStateHandle)
@@ -152,7 +147,6 @@ class FeedViewModelStateRestorationTest {
         advanceUntilIdle()
         
         assertEquals("Anxious", viewModel2.uiState.value.selectedEmotion)
-        assertEquals(false, viewModel2.uiState.value.showRankedFeed)
     }
 
     @Test

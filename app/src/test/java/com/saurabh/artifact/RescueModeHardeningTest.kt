@@ -12,6 +12,9 @@ import com.saurabh.artifact.startup.StartupCoordinator
 import com.saurabh.artifact.data.local.UserSessionManager
 import com.saurabh.artifact.domain.auth.LogoutCoordinator
 import com.saurabh.artifact.domain.auth.RegistrationCoordinator
+import com.saurabh.artifact.security.PreloadResult
+import com.saurabh.artifact.startup.SecurityStatus
+import com.saurabh.artifact.startup.StartupStage
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -52,6 +55,11 @@ class RescueModeHardeningTest {
         
         coEvery { maintenanceRepository.getPendingDeletionUid() } returns null
         every { sessionManager.owningUid } returns flowOf(null)
+        every { sessionManager.isLoggingOut } returns flowOf(false)
+        every { startupCoordinator.stage } returns MutableStateFlow(StartupStage.STABLE)
+        every { startupCoordinator.preloadResult } returns MutableStateFlow(PreloadResult.Success)
+        every { startupCoordinator.securityStatus } returns MutableStateFlow(SecurityStatus.PENDING)
+        every { startupCoordinator.terminalError } returns MutableStateFlow(null)
         
         viewModel = MainViewModel(
             authRepository, getInitialDestinationUseCase, registrationCoordinator,
@@ -64,6 +72,7 @@ class RescueModeHardeningTest {
     @After
     fun tearDown() {
         Dispatchers.resetMain()
+        unmockkAll()
     }
 
     @Test

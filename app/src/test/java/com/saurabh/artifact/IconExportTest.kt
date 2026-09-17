@@ -1,5 +1,6 @@
 package com.saurabh.artifact
 
+import android.app.Application
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -14,7 +15,10 @@ import java.io.File
 import java.io.FileOutputStream
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [33])
+@Config(
+    sdk = [33],
+    application = Application::class,
+)
 class IconExportTest {
 
     @Test

@@ -199,10 +199,11 @@ class RecordingRepository @Inject constructor(
         }
     }
 
-    suspend fun updateDraftMetadata(id: String, title: String?, emotion: Emotion?): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun updateDraftMetadata(id: String, title: String?, emotions: List<Emotion>): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val userId = userRepository.getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
-            draftDao.get().updateMetadata(id, userId, title, emotion)
+            val primaryEmotion = emotions.firstOrNull()
+            draftDao.get().updateMetadata(id, userId, title, primaryEmotion, emotions)
 
             // R089: Sync metadata to filesystem manifest
             draftDao.get().getDraftById(id, userId)?.let { draft ->
@@ -212,7 +213,8 @@ class RecordingRepository @Inject constructor(
                     createdAt = draft.createdAt,
                     mimeType = draft.mimeType,
                     title = draft.title,
-                    emotion = draft.emotion
+                    emotion = draft.emotion,
+                    emotions = draft.emotions
                 )
             }
 
@@ -220,6 +222,10 @@ class RecordingRepository @Inject constructor(
         } catch (e: Exception) {
             Result.failure(AppError.from(e))
         }
+    }
+
+    suspend fun updateDraftMetadata(id: String, title: String?, emotion: Emotion?): Result<Unit> {
+        return updateDraftMetadata(id, title, if (emotion != null) listOf(emotion) else emptyList())
     }
 
     suspend fun updateLifecycle(id: String, lifecycle: ArtifactLifecycle, isRecovery: Boolean = false): Result<Unit> = withContext(Dispatchers.IO) {

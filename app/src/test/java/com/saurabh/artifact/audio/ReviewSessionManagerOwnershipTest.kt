@@ -9,10 +9,14 @@ import com.saurabh.artifact.domain.review.publishing.PublishingReviewValidator
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.UserRepository
 import io.mockk.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.test.runTest
+import org.junit.After
 import org.junit.Before
 import org.junit.Test
 
@@ -33,6 +37,7 @@ class ReviewSessionManagerOwnershipTest {
 
     @Before
     fun setup() {
+        Dispatchers.setMain(testDispatcher)
         every { reviewAuthorityService.currentProgress } returns MutableStateFlow(null)
         
         manager = ReviewSessionManager(
@@ -44,6 +49,12 @@ class ReviewSessionManagerOwnershipTest {
             draftMapper = draftMapper,
             userRepository = userRepository,
         )
+    }
+
+    @After
+    fun tearDown() {
+        Dispatchers.resetMain()
+        unmockkAll()
     }
 
     @Test

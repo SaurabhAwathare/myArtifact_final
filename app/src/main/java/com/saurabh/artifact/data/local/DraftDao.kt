@@ -141,8 +141,8 @@ interface DraftDao {
     suspend fun updateTitle(id: String, userId: String, title: String?, timestamp: Long = System.currentTimeMillis())
 
     /** User-scoped: Update metadata with ownership enforcement. */
-    @Query("UPDATE artifact_drafts SET title = :title, emotion = :emotion, updatedAt = :timestamp WHERE id = :id AND userId = :userId")
-    suspend fun updateMetadata(id: String, userId: String, title: String?, emotion: Emotion?, timestamp: Long = System.currentTimeMillis())
+    @Query("UPDATE artifact_drafts SET title = :title, emotion = :emotion, emotions = :emotions, updatedAt = :timestamp WHERE id = :id AND userId = :userId")
+    suspend fun updateMetadata(id: String, userId: String, title: String?, emotion: Emotion?, emotions: List<Emotion> = emptyList(), timestamp: Long = System.currentTimeMillis())
 
     /** User-scoped: Update upload checkpoint with ownership enforcement. */
     @Query("UPDATE artifact_drafts SET uploadedAudioUrl = :url, updatedAt = :timestamp WHERE id = :id AND userId = :userId")

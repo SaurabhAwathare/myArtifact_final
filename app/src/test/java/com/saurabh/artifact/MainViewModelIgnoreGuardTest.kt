@@ -1,6 +1,7 @@
 package com.saurabh.artifact
 
 import android.content.Intent
+import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import com.saurabh.artifact.domain.auth.GetInitialDestinationUseCase
@@ -15,6 +16,9 @@ import com.saurabh.artifact.navigation.Profile
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.startup.StartupCoordinator
 import com.saurabh.artifact.domain.ArtifactVisibilityFilter
+import com.saurabh.artifact.security.PreloadResult
+import com.saurabh.artifact.startup.SecurityStatus
+import com.saurabh.artifact.startup.StartupStage
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -64,13 +68,24 @@ class MainViewModelIgnoreGuardTest {
         every { authRepository.currentUserId } answers { testAuthFlow.value?.uid ?: "" }
         every { observeStealthModeUseCase.invoke() } returns flowOf(false)
         every { visibilityFilter.observeIgnoredUserIds(any()) } returns ignoredUsersFlow
+        every {
+            visibilityFilter.syncIgnoredUsersFromRemote(any(), any())
+        } returns flowOf(Unit)
+        every {
+            visibilityFilter.syncReportsFromRemote(any(), any())
+        } returns flowOf(Unit)
         
-        every { startupCoordinator.stage } returns MutableStateFlow(com.saurabh.artifact.startup.StartupStage.STABLE)
-        every { startupCoordinator.preloadResult } returns MutableStateFlow(com.saurabh.artifact.security.PreloadResult.Success)
+        every { sessionManager.owningUid } returns flowOf(null)
+        every { sessionManager.isLoggingOut } returns flowOf(false)
+        every { startupCoordinator.stage } returns MutableStateFlow(StartupStage.STABLE)
+        every { startupCoordinator.preloadResult } returns MutableStateFlow(PreloadResult.Success)
+        every { startupCoordinator.securityStatus } returns MutableStateFlow(SecurityStatus.PENDING)
+        every { startupCoordinator.terminalError } returns MutableStateFlow(null)
         
         coEvery { startupCoordinator.awaitComponent(any()) } returns Unit
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
+        coEvery { maintenanceRepository.getPendingDeletionUid() } returns null
 
         viewModel = MainViewModel(
             authRepository,
@@ -101,11 +116,14 @@ class MainViewModelIgnoreGuardTest {
         val mockUser = mockk<com.google.firebase.auth.FirebaseUser> { every { uid } returns currentUserId }
         testAuthFlow.value = mockUser
         ignoredUsersFlow.value = setOf(ignoredUserId)
+        advanceUntilIdle()
 
-        val intent = mockk<Intent> {
+        val intent = mockk<Intent>(relaxed = true) {
             every { getStringExtra("notificationType") } returns "FOLLOW"
             every { getStringExtra("userId") } returns ignoredUserId
-            every { getBooleanExtra(any(), any()) } returns false
+            every { getStringExtra("artifactId") } returns null
+            every { getStringExtra("recipientId") } returns null
+            every { getBooleanExtra("navigate_to_recording", false) } returns false
             every { action } returns null
             every { data } returns null
         }
@@ -132,12 +150,14 @@ class MainViewModelIgnoreGuardTest {
         val mockUser = mockk<com.google.firebase.auth.FirebaseUser> { every { uid } returns currentUserId }
         testAuthFlow.value = mockUser
         ignoredUsersFlow.value = setOf(ignoredActorId)
+        advanceUntilIdle()
 
-        val intent = mockk<Intent> {
+        val intent = mockk<Intent>(relaxed = true) {
+            every { getStringExtra("notificationType") } returns null
             every { getStringExtra("artifactId") } returns artifactId
             every { getStringExtra("userId") } returns ignoredActorId
             every { getStringExtra("recipientId") } returns currentUserId
-            every { getBooleanExtra(any(), any()) } returns false
+            every { getBooleanExtra("navigate_to_recording", false) } returns false
             every { action } returns null
             every { data } returns null
         }
@@ -161,13 +181,15 @@ class MainViewModelIgnoreGuardTest {
         val artifactId = "art-legacy"
         val mockUser = mockk<com.google.firebase.auth.FirebaseUser> { every { uid } returns currentUserId }
         testAuthFlow.value = mockUser
+        advanceUntilIdle()
         
         // No actorId passed in intent (legacy simulation)
-        val intent = mockk<Intent> {
+        val intent = mockk<Intent>(relaxed = true) {
+            every { getStringExtra("notificationType") } returns null
             every { getStringExtra("artifactId") } returns artifactId
             every { getStringExtra("userId") } returns null 
             every { getStringExtra("recipientId") } returns currentUserId
-            every { getBooleanExtra(any(), any()) } returns false
+            every { getBooleanExtra("navigate_to_recording", false) } returns false
             every { action } returns null
             every { data } returns null
         }
@@ -189,12 +211,21 @@ class MainViewModelIgnoreGuardTest {
     fun `external deep links without actorId should be allowed`() = runTest {
         val artifactId = "art-external"
         testAuthFlow.value = mockk { every { uid } returns "me" }
+        advanceUntilIdle()
 
-        val intent = mockk<Intent> {
+        val mockUri = mockk<Uri>(relaxed = true) {
+            every { scheme } returns "https"
+            every { pathSegments } returns listOf("a", artifactId)
+        }
+
+        val intent = mockk<Intent>(relaxed = true) {
             every { action } returns Intent.ACTION_VIEW
-            every { data } returns android.net.Uri.parse("https://myartifact-555e3.web.app/a/$artifactId")
-            every { getStringExtra(any()) } returns null
-            every { getBooleanExtra(any(), any()) } returns false
+            every { data } returns mockUri
+            every { getStringExtra("notificationType") } returns null
+            every { getStringExtra("artifactId") } returns null
+            every { getStringExtra("userId") } returns null
+            every { getStringExtra("recipientId") } returns null
+            every { getBooleanExtra("navigate_to_recording", false) } returns false
         }
 
         val events = mutableListOf<Any>()
@@ -217,11 +248,14 @@ class MainViewModelIgnoreGuardTest {
         testAuthFlow.value = mockUser
         
         ignoredUsersFlow.value = setOf(userId)
+        advanceUntilIdle()
 
-        val intent = mockk<Intent> {
+        val intent = mockk<Intent>(relaxed = true) {
             every { getStringExtra("notificationType") } returns "FOLLOW"
             every { getStringExtra("userId") } returns userId
-            every { getBooleanExtra(any(), any()) } returns false
+            every { getStringExtra("artifactId") } returns null
+            every { getStringExtra("recipientId") } returns null
+            every { getBooleanExtra("navigate_to_recording", false) } returns false
             every { action } returns null
             every { data } returns null
         }
@@ -230,6 +264,10 @@ class MainViewModelIgnoreGuardTest {
         val job = launch {
             viewModel.navigationEvent.collect { events.add(it) }
         }
+
+        // Ensure startup is initiated so deferred navigation can reach Ready state
+        viewModel.start()
+        advanceUntilIdle()
 
         // 1. Try while ignored
         viewModel.onLaunchIntent(intent)
@@ -244,7 +282,7 @@ class MainViewModelIgnoreGuardTest {
         viewModel.onLaunchIntent(intent)
         advanceUntilIdle()
         
-        assertTrue("Should navigate after unignore", events.any { it is Profile && it.userId == userId })
+        assertTrue("Should navigate after unignore", events.any { it is Profile && (it.userId == userId || it.personaId == userId) })
         job.cancel()
     }
 }

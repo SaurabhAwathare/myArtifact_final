@@ -2,6 +2,7 @@ package com.saurabh.artifact.domain
 
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.ArtifactStatus
+import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.model.ModerationMetadata
 import com.saurabh.artifact.model.ModerationStatus
 import com.saurabh.artifact.model.RecommendationState
@@ -85,6 +86,7 @@ class SafetyPolicyTest {
         return Artifact(
             id = "test-id",
             userId = userId,
+            author = AuthorSnapshot(anonymousId = userId),
             status = status,
             recommendationState = recommendationState,
             reportCount = reportCount,

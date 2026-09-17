@@ -29,6 +29,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.saurabh.artifact.model.PlayableArtifact
 import com.saurabh.artifact.model.AuthorSnapshot
+import com.saurabh.artifact.ui.components.EmotionTag
+import com.saurabh.artifact.ui.components.EmotionTagsGroup
 import com.saurabh.artifact.ui.player.components.*
 import com.saurabh.artifact.ui.theme.GoldAura400
 import com.saurabh.artifact.ui.theme.Obsidian950
@@ -303,6 +305,14 @@ fun ImmersivePlayerScreen(
                                     )
                                 }
                             }
+                        }
+
+                        val emotionsToDisplay = playableArtifact?.effectiveEmotions?.ifEmpty { 
+                            listOfNotNull(playableArtifact.emotion.ifBlank { null }) 
+                        } ?: artifact?.effectiveEmotions ?: emptyList()
+                        if (emotionsToDisplay.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            EmotionTagsGroup(emotions = emotionsToDisplay)
                         }
                     }
                 }

@@ -14,6 +14,7 @@ fun Artifact.toPlayerArtifact(): PlayerArtifact {
         durationMs = durationMs,
         amplitudeData = amplitudeData,
         emotion = emotion,
+        emotions = effectiveEmotions,
         createdAt = createdAt,
         transcript = transcript,
         recommendationState = recommendationState,

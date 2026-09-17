@@ -1,40 +1,35 @@
 package com.saurabh.artifact.util
 
+import com.saurabh.artifact.model.Emotion
+
 /**
- * Maps the 14 internal emotional states to the 8 primary UI filter categories.
- * Ensures all reachable content is discoverable while maintaining high-precision data.
+ * Maps canonical emotional states for UI filtering and queries.
+ * Each canonical emotion is its own filter.
  */
 object EmotionCategoryMapper {
 
     /**
-     * Returns a list of related emotions for a given UI filter chip.
-     * This expansion allows "Happy" to discover "Hopeful" and "Grateful" content.
+     * Returns a list of matching emotions for a given UI filter chip.
+     * Maps canonical emotion directly to itself.
      */
     fun getRelatedEmotions(uiCategory: String): List<String> {
-        return when (uiCategory) {
-            "Happy" -> listOf("Happy", "Hopeful", "Grateful", "Motivated")
-            "Motivated" -> listOf("Motivated", "Happy", "Hopeful")
-            "Sad" -> listOf("Sad", "Lonely")
-            "Lonely" -> listOf("Lonely", "Sad")
-            "Anxious" -> listOf("Anxious", "Angry", "Overwhelmed")
-            "Angry" -> listOf("Angry", "Anxious")
-            "Neutral" -> listOf("Neutral", "Calm", "Confused", "Unclear")
-            "Mixed" -> listOf("Mixed")
-            else -> listOf(uiCategory)
+        val matchedEmotion = Emotion.entries.find { 
+            it.label.equals(uiCategory, ignoreCase = true) || it.name.equals(uiCategory, ignoreCase = true) 
+        }
+        return if (matchedEmotion != null) {
+            listOf(matchedEmotion.label)
+        } else {
+            listOf(uiCategory)
         }
     }
 
     /**
      * Determines which UI category a specific internal emotion belongs to.
-     * Useful for labeling or UI anchoring.
      */
     fun getCategoryForEmotion(internalEmotion: String): String {
-        return when (internalEmotion) {
-            "Hopeful", "Grateful", "Motivated" -> "Happy"
-            "Lonely" -> "Sad"
-            "Overwhelmed", "Angry" -> "Anxious"
-            "Calm", "Confused", "Unclear" -> "Neutral"
-            else -> internalEmotion
+        val matchedEmotion = Emotion.entries.find { 
+            it.label.equals(internalEmotion, ignoreCase = true) || it.name.equals(internalEmotion, ignoreCase = true) 
         }
+        return matchedEmotion?.label ?: internalEmotion
     }
 }

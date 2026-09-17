@@ -10,6 +10,7 @@ import com.saurabh.artifact.domain.ArtifactVisibilityFilter
 import io.mockk.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -33,6 +34,7 @@ class PersonalizedPagingSourceTest {
         every { Log.e(any(), any(), any()) } returns 0
 
         coEvery { visibilityFilter.getSuppressedIdsSnapshot(any()) } returns emptySet()
+        coEvery { visibilityFilter.getIgnoredUserIdsSnapshot(any()) } returns emptySet()
 
         pagingSource = PersonalizedPagingSource(
             userId = userId,
@@ -45,6 +47,11 @@ class PersonalizedPagingSourceTest {
             @Suppress("UNCHECKED_CAST")
             it.invocation.args[0] as List<Artifact> 
         }
+    }
+
+    @After
+    fun tearDown() {
+        unmockkAll()
     }
 
     @Test

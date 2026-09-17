@@ -15,6 +15,9 @@ import com.saurabh.artifact.repository.UserProfileManager
 import com.saurabh.artifact.startup.StartupCoordinator
 import com.saurabh.artifact.startup.StartupMetrics
 import com.saurabh.artifact.navigation.*
+import com.saurabh.artifact.security.PreloadResult
+import com.saurabh.artifact.startup.SecurityStatus
+import com.saurabh.artifact.startup.StartupStage
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -41,6 +44,7 @@ class MainViewModelSafetySyncTest {
     private val diagnosticLogger = mockk<com.saurabh.artifact.diagnostics.DiagnosticLogger>(relaxed = true)
 
     private val testAuthFlow = MutableStateFlow<com.google.firebase.auth.FirebaseUser?>(null)
+    private val owningUidFlow = MutableStateFlow<String?>(null)
     private val testDispatcher = UnconfinedTestDispatcher()
 
     @Before
@@ -55,10 +59,16 @@ class MainViewModelSafetySyncTest {
         Dispatchers.setMain(testDispatcher)
 
         testAuthFlow.value = null
+        owningUidFlow.value = null
         every { authRepository.currentUser } returns testAuthFlow
         every { authRepository.currentUserId } answers { testAuthFlow.value?.uid ?: "" }
         every { observeStealthModeUseCase.invoke() } returns flowOf(false)
-        every { sessionManager.owningUid } returns flowOf(null)
+        every { sessionManager.owningUid } returns owningUidFlow
+        every { sessionManager.isLoggingOut } returns flowOf(false)
+        every { startupCoordinator.stage } returns MutableStateFlow(StartupStage.STABLE)
+        every { startupCoordinator.preloadResult } returns MutableStateFlow(PreloadResult.Success)
+        every { startupCoordinator.securityStatus } returns MutableStateFlow(SecurityStatus.PENDING)
+        every { startupCoordinator.terminalError } returns MutableStateFlow(null)
     }
 
     @After
@@ -115,9 +125,10 @@ class MainViewModelSafetySyncTest {
 
         // 2. Transition to User B (requires cleanup because A's data is still in DataStore)
         val userB = mockk<com.google.firebase.auth.FirebaseUser> { every { uid } returns "user_B" }
-        every { sessionManager.owningUid } returns flowOf("user_A")
+        owningUidFlow.value = "user_A"
         
         coEvery { logoutCoordinator.performFullCleanup() } coAnswers {
+            owningUidFlow.value = "user_B"
             CleanupResult(status = CleanupStatus.COMPLETED)
         }
 

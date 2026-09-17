@@ -525,7 +525,7 @@ class MainViewModel @Inject constructor(
         
         // IGNORE GUARD: Block navigation from ignored actors
         val actorId = when (event) {
-            is Profile -> event.userId
+            is Profile -> (event.userId ?: event.personaId)
             is IncomingArtifact -> event.actorId
             else -> null
         }
@@ -544,9 +544,7 @@ class MainViewModel @Inject constructor(
             // Cold Start / Initializing: Buffer for determineInitialRoute()
             diagnosticLogger.info(DiagnosticCategory.NAV, "COLD_START_INTENT_BUFFERED", mapOf("event" to event.javaClass.simpleName))
             
-            if (event is IncomingArtifact) {
-                pendingStartupEvents.removeAll { it is IncomingArtifact }
-            } else if (event is Route) {
+            if (event is Route) {
                 pendingStartupEvents.removeAll { it is Route }
             }
 
@@ -594,7 +592,7 @@ class MainViewModel @Inject constructor(
             eventsToDeliver.forEach { event ->
                 // IGNORE GUARD: Re-verify against latest ignored list
                 val actorId = when (event) {
-                    is Profile -> event.userId
+                    is Profile -> (event.userId ?: event.personaId)
                     is IncomingArtifact -> event.actorId
                     else -> null
                 }

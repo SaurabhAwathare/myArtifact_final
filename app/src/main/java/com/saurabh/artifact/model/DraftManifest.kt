@@ -14,5 +14,6 @@ data class DraftManifest(
     val mimeType: String,
     val title: String? = null,
     val emotion: Emotion? = null,
-    val version: Int = 2
+    val emotions: List<Emotion> = emptyList(),
+    val version: Int = 3
 )

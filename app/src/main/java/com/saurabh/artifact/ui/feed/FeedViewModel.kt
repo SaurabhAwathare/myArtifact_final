@@ -64,7 +64,6 @@ data class FeedUiState(
     val recommendationReasons: Map<String, FeedRecommendationReason> = emptyMap(),
     val isRankedLoading: Boolean = false,
     val selectedEmotion: String? = null,
-    val showRankedFeed: Boolean = true,
     val reflectionPrompt: ReflectionPrompt? = null,
     val isPromptLoading: Boolean = false,
     val safetyLevel: SafetyLevel = SafetyLevel.LOW,
@@ -104,23 +103,19 @@ class FeedViewModel @Inject constructor(
 
     private companion object {
         const val KEY_SELECTED_EMOTION = "selected_emotion"
-        const val KEY_SHOW_RANKED_FEED = "show_ranked_feed"
     }
 
     // Persisted state properties (Single Source of Truth)
     val selectedEmotion = savedStateHandle.getStateFlow<String?>(KEY_SELECTED_EMOTION, null)
-    val showRankedFeed = savedStateHandle.getStateFlow(KEY_SHOW_RANKED_FEED, true)
 
     private val _uiState = MutableStateFlow(FeedUiState())
     val uiState: StateFlow<FeedUiState> = combine(
         _uiState,
         selectedEmotion,
-        showRankedFeed,
         onboardingManager.isMnemonicSaved
-    ) { current, emotion, ranked, mnemonicSaved ->
+    ) { current, emotion, mnemonicSaved ->
         current.copy(
             selectedEmotion = emotion,
-            showRankedFeed = ranked,
             isMnemonicSaved = mnemonicSaved
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, FeedUiState())
@@ -165,21 +160,6 @@ class FeedViewModel @Inject constructor(
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val artifacts: Flow<PagingData<FeedDisplayItem>> = combine(
-        selectedEmotion,
-        _refreshTrigger
-    ) { emotion, _ -> emotion }.flatMapLatest { emotion ->
-        getFeedFlowUseCase(emotion)
-    }.map { pagingData ->
-        pagingData.map { item ->
-            hydrateFromPaging(item.artifact)
-            item
-        }
-    }.map { pagingData ->
-        feedSeparatorMapper.mapToDisplayItems(pagingData)
-    }.cachedIn(viewModelScope)
-
-    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val personalizedArtifacts: Flow<PagingData<FeedDisplayItem>> = combine(
         selectedEmotion,
         _refreshTrigger
     ) { emotion, _ -> emotion }.flatMapLatest { emotion ->
@@ -389,10 +369,6 @@ class FeedViewModel @Inject constructor(
     fun setEmotionFilter(emotion: String?) {
         savedStateHandle[KEY_SELECTED_EMOTION] = emotion
         loadRankedFeed()
-    }
-
-    fun setShowRankedFeed(showRanked: Boolean) {
-        savedStateHandle[KEY_SHOW_RANKED_FEED] = showRanked
     }
 
     fun loadRankedFeed(): kotlinx.coroutines.Job {

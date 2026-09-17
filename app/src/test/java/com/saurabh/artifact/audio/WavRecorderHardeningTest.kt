@@ -11,6 +11,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import java.io.File
+import kotlin.coroutines.Continuation
 
 @RunWith(RobolectricTestRunner::class)
 class WavRecorderHardeningTest {
@@ -46,17 +47,14 @@ class WavRecorderHardeningTest {
         wavRecorder.onHardwareError = { reportedError = it }
 
         // 4. Trigger private captureAudioLoop
-        // We use a small buffer size
-        val captureMethod = WavRecorder::class.java.getDeclaredMethod("captureAudioLoop", Int::class.java)
+        val captureMethod = WavRecorder::class.java.getDeclaredMethod(
+            "captureAudioLoop",
+            Int::class.javaPrimitiveType,
+            Continuation::class.java
+        )
         captureMethod.isAccessible = true
-        
-        // Invoke captureAudioLoop. It's a suspend function, so it needs a Continuation.
-        // But since we are in runTest, we can use a wrapper or just trust the logic if reflection is too hard.
-        // In Kotlin, the easiest way to test a private suspend function is to make it internal or test via public API.
-        // Since I'm hardening the loop, I'll test via start() if I can mock the Builder.
-        
-        // Let's try to invoke it. Reflection on suspend functions is possible but complex.
-        // Alternative: call start() and use mockk to prevent real AudioRecord creation.
+        captureMethod.invoke(wavRecorder, 1024, Continuation<Unit>(coroutineContext) { })
+        assertEquals(AudioRecord.ERROR_DEAD_OBJECT, reportedError)
     }
 
     @Test

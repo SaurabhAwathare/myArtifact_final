@@ -496,11 +496,19 @@ fun StudioDetailsStep(
             singleLine = false
         )
 
+        val selectedEmotionLabels = state.effectiveEmotions.map { it.label }
         EmotionSelector(
-            selectedEmotion = state.emotion?.label ?: "",
-            onSelect = { label ->
-                Emotion.entries.find { it.label == label }?.let {
-                    viewModel.updateEmotion(it)
+            selectedEmotions = selectedEmotionLabels,
+            onEmotionToggle = { label ->
+                val targetEmotion = Emotion.entries.find { it.label.equals(label, ignoreCase = true) || it.name.equals(label, ignoreCase = true) }
+                if (targetEmotion != null) {
+                    val currentEmotions = state.effectiveEmotions.toMutableList()
+                    if (currentEmotions.contains(targetEmotion)) {
+                        currentEmotions.remove(targetEmotion)
+                    } else if (currentEmotions.size < 3) {
+                        currentEmotions.add(targetEmotion)
+                    }
+                    viewModel.updateEmotions(currentEmotions)
                 }
             }
         )
@@ -530,7 +538,12 @@ fun StudioApprovalStep(
         ) {
             Column(modifier = Modifier.padding(Spacing.Large)) {
                 SummaryRow(label = "Title", value = state.title)
-                SummaryRow(label = "Emotion", value = state.emotion?.label ?: "None")
+                val emotionsSummary = if (state.effectiveEmotions.isNotEmpty()) {
+                    state.effectiveEmotions.joinToString(", ") { "${it.emoji} ${it.label}" }
+                } else {
+                    "None"
+                }
+                SummaryRow(label = "Emotions", value = emotionsSummary)
                 SummaryRow(
                     label = "Review", 
                     value = if (state.reviewCompleted) "Completed" else "${(state.coveragePercent * 100).toInt()}%"

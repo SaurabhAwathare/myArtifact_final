@@ -1,12 +1,16 @@
 package com.saurabh.artifact.domain
 
 import com.google.firebase.firestore.CollectionReference
+import com.google.firebase.firestore.DocumentChange
 import com.google.firebase.firestore.EventListener
+import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.firestore.QueryDocumentSnapshot
 import com.google.firebase.firestore.QuerySnapshot
 import com.saurabh.artifact.data.local.ReportedArtifactDao
 import dagger.Lazy
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
@@ -18,11 +22,14 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
+@RunWith(RobolectricTestRunner::class)
 class ArtifactVisibilityFilterTest {
 
     private val reportedArtifactDao = mockk<ReportedArtifactDao>(relaxed = true)
-    private val firestore = mockk<com.google.firebase.firestore.FirebaseFirestore>(relaxed = true)
+    private val firestore = mockk<FirebaseFirestore>(relaxed = true)
     private lateinit var filter: ArtifactVisibilityFilter
 
     @Before
@@ -62,17 +69,17 @@ class ArtifactVisibilityFilterTest {
         val artifactId = "art123"
         val scope = this
         
-        val collectionRef = mockk<com.google.firebase.firestore.CollectionReference>(relaxed = true)
-        val snapshot = mockk<com.google.firebase.firestore.QuerySnapshot>(relaxed = true)
-        val change = mockk<com.google.firebase.firestore.DocumentChange>(relaxed = true)
-        val doc = mockk<com.google.firebase.firestore.QueryDocumentSnapshot>(relaxed = true)
+        val collectionRef = mockk<CollectionReference>(relaxed = true)
+        val snapshot = mockk<QuerySnapshot>(relaxed = true)
+        val change = mockk<DocumentChange>(relaxed = true)
+        val doc = mockk<QueryDocumentSnapshot>(relaxed = true)
 
         every { firestore.collection("users").document(userId).collection("private").document("reports").collection("artifacts") } returns collectionRef
         
-        val listenerSlot = slot<com.google.firebase.firestore.EventListener<com.google.firebase.firestore.QuerySnapshot>>()
+        val listenerSlot = slot<EventListener<QuerySnapshot>>()
         every { collectionRef.addSnapshotListener(capture(listenerSlot)) } returns mockk(relaxed = true)
 
-        every { change.type } returns com.google.firebase.firestore.DocumentChange.Type.ADDED
+        every { change.type } returns DocumentChange.Type.ADDED
         every { change.document } returns doc
         every { doc.id } returns artifactId
         every { snapshot.documentChanges } returns listOf(change)
@@ -97,7 +104,7 @@ class ArtifactVisibilityFilterTest {
         }
 
         // Verify reportedArtifactDao.insert() is called (use timeout as it's launched in scope)
-        io.mockk.coVerify(timeout = 2000) { reportedArtifactDao.insert(any()) }
+        coVerify(timeout = 2000) { reportedArtifactDao.insert(any()) }
         
         job.cancel()
     }
@@ -113,10 +120,7 @@ class ArtifactVisibilityFilterTest {
         val listenerSlot = slot<EventListener<QuerySnapshot>>()
         every { collectionRef.addSnapshotListener(capture(listenerSlot)) } returns mockk(relaxed = true)
 
-        val permissionDeniedException = FirebaseFirestoreException(
-            "Permission denied",
-            FirebaseFirestoreException.Code.PERMISSION_DENIED
-        )
+        val permissionDeniedException = mockk<FirebaseFirestoreException>(relaxed = true)
 
         var flowCompletedNormally = false
         val job = launch {

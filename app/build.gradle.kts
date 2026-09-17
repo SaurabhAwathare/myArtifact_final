@@ -142,6 +142,10 @@ configure<com.android.build.api.dsl.ApplicationExtension> {
         disable += "NewerVersionAvailable"
         disable += "GradleDependency"
     }
+
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
 }
 
 baselineProfile {

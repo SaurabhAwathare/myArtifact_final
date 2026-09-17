@@ -14,6 +14,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.saurabh.artifact.model.Emotion
+import com.saurabh.artifact.ui.theme.ArtifactTheme
 
 /**
  * PetalChip: A custom organic-shaped chip for filters.
@@ -109,3 +111,73 @@ fun QuietTab(
         }
     }
 }
+
+/**
+ * EmotionTag: A reusable, read-only tag displaying an emotion's emoji and label.
+ * Reuses Artifact's Emotion enum, emoji mapping, typography, and amber/gold visual language.
+ * Omits rendering completely if the emotion string or enum is blank or null.
+ */
+@Composable
+fun EmotionTag(
+    emotion: String?,
+    modifier: Modifier = Modifier
+) {
+    if (emotion.isNullOrBlank()) return
+
+    val emotionEnum = Emotion.entries.find {
+        it.label.equals(emotion, ignoreCase = true) ||
+        it.name.equals(emotion, ignoreCase = true)
+    }
+
+    val displayEmotionText = if (emotionEnum != null) {
+        "${emotionEnum.emoji} ${emotionEnum.label.lowercase()}"
+    } else {
+        emotion.trim().lowercase()
+    }
+
+    if (displayEmotionText.isBlank()) return
+
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(ArtifactTheme.colors.waveformActive.copy(alpha = 0.08f))
+            .padding(horizontal = 8.dp, vertical = 2.dp)
+    ) {
+        Text(
+            text = displayEmotionText,
+            style = ArtifactTheme.typography.labelSmall,
+            color = ArtifactTheme.colors.waveformActive.copy(alpha = 0.8f)
+        )
+    }
+}
+
+@Composable
+fun EmotionTag(
+    emotion: Emotion?,
+    modifier: Modifier = Modifier
+) {
+    if (emotion == null) return
+    EmotionTag(emotion = emotion.label, modifier = modifier)
+}
+
+/**
+ * Displays up to 3 read-only emotion tags in a horizontal row.
+ */
+@Composable
+fun EmotionTagsGroup(
+    emotions: List<String>,
+    modifier: Modifier = Modifier
+) {
+    if (emotions.isEmpty()) return
+
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        emotions.take(3).forEach { emotion ->
+            EmotionTag(emotion = emotion)
+        }
+    }
+}
+

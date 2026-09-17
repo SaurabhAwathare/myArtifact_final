@@ -1052,7 +1052,7 @@ class MainViewModelTest {
         every { intent2.action } returns null
 
         viewModel.onLaunchIntent(intent)
-        viewModel.onLaunchIntent(intent2) // Should replace the first and not double deliver
+        viewModel.onLaunchIntent(intent2) // Retained in FIFO order
 
         // 2. Login
         val user = mockk<FirebaseUser>(relaxed = true) { every { uid } returns "user_123" }
@@ -1063,10 +1063,11 @@ class MainViewModelTest {
         viewModel.start()
         advanceUntilIdle()
 
-        // 3. Verify only one delivery (the last one)
+        // 3. Verify both deliveries in FIFO order
         val artifacts = navigationEvents.filterIsInstance<IncomingArtifact>()
-        assertEquals(1, artifacts.size)
-        assertEquals("second", artifacts.first().artifactId)
+        assertEquals(2, artifacts.size)
+        assertEquals("first", artifacts[0].artifactId)
+        assertEquals("second", artifacts[1].artifactId)
         job.cancel()
     }
 

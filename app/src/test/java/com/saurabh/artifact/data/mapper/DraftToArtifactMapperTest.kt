@@ -65,6 +65,41 @@ class DraftToArtifactMapperTest {
     }
 
     @Test
+    fun `map should map multi-emotions from draft to artifact`() {
+        val draft = ArtifactDraftEntity(
+            id = "draft_multi_emotion",
+            userId = TEST_USER_ID,
+            localAudioPath = "/path/to/audio.wav",
+            emotion = Emotion.HAPPY,
+            emotions = listOf(Emotion.HAPPY, Emotion.SAD, Emotion.HOPEFUL)
+        )
+        val author = AuthorSnapshot(anonymousId = "user_456")
+
+        val result = mapper.map(draft, author, "Fallback")
+
+        assertEquals("Happy", result.emotion)
+        assertEquals(listOf("Happy", "Sad", "Hopeful"), result.emotions)
+        assertEquals(listOf("Happy", "Sad", "Hopeful"), result.effectiveEmotions)
+    }
+
+    @Test
+    fun `map should fallback to single emotion when emotions list is empty`() {
+        val draft = ArtifactDraftEntity(
+            id = "draft_single_fallback",
+            userId = TEST_USER_ID,
+            localAudioPath = "/path/to/audio.wav",
+            emotion = Emotion.HOPEFUL,
+            emotions = emptyList()
+        )
+        val author = AuthorSnapshot(anonymousId = "user_456")
+
+        val result = mapper.map(draft, author, "Fallback")
+
+        assertEquals("Hopeful", result.emotion)
+        assertEquals(listOf("Hopeful"), result.effectiveEmotions)
+    }
+
+    @Test
     fun `map should use fallback title when draft title is null`() {
         val draft = ArtifactDraftEntity(
             id = "draft_123",

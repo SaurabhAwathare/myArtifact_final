@@ -1,8 +1,14 @@
 package com.saurabh.artifact.repository
 
+import com.google.android.gms.tasks.Task
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentReference
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Transaction
+import com.google.firebase.functions.FirebaseFunctions
+import com.google.firebase.functions.HttpsCallableReference
+import com.google.firebase.functions.HttpsCallableResult
 import com.saurabh.artifact.data.local.ReportedArtifactDao
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.model.ReportReason
@@ -14,13 +20,17 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.tasks.await
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
+@RunWith(RobolectricTestRunner::class)
 class ArtifactModerationRepositoryTest {
     private val auth = mockk<FirebaseAuth>(relaxed = true)
     private val firestore = mockk<FirebaseFirestore>(relaxed = true)
-    private val functions = mockk<com.google.firebase.functions.FirebaseFunctions>(relaxed = true)
+    private val functions = mockk<FirebaseFunctions>(relaxed = true)
     private val reportedArtifactDao = mockk<ReportedArtifactDao>(relaxed = true)
     private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
 
@@ -28,6 +38,7 @@ class ArtifactModerationRepositoryTest {
 
     @Before
     fun setup() {
+        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
         repository = ArtifactModerationRepository(
             auth = auth,
             firestore = firestore,
@@ -35,6 +46,11 @@ class ArtifactModerationRepositoryTest {
             reportedArtifactDao = { reportedArtifactDao },
             diagnosticLogger = diagnosticLogger
         )
+    }
+
+    @After
+    fun tearDown() {
+        unmockkStatic("kotlinx.coroutines.tasks.TasksKt")
     }
 
     @Test
@@ -51,10 +67,9 @@ class ArtifactModerationRepositoryTest {
         val expectedReportId = "${userId}_${artifactId}"
         every { firestore.collection("reports").document(expectedReportId) } returns reportRef
         
-        val setTask = mockk<com.google.android.gms.tasks.Task<Void>>(relaxed = true)
+        val setTask = mockk<Task<Void>>(relaxed = true)
         every { reportRef.set(any()) } returns setTask
         
-        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
         coEvery { setTask.await() } returns mockk(relaxed = true)
 
         val result = repository.submitReport(artifactId, reason, details, deviceId)
@@ -92,10 +107,9 @@ class ArtifactModerationRepositoryTest {
         val expectedReportId = "${userId}_${artifactId}"
         every { firestore.collection("reports").document(expectedReportId) } returns reportRef
         
-        val setTask = mockk<com.google.android.gms.tasks.Task<Void>>(relaxed = true)
+        val setTask = mockk<Task<Void>>(relaxed = true)
         every { reportRef.set(any()) } returns setTask
         
-        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
         coEvery { setTask.await() } returns mockk(relaxed = true)
 
         val result = repository.submitReport(artifactId, reason, details, deviceId)
@@ -120,13 +134,12 @@ class ArtifactModerationRepositoryTest {
         every { firestore.collection("artifacts").document(artifactId) } returns artifactRef
         
         // Mock Transaction
-        val transaction = mockk<com.google.firebase.firestore.Transaction>(relaxed = true)
-        val transactionTask = mockk<com.google.android.gms.tasks.Task<Unit>>(relaxed = true)
+        val transaction = mockk<Transaction>(relaxed = true)
+        val transactionTask = mockk<Task<Unit>>(relaxed = true)
         
-        val transactionSlot = slot<com.google.firebase.firestore.Transaction.Function<Unit>>()
+        val transactionSlot = slot<Transaction.Function<Unit>>()
         every { firestore.runTransaction(capture(transactionSlot)) } returns transactionTask
         
-        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
         coEvery { transactionTask.await() } answers {
             transactionSlot.captured.apply(transaction)
             Unit
@@ -151,12 +164,11 @@ class ArtifactModerationRepositoryTest {
         every { firestore.collection("reports").document(reportId) } returns reportRef
         every { firestore.collection("artifacts").document(artifactId) } returns artifactRef
         
-        val transaction = mockk<com.google.firebase.firestore.Transaction>(relaxed = true)
-        val transactionTask = mockk<com.google.android.gms.tasks.Task<Unit>>(relaxed = true)
-        val transactionSlot = slot<com.google.firebase.firestore.Transaction.Function<Unit>>()
+        val transaction = mockk<Transaction>(relaxed = true)
+        val transactionTask = mockk<Task<Unit>>(relaxed = true)
+        val transactionSlot = slot<Transaction.Function<Unit>>()
         every { firestore.runTransaction(capture(transactionSlot)) } returns transactionTask
         
-        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
         coEvery { transactionTask.await() } answers {
             transactionSlot.captured.apply(transaction)
             Unit
@@ -174,9 +186,9 @@ class ArtifactModerationRepositoryTest {
     @Test
     fun `revealModerationEvidence should call Cloud Function and return response`() = runBlocking {
         val artifactId = "art123"
-        val callable = mockk<com.google.firebase.functions.HttpsCallableReference>(relaxed = true)
-        val task = mockk<com.google.android.gms.tasks.Task<com.google.firebase.functions.HttpsCallableResult>>(relaxed = true)
-        val result = mockk<com.google.firebase.functions.HttpsCallableResult>(relaxed = true)
+        val callable = mockk<HttpsCallableReference>(relaxed = true)
+        val task = mockk<Task<HttpsCallableResult>>(relaxed = true)
+        val result = mockk<HttpsCallableResult>(relaxed = true)
         
         every { functions.getHttpsCallable("revealModerationEvidence") } returns callable
         every { callable.call(any()) } returns task
@@ -188,9 +200,8 @@ class ArtifactModerationRepositoryTest {
             "expiresAt" to "2026-08-24T18:00:00Z",
             "audioStatus" to "AVAILABLE"
         )
-        every { result.data } returns expectedData
+        every { result.getData() } returns expectedData
         
-        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
         coEvery { task.await() } returns result
 
         val ceeResult = repository.revealModerationEvidence(artifactId)
@@ -208,12 +219,11 @@ class ArtifactModerationRepositoryTest {
         val artifactRef = mockk<DocumentReference>(relaxed = true)
         every { firestore.collection("artifacts").document(artifactId) } returns artifactRef
         
-        val transaction = mockk<com.google.firebase.firestore.Transaction>(relaxed = true)
-        val transactionTask = mockk<com.google.android.gms.tasks.Task<Unit>>(relaxed = true)
-        val transactionSlot = slot<com.google.firebase.firestore.Transaction.Function<Unit>>()
+        val transaction = mockk<Transaction>(relaxed = true)
+        val transactionTask = mockk<Task<Unit>>(relaxed = true)
+        val transactionSlot = slot<Transaction.Function<Unit>>()
         every { firestore.runTransaction(capture(transactionSlot)) } returns transactionTask
         
-        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
         coEvery { transactionTask.await() } answers {
             transactionSlot.captured.apply(transaction)
             Unit
@@ -235,11 +245,10 @@ class ArtifactModerationRepositoryTest {
         val settingsRef = mockk<DocumentReference>(relaxed = true)
         every { firestore.collection("users").document(userId).collection("private").document("settings") } returns settingsRef
         
-        val snapshot = mockk<com.google.firebase.firestore.DocumentSnapshot>(relaxed = true)
-        val task = mockk<com.google.android.gms.tasks.Task<com.google.firebase.firestore.DocumentSnapshot>>(relaxed = true)
+        val snapshot = mockk<DocumentSnapshot>(relaxed = true)
+        val task = mockk<Task<DocumentSnapshot>>(relaxed = true)
         
         every { settingsRef.get() } returns task
-        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
         coEvery { task.await() } returns snapshot
         every { snapshot.getBoolean("isAdmin") } returns true
         

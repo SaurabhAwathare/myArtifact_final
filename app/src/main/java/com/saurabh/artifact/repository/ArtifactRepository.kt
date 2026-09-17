@@ -51,6 +51,7 @@ import com.saurabh.artifact.diagnostics.LogKeys
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.saurabh.artifact.audio.LocalDraftManager
 import com.saurabh.artifact.util.CoroutineExceptionHandlerUtils
+import com.saurabh.artifact.util.EmotionCategoryMapper
 import com.saurabh.artifact.util.NetworkUtils
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
@@ -682,7 +683,8 @@ class ArtifactRepository @Inject constructor(
                 } else null
 
                 if (relatedEmotionEnums != null) {
-                    artifactDao.get().getArtifactsPagedFiltered(currentUserId, relatedEmotionEnums)
+                    val searchPattern = relatedEmotionEnums.firstOrNull()?.label ?: ""
+                    artifactDao.get().getArtifactsPagedFiltered(currentUserId, relatedEmotionEnums, searchPattern)
                 } else {
                     artifactDao.get().getArtifactsPaged(currentUserId)
                 }
@@ -694,8 +696,27 @@ class ArtifactRepository @Inject constructor(
         }
     }
 
+    suspend fun getRecentCachedArtifacts(currentUserId: String, emotion: String? = null, limit: Int = 30): List<Artifact> {
+        val dao = artifactDao.get()
+        val relatedEmotionEnums = if (!emotion.isNullOrEmpty() && emotion != "All") {
+            EmotionCategoryMapper.getRelatedEmotions(emotion).mapNotNull { label ->
+                Emotion.entries.find { it.label.equals(label, ignoreCase = true) || it.name.equals(label, ignoreCase = true) }
+            }
+        } else null
+
+        val entities = if (relatedEmotionEnums != null) {
+            val searchPattern = relatedEmotionEnums.firstOrNull()?.label ?: ""
+            dao.getRecentCachedArtifactsFiltered(currentUserId, relatedEmotionEnums, searchPattern, limit)
+        } else {
+            dao.getRecentCachedArtifacts(currentUserId, limit)
+        }
+
+        return entities.map { mapArtifactEntityToArtifact(it) }
+    }
+
     @androidx.annotation.VisibleForTesting
     internal fun mapArtifactEntityToArtifact(entity: ArtifactEntity): Artifact {
+        val emotionLabels = if (entity.emotions.isNotEmpty()) entity.emotions.map { it.label } else emptyList()
         return Artifact(
             id = entity.id,
             userId = entity.userId,
@@ -717,6 +738,7 @@ class ArtifactRepository @Inject constructor(
             title = entity.title,
             description = entity.description,
             emotion = entity.emotion.label,
+            emotions = emotionLabels,
             emotionTag = entity.emotionTag,
             playCount = entity.playCount,
             reactionCount = entity.reactionCount,
@@ -741,6 +763,17 @@ class ArtifactRepository @Inject constructor(
 
     @androidx.annotation.VisibleForTesting
     internal fun mapArtifactToEntity(artifact: Artifact): ArtifactEntity {
+        val selectedEmotions = artifact.effectiveEmotions.mapNotNull { label ->
+            Emotion.entries.find { 
+                it.label.equals(label, ignoreCase = true) ||
+                it.name.equals(label, ignoreCase = true)
+            }
+        }
+        val primaryEmotion = selectedEmotions.firstOrNull() ?: Emotion.entries.find { 
+            it.label.equals(artifact.emotion, ignoreCase = true) ||
+            it.name.equals(artifact.emotion, ignoreCase = true)
+        } ?: Emotion.NEUTRAL
+
         return ArtifactEntity(
             id = artifact.id,
             userId = artifact.userId,
@@ -755,10 +788,8 @@ class ArtifactRepository @Inject constructor(
             durationMs = artifact.durationMs,
             title = artifact.title,
             description = artifact.description,
-            emotion = Emotion.entries.find { 
-                it.label.equals(artifact.emotion, ignoreCase = true) ||
-                it.name.equals(artifact.emotion, ignoreCase = true)
-            } ?: Emotion.NEUTRAL,
+            emotion = primaryEmotion,
+            emotions = selectedEmotions,
             primaryStyle = artifact.conversationMetadata.primaryStyle,
             emotionTag = artifact.emotionTag,
             playCount = artifact.playCount,

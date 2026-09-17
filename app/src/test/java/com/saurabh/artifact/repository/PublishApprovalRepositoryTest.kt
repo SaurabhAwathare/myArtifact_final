@@ -1,16 +1,19 @@
 package com.saurabh.artifact.repository
 
 import android.content.Context
+import android.util.Log
 import com.google.firebase.auth.FirebaseUser
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.security.SecurityArchitecture
 import com.saurabh.artifact.security.UploadGuard
+import com.saurabh.artifact.util.FileIntegrity
 import io.mockk.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
+import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Rule
@@ -40,7 +43,11 @@ class PublishApprovalRepositoryTest {
         every { android.util.Log.i(any(), any()) } returns 0
         every { android.util.Log.w(any<String>(), any<String>()) } returns 0
         every { android.util.Log.e(any(), any()) } returns 0
+        every { Log.e(any(), any(), any()) } returns 0
         
+        every { context.filesDir } returns tempFolder.root
+        every { uploadGuard.calculatePlaintextChecksum(any(), any()) } returns "valid_checksum"
+
         repository = PublishApprovalRepository(
             context = context,
             draftDao = { draftDao },
@@ -56,6 +63,11 @@ class PublishApprovalRepositoryTest {
         every { firebaseUser.displayName } returns "John Doe"
         every { firebaseUser.email } returns "john@example.com"
         every { authRepository.currentUser } returns MutableStateFlow(firebaseUser)
+    }
+
+    @After
+    fun tearDown() {
+        unmockkAll()
     }
 
     private fun createMockAudioFile(name: String, content: ByteArray): File {
@@ -287,6 +299,7 @@ class PublishApprovalRepositoryTest {
         every { authRepository.currentUser } returns MutableStateFlow(mockUser)
         every { authRepository.currentUserId } returns "u1"
         coEvery { draftDao.getDraftById("d1", "u1") } returns draft
+        every { uploadGuard.calculatePlaintextChecksum(any(), any()) } returns "valid_checksum"
 
         // Act
         repository.approveAndFreeze("d1", transcript)
@@ -319,7 +332,7 @@ class PublishApprovalRepositoryTest {
             .joinToString("") { "%02x".format(it) }
 
         // Act
-        val actual = com.saurabh.artifact.util.FileIntegrity.calculateChecksum(audioFile.absolutePath)
+        val actual = FileIntegrity.calculateChecksum(audioFile.absolutePath)
 
         // Assert
         assertEquals("Streaming checksum must match in-memory checksum", expected, actual)
@@ -334,7 +347,7 @@ class PublishApprovalRepositoryTest {
         
         // Act & Assert
         try {
-            val checksum = com.saurabh.artifact.util.FileIntegrity.calculateChecksum(largeFile.absolutePath)
+            val checksum = FileIntegrity.calculateChecksum(largeFile.absolutePath)
             assertNotNull("Checksum should be calculated", checksum)
             assertNotEquals("Checksum should not be empty", "", checksum)
         } catch (_: OutOfMemoryError) {
@@ -355,16 +368,20 @@ class PublishApprovalRepositoryTest {
         coEvery { draftDao.getDraftById("d1", "u1") } returns draft
         
         // Mock FileIntegrity to fail
-        mockkObject(com.saurabh.artifact.util.FileIntegrity)
-        every { com.saurabh.artifact.util.FileIntegrity.calculateChecksum(any()) } returns ""
+        mockkObject(FileIntegrity)
+        try {
+            every { FileIntegrity.calculateChecksum(any()) } returns ""
+            every { uploadGuard.calculatePlaintextChecksum(any(), any()) } returns ""
 
-        // Act
-        val result = repository.approveAndFreeze("d1", emptyList())
+            // Act
+            val result = repository.approveAndFreeze("d1", emptyList())
 
-        // Assert
-        assertTrue("Operation should fail if checksum is empty", result.isFailure)
-        assertEquals("Failed to calculate checksum for frozen audio file.", result.exceptionOrNull()?.message)
-        
-        unmockkObject(com.saurabh.artifact.util.FileIntegrity)
+            // Assert
+            assertTrue("Operation should fail if checksum is empty", result.isFailure)
+            assertEquals("Failed to calculate checksum for frozen audio file.", result.exceptionOrNull()?.message)
+        } finally {
+            unmockkObject(FileIntegrity)
+        }
     }
 }
+

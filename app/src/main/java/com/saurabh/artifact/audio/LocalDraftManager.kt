@@ -41,10 +41,21 @@ class LocalDraftManager @Inject constructor(
         createdAt: Long, 
         mimeType: String,
         title: String? = null,
-        emotion: Emotion? = null
+        emotion: Emotion? = null,
+        emotions: List<Emotion> = emptyList()
     ) {
         try {
-            val manifest = DraftManifest(draftId, userId, createdAt, mimeType, title, emotion)
+            val effectiveEmotions = if (emotions.isNotEmpty()) emotions else if (emotion != null) listOf(emotion) else emptyList()
+            val primaryEmotion = emotion ?: effectiveEmotions.firstOrNull()
+            val manifest = DraftManifest(
+                draftId = draftId,
+                userId = userId,
+                createdAt = createdAt,
+                mimeType = mimeType,
+                title = title,
+                emotion = primaryEmotion,
+                emotions = effectiveEmotions
+            )
             val file = getManifestFile(draftId)
             encryptedStorageManager.getEncryptedOutputStream(file).use { output ->
                 output.write(Json.encodeToString(manifest).toByteArray())

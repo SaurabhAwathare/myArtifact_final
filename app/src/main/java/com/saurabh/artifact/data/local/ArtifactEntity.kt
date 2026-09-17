@@ -31,6 +31,7 @@ data class ArtifactEntity(
     val title: String,
     val description: String,
     val emotion: Emotion,
+    @ColumnInfo(defaultValue = "[]") val emotions: List<Emotion> = emptyList(),
     val primaryStyle: ConversationStyle? = null,
     val emotionTag: String,
     val playCount: Long,

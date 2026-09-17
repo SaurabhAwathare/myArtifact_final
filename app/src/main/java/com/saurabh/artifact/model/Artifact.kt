@@ -38,6 +38,7 @@ data class Artifact(
     val description: String = "",
     val reactions: Map<String, Long> = emptyMap(),
     val emotion: String = "",
+    val emotions: List<String> = emptyList(),
     val emotionTag: String = "",
     val emotionConfidence: Float = 0f,
     val prompt: String = "",
@@ -86,6 +87,13 @@ data class Artifact(
     val resonanceDepth: Float = 0f, // Derived score [0.0 - 1.0]
     val humanIntegrityFactor: Float = 1.0f, // Trust signal [0.5 - 1.0]
 ) {
+    /**
+     * Helper to retrieve all associated emotions, falling back to legacy single emotion.
+     */
+    @get:Exclude
+    val effectiveEmotions: List<String>
+        get() = emotions.ifEmpty { if (emotion.isNotBlank()) listOf(emotion) else emptyList() }
+
     /**
      * Helper to check if the artifact is in a draft state.
      */

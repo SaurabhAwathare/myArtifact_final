@@ -2413,7 +2413,42 @@ export const finalizePublish = functions.https.onCall(async (data, context) => {
   }
 
   const description = typeof data?.description === "string" ? data.description.trim().substring(0, 1000) : "";
-  const emotion = typeof data?.emotion === "string" ? data.emotion.trim() : "Untitled";
+
+  let emotions: string[] = [];
+  if (Array.isArray(data?.emotions)) {
+    if (data.emotions.length === 0) {
+      throw new functions.https.HttpsError("invalid-argument", "At least 1 emotion is required.");
+    }
+    emotions = data.emotions
+      .filter((e: any) => typeof e === "string" && e.trim().length > 0)
+      .map((e: string) => e.trim());
+    if (emotions.length === 0) {
+      throw new functions.https.HttpsError("invalid-argument", "At least 1 emotion is required.");
+    }
+  } else if (typeof data?.emotion === "string" && data.emotion.trim().length > 0) {
+    emotions = [data.emotion.trim()];
+  } else {
+    emotions = ["Untitled"];
+  }
+
+  if (emotions.length > 3) {
+    throw new functions.https.HttpsError("invalid-argument", "Maximum 3 emotions allowed.");
+  }
+
+  const VALID_EMOTIONS = new Set([
+    "Happy", "Sad", "Angry", "Lonely", "Hopeful", "Calm", "Anxious",
+    "Confused", "Grateful", "Overwhelmed", "Motivated", "Mixed", "Unclear", "Neutral", "Untitled",
+    "HAPPY", "SAD", "ANGRY", "LONELY", "HOPEFUL", "CALM", "ANXIOUS",
+    "CONFUSED", "GRATEFUL", "OVERWHELMED", "MOTIVATED", "MIXED", "UNCLEAR", "NEUTRAL"
+  ]);
+
+  for (const emo of emotions) {
+    if (!VALID_EMOTIONS.has(emo)) {
+      throw new functions.https.HttpsError("invalid-argument", `Invalid emotion value: ${emo}`);
+    }
+  }
+
+  const primaryEmotion = emotions[0];
   const durationMs = typeof data?.durationMs === "number" && data.durationMs > 0 ? Math.floor(data.durationMs) : 0;
   if (durationMs <= 0) {
     throw new functions.https.HttpsError("invalid-argument", "Valid positive durationMs is required.");
@@ -2517,8 +2552,9 @@ export const finalizePublish = functions.https.onCall(async (data, context) => {
         ...(serverTranscriptUrl ? { transcriptUrl: serverTranscriptUrl } : {}),
         title: title.trim(),
         description: description,
-        emotion: emotion,
-        emotionTag: emotion,
+        emotion: primaryEmotion,
+        emotions: emotions,
+        emotionTag: primaryEmotion,
         durationMs: durationMs,
         amplitudeData: amplitudeData,
         conversationMetadata: {

@@ -7,8 +7,10 @@ import com.google.android.gms.tasks.Tasks
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
+import io.mockk.unmockkAll
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Before
@@ -32,6 +34,11 @@ class BlockStoreManagerTest {
         mockkStatic(com.google.android.gms.auth.blockstore.Blockstore::class)
         every { com.google.android.gms.auth.blockstore.Blockstore.getClient(any()) } returns client
         manager = BlockStoreManager(context)
+    }
+
+    @After
+    fun tearDown() {
+        unmockkAll()
     }
 
     @Test

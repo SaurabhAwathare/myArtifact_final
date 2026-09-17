@@ -13,7 +13,10 @@ import com.saurabh.artifact.navigation.IncomingArtifact
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.MaintenanceRepository
 import com.saurabh.artifact.repository.UserProfileManager
+import com.saurabh.artifact.security.PreloadResult
+import com.saurabh.artifact.startup.SecurityStatus
 import com.saurabh.artifact.startup.StartupCoordinator
+import com.saurabh.artifact.startup.StartupStage
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -58,6 +61,11 @@ class NotificationQueueHardeningTest {
         
         coEvery { maintenanceRepository.getPendingDeletionUid() } returns null
         every { sessionManager.owningUid } returns flowOf(currentUserId)
+        every { sessionManager.isLoggingOut } returns flowOf(false)
+        every { startupCoordinator.stage } returns MutableStateFlow(StartupStage.STABLE)
+        every { startupCoordinator.preloadResult } returns MutableStateFlow(PreloadResult.Success)
+        every { startupCoordinator.securityStatus } returns MutableStateFlow(SecurityStatus.PENDING)
+        every { startupCoordinator.terminalError } returns MutableStateFlow(null)
         
         viewModel = MainViewModel(
             authRepository, getInitialDestinationUseCase, registrationCoordinator,
@@ -70,6 +78,7 @@ class NotificationQueueHardeningTest {
     @After
     fun tearDown() {
         Dispatchers.resetMain()
+        unmockkAll()
     }
 
     @Test

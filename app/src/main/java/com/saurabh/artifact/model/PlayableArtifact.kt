@@ -16,9 +16,13 @@ data class PlayableArtifact(
     val durationMs: Long,
     val sourceType: PlaybackSource,
     val emotion: String = "",
+    val emotions: List<String> = emptyList(),
     val originalArtifact: Artifact? = null,
     val originalDraft: ArtifactDraftEntity? = null
-)
+) {
+    val effectiveEmotions: List<String>
+        get() = emotions.ifEmpty { if (emotion.isNotBlank()) listOf(emotion) else emptyList() }
+}
 
 enum class PlaybackSource {
     REVIEW_DRAFT,

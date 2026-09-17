@@ -11,10 +11,12 @@ import io.mockk.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.*
+import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import java.io.File
+import java.lang.reflect.Modifier
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class RecordingFinalizationHardeningTest {
@@ -34,6 +36,11 @@ class RecordingFinalizationHardeningTest {
 
     @Before
     fun setup() {
+        mockkStatic(Dispatchers::class)
+        every { Dispatchers.IO } returns testDispatcher
+        every { Dispatchers.Default } returns testDispatcher
+        Dispatchers.setMain(testDispatcher)
+
         service = spyk(RecordingService())
         
         // Inject dependencies into the spied service
@@ -52,15 +59,31 @@ class RecordingFinalizationHardeningTest {
         }
     }
 
+    @After
+    fun tearDown() {
+        Dispatchers.resetMain()
+        unmockkStatic(Dispatchers::class)
+    }
+
+    private fun getRecordingStateFlow(): MutableStateFlow<RecordingService.Companion.RecordingState> {
+        val field = try {
+            RecordingService::class.java.getDeclaredField("_recordingState")
+        } catch (_: NoSuchFieldException) {
+            RecordingService.Companion::class.java.getDeclaredField("_recordingState")
+        }
+        field.isAccessible = true
+        val target = if (Modifier.isStatic(field.modifiers)) null else RecordingService.Companion
+        @Suppress("UNCHECKED_CAST")
+        return field.get(target) as MutableStateFlow<RecordingService.Companion.RecordingState>
+    }
+
     @Test
     fun `stopRecording with 0 duration should transition to FAILED and delete empty file`() = runTest(testDispatcher) {
         val tempFile = File.createTempFile("test_short", ".wav")
         // Write exactly the WAV header
         tempFile.writeBytes(ByteArray(44))
         
-        val stateField = RecordingService.Companion::class.java.getDeclaredField("_recordingState")
-        stateField.isAccessible = true
-        val stateFlow = stateField.get(null) as MutableStateFlow<RecordingService.Companion.RecordingState>
+        val stateFlow = getRecordingStateFlow()
         stateFlow.value = RecordingService.Companion.RecordingState(
             status = RecordingStatus.RECORDING,
             draftId = "draft-123",
@@ -73,21 +96,11 @@ class RecordingFinalizationHardeningTest {
 
         service.stopRecording()
         
-        // Finalization happens in a coroutine launched in serviceScope (Main).
-        // Since we are using UnconfinedTestDispatcher for runTest and spyk uses it too if configured, 
-        // we might need to advance time or yield.
-        
-        // RecordingService uses serviceScope = CoroutineScope(Dispatchers.Main + ...)
-        // We should mock Dispatchers.Main
-        Dispatchers.setMain(testDispatcher)
-
-        // Give it a moment to run the launched coroutine
-        yield() 
+        advanceUntilIdle()
         
         assertEquals(RecordingStatus.FAILED, stateFlow.value.status)
         assertFalse(tempFile.exists()) // Should be deleted as it's just a header
         
         unmockkObject(WavHeaderUtils)
-        Dispatchers.resetMain()
     }
 }

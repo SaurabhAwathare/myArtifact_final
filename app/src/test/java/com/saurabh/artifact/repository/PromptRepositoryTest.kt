@@ -1,12 +1,14 @@
 package com.saurabh.artifact.repository
 
 import android.content.Context
+import android.util.Log
 import com.saurabh.artifact.data.local.PromptDao
 import com.saurabh.artifact.data.local.PromptEntity
 import com.saurabh.artifact.model.EmotionalTone
 import com.saurabh.artifact.model.PromptCategory
 import io.mockk.*
 import kotlinx.coroutines.runBlocking
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
@@ -18,10 +20,20 @@ class PromptRepositoryTest {
 
     @Before
     fun setup() {
+        mockkStatic(Log::class)
+        every { Log.e(any(), any(), any()) } returns 0
+
+        coEvery { promptDao.getPromptCount() } returns 10
+
         repository = PromptRepository(
             promptDao = { promptDao },
             context = context
         )
+    }
+
+    @After
+    fun tearDown() {
+        unmockkStatic(Log::class)
     }
 
     @Test

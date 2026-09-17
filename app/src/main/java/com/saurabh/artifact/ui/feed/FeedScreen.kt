@@ -66,6 +66,7 @@ import androidx.activity.ComponentActivity
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.paging.LoadState
+import androidx.paging.compose.LazyPagingItems
 import kotlin.time.Duration.Companion.milliseconds
 
 
@@ -86,13 +87,11 @@ fun FeedScreen(
     logger.trace(DiagnosticCategory.FEED, "FEED_SCREEN_COMPOSITION")
     
     val recentArtifacts = viewModel.artifacts.collectAsLazyPagingItems()
-    val forYouArtifacts = viewModel.personalizedArtifacts.collectAsLazyPagingItems()
     
     val isRankedLoading by viewModel.isRankedLoading.collectAsStateWithLifecycle()
     val stage by viewModel.startupStage.collectAsStateWithLifecycle()
     
     val selectedEmotion by viewModel.selectedEmotion.collectAsStateWithLifecycle()
-    val showRankedFeed by viewModel.showRankedFeed.collectAsStateWithLifecycle()
     val publishState by viewModel.currentPublishState.collectAsStateWithLifecycle()
 
     val reflectionPrompt by viewModel.reflectionPrompt.collectAsStateWithLifecycle()
@@ -158,8 +157,6 @@ fun FeedScreen(
         ) {
             FeedVibeHeader(
                 selectedEmotion = selectedEmotion,
-                showRankedFeed = showRankedFeed,
-                onToggleFeed = { viewModel.setShowRankedFeed(it) },
                 onEmotionSelect = { viewModel.setEmotionFilter(it) }
             )
 
@@ -183,10 +180,8 @@ fun FeedScreen(
                     }
                 ) {
                     FeedContent(
-                        showRankedFeed = showRankedFeed,
                         isRankedLoading = isRankedLoading,
-                        forYouArtifacts = forYouArtifacts,
-                        recentArtifacts = recentArtifacts,
+                        artifacts = recentArtifacts,
                         listState = listState,
                         viewModel = viewModel,
                         reflectionPrompt = reflectionPrompt,
@@ -288,34 +283,14 @@ private fun FeedTopBar(
 @Composable
 private fun FeedVibeHeader(
     selectedEmotion: String?,
-    showRankedFeed: Boolean,
-    onToggleFeed: (Boolean) -> Unit,
     onEmotionSelect: (String?) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier.padding(bottom = 8.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.Start,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            QuietTab(
-                text = "For You",
-                selected = showRankedFeed,
-                onClick = { onToggleFeed(true) }
-            )
-            Spacer(Modifier.width(16.dp))
-            QuietTab(
-                text = "Recent",
-                selected = !showRankedFeed,
-                onClick = { onToggleFeed(false) }
-            )
-        }
-
         LazyRow(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 8.dp),
+                .padding(top = 4.dp),
             contentPadding = PaddingValues(horizontal = 20.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -326,22 +301,9 @@ private fun FeedVibeHeader(
                     onClick = { onEmotionSelect(null) }
                 )
             }
-            // Intentionally using default keys because this is a static,
-            // immutable list of emotions with fixed ordering.
             items(EmotionList) { emotion ->
-                val displayLabel = if (selectedEmotion == emotion.label) {
-                    when (emotion.label) {
-                        "Sad" -> "Sad & Lonely"
-                        "Happy" -> "Happy & Hopeful"
-                        "Anxious" -> "Anxious & Angry"
-                        "Neutral" -> "Neutral & Calm"
-                        else -> emotion.label
-                    }
-                } else {
-                    emotion.label
-                }
                 PetalChip(
-                    label = displayLabel,
+                    label = emotion.label,
                     emoji = emotion.emoji,
                     selected = selectedEmotion == emotion.label,
                     onClick = { onEmotionSelect(emotion.label) }
@@ -353,10 +315,8 @@ private fun FeedVibeHeader(
 
 @Composable
 private fun FeedContent(
-    showRankedFeed: Boolean,
+    artifacts: LazyPagingItems<FeedDisplayItem>,
     isRankedLoading: Boolean,
-    forYouArtifacts: androidx.paging.compose.LazyPagingItems<FeedDisplayItem>,
-    recentArtifacts: androidx.paging.compose.LazyPagingItems<FeedDisplayItem>,
     listState: androidx.compose.foundation.lazy.LazyListState,
     viewModel: FeedViewModel,
     reflectionPrompt: ReflectionPrompt?,
@@ -368,7 +328,7 @@ private fun FeedContent(
     modifier: Modifier = Modifier,
     onResonatorsCountClick: (String) -> Unit = {}
 ) {
-    val currentArtifacts = if (showRankedFeed) forYouArtifacts else recentArtifacts
+    val currentArtifacts = artifacts
     val isEmpty = currentArtifacts.itemCount == 0
     val isRefreshing = currentArtifacts.loadState.refresh is LoadState.Loading
 

@@ -2,6 +2,7 @@ package com.saurabh.artifact.data.local
 
 import androidx.paging.PagingSource
 import androidx.room.*
+import com.saurabh.artifact.model.Emotion
 
 @Dao
 interface ArtifactDao {
@@ -28,10 +29,46 @@ interface ArtifactDao {
         WHERE (recommendationState != 'SUPPRESSED' 
           AND id NOT IN (SELECT artifactId FROM reported_artifacts WHERE userId = :currentUserId)
           AND authorAnonymousId NOT IN (SELECT userId FROM ignored_users WHERE ownerUserId = :currentUserId))
-        AND (emotion IN (:emotions))
+        AND (
+            emotion IN (:emotions) 
+            OR (:searchPattern != '' AND emotions LIKE '%' || :searchPattern || '%')
+        )
         ORDER BY createdAt DESC, id DESC
     """)
-    fun getArtifactsPagedFiltered(currentUserId: String, emotions: List<com.saurabh.artifact.model.Emotion>): PagingSource<Int, ArtifactEntity>
+    fun getArtifactsPagedFiltered(
+        currentUserId: String, 
+        emotions: List<Emotion>,
+        searchPattern: String = ""
+    ): PagingSource<Int, ArtifactEntity>
+
+    @Query("""
+        SELECT * FROM artifacts 
+        WHERE (recommendationState != 'SUPPRESSED' 
+          AND (:currentUserId = '' OR id NOT IN (SELECT artifactId FROM reported_artifacts WHERE userId = :currentUserId))
+          AND (:currentUserId = '' OR authorAnonymousId NOT IN (SELECT userId FROM ignored_users WHERE ownerUserId = :currentUserId)))
+        ORDER BY createdAt DESC, id DESC
+        LIMIT :limit
+    """)
+    suspend fun getRecentCachedArtifacts(currentUserId: String, limit: Int = 30): List<ArtifactEntity>
+
+    @Query("""
+        SELECT * FROM artifacts 
+        WHERE (recommendationState != 'SUPPRESSED' 
+          AND (:currentUserId = '' OR id NOT IN (SELECT artifactId FROM reported_artifacts WHERE userId = :currentUserId))
+          AND (:currentUserId = '' OR authorAnonymousId NOT IN (SELECT userId FROM ignored_users WHERE ownerUserId = :currentUserId)))
+        AND (
+            emotion IN (:emotions) 
+            OR (:searchPattern != '' AND emotions LIKE '%' || :searchPattern || '%')
+        )
+        ORDER BY createdAt DESC, id DESC
+        LIMIT :limit
+    """)
+    suspend fun getRecentCachedArtifactsFiltered(
+        currentUserId: String, 
+        emotions: List<Emotion>,
+        searchPattern: String = "",
+        limit: Int = 30
+    ): List<ArtifactEntity>
 
     @Query("SELECT EXISTS(SELECT 1 FROM artifacts LIMIT 1)")
     suspend fun hasCachedArtifacts(): Boolean

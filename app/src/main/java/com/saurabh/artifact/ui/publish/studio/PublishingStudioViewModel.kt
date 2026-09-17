@@ -63,6 +63,7 @@ data class StudioSessionState(
     
     // Metadata (DB-backed)
     val title: String = "",
+    val emotions: List<Emotion> = emptyList(),
     val emotion: Emotion? = null,
     
     // Playback State (Local UI)
@@ -81,7 +82,10 @@ data class StudioSessionState(
     val showPrivacyNudge: Boolean = false,
     val privacyWarnings: List<String> = emptyList(),
     val isRecoverySetup: Boolean = true
-)
+) {
+    val effectiveEmotions: List<Emotion>
+        get() = if (emotions.isNotEmpty()) emotions else if (emotion != null) listOf(emotion) else emptyList()
+}
 
 @HiltViewModel
 class PublishingStudioViewModel @Inject constructor(
@@ -135,6 +139,7 @@ class PublishingStudioViewModel @Inject constructor(
                 localContextFlow
             ) { draft, review, isRecovering, isRecoverySetup, localContext ->
                 val (titleBuffer, ui) = localContext
+                val effectiveEmotions = if (draft.emotions.isNotEmpty()) draft.emotions else if (draft.emotion != null) listOf(draft.emotion) else emptyList()
                 
                 StudioSessionState(
                     draftId = draft.id,
@@ -145,7 +150,8 @@ class PublishingStudioViewModel @Inject constructor(
                     emotionCompleted = draft.emotionCompleted,
                     approvalCompleted = draft.approvalCompleted,
                     title = titleBuffer ?: draft.title ?: "",
-                    emotion = draft.emotion,
+                    emotions = effectiveEmotions,
+                    emotion = draft.emotion ?: effectiveEmotions.firstOrNull(),
                     isPlaying = playbackCoordinator.isPlaying.value,
                     playbackSpeed = playbackCoordinator.playbackSpeed.value,
                     currentPosition = if (draft.lifecycle == ArtifactLifecycle.REVIEW_REQUIRED) review.furthestPositionMs else 0L,
@@ -244,7 +250,7 @@ class PublishingStudioViewModel @Inject constructor(
             kotlinx.coroutines.delay(500)
             
             diagnosticLogger.debug(DiagnosticCategory.STUDIO, "TITLE_UPDATE_DEBOUNCED", mapOf(LogKeys.DRAFT_ID to draftId, "titleLength" to constrainedTitle.length))
-            val result = recordingRepository.updateDraftMetadata(draftId, constrainedTitle, sessionState.value.emotion)
+            val result = recordingRepository.updateDraftMetadata(draftId, constrainedTitle, sessionState.value.effectiveEmotions)
             if (result.isSuccess) {
                 recordingRepository.updateStudioState(
                     id = draftId,
@@ -259,17 +265,22 @@ class PublishingStudioViewModel @Inject constructor(
     }
 
     fun updateEmotion(emotion: Emotion) {
+        updateEmotions(listOf(emotion))
+    }
+
+    fun updateEmotions(emotions: List<Emotion>) {
         val draftId = _draftId.value ?: return
         val userId = authRepository.currentUserId
         if (userId.isEmpty()) return
 
-        diagnosticLogger.debug(DiagnosticCategory.STUDIO, "EMOTION_UPDATED", mapOf(LogKeys.DRAFT_ID to draftId, "emotion" to emotion.label))
+        val limitedEmotions = emotions.take(3)
+        diagnosticLogger.debug(DiagnosticCategory.STUDIO, "EMOTIONS_UPDATED", mapOf(LogKeys.DRAFT_ID to draftId, "count" to limitedEmotions.size))
         viewModelScope.launch {
-            recordingRepository.updateDraftMetadata(draftId, sessionState.value.title, emotion)
+            recordingRepository.updateDraftMetadata(draftId, sessionState.value.title, limitedEmotions)
             recordingRepository.updateStudioState(
                 id = draftId,
                 title = sessionState.value.titleCompleted,
-                emotion = true,
+                emotion = limitedEmotions.isNotEmpty(),
                 approval = sessionState.value.approvalCompleted
             )
         }
@@ -419,10 +430,10 @@ class PublishingStudioViewModel @Inject constructor(
         pendingPublishAfterRecovery = false
 
         // Use reviewSatisfied to allow publishing when bypass is active
-        if (state.title.isBlank() || state.emotion == null || !state.reviewSatisfied) {
+        if (state.title.isBlank() || state.effectiveEmotions.isEmpty() || !state.reviewSatisfied) {
             diagnosticLogger.warn(DiagnosticCategory.PUBLISH, "PUBLISH_PRECONDITION_FAILED", mapOf(
                 "titleEmpty" to state.title.isBlank(),
-                "emotionMissing" to (state.emotion == null),
+                "emotionsMissing" to state.effectiveEmotions.isEmpty(),
                 "reviewNotSatisfied" to !state.reviewSatisfied
             ))
             return

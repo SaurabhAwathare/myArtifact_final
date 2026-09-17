@@ -7,6 +7,7 @@ import com.saurabh.artifact.domain.IdentityScout
 import com.saurabh.artifact.domain.PublishArtifactUseCase
 import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.model.DraftStatus
+import com.saurabh.artifact.model.Emotion
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.RecordingRepository
 import io.mockk.*
@@ -53,6 +54,7 @@ class TitleBufferTest {
             every { uid } returns TEST_USER_ID
         }
         every { authRepository.currentUser } returns MutableStateFlow(mockUser)
+        every { authRepository.currentUserId } returns TEST_USER_ID
         
         val draftId = "test-draft"
         val draftFlow = MutableStateFlow<ArtifactDraftEntity?>(
@@ -74,6 +76,13 @@ class TitleBufferTest {
         every { playbackCoordinator.duration } returns flowOf(0.milliseconds)
         every { playbackCoordinator.currentArtifact } returns MutableStateFlow(null)
         every { recordingRepository.observeRecoveryState(any(), any()) } returns flowOf(false)
+        every { databaseEncryptionManager.isRecoverySetup } returns MutableStateFlow(true)
+        coEvery { recordingRepository.updateDraftMetadata(any(), any(), any<List<Emotion>>()) } answers {
+            val titleArg = secondArg<String?>()
+            draftFlow.value = draftFlow.value?.copy(title = titleArg)
+            Result.success(Unit)
+        }
+        coEvery { recordingRepository.updateStudioState(any(), any(), any(), any()) } returns Result.success(Unit)
     }
 
     @After
@@ -96,34 +105,31 @@ class TitleBufferTest {
             diagnosticLogger
         )
 
+        backgroundScope.launch { viewModel.sessionState.collect() }
+
         val draftId = "test-draft"
         viewModel.loadDraft(draftId)
-        
-        // Trigger initial collection
-        runCurrent()
-        
-        // Wait for sessionState to load the draft
-        val state = viewModel.sessionState.filter { it.draftId == draftId }.first()
+        advanceUntilIdle()
         
         // Initial state
-        assertEquals("Initial Title", state.title)
+        assertEquals("Initial Title", viewModel.sessionState.value.title)
 
         // Update title
         viewModel.updateTitle("New Title")
-        runCurrent() // Process the combine emission
+        runCurrent()
 
         // Verify: UI state shows new title IMMEDIATELY (from buffer)
         assertEquals("New Title", viewModel.sessionState.value.title)
 
         // Verify: Room update NOT called yet (before debounce)
-        coVerify(exactly = 0) { recordingRepository.updateDraftMetadata(draftId, "New Title", any()) }
+        coVerify(exactly = 0) { recordingRepository.updateDraftMetadata(draftId, "New Title", any<List<Emotion>>()) }
 
         // Wait for debounce (500ms)
         advanceTimeBy(600)
-        runCurrent() // Trigger the debounced job
+        runCurrent()
 
         // Verify: Room update CALLED
-        coVerify(exactly = 1) { recordingRepository.updateDraftMetadata(draftId, "New Title", any()) }
+        coVerify(exactly = 1) { recordingRepository.updateDraftMetadata(draftId, "New Title", any<List<Emotion>>()) }
     }
 
     @Test
@@ -140,9 +146,11 @@ class TitleBufferTest {
             diagnosticLogger
         )
 
+        backgroundScope.launch { viewModel.sessionState.collect() }
+
         val draftId = "test-draft"
         viewModel.loadDraft(draftId)
-        runCurrent()
+        advanceUntilIdle()
 
         val longTitle = "A".repeat(100)
         val expectedTitle = "A".repeat(70)
@@ -157,6 +165,6 @@ class TitleBufferTest {
         runCurrent()
 
         // Verify repo update uses truncated title
-        coVerify(exactly = 1) { recordingRepository.updateDraftMetadata(draftId, expectedTitle, any()) }
+        coVerify(exactly = 1) { recordingRepository.updateDraftMetadata(draftId, expectedTitle, any<List<Emotion>>()) }
     }
 }

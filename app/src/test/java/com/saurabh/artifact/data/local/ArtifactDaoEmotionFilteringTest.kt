@@ -159,9 +159,36 @@ class ArtifactDaoEmotionFilteringTest {
         assertEquals("S1", remaining.data[0].id)
     }
 
+    @Test
+    fun `should filter artifacts by emotions list matching`() = runBlocking {
+        val multiEmotionArtifact = createArtifact(
+            id = "HS1", 
+            emotion = Emotion.HAPPY,
+            emotions = listOf(Emotion.HAPPY, Emotion.SAD)
+        )
+        val singleEmotionArtifact = createArtifact(
+            id = "S1",
+            emotion = Emotion.SAD,
+            emotions = listOf(Emotion.SAD)
+        )
+        dao.insertAll(listOf(multiEmotionArtifact, singleEmotionArtifact))
+
+        // Query for SAD category
+        val pagingSource = dao.getArtifactsPagedFiltered("user1", listOf(Emotion.SAD), "Sad")
+        val result = pagingSource.load(
+            PagingSource.LoadParams.Refresh(null, 10, false)
+        ) as PagingSource.LoadResult.Page
+
+        assertEquals(2, result.data.size)
+        val ids = result.data.map { it.id }
+        assertTrue(ids.contains("HS1"))
+        assertTrue(ids.contains("S1"))
+    }
+
     private fun createArtifact(
         id: String, 
         emotion: Emotion, 
+        emotions: List<Emotion> = emptyList(),
         state: RecommendationState = RecommendationState.ACTIVE
     ): ArtifactEntity {
         return ArtifactEntity(
@@ -179,6 +206,7 @@ class ArtifactDaoEmotionFilteringTest {
             title = "Title",
             description = "Desc",
             emotion = emotion,
+            emotions = if (emotions.isNotEmpty()) emotions else listOf(emotion),
             emotionTag = emotion.label,
             playCount = 0,
             reactionCount = 0,

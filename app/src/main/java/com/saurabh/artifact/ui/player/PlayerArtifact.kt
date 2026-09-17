@@ -20,9 +20,13 @@ data class PlayerArtifact(
     val durationMs: Long,
     val amplitudeData: List<Float>,
     val emotion: String,
+    val emotions: List<String> = emptyList(),
     val createdAt: Timestamp,
     val transcript: List<TranscriptSegment>,
     val recommendationState: RecommendationState = RecommendationState.ACTIVE,
     val isPublic: Boolean,
     val isDraft: Boolean
-)
+) {
+    val effectiveEmotions: List<String>
+        get() = emotions.ifEmpty { if (emotion.isNotBlank()) listOf(emotion) else emptyList() }
+}

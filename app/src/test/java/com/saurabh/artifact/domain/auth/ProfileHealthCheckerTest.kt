@@ -1,12 +1,9 @@
 package com.saurabh.artifact.domain.auth
 
-import android.text.TextUtils
-import android.util.SparseArray
 import com.google.android.gms.tasks.Task
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import com.google.firebase.auth.FirebaseUser
-import com.google.firebase.auth.GetTokenResult
 import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
@@ -16,51 +13,16 @@ import com.saurabh.artifact.model.UserPrivateSettings
 import io.mockk.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
-import org.junit.AfterClass
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.BeforeClass
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
+@RunWith(RobolectricTestRunner::class)
 @OptIn(ExperimentalCoroutinesApi::class)
 class ProfileHealthCheckerTest {
-
-    companion object {
-        @BeforeClass
-        @JvmStatic
-        fun initClass() {
-            val sparseMap = mutableMapOf<Int, Any>()
-            mockkConstructor(SparseArray::class)
-            every { anyConstructed<SparseArray<Any>>().get(any()) } answers {
-                val key = firstArg<Int>()
-                sparseMap[key]
-            }
-            every { anyConstructed<SparseArray<Any>>().get(any(), any()) } answers {
-                val key = firstArg<Int>()
-                val default = secondArg<Any>()
-                sparseMap[key] ?: default
-            }
-            every { anyConstructed<SparseArray<Any>>().put(any(), any()) } answers {
-                val key = firstArg<Int>()
-                val value = secondArg<Any>()
-                sparseMap[key] = value
-            }
-
-            mockkStatic(TextUtils::class)
-            every { TextUtils.isEmpty(any()) } answers {
-                val arg = firstArg<CharSequence?>()
-                arg == null || arg.isEmpty()
-            }
-        }
-
-        @AfterClass
-        @JvmStatic
-        fun tearDownClass() {
-            unmockkStatic(TextUtils::class)
-            unmockkConstructor(SparseArray::class)
-        }
-    }
 
     private val auth = mockk<FirebaseAuth>()
     private val firestore = mockk<FirebaseFirestore>()
