@@ -19,6 +19,8 @@ import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.ArtifactEngagementRepository
 import com.saurabh.artifact.repository.ModerationEvent
 import com.saurabh.artifact.repository.AuthRepository
+import com.saurabh.artifact.repository.UserRepository
+import kotlinx.coroutines.flow.Flow
 import com.saurabh.artifact.repository.NotificationRepository
 import com.saurabh.artifact.repository.SavedArtifactManager
 import com.saurabh.artifact.repository.CommunityRepository
@@ -98,8 +100,13 @@ class FeedViewModel @Inject constructor(
     getFeedFlowUseCase: GetFeedFlowUseCase,
     getPersonalizedFeedFlowUseCase: GetPersonalizedFeedFlowUseCase,
     private val getReflectionPromptUseCase: GetReflectionPromptUseCase,
-    private val diagnosticLogger: DiagnosticLogger
+    private val diagnosticLogger: DiagnosticLogger,
+    private val userRepository: UserRepository? = null
 ) : ViewModel(), MemoryTrimable {
+
+    fun observeCreatorProfile(userId: String, anonymousId: String): Flow<User?> {
+        return userRepository?.observeCreatorProfile(userId, anonymousId) ?: flowOf(null)
+    }
 
     private companion object {
         const val KEY_SELECTED_EMOTION = "selected_emotion"

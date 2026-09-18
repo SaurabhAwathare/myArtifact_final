@@ -5,6 +5,7 @@ import com.saurabh.artifact.audio.ReviewState
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.domain.IdentityScout
 import com.saurabh.artifact.domain.PublishArtifactUseCase
+import com.saurabh.artifact.domain.PublishingOrchestrator
 import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.model.DraftStatus
 import com.saurabh.artifact.model.PublishingResult
@@ -35,6 +36,7 @@ class PublishingStudioNavigationTest {
     private val databaseEncryptionManager = mockk<com.saurabh.artifact.security.DatabaseEncryptionManager>(relaxed = true)
     private val workManager = mockk<androidx.work.WorkManager>(relaxed = true)
     private val diagnosticLogger = mockk<com.saurabh.artifact.diagnostics.DiagnosticLogger>(relaxed = true)
+    private val publishingOrchestrator = mockk<PublishingOrchestrator>(relaxed = true)
 
     private companion object {
         private const val TEST_USER_ID = "test-user-id"
@@ -211,6 +213,58 @@ class PublishingStudioNavigationTest {
         collectJob.cancel()
     }
 
+    @Test
+    fun `opening a PROCESSING draft triggers recovery via ensureProcessingActive`() = runTest {
+        val viewModel = createViewModel()
+        val states = mutableListOf<StudioSessionState>()
+        val collectJob = launch(UnconfinedTestDispatcher()) {
+            viewModel.sessionState.toList(states)
+        }
+
+        val processingDraftId = "processing-draft"
+        val processingDraft = ArtifactDraftEntity(
+            id = processingDraftId,
+            userId = TEST_USER_ID,
+            localAudioPath = "/path/audio.wav",
+            lifecycle = ArtifactLifecycle.PROCESSING,
+            status = DraftStatus()
+        )
+        every { recordingRepository.observeDraft(processingDraftId) } returns MutableStateFlow(processingDraft)
+
+        viewModel.loadDraft(processingDraftId)
+        runCurrent()
+
+        coVerify(exactly = 1) { publishingOrchestrator.ensureProcessingActive(processingDraftId) }
+
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `opening a REVIEW_REQUIRED draft does not trigger processing`() = runTest {
+        val viewModel = createViewModel()
+        val states = mutableListOf<StudioSessionState>()
+        val collectJob = launch(UnconfinedTestDispatcher()) {
+            viewModel.sessionState.toList(states)
+        }
+
+        val reviewDraftId = "review-draft"
+        val reviewDraft = ArtifactDraftEntity(
+            id = reviewDraftId,
+            userId = TEST_USER_ID,
+            localAudioPath = "/path/audio.wav",
+            lifecycle = ArtifactLifecycle.REVIEW_REQUIRED,
+            status = DraftStatus()
+        )
+        every { recordingRepository.observeDraft(reviewDraftId) } returns MutableStateFlow(reviewDraft)
+
+        viewModel.loadDraft(reviewDraftId)
+        runCurrent()
+
+        coVerify(exactly = 0) { publishingOrchestrator.ensureProcessingActive(reviewDraftId) }
+
+        collectJob.cancel()
+    }
+
     private fun createViewModel() = PublishingStudioViewModel(
         recordingRepository,
         cleanupManager,
@@ -220,6 +274,7 @@ class PublishingStudioNavigationTest {
         authRepository,
         databaseEncryptionManager,
         workManager,
-        diagnosticLogger
+        diagnosticLogger,
+        publishingOrchestrator
     )
 }

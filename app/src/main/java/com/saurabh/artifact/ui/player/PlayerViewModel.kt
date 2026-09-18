@@ -17,7 +17,11 @@ import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.PlayableArtifactRepository
+import com.saurabh.artifact.repository.UserRepository
+import dagger.Lazy
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -28,6 +32,8 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -49,7 +55,8 @@ class PlayerViewModel @Inject constructor(
     private val reviewSessionManager: ReviewSessionManager,
     private val deleteArtifactUseCase: dagger.Lazy<DeleteArtifactUseCase>,
     private val publishingPolicy: com.saurabh.artifact.domain.review.publishing.PublishingReviewPolicy,
-    private val diagnosticLogger: DiagnosticLogger
+    private val diagnosticLogger: DiagnosticLogger,
+    private val userRepository: Lazy<UserRepository>? = null
 ) : ViewModel() {
 
     private var resolutionJob: kotlinx.coroutines.Job? = null
@@ -178,13 +185,43 @@ class PlayerViewModel @Inject constructor(
         UserIdentity(uid = uid, anonymousId = anonymousId)
     }
 
-    private val staticState = combine(
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val creatorProfileFlow: Flow<User?> = playbackCoordinator.currentArtifact
+        .flatMapLatest { artifact ->
+            if (artifact != null && userRepository != null) {
+                userRepository.get().observeCreatorProfile(artifact.userId, artifact.author.anonymousId)
+            } else {
+                flowOf(null)
+            }
+        }
+
+    private val resolvedPlayerArtifactFlow: Flow<Pair<Artifact?, PlayerArtifact?>> = combine(
         playbackCoordinator.currentArtifact,
+        creatorProfileFlow
+    ) { artifact: Artifact?, creatorProfile: User? ->
+        if (artifact == null) return@combine null to null
+        val resolved = ResolvedCreatorIdentity.resolve(artifact, creatorProfile)
+        val playerArtifact = artifact.toPlayerArtifact().copy(
+            author = AuthorSnapshot(
+                anonymousId = resolved.personaId,
+                name = resolved.name,
+                sigil = resolved.sigil,
+                sigilSeed = resolved.sigilSeed,
+                sigilColor = resolved.sigilColor,
+                sigilConfig = resolved.sigilConfig
+            )
+        )
+        artifact to playerArtifact
+    }
+
+    private val staticState = combine(
+        resolvedPlayerArtifactFlow,
         metadata,
         userIdentityFlow,
         _isExpanded,
         _showAdvancedControls
-    ) { artifact, md, identity, expanded, advanced ->
+    ) { resolvedPair: Pair<Artifact?, PlayerArtifact?>, md: PlayerMetadata, identity: UserIdentity, expanded: Boolean, advanced: Boolean ->
+        val (artifact, playerArtifact) = resolvedPair
         val currentUid = identity.uid
         val currentAnonId = identity.anonymousId
         val isOwner = artifact != null && (
@@ -198,10 +235,10 @@ class PlayerViewModel @Inject constructor(
             else -> PlayerMode.MINI
         }
 
-        val internalOwnerId = artifact?.author?.anonymousId ?: ""
+        val internalOwnerId = playerArtifact?.author?.anonymousId ?: artifact?.author?.anonymousId ?: ""
 
         PlayerStaticState(
-            artifact = artifact?.toPlayerArtifact(),
+            artifact = playerArtifact,
             internalOwnerId = internalOwnerId,
             isOwner = isOwner,
             isDraft = artifact?.isDraft == true,

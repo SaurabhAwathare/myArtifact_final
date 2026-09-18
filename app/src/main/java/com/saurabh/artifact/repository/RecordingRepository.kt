@@ -17,6 +17,8 @@ import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.model.*
 import android.media.MediaMetadataRetriever
+import com.saurabh.artifact.domain.PublishingOrchestrator
+import dagger.Lazy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.*
@@ -35,7 +37,8 @@ class RecordingRepository @Inject constructor(
     private val cleanupManager: ArtifactCleanupManager,
     private val userSessionManager: UserSessionManager,
     private val draftsDatabase: dagger.Lazy<com.saurabh.artifact.data.local.AppDatabase>,
-    private val diagnosticLogger: DiagnosticLogger
+    private val diagnosticLogger: DiagnosticLogger,
+    private val publishingOrchestrator: Lazy<PublishingOrchestrator>
 ) {
     
     suspend fun createDraft(
@@ -565,6 +568,7 @@ class RecordingRepository @Inject constructor(
                             updatedAt = System.currentTimeMillis()
                         )
                         draftDao.get().insert(draft)
+                        publishingOrchestrator.get().ensureProcessingActive(draftId)
                     }
                 }
             } catch (e: Exception) {

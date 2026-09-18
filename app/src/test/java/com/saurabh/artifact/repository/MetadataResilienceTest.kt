@@ -51,7 +51,8 @@ class MetadataResilienceTest {
             cleanupManager = cleanupManager,
             userSessionManager = userSessionManager,
             draftsDatabase = Lazy { draftsDatabase },
-            diagnosticLogger = diagnosticLogger
+            diagnosticLogger = diagnosticLogger,
+            publishingOrchestrator = Lazy { mockk(relaxed = true) }
         )
     }
 

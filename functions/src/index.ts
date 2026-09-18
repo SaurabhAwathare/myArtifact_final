@@ -840,29 +840,10 @@ export const onUserIdentityReset = functions
 
     logger.info(`[IDENTITY_PROPAGATION] START | UID=${uid} | Version=${newVersion}`);
 
-    // 1. Prepare AuthorSnapshot Update (Non-retroactive anonymousId)
-    const authorUpdate = {
-      "author.name": newData.anonymousName || "quiet presence",
-      "author.sigil": newData.anonymousSigil || "",
-      "author.sigilSeed": newData.sigilSeed || "",
-      "author.sigilColor": newData.sigilColor || "#FFD700",
-      "author.sigilConfig": newData.sigilConfig || {},
-    };
-
-    const currentAnonId = newData.anonymousId;
-
     try {
-      // 2. Propagate to Artifacts (Persona-Bound)
-      // We only update artifacts that belong to the CURRENT persona.
-      // Legacy artifacts (with different anonymousId or UID) are isolated for Clean Break.
-      if (currentAnonId) {
-        const artifactsQuery = db.collection("artifacts").where("author.anonymousId", "==", currentAnonId);
-        await updateIdentitySafe(db, artifactsQuery, authorUpdate, newVersion, "User Artifacts");
-
-        // 3. Propagate to Comments (Persona-Bound)
-        const commentsQuery = db.collectionGroup("comments").where("author.anonymousId", "==", currentAnonId);
-        await updateIdentitySafe(db, commentsQuery, authorUpdate, newVersion, "User Comments");
-      }
+      // HISTORICAL DISPLAY REWRITE REMOVED:
+      // Public presentation identity is now dynamically resolved from the current Creator profile.
+      // Batch updates of historical artifact.author and comment.author display fields are no longer performed.
 
       // 3.5 Optional Relationship Severing (Phase 6.4 Clean Break)
       const shouldSever = newData.identityMetadata?.severRelationships === true;
@@ -2547,6 +2528,10 @@ export const finalizePublish = functions.https.onCall(async (data, context) => {
         author: {
           anonymousId: anonymousId,
           name: anonymousName,
+          sigil: userData.anonymousSigil || "",
+          sigilSeed: userData.sigilSeed || "",
+          sigilColor: userData.sigilColor || "#FFD700",
+          sigilConfig: userData.sigilConfig || {},
         },
         audioUrl: serverAudioUrl,
         ...(serverTranscriptUrl ? { transcriptUrl: serverTranscriptUrl } : {}),

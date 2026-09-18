@@ -33,6 +33,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -47,6 +48,8 @@ import androidx.compose.ui.unit.dp
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.model.ReactionType
+import com.saurabh.artifact.model.ResolvedCreatorIdentity
+import com.saurabh.artifact.model.User
 import com.saurabh.artifact.ui.components.ArtifactSigil
 import com.saurabh.artifact.ui.theme.GoldAura500
 import com.saurabh.artifact.ui.theme.Obsidian900
@@ -61,12 +64,16 @@ fun ArtifactCard(
     modifier: Modifier = Modifier,
     isBuffering: Boolean = false,
     isSaved: Boolean = false,
+    creatorProfile: User? = null,
     onPlayClick: () -> Unit,
     onReactionClick: (ReactionType) -> Unit,
     onSaveClick: () -> Unit,
     onReportClick: () -> Unit,
 ) {
     val haptic = LocalHapticFeedback.current
+    val resolvedIdentity = remember(artifact, creatorProfile) {
+        ResolvedCreatorIdentity.resolve(artifact, creatorProfile)
+    }
 
     Card(
         modifier = modifier
@@ -86,7 +93,7 @@ fun ArtifactCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 ArtifactSigil(
-                    config = artifact.author.sigilConfig,
+                    config = resolvedIdentity.sigilConfig,
                     modifier = Modifier.size(40.dp),
                     isStatic = false // Keep it breathing if AURIC
                 )
@@ -95,7 +102,7 @@ fun ArtifactCard(
                 
                 Column {
                     Text(
-                        text = artifact.author.name,
+                        text = resolvedIdentity.name,
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.SemiBold,
                         color = Color.White.copy(alpha = 0.9f)

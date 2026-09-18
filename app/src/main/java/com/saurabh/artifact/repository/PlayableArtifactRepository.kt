@@ -11,6 +11,7 @@ import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.model.PlayableArtifact
 import com.saurabh.artifact.model.PlaybackSource
+import com.saurabh.artifact.model.ResolvedCreatorIdentity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -99,14 +100,16 @@ class PlayableArtifactRepository @Inject constructor(
                 if (!safetyPolicy.isEligibleForPlayback(artifact)) {
                     Result.failure(AppError.NotFound("Artifact", id))
                 } else {
+                    val creatorProfile = userRepository.getCreatorProfile(artifact.userId, artifact.author.anonymousId)
+                    val resolved = ResolvedCreatorIdentity.resolve(artifact, creatorProfile)
                     Result.success(
                         PlayableArtifact(
                             id = artifact.id,
                             title = artifact.title,
                             audioUrl = artifact.audioUrl,
-                            authorName = artifact.author.name,
-                            authorSigil = artifact.author.sigil,
-                            sigilSeed = artifact.author.sigilSeed,
+                            authorName = resolved.name,
+                            authorSigil = resolved.sigil,
+                            sigilSeed = resolved.sigilSeed,
                             durationMs = artifact.durationMs,
                             sourceType = source,
                             emotion = artifact.emotion,

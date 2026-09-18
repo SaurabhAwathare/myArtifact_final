@@ -2,6 +2,7 @@ package com.saurabh.artifact.data.paging
 
 import android.util.Log
 import androidx.paging.PagingSource
+import com.google.firebase.firestore.DocumentSnapshot
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.repository.FeedRepository
 import com.saurabh.artifact.repository.PaginatedArtifacts
@@ -169,5 +170,141 @@ class PersonalizedPagingSourceTest {
         
         pagingSource.load(PagingSource.LoadParams.Append(result.nextKey!!, 10, false))
         coVerify(exactly = 1) { visibilityFilter.getSuppressedIdsSnapshot(userId) }
+    }
+
+    @Test
+    fun `resonating fetch failure propagates LoadResult Error`() = runTest {
+        coEvery { feedRepository.getResonatingArtifacts(any(), any(), any(), any()) } returns
+            Result.failure(RuntimeException("Resonating database error"))
+        coEvery { feedRepository.getDiscoveryCandidates(any(), any(), any(), any()) } returns
+            Result.success(PaginatedArtifacts(emptyList(), null))
+
+        val params = PagingSource.LoadParams.Refresh<PersonalizedPagingSource.PageKey>(
+            key = null,
+            loadSize = 10,
+            placeholdersEnabled = false
+        )
+
+        val result = pagingSource.load(params)
+        assertTrue(result is PagingSource.LoadResult.Error)
+        assertEquals("Resonating database error", (result as PagingSource.LoadResult.Error).throwable.message)
+    }
+
+    @Test
+    fun `discovery fetch failure propagates LoadResult Error`() = runTest {
+        coEvery { feedRepository.getResonatingArtifacts(any(), any(), any(), any()) } returns
+            Result.success(PaginatedArtifacts(emptyList(), null))
+        coEvery { feedRepository.getDiscoveryCandidates(any(), any(), any(), any()) } returns
+            Result.failure(RuntimeException("Discovery index error"))
+
+        val params = PagingSource.LoadParams.Refresh<PersonalizedPagingSource.PageKey>(
+            key = null,
+            loadSize = 10,
+            placeholdersEnabled = false
+        )
+
+        val result = pagingSource.load(params)
+        assertTrue(result is PagingSource.LoadResult.Error)
+        assertEquals("Discovery index error", (result as PagingSource.LoadResult.Error).throwable.message)
+    }
+
+    @Test
+    fun `duplicate page with null cursors produces nextKey null`() = runTest {
+        val artifact1 = Artifact(id = "1")
+        val page1 = PaginatedArtifacts(listOf(artifact1), null)
+
+        coEvery { feedRepository.getResonatingArtifacts(any(), any(), any(), any()) } returns Result.success(page1)
+        coEvery { feedRepository.getDiscoveryCandidates(any(), any(), any(), any()) } returns Result.success(PaginatedArtifacts(emptyList(), null))
+
+        val params1 = PagingSource.LoadParams.Refresh<PersonalizedPagingSource.PageKey>(
+            key = null,
+            loadSize = 10,
+            placeholdersEnabled = false
+        )
+
+        val result1 = pagingSource.load(params1) as PagingSource.LoadResult.Page
+        assertEquals(listOf("1"), result1.data.map { it.first.id })
+
+        // Page 2 returns the exact same artifact with null cursors
+        coEvery { feedRepository.getResonatingArtifacts(any(), any(), any(), any()) } returns Result.success(page1)
+
+        val params2 = PagingSource.LoadParams.Append(
+            key = result1.nextKey!!,
+            loadSize = 10,
+            placeholdersEnabled = false
+        )
+
+        val result2 = pagingSource.load(params2) as PagingSource.LoadResult.Page
+        assertTrue(result2.data.isEmpty())
+        assertTrue(result2.nextKey == null)
+    }
+
+    @Test
+    fun `cursor progression produces valid nextKey when items are deduplicated`() = runTest {
+        val artifact1 = Artifact(id = "1")
+        val docSnapshot1 = mockk<DocumentSnapshot>()
+        val docSnapshot2 = mockk<DocumentSnapshot>()
+
+        val page1 = PaginatedArtifacts(listOf(artifact1), docSnapshot1)
+        coEvery { feedRepository.getResonatingArtifacts(any(), any(), any(), any()) } returns Result.success(page1)
+        coEvery { feedRepository.getDiscoveryCandidates(any(), any(), any(), any()) } returns Result.success(PaginatedArtifacts(emptyList(), null))
+
+        val result1 = pagingSource.load(
+            PagingSource.LoadParams.Refresh(null, 10, false)
+        ) as PagingSource.LoadResult.Page
+
+        // Second load returns artifact1 again (duplicate), BUT cursor advances to docSnapshot2
+        val page2 = PaginatedArtifacts(listOf(artifact1), docSnapshot2)
+        coEvery { feedRepository.getResonatingArtifacts(any(), any(), any(), any()) } returns Result.success(page2)
+
+        val result2 = pagingSource.load(
+            PagingSource.LoadParams.Append(result1.nextKey!!, 10, false)
+        ) as PagingSource.LoadResult.Page
+
+        assertTrue(result2.data.isEmpty())
+        assertEquals(docSnapshot2, result2.nextKey?.resonatedLast)
+    }
+
+    @Test
+    fun `identical PageKey is never emitted sequentially`() = runTest {
+        val docSnapshot = mockk<DocumentSnapshot>()
+        val currentKey = PersonalizedPagingSource.PageKey(resonatedLast = docSnapshot, discoveryLast = null, isFirstPage = false, offset = 5)
+
+        // Return same lastVisible docSnapshot and empty artifacts (no new items and no cursor advancement)
+        val page = PaginatedArtifacts(emptyList(), docSnapshot)
+        coEvery { feedRepository.getResonatingArtifacts(any(), any(), any(), any()) } returns Result.success(page)
+        coEvery { feedRepository.getDiscoveryCandidates(any(), any(), any(), any()) } returns Result.success(PaginatedArtifacts(emptyList(), null))
+
+        val result = pagingSource.load(
+            PagingSource.LoadParams.Append(currentKey, 10, false)
+        ) as PagingSource.LoadResult.Page
+
+        assertTrue(result.nextKey == null)
+    }
+
+    @Test
+    fun `emotion parameter is passed to feed repository and filtering works`() = runTest {
+        val emotionPagingSource = PersonalizedPagingSource(
+            userId = userId,
+            feedRepository = feedRepository,
+            feedRanker = feedRanker,
+            visibilityFilter = visibilityFilter,
+            emotion = "Calm"
+        )
+
+        val artifact1 = Artifact(id = "1")
+        val page1 = PaginatedArtifacts(listOf(artifact1), null)
+        coEvery { feedRepository.getResonatingArtifacts(userId, any(), any(), "Calm") } returns Result.success(page1)
+        coEvery { feedRepository.getDiscoveryCandidates(userId, any(), any(), "Calm") } returns Result.success(PaginatedArtifacts(emptyList(), null))
+
+        val result = emotionPagingSource.load(
+            PagingSource.LoadParams.Refresh(null, 10, false)
+        ) as PagingSource.LoadResult.Page
+
+        assertEquals(1, result.data.size)
+        assertEquals("1", result.data[0].first.id)
+
+        coVerify { feedRepository.getResonatingArtifacts(userId, any(), any(), "Calm") }
+        coVerify { feedRepository.getDiscoveryCandidates(userId, any(), any(), "Calm") }
     }
 }

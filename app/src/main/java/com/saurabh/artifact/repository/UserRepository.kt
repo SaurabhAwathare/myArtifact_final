@@ -540,7 +540,172 @@ open class UserRepository @Inject constructor(
         }
     }
 
-    private fun mapUserToLocal(user: User): UserLocalEntity {
+    /**
+     * Resolves the current Creator profile for a given user/persona ID.
+     * Checks local Room cache first. If missing or stale, fetches from Firestore and caches in Room.
+     */
+    suspend fun getCreatorProfile(userId: String, anonymousId: String = ""): User? = withContext(Dispatchers.IO) {
+        val targetId = userId.ifBlank { anonymousId }
+        if (targetId.isBlank()) return@withContext null
+
+        try {
+            val local = userDao.get().getProfile(targetId)
+            if (local != null && local.anonymousName.isNotBlank()) {
+                return@withContext mapLocalToUser(local)
+            }
+        } catch (e: Exception) {
+            diagnosticLogger.error(DiagnosticCategory.DATABASE, "CREATOR_PROFILE_LOCAL_FETCH_FAILED", mapOf("targetId" to targetId), e)
+        }
+
+        fetchAndCacheRemoteCreatorProfile(userId, anonymousId)
+    }
+
+    /**
+     * Fetches creator profile from Firestore users/{uid} or profiles/{personaId} and caches in Room.
+     */
+    suspend fun fetchAndCacheRemoteCreatorProfile(userId: String, anonymousId: String = ""): User? = withContext(Dispatchers.IO) {
+        val uid = userId.trim()
+        val anonId = anonymousId.trim()
+
+        try {
+            var user: User? = null
+
+            if (uid.isNotBlank() && !uid.startsWith("usr_")) {
+                val userDoc = usersCollection.document(uid).get().await()
+                if (userDoc.exists()) {
+                    user = userDoc.toObject(User::class.java)?.copy(id = uid)
+                }
+            }
+
+            if (user == null && anonId.isNotBlank()) {
+                val profileDoc = firestore.collection("profiles").document(anonId).get().await()
+                if (profileDoc.exists()) {
+                    user = User(
+                        id = uid.ifBlank { anonId },
+                        anonymousId = anonId,
+                        anonymousName = profileDoc.getString("name") ?: "",
+                        anonymousSigil = profileDoc.getString("sigil") ?: "",
+                        sigilSeed = profileDoc.getString("sigilSeed") ?: "",
+                        sigilColor = profileDoc.getString("sigilColor") ?: "#FFD700"
+                    )
+                }
+            }
+
+            if (user != null && user.anonymousName.isNotBlank()) {
+                userDao.get().insertProfile(mapUserToLocal(user))
+                return@withContext user
+            }
+        } catch (e: Exception) {
+            diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "CREATOR_PROFILE_REMOTE_FETCH_FAILED", mapOf("uid" to uid, "anonId" to anonId), e)
+        }
+
+        null
+    }
+
+    /**
+     * Efficiently batch resolves missing Creator profiles from Room cache and Firestore.
+     * Prevents N+1 Firestore reads by batching missing IDs with whereIn.
+     */
+    suspend fun resolveCreatorProfilesBatch(creators: List<Pair<String, String>>): Map<String, User> = withContext(Dispatchers.IO) {
+        val result = mutableMapOf<String, User>()
+        if (creators.isEmpty()) return@withContext result
+
+        val validCreators = creators.filter { it.first.isNotBlank() || it.second.isNotBlank() }
+        if (validCreators.isEmpty()) return@withContext result
+
+        val keys = validCreators.flatMap { listOf(it.first, it.second) }.filter { it.isNotBlank() }.distinct()
+
+        try {
+            val locals = userDao.get().getProfiles(keys)
+            locals.forEach { local ->
+                val user = mapLocalToUser(local)
+                if (local.id.isNotBlank()) result[local.id] = user
+                if (local.anonymousId.isNotBlank()) result[local.anonymousId] = user
+            }
+        } catch (e: Exception) {
+            diagnosticLogger.error(DiagnosticCategory.DATABASE, "BATCH_CREATOR_PROFILES_LOCAL_FAILED", emptyMap(), e)
+        }
+
+        val missingCreators = validCreators.filter { (uid, anonId) ->
+            !result.containsKey(uid) && !result.containsKey(anonId)
+        }
+
+        if (missingCreators.isNotEmpty()) {
+            val missingUids = missingCreators.map { it.first }.filter { it.isNotBlank() && !it.startsWith("usr_") }.distinct()
+            val missingAnonIds = missingCreators.map { it.second }.filter { it.isNotBlank() }.distinct()
+
+            val fetchedUsers = mutableListOf<User>()
+
+            for (chunk in missingUids.chunked(30)) {
+                try {
+                    val snapshots = usersCollection.whereIn(FieldPath.documentId(), chunk).get().await()
+                    snapshots.documents.forEach { doc ->
+                        doc.toObject(User::class.java)?.copy(id = doc.id)?.let { u ->
+                            if (u.anonymousName.isNotBlank()) fetchedUsers.add(u)
+                        }
+                    }
+                } catch (e: Exception) {
+                    diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "BATCH_FETCH_USERS_FAILED", mapOf("count" to chunk.size), e)
+                }
+            }
+
+            val stillMissingAnonIds = missingAnonIds.filter { anonId ->
+                fetchedUsers.none { it.anonymousId == anonId }
+            }
+            for (chunk in stillMissingAnonIds.chunked(30)) {
+                try {
+                    val snapshots = firestore.collection("profiles").whereIn(FieldPath.documentId(), chunk).get().await()
+                    snapshots.documents.forEach { doc ->
+                        val u = User(
+                            id = doc.id,
+                            anonymousId = doc.id,
+                            anonymousName = doc.getString("name") ?: "",
+                            anonymousSigil = doc.getString("sigil") ?: "",
+                            sigilSeed = doc.getString("sigilSeed") ?: "",
+                            sigilColor = doc.getString("sigilColor") ?: "#FFD700"
+                        )
+                        if (u.anonymousName.isNotBlank()) fetchedUsers.add(u)
+                    }
+                } catch (e: Exception) {
+                    diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "BATCH_FETCH_PROFILES_FAILED", mapOf("count" to chunk.size), e)
+                }
+            }
+
+            if (fetchedUsers.isNotEmpty()) {
+                val localsToInsert = fetchedUsers.map { mapUserToLocal(it) }
+                userDao.get().insertProfiles(localsToInsert)
+
+                fetchedUsers.forEach { user ->
+                    if (user.id.isNotBlank()) result[user.id] = user
+                    if (user.anonymousId.isNotBlank()) result[user.anonymousId] = user
+                }
+            }
+        }
+
+        result
+    }
+
+    /**
+     * Observes the current Creator profile reactively from Room cache.
+     * Triggers a background fetch if missing.
+     */
+    fun observeCreatorProfile(userId: String, anonymousId: String = ""): Flow<User?> {
+        val targetId = userId.ifBlank { anonymousId }
+        if (targetId.isBlank()) return flowOf(null)
+
+        return userDao.get().observeProfile(targetId)
+            .map { local ->
+                if (local != null && local.anonymousName.isNotBlank()) {
+                    mapLocalToUser(local)
+                } else {
+                    fetchAndCacheRemoteCreatorProfile(userId, anonymousId)
+                    null
+                }
+            }
+            .distinctUntilChanged()
+    }
+
+    internal fun mapUserToLocal(user: User): UserLocalEntity {
         return UserLocalEntity(
             id = user.id,
             anonymousId = user.anonymousId,
@@ -552,7 +717,7 @@ open class UserRepository @Inject constructor(
         )
     }
 
-    private fun mapLocalToUser(local: UserLocalEntity): User {
+    internal fun mapLocalToUser(local: UserLocalEntity): User {
         return User(
             id = local.id,
             anonymousId = local.anonymousId,

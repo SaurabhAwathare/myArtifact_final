@@ -7,7 +7,6 @@ import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.google.firebase.firestore.DocumentSnapshot
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.repository.FeedRepository
-import com.saurabh.artifact.repository.PaginatedArtifacts
 import com.saurabh.artifact.service.FeedRanker
 import com.saurabh.artifact.domain.ArtifactVisibilityFilter
 import kotlinx.coroutines.Dispatchers
@@ -40,21 +39,21 @@ class PersonalizedPagingSource(
         return withContext(Dispatchers.IO) {
             try {
                 val key = params.key ?: PageKey(isFirstPage = true)
-                val pageSize = params.loadSize / 2 // Split between two sources
+                val pageSize = maxOf(1, params.loadSize / 2) // Split between two sources
 
                 val resonatedResult = feedRepository.getResonatingArtifacts(
                     userId = userId,
                     limit = pageSize,
                     lastVisible = key.resonatedLast,
                     emotion = emotion
-                ).getOrDefault(PaginatedArtifacts(emptyList(), null))
+                ).getOrThrow()
 
                 val discoveryResult = feedRepository.getDiscoveryCandidates(
                     userId = userId,
                     limit = pageSize,
                     lastVisible = key.discoveryLast,
                     emotion = emotion
-                ).getOrDefault(PaginatedArtifacts(emptyList(), null))
+                ).getOrThrow()
 
                 ArtifactLogger.d(DiagnosticCategory.FEED, "PAGING_SOURCE_LOAD", mapOf("offset" to key.offset))
 
@@ -81,16 +80,26 @@ class PersonalizedPagingSource(
                     emptyList()
                 }
 
-                val nextKey = if (resonatedResult.artifacts.isEmpty() && discoveryResult.artifacts.isEmpty()) {
+                val resonatedLast = resonatedResult.lastVisible ?: key.resonatedLast
+                val discoveryLast = discoveryResult.lastVisible ?: key.discoveryLast
+
+                val cursorAdvanced = (resonatedLast != key.resonatedLast) || (discoveryLast != key.discoveryLast)
+                val hasNewItems = ranked.isNotEmpty()
+
+                val candidateNextKey = if (resonatedResult.artifacts.isEmpty() && discoveryResult.artifacts.isEmpty()) {
+                    null
+                } else if (!hasNewItems && !cursorAdvanced) {
                     null
                 } else {
                     PageKey(
-                        resonatedLast = resonatedResult.lastVisible ?: key.resonatedLast,
-                        discoveryLast = discoveryResult.lastVisible ?: key.discoveryLast,
+                        resonatedLast = resonatedLast,
+                        discoveryLast = discoveryLast,
                         isFirstPage = false,
                         offset = key.offset + ranked.size
                     )
                 }
+
+                val nextKey = if (candidateNextKey == key) null else candidateNextKey
 
                 LoadResult.Page(
                     data = ranked.mapIndexed { i, artifact -> artifact to (key.offset + i) },

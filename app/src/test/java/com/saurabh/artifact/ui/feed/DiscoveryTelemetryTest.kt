@@ -1,5 +1,6 @@
 package com.saurabh.artifact.ui.feed
 
+import android.os.SystemClock
 import androidx.lifecycle.SavedStateHandle
 import com.google.firebase.Timestamp
 import com.saurabh.artifact.audio.validation.ReviewProgress
@@ -41,6 +42,8 @@ class DiscoveryTelemetryTest {
 
     @Before
     fun setup() {
+        mockkStatic(SystemClock::class)
+        every { SystemClock.elapsedRealtime() } returns 1000L
         Dispatchers.setMain(testDispatcher)
         every { authRepository.currentUser } returns MutableStateFlow(mockk { every { uid } returns currentUserId })
         every { startupCoordinator.stage } returns MutableStateFlow(com.saurabh.artifact.startup.StartupStage.STABLE)

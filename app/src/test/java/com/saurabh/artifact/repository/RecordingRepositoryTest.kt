@@ -10,6 +10,9 @@ import com.saurabh.artifact.audio.ArtifactCleanupManager
 import com.saurabh.artifact.audio.DraftDeletionManager
 import com.saurabh.artifact.data.local.AppDatabase
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.domain.PublishingOrchestrator
+import com.saurabh.artifact.model.DraftManifest
+import com.saurabh.artifact.model.Emotion
 import com.saurabh.artifact.repository.UserRepository
 import io.mockk.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -19,6 +22,7 @@ import org.junit.Before
 import org.junit.Test
 import java.io.File
 import dagger.Lazy
+import kotlinx.coroutines.flow.flowOf
 import kotlin.Result as KResult
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -32,6 +36,7 @@ class RecordingRepositoryTest {
     private val draftsDatabase = mockk<AppDatabase>(relaxed = true)
     private val userSessionManager = mockk<com.saurabh.artifact.data.local.UserSessionManager>(relaxed = true)
     private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
+    private val publishingOrchestrator = mockk<PublishingOrchestrator>(relaxed = true)
 
     private lateinit var repository: RecordingRepository
 
@@ -49,6 +54,7 @@ class RecordingRepositoryTest {
         every { Log.e(any<String>(), any<String>(), any<Throwable>()) } returns 0
 
         every { userRepository.getCurrentUserId() } returns TEST_USER_ID
+        every { userSessionManager.activeDraftId } returns flowOf(null)
 
         repository = RecordingRepository(
             draftDao = Lazy { draftDao },
@@ -58,7 +64,8 @@ class RecordingRepositoryTest {
             cleanupManager = cleanupManager,
             userSessionManager = userSessionManager,
             draftsDatabase = Lazy { draftsDatabase },
-            diagnosticLogger = diagnosticLogger
+            diagnosticLogger = diagnosticLogger,
+            publishingOrchestrator = Lazy { publishingOrchestrator }
         )
     }
 
@@ -213,5 +220,37 @@ class RecordingRepositoryTest {
         assert(finalDraft.durableBytes == 10000L) // 10044 - 44
         
         tempFile.delete()
+    }
+
+    @Test
+    fun `reindexed PROCESSING drafts receive processing work`() = runTest {
+        val orphanedId = "orphaned_draft_456"
+        val manifest = DraftManifest(
+            draftId = orphanedId,
+            userId = TEST_USER_ID,
+            createdAt = System.currentTimeMillis(),
+            mimeType = "audio/wav",
+            title = "Orphaned Title",
+            emotion = Emotion.CALM
+        )
+
+        coEvery { draftDao.getAllDraftsByUserId(TEST_USER_ID) } returns emptyList()
+        every { localDraftManager.findOrphanedDraftDirectories(emptySet()) } returns listOf(orphanedId)
+        every { localDraftManager.readManifest(orphanedId) } returns manifest
+
+        val tempWav = File.createTempFile("orphaned", ".wav")
+        val tempM4a = File("non_existent.m4a")
+        every { localDraftManager.createDraftFile(orphanedId, "wav") } returns tempWav
+        every { localDraftManager.createDraftFile(orphanedId, "m4a") } returns tempM4a
+
+        coEvery { draftDao.getActiveRecordings(TEST_USER_ID) } returns emptyList()
+        coEvery { draftDao.getDraftsByLifecycle(any(), any()) } returns emptyList()
+
+        repository.recoverInterruptedDrafts()
+
+        coVerify(exactly = 1) { draftDao.insert(match { it.id == orphanedId && it.lifecycle == ArtifactLifecycle.PROCESSING }) }
+        coVerify(exactly = 1) { publishingOrchestrator.ensureProcessingActive(orphanedId) }
+
+        tempWav.delete()
     }
 }

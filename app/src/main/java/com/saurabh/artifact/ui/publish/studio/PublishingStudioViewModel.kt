@@ -10,6 +10,7 @@ import com.saurabh.artifact.audio.PlaybackCoordinator
 import com.saurabh.artifact.audio.PlaybackType
 import com.saurabh.artifact.domain.IdentityScout
 import com.saurabh.artifact.domain.PublishArtifactUseCase
+import com.saurabh.artifact.domain.PublishingOrchestrator
 import com.saurabh.artifact.security.DatabaseEncryptionManager
 import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.model.Emotion
@@ -97,7 +98,8 @@ class PublishingStudioViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val databaseEncryptionManager: DatabaseEncryptionManager,
     private val workManager: WorkManager,
-    private val diagnosticLogger: DiagnosticLogger
+    private val diagnosticLogger: DiagnosticLogger,
+    private val publishingOrchestrator: PublishingOrchestrator
 ) : ViewModel() {
 
     private val _draftId = MutableStateFlow<String?>(null)
@@ -121,6 +123,13 @@ class PublishingStudioViewModel @Inject constructor(
             if (user == null) return@flatMapLatest flowOf(StudioSessionState())
 
             val draftFlow = recordingRepository.observeDraft(id).filterNotNull()
+                .onEach { draft ->
+                    if (draft.lifecycle == ArtifactLifecycle.PROCESSING) {
+                        viewModelScope.launch {
+                            publishingOrchestrator.ensureProcessingActive(draft.id)
+                        }
+                    }
+                }
             val reviewFlow = playbackCoordinator.reviewProgress
             val recoveryFlow = recordingRepository.observeRecoveryState(id, workManager)
             val isRecoverySetupFlow = databaseEncryptionManager.isRecoverySetup

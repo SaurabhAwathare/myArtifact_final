@@ -82,6 +82,17 @@ class PublishingOrchestrator @Inject constructor(
         workInfos.any { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.RUNNING }
     }
 
+    /**
+     * Ensures that processing is active for the given draft idempotently.
+     * If processing work is already ENQUEUED or RUNNING, does nothing.
+     * If processing work is missing, FAILED, or CANCELLED, enqueues the processing chain using [startProcessing].
+     */
+    suspend fun ensureProcessingActive(draftId: String) = withContext(Dispatchers.IO) {
+        if (!isProcessingActive(draftId)) {
+            startProcessing(draftId)
+        }
+    }
+
 
     suspend fun approvePublishing(draftId: String): Result<PublishingResult> = withContext(Dispatchers.IO) {
         val draft = draftRepository.getDraft(draftId).getOrNull() ?: return@withContext Result.failure(Exception("Draft not found"))

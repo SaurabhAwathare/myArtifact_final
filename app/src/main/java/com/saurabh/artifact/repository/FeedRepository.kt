@@ -1,6 +1,7 @@
 package com.saurabh.artifact.repository
 
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.Filter
@@ -10,6 +11,7 @@ import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.service.RecommendationService
+import com.saurabh.artifact.util.EmotionCategoryMapper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.tasks.await
@@ -140,6 +142,33 @@ class FeedRepository @Inject constructor(
         }
     }
 
+    private data class DiscoveryBufferKey(
+        val userId: String?,
+        val emotion: String?
+    )
+
+    private class DiscoveryCandidateBuffer {
+        var key: DiscoveryBufferKey? = null
+        val remainingCandidates = mutableListOf<Artifact>()
+        var lastFirestoreSnapshotDoc: DocumentSnapshot? = null
+
+        fun clear() {
+            key = null
+            remainingCandidates.clear()
+            lastFirestoreSnapshotDoc = null
+        }
+    }
+
+    private val discoveryBuffer = DiscoveryCandidateBuffer()
+    private val discoveryBufferLock = Any()
+
+    @VisibleForTesting
+    internal fun clearDiscoveryBuffer() {
+        synchronized(discoveryBufferLock) {
+            discoveryBuffer.clear()
+        }
+    }
+
     /**
      * Fetches discovery candidates based on emotional compatibility with pagination.
      * Integrated with RecommendationService for ranking and diversity.
@@ -151,95 +180,148 @@ class FeedRepository @Inject constructor(
         emotion: String? = null
     ): Result<PaginatedArtifacts> = withContext(Dispatchers.IO) {
         return@withContext try {
-            val poolSize = 50 // Fetch a larger pool for better ranking variety
-            val relatedEmotions = if (!emotion.isNullOrEmpty() && emotion != "All") {
-                com.saurabh.artifact.util.EmotionCategoryMapper.getRelatedEmotions(emotion)
-            } else null
+            val currentKey = DiscoveryBufferKey(userId, emotion)
 
-            var query = firestore.collection("artifacts")
-                .whereEqualTo("isPublic", true)
-                .whereEqualTo("status", ArtifactStatus.ACTIVE.name)
+            var candidatesToEmit: List<Artifact> = emptyList()
+            var firestoreCursorToReturn: DocumentSnapshot? = null
+            var needFirestoreFetch = false
 
-            if (relatedEmotions != null) {
-                query = query.where(
-                    Filter.or(
-                        Filter.inArray("emotion", relatedEmotions),
-                        Filter.arrayContainsAny("emotions", relatedEmotions)
-                    )
-                )
-            }
-
-            query = query.orderBy("createdAt", Query.Direction.DESCENDING)
-                .limit(poolSize.toLong())
-
-            if (lastVisible != null) {
-                query = query.startAfter(lastVisible)
-            }
-
-            val snapshot = query.get().await()
-            val suppressedIds = userId?.let { visibilityFilter.getSuppressedIdsSnapshot(it) } ?: emptySet()
-            val ignoredUserIds = userId?.let { visibilityFilter.getIgnoredUserIdsSnapshot(it) } ?: emptySet()
-
-            val rawArtifacts = snapshot.documents.mapNotNull { doc ->
-                val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
-                if ((artifact == null) || artifact.audioUrl.isEmpty()) return@mapNotNull null
-
-                // 2. Safety Invariant Check
-                val reportCount = doc.getLong("reportCount") ?: 0L
-                val safetyConcernCount = doc.getLong("safetyConcernCount") ?: 0L
-
-                val artifactSnapshot = artifact.copy(
-                    reportCount = reportCount,
-                    safetyConcernCount = safetyConcernCount,
-                    reporterIds = emptyList() // Deprecated
-                )
-
-                val isEligible = safetyPolicy.isEligibleForDiscovery(
-                    artifact = artifactSnapshot,
-                    currentUserId = userId,
-                    isSuppressedByUser = suppressedIds.contains(doc.id),
-                    ignoredUserIds = ignoredUserIds
-                )
-
-                if (isEligible) {
-                    artifactSnapshot.slimForFeed()
+            synchronized(discoveryBufferLock) {
+                if (discoveryBuffer.key != currentKey) {
+                    discoveryBuffer.clear()
+                    discoveryBuffer.key = currentKey
+                    needFirestoreFetch = true
+                } else if (lastVisible == null && discoveryBuffer.lastFirestoreSnapshotDoc != null) {
+                    discoveryBuffer.clear()
+                    discoveryBuffer.key = currentKey
+                    needFirestoreFetch = true
+                } else if (discoveryBuffer.remainingCandidates.isEmpty()) {
+                    needFirestoreFetch = true
+                } else if (lastVisible != null && discoveryBuffer.lastFirestoreSnapshotDoc != null && lastVisible != discoveryBuffer.lastFirestoreSnapshotDoc) {
+                    discoveryBuffer.clear()
+                    discoveryBuffer.key = currentKey
+                    needFirestoreFetch = true
                 } else {
-                    null
+                    val count = minOf(limit, discoveryBuffer.remainingCandidates.size)
+                    candidatesToEmit = discoveryBuffer.remainingCandidates.take(count)
+                    repeat(count) { discoveryBuffer.remainingCandidates.removeAt(0) }
+                    firestoreCursorToReturn = discoveryBuffer.lastFirestoreSnapshotDoc
                 }
             }
 
-            // Apply Recommendation Pipeline
-            val artifactIds = rawArtifacts.map { it.id }
-            val stats = artifactRepository.getArtifactStats(artifactIds)
-            val hydratedArtifacts = rawArtifacts.map { artifact ->
-                val artStats = stats[artifact.id]
-                if (artStats != null) {
-                    artifact.copy(
-                        resonanceDepth = artStats.calculateResonanceDepth(),
-                        humanIntegrityFactor = artStats.calculateHumanIntegrityFactor()
+            if (needFirestoreFetch) {
+                val poolSize = 50 // Fetch a larger pool for better ranking variety
+                val relatedEmotions = if (!emotion.isNullOrEmpty() && emotion != "All") {
+                    EmotionCategoryMapper.getRelatedEmotions(emotion)
+                } else null
+
+                var query = firestore.collection("artifacts")
+                    .whereEqualTo("isPublic", true)
+                    .whereEqualTo("status", ArtifactStatus.ACTIVE.name)
+
+                if (relatedEmotions != null) {
+                    query = query.where(
+                        Filter.or(
+                            Filter.inArray("emotion", relatedEmotions),
+                            Filter.arrayContainsAny("emotions", relatedEmotions)
+                        )
                     )
-                } else {
-                    artifact
+                }
+
+                query = query.orderBy("createdAt", Query.Direction.DESCENDING)
+                    .limit(poolSize.toLong())
+
+                if (lastVisible != null) {
+                    query = query.startAfter(lastVisible)
+                }
+
+                val snapshot = query.get().await()
+                val suppressedIds = userId?.let { visibilityFilter.getSuppressedIdsSnapshot(it) } ?: emptySet()
+                val ignoredUserIds = userId?.let { visibilityFilter.getIgnoredUserIdsSnapshot(it) } ?: emptySet()
+
+                val rawArtifacts = snapshot.documents.mapNotNull { doc ->
+                    val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
+                    if ((artifact == null) || artifact.audioUrl.isEmpty()) return@mapNotNull null
+
+                    // 2. Safety Invariant Check
+                    val reportCount = doc.getLong("reportCount") ?: 0L
+                    val safetyConcernCount = doc.getLong("safetyConcernCount") ?: 0L
+
+                    val artifactSnapshot = artifact.copy(
+                        reportCount = reportCount,
+                        safetyConcernCount = safetyConcernCount,
+                        reporterIds = emptyList() // Deprecated
+                    )
+
+                    val isEligible = safetyPolicy.isEligibleForDiscovery(
+                        artifact = artifactSnapshot,
+                        currentUserId = userId,
+                        isSuppressedByUser = suppressedIds.contains(doc.id),
+                        ignoredUserIds = ignoredUserIds
+                    )
+
+                    if (isEligible) {
+                        artifactSnapshot.slimForFeed()
+                    } else {
+                        null
+                    }
+                }
+
+                // Apply Recommendation Pipeline
+                val artifactIds = rawArtifacts.map { it.id }
+                val stats = artifactRepository.getArtifactStats(artifactIds)
+                val hydratedArtifacts = rawArtifacts.map { artifact ->
+                    val artStats = stats[artifact.id]
+                    if (artStats != null) {
+                        artifact.copy(
+                            resonanceDepth = artStats.calculateResonanceDepth(),
+                            humanIntegrityFactor = artStats.calculateHumanIntegrityFactor()
+                        )
+                    } else {
+                        artifact
+                    }
+                }
+
+                val rankedArtifacts = recommendationService.rank(hydratedArtifacts, userId)
+                val lastDocInSnapshot = snapshot.documents.lastOrNull() ?: lastVisible
+
+                synchronized(discoveryBufferLock) {
+                    discoveryBuffer.key = currentKey
+                    discoveryBuffer.remainingCandidates.clear()
+                    discoveryBuffer.remainingCandidates.addAll(rankedArtifacts)
+                    discoveryBuffer.lastFirestoreSnapshotDoc = lastDocInSnapshot
+
+                    val count = minOf(limit, discoveryBuffer.remainingCandidates.size)
+                    candidatesToEmit = discoveryBuffer.remainingCandidates.take(count)
+                    repeat(count) { discoveryBuffer.remainingCandidates.removeAt(0) }
+                    firestoreCursorToReturn = discoveryBuffer.lastFirestoreSnapshotDoc
                 }
             }
 
-            val rankedArtifacts = recommendationService.rank(hydratedArtifacts, userId)
-            
-            // Take the requested limit
-            val finalArtifacts = rankedArtifacts.take(limit)
-            
-            Result.success(PaginatedArtifacts(finalArtifacts, snapshot.documents.lastOrNull()))
+            Result.success(PaginatedArtifacts(candidatesToEmit, firestoreCursorToReturn))
         } catch (e: Exception) {
             diagnosticLogger.error(DiagnosticCategory.FEED, "FEED_DISCOVERY_FETCH_FAILED", throwable = e)
             runCatching {
                 val cachedArtifacts = artifactRepository.getRecentCachedArtifacts(
                     currentUserId = userId ?: "",
                     emotion = emotion,
-                    limit = limit
+                    limit = 50
                 )
                 if (cachedArtifacts.isNotEmpty()) {
                     val ranked = recommendationService.rank(cachedArtifacts, userId)
-                    Result.success(PaginatedArtifacts(ranked, null))
+                    val currentKey = DiscoveryBufferKey(userId, emotion)
+                    var candidatesToEmit: List<Artifact>
+                    synchronized(discoveryBufferLock) {
+                        discoveryBuffer.key = currentKey
+                        discoveryBuffer.remainingCandidates.clear()
+                        discoveryBuffer.remainingCandidates.addAll(ranked)
+                        discoveryBuffer.lastFirestoreSnapshotDoc = null
+
+                        val count = minOf(limit, discoveryBuffer.remainingCandidates.size)
+                        candidatesToEmit = discoveryBuffer.remainingCandidates.take(count)
+                        repeat(count) { discoveryBuffer.remainingCandidates.removeAt(0) }
+                    }
+                    Result.success(PaginatedArtifacts(candidatesToEmit, null))
                 } else {
                     Result.failure(AppError.from(e))
                 }

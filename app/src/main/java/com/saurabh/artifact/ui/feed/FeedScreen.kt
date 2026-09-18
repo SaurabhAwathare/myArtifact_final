@@ -39,6 +39,7 @@ import com.saurabh.artifact.ui.components.EmberLogo
 import com.saurabh.artifact.ui.components.CrisisSupportCard
 import com.saurabh.artifact.ui.components.EmotionList
 import com.saurabh.artifact.ui.components.state.EmptyFeedState
+import com.saurabh.artifact.ui.components.state.FeedErrorState
 import com.saurabh.artifact.ui.components.ReflectionPromptCard
 import androidx.compose.foundation.lazy.rememberLazyListState
 import com.saurabh.artifact.ui.components.motion.FadeInContent
@@ -190,7 +191,8 @@ fun FeedScreen(
                         onReportClick = onReportArtifact,
                         onAuthorClick = onAuthorClick,
                         onResonatorsCountClick = onResonatorsCountClick,
-                        onNavigateToSecurity = onNavigateToSecurity
+                        onNavigateToSecurity = onNavigateToSecurity,
+                        selectedEmotion = selectedEmotion
                     )
                 }
 
@@ -326,11 +328,25 @@ private fun FeedContent(
     onAuthorClick: (String) -> Unit,
     onNavigateToSecurity: () -> Unit,
     modifier: Modifier = Modifier,
-    onResonatorsCountClick: (String) -> Unit = {}
+    onResonatorsCountClick: (String) -> Unit = {},
+    selectedEmotion: String? = null
 ) {
     val currentArtifacts = artifacts
-    val isEmpty = currentArtifacts.itemCount == 0
-    val isRefreshing = currentArtifacts.loadState.refresh is LoadState.Loading
+    val refreshState = currentArtifacts.loadState.refresh
+
+    var lastLoadedEmotion by remember { mutableStateOf<String?>(selectedEmotion) }
+
+    LaunchedEffect(refreshState, selectedEmotion) {
+        if (selectedEmotion != lastLoadedEmotion && refreshState !is LoadState.Loading) {
+            lastLoadedEmotion = selectedEmotion
+        }
+    }
+
+    val isStale = selectedEmotion != lastLoadedEmotion
+    val isLoading = isStale || (refreshState is LoadState.Loading && currentArtifacts.itemCount == 0) || (isRankedLoading && currentArtifacts.itemCount == 0)
+    val isError = !isStale && refreshState is LoadState.Error
+    val isEmpty = !isLoading && !isError && currentArtifacts.itemCount == 0
+    val showOverlay = isLoading || isError || isEmpty
 
     Box(modifier = modifier) {
         // ALWAYS keep LazyColumn in composition tree to preserve scroll restoration anchor.
@@ -352,7 +368,7 @@ private fun FeedContent(
             }
 
             items(
-                count = currentArtifacts.itemCount,
+                count = if (isStale) 0 else currentArtifacts.itemCount,
                 key = currentArtifacts.itemKey { it.id }
             ) { index ->
                 val item = currentArtifacts[index]
@@ -363,7 +379,8 @@ private fun FeedContent(
                             viewModel = viewModel,
                             onReportClick = onReportClick,
                             onAuthorClick = onAuthorClick,
-                            onResonatorsCountClick = onResonatorsCountClick
+                            onResonatorsCountClick = onResonatorsCountClick,
+                            feedArtifact = FeedArtifact(item.artifact)
                         )
                     }
                     is FeedDisplayItem.BreakItem -> {
@@ -373,11 +390,11 @@ private fun FeedContent(
                 }
             }
 
-            if (currentArtifacts.loadState.append is LoadState.Loading) {
+            if (!isStale && currentArtifacts.loadState.append is LoadState.Loading) {
                 item(key = "loading_indicator") { LoadingIndicator() }
             }
 
-            if (currentArtifacts.itemCount > 0) {
+            if (!isStale && currentArtifacts.itemCount > 0) {
                 item(key = "drawn_signal") {
                     val context = LocalContext.current
                     LaunchedEffect(Unit) {
@@ -387,17 +404,29 @@ private fun FeedContent(
             }
         }
 
-        // Overlay loading or empty states when the paging items are empty.
+        // Overlay loading, error, or empty states when the paging items are empty or stale.
         // We use a background to mask the empty LazyColumn (which still contains the header).
-        if (isEmpty) {
+        if (showOverlay) {
             FadeInContent(
-                visible = isRankedLoading || isRefreshing || isEmpty,
+                visible = true,
                 modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
             ) {
-                if (isRefreshing || isRankedLoading) {
-                    FeedLoadingState(modifier = Modifier.fillMaxSize())
-                } else {
-                    EmptyFeedState(onRecordClick = { onNavigateToRecord(null) })
+                when {
+                    isLoading -> {
+                        FeedLoadingState(modifier = Modifier.fillMaxSize())
+                    }
+                    isError -> {
+                        FeedErrorState(
+                            onRetry = { currentArtifacts.retry() },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                    else -> {
+                        EmptyFeedState(
+                            onRecordClick = { onNavigateToRecord(null) },
+                            selectedEmotion = selectedEmotion
+                        )
+                    }
                 }
             }
         }
@@ -496,6 +525,8 @@ fun ArtifactItem(
     
     effectiveArtifact?.let { art ->
         val effectiveReason = reason ?: feedArtifact?.reason ?: com.saurabh.artifact.model.FeedRecommendationReason.DISCOVERY
+        val creatorProfile by viewModel.observeCreatorProfile(art.userId, art.author.anonymousId)
+            .collectAsState(initial = null)
 
         LaunchedEffect(Unit) {
             StartupMetrics.onFirstArtifactRendered()
@@ -507,6 +538,7 @@ fun ArtifactItem(
             isPlaying = isPlaying,
             isBuffering = isCurrentBuffering,
             hydrationLevel = hydrationLevel,
+            creatorProfile = creatorProfile,
             onPlayClick = { 
                 viewModel.playAudio(art, effectiveReason) 
                 viewModel.onArtifactFocused(artifactId)

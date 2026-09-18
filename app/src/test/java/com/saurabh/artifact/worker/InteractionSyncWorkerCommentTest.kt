@@ -84,8 +84,14 @@ class InteractionSyncWorkerCommentTest {
             metadata = commentJson
         )
 
+        val pendingList = mutableListOf(interaction)
+        coEvery { pendingInteractionDao.getPendingForUser("test-user") } answers { pendingList.toList() }
+        coEvery { pendingInteractionDao.delete(any()) } answers {
+            val deletedItem = firstArg<PendingInteractionEntity>()
+            pendingList.removeAll { it.id == deletedItem.id }
+        }
+
         coEvery { commentRepository.createComment(any()) } returns Result.success(comment)
-        coEvery { pendingInteractionDao.getPendingForUser("test-user") } returns listOf(interaction)
         
         val result = worker.doWork()
         
@@ -110,11 +116,17 @@ class InteractionSyncWorkerCommentTest {
             metadata = commentJson
         )
 
+        val pendingList = mutableListOf(interaction)
+        coEvery { pendingInteractionDao.getPendingForUser("test-user") } answers { pendingList.toList() }
+        coEvery { pendingInteractionDao.delete(any()) } answers {
+            val deletedItem = firstArg<PendingInteractionEntity>()
+            pendingList.removeAll { it.id == deletedItem.id }
+        }
+
         // Simulate Firestore Permission Denied (Listening threshold not met yet)
         val lockedError = FirebaseFirestoreException("Locked", FirebaseFirestoreException.Code.PERMISSION_DENIED)
 
         coEvery { commentRepository.createComment(any()) } returns Result.failure(lockedError)
-        coEvery { pendingInteractionDao.getPendingForUser("test-user") } returns listOf(interaction)
         
         val result = worker.doWork()
         

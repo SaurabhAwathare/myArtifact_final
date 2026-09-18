@@ -97,6 +97,8 @@ class PipelineIntegrationVerificationTest {
             userRepository = userRepository
         )
 
+        var orchestratorRef: PublishingOrchestrator? = null
+
         val recordingRepository = RecordingRepository(
             draftDao = Lazy { draftDao },
             userRepository = userRepository,
@@ -105,7 +107,8 @@ class PipelineIntegrationVerificationTest {
             cleanupManager = mockk(relaxed = true),
             userSessionManager = userSessionManager,
             draftsDatabase = Lazy { database },
-            diagnosticLogger = diagnosticLogger
+            diagnosticLogger = diagnosticLogger,
+            publishingOrchestrator = Lazy { orchestratorRef!! }
         )
 
         val orchestrator = PublishingOrchestrator(
@@ -117,6 +120,7 @@ class PipelineIntegrationVerificationTest {
             authRepository = authRepository,
             workManager = workManager
         )
+        orchestratorRef = orchestrator
 
         val approvalRepositoryReal = PublishApprovalRepository(appContext, Lazy { draftDao }, uploadGuard, authRepository, identityScout)
         

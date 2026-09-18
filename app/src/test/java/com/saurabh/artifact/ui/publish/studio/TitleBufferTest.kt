@@ -5,6 +5,7 @@ import com.saurabh.artifact.audio.ReviewState
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.domain.IdentityScout
 import com.saurabh.artifact.domain.PublishArtifactUseCase
+import com.saurabh.artifact.domain.PublishingOrchestrator
 import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.model.DraftStatus
 import com.saurabh.artifact.model.Emotion
@@ -34,6 +35,7 @@ class TitleBufferTest {
     private val databaseEncryptionManager = mockk<com.saurabh.artifact.security.DatabaseEncryptionManager>(relaxed = true)
     private val workManager = mockk<androidx.work.WorkManager>(relaxed = true)
     private val diagnosticLogger = mockk<com.saurabh.artifact.diagnostics.DiagnosticLogger>(relaxed = true)
+    private val publishingOrchestrator = mockk<PublishingOrchestrator>(relaxed = true)
 
     private companion object {
         private const val TEST_USER_ID = "test-user-id"
@@ -102,7 +104,8 @@ class TitleBufferTest {
             authRepository,
             databaseEncryptionManager,
             workManager,
-            diagnosticLogger
+            diagnosticLogger,
+            publishingOrchestrator
         )
 
         backgroundScope.launch { viewModel.sessionState.collect() }
@@ -143,7 +146,8 @@ class TitleBufferTest {
             authRepository,
             databaseEncryptionManager,
             workManager,
-            diagnosticLogger
+            diagnosticLogger,
+            publishingOrchestrator
         )
 
         backgroundScope.launch { viewModel.sessionState.collect() }

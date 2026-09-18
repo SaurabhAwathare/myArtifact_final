@@ -24,7 +24,8 @@ class RecordingFinalizationIdempotencyTest {
         cleanupManager = mockk(),
         userSessionManager = userSessionManager,
         draftsDatabase = { appDatabase },
-        diagnosticLogger = mockk(relaxed = true)
+        diagnosticLogger = mockk(relaxed = true),
+        publishingOrchestrator = { mockk(relaxed = true) }
     )
 
     private companion object {

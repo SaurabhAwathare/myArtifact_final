@@ -96,7 +96,8 @@ class RecordingLifecycleVerificationTest {
             cleanupManager = cleanupManager,
             userSessionManager = userSessionManager,
             draftsDatabase = Lazy { database },
-            diagnosticLogger = diagnosticLogger
+            diagnosticLogger = diagnosticLogger,
+            publishingOrchestrator = Lazy { mockk(relaxed = true) }
         )
 
         mockkStatic("androidx.room.RoomDatabaseKt")

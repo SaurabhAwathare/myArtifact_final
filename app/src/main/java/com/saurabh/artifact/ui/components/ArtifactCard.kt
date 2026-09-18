@@ -57,6 +57,8 @@ import androidx.compose.ui.unit.sp
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.ArtifactReactionCounts
 import com.saurabh.artifact.model.AuthorSnapshot
+import com.saurabh.artifact.model.ResolvedCreatorIdentity
+import com.saurabh.artifact.model.User
 import com.saurabh.artifact.ui.components.motion.PressableScale
 import com.saurabh.artifact.ui.feed.HydrationLevel
 import com.saurabh.artifact.ui.theme.ArtifactTheme
@@ -87,6 +89,7 @@ fun ArtifactCard(
     onAuthorClick: (String) -> Unit = {},
     onResonatorsCountClick: (String) -> Unit = {},
     currentUserId: String? = null,
+    creatorProfile: User? = null,
     artifactDetail: com.saurabh.artifact.model.ArtifactDetail? = null,
     recommendationReason: com.saurabh.artifact.model.FeedRecommendationReason? = null,
 ) {
@@ -123,7 +126,9 @@ fun ArtifactCard(
         } else ""
     }
 
-    val displayUsername = remember(artifact.author.name) { artifact.author.name.lowercase() }
+    val resolvedIdentity = remember(artifact, creatorProfile) {
+        ResolvedCreatorIdentity.resolve(artifact, creatorProfile)
+    }
 
     val isPending = artifact.audioUrl.isEmpty() && artifact.status == com.saurabh.artifact.model.ArtifactStatus.PENDING_UPLOAD
 
@@ -204,11 +209,11 @@ fun ArtifactCard(
                         } else {
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                                 ArtifactSigil(
-                                    config = artifact.authorSigilConfig,
+                                    config = resolvedIdentity.sigilConfig,
                                     size = 32.dp,
                                     isStatic = true,
                                     modifier = Modifier.clickable { 
-                                        if (artifact.author.anonymousId.isNotBlank()) onAuthorClick(artifact.author.anonymousId) 
+                                        if (resolvedIdentity.personaId.isNotBlank()) onAuthorClick(resolvedIdentity.personaId) 
                                     }
                                 )
                                 
@@ -220,11 +225,11 @@ fun ArtifactCard(
                                 Column(modifier = Modifier.weight(1f)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(
-                                            text = displayUsername,
+                                            text = resolvedIdentity.name,
                                             modifier = Modifier
                                                 .weight(1f, fill = false)
                                                 .clickable { 
-                                                    if (artifact.author.anonymousId.isNotBlank()) onAuthorClick(artifact.author.anonymousId) 
+                                                    if (resolvedIdentity.personaId.isNotBlank()) onAuthorClick(resolvedIdentity.personaId) 
                                                 },
                                             style = ArtifactTheme.typography.labelLarge.copy(
                                                 fontWeight = FontWeight.SemiBold,
@@ -234,14 +239,14 @@ fun ArtifactCard(
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
-                                        if (artifact.author.sigil.isNotEmpty()) {
+                                        if (resolvedIdentity.sigil.isNotEmpty()) {
                                             Text(
                                                 text = " · ",
                                                 style = ArtifactTheme.typography.labelMedium,
                                                 color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.5f)
                                             )
                                             Text(
-                                                text = artifact.author.sigil,
+                                                text = resolvedIdentity.sigil,
                                                 style = ArtifactTheme.typography.labelSmall.copy(
                                                     fontWeight = FontWeight.Light
                                                 ),
