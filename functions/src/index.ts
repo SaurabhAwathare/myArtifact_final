@@ -2519,6 +2519,7 @@ export const finalizePublish = functions.https.onCall(async (data, context) => {
 
       const anonymousId = userData.anonymousId.trim();
       const anonymousName = userData.anonymousName.trim();
+      const derivedSigil = userData.anonymousSigil || (userData.sigilSeed ? userData.sigilSeed.slice(-2).toUpperCase() : anonymousId.slice(-2).toUpperCase());
       const identityResetVersion = typeof userData.identityMetadata?.identityResetVersion === "number" ?
         userData.identityMetadata.identityResetVersion :
         0;
@@ -2528,7 +2529,7 @@ export const finalizePublish = functions.https.onCall(async (data, context) => {
         author: {
           anonymousId: anonymousId,
           name: anonymousName,
-          sigil: userData.anonymousSigil || "",
+          sigil: derivedSigil,
           sigilSeed: userData.sigilSeed || "",
           sigilColor: userData.sigilColor || "#FFD700",
           sigilConfig: userData.sigilConfig || {},

@@ -6,6 +6,7 @@ import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.worker.IdentitySyncWorker
 import android.content.Context
 import android.util.Log
+import com.saurabh.artifact.model.SigilConfig
 import com.saurabh.artifact.service.PersonalizationEngine
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -145,15 +146,77 @@ class UserProfileManager @Inject constructor(
     }
 
     /**
-     * Updates the user's sigil configuration.
+     * Updates both username and sigil config atomically.
      */
-    suspend fun updateSigilConfig(config: com.saurabh.artifact.model.SigilConfig): Result<Unit> {
-        // 1. Update SSOT immediately
-        sessionManager.updateSigilConfig(config)
-        
+    suspend fun updateIdentity(username: String?, config: SigilConfig?): Result<Unit> {
+        val trimmedUsername = username?.trim()?.takeIf { it.isNotEmpty() }
+
+        if (trimmedUsername == null && config == null) return Result.success(Unit)
+        if (trimmedUsername != null && config == null) return updateUsername(trimmedUsername)
+        if (trimmedUsername == null && config != null) return updateSigilConfig(config)
+
+        val nonNullUsername = trimmedUsername!!
+        val nonNullConfig = config!!
+
         val userId = authRepository.currentUserId
 
-        // 2. Optimistic Local Sync
+        // 1. If authenticated, update Firestore first in single transaction
+        if (userId.isNotEmpty()) {
+            val result = userRepository.createUsername(userId, nonNullUsername, nonNullConfig)
+            if (result.isFailure) {
+                return result
+            }
+            IdentitySyncWorker.enqueue(context, userId)
+        }
+
+        // 2. Update SSOT DataStore only after remote succeeds
+        sessionManager.updateUsername(nonNullUsername)
+        sessionManager.updateSigilConfig(nonNullConfig)
+
+        // 3. Local author snapshot sync
+        if (userId.isNotEmpty()) {
+            managerScope.launch {
+                val currentProfile = sessionManager.userProfile.first()
+                val latestUser = userRepository.getOrCreateProfile().getOrNull()?.user
+                val currentVersion = latestUser?.identityMetadata?.identityResetVersion ?: 0L
+
+                artifactRepository.updateLocalAuthorSnapshot(
+                    userId = userId,
+                    snapshot = AuthorSnapshot(
+                        anonymousId = currentProfile.anonymousId,
+                        name = trimmedUsername,
+                        sigil = currentProfile.sigil,
+                        sigilSeed = config.seed,
+                        sigilColor = currentProfile.sigilColor,
+                        sigilConfig = config
+                    ),
+                    identityPropagationVersion = currentVersion
+                )
+            }
+        }
+
+        return Result.success(Unit)
+    }
+
+    /**
+     * Updates the user's sigil configuration.
+     */
+    suspend fun updateSigilConfig(config: SigilConfig): Result<Unit> {
+        val userId = authRepository.currentUserId
+
+        // 1. Sync to Firestore if authenticated first
+        if (userId.isNotEmpty()) {
+            val result = userRepository.updateSigilConfig(userId, config)
+            if (result.isFailure) {
+                return result
+            }
+            IdentitySyncWorker.enqueue(context, userId)
+        }
+
+        // 2. Update SSOT DataStore only after remote succeeds
+        sessionManager.updateSigilConfig(config)
+
+        // 3. Local Sync for local artifacts
         if (userId.isNotEmpty()) {
             managerScope.launch {
                 Log.d("UserProfileManager", "Launching local sync for $userId")
@@ -177,15 +240,6 @@ class UserProfileManager @Inject constructor(
             }
         }
 
-        // 3. Sync to Firestore if authenticated (Eventual Consistency)
-        if (userId.isNotEmpty()) {
-            val result = userRepository.updateSigilConfig(userId, config)
-            if (result.isSuccess) {
-                // For regular updates, we don't strictly track version but still sync
-                IdentitySyncWorker.enqueue(context, userId)
-            }
-            return result
-        }
         return Result.success(Unit)
     }
 
@@ -205,10 +259,10 @@ class UserProfileManager @Inject constructor(
             IdentitySyncWorker.enqueue(context, userId)
         }
 
-        // 2. Update SSOT DataStore immediately
+        // 2. Update SSOT DataStore only after remote succeeds
         sessionManager.updateUsername(username)
 
-        // 3. Optimistic Local Sync for local artifacts
+        // 3. Local Sync for local artifacts
         if (userId.isNotEmpty()) {
             managerScope.launch {
                 Log.d("UserProfileManager", "Launching local sync for $userId")

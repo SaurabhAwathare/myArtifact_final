@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.saurabh.artifact.model.PlayableArtifact
 import com.saurabh.artifact.model.AuthorSnapshot
+import com.saurabh.artifact.model.ResolvedCreatorIdentity
 import com.saurabh.artifact.ui.components.EmotionTag
 import com.saurabh.artifact.ui.components.EmotionTagsGroup
 import com.saurabh.artifact.ui.player.components.*
@@ -278,8 +279,11 @@ fun ImmersivePlayerScreen(
                                 letterSpacing = 1.sp
                             )
                         } else {
-                            val authorName = playableArtifact?.authorName ?: artifact?.author?.name ?: ""
-                            val authorSigil = playableArtifact?.authorSigil ?: artifact?.author?.sigil ?: ""
+                            val authorName = playableArtifact?.authorName?.ifEmpty { null }
+                                ?: artifact?.author?.name?.ifEmpty { null }
+                                ?: ResolvedCreatorIdentity.NEUTRAL_NAME
+                            val authorSigil = playableArtifact?.authorSigil?.ifEmpty { null }
+                                ?: artifact?.author?.sigil ?: ""
                             
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,

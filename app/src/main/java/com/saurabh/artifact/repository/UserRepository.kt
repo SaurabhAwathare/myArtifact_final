@@ -78,10 +78,10 @@ open class UserRepository @Inject constructor(
     open fun getCurrentUserId(): String? = auth.currentUser?.uid
 
     /**
-     * Creates or updates a unique username for the user.
+     * Creates or updates a unique username (and optional sigil config) for the user.
      * Uses a transaction to ensure uniqueness across the platform.
      */
-    suspend fun createUsername(userId: String, username: String): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun createUsername(userId: String, username: String, sigilConfig: SigilConfig? = null): Result<Unit> = withContext(Dispatchers.IO) {
         if (userId.isBlank()) return@withContext Result.failure(AppError.InvalidInput("User ID cannot be blank"))
         
         // SELF-HEALING: Ensure profile exists before update
@@ -172,6 +172,8 @@ open class UserRepository @Inject constructor(
                 )
             )
 
+            var newSigilForCache: String? = null
+
             firestore.runTransaction { transaction ->
                 val userDoc = transaction[userRef]
                 val oldUsername = userDoc.getString("anonymousName")?.lowercase()?.trim()
@@ -198,15 +200,23 @@ open class UserRepository @Inject constructor(
                 )
 
                 // 4. Update the user profile
-                transaction.update(
-                    userRef, mapOf(
-                        "anonymousName" to trimmedUsername,
-                        "isAnonymous" to false,
-                        "usernameUpdatedAt" to FieldValue.serverTimestamp(),
-                        "identityMetadata.lastIdentityChangeAt" to FieldValue.serverTimestamp(),
-                        "identityMetadata.identityChangeCount30Days" to newCount,
-                        "identityMetadata.identityResetVersion" to FieldValue.increment(1) // Trigger backend propagation
-                ))
+                val userUpdates = mutableMapOf<String, Any>(
+                    "anonymousName" to trimmedUsername,
+                    "isAnonymous" to false,
+                    "usernameUpdatedAt" to FieldValue.serverTimestamp(),
+                    "identityMetadata.lastIdentityChangeAt" to FieldValue.serverTimestamp(),
+                    "identityMetadata.identityChangeCount30Days" to newCount,
+                    "identityMetadata.identityResetVersion" to FieldValue.increment(1) // Trigger backend propagation
+                )
+                if (sigilConfig != null) {
+                    val computedSigil = UsernameGenerator.deriveSigil(sigilConfig.seed.ifBlank { user.anonymousId.ifBlank { userId } })
+                    userUpdates["sigilConfig"] = sigilConfig
+                    userUpdates["sigilSeed"] = sigilConfig.seed
+                    userUpdates["anonymousSigil"] = computedSigil
+                    newSigilForCache = computedSigil
+                }
+
+                transaction.update(userRef, userUpdates)
 
                 // 5. Transition old username to RETIRED atomically (only if old reservation doc exists)
                 if (oldUsernameRef != null && oldUsernameDoc?.exists() == true) {
@@ -230,9 +240,17 @@ open class UserRepository @Inject constructor(
             // )
 
             // Update cache
-            getCachedProfile(userId.trim())?.let { cached ->
-                userDao.get().insertProfile(mapUserToLocal(cached.copy(anonymousName = trimmedUsername, isAnonymous = false)))
-            }
+            val targetUserId = userId.trim()
+            val cached = getCachedProfile(targetUserId) ?: getCachedProfile(user.anonymousId.trim())
+            val updated = (cached ?: user).copy(
+                anonymousName = trimmedUsername,
+                isAnonymous = false,
+                sigilConfig = sigilConfig ?: (cached ?: user).sigilConfig,
+                sigilSeed = sigilConfig?.seed ?: (cached ?: user).sigilSeed,
+                anonymousSigil = newSigilForCache ?: (cached ?: user).anonymousSigil
+            )
+            userDao.get().deleteProfileByKey(targetUserId, (cached ?: user).anonymousId.trim())
+            userDao.get().insertProfile(mapUserToLocal(updated))
 
             Result.success(Unit)
         } catch (e: Exception) {
@@ -511,6 +529,7 @@ open class UserRepository @Inject constructor(
             
             // Cache the profile locally
             try {
+                userDao.get().deleteProfileByKey(profileResult.user.id.trim(), profileResult.user.anonymousId.trim())
                 userDao.get().insertProfile(mapUserToLocal(profileResult.user))
             } catch (e: Exception) {
                 diagnosticLogger.error(DiagnosticCategory.DATABASE, "USER_PROFILE_CACHE_FAILED", mapOf(LogKeys.USER_ID to profileResult.user.id), e)
@@ -592,6 +611,7 @@ open class UserRepository @Inject constructor(
             }
 
             if (user != null && user.anonymousName.isNotBlank()) {
+                userDao.get().deleteProfileByKey(user.id.trim(), user.anonymousId.trim())
                 userDao.get().insertProfile(mapUserToLocal(user))
                 return@withContext user
             }
@@ -1142,16 +1162,31 @@ open class UserRepository @Inject constructor(
             val isWithinWindow = identityProtectionPolicy.isWithinWindow(user.identityMetadata.lastIdentityChangeAt)
             val newCount = if (isWithinWindow) user.identityMetadata.identityChangeCount30Days + 1 else 1
 
+            val newSigil = UsernameGenerator.deriveSigil(config.seed.ifBlank { user.anonymousId.ifBlank { userId } })
+
             userRef.update(
                 mapOf(
                     "sigilConfig" to config,
                     "sigilSeed" to config.seed,
+                    "anonymousSigil" to newSigil,
                     "usernameUpdatedAt" to FieldValue.serverTimestamp(),
                     "identityMetadata.lastIdentityChangeAt" to FieldValue.serverTimestamp(),
                     "identityMetadata.identityChangeCount30Days" to newCount,
                     "identityMetadata.identityResetVersion" to FieldValue.increment(1) // Trigger backend propagation
                 )
             ).await()
+
+            // Update cache
+            val targetUserId = userId.trim()
+            getCachedProfile(targetUserId)?.let { cached ->
+                val updated = cached.copy(
+                    sigilConfig = config,
+                    sigilSeed = config.seed,
+                    anonymousSigil = newSigil
+                )
+                userDao.get().deleteProfileByKey(targetUserId, cached.anonymousId.trim())
+                userDao.get().insertProfile(mapUserToLocal(updated))
+            }
 
             diagnosticLogger.info(DiagnosticCategory.AUTH, "SIGIL_CONFIG_UPDATED", mapOf(LogKeys.USER_ID to userId))
             Result.success(Unit)

@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.saurabh.artifact.model.ResolvedCreatorIdentity
 import com.saurabh.artifact.ui.components.ArtifactSigil
 import com.saurabh.artifact.ui.player.PlayerUiState
 import com.saurabh.artifact.ui.theme.EmberGlow
@@ -74,7 +75,7 @@ fun MiniPlayer(
                 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = artifact.author.name,
+                        text = artifact.author.name.ifBlank { ResolvedCreatorIdentity.NEUTRAL_NAME },
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                         maxLines = 1,

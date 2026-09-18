@@ -3,6 +3,7 @@ package com.saurabh.artifact.audio
 import androidx.core.net.toUri
 import android.content.ComponentName
 import android.content.Context
+import android.os.Bundle
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -13,9 +14,11 @@ import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.model.Artifact
+import com.saurabh.artifact.model.ResolvedCreatorIdentity
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.PlayableArtifactRepository
 import com.saurabh.artifact.repository.EngagementRepository
+import com.saurabh.artifact.repository.UserRepository
 import com.saurabh.artifact.util.CoroutineExceptionHandlerUtils
 import dagger.Lazy
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -47,6 +50,7 @@ class PlaybackSessionManager @Inject constructor(
     private val analytics: PlaybackAnalyticsManager,
     private val playableArtifactRepository: Lazy<PlayableArtifactRepository>,
     private val artifactRepository: Lazy<ArtifactRepository>,
+    private val userRepository: Lazy<UserRepository>,
     private val diagnosticLogger: DiagnosticLogger,
 ) {
     private val scope = CoroutineScope(
@@ -444,6 +448,12 @@ class PlaybackSessionManager @Inject constructor(
     }
 
     private fun createMediaItem(artifact: Artifact): MediaItem {
+        val creatorProfile = runBlocking {
+            userRepository.get().getCachedProfile(artifact.userId)
+                ?: userRepository.get().getCachedProfile(artifact.author.anonymousId)
+        }
+        val resolved = ResolvedCreatorIdentity.resolve(artifact, creatorProfile)
+
         val uri = artifact.audioUrl.toUri()
             .buildUpon()
             .appendQueryParameter("artifact_id", artifact.id)
@@ -456,20 +466,20 @@ class PlaybackSessionManager @Inject constructor(
             .setMediaMetadata(
                 androidx.media3.common.MediaMetadata.Builder()
                     .setTitle(artifact.title)
-                    .setArtist(artifact.author.name)
+                    .setArtist(resolved.name)
                     .setAlbumTitle("Reflections")
                     .setGenre(artifact.emotion)
                     .setExtras(
-                        android.os.Bundle().apply {
-                            putString("author_sigil", artifact.author.sigil)
-                            putString("sigil_seed", artifact.author.sigilSeed) // Canonical identity key
+                        Bundle().apply {
+                            putString("author_sigil", resolved.sigil)
+                            putString("sigil_seed", resolved.sigilSeed) // Canonical identity key
 
                             /**
                              * TODO: Retire "avatar_seed" once all external controllers (Wear OS, Auto) 
                              * have been updated to consume "sigil_seed". 
                              * Status: Deprecated for backward compatibility.
                              */
-                            putString("avatar_seed", artifact.author.sigilSeed)
+                            putString("avatar_seed", resolved.sigilSeed)
                         }
                     )
                     .build()

@@ -2,6 +2,7 @@ package com.saurabh.artifact.audio
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.os.Bundle
 import androidx.core.net.toUri
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -31,8 +32,11 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.saurabh.artifact.diagnostics.ArtifactLogger
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.LogKeys
+import com.saurabh.artifact.model.ResolvedCreatorIdentity
 import com.saurabh.artifact.repository.PlayableArtifactRepository
 import com.saurabh.artifact.repository.EngagementRepository
+import com.saurabh.artifact.repository.UserRepository
+import dagger.Lazy
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -40,12 +44,14 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 
 @AndroidEntryPoint
 class PlaybackService : MediaSessionService() {
 
     @Inject lateinit var playableArtifactRepository: dagger.Lazy<PlayableArtifactRepository>
     @Inject lateinit var engagementRepository: dagger.Lazy<EngagementRepository>
+    @Inject lateinit var userRepository: Lazy<UserRepository>
     @Inject lateinit var settingsDataStore: PlaybackSettingsDataStore
 
     private var mediaSession: MediaSession? = null
@@ -317,6 +323,12 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun createMediaItem(artifact: com.saurabh.artifact.model.Artifact): MediaItem {
+        val creatorProfile = runBlocking {
+            userRepository.get().getCachedProfile(artifact.userId)
+                ?: userRepository.get().getCachedProfile(artifact.author.anonymousId)
+        }
+        val resolved = ResolvedCreatorIdentity.resolve(artifact, creatorProfile)
+
         val uri = artifact.audioUrl.toUri()
             .buildUpon()
             .appendQueryParameter("artifact_id", artifact.id)
@@ -325,23 +337,23 @@ class PlaybackService : MediaSessionService() {
 
         val metadata = MediaMetadata.Builder()
             .setTitle(artifact.title)
-            .setArtist(artifact.author.name)
+            .setArtist(resolved.name)
             .setAlbumTitle("Artifacts")
             .setGenre(artifact.emotion)
             .setIsBrowsable(false)
             .setIsPlayable(true)
             .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
             .setExtras(
-                android.os.Bundle().apply {
-                    putString("author_sigil", artifact.author.sigil)
-                    putString("sigil_seed", artifact.author.sigilSeed) // Canonical identity key
+                Bundle().apply {
+                    putString("author_sigil", resolved.sigil)
+                    putString("sigil_seed", resolved.sigilSeed) // Canonical identity key
                     
                     /**
                      * TODO: Retire "avatar_seed" once all external controllers (Wear OS, Auto) 
                      * have been updated to consume "sigil_seed". 
                      * Status: Deprecated for backward compatibility.
                      */
-                    putString("avatar_seed", artifact.author.sigilSeed) 
+                    putString("avatar_seed", resolved.sigilSeed) 
                 }
             )
             .build()

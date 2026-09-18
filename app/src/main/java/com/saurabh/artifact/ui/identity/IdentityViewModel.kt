@@ -201,45 +201,34 @@ class IdentityViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = IdentityUiState.Loading
 
-            if (sigilChanged) {
-                val sigilResult = userProfileManager.updateSigilConfig(_sigilConfig.value)
-                if (sigilResult.isFailure && candidate.isNullOrEmpty()) {
-                    val e = sigilResult.exceptionOrNull()
-                    diagnosticLogger.error(DiagnosticCategory.PROFILE, "SIGIL_SAVE_FAILED", throwable = e)
-                    _uiState.value = IdentityUiState.Error(ErrorMessageMapper.map(e ?: Exception("Failed to update sigil")))
-                    return@launch
-                }
-            }
-
-            if (!candidate.isNullOrEmpty()) {
+            val newCandidate = if (!candidate.isNullOrEmpty()) {
                 if (!UsernameGenerator.isValid(candidate)) {
                     _uiState.value = IdentityUiState.Idle
                     return@launch
                 }
+                candidate
+            } else null
 
-                userProfileManager.updateUsername(candidate)
-                    .onSuccess {
-                        _initialSigilConfig.value = _sigilConfig.value
-                        _uiState.value = IdentityUiState.Idle
-                        onSuccess()
+            val newSigilConfig = if (sigilChanged) _sigilConfig.value else null
+
+            userProfileManager.updateIdentity(newCandidate, newSigilConfig)
+                .onSuccess {
+                    _initialSigilConfig.value = _sigilConfig.value
+                    _uiState.value = IdentityUiState.Idle
+                    onSuccess()
+                }
+                .onFailure { e ->
+                    diagnosticLogger.error(DiagnosticCategory.PROFILE, "IDENTITY_SAVE_FAILED", throwable = e)
+                    if (e is AppError.UsernameTaken) {
+                        _selectedCandidate.value = null
+                        _uiState.value = IdentityUiState.Error(
+                            UiText.DynamicString("That identity was just reserved. Fresh options loaded.")
+                        )
+                        loadCandidateBatch()
+                    } else {
+                        _uiState.value = IdentityUiState.Error(ErrorMessageMapper.map(e))
                     }
-                    .onFailure { e ->
-                        diagnosticLogger.error(DiagnosticCategory.PROFILE, "USERNAME_SAVE_FAILED", throwable = e)
-                        if (e is AppError.UsernameTaken) {
-                            _selectedCandidate.value = null
-                            _uiState.value = IdentityUiState.Error(
-                                UiText.DynamicString("That identity was just reserved. Fresh options loaded.")
-                            )
-                            loadCandidateBatch()
-                        } else {
-                            _uiState.value = IdentityUiState.Error(ErrorMessageMapper.map(e))
-                        }
-                    }
-            } else {
-                _initialSigilConfig.value = _sigilConfig.value
-                _uiState.value = IdentityUiState.Idle
-                onSuccess()
-            }
+                }
         }
     }
 }

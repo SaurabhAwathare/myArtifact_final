@@ -6,13 +6,17 @@ import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.FeedDisplayItem
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.AuthRepository
+import com.saurabh.artifact.model.AuthorSnapshot
+import com.saurabh.artifact.model.ResolvedCreatorIdentity
+import com.saurabh.artifact.repository.UserRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 
 class GetFeedFlowUseCase @Inject constructor(
     private val artifactRepository: ArtifactRepository,
-    private val authRepository: AuthRepository
+    private val authRepository: AuthRepository,
+    private val userRepository: UserRepository? = null
 ) {
     operator fun invoke(emotion: String?): Flow<PagingData<FeedDisplayItem.ArtifactItem>> {
         return artifactRepository.getArtifactsPager(emotion).map { pagingData ->
@@ -25,14 +29,21 @@ class GetFeedFlowUseCase @Inject constructor(
         }
     }
 
-    private fun resolveIdentity(artifact: Artifact): Artifact {
+    private suspend fun resolveIdentity(artifact: Artifact): Artifact {
         val currentUser = authRepository.currentUser.value ?: return artifact
         val userId = currentUser.uid
         
         return if (artifact.userId == userId) {
+            val creatorProfile = userRepository?.getCachedProfile(userId)
+            val resolved = ResolvedCreatorIdentity.resolve(artifact, creatorProfile)
             artifact.copy(
-                author = artifact.author.copy(
-                    name = artifact.author.name.ifEmpty { "anonymous soul" }
+                author = AuthorSnapshot(
+                    anonymousId = resolved.personaId,
+                    name = resolved.name,
+                    sigil = resolved.sigil,
+                    sigilSeed = resolved.sigilSeed,
+                    sigilColor = resolved.sigilColor,
+                    sigilConfig = resolved.sigilConfig
                 )
             )
         } else {

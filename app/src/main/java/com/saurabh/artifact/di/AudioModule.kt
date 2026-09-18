@@ -11,6 +11,7 @@ import com.saurabh.artifact.audio.ReviewAuthorityService
 import com.saurabh.artifact.audio.ReviewSessionManager
 import com.saurabh.artifact.audio.TransientPlayerManager
 import com.saurabh.artifact.nlp.EmotionAnalyzer
+import com.saurabh.artifact.repository.UserRepository
 import dagger.Lazy
 import dagger.Module
 import dagger.Provides
@@ -33,6 +34,7 @@ object AudioModule {
         analytics: PlaybackAnalyticsManager,
         playableArtifactRepository: Lazy<com.saurabh.artifact.repository.PlayableArtifactRepository>,
         artifactRepository: Lazy<com.saurabh.artifact.repository.ArtifactRepository>,
+        userRepository: Lazy<UserRepository>,
         diagnosticLogger: com.saurabh.artifact.diagnostics.DiagnosticLogger
     ): PlaybackSessionManager = 
         PlaybackSessionManager(
@@ -42,7 +44,8 @@ object AudioModule {
             settingsDataStore, 
             analytics, 
             playableArtifactRepository, 
-            artifactRepository, 
+            artifactRepository,
+            userRepository,
             diagnosticLogger
         )
 
