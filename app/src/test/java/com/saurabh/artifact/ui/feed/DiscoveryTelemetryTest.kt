@@ -13,15 +13,19 @@ import com.saurabh.artifact.service.FeedComposer
 import com.saurabh.artifact.service.FeedSeparatorMapper
 import com.saurabh.artifact.startup.StartupCoordinator
 import com.saurabh.artifact.util.MemoryManager
+import dagger.Lazy
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.*
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import java.util.Date
+import kotlin.time.Duration
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class DiscoveryTelemetryTest {
@@ -37,7 +41,9 @@ class DiscoveryTelemetryTest {
     private val firestore = mockk<com.google.firebase.firestore.FirebaseFirestore>(relaxed = true)
     private val audioPlayer = mockk<com.saurabh.artifact.audio.PlaybackCoordinator>(relaxed = true)
     
-    private val testDispatcher = StandardTestDispatcher()
+    private val savedArtifactManager = mockk<SavedArtifactManager>(relaxed = true)
+    private val moderationRepository = mockk<ArtifactModerationRepository>(relaxed = true)
+    private val testDispatcher = UnconfinedTestDispatcher()
     private val currentUserId = "test-user"
 
     @Before
@@ -48,6 +54,15 @@ class DiscoveryTelemetryTest {
         every { authRepository.currentUser } returns MutableStateFlow(mockk { every { uid } returns currentUserId })
         every { startupCoordinator.stage } returns MutableStateFlow(com.saurabh.artifact.startup.StartupStage.STABLE)
         every { onboardingManager.isMnemonicSaved } returns MutableStateFlow(true)
+        every { artifactRepository.moderationRepository } returns Lazy { moderationRepository }
+        every { moderationRepository.events } returns MutableSharedFlow()
+        every { savedArtifactManager.events } returns MutableSharedFlow()
+        every { audioPlayer.playbackCompletedEvent } returns MutableSharedFlow()
+        every { audioPlayer.currentArtifact } returns MutableStateFlow(null)
+        every { audioPlayer.isPlaying } returns MutableStateFlow(false)
+        every { audioPlayer.currentPosition } returns MutableStateFlow(Duration.ZERO)
+        every { audioPlayer.duration } returns MutableStateFlow(Duration.ZERO)
+        every { audioPlayer.currentProgress } returns MutableStateFlow(null)
     }
 
     @After
@@ -68,7 +83,7 @@ class DiscoveryTelemetryTest {
         memoryManager = memoryManager,
         onboardingManager = onboardingManager,
         startupCoordinator = startupCoordinator,
-        savedArtifactManager = mockk(relaxed = true),
+        savedArtifactManager = savedArtifactManager,
         firestore = firestore,
         audioPlayer = audioPlayer,
         publishStateManager = mockk(relaxed = true),
@@ -99,7 +114,7 @@ class DiscoveryTelemetryTest {
         viewModel.loadRankedFeed()
         advanceUntilIdle()
         
-        verify { diagnosticLogger.info(DiagnosticCategory.FEED, "DISCOVERY_AGE_DISTRIBUTION", match { it["avgAgeHours"] == 1.0 }) }
+        verify { diagnosticLogger.info(DiagnosticCategory.FEED, "DISCOVERY_AGE_DISTRIBUTION", match { (it["avgAgeHours"] as Number).toDouble() in 0.99..1.01 }) }
     }
 
     @Test

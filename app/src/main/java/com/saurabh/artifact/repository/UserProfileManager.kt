@@ -1,6 +1,8 @@
 package com.saurabh.artifact.repository
 
 import com.saurabh.artifact.data.local.UserSessionManager
+import com.saurabh.artifact.diagnostics.ArtifactLogger
+import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.domain.ArtifactVisibilityFilter
 import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.worker.IdentitySyncWorker
@@ -219,12 +221,12 @@ class UserProfileManager @Inject constructor(
         // 3. Local Sync for local artifacts
         if (userId.isNotEmpty()) {
             managerScope.launch {
-                Log.d("UserProfileManager", "Launching local sync for $userId")
+                ArtifactLogger.d(DiagnosticCategory.PROFILE, "LAUNCHING_LOCAL_SYNC", mapOf("user_id" to userId))
                 val currentProfile = sessionManager.userProfile.first()
                 val latestUser = userRepository.getOrCreateProfile().getOrNull()?.user
                 val currentVersion = latestUser?.identityMetadata?.identityResetVersion ?: 0L
                 
-                Log.d("UserProfileManager", "Got profile for sync: ${currentProfile.username}")
+                ArtifactLogger.d(DiagnosticCategory.PROFILE, "GOT_PROFILE_FOR_SYNC", mapOf("username" to currentProfile.username))
                 artifactRepository.updateLocalAuthorSnapshot(
                     userId = userId,
                     snapshot = AuthorSnapshot(
@@ -248,7 +250,7 @@ class UserProfileManager @Inject constructor(
      */
     suspend fun updateUsername(username: String): Result<Unit> {
         val userId = authRepository.currentUserId
-        Log.d("UserProfileManager", "updateUsername: userId='$userId'")
+        ArtifactLogger.d(DiagnosticCategory.PROFILE, "UPDATE_USERNAME_STARTED", mapOf("user_id" to userId, "username" to username))
 
         // 1. If authenticated, update Firestore first
         if (userId.isNotEmpty()) {
@@ -265,12 +267,12 @@ class UserProfileManager @Inject constructor(
         // 3. Local Sync for local artifacts
         if (userId.isNotEmpty()) {
             managerScope.launch {
-                Log.d("UserProfileManager", "Launching local sync for $userId")
+                ArtifactLogger.d(DiagnosticCategory.PROFILE, "LAUNCHING_LOCAL_SYNC", mapOf("user_id" to userId))
                 val currentProfile = sessionManager.userProfile.first()
                 val latestUser = userRepository.getOrCreateProfile().getOrNull()?.user
                 val currentVersion = latestUser?.identityMetadata?.identityResetVersion ?: 0L
 
-                Log.d("UserProfileManager", "Got profile for sync: ${currentProfile.username}")
+                ArtifactLogger.d(DiagnosticCategory.PROFILE, "GOT_PROFILE_FOR_SYNC", mapOf("username" to currentProfile.username))
                 artifactRepository.updateLocalAuthorSnapshot(
                     userId = userId,
                     snapshot = AuthorSnapshot(

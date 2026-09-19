@@ -536,7 +536,10 @@ fun StudioApprovalStep(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = ArtifactTheme.colors.surfaceHearth)
         ) {
-            Column(modifier = Modifier.padding(Spacing.Large)) {
+            Column(
+                modifier = Modifier.padding(Spacing.Large),
+                verticalArrangement = Arrangement.spacedBy(Spacing.Medium)
+            ) {
                 SummaryRow(label = "Title", value = state.title)
                 val emotionsSummary = if (state.effectiveEmotions.isNotEmpty()) {
                     state.effectiveEmotions.joinToString(", ") { "${it.emoji} ${it.label}" }
@@ -620,12 +623,22 @@ fun StudioPublishingStep(
 @Composable
 fun SummaryRow(label: String, value: String) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.Medium),
+        verticalAlignment = Alignment.Top
     ) {
-        Text(label, style = MaterialTheme.typography.labelLarge, color = Color.White.copy(alpha = 0.5f))
-        Text(value, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+        Text(
+            text = label,
+            modifier = Modifier.widthIn(min = 72.dp),
+            style = MaterialTheme.typography.labelLarge,
+            color = Color.White.copy(alpha = 0.5f)
+        )
+        Text(
+            text = value,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Medium,
+            textAlign = TextAlign.End
+        )
     }
 }

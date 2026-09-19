@@ -120,7 +120,10 @@ class ArtifactVisibilityFilterTest {
         val listenerSlot = slot<EventListener<QuerySnapshot>>()
         every { collectionRef.addSnapshotListener(capture(listenerSlot)) } returns mockk(relaxed = true)
 
-        val permissionDeniedException = mockk<FirebaseFirestoreException>(relaxed = true)
+        val permissionDeniedException = FirebaseFirestoreException(
+            "Permission denied",
+            FirebaseFirestoreException.Code.PERMISSION_DENIED
+        )
 
         var flowCompletedNormally = false
         val job = launch {

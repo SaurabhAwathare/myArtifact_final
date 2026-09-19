@@ -29,6 +29,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import androidx.annotation.OptIn
+import com.saurabh.artifact.diagnostics.SessionManager
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -50,6 +51,7 @@ class LogoutCoordinator @Inject constructor(
     private val databaseEncryptionManager: com.saurabh.artifact.security.DatabaseEncryptionManager,
     private val personalizationEngine: dagger.Lazy<com.saurabh.artifact.service.PersonalizationEngine>,
     private val diagnosticLogger: DiagnosticLogger,
+    private val diagnosticSessionManager: SessionManager? = null,
 ) {
 
     // Dispatchers can be overridden for testing
@@ -276,6 +278,7 @@ class LogoutCoordinator @Inject constructor(
 
                 // PHASE D: Finalize
                 diagnosticLogger.debug(DiagnosticCategory.AUTH, "LOGOUT_CLEANUP_PHASE_D")
+                diagnosticSessionManager?.rotateSession()
                 
                 CleanupResult(
                     status = CleanupStatus.COMPLETED,

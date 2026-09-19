@@ -10,6 +10,8 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.saurabh.artifact.model.User
 import com.saurabh.artifact.model.UserPrivateSettings
+import com.saurabh.artifact.diagnostics.ArtifactLogger
+import com.saurabh.artifact.diagnostics.FakeDiagnosticLogger
 import io.mockk.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
@@ -33,6 +35,7 @@ class ProfileHealthCheckerTest {
     @Before
     fun setup() {
         clearMocks(auth, firestore, firebaseUser)
+        ArtifactLogger.init(FakeDiagnosticLogger())
 
         profileHealthChecker = ProfileHealthChecker(auth, firestore)
         every { auth.currentUser } returns firebaseUser

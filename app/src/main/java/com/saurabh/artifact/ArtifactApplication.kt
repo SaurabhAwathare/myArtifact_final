@@ -9,16 +9,8 @@ import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import coil.request.CachePolicy
-import com.google.firebase.FirebaseApp
-import com.google.firebase.appcheck.FirebaseAppCheck
-import com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory
-import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FieldValue
-import com.google.firebase.firestore.FirebaseFirestore
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
-import com.saurabh.artifact.startup.SecurityInitializer
 import com.saurabh.artifact.startup.StartupCoordinator
 import com.saurabh.artifact.util.MemoryManager
 import com.saurabh.artifact.util.StartupTracer
@@ -60,26 +52,6 @@ class ArtifactApplication : Application(), ImageLoaderFactory, Configuration.Pro
     private var _imageLoader: ImageLoader? = null
 
     override fun onCreate() {
-        // 1. Install App Check Factory IMMEDIATELY (before any Hilt/Firebase access)
-        try {
-            if (FirebaseApp.getApps(this).isNotEmpty()) {
-                if (BuildConfig.DEBUG) {
-                    SecurityInitializer.configureFixedDebugAppCheckSecret(this)
-                    val firebaseAppCheck = FirebaseAppCheck.getInstance()
-                    firebaseAppCheck.installAppCheckProviderFactory(
-                        DebugAppCheckProviderFactory.getInstance()
-                    )
-                } else {
-                    val firebaseAppCheck = FirebaseAppCheck.getInstance()
-                    firebaseAppCheck.installAppCheckProviderFactory(
-                        PlayIntegrityAppCheckProviderFactory.getInstance()
-                    )
-                }
-            }
-        } catch (e: Exception) {
-            Log.w("ArtifactApp", "AppCheck init skipped: ${e.message}")
-        }
-
         super.onCreate()
         
         // Initialize Logger

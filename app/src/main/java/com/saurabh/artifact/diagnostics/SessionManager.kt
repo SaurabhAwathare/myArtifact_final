@@ -9,5 +9,12 @@ import javax.inject.Singleton
  */
 @Singleton
 class SessionManager @Inject constructor() {
-    val sessionId: String = UUID.randomUUID().toString().take(8).uppercase()
+    var sessionId: String = generateSessionId()
+        private set
+
+    fun rotateSession() {
+        sessionId = generateSessionId()
+    }
+
+    private fun generateSessionId(): String = UUID.randomUUID().toString().take(8).uppercase()
 }
