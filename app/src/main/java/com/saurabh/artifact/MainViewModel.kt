@@ -94,15 +94,22 @@ class MainViewModel @Inject constructor(
     val isStealthModeEnabled = observeStealthModeUseCase()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
-    private val ignoredUsers = authRepository.currentUser
-        .flatMapLatest { user ->
-            if (user != null) {
-                visibilityFilter.observeIgnoredUserIds(user.uid)
-            } else {
-                flowOf(emptySet())
-            }
+    private val ignoredUsers = combine(
+        authRepository.currentUser,
+        startupCoordinator.preloadResult
+    ) { user, preloadResult ->
+        if (user != null && (preloadResult is PreloadResult.Success || preloadResult is PreloadResult.InitialSetup)) {
+            user.uid
+        } else {
+            null
         }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
+    }.flatMapLatest { uid ->
+        if (uid != null) {
+            visibilityFilter.observeIgnoredUserIds(uid)
+        } else {
+            flowOf(emptySet())
+        }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
 
     private val _isCurrentScreenSensitive = MutableStateFlow(false)
 
