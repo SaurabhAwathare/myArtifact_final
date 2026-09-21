@@ -363,7 +363,8 @@ private fun FeedContent(
                     reflectionPrompt = reflectionPrompt, 
                     stage = stage, 
                     onNavigateToRecord = onNavigateToRecord, 
-                    onNavigateToSecurity = onNavigateToSecurity
+                    onNavigateToSecurity = onNavigateToSecurity,
+                    selectedEmotion = selectedEmotion
                 )
             }
 
@@ -440,7 +441,8 @@ fun FeedHeader(
     stage: StartupStage,
     onNavigateToRecord: (String?) -> Unit,
     modifier: Modifier = Modifier,
-    onNavigateToSecurity: () -> Unit = {}
+    onNavigateToSecurity: () -> Unit = {},
+    selectedEmotion: String? = null
 ) {
     val logger = ArtifactTheme.logger
     val isPromptLoading by viewModel.isPromptLoading.collectAsStateWithLifecycle()
@@ -470,19 +472,21 @@ fun FeedHeader(
             )
         }
 
-        if (!isMnemonicSaved && (stage >= StartupStage.IMMERSION)) {
-            SecurityNudgeCard(onClick = onNavigateToSecurity)
-        }
+        if (selectedEmotion == null) {
+            if (!isMnemonicSaved && (stage >= StartupStage.IMMERSION)) {
+                SecurityNudgeCard(onClick = onNavigateToSecurity)
+            }
 
-        // Defer heavy prompt card rendering until IMMERSION stage
-        FadeInContent(visible = stage >= StartupStage.IMMERSION) {
-            ReflectionPromptCard(
-                prompt = reflectionPrompt,
-                isLoading = isPromptLoading,
-                safetyLevel = safetyLevel,
-                onUse = { onNavigateToRecord(it) },
-                onRefresh = { viewModel.refreshReflectionPrompt() }
-            )
+            // Defer heavy prompt card rendering until IMMERSION stage
+            FadeInContent(visible = stage >= StartupStage.IMMERSION) {
+                ReflectionPromptCard(
+                    prompt = reflectionPrompt,
+                    isLoading = isPromptLoading,
+                    safetyLevel = safetyLevel,
+                    onUse = { onNavigateToRecord(it) },
+                    onRefresh = { viewModel.refreshReflectionPrompt() }
+                )
+            }
         }
     }
 }
