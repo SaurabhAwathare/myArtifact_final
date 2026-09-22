@@ -2,6 +2,7 @@ package com.saurabh.artifact.repository
 
 import android.content.Context
 import android.util.Log
+import android.util.SparseArray
 import com.google.android.gms.tasks.Task
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
@@ -12,6 +13,10 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.QuerySnapshot
 import com.google.firebase.storage.FirebaseStorage
+import com.google.firebase.functions.FirebaseFunctions
+import com.google.firebase.functions.FirebaseFunctionsException
+import com.google.firebase.functions.HttpsCallableReference
+import com.google.firebase.functions.HttpsCallableResult
 import com.saurabh.artifact.audio.LocalDraftManager
 import com.saurabh.artifact.domain.prompt.ReflectionPromptManager
 import com.saurabh.artifact.data.local.*
@@ -33,6 +38,7 @@ class ArtifactRepositoryTest {
     private val auth = mockk<FirebaseAuth>(relaxed = true)
     private val firestore = mockk<FirebaseFirestore>(relaxed = true)
     private val storage = mockk<FirebaseStorage>(relaxed = true)
+    private val functions = mockk<FirebaseFunctions>(relaxed = true)
     private val draftDao = mockk<DraftDao>(relaxed = true)
     private val userRepository = mockk<UserRepository>(relaxed = true)
     private val artifactDao = mockk<ArtifactDao>(relaxed = true)
@@ -65,6 +71,7 @@ class ArtifactRepositoryTest {
             auth = auth,
             firestore = firestore,
             storage = storage,
+            functions = functions,
             draftDao = { draftDao },
             userRepository = { userRepository },
             artifactDao = { artifactDao },
@@ -229,39 +236,76 @@ class ArtifactRepositoryTest {
     }
 
     @Test
-    fun `performRemoteDelete should perform soft delete by setting status to DELETED`() = runBlocking {
+    fun `performRemoteDelete should call deleteArtifact callable and succeed when authorized`() = runBlocking {
         val artifactId = "art123"
         val userId = "user123"
         
         every { auth.currentUser?.uid } returns userId
         
-        val docRef = mockk<DocumentReference>(relaxed = true)
-        every { firestore.collection("artifacts").document(artifactId) } returns docRef
+        val callable = mockk<HttpsCallableReference>(relaxed = true)
+        val callableResult = mockk<HttpsCallableResult>(relaxed = true)
+        val callTask = mockk<Task<HttpsCallableResult>>(relaxed = true)
         
-        val snapshot = mockk<com.google.firebase.firestore.DocumentSnapshot>(relaxed = true)
-        every { snapshot.exists() } returns true
-        every { snapshot.getString("userId") } returns userId
-        
-        val getTask = mockk<com.google.android.gms.tasks.Task<com.google.firebase.firestore.DocumentSnapshot>>(relaxed = true)
-        every { docRef.get() } returns getTask
+        every { functions.getHttpsCallable("deleteArtifact") } returns callable
+        every { callable.call(mapOf("artifactId" to artifactId)) } returns callTask
         
         mockkStatic("kotlinx.coroutines.tasks.TasksKt")
-        coEvery { getTask.await() } returns snapshot
-
-        // Mock Bridge
-        coEvery { moderationRepository.isCurrentUserAdmin() } returns false
-        coEvery { moderationRepository.softDeleteArtifact(artifactId) } returns Result.success(Unit)
+        coEvery { callTask.await() } returns callableResult
 
         val result = repository.performRemoteDelete(artifactId)
 
         assert(result.isSuccess)
         
-        // Verify bridge calls
-        coVerify { moderationRepository.softDeleteArtifact(artifactId) }
-        
         // Phase 2 Compliance: Verify NO local cleanup occurs in repository
         coVerify(exactly = 0) { artifactDao.deleteById(any()) }
         coVerify { userRepository.enqueueArtifactCountDecrement(userId, artifactId) }
+    }
+
+    @Test
+    fun `performRemoteDelete when deleteArtifact returns PERMISSION_DENIED should fail with Unauthorized`() = runBlocking {
+        val artifactId = "art123"
+        val currentUserId = "user_current"
+        
+        every { auth.currentUser?.uid } returns currentUserId
+        
+        val callable = mockk<HttpsCallableReference>(relaxed = true)
+        val callTask = mockk<Task<HttpsCallableResult>>(relaxed = true)
+        
+        every { functions.getHttpsCallable("deleteArtifact") } returns callable
+        every { callable.call(mapOf("artifactId" to artifactId)) } returns callTask
+        
+        val permDeniedException = Exception("PERMISSION_DENIED: Unauthorized: You do not own this reflection")
+        
+        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        coEvery { callTask.await() } throws permDeniedException
+
+        val result = repository.performRemoteDelete(artifactId)
+
+        assert(result.isFailure)
+        assertEquals("Unauthorized: You do not own this reflection", result.exceptionOrNull()?.message)
+    }
+
+    @Test
+    fun `performRemoteDelete when deleteArtifact returns NOT_FOUND should treat as idempotent success`() = runBlocking {
+        val artifactId = "art_legacy_123"
+        val currentUserId = "user_owner"
+        
+        every { auth.currentUser?.uid } returns currentUserId
+        
+        val callable = mockk<HttpsCallableReference>(relaxed = true)
+        val callTask = mockk<Task<HttpsCallableResult>>(relaxed = true)
+        
+        every { functions.getHttpsCallable("deleteArtifact") } returns callable
+        every { callable.call(mapOf("artifactId" to artifactId)) } returns callTask
+        
+        val notFoundException = Exception("NOT_FOUND: Artifact already deleted")
+        
+        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        coEvery { callTask.await() } throws notFoundException
+
+        val result = repository.performRemoteDelete(artifactId)
+
+        assert(result.isSuccess)
     }
 
     @Test

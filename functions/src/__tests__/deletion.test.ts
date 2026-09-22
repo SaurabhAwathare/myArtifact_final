@@ -7,6 +7,7 @@ const testEnv = functionsTest();
 // Improved Mocking for Deletion Tests
 const mockBulkWriter = {
   update: jest.fn(),
+  delete: jest.fn(),
   close: jest.fn(() => Promise.resolve()),
 };
 
@@ -35,7 +36,7 @@ const mockDoc: any = {
 };
 
 const mockCollection: any = {
-  doc: jest.fn(() => mockDoc),
+  doc: jest.fn((id?: string) => mockFirestore.doc(id || "mock_id")),
   where: jest.fn().mockReturnThis(),
   limit: jest.fn().mockReturnThis(),
   get: jest.fn(),
@@ -46,7 +47,10 @@ mockDoc.collection.mockReturnValue(mockCollection);
 mockDoc.get.mockResolvedValue(mockDoc);
 
 const mockFirestore: any = {
-  collection: jest.fn(() => mockCollection),
+  collection: jest.fn((colName: string) => ({
+    ...mockCollection,
+    doc: jest.fn((docId: string) => mockFirestore.doc(`${colName}/${docId}`)),
+  })),
   collectionGroup: jest.fn(() => mockCollection),
   doc: jest.fn(() => mockDoc),
   batch: jest.fn(() => ({
@@ -125,7 +129,7 @@ describe("Account Deletion Pipeline", () => {
       await wrapped({ uid } as any);
 
       expect(mockBucket.getFiles).toHaveBeenCalledWith({ prefix: `backups/${uid}/` });
-      expect(mockBulkWriter.update).toHaveBeenCalledTimes(2);
+      expect(mockBulkWriter.delete).toHaveBeenCalledTimes(2);
       expect(mockBulkWriter.close).toHaveBeenCalled();
       expect(mockFirestore.recursiveDelete).toHaveBeenCalled();
     });
@@ -193,4 +197,221 @@ describe("Account Deletion Pipeline", () => {
       expect(mockBucket.file).toHaveBeenCalledWith(`transcripts/${userId}_${artifactId}.json`);
     });
   });
+
+  describe("deleteArtifact Callable Function", () => {
+    function makeSnap(exists: boolean, dataObj: any, docPath: string = "") {
+      const snap: any = {
+        exists,
+        data: () => dataObj,
+        update: mockDoc.update,
+        collection: (colName: string) => ({
+          doc: (id: string) => {
+            const childPath = docPath ? `${docPath}/${colName}/${id}` : `${colName}/${id}`;
+            return mockFirestore.doc(childPath);
+          },
+        }),
+      };
+      snap.get = jest.fn(() => Promise.resolve(snap));
+      return snap;
+    }
+
+    it("TEST 1: Authenticated Creator + modern Artifact with matching userId -> deletion authorized", async () => {
+      const callerUid = "user_owner_123";
+      const artifactId = "art_modern_1";
+      const wrapped = testEnv.wrap(myFunctions.deleteArtifact);
+
+      const artifactData = {
+        userId: callerUid,
+        status: "ACTIVE",
+        isPublic: true,
+      };
+
+      mockFirestore.doc.mockImplementation((path: string) => {
+        if (path === `artifacts/${artifactId}`) {
+          return makeSnap(true, artifactData, path);
+        }
+        if (path === `users/${callerUid}/private/settings`) {
+          return makeSnap(false, {}, path);
+        }
+        return makeSnap(false, {}, path);
+      });
+
+      const res = await wrapped({ artifactId }, { auth: { uid: callerUid } });
+
+      expect(res).toEqual({ status: "SUCCESS", artifactId });
+      expect(mockDoc.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "DELETED",
+          isPublic: false,
+        })
+      );
+    });
+
+    it("TEST 2: Authenticated Creator + legacy Artifact with missing userId but valid persona_mapping -> deletion authorized", async () => {
+      const callerUid = "user_owner_123";
+      const anonId = "anon_persona_abc";
+      const artifactId = "art_legacy_1";
+      const wrapped = testEnv.wrap(myFunctions.deleteArtifact);
+
+      const artifactData = {
+        author: { anonymousId: anonId },
+        status: "ACTIVE",
+        isPublic: true,
+      };
+
+      mockFirestore.doc.mockImplementation((path: string) => {
+        if (path === `artifacts/${artifactId}`) {
+          return makeSnap(true, artifactData, path);
+        }
+        if (path === `persona_mapping/${anonId}`) {
+          return makeSnap(true, { userId: callerUid }, path);
+        }
+        if (path === `users/${callerUid}/private/settings`) {
+          return makeSnap(false, {}, path);
+        }
+        return makeSnap(false, {}, path);
+      });
+
+      const res = await wrapped({ artifactId }, { auth: { uid: callerUid } });
+
+      expect(res).toEqual({ status: "SUCCESS", artifactId });
+      expect(mockDoc.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "DELETED",
+          isPublic: false,
+        })
+      );
+    });
+
+    it("TEST 3: Authenticated User A + Artifact owned by User B -> permission-denied", async () => {
+      const userA = "user_A";
+      const userB = "user_B";
+      const artifactId = "art_user_B";
+      const wrapped = testEnv.wrap(myFunctions.deleteArtifact);
+
+      mockFirestore.doc.mockImplementation((path: string) => {
+        if (path === `artifacts/${artifactId}`) {
+          return makeSnap(true, { userId: userB, status: "ACTIVE" }, path);
+        }
+        if (path === `users/${userA}/private/settings`) {
+          return makeSnap(false, {}, path);
+        }
+        return makeSnap(false, {}, path);
+      });
+
+      await expect(wrapped({ artifactId }, { auth: { uid: userA } })).rejects.toThrow("Unauthorized: You do not own this reflection.");
+      expect(mockDoc.update).not.toHaveBeenCalled();
+    });
+
+    it("TEST 4: Authenticated User A + fake private registry entry pointing to User B's Artifact -> permission-denied", async () => {
+      const userA = "user_attacker";
+      const userB = "user_victim";
+      const artifactId = "victim_art";
+      const wrapped = testEnv.wrap(myFunctions.deleteArtifact);
+
+      mockFirestore.doc.mockImplementation((path: string) => {
+        if (path === `artifacts/${artifactId}`) {
+          return makeSnap(true, { userId: userB, status: "ACTIVE" }, path);
+        }
+        return makeSnap(false, {}, path);
+      });
+
+      await expect(wrapped({ artifactId }, { auth: { uid: userA } })).rejects.toThrow("Unauthorized: You do not own this reflection.");
+      expect(mockDoc.update).not.toHaveBeenCalled();
+    });
+
+    it("TEST 5: Client supplies userId = User B while authenticated as User A -> supplied userId ignored -> permission-denied", async () => {
+      const userA = "user_A";
+      const userB = "user_B";
+      const artifactId = "art_user_B";
+      const wrapped = testEnv.wrap(myFunctions.deleteArtifact);
+
+      mockFirestore.doc.mockImplementation((path: string) => {
+        if (path === `artifacts/${artifactId}`) {
+          return makeSnap(true, { userId: userB, status: "ACTIVE" }, path);
+        }
+        return makeSnap(false, {}, path);
+      });
+
+      await expect(wrapped({ artifactId, userId: userB }, { auth: { uid: userA } })).rejects.toThrow("Unauthorized: You do not own this reflection.");
+      expect(mockDoc.update).not.toHaveBeenCalled();
+    });
+
+    it("TEST 6: Artifact with conflicting ownership information -> safely deny with permission-denied", async () => {
+      const userA = "user_attacker";
+      const userB = "user_canonical_owner";
+      const anonId = "claimed_anon_id";
+      const artifactId = "art_conflict";
+      const wrapped = testEnv.wrap(myFunctions.deleteArtifact);
+
+      mockFirestore.doc.mockImplementation((path: string) => {
+        if (path === `artifacts/${artifactId}`) {
+          return makeSnap(true, { userId: userB, author: { anonymousId: anonId }, status: "ACTIVE" }, path);
+        }
+        if (path === `persona_mapping/${anonId}`) {
+          return makeSnap(true, { userId: userA }, path);
+        }
+        return makeSnap(false, {}, path);
+      });
+
+      await expect(wrapped({ artifactId }, { auth: { uid: userA } })).rejects.toThrow("Unauthorized: You do not own this reflection.");
+      expect(mockDoc.update).not.toHaveBeenCalled();
+    });
+
+    it("TEST 7: Artifact does not exist -> idempotent success / already deleted response", async () => {
+      const callerUid = "user_123";
+      const artifactId = "non_existent_art";
+      const wrapped = testEnv.wrap(myFunctions.deleteArtifact);
+
+      mockFirestore.doc.mockImplementation((path: string) => {
+        if (path === `artifacts/${artifactId}`) {
+          return makeSnap(false, null, path);
+        }
+        return makeSnap(false, {}, path);
+      });
+
+      const res = await wrapped({ artifactId }, { auth: { uid: callerUid } });
+      expect(res).toEqual({ status: "SUCCESS", message: "Artifact already deleted.", artifactId });
+    });
+
+    it("TEST 8: Unauthenticated caller -> unauthenticated", async () => {
+      const wrapped = testEnv.wrap(myFunctions.deleteArtifact);
+
+      await expect(wrapped({ artifactId: "art_123" }, { auth: null as any })).rejects.toThrow("Authentication required.");
+    });
+
+    it("TEST 9: Malformed / missing artifactId -> invalid-argument", async () => {
+      const wrapped = testEnv.wrap(myFunctions.deleteArtifact);
+
+      await expect(wrapped({}, { auth: { uid: "user_123" } })).rejects.toThrow("Valid artifactId is required.");
+      await expect(wrapped({ artifactId: "" }, { auth: { uid: "user_123" } })).rejects.toThrow("Valid artifactId is required.");
+    });
+
+    it("TEST 10: Admin deletion -> global admin can delete any artifact", async () => {
+      const adminUid = "admin_user_999";
+      const userB = "user_B";
+      const artifactId = "art_user_B";
+      const wrapped = testEnv.wrap(myFunctions.deleteArtifact);
+
+      mockFirestore.doc.mockImplementation((path: string) => {
+        if (path === `artifacts/${artifactId}`) {
+          return makeSnap(true, { userId: userB, status: "ACTIVE" }, path);
+        }
+        if (path === `users/${adminUid}/private/settings`) {
+          return makeSnap(true, { isAdmin: true }, path);
+        }
+        return makeSnap(false, {}, path);
+      });
+
+      const res = await wrapped({ artifactId }, { auth: { uid: adminUid } });
+      expect(res).toEqual({ status: "SUCCESS", artifactId });
+      expect(mockDoc.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "DELETED",
+          isPublic: false,
+        })
+      );
+    });
+  });
 });
+

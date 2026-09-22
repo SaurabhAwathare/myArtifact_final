@@ -421,6 +421,7 @@ class ArtifactPublishingRepository @Inject constructor(
 
     private fun mapArtifactToFirestoreData(artifact: Artifact): Map<String, Any?> {
         val data = mutableMapOf<String, Any?>(
+            "userId" to artifact.userId,
             "author" to mapOf(
                 "anonymousId" to artifact.author.anonymousId,
                 "name" to artifact.author.name,

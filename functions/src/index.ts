@@ -755,7 +755,7 @@ export const onArtifactCreated = functions.firestore
  * @param newVersion The target identity version.
  * @param label A diagnostic label for logging.
  */
-async function updateIdentitySafe(
+export async function updateIdentitySafe(
   db: admin.firestore.Firestore,
   query: admin.firestore.Query,
   updateData: any,
@@ -2374,7 +2374,7 @@ export const preparePublish = functions.https.onCall(async (data, context) => {
 /**
  * Authoritatively validates Storage upload and creates the public Artifact document
  * under /artifacts/{draftId} in an atomic transaction.
- * REAL USER ID IS OMITTED FROM PUBLIC DOCUMENT FIELDS TO PRESERVE RESPONSIBLE ANONYMITY!
+ * Includes platform-authoritative userId for ownership authorization.
  */
 export const finalizePublish = functions.https.onCall(async (data, context) => {
   if (!context.auth || !context.auth.uid) {
@@ -2519,13 +2519,14 @@ export const finalizePublish = functions.https.onCall(async (data, context) => {
 
       const anonymousId = userData.anonymousId.trim();
       const anonymousName = userData.anonymousName.trim();
-      const derivedSigil = userData.anonymousSigil || (userData.sigilSeed ? userData.sigilSeed.slice(-2).toUpperCase() : anonymousId.slice(-2).toUpperCase());
+      const derivedSigil = userData.anonymousSigil || "";
       const identityResetVersion = typeof userData.identityMetadata?.identityResetVersion === "number" ?
         userData.identityMetadata.identityResetVersion :
         0;
 
       const publicArtifactPayload = {
         id: cleanDraftId,
+        userId: uid,
         author: {
           anonymousId: anonymousId,
           name: anonymousName,
@@ -2727,3 +2728,123 @@ export const getPublicResonators = functions
       throw new functions.https.HttpsError("internal", "An error occurred while retrieving resonators.");
     }
   });
+
+/**
+ * Authoritatively deletes an Artifact.
+ * Performs zero-trust server-side ownership resolution across all Artifact generations
+ * (modern, legacy, identity-reset) and marks status as DELETED via Admin SDK,
+ * triggering onArtifactCleanupTrigger for cascading physical purge.
+ */
+export const deleteArtifact = functions
+  .runWith({
+    timeoutSeconds: 30,
+    memory: "256MB",
+  })
+  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+    // 1. Authentication Check
+    if (!context.auth || !context.auth.uid) {
+      throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
+    }
+    const callerUid = context.auth.uid;
+
+    // 2. Input Validation (Ignore client-supplied userId or ownership info)
+    const artifactId = data?.artifactId;
+    if (!artifactId || typeof artifactId !== "string" || artifactId.trim().length === 0) {
+      throw new functions.https.HttpsError("invalid-argument", "Valid artifactId is required.");
+    }
+    const cleanArtifactId = artifactId.trim();
+
+    const db = admin.firestore();
+
+    try {
+      // 3. Fetch Artifact Document
+      const artifactRef = db.collection("artifacts").doc(cleanArtifactId);
+      const artifactSnap = await artifactRef.get();
+
+      // Idempotency: If artifact does not exist, return success / already deleted
+      if (!artifactSnap.exists) {
+        return { status: "SUCCESS", message: "Artifact already deleted.", artifactId: cleanArtifactId };
+      }
+
+      const artifactData = artifactSnap.data() || {};
+
+      // Check existing status: If already DELETED, idempotent success
+      if (artifactData.status === "DELETED") {
+        return { status: "SUCCESS", message: "Artifact already deleted.", artifactId: cleanArtifactId };
+      }
+
+      // 4. Server-Side Ownership Resolution
+      let resolvedOwnerUid: string | null = null;
+
+      // Step A: Check canonical userId on artifact document
+      if (typeof artifactData.userId === "string" && artifactData.userId.trim().length > 0) {
+        resolvedOwnerUid = artifactData.userId.trim();
+      } else if (artifactData.author?.anonymousId && typeof artifactData.author.anonymousId === "string") {
+        // Step B: Resolve via persona_mapping
+        const authorAnonId = artifactData.author.anonymousId.trim();
+        const mappingSnap = await db.collection("persona_mapping").doc(authorAnonId).get();
+        if (mappingSnap.exists && mappingSnap.data()?.userId) {
+          resolvedOwnerUid = mappingSnap.data()?.userId;
+        } else {
+          // Step C: Check identity_history under caller's private user record
+          const historySnap = await db
+            .collection("users")
+            .doc(callerUid)
+            .collection("private")
+            .doc("identity_history")
+            .collection("personas")
+            .doc(authorAnonId)
+            .get();
+          if (historySnap.exists) {
+            resolvedOwnerUid = callerUid;
+          } else {
+            // Check migration_audit
+            const auditSnap = await db.collection("migration_audit").doc(`artifacts_${cleanArtifactId}`).get();
+            if (auditSnap.exists) {
+              const originalUid = auditSnap.data()?.originalUid || auditSnap.data()?.userId;
+              if (originalUid && typeof originalUid === "string") {
+                resolvedOwnerUid = originalUid;
+              }
+            }
+          }
+        }
+      }
+
+      // Admin Check
+      const adminSnap = await db.collection("users").doc(callerUid).collection("private").doc("settings").get();
+      const isAdmin = adminSnap.exists && adminSnap.data()?.isAdmin === true;
+
+      // Conflict Check: If canonical userId exists on document, it is strictly authoritative.
+      // If canonical userId is present and differs from callerUid, even if caller claims persona mapping, fail safely.
+      if (artifactData.userId && typeof artifactData.userId === "string" && artifactData.userId.trim().length > 0) {
+        if (artifactData.userId.trim() !== callerUid && !isAdmin) {
+          logger.warn(`DELETE_ARTIFACT_UNAUTHORIZED_CONFLICT | ArtifactID=${cleanArtifactId} | DocumentUserId=${artifactData.userId} | Caller=${callerUid}`);
+          throw new functions.https.HttpsError("permission-denied", "Unauthorized: You do not own this reflection.");
+        }
+      }
+
+      // Final Authorization Verification
+      if ((!resolvedOwnerUid || resolvedOwnerUid !== callerUid) && !isAdmin) {
+        logger.warn(`DELETE_ARTIFACT_UNAUTHORIZED | ArtifactID=${cleanArtifactId} | ResolvedOwner=${resolvedOwnerUid} | Caller=${callerUid}`);
+        throw new functions.https.HttpsError("permission-denied", "Unauthorized: You do not own this reflection.");
+      }
+
+      // 5. Soft Delete Execution via Admin SDK (Triggers onArtifactCleanupTrigger)
+      await artifactRef.update({
+        status: "DELETED",
+        isPublic: false,
+        deletedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      logger.info(`DELETE_ARTIFACT_SUCCESS | ArtifactID=${cleanArtifactId} | ResolvedOwner=${resolvedOwnerUid} | Caller=${callerUid} | IsAdmin=${isAdmin}`);
+
+      return { status: "SUCCESS", artifactId: cleanArtifactId };
+    } catch (error) {
+      if (error instanceof functions.https.HttpsError) {
+        throw error;
+      }
+      logger.error(`DELETE_ARTIFACT_ERROR | ArtifactID=${cleanArtifactId} | Caller=${callerUid}:`, error);
+      throw new functions.https.HttpsError("internal", "An error occurred while deleting the artifact.");
+    }
+  });
+

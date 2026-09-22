@@ -77,6 +77,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.pow
 import kotlin.time.Duration.Companion.milliseconds
+import com.google.firebase.functions.FirebaseFunctions
+import com.google.firebase.functions.FirebaseFunctionsException
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
@@ -86,6 +88,7 @@ class ArtifactRepository @Inject constructor(
     private val auth: FirebaseAuth,
     private val firestore: FirebaseFirestore,
     private val storage: FirebaseStorage,
+    private val functions: FirebaseFunctions,
     private val draftDao: dagger.Lazy<DraftDao>,
     private val userRepository: dagger.Lazy<UserRepository>,
     private val artifactDao: dagger.Lazy<ArtifactDao>,
@@ -1064,34 +1067,40 @@ class ArtifactRepository @Inject constructor(
     suspend fun isCurrentUserAdmin(): Boolean = moderationRepository.get().isCurrentUserAdmin()
 
     /**
-     * Authoritatively performs remote deletion of a published artifact in Firestore.
-     * This method focuses ONLY on the remote state transition to DELETED.
-     * Local cleanup is handled by the ArtifactCleanupManager pipeline.
+     * Authoritatively performs remote deletion of a published artifact via the deleteArtifact Callable Cloud Function.
+     * The Cloud Function resolves server-side ownership (canonical userId, persona_mapping, identity_history)
+     * and sets status = DELETED via Admin SDK, triggering onArtifactCleanupTrigger for cascading physical purge.
+     * Local asset & Room DB cleanup is handled by the ArtifactCleanupManager pipeline.
      */
     suspend fun performRemoteDelete(artifactId: String): Result<Unit> = withContext(Dispatchers.IO) {
         return@withContext try {
             val currentUserId = auth.currentUser?.uid ?: return@withContext Result.failure(Exception("Unauthenticated"))
-            
-            val artifactRef = firestore.collection("artifacts").document(artifactId)
-            val doc = artifactRef.get().await()
-            
-            if (!doc.exists()) {
-                diagnosticLogger.warn(DiagnosticCategory.FIRESTORE, "ARTIFACT_DELETE_NOT_FOUND", mapOf(LogKeys.ARTIFACT_ID to artifactId))
-                return@withContext Result.success(Unit)
+
+            val data = hashMapOf("artifactId" to artifactId)
+
+            try {
+                functions
+                    .getHttpsCallable("deleteArtifact")
+                    .call(data)
+                    .await()
+            } catch (e: Exception) {
+                val isNotFound = (e as? FirebaseFunctionsException)?.code?.name == "NOT_FOUND" ||
+                        e.message?.contains("NOT_FOUND", ignoreCase = true) == true
+                val isPermDenied = (e as? FirebaseFunctionsException)?.code?.name == "PERMISSION_DENIED" ||
+                        e.message?.contains("Unauthorized", ignoreCase = true) == true ||
+                        e.message?.contains("PERMISSION_DENIED", ignoreCase = true) == true
+
+                if (isNotFound) {
+                    diagnosticLogger.warn(DiagnosticCategory.FIRESTORE, "ARTIFACT_DELETE_NOT_FOUND", mapOf(LogKeys.ARTIFACT_ID to artifactId))
+                    return@withContext Result.success(Unit)
+                }
+                if (isPermDenied) {
+                    diagnosticLogger.warn(DiagnosticCategory.FIRESTORE, "ARTIFACT_DELETE_UNAUTHORIZED", mapOf(LogKeys.ARTIFACT_ID to artifactId, LogKeys.USER_ID to currentUserId))
+                    return@withContext Result.failure(Exception("Unauthorized: You do not own this reflection"))
+                }
+                throw e
             }
-            
-            val ownerId = doc.getString("userId")
-            val isAdmin = isCurrentUserAdmin()
-            
-            if (ownerId != currentUserId && !isAdmin) {
-                diagnosticLogger.warn(DiagnosticCategory.FIRESTORE, "ARTIFACT_DELETE_UNAUTHORIZED", mapOf(LogKeys.ARTIFACT_ID to artifactId, LogKeys.USER_ID to currentUserId))
-                return@withContext Result.failure(Exception("Unauthorized: You do not own this reflection"))
-            }
-            
-            // Perform Soft Delete (Authority) - Bridge to ArtifactModerationRepository
-            val remoteResult = moderationRepository.get().softDeleteArtifact(artifactId)
-            if (remoteResult.isFailure) return@withContext remoteResult
-            
+
             diagnosticLogger.info(DiagnosticCategory.FIRESTORE, "ARTIFACT_SOFT_DELETED", mapOf(LogKeys.ARTIFACT_ID to artifactId))
 
             // Decrement artifactsCount asynchronously

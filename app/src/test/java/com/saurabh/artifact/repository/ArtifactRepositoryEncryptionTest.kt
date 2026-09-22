@@ -24,6 +24,7 @@ class ArtifactRepositoryEncryptionTest {
             auth = mockk(relaxed = true),
             firestore = mockk(relaxed = true),
             storage = mockk(relaxed = true),
+            functions = mockk(relaxed = true),
             draftDao = { mockk(relaxed = true) },
             userRepository = { mockk(relaxed = true) },
             artifactDao = { mockk(relaxed = true) },
