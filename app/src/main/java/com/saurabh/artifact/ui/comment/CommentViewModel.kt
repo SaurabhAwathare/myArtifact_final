@@ -27,6 +27,9 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import com.saurabh.artifact.model.AuthorSnapshot
+import com.saurabh.artifact.model.ResolvedCreatorIdentity
+import com.saurabh.artifact.repository.UserRepository
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.Job
@@ -55,6 +58,7 @@ class CommentViewModel @Inject constructor(
     private val moderationRepository: ArtifactModerationRepository,
     private val authRepository: AuthRepository,
     private val ownershipAuthority: ArtifactOwnershipAuthority,
+    private val userRepository: UserRepository,
     private val diagnosticLogger: DiagnosticLogger
 ) : ViewModel() {
 
@@ -290,6 +294,7 @@ class CommentViewModel @Inject constructor(
                             hasMorePages = paginatedComments.lastVisible != null
                         )
                     }
+                    resolveIdentitiesForComments(paginatedComments.comments)
                 }
                 .onFailure { error ->
                     if (currentUid != requestUid) return@launch
@@ -331,6 +336,7 @@ class CommentViewModel @Inject constructor(
                             hasMorePages = paginatedComments.lastVisible != null
                         )
                     }
+                    resolveIdentitiesForComments(paginatedComments.comments)
                 }
                 .onFailure { error ->
                     if (currentUid != requestUid) return@launch
@@ -368,6 +374,7 @@ class CommentViewModel @Inject constructor(
                             hasMorePages = paginatedComments.lastVisible != null
                         )
                     }
+                    resolveIdentitiesForComments(paginatedComments.comments)
                 }
                 .onFailure { error ->
                     if (currentUid != requestUid) return@launch
@@ -410,6 +417,7 @@ class CommentViewModel @Inject constructor(
                             isSubmitting = false
                         )
                     }
+                    resolveIdentitiesForComments(listOf(newComment))
                     _events.emit(CommentUiEvent.CommentSubmitted)
                 }
                 .onFailure { error ->
@@ -477,6 +485,46 @@ class CommentViewModel @Inject constructor(
         
         viewModelScope.launch {
             _events.emit(CommentUiEvent.NavigateToProfile(personaId))
+        }
+    }
+
+    private fun resolveIdentitiesForComments(comments: List<Comment>) {
+        if (comments.isEmpty()) return
+        val creatorPairs = comments
+            .map { it.author.anonymousId }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .map { "" to it }
+
+        val missingPairs = creatorPairs.filter { (_, anonId) ->
+            !_uiState.value.resolvedIdentities.containsKey(anonId)
+        }
+
+        if (missingPairs.isEmpty()) return
+
+        viewModelScope.launch {
+            try {
+                val resolvedProfiles = userRepository.resolveCreatorProfilesBatch(missingPairs)
+                val newIdentitiesMap = mutableMapOf<String, ResolvedCreatorIdentity>()
+
+                missingPairs.forEach { (_, anonId) ->
+                    val profile = resolvedProfiles[anonId]
+                    val sampleAuthor = comments.firstOrNull { it.author.anonymousId == anonId }?.author 
+                        ?: AuthorSnapshot(anonymousId = anonId)
+                    val resolvedIdentity = ResolvedCreatorIdentity.resolveForComment(sampleAuthor, profile)
+                    newIdentitiesMap[anonId] = resolvedIdentity
+                }
+
+                if (newIdentitiesMap.isNotEmpty()) {
+                    _uiState.update { current ->
+                        current.copy(
+                            resolvedIdentities = current.resolvedIdentities + newIdentitiesMap
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                diagnosticLogger.error(DiagnosticCategory.COMMENT, "COMMENT_IDENTITY_RESOLUTION_FAILED", emptyMap(), e)
+            }
         }
     }
 }

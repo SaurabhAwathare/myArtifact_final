@@ -11,6 +11,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.saurabh.artifact.model.Comment
+import com.saurabh.artifact.model.ResolvedCreatorIdentity
 import com.saurabh.artifact.ui.components.base.AppEmptyState
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.theme.Spacing
@@ -25,6 +26,7 @@ import com.saurabh.artifact.ui.theme.Spacing
  * @param currentAnonymousId The persona ID of the currently authenticated user.
  * @param onLoadNextPage Callback to trigger loading of the next page.
  * @param onDeleteComment Callback when a comment is requested to be deleted.
+ * @param resolvedIdentities Map of persona IDs to current resolved public identities.
  */
 @Composable
 fun CommentList(
@@ -36,7 +38,8 @@ fun CommentList(
     onLoadNextPage: () -> Unit,
     onDeleteComment: (Comment) -> Unit,
     onProfileClick: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    resolvedIdentities: Map<String, ResolvedCreatorIdentity> = emptyMap()
 ) {
     val listState = rememberLazyListState()
 
@@ -80,7 +83,8 @@ fun CommentList(
                         comment = comment,
                         isOwner = comment.author.anonymousId == currentAnonymousId,
                         onDeleteClick = { onDeleteComment(comment) },
-                        onProfileClick = onProfileClick
+                        onProfileClick = onProfileClick,
+                        resolvedIdentity = resolvedIdentities[comment.author.anonymousId]
                     )
                 }
 

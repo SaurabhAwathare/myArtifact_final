@@ -16,6 +16,7 @@ import com.saurabh.artifact.repository.PaginatedComments
 import com.saurabh.artifact.domain.review.EngagementEvidence
 import com.saurabh.artifact.domain.review.UnlockStatus
 import com.saurabh.artifact.model.SyncState
+import com.saurabh.artifact.repository.UserRepository
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -43,6 +44,7 @@ class CommentViewModelTest {
     private val moderationRepository: ArtifactModerationRepository = mockk(relaxed = true)
     private val authRepository: AuthRepository = mockk(relaxed = true)
     private val ownershipAuthority: ArtifactOwnershipAuthority = mockk()
+    private val userRepository: UserRepository = mockk(relaxed = true)
     private val diagnosticLogger: com.saurabh.artifact.diagnostics.DiagnosticLogger = mockk(relaxed = true)
     private val savedStateHandle: SavedStateHandle = SavedStateHandle(mapOf("artifactId" to "test-artifact"))
     private val currentUserFlow = MutableStateFlow<com.google.firebase.auth.FirebaseUser?>(null)
@@ -62,6 +64,7 @@ class CommentViewModelTest {
             PaginatedComments(emptyList(), null),
         )
         coEvery { ownershipAuthority.isCurrentUserOwner(any()) } returns false
+        coEvery { userRepository.resolveCreatorProfilesBatch(any()) } returns emptyMap()
         every { engagementRepository.observeEngagementEvidence(any()) } returns flowOf(null)
         every { authRepository.currentUser } returns currentUserFlow
         every { authRepository.currentUserId } returns (currentUserFlow.value?.uid ?: "")
@@ -75,6 +78,7 @@ class CommentViewModelTest {
             moderationRepository,
             authRepository,
             ownershipAuthority,
+            userRepository,
             diagnosticLogger
         )
     }

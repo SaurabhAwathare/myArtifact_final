@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.model.Comment
+import com.saurabh.artifact.model.ResolvedCreatorIdentity
 import com.saurabh.artifact.ui.components.ArtifactSigil
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.theme.Spacing
@@ -26,6 +27,7 @@ import com.saurabh.artifact.util.TimeUtils
  * @param comment The comment to display.
  * @param isOwner Whether the current user is the author of the comment.
  * @param onDeleteClick Callback when the delete action is triggered.
+ * @param resolvedIdentity Resolved current public creator identity for display.
  */
 @Composable
 fun CommentItem(
@@ -33,8 +35,14 @@ fun CommentItem(
     isOwner: Boolean,
     onDeleteClick: () -> Unit,
     onProfileClick: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    resolvedIdentity: ResolvedCreatorIdentity? = null
 ) {
+    val displayName = resolvedIdentity?.name ?: comment.author.name.ifBlank { ResolvedCreatorIdentity.NEUTRAL_NAME }
+    val displaySigil = resolvedIdentity?.sigil ?: comment.author.sigil
+    val displaySigilConfig = resolvedIdentity?.sigilConfig ?: comment.author.sigilConfig
+    val personaId = resolvedIdentity?.personaId?.ifEmpty { comment.author.anonymousId } ?: comment.author.anonymousId
+
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -42,10 +50,10 @@ fun CommentItem(
         horizontalArrangement = Arrangement.spacedBy(Spacing.Medium)
     ) {
         ArtifactSigil(
-            config = comment.author.sigilConfig,
+            config = displaySigilConfig,
             size = 36.dp,
             isStatic = true,
-            modifier = Modifier.clickable { onProfileClick(comment.author.anonymousId) }
+            modifier = Modifier.clickable { onProfileClick(personaId) }
         )
 
         Column(modifier = Modifier.weight(1f)) {
@@ -54,16 +62,16 @@ fun CommentItem(
                 horizontalArrangement = Arrangement.spacedBy(Spacing.Small)
             ) {
                 Text(
-                    text = comment.author.name,
+                    text = displayName,
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.clickable { onProfileClick(comment.author.anonymousId) }
+                    modifier = Modifier.clickable { onProfileClick(personaId) }
                 )
                 
-                if (comment.author.sigil.isNotEmpty()) {
+                if (displaySigil.isNotEmpty()) {
                     Text(
-                        text = comment.author.sigil,
+                        text = displaySigil,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                     )

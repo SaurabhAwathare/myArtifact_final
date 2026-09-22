@@ -2,6 +2,7 @@ package com.saurabh.artifact.ui.comment
 
 import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.Comment
+import com.saurabh.artifact.model.ResolvedCreatorIdentity
 
 /**
  * Immutable state representing the UI for the artifact comment system.
@@ -10,6 +11,7 @@ import com.saurabh.artifact.model.Comment
  */
 data class CommentUiState(
     val comments: List<Comment> = emptyList(),
+    val resolvedIdentities: Map<String, ResolvedCreatorIdentity> = emptyMap(),
     val isInitialLoading: Boolean = false,
     val isLoadingNextPage: Boolean = false,
     val isRefreshing: Boolean = false,

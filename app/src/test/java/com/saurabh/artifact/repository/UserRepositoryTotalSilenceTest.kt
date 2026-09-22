@@ -28,6 +28,7 @@ class UserRepositoryTotalSilenceTest {
     private val mockUsersColl = mockk<CollectionReference>(relaxed = true)
     private val mockUsernamesColl = mockk<CollectionReference>(relaxed = true)
     private val mockProfilesColl = mockk<CollectionReference>(relaxed = true)
+    private val mockPersonaMappingColl = mockk<CollectionReference>(relaxed = true)
 
     private lateinit var repository: UserRepository
 
@@ -39,6 +40,13 @@ class UserRepositoryTotalSilenceTest {
         every { firestore.collection("users") } returns mockUsersColl
         every { firestore.collection("usernames") } returns mockUsernamesColl
         every { firestore.collection("profiles") } returns mockProfilesColl
+        every { firestore.collection("persona_mapping") } returns mockPersonaMappingColl
+
+        val mockMappingDocRef = mockk<DocumentReference>(relaxed = true)
+        val mockMappingDoc = mockk<DocumentSnapshot>()
+        every { mockPersonaMappingColl.document(any()) } returns mockMappingDocRef
+        every { mockMappingDoc.exists() } returns false
+        every { mockMappingDocRef.get() } returns Tasks.forResult(mockMappingDoc)
         
         repository = UserRepository(
             mockk(relaxed = true), auth, firestore,
@@ -72,7 +80,7 @@ class UserRepositoryTotalSilenceTest {
         coEvery { ignoredUserDao.getAllIgnoredUserIds(any()) } returns listOf("userB")
         
         val userCSnapshot = mockk<QuerySnapshot>()
-        val userCDoc = mockk<QueryDocumentSnapshot>()
+        val userCDoc = mockk<QueryDocumentSnapshot>(relaxed = true)
         every { userCDoc.id } returns "userC"
         every { userCDoc.getString("name") } returns "User C"
         every { userCDoc.getString("sigil") } returns ""
@@ -118,6 +126,13 @@ class UserRepositoryTotalSilenceTest {
         
         coEvery { ignoredUserDao.getAllIgnoredUserIds(any()) } returns listOf("userB")
 
+        val emptyProfilesSnapshot = mockk<QuerySnapshot>()
+        every { emptyProfilesSnapshot.documents } returns emptyList()
+
+        val mockWhereQuery = mockk<Query>(relaxed = true)
+        every { mockProfilesColl.whereIn(any<FieldPath>(), any<List<String>>()) } returns mockWhereQuery
+        every { mockWhereQuery.get() } returns Tasks.forResult(emptyProfilesSnapshot)
+
         val result = repository.getResonanceUsers(userId, type)
         
         assertTrue(result.isSuccess)
@@ -135,7 +150,9 @@ class UserRepositoryTotalSilenceTest {
         val doc1 = mockk<QueryDocumentSnapshot>()
         val doc2 = mockk<QueryDocumentSnapshot>()
         
+        every { doc1.getString("authorAnonymousId") } returns "userB"
         every { doc1.getString("userId") } returns "userB"
+        every { doc2.getString("authorAnonymousId") } returns "userC"
         every { doc2.getString("userId") } returns "userC"
         every { snapshot.documents } returns listOf(doc1, doc2)
         every { snapshot.isEmpty } returns false
@@ -152,7 +169,7 @@ class UserRepositoryTotalSilenceTest {
         coEvery { ignoredUserDao.getAllIgnoredUserIds(any()) } returns listOf("userB")
         
         val userCSnapshot = mockk<QuerySnapshot>()
-        val userCDoc = mockk<QueryDocumentSnapshot>()
+        val userCDoc = mockk<QueryDocumentSnapshot>(relaxed = true)
         every { userCDoc.id } returns "userC"
         every { userCDoc.getString("name") } returns "User C"
         every { userCDoc.getString("sigil") } returns ""

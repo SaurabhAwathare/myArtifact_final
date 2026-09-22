@@ -69,6 +69,7 @@ class DataExportManagerTest {
         // Provide consistent mocks to avoid hangs
         every { mockQuery.get() } returns mockTask
         every { mockQuery.whereEqualTo(any<String>(), any()) } returns mockQuery
+        every { mockQuery.whereIn(any<String>(), any()) } returns mockQuery
         
         every { mockColl.get() } returns mockTask
         every { mockColl.whereEqualTo(any<String>(), any()) } returns mockQuery

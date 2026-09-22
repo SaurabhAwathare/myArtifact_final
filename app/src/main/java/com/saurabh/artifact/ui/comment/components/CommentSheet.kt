@@ -118,6 +118,7 @@ fun CommentSheet(
                             onLoadNextPage = onLoadNextPage,
                             onDeleteComment = onDelete,
                             onProfileClick = onProfileClick,
+                            resolvedIdentities = uiState.resolvedIdentities,
                             modifier = Modifier.fillMaxSize()
                         )
                     }
