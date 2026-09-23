@@ -13,6 +13,7 @@ import com.saurabh.artifact.startup.StartupCoordinator
 import dagger.Lazy
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import kotlinx.coroutines.CancellationException
 import java.io.File
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.Dispatchers
@@ -59,7 +60,7 @@ class AudioNormalizationWorker @AssistedInject constructor(
 
             Result.success()
         } catch (e: Exception) {
-            updateSubState(draftId, userId, null, "Normalization failed: ${e.message}")
+            if (e is CancellationException) throw e
             Result.retry()
         }
     }

@@ -14,6 +14,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 import com.saurabh.artifact.util.WaveformProcessor
+import kotlinx.coroutines.CancellationException
 import java.io.File
 
 @HiltWorker
@@ -50,14 +51,12 @@ class WaveformWorker @AssistedInject constructor(
             // High-fidelity extraction from PCM
             val waveformData = WaveformProcessor.extractFromPcm(rawFile, targetSize = 100)
             
-            if (waveformData.isNotEmpty()) {
-                // Targeted update: Save waveform and clear processing state
-                draftDao.get().updateWaveformResult(draftId, userId, waveformData)
-            }
+            // Targeted update: Save waveform and set processing state to Idle (even if empty list)
+            draftDao.get().updateWaveformResult(draftId, userId, waveformData)
             
             Result.success()
         } catch (e: Exception) {
-            updateSubState(draftId, userId, null, "Waveform generation failed: ${e.message}")
+            if (e is CancellationException) throw e
             Result.retry()
         }
     }

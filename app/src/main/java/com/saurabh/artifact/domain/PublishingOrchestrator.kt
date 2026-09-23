@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.work.*
 import kotlinx.coroutines.guava.await
 import com.saurabh.artifact.audio.UploadService
+import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.util.WorkNames
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.security.UploadGuard
@@ -13,6 +14,7 @@ import com.saurabh.artifact.domain.auth.SessionConstants
 import com.saurabh.artifact.worker.PublishingWorker
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -30,13 +32,10 @@ class PublishingOrchestrator @Inject constructor(
 ) {
 
     suspend fun startProcessing(draftId: String) = withContext(Dispatchers.IO) {
-        // Optimistic state update
-        draftRepository.updateDraft(draftId) {
-            it.copy(
-                lifecycle = ArtifactLifecycle.PROCESSING,
-                status = it.status.copy(
-                    processing = ProcessingStatus.Active(ProcessingStage.TRANSCODING)
-                )
+        // Optimistic status update: preserve draft lifecycle while marking processing stage
+        draftRepository.updateStatus(draftId) { status ->
+            status.copy(
+                processing = ProcessingStatus.Active(ProcessingStage.TRANSCODING)
             )
         }
 
@@ -95,11 +94,35 @@ class PublishingOrchestrator @Inject constructor(
 
 
     suspend fun approvePublishing(draftId: String): Result<PublishingResult> = withContext(Dispatchers.IO) {
-        val draft = draftRepository.getDraft(draftId).getOrNull() ?: return@withContext Result.failure(Exception("Draft not found"))
+        var draft = draftRepository.getDraft(draftId).getOrNull() ?: return@withContext Result.failure(Exception("Draft not found"))
 
         // 1. Check if already publishing to avoid double enqueuing
         if (draft.lifecycle == ArtifactLifecycle.PUBLISHED) {
             return@withContext Result.success(PublishingResult.ALREADY_IN_PROGRESS)
+        }
+
+        // 1.5 Publish Safety Gate: Ensure audio transcoding & encryption is complete before uploading
+        if (!draft.isEncrypted || draft.status.processing is ProcessingStatus.Active) {
+            Log.i("PublishingOrchestrator", "Audio processing in progress. Awaiting completion before upload...")
+            ensureProcessingActive(draftId)
+
+            val processingResult = draftRepository.observeDrafts()
+                .map { list -> list.find { it.id == draftId } }
+                .filterNotNull()
+                .mapNotNull { updated ->
+                    when {
+                        updated.isEncrypted && updated.status.processing is ProcessingStatus.Idle -> Result.success(updated)
+                        updated.status.processing is ProcessingStatus.Failed -> Result.failure<ArtifactDraftEntity>(Exception("Audio processing failed. Please try again."))
+                        else -> null
+                    }
+                }
+                .first()
+
+            if (processingResult.isFailure) {
+                return@withContext Result.failure(processingResult.exceptionOrNull() ?: Exception("Audio processing failed"))
+            }
+
+            draft = draftRepository.getDraft(draftId).getOrNull() ?: return@withContext Result.failure(Exception("Draft not found after processing"))
         }
 
         // 0. Security Validation: Ensure tokens are present and valid

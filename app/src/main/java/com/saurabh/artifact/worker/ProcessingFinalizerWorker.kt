@@ -13,9 +13,9 @@ import com.saurabh.artifact.repository.RecordingRepository
 import dagger.Lazy
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.File
 
 /**
  * Finalizes the local processing chain and transitions the draft to REVIEW_REQUIRED.
@@ -43,23 +43,16 @@ class ProcessingFinalizerWorker @AssistedInject constructor(
         diagnosticLogger.info(DiagnosticCategory.WORKMANAGER, "PROCESSING_FINALIZATION_STARTED", mapOf(LogKeys.DRAFT_ID to draftId))
         
         try {
-            // 1. Fetch draft before finalization to get file paths
-            val draft = draftDao.get().getDraftById(draftId, userId) ?: return@withContext Result.failure()
+            // 1. Verify draft exists; if draft was deleted during processing, exit cleanly
+            draftDao.get().getDraftById(draftId, userId) ?: return@withContext Result.success()
 
-            // 2. Targeted finalization update
+            // 2. Targeted finalization update (sets ProcessingStatus.Idle while preserving current lifecycle)
             recordingRepository.finalizeProcessing(draftId).getOrThrow()
-            
-            // 3. Cleanup raw files only after successful finalization
-            draft.rawPcmPath?.let { path ->
-                val file = File(path)
-                if (file.exists() && file.delete()) {
-                    diagnosticLogger.info(DiagnosticCategory.STORAGE, "PROCESSING_CLEANUP_RAW_SUCCESS", mapOf(LogKeys.DRAFT_ID to draftId))
-                }
-            }
 
             diagnosticLogger.info(DiagnosticCategory.WORKMANAGER, "PROCESSING_FINALIZATION_SUCCESS", mapOf(LogKeys.DRAFT_ID to draftId))
             Result.success()
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             diagnosticLogger.error(DiagnosticCategory.WORKMANAGER, "PROCESSING_FINALIZATION_FAILED", mapOf(LogKeys.DRAFT_ID to draftId), e)
             Result.retry()
         }

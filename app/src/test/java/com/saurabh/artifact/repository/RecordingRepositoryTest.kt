@@ -216,14 +216,14 @@ class RecordingRepositoryTest {
         // 5. VERIFY: draft in DB was updated to non-zero bytes/duration
         val finalDraft = dbDrafts.first()
         assert(finalDraft.id == draftId)
-        assert(finalDraft.lifecycle == ArtifactLifecycle.PROCESSING)
+        assert(finalDraft.lifecycle == ArtifactLifecycle.REVIEW_REQUIRED)
         assert(finalDraft.durableBytes == 10000L) // 10044 - 44
         
         tempFile.delete()
     }
 
     @Test
-    fun `reindexed PROCESSING drafts receive processing work`() = runTest {
+    fun `reindexed REVIEW_REQUIRED drafts receive processing work`() = runTest {
         val orphanedId = "orphaned_draft_456"
         val manifest = DraftManifest(
             draftId = orphanedId,
@@ -248,7 +248,7 @@ class RecordingRepositoryTest {
 
         repository.recoverInterruptedDrafts()
 
-        coVerify(exactly = 1) { draftDao.insert(match { it.id == orphanedId && it.lifecycle == ArtifactLifecycle.PROCESSING }) }
+        coVerify(exactly = 1) { draftDao.insert(match { it.id == orphanedId && it.lifecycle == ArtifactLifecycle.REVIEW_REQUIRED }) }
         coVerify(exactly = 1) { publishingOrchestrator.ensureProcessingActive(orphanedId) }
 
         tempWav.delete()

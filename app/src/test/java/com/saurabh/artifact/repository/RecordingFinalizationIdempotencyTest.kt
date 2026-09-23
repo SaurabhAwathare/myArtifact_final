@@ -54,7 +54,7 @@ class RecordingFinalizationIdempotencyTest {
             id = draftId,
             userId = TEST_USER_ID,
             localAudioPath = "/path/audio.wav",
-            lifecycle = ArtifactLifecycle.PROCESSING,
+            lifecycle = ArtifactLifecycle.REVIEW_REQUIRED,
             durationMs = duration,
             durableBytes = bytes,
             status = DraftStatus()

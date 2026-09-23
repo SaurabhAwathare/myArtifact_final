@@ -112,7 +112,7 @@ class RecordingLifecycleVerificationTest {
     }
 
     @Test
-    fun `Successful completion should transition RECORDING to PROCESSING`() = runTest(testDispatcher) {
+    fun `Successful completion should transition RECORDING to REVIEW_REQUIRED`() = runTest(testDispatcher) {
         // Arrange
         val draftId = "happy_path"
         val audioFile = File(testDraftsDir, "draft_$draftId/audio.wav").apply { 
@@ -135,13 +135,13 @@ class RecordingLifecycleVerificationTest {
         // Assert
         coVerify { 
             draftDao.update(match { 
-                it.id == draftId && it.lifecycle == ArtifactLifecycle.PROCESSING && it.durationMs == 1000L
+                it.id == draftId && it.lifecycle == ArtifactLifecycle.REVIEW_REQUIRED && it.durationMs == 1000L
             }) 
         }
     }
 
     @Test
-    fun `Interrupted stale recording should be recovered to PROCESSING`() = runTest(testDispatcher) {
+    fun `Interrupted stale recording should be recovered to REVIEW_REQUIRED`() = runTest(testDispatcher) {
         // Arrange
         val draftId = "interrupted_stale"
         val audioFile = File(testDraftsDir, "draft_$draftId/audio.wav").apply { 
@@ -170,7 +170,7 @@ class RecordingLifecycleVerificationTest {
         // Assert
         coVerify { 
             draftDao.update(match { 
-                it.id == draftId && it.lifecycle == ArtifactLifecycle.PROCESSING 
+                it.id == draftId && it.lifecycle == ArtifactLifecycle.REVIEW_REQUIRED 
             }, isRecovery = true) 
         }
     }
@@ -227,7 +227,7 @@ class RecordingLifecycleVerificationTest {
         // Assert
         coVerify { 
             draftDao.update(match { 
-                it.id == draftId && it.lifecycle == ArtifactLifecycle.PROCESSING 
+                it.id == draftId && it.lifecycle == ArtifactLifecycle.REVIEW_REQUIRED 
             }, isRecovery = true) 
         }
     }

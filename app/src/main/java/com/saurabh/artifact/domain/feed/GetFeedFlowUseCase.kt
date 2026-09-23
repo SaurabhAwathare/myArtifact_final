@@ -30,24 +30,21 @@ class GetFeedFlowUseCase @Inject constructor(
     }
 
     private suspend fun resolveIdentity(artifact: Artifact): Artifact {
-        val currentUser = authRepository.currentUser.value ?: return artifact
-        val userId = currentUser.uid
-        
-        return if (artifact.userId == userId) {
-            val creatorProfile = userRepository?.getCachedProfile(userId)
-            val resolved = ResolvedCreatorIdentity.resolve(artifact, creatorProfile)
-            artifact.copy(
-                author = AuthorSnapshot(
-                    anonymousId = resolved.personaId,
-                    name = resolved.name,
-                    sigil = resolved.sigil,
-                    sigilSeed = resolved.sigilSeed,
-                    sigilColor = resolved.sigilColor,
-                    sigilConfig = resolved.sigilConfig
-                )
+        val anonId = artifact.author.anonymousId
+        if (anonId.isBlank() && artifact.userId.isBlank()) return artifact
+
+        val creatorProfile = userRepository?.getCreatorProfile(artifact.userId, anonId)
+        val resolved = ResolvedCreatorIdentity.resolve(artifact, creatorProfile)
+
+        return artifact.copy(
+            author = AuthorSnapshot(
+                anonymousId = resolved.personaId,
+                name = resolved.name,
+                sigil = resolved.sigil,
+                sigilSeed = resolved.sigilSeed,
+                sigilColor = resolved.sigilColor,
+                sigilConfig = resolved.sigilConfig
             )
-        } else {
-            artifact
-        }
+        )
     }
 }

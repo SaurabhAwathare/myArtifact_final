@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.work.*
 import androidx.work.testing.WorkManagerTestInitHelper
 import androidx.work.testing.TestListenableWorkerBuilder
+import com.google.firebase.auth.FirebaseAuth
 import com.saurabh.artifact.audio.AudioTranscoder
 import com.saurabh.artifact.audio.LocalDraftManager
 import com.saurabh.artifact.audio.WavRecoveryManager
@@ -25,6 +26,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.*
+import org.junit.After
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -151,7 +153,7 @@ class PipelineIntegrationVerificationTest {
 
         // --- 5. RECORDING COMPLETION ---
         recordingRepository.finalizeRecording(draftId, 5000L, 1024L).getOrThrow()
-        assertEquals(ArtifactLifecycle.PROCESSING, draftDao.getDraftById(draftId, "user_1")?.lifecycle)
+        assertEquals(ArtifactLifecycle.REVIEW_REQUIRED, draftDao.getDraftById(draftId, "user_1")?.lifecycle)
 
         // --- 6. PROCESSING START ---
         orchestrator.startProcessing(draftId)
@@ -289,5 +291,13 @@ class PipelineIntegrationVerificationTest {
         assertEquals(ArtifactLifecycle.PUBLISHED, finalDraft?.lifecycle)
         
         database.close()
+    }
+
+    @After
+    fun tearDown() {
+        unmockkConstructor(MediaMetadataRetriever::class)
+        unmockkObject(FileIntegrity)
+        unmockkObject(UploadService)
+        unmockkStatic(FirebaseAuth::class)
     }
 }

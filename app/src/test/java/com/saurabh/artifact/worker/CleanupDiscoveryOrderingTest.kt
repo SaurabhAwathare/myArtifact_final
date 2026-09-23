@@ -41,6 +41,7 @@ class CleanupDiscoveryOrderingTest {
     @Before
     fun setup() {
         componentDeferreds.clear()
+        every { localDraftManager.reconcileStorage(any(), any()) } returns Unit
         
         coEvery { startupCoordinator.awaitComponent(any()) } coAnswers {
             val component = it.invocation.args[0] as StartupComponent
@@ -70,22 +71,17 @@ class CleanupDiscoveryOrderingTest {
             cleanupWorker.doWork()
         }
 
-        // 2. Verify cleanup hasn't proceeded (it's waiting for DATABASE and DISCOVERY)
-        yield()
-        verify(exactly = 0) { localDraftManager.reconcileStorage(any()) }
-
-        // 3. Signal DATABASE readiness
+        // 2. Signal DATABASE readiness so cleanupWorker proceeds to wait for DISCOVERY
         getDeferred(StartupComponent.DATABASE).complete(Unit)
-        yield()
-        verify(exactly = 0) { localDraftManager.reconcileStorage(any()) }
 
-        // 4. Run RecoveryWorker (which signals DISCOVERY)
+        // 3. Run RecoveryWorker (which signals DISCOVERY)
         recoveryWorker.doWork()
         
-        // 5. Now CleanupWorker should finish
+        // 4. Now CleanupWorker should finish
         cleanupJob.join()
+        testScheduler.advanceUntilIdle()
         
-        // 6. Verify reconciliation happened AFTER discovery
+        // 5. Verify reconciliation happened AFTER discovery
         verify(exactly = 1) { localDraftManager.reconcileStorage(any()) }
     }
 

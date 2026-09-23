@@ -54,9 +54,17 @@ class TranscodingWorker @AssistedInject constructor(
         
         val draft = draftDao.get().getDraftById(draftId, userId) ?: return@withContext Result.failure()
 
-        val rawFile = draft.rawPcmPath?.let { File(it) } ?: return@withContext Result.failure()
+        val rawPcmPath = draft.rawPcmPath
+        if (rawPcmPath == null) {
+            diagnosticLogger.error(DiagnosticCategory.RECORDING, "TRANSCODING_RAW_PATH_NULL", mapOf(LogKeys.DRAFT_ID to draftId))
+            updateDraftStatus(draftId, userId, null, "Raw PCM path missing")
+            return@withContext Result.failure()
+        }
+
+        val rawFile = File(rawPcmPath)
         if (!rawFile.exists()) {
             diagnosticLogger.error(DiagnosticCategory.RECORDING, "TRANSCODING_RAW_FILE_MISSING", mapOf(LogKeys.DRAFT_ID to draftId))
+            updateDraftStatus(draftId, userId, null, "Raw PCM file missing")
             return@withContext Result.failure()
         }
 
@@ -142,7 +150,6 @@ class TranscodingWorker @AssistedInject constructor(
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
             diagnosticLogger.error(DiagnosticCategory.RECORDING, "TRANSCODING_FAILED", mapOf(LogKeys.DRAFT_ID to draftId), e)
-            updateDraftStatus(draftId, userId, null, "Transcoding failed: ${e.message}")
             Result.retry()
         }
     }

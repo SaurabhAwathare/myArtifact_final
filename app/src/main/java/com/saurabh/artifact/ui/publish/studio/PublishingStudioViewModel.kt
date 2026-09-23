@@ -15,6 +15,7 @@ import com.saurabh.artifact.security.DatabaseEncryptionManager
 import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.model.Emotion
 import com.saurabh.artifact.model.PlaybackSource
+import com.saurabh.artifact.model.ProcessingStatus
 import com.saurabh.artifact.model.PublishingResult
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.RecordingRepository
@@ -79,6 +80,7 @@ data class StudioSessionState(
     val isSuccess: Boolean = false,
     val isQueuedOffline: Boolean = false,
     val isRecovering: Boolean = false,
+    val isProcessingActive: Boolean = false,
     val error: String? = null,
     val showPrivacyNudge: Boolean = false,
     val privacyWarnings: List<String> = emptyList(),
@@ -170,6 +172,7 @@ class PublishingStudioViewModel @Inject constructor(
                     isSuccess = ui.isSuccess || draft.lifecycle == ArtifactLifecycle.PUBLISHED,
                     isQueuedOffline = ui.isQueuedOffline,
                     isRecovering = isRecovering,
+                    isProcessingActive = draft.status.processing is ProcessingStatus.Active,
                     error = ui.error,
                     showPrivacyNudge = ui.showPrivacyNudge,
                     privacyWarnings = ui.privacyWarnings,

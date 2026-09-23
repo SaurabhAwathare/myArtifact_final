@@ -10,6 +10,7 @@ import com.saurabh.artifact.audio.WavRecoveryManager
 import androidx.work.workDataOf
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.data.local.DraftDao
+import com.saurabh.artifact.model.ProcessingStatus
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.util.EncryptedStorageManager
 import com.saurabh.artifact.util.FileIntegrity
@@ -87,6 +88,7 @@ class TranscodingWorkerTest {
 
     @After
     fun tearDown() {
+        unmockkConstructor(MediaMetadataRetriever::class)
         unmockkAll()
     }
 
@@ -204,6 +206,44 @@ class TranscodingWorkerTest {
         verify(exactly = 0) { audioTranscoder.transcodeWavToAac(any(), any()) }
 
         tempDir.deleteRecursively()
+    }
+
+    @Test
+    fun `doWork should fail and update Room status to Failed if rawPcmPath is null`() = runTest {
+        val draftId = "d1"
+        every { workerParams.inputData } returns workDataOf("key_draft_id" to draftId)
+
+        val draft = mockk<ArtifactDraftEntity>(relaxed = true) {
+            every { id } returns draftId
+            every { userId } returns TEST_USER_ID
+            every { rawPcmPath } returns null
+        }
+
+        coEvery { draftDao.getDraftById(draftId, TEST_USER_ID) } returns draft
+
+        val result = worker.doWork()
+
+        assert(result is ListenableWorker.Result.Failure)
+        coVerify { draftDao.updateProcessingStatus(draftId, TEST_USER_ID, ProcessingStatus.Failed, any()) }
+    }
+
+    @Test
+    fun `doWork should fail and update Room status to Failed if rawFile does not exist`() = runTest {
+        val draftId = "d1"
+        every { workerParams.inputData } returns workDataOf("key_draft_id" to draftId)
+
+        val draft = mockk<ArtifactDraftEntity>(relaxed = true) {
+            every { id } returns draftId
+            every { userId } returns TEST_USER_ID
+            every { rawPcmPath } returns "/non/existent/path/raw.wav"
+        }
+
+        coEvery { draftDao.getDraftById(draftId, TEST_USER_ID) } returns draft
+
+        val result = worker.doWork()
+
+        assert(result is ListenableWorker.Result.Failure)
+        coVerify { draftDao.updateProcessingStatus(draftId, TEST_USER_ID, ProcessingStatus.Failed, any()) }
     }
 
     @Test

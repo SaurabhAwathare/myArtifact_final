@@ -615,7 +615,10 @@ fun StudioPublishingStep(
         } else {
             CircularProgressIndicator(modifier = Modifier.size(64.dp))
             Spacer(Modifier.height(24.dp))
-            Text("Sending to the world...", style = ArtifactTheme.typography.titleMedium)
+            Text(
+                if (state.isProcessingActive) "Finalizing audio optimization for upload..." else "Sending to the world...",
+                style = ArtifactTheme.typography.titleMedium
+            )
         }
     }
 }

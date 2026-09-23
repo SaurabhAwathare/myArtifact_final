@@ -8,14 +8,19 @@ class LifecycleTransitionTest {
 
     @Test
     fun `transitions are allowed in matrix direction`() {
+        // RECORDING -> REVIEW_REQUIRED (Direct Option B path)
+        assertTrue(ArtifactLifecycle.RECORDING.canTransitionTo(ArtifactLifecycle.REVIEW_REQUIRED))
+
         // RECORDING -> PROCESSING
         assertTrue(ArtifactLifecycle.RECORDING.canTransitionTo(ArtifactLifecycle.PROCESSING))
         
         // RECORDING -> DELETING (Escape Path)
         assertTrue(ArtifactLifecycle.RECORDING.canTransitionTo(ArtifactLifecycle.DELETING))
 
-        // PROCESSING -> REVIEW_REQUIRED
+        // PROCESSING -> REVIEW_REQUIRED, METADATA_REQUIRED, READY_TO_PUBLISH
         assertTrue(ArtifactLifecycle.PROCESSING.canTransitionTo(ArtifactLifecycle.REVIEW_REQUIRED))
+        assertTrue(ArtifactLifecycle.PROCESSING.canTransitionTo(ArtifactLifecycle.METADATA_REQUIRED))
+        assertTrue(ArtifactLifecycle.PROCESSING.canTransitionTo(ArtifactLifecycle.READY_TO_PUBLISH))
         
         // PROCESSING -> DELETING (Escape Path)
         assertTrue(ArtifactLifecycle.PROCESSING.canTransitionTo(ArtifactLifecycle.DELETING))
@@ -75,9 +80,6 @@ class LifecycleTransitionTest {
     fun `invalid transitions are blocked`() {
         // PROCESSING -> RECORDING (Backward)
         assertFalse(ArtifactLifecycle.PROCESSING.canTransitionTo(ArtifactLifecycle.RECORDING))
-        
-        // RECORDING -> REVIEW_REQUIRED (Skip PROCESSING)
-        assertFalse(ArtifactLifecycle.RECORDING.canTransitionTo(ArtifactLifecycle.REVIEW_REQUIRED))
         
         // PUBLISHED -> READY_TO_PUBLISH (Backward)
         assertFalse(ArtifactLifecycle.PUBLISHED.canTransitionTo(ArtifactLifecycle.READY_TO_PUBLISH))

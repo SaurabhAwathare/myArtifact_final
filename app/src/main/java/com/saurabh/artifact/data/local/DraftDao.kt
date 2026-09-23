@@ -120,7 +120,9 @@ interface DraftDao {
     suspend fun finalizeProcessing(id: String, userId: String, timestamp: Long = System.currentTimeMillis()) {
         val existing = getDraftById(id, userId) ?: return
         android.util.Log.d("FINALIZER_TRACE", "finalizeProcessing: existingLifecycle=${existing.lifecycle}")
-        updateStatusAndLifecycle(id, userId, existing.status, ArtifactLifecycle.REVIEW_REQUIRED, timestamp)
+        val targetLifecycle = if (existing.lifecycle == ArtifactLifecycle.PROCESSING) ArtifactLifecycle.REVIEW_REQUIRED else existing.lifecycle
+        val newStatus = existing.status.copy(processing = ProcessingStatus.Idle)
+        updateStatusAndLifecycle(id, userId, newStatus, targetLifecycle, timestamp)
     }
 
 

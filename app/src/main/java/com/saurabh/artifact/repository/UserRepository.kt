@@ -646,20 +646,16 @@ open class UserRepository @Inject constructor(
     private suspend fun executeFetchAndCacheRemoteCreatorProfile(uid: String, anonId: String): User? {
         try {
             var user: User? = null
-
-            if (uid.isNotBlank() && !uid.startsWith("usr_")) {
-                val userDoc = usersCollection.document(uid).get().await()
-                if (userDoc.exists()) {
-                    user = userDoc.toObject(User::class.java)?.copy(id = uid)
-                }
+            val targetAnonId = anonId.trim().ifBlank {
+                if (uid.startsWith("usr_")) uid.trim() else ""
             }
 
-            if (user == null && anonId.isNotBlank()) {
-                val profileDoc = firestore.collection("profiles").document(anonId).get().await()
+            if (targetAnonId.isNotBlank()) {
+                val profileDoc = firestore.collection("profiles").document(targetAnonId).get().await()
                 if (profileDoc.exists()) {
                     user = User(
-                        id = uid.ifBlank { anonId },
-                        anonymousId = anonId,
+                        id = uid.ifBlank { targetAnonId },
+                        anonymousId = targetAnonId,
                         anonymousName = profileDoc.getString("name") ?: "",
                         anonymousSigil = profileDoc.getString("sigil") ?: "",
                         sigilSeed = profileDoc.getString("sigilSeed") ?: "",
@@ -681,8 +677,8 @@ open class UserRepository @Inject constructor(
     }
 
     /**
-     * Efficiently batch resolves missing Creator profiles from Room cache and Firestore.
-     * Prevents N+1 Firestore reads by batching missing IDs with whereIn.
+     * Efficiently batch resolves missing Creator profiles from Room cache and Firestore profiles.
+     * Prevents N+1 Firestore reads by batching missing public persona IDs with whereIn.
      * Stale profiles are returned immediately from cache and refreshed asynchronously in background.
      */
     suspend fun resolveCreatorProfilesBatch(creators: List<Pair<String, String>>): Map<String, User> = withContext(Dispatchers.IO) {
@@ -749,34 +745,21 @@ open class UserRepository @Inject constructor(
         creatorsToFetch: List<Pair<String, String>>,
         result: MutableMap<String, User>
     ) {
-        val missingUids = creatorsToFetch.map { it.first }.filter { it.isNotBlank() && !it.startsWith("usr_") }.distinct()
-        val missingAnonIds = creatorsToFetch.map { it.second }.filter { it.isNotBlank() }.distinct()
+        val missingAnonIds = creatorsToFetch.map { it.second.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
 
         val fetchedUsers = mutableListOf<User>()
 
-        for (chunk in missingUids.chunked(30)) {
-            try {
-                val snapshots = usersCollection.whereIn(FieldPath.documentId(), chunk).get().await()
-                snapshots.documents.forEach { doc ->
-                    doc.toObject(User::class.java)?.copy(id = doc.id)?.let { u ->
-                        if (u.anonymousName.isNotBlank()) fetchedUsers.add(u)
-                    }
-                }
-            } catch (e: Exception) {
-                diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "BATCH_FETCH_USERS_FAILED", mapOf("count" to chunk.size), e)
-            }
-        }
-
-        val stillMissingAnonIds = missingAnonIds.filter { anonId ->
-            fetchedUsers.none { it.anonymousId == anonId }
-        }
-        for (chunk in stillMissingAnonIds.chunked(30)) {
+        for (chunk in missingAnonIds.chunked(30)) {
             try {
                 val snapshots = firestore.collection("profiles").whereIn(FieldPath.documentId(), chunk).get().await()
                 snapshots.documents.forEach { doc ->
+                    val anonId = doc.id
+                    val matchingUid = creatorsToFetch.firstOrNull { it.second.trim() == anonId }?.first?.trim() ?: anonId
                     val u = User(
-                        id = doc.id,
-                        anonymousId = doc.id,
+                        id = matchingUid,
+                        anonymousId = anonId,
                         anonymousName = doc.getString("name") ?: "",
                         anonymousSigil = doc.getString("sigil") ?: "",
                         sigilSeed = doc.getString("sigilSeed") ?: "",

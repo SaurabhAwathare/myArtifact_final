@@ -34,6 +34,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -109,6 +110,12 @@ class PublishingPipelineVerificationTest {
             val input = it.invocation.args[0] as String
             "hash_${input}"
         }
+    }
+
+    @After
+    fun tearDown() {
+        unmockkConstructor(MediaMetadataRetriever::class)
+        unmockkObject(FileIntegrity)
     }
 
     @Test
@@ -250,7 +257,7 @@ class PublishingPipelineVerificationTest {
     }
 
     @Test
-    fun `ProcessingFinalizerWorker should transition lifecycle and delete raw files`() = runTest(testDispatcher) {
+    fun `ProcessingFinalizerWorker should transition lifecycle and preserve raw files`() = runTest(testDispatcher) {
         // Arrange
         val draftId = "test_finalize_1"
         val userId = "user_abc"
@@ -265,7 +272,7 @@ class PublishingPipelineVerificationTest {
             userId = userId,
             localAudioPath = finalFile.absolutePath,
             rawPcmPath = rawFile.absolutePath,
-            lifecycle = ArtifactLifecycle.PROCESSING
+            lifecycle = ArtifactLifecycle.REVIEW_REQUIRED
         )
         coEvery { draftDao.getDraftById(draftId, userId) } returns draft
         
@@ -288,8 +295,8 @@ class PublishingPipelineVerificationTest {
         // Verify: Lifecycle transition triggered
         coVerify(exactly = 1) { recordingRepository.finalizeProcessing(draftId) }
         
-        // Verify: Raw file physically deleted
-        assertTrue("Raw file should be deleted", !rawFile.exists())
+        // Verify: Raw file preserved for active review
+        assertTrue("Raw file should be preserved", rawFile.exists())
         assertTrue("Final audio file should be preserved", finalFile.exists())
         
         tempDir.deleteRecursively()

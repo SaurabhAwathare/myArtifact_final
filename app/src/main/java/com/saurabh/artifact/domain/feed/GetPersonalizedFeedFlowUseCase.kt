@@ -48,29 +48,29 @@ class GetPersonalizedFeedFlowUseCase @Inject constructor(
         ).flow.map { pagingData ->
             pagingData.map { (artifact, index) ->
                 FeedDisplayItem.ArtifactItem(
-                    artifact = resolveIdentity(artifact, userId),
+                    artifact = resolveIdentity(artifact),
                     absoluteIndex = index
                 )
             }
         }
     }
 
-    private suspend fun resolveIdentity(artifact: Artifact, userId: String): Artifact {
-        return if (artifact.userId == userId) {
-            val creatorProfile = userRepository?.getCachedProfile(userId)
-            val resolved = ResolvedCreatorIdentity.resolve(artifact, creatorProfile)
-            artifact.copy(
-                author = AuthorSnapshot(
-                    anonymousId = resolved.personaId,
-                    name = resolved.name,
-                    sigil = resolved.sigil,
-                    sigilSeed = resolved.sigilSeed,
-                    sigilColor = resolved.sigilColor,
-                    sigilConfig = resolved.sigilConfig
-                )
+    private suspend fun resolveIdentity(artifact: Artifact): Artifact {
+        val anonId = artifact.author.anonymousId
+        if (anonId.isBlank() && artifact.userId.isBlank()) return artifact
+
+        val creatorProfile = userRepository?.getCreatorProfile(artifact.userId, anonId)
+        val resolved = ResolvedCreatorIdentity.resolve(artifact, creatorProfile)
+
+        return artifact.copy(
+            author = AuthorSnapshot(
+                anonymousId = resolved.personaId,
+                name = resolved.name,
+                sigil = resolved.sigil,
+                sigilSeed = resolved.sigilSeed,
+                sigilColor = resolved.sigilColor,
+                sigilConfig = resolved.sigilConfig
             )
-        } else {
-            artifact
-        }
+        )
     }
 }

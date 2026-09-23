@@ -62,7 +62,7 @@ class RecordingRepository @Inject constructor(
                 checksum = checksum,
                 isEncrypted = isEncrypted,
                 uploadFormatVersion = 2, // Current version for new recordings
-                lifecycle = if (durationMs > 0) ArtifactLifecycle.PROCESSING else ArtifactLifecycle.RECORDING,
+                lifecycle = if (durationMs > 0) ArtifactLifecycle.REVIEW_REQUIRED else ArtifactLifecycle.RECORDING,
                 mimeType = mimeType,
                 status = DraftStatus(
                     publication = SyncStatus.LocalOnly
@@ -289,7 +289,7 @@ class RecordingRepository @Inject constructor(
         id: String,
         durationMs: Long,
         durableBytes: Long,
-        targetLifecycle: ArtifactLifecycle = ArtifactLifecycle.PROCESSING
+        targetLifecycle: ArtifactLifecycle = ArtifactLifecycle.REVIEW_REQUIRED
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val userId = userRepository.getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
@@ -378,7 +378,7 @@ class RecordingRepository @Inject constructor(
                             WavRecoveryManager.RecoveryResult.REPAIRED,
                             WavRecoveryManager.RecoveryResult.FULLY_RECOVERED,
                             WavRecoveryManager.RecoveryResult.TRUNCATED -> 
-                                ArtifactLifecycle.PROCESSING to ProcessingStatus.Idle
+                                ArtifactLifecycle.REVIEW_REQUIRED to ProcessingStatus.Idle
                             else -> 
                                 ArtifactLifecycle.DELETED to ProcessingStatus.Failed
                         }
@@ -401,8 +401,8 @@ class RecordingRepository @Inject constructor(
                     val updated = draft.copy(
                         status = draft.status.copy(processing = recoveryInfo.status),
                         lifecycle = recoveryInfo.lifecycle,
-                        durationMs = if (recoveryInfo.lifecycle == ArtifactLifecycle.PROCESSING) recoveryInfo.duration else draft.durationMs,
-                        durableBytes = if (recoveryInfo.lifecycle == ArtifactLifecycle.PROCESSING) recoveryInfo.durableBytes else draft.durableBytes,
+                        durationMs = if (recoveryInfo.lifecycle != ArtifactLifecycle.DELETED) recoveryInfo.duration else draft.durationMs,
+                        durableBytes = if (recoveryInfo.lifecycle != ArtifactLifecycle.DELETED) recoveryInfo.durableBytes else draft.durableBytes,
                         updatedAt = System.currentTimeMillis()
                     )
                     draftDao.get().update(updated, isRecovery = true)
@@ -562,7 +562,7 @@ class RecordingRepository @Inject constructor(
                             emotion = manifest.emotion,
                             isEncrypted = m4aFile.exists(),
                             uploadFormatVersion = 2,
-                            lifecycle = ArtifactLifecycle.PROCESSING,
+                            lifecycle = ArtifactLifecycle.REVIEW_REQUIRED,
                             status = DraftStatus(publication = SyncStatus.LocalOnly),
                             createdAt = manifest.createdAt,
                             updatedAt = System.currentTimeMillis()
@@ -595,7 +595,7 @@ class RecordingRepository @Inject constructor(
             val durationMs = durationStr?.toLong() ?: 0L
 
             if (hasAudio == "yes" && durationMs > 0) {
-                Triple(ArtifactLifecycle.PROCESSING, ProcessingStatus.Idle, durationMs)
+                Triple(ArtifactLifecycle.REVIEW_REQUIRED, ProcessingStatus.Idle, durationMs)
             } else {
                 Triple(ArtifactLifecycle.DELETED, ProcessingStatus.Failed, 0L)
             }
