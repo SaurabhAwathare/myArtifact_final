@@ -235,7 +235,7 @@ class PipelineIntegrationVerificationTest {
         every { UploadService.start(any(), any()) } returns Unit
         
         val latestDraft = draftDao.getDraftById(draftId, "user_1")!!
-        val publishResult = publishUseCase(latestDraft.localAudioPath)
+        val publishResult = publishUseCase(latestDraft.id)
         assertTrue("Publish initiation failed: ${publishResult.exceptionOrNull()}", publishResult.isSuccess)
         
         // --- 10. EXECUTE PUBLISHING WORKER ---

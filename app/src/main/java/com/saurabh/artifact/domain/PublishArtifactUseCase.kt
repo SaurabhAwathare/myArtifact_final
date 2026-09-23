@@ -4,6 +4,7 @@ import com.saurabh.artifact.model.PublishingResult
 import com.saurabh.artifact.repository.RecordingRepository
 import com.saurabh.artifact.domain.review.publishing.PublishingReviewPolicy
 import android.util.Log
+import com.saurabh.artifact.model.AppError
 import javax.inject.Inject
 
 class PublishArtifactUseCase @Inject constructor(
@@ -12,12 +13,12 @@ class PublishArtifactUseCase @Inject constructor(
     private val publishingOrchestrator: PublishingOrchestrator,
     private val publishingPolicy: PublishingReviewPolicy
 ) {
-    suspend operator fun invoke(draftFilePath: String): Result<PublishingResult> {
+    suspend operator fun invoke(draftId: String): Result<PublishingResult> {
         val userId = authRepository.currentUserId
-        if (userId.isEmpty()) return Result.failure(com.saurabh.artifact.model.AppError.Unauthenticated())
+        if (userId.isEmpty()) return Result.failure(AppError.Unauthenticated())
         
-        val draftResult = recordingRepository.getDraftByPath(draftFilePath)
-        val draft = draftResult.getOrNull() ?: return Result.failure(com.saurabh.artifact.model.AppError.NotFound("Draft", draftFilePath))
+        val draftResult = recordingRepository.getDraft(draftId)
+        val draft = draftResult.getOrNull() ?: return Result.failure(AppError.NotFound("Draft", draftId))
 
         if (draft.lifecycle != com.saurabh.artifact.model.ArtifactLifecycle.READY_TO_PUBLISH) {
             Log.w("PublishValidation", "Draft status: ${draft.lifecycle}, Progress: ${draft.reviewProgress}")

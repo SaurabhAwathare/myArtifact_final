@@ -462,7 +462,7 @@ class PublishingStudioViewModel @Inject constructor(
             _uiState.update { it.copy(isPublishing = true) }
             
             recordingRepository.getDraft(draftId).onSuccess { draft ->
-                publishArtifactUseCase(draft.localAudioPath)
+                publishArtifactUseCase(draft.id)
                     .onSuccess { result ->
                         diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISH_INITIATION_SUCCESS", mapOf(LogKeys.DRAFT_ID to draftId))
                         playbackCoordinator.stop()

@@ -110,10 +110,20 @@ class PublishingOrchestrator @Inject constructor(
                 .map { list -> list.find { it.id == draftId } }
                 .filterNotNull()
                 .mapNotNull { updated ->
-                    when {
-                        updated.isEncrypted && updated.status.processing is ProcessingStatus.Idle -> Result.success(updated)
-                        updated.status.processing is ProcessingStatus.Failed -> Result.failure<ArtifactDraftEntity>(Exception("Audio processing failed. Please try again."))
-                        else -> null
+                    when (updated.status.processing) {
+                        is ProcessingStatus.Active -> null
+                        is ProcessingStatus.Failed -> Result.failure<ArtifactDraftEntity>(
+                            Exception("Audio processing failed. Please try again.")
+                        )
+                        is ProcessingStatus.Idle -> {
+                            if (updated.isEncrypted) {
+                                Result.success(updated)
+                            } else {
+                                Result.failure<ArtifactDraftEntity>(
+                                    Exception("Required audio processing/encryption is incomplete or unavailable.")
+                                )
+                            }
+                        }
                     }
                 }
                 .first()
@@ -134,6 +144,8 @@ class PublishingOrchestrator @Inject constructor(
                 Log.e("PublishingOrchestrator", "Failed to auto-approve draft.")
                 return@withContext Result.failure(reApproveResult.exceptionOrNull() ?: Exception("Auto-approval failed"))
             }
+            draft = draftRepository.getDraft(draftId).getOrNull()
+                ?: return@withContext Result.failure(Exception("Draft not found after auto-approval"))
         }
         
         // 0.1 Strict Validation: Review Required
@@ -188,13 +200,14 @@ class PublishingOrchestrator @Inject constructor(
     }
 
     suspend fun retryPublishing(draftId: String) = withContext(Dispatchers.IO) {
-        val draft = draftRepository.getDraft(draftId).getOrNull() ?: return@withContext
+        var draft = draftRepository.getDraft(draftId).getOrNull() ?: return@withContext
 
         // 0. Security Validation: Regenerate tokens if validation fails
         val userId = authRepository.currentUserId
         if (!uploadGuard.validateApproval(draft, userId)) {
             Log.i("PublishingOrchestrator", "Retrying draft with invalid security state. Re-approving.")
             approvalRepository.approveAndFreezeAuto(draftId)
+            draft = draftRepository.getDraft(draftId).getOrNull() ?: return@withContext
         }
 
         if (draft.status.publication is SyncStatus.Failed) {
