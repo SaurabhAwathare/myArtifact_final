@@ -51,7 +51,8 @@ class UserRepositoryTotalSilenceTest {
         repository = UserRepository(
             mockk(relaxed = true), auth, firestore,
             { userDao }, mockk(relaxed = true), { regCoordinator },
-            { pendingInteractionDao }, { ignoredUserDao }, mockk(relaxed = true)
+            { pendingInteractionDao }, { ignoredUserDao }, mockk(relaxed = true),
+            { mockk(relaxed = true) }, { mockk(relaxed = true) }
         )
     }
 

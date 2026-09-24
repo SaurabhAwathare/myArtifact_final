@@ -27,6 +27,10 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import androidx.work.Operation
 import androidx.work.WorkManager
+import com.google.firebase.auth.FirebaseUser
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.MutableStateFlow
+import org.junit.Assert
 
 @RunWith(RobolectricTestRunner::class)
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -68,6 +72,11 @@ class LogoutCoordinatorTest {
         }
         every { operationResult.result } returns future
         every { workManager.cancelAllWorkByTag(any()) } returns operationResult
+        every { sessionManager.localSessionId } returns MutableStateFlow("test_session_id")
+        val mockUser = mockk<FirebaseUser> { every { uid } returns "test-uid" }
+        every { authRepository.currentUser } returns MutableStateFlow(mockUser)
+        every { authRepository.currentUserId } returns "test-uid"
+        coEvery { authRepository.signOutAuthorized(any(), any(), any()) } returns Result.success(Unit)
         
         coordinator = LogoutCoordinator(
             context,
@@ -138,7 +147,7 @@ class LogoutCoordinatorTest {
         verify { personalizationEngine.clearLocalData() }
 
         // Verify Phase E: Sign Out
-        coVerify { authRepository.signOut() }
+        coVerify { authRepository.signOutAuthorized(any(), any(), any()) }
         
         fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "LOGOUT_FIREBASE_SUCCESS")
         fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "LOGOUT_CLEANUP_COMPLETED")
@@ -173,7 +182,7 @@ class LogoutCoordinatorTest {
         verify { storageManager.clearUserStorage(preserveDrafts = true) }
         
         // Verify sign out was still called (Final Phase)
-        coVerify { authRepository.signOut() }
+        coVerify { authRepository.signOutAuthorized(any(), any(), any()) }
 
         fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "LOGOUT_SKIP_DATASTORE_CLEAR")
         fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_DB_FAILED")
@@ -189,7 +198,7 @@ class LogoutCoordinatorTest {
         assertTrue(result.isSuccess)
         
         // Verify sign out was still called
-        coVerify { authRepository.signOut() }
+        coVerify { authRepository.signOutAuthorized(any(), any(), any()) }
         fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_BACKUP_FAILED")
     }
 
@@ -203,5 +212,65 @@ class LogoutCoordinatorTest {
             com.saurabh.artifact.audio.MediaCache.release()
             storageManager.clearUserStorage(preserveDrafts = true)
         }
+    }
+
+    @Test
+    fun `account switch during cleanup skips Phase E remote sign-out for new user`() = runTest(testDispatcher) {
+        val keyA = CleanupEventKey(targetUid = "user_A", sessionInstanceId = "S1")
+        
+        val userB = mockk<FirebaseUser> {
+            every { uid } returns "user_B"
+        }
+        val currentUserFlow = MutableStateFlow<FirebaseUser?>(userB)
+        every { authRepository.currentUser } returns currentUserFlow
+        every { sessionManager.localSessionId } returns MutableStateFlow("S2")
+
+        val result = coordinator.executeLogout(keyA)
+
+        assertTrue(result.isSuccess)
+        coVerify(exactly = 0) { authRepository.signOutAuthorized("user_A", "S1", any()) }
+        fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "LOGOUT_FIREBASE_SKIPPED_SUPERSEDED")
+    }
+
+    @Test
+    fun `same UID new session replacement prevents stale session sign-out`() = runTest(testDispatcher) {
+        val keyS1 = CleanupEventKey(targetUid = "user_A", sessionInstanceId = "S1")
+        
+        val userA = mockk<FirebaseUser> {
+            every { uid } returns "user_A"
+        }
+        every { authRepository.currentUser } returns MutableStateFlow(userA)
+        every { sessionManager.localSessionId } returns MutableStateFlow("S2")
+
+        val result = coordinator.executeLogout(keyS1)
+
+        assertTrue(result.isSuccess)
+        coVerify(exactly = 0) { authRepository.signOutAuthorized("user_A", "S1", any()) }
+        fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "LOGOUT_FIREBASE_SKIPPED_SUPERSEDED")
+    }
+
+    @Test
+    fun `CancellationException is rethrown and not recorded as successful cleanup`() = runTest(testDispatcher) {
+        val key = CleanupEventKey(targetUid = "user_A", sessionInstanceId = "S1")
+        coEvery { sessionManager.clear() } throws kotlinx.coroutines.CancellationException("Cancelled")
+
+        try {
+            coordinator.performFullCleanup(key)
+            Assert.fail("Expected CancellationException")
+        } catch (e: CancellationException) {
+            // Expected
+        }
+    }
+
+    @Test
+    fun `duplicate cleanup triggers share same operation`() = runTest(testDispatcher) {
+        val key = CleanupEventKey(targetUid = "user_A", sessionInstanceId = "S1")
+
+        val res1 = coordinator.performFullCleanup(key)
+        val res2 = coordinator.performFullCleanup(key)
+
+        assertEquals(CleanupStatus.COMPLETED, res1.status)
+        assertEquals(CleanupStatus.COMPLETED, res2.status)
+        verify(exactly = 1) { database.clearSessionTables() }
     }
 }

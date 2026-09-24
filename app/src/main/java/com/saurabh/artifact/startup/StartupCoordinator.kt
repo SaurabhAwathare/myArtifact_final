@@ -24,10 +24,12 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.ExistingWorkPolicy
 import com.google.firebase.appcheck.FirebaseAppCheck
 import com.saurabh.artifact.BuildConfig
+import com.saurabh.artifact.domain.auth.CleanupEventKey
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.tasks.await
+import java.util.UUID
 import kotlin.coroutines.resume
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -197,8 +199,12 @@ class StartupCoordinator @Inject constructor(
                     ArtifactLogger.w(DiagnosticCategory.STARTUP, "INTERRUPTED_CLEANUP_DETECTED", mapOf(LogKeys.USER_ID to (pendingUid ?: "unknown"), "isLogout" to isLoggingOut))
                     _stage.value = StartupStage.DELETION_CLEANUP
                     
+                    val recoveryUid = pendingUid ?: "UNKNOWN"
+                    val sessionId = userSessionManager.localSessionId.first() ?: ("RECOVERY_" + UUID.randomUUID().toString().take(8))
+                    val key = CleanupEventKey(targetUid = recoveryUid, sessionInstanceId = sessionId)
+                    
                     // Execute authoritative local wipe
-                    val result = logoutCoordinator.get().performFullCleanup()
+                    val result = logoutCoordinator.get().performFullCleanup(key)
                     if (result.status == com.saurabh.artifact.domain.auth.CleanupStatus.COMPLETED) {
                         ArtifactLogger.i(DiagnosticCategory.STARTUP, "RECOVERY_CLEANUP_SUCCESS")
                         maintenanceRepository.setPendingDeletion(null)

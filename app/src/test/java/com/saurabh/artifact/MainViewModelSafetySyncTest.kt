@@ -66,6 +66,9 @@ class MainViewModelSafetySyncTest {
         every { observeStealthModeUseCase.invoke() } returns flowOf(false)
         every { sessionManager.owningUid } returns owningUidFlow
         every { sessionManager.isLoggingOut } returns flowOf(false)
+        every { sessionManager.localSessionId } returns MutableStateFlow("test_session_id")
+        coEvery { maintenanceRepository.getPendingDeletionUid() } returns null
+        coEvery { logoutCoordinator.performFullCleanup(any()) } returns CleanupResult(status = CleanupStatus.COMPLETED)
         every { startupCoordinator.stage } returns MutableStateFlow(StartupStage.STABLE)
         every { startupCoordinator.preloadResult } returns MutableStateFlow(PreloadResult.Success)
         every { startupCoordinator.securityStatus } returns MutableStateFlow(SecurityStatus.PENDING)
@@ -130,7 +133,7 @@ class MainViewModelSafetySyncTest {
         val userB = mockk<com.google.firebase.auth.FirebaseUser> { every { uid } returns "user_B" }
         owningUidFlow.value = "user_A"
         
-        coEvery { logoutCoordinator.performFullCleanup() } coAnswers {
+        coEvery { logoutCoordinator.performFullCleanup(any()) } coAnswers {
             owningUidFlow.value = "user_B"
             CleanupResult(status = CleanupStatus.COMPLETED)
         }

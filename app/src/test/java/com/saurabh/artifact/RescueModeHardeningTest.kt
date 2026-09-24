@@ -57,6 +57,7 @@ class RescueModeHardeningTest {
         coEvery { maintenanceRepository.getPendingDeletionUid() } returns null
         every { sessionManager.owningUid } returns flowOf(null)
         every { sessionManager.isLoggingOut } returns flowOf(false)
+        every { sessionManager.localSessionId } returns MutableStateFlow("test_session_id")
         every { startupCoordinator.stage } returns MutableStateFlow(StartupStage.STABLE)
         every { startupCoordinator.preloadResult } returns MutableStateFlow(PreloadResult.Success)
         every { startupCoordinator.securityStatus } returns MutableStateFlow(SecurityStatus.PENDING)
@@ -85,7 +86,7 @@ class RescueModeHardeningTest {
         every { authRepository.currentUserId } returns "user-B"
         every { sessionManager.owningUid } returns flowOf("user-A") // Dirty state
         
-        coEvery { logoutCoordinator.performFullCleanup() } returns mockk {
+        coEvery { logoutCoordinator.performFullCleanup(any()) } returns mockk {
             every { isFullySuccessful } returns true
         }
 
@@ -93,7 +94,7 @@ class RescueModeHardeningTest {
         advanceUntilIdle()
 
         // Verification: Boundary check MUST run and trigger cleanup
-        coVerify(exactly = 1) { logoutCoordinator.performFullCleanup() }
+        coVerify(exactly = 1) { logoutCoordinator.performFullCleanup(any()) }
         
         // Final state should be Rescue (cleanup succeeded)
         assertTrue(viewModel.startupState.value is AppStartupState.Rescue)
@@ -105,7 +106,7 @@ class RescueModeHardeningTest {
         every { authRepository.currentUserId } returns "user-B"
         every { sessionManager.owningUid } returns flowOf("user-A")
         
-        coEvery { logoutCoordinator.performFullCleanup() } returns mockk {
+        coEvery { logoutCoordinator.performFullCleanup(any()) } returns mockk {
             every { isFullySuccessful } returns false // FAILED CLEANUP
         }
 

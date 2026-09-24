@@ -22,6 +22,8 @@ import com.saurabh.artifact.ui.profile.models.DraftUiModel
 import com.saurabh.artifact.ui.util.UiText
 import com.saurabh.artifact.ui.util.ErrorMessageMapper
 import com.saurabh.artifact.R
+import com.saurabh.artifact.data.local.UserSessionManager
+import com.saurabh.artifact.domain.auth.CleanupEventKey
 import com.saurabh.artifact.domain.profile.ProfileData
 import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.navigation.Profile
@@ -101,6 +103,7 @@ class ProfileViewModel @Inject constructor(
     getProfileDataUseCase: com.saurabh.artifact.domain.profile.GetProfileDataUseCase,
     private val profileInteractionUseCase: com.saurabh.artifact.domain.profile.ProfileInteractionUseCase,
     private val logoutCoordinator: com.saurabh.artifact.domain.auth.LogoutCoordinator,
+    private val sessionManager: UserSessionManager,
     private val diagnosticLogger: DiagnosticLogger,
     private val draftMapper: DraftToArtifactMapper,
     private val draftRepository: DraftRepository
@@ -544,7 +547,11 @@ class ProfileViewModel @Inject constructor(
     fun logout() {
         viewModelScope.launch {
             _logoutState.value = LogoutState.Loading
-            logoutCoordinator.executeLogout()
+            val key = CleanupEventKey(
+                targetUid = authRepository.currentUser.value?.uid ?: "",
+                sessionInstanceId = sessionManager.localSessionId.first() ?: "UNKNOWN"
+            )
+            logoutCoordinator.executeLogout(key)
                 .onSuccess {
                     _logoutState.value = LogoutState.Success
                 }

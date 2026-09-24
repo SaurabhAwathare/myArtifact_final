@@ -27,6 +27,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
 import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Singleton
@@ -68,6 +70,8 @@ class AuthRepository @Inject constructor(
     private val firebaseFunctions: FirebaseFunctions? = null,
     private val userSessionManager: UserSessionManager? = null,
 ) {
+    val authMutex = Mutex()
+
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     private val _currentUser = MutableStateFlow(firebaseAuth.currentUser)
@@ -503,8 +507,8 @@ class AuthRepository @Inject constructor(
         privateSettingsListener = null
     }
 
-    suspend fun signInWithGoogle(idToken: String): Result<FirebaseUser?> {
-        return try {
+    suspend fun signInWithGoogle(idToken: String): Result<FirebaseUser?> = authMutex.withLock {
+        try {
             val credential = GoogleAuthProvider.getCredential(idToken, null)
             val result = firebaseAuth.signInWithCredential(credential).await()
             Result.success(result.user)
@@ -513,9 +517,9 @@ class AuthRepository @Inject constructor(
         }
     }
 
-    suspend fun reauthenticateWithGoogle(idToken: String): Result<Unit> {
-        val user = firebaseAuth.currentUser ?: return Result.failure(AppError.Unauthenticated())
-        return try {
+    suspend fun reauthenticateWithGoogle(idToken: String): Result<Unit> = authMutex.withLock {
+        val user = firebaseAuth.currentUser ?: return@withLock Result.failure(AppError.Unauthenticated())
+        try {
             val credential = GoogleAuthProvider.getCredential(idToken, null)
             user.reauthenticate(credential).await()
             Result.success(Unit)
@@ -538,9 +542,9 @@ class AuthRepository @Inject constructor(
         }
     }
 
-    suspend fun deleteCurrentUser(): Result<Unit> {
-        val user = firebaseAuth.currentUser ?: return Result.failure(AppError.Unauthenticated())
-        return try {
+    suspend fun deleteCurrentUser(): Result<Unit> = authMutex.withLock {
+        val user = firebaseAuth.currentUser ?: return@withLock Result.failure(AppError.Unauthenticated())
+        try {
             // Hardening: Clear FCM token and Firestore reference before deletion while session is valid.
             // This ensures the device is de-registered even if deletion is interrupted.
             clearFcmToken()
@@ -554,8 +558,8 @@ class AuthRepository @Inject constructor(
         }
     }
 
-    suspend fun signOut(): Result<Unit> {
-        return try {
+    suspend fun signOut(): Result<Unit> = authMutex.withLock {
+        try {
             // Phase 2: Clear FCM token before signing out
             // Dependency: Requires active firebaseAuth.currentUser
             clearFcmToken()
@@ -563,6 +567,56 @@ class AuthRepository @Inject constructor(
             // Clear credential state (sign out from Google via Credential Manager)
             credentialManager.clearCredentialState(ClearCredentialStateRequest())
             // Sign out from Firebase
+            firebaseAuth.signOut()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(AppError.from(e))
+        }
+    }
+
+    /**
+     * Executes remote Firebase sign-out ONLY IF the currently active Firebase session
+     * still belongs to the specified [targetUid] and session instance ID.
+     * Serialized under [authMutex] to prevent sign-in/sign-out race conditions.
+     */
+    suspend fun signOutAuthorized(
+        targetUid: String,
+        sessionInstanceId: String,
+        getLocalSessionId: suspend () -> String?
+    ): Result<Unit> = authMutex.withLock {
+        try {
+            val currentUid = firebaseAuth.currentUser?.uid
+            val currentSessionId = getLocalSessionId()
+
+            val isUidMatch = currentUid != null && currentUid == targetUid
+            val isSessionMatch = currentSessionId == null || currentSessionId == sessionInstanceId
+
+            if (!isUidMatch || !isSessionMatch) {
+                ArtifactLogger.i(
+                    DiagnosticCategory.AUTH,
+                    "SIGNOUT_AUTHORIZED_SKIPPED_SUPERSEDED",
+                    mapOf("targetUid" to targetUid, "currentUid" to (currentUid ?: "null"))
+                )
+                return@withLock Result.success(Unit)
+            }
+
+            clearFcmToken()
+            credentialManager.clearCredentialState(ClearCredentialStateRequest())
+
+            val finalUid = firebaseAuth.currentUser?.uid
+            val finalSessionId = getLocalSessionId()
+            val finalUidMatch = finalUid != null && finalUid == targetUid
+            val finalSessionMatch = finalSessionId == null || finalSessionId == sessionInstanceId
+
+            if (!finalUidMatch || !finalSessionMatch) {
+                ArtifactLogger.i(
+                    DiagnosticCategory.AUTH,
+                    "SIGNOUT_AUTHORIZED_SKIPPED_FINAL_CHECK",
+                    mapOf("targetUid" to targetUid, "finalUid" to (finalUid ?: "null"))
+                )
+                return@withLock Result.success(Unit)
+            }
+
             firebaseAuth.signOut()
             Result.success(Unit)
         } catch (e: Exception) {
@@ -584,9 +638,9 @@ class AuthRepository @Inject constructor(
         return result.data as? Map<*, *>
     }
 
-    suspend fun claimFirstDevice(deviceName: String, clientCorrelationId: String? = null): Result<ClaimResult> {
-        if (firebaseAuth.currentUser == null) return Result.failure(AppError.Unauthenticated())
-        return try {
+    suspend fun claimFirstDevice(deviceName: String, clientCorrelationId: String? = null): Result<ClaimResult> = authMutex.withLock {
+        if (firebaseAuth.currentUser == null) return@withLock Result.failure(AppError.Unauthenticated())
+        try {
             val data = hashMapOf<String, Any>(
                 "deviceName" to deviceName,
                 "clientCorrelationId" to (clientCorrelationId ?: UUID.randomUUID().toString())
@@ -619,9 +673,9 @@ class AuthRepository @Inject constructor(
         }
     }
 
-    suspend fun transferActiveSession(deviceName: String, clientCorrelationId: String): Result<TransferResult> {
-        if (firebaseAuth.currentUser == null) return Result.failure(AppError.Unauthenticated())
-        return try {
+    suspend fun transferActiveSession(deviceName: String, clientCorrelationId: String): Result<TransferResult> = authMutex.withLock {
+        if (firebaseAuth.currentUser == null) return@withLock Result.failure(AppError.Unauthenticated())
+        try {
             val data = hashMapOf<String, Any>(
                 "deviceName" to deviceName,
                 "clientCorrelationId" to clientCorrelationId

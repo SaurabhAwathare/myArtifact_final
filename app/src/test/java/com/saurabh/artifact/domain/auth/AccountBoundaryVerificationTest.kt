@@ -101,6 +101,9 @@ class AccountBoundaryVerificationTest {
         // Setup Auth and Session flows
         every { authRepository.currentUser } returns testAuthFlow
         every { sessionManager.owningUid } returns testOwningUidFlow
+        every { sessionManager.localSessionId } returns MutableStateFlow("test_session_id")
+        every { sessionManager.isLoggingOut } returns MutableStateFlow(false)
+        coEvery { maintenanceRepository.getPendingDeletionUid() } returns null
         every { observeStealthModeUseCase() } returns flowOf(false)
         coEvery { authRepository.awaitAuthoritativeSessionState() } returns SessionState.Active
         every { authRepository.sessionState } returns MutableStateFlow(SessionState.Active)
@@ -154,6 +157,7 @@ class AccountBoundaryVerificationTest {
         // Arrange
         testAuthFlow.value = mockk<com.google.firebase.auth.FirebaseUser> { every { uid } returns "user_A" }
         testOwningUidFlow.value = "user_A"
+        coEvery { authRepository.signOutAuthorized(any(), any(), any()) } returns Result.success(Unit)
         
         // Act
         val result = logoutCoordinator.executeLogout()
@@ -167,7 +171,7 @@ class AccountBoundaryVerificationTest {
             database.clearSessionTables()
             storageManager.clearUserStorage(preserveDrafts = true)
             sessionManager.clear()
-            authRepository.signOut()
+            authRepository.signOutAuthorized(any(), any(), any())
         }
         
         fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "LOGOUT_CLEANUP_COMPLETED")
@@ -180,6 +184,7 @@ class AccountBoundaryVerificationTest {
         // Arrange
         testAuthFlow.value = mockk { every { uid } returns "user_A" }
         testOwningUidFlow.value = "user_A"
+        coEvery { authRepository.signOutAuthorized(any(), any(), any()) } returns Result.success(Unit)
         
         // Simulate failure in clearSessionTables
         every { database.clearSessionTables() } throws RuntimeException("DB Lock Failure")
@@ -197,8 +202,8 @@ class AccountBoundaryVerificationTest {
         // Critical Verification: sessionManager.clear() MUST NOT be called if DB destruction failed
         coVerify(exactly = 0) { sessionManager.clear() }
         
-        // Critical Verification: authRepository.signOut() MUST NOT be called if cleanup failed 
-        coVerify(exactly = 1) { authRepository.signOut() } // Existing behavior
+        // Critical Verification: authRepository.signOutAuthorized() called on Phase E
+        coVerify(exactly = 1) { authRepository.signOutAuthorized(any(), any(), any()) }
     }
 
     // 3. WORKER_CANCELLATION
@@ -224,9 +229,10 @@ class AccountBoundaryVerificationTest {
         // Arrange: App starts with User A data in Store, but User B is logged in
         val userB = mockk<com.google.firebase.auth.FirebaseUser> { every { uid } returns "user_B" }
         testAuthFlow.value = userB
+        every { authRepository.currentUserId } returns "user_B"
         testOwningUidFlow.value = "user_A" // Tainted
         
-        coEvery { logoutCoordinator.performFullCleanup() } returns CleanupResult(status = CleanupStatus.COMPLETED)
+        coEvery { logoutCoordinator.performFullCleanup(any()) } returns CleanupResult(status = CleanupStatus.COMPLETED)
         
         // Act
         viewModel.start()
@@ -235,10 +241,11 @@ class AccountBoundaryVerificationTest {
         // Now change UID to trigger the collector
         val userC = mockk<com.google.firebase.auth.FirebaseUser> { every { uid } returns "user_C" }
         testAuthFlow.value = userC
+        every { authRepository.currentUserId } returns "user_C"
         advanceUntilIdle()
         
         // Assert
-        coVerify(atLeast = 1) { logoutCoordinator.performFullCleanup() }
+        coVerify(atLeast = 1) { logoutCoordinator.performFullCleanup(any()) }
         fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "ACCOUNT_BOUNDARY_DETECTED")
     }
 
@@ -247,6 +254,7 @@ class AccountBoundaryVerificationTest {
     fun `scenario 6 - SUCCESSFUL_HANDOFF allows normal initialization`() = runTest {
         // Arrange: Clean state
         testAuthFlow.value = mockk { every { uid } returns "user_B" }
+        every { authRepository.currentUserId } returns "user_B"
         testOwningUidFlow.value = "user_B" // Already clean/matching
         
         // Act
@@ -254,6 +262,6 @@ class AccountBoundaryVerificationTest {
         advanceUntilIdle()
         
         // Assert
-        coVerify(exactly = 0) { logoutCoordinator.performFullCleanup() }
+        coVerify(exactly = 0) { logoutCoordinator.performFullCleanup(any()) }
     }
 }

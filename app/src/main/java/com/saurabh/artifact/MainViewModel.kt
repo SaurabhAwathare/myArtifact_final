@@ -10,6 +10,7 @@ import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.navigation.*
 import com.saurabh.artifact.model.PlaybackSource
 import com.saurabh.artifact.domain.ArtifactVisibilityFilter
+import com.saurabh.artifact.domain.auth.CleanupEventKey
 import com.saurabh.artifact.domain.auth.GetInitialDestinationUseCase
 import com.saurabh.artifact.domain.auth.InitialDestination
 import com.saurabh.artifact.domain.auth.RegistrationResult
@@ -187,8 +188,13 @@ class MainViewModel @Inject constructor(
                             if (isCleanupRequired) {
                                 diagnosticLogger.info(DiagnosticCategory.AUTH, "ACCOUNT_BOUNDARY_DETECTED", mapOf("from" to (previousUid ?: "null"), "to" to (currentUid ?: "null")))
                                 
+                                val localSessionId = sessionManager.localSessionId.first()
+                                val key = CleanupEventKey(
+                                    targetUid = owningUid ?: previousUid ?: "",
+                                    sessionInstanceId = localSessionId ?: "UNKNOWN"
+                                )
                                 // BLOCKING: Ensure cleanup completes before continuing to prevent stale data visibility
-                                val result = logoutCoordinator.performFullCleanup()
+                                val result = logoutCoordinator.performFullCleanup(key)
                                 if (result.isFullySuccessful) {
                                     diagnosticLogger.info(DiagnosticCategory.AUTH, "ACCOUNT_CLEANUP_COMPLETED")
                                 } else {
@@ -218,7 +224,11 @@ class MainViewModel @Inject constructor(
                     diagnosticLogger.warn(DiagnosticCategory.AUTH, "SESSION_REVOKED_EMITTED")
                     _isCleaning.value = true
                     try {
-                        logoutCoordinator.performFullCleanup()
+                        val key = CleanupEventKey(
+                            targetUid = authRepository.currentUserId,
+                            sessionInstanceId = sessionManager.localSessionId.first() ?: "UNKNOWN"
+                        )
+                        logoutCoordinator.performFullCleanup(key)
                     } catch (e: Exception) {
                         diagnosticLogger.error(DiagnosticCategory.AUTH, "REVOCATION_CLEANUP_FAILED", throwable = e)
                     } finally {
@@ -342,7 +352,12 @@ class MainViewModel @Inject constructor(
             
             return try {
                 _isCleaning.value = true
-                val result = logoutCoordinator.performFullCleanup()
+                val localSessionId = sessionManager.localSessionId.first()
+                val key = CleanupEventKey(
+                    targetUid = owningUid ?: maintenanceRepository.getPendingDeletionUid() ?: "",
+                    sessionInstanceId = localSessionId ?: "UNKNOWN"
+                )
+                val result = logoutCoordinator.performFullCleanup(key)
                 
                 if (result.isFullySuccessful) {
                     // Clear maintenance lock only if it was the reason for cleanup to prevent infinite loops
@@ -475,7 +490,11 @@ class MainViewModel @Inject constructor(
                             diagnosticLogger.warn(DiagnosticCategory.STARTUP, "STARTUP_SESSION_INVALID_RECOVERING")
                             try {
                                 _isCleaning.value = true
-                                logoutCoordinator.performFullCleanup()
+                                val key = CleanupEventKey(
+                                    targetUid = authRepository.currentUserId,
+                                    sessionInstanceId = sessionManager.localSessionId.first() ?: "UNKNOWN"
+                                )
+                                logoutCoordinator.performFullCleanup(key)
                             } catch (cleanupErr: Exception) {
                                 diagnosticLogger.error(DiagnosticCategory.STARTUP, "STARTUP_SESSION_CLEANUP_FAILED", throwable = cleanupErr)
                             } finally {
@@ -556,7 +575,11 @@ class MainViewModel @Inject constructor(
                         is SessionState.Revoked -> {
                             _isCleaning.value = true
                             try {
-                                logoutCoordinator.performFullCleanup()
+                                val key = CleanupEventKey(
+                                    targetUid = authRepository.currentUserId,
+                                    sessionInstanceId = sessionManager.localSessionId.first() ?: "UNKNOWN"
+                                )
+                                logoutCoordinator.performFullCleanup(key)
                             } finally {
                                 _isCleaning.value = false
                             }
@@ -613,7 +636,11 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch {
             _isCleaning.value = true
             try {
-                logoutCoordinator.executeLogout()
+                val key = CleanupEventKey(
+                    targetUid = authRepository.currentUserId,
+                    sessionInstanceId = sessionManager.localSessionId.first() ?: "UNKNOWN"
+                )
+                logoutCoordinator.executeLogout(key)
             } finally {
                 _isCleaning.value = false
                 _startupState.value = AppStartupState.Ready(

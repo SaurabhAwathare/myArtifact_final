@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import com.saurabh.artifact.auth.CredentialHelper
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
+import com.saurabh.artifact.data.local.UserSessionManager
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.domain.auth.LogoutCoordinator
 import com.saurabh.artifact.model.ArtifactLifecycle
@@ -35,6 +36,7 @@ import org.robolectric.RobolectricTestRunner
 class SettingsViewModelTest {
     private val repository = mockk<SettingsRepository>(relaxed = true)
     private val authRepository = mockk<AuthRepository>(relaxed = true)
+    private val sessionManager = mockk<UserSessionManager>(relaxed = true)
     private val clipboardGuard = mockk<ClipboardGuard>(relaxed = true)
     private val logoutCoordinator = mockk<LogoutCoordinator>(relaxed = true)
     private val draftRepository = mockk<DraftRepository>(relaxed = true)
@@ -58,7 +60,7 @@ class SettingsViewModelTest {
         every { draftRepository.observeDrafts() } returns MutableStateFlow(emptyList())
 
         viewModel = SettingsViewModel(
-            repository, authRepository, 
+            repository, authRepository, sessionManager,
             clipboardGuard, logoutCoordinator, draftRepository, credentialHelper, diagnosticLogger
         )
     }
@@ -80,7 +82,7 @@ class SettingsViewModelTest {
         every { draftRepository.observeDrafts() } returns MutableStateFlow(listOf(draft1, draft2))
 
         val vm = SettingsViewModel(
-            repository, authRepository,
+            repository, authRepository, sessionManager,
             clipboardGuard, logoutCoordinator, draftRepository, credentialHelper, diagnosticLogger
         )
 

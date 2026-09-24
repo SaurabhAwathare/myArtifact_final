@@ -17,6 +17,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collectLatest
+import com.saurabh.artifact.domain.auth.CleanupEventKey
+import com.saurabh.artifact.data.local.UserSessionManager
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
@@ -33,6 +36,7 @@ class SettingsRepository @Inject constructor(
     private val authRepository: AuthRepository,
     private val startupCoordinator: StartupCoordinator,
     private val maintenanceRepository: MaintenanceRepository,
+    private val userSessionManager: UserSessionManager,
     private val logoutCoordinator: dagger.Lazy<com.saurabh.artifact.domain.auth.LogoutCoordinator>
 ) {
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -164,7 +168,9 @@ class SettingsRepository @Inject constructor(
 
     suspend fun deleteUserAccount(): Result<Unit> {
         val userId = authRepository.currentUser.value?.uid ?: return Result.failure(Exception("Not logged in"))
-        
+        val sessionId = userSessionManager.localSessionId.first() ?: "UNKNOWN"
+        val key = CleanupEventKey(targetUid = userId, sessionInstanceId = sessionId)
+
         return try {
             // 1. Establish Durable Deletion State (Maintenance Lock)
             maintenanceRepository.setPendingDeletion(userId)
@@ -175,7 +181,7 @@ class SettingsRepository @Inject constructor(
             
             // 3. Perform Full Local Cleanup (Hardening)
             // This clears Room database, DataStores, caches, and stops active media.
-            logoutCoordinator.get().performFullCleanup()
+            logoutCoordinator.get().performFullCleanup(key)
             
             // 4. Clear Maintenance State on success
             maintenanceRepository.setPendingDeletion(null)

@@ -74,7 +74,8 @@ open class UserRepository @Inject constructor(
     private val pendingInteractionDao: Lazy<com.saurabh.artifact.data.local.PendingInteractionDao>,
     private val ignoredUserDao: Lazy<com.saurabh.artifact.data.local.IgnoredUserDao>,
     private val diagnosticLogger: DiagnosticLogger,
-    private val functions: Lazy<FirebaseFunctions> = Lazy { FirebaseFunctions.getInstance() }
+    private val functions: Lazy<FirebaseFunctions> = Lazy { FirebaseFunctions.getInstance() },
+    private val authRepository: Lazy<AuthRepository>
 ) {
     companion object {
         const val CREATOR_PROFILE_CACHE_TTL_MS: Long = 24 * 60 * 60 * 1000L // 24 hours
@@ -475,7 +476,7 @@ open class UserRepository @Inject constructor(
                 // local data loss in the LogoutCoordinator.
                 if (e is FirebaseAuthInvalidUserException) {
                     diagnosticLogger.error(DiagnosticCategory.AUTH, "AUTH_SESSION_REVOKED", mapOf(LogKeys.USER_ID to initialUser.uid))
-                    auth.signOut()
+                    authRepository.get().signOut()
                     return@withContext Result.failure(AppError.Unauthenticated("Session revoked: ${e.errorCode}"))
                 }
                 

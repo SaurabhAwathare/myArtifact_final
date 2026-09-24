@@ -17,6 +17,8 @@ import com.saurabh.artifact.ui.util.UiText
 import com.saurabh.artifact.ui.util.ErrorMessageMapper
 import com.saurabh.artifact.util.SecureString
 import com.saurabh.artifact.R
+import com.saurabh.artifact.domain.auth.CleanupEventKey
+import com.saurabh.artifact.data.local.UserSessionManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -36,6 +38,7 @@ data class AccountInfo(val realName: SecureString, val email: SecureString)
 class SettingsViewModel @Inject constructor(
     private val repository: SettingsRepository,
     private val authRepository: com.saurabh.artifact.repository.AuthRepository,
+    private val sessionManager: UserSessionManager,
     private val clipboardGuard: ClipboardGuard,
     private val logoutCoordinator: com.saurabh.artifact.domain.auth.LogoutCoordinator,
     private val draftRepository: DraftRepository,
@@ -178,7 +181,11 @@ class SettingsViewModel @Inject constructor(
     fun logout() {
         diagnosticLogger.info(DiagnosticCategory.SETTINGS, "LOGOUT_STARTED")
         viewModelScope.launch {
-            logoutCoordinator.executeLogout()
+            val key = CleanupEventKey(
+                targetUid = authRepository.currentUser.value?.uid ?: "",
+                sessionInstanceId = sessionManager.localSessionId.first() ?: "UNKNOWN"
+            )
+            logoutCoordinator.executeLogout(key)
                 .onSuccess {
                     diagnosticLogger.info(DiagnosticCategory.SETTINGS, "LOGOUT_COMPLETED")
                     _events.emit(SettingsUiEvent.LoggedOut)

@@ -45,6 +45,7 @@ class UserRepositoryTest {
     private val identityPolicy = mockk<IdentityProtectionPolicy>()
     private val regCoordinator = mockk<RegistrationCoordinator>()
     private val logger = mockk<DiagnosticLogger>(relaxed = true)
+    private val authRepository = mockk<AuthRepository>(relaxed = true)
 
     private val mockColl = mockk<CollectionReference>(relaxed = true)
     private val mockDoc = mockk<DocumentReference>(relaxed = true)
@@ -81,7 +82,9 @@ class UserRepositoryTest {
             Lazy { regCoordinator },
             Lazy { pendingInteractionDao },
             mockk(relaxed = true),
-            logger
+            logger,
+            functions = Lazy { mockk(relaxed = true) },
+            authRepository = Lazy { authRepository }
         )
     }
 
@@ -238,11 +241,11 @@ class UserRepositoryTest {
         coEvery { reloadTask.await() } throws authException
         
         every { auth.currentUser } returns firebaseUser
-        every { auth.signOut() } just Runs
+        coEvery { authRepository.signOut() } returns Result.success(Unit)
 
         repository.getOrCreateProfile()
 
-        verify(exactly = 1) { auth.signOut() }
+        coVerify(exactly = 1) { authRepository.signOut() }
         unmockkStatic("kotlinx.coroutines.tasks.TasksKt")
     }
 

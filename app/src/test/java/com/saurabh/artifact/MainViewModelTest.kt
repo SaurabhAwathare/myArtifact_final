@@ -93,8 +93,9 @@ class MainViewModelTest {
         every { startupCoordinator.isRescueModeActive } returns false
         every { sessionManager.owningUid } returns owningUidFlow
         every { sessionManager.isLoggingOut } returns isLoggingOutFlow
+        every { sessionManager.localSessionId } returns MutableStateFlow("test_session_id")
         coEvery { maintenanceRepository.getPendingDeletionUid() } returns null
-        coEvery { logoutCoordinator.performFullCleanup() } returns CleanupResult(status = CleanupStatus.COMPLETED)
+        coEvery { logoutCoordinator.performFullCleanup(any()) } returns CleanupResult(status = CleanupStatus.COMPLETED)
         coEvery { authRepository.awaitAuthoritativeSessionState() } returns SessionState.Active
         sessionStateFlow.value = SessionState.Active
         every { authRepository.sessionState } returns sessionStateFlow
@@ -136,7 +137,7 @@ class MainViewModelTest {
         advanceUntilIdle()
 
         // Verify cleanup was triggered immediately
-        coVerify(exactly = 1) { logoutCoordinator.performFullCleanup() }
+        coVerify(exactly = 1) { logoutCoordinator.performFullCleanup(any()) }
         // Verify maintenance lock was cleared
         coVerify { maintenanceRepository.setPendingDeletion(null) }
     }
@@ -150,7 +151,7 @@ class MainViewModelTest {
         
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
-        coEvery { logoutCoordinator.performFullCleanup() } coAnswers {
+        coEvery { logoutCoordinator.performFullCleanup(any()) } coAnswers {
             delay(100)
             CleanupResult(status = CleanupStatus.COMPLETED)
         }
@@ -160,13 +161,13 @@ class MainViewModelTest {
         // Advance partially - check if cleanup is in progress
         advanceTimeBy(10)
         assertTrue(viewModel.isCleaning.value)
-        coVerify(exactly = 1) { logoutCoordinator.performFullCleanup() }
+        coVerify(exactly = 1) { logoutCoordinator.performFullCleanup(any()) }
 
         advanceUntilIdle()
         
         // Verify registration check only happened AFTER cleanup
         coVerify(ordering = Ordering.SEQUENCE) {
-            logoutCoordinator.performFullCleanup()
+            logoutCoordinator.performFullCleanup(any())
             registrationCoordinator.ensureProfileExists()
         }
     }
@@ -182,7 +183,7 @@ class MainViewModelTest {
         viewModel.start()
         advanceUntilIdle()
 
-        coVerify(exactly = 1) { logoutCoordinator.performFullCleanup() }
+        coVerify(exactly = 1) { logoutCoordinator.performFullCleanup(any()) }
         assertEquals(AppStartupState.Ready(Login), viewModel.startupState.value)
     }
 
@@ -529,7 +530,7 @@ class MainViewModelTest {
 
         val state = viewModel.startupState.value
         assertTrue("State should be Error", state is AppStartupState.Error)
-        coVerify(exactly = 0) { logoutCoordinator.performFullCleanup() }
+        coVerify(exactly = 0) { logoutCoordinator.performFullCleanup(any()) }
     }
 
     @Test
@@ -539,7 +540,7 @@ class MainViewModelTest {
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
         val invalidUserException = mockk<FirebaseAuthInvalidUserException>(relaxed = true)
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.Failure(invalidUserException)
-        coEvery { logoutCoordinator.performFullCleanup() } returns CleanupResult(status = CleanupStatus.COMPLETED)
+        coEvery { logoutCoordinator.performFullCleanup(any()) } returns CleanupResult(status = CleanupStatus.COMPLETED)
 
         viewModel.start()
         advanceUntilIdle()
@@ -547,7 +548,7 @@ class MainViewModelTest {
         val state = viewModel.startupState.value
         assertTrue(state is AppStartupState.Ready)
         assertEquals(Login, (state as AppStartupState.Ready).startDestination)
-        coVerify(exactly = 1) { logoutCoordinator.performFullCleanup() }
+        coVerify(exactly = 1) { logoutCoordinator.performFullCleanup(any()) }
     }
 
     @Test
@@ -572,7 +573,7 @@ class MainViewModelTest {
         testAuthFlow.value = user
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
-        coEvery { logoutCoordinator.performFullCleanup() } coAnswers {
+        coEvery { logoutCoordinator.performFullCleanup(any()) } coAnswers {
             delay(100)
             CleanupResult(status = CleanupStatus.COMPLETED)
         }
@@ -594,7 +595,7 @@ class MainViewModelTest {
         assertEquals(AppStartupState.Ready(Login), viewModel.startupState.value)
 
         // Verify Cleanup was triggered
-        coVerify(exactly = 1) { logoutCoordinator.performFullCleanup() }
+        coVerify(exactly = 1) { logoutCoordinator.performFullCleanup(any()) }
     }
 
     @Test
@@ -610,7 +611,7 @@ class MainViewModelTest {
         assertEquals(AppStartupState.Ready(Login), viewModel.startupState.value)
 
         // Verify NO cleanup was triggered
-        coVerify(exactly = 0) { logoutCoordinator.performFullCleanup() }
+        coVerify(exactly = 0) { logoutCoordinator.performFullCleanup(any()) }
     }
 
     @Test
@@ -620,7 +621,7 @@ class MainViewModelTest {
         testAuthFlow.value = user
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
-        coEvery { logoutCoordinator.performFullCleanup() } throws RuntimeException("Cleanup failed")
+        coEvery { logoutCoordinator.performFullCleanup(any()) } throws RuntimeException("Cleanup failed")
         
         viewModel.start()
         advanceUntilIdle()
@@ -640,7 +641,7 @@ class MainViewModelTest {
         testAuthFlow.value = user
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
-        coEvery { logoutCoordinator.performFullCleanup() } returns CleanupResult(status = CleanupStatus.ALREADY_IN_PROGRESS)
+        coEvery { logoutCoordinator.performFullCleanup(any()) } returns CleanupResult(status = CleanupStatus.ALREADY_IN_PROGRESS)
         
         viewModel.start()
         advanceUntilIdle()
@@ -1130,7 +1131,7 @@ class MainViewModelTest {
         advanceUntilIdle()
 
         // 3. Verify LogoutCoordinator was called to wipe User A's data
-        coVerify(atLeast = 1) { logoutCoordinator.performFullCleanup() }
+        coVerify(atLeast = 1) { logoutCoordinator.performFullCleanup(any()) }
     }
 
     @Test
@@ -1150,7 +1151,7 @@ class MainViewModelTest {
         val userB = mockk<com.google.firebase.auth.FirebaseUser>()
         every { userB.uid } returns "user_B"
 
-        coEvery { logoutCoordinator.performFullCleanup() } coAnswers {
+        coEvery { logoutCoordinator.performFullCleanup(any()) } coAnswers {
             delay(1000) // Artificial delay
             owningUidFlow.value = "user_B"
             CleanupResult(status = CleanupStatus.COMPLETED)
@@ -1232,7 +1233,7 @@ class MainViewModelTest {
         sessionStateFlow.value = SessionState.Revoked
         advanceUntilIdle()
 
-        coVerify { logoutCoordinator.performFullCleanup() }
+        coVerify { logoutCoordinator.performFullCleanup(any()) }
         assertEquals(AppStartupState.Ready(Login), viewModel.startupState.value)
     }
 

@@ -56,7 +56,9 @@ class UserRepositoryIgnoreTest {
             Lazy { regCoordinator },
             mockk(relaxed = true),
             Lazy { ignoredUserDao },
-            logger
+            logger,
+            functions = Lazy { mockk(relaxed = true) },
+            authRepository = Lazy { mockk(relaxed = true) }
         )
     }
 
