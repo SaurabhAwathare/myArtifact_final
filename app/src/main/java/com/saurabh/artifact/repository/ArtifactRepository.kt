@@ -760,7 +760,8 @@ class ArtifactRepository @Inject constructor(
             humanIntegrityFactor = entity.humanIntegrityFactor,
             conversationMetadata = ArtifactConversationMetadata(
                 primaryStyle = entity.primaryStyle
-            )
+            ),
+            episodeNumber = entity.episodeNumber
         )
     }
 
@@ -811,7 +812,8 @@ class ArtifactRepository @Inject constructor(
             identityPropagationVersion = artifact.identityPropagationVersion,
             resonanceDepth = artifact.resonanceDepth,
             humanIntegrityFactor = artifact.humanIntegrityFactor,
-            lastUpdated = System.currentTimeMillis()
+            lastUpdated = System.currentTimeMillis(),
+            episodeNumber = artifact.episodeNumber
         )
     }
 
@@ -906,6 +908,9 @@ class ArtifactRepository @Inject constructor(
     ): Result<Unit> = publishingRepository.get().finalizeArtifactDocument(
         artifactId, audioUrl, status, isPublic, transcriptUrl
     )
+
+    suspend fun reserveEpisode(draftId: String): Result<Long> =
+        publishingRepository.get().reserveEpisode(draftId)
 
     suspend fun preparePublish(draftId: String): Result<Unit> =
         publishingRepository.get().preparePublish(draftId)

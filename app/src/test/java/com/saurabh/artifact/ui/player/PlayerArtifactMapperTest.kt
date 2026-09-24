@@ -34,4 +34,18 @@ class PlayerArtifactMapperTest {
         assertEquals("Test Title", playerArtifact.title)
         assertEquals(true, playerArtifact.isPublic)
     }
+
+    @Test
+    fun `toPlayerArtifact should map episodeNumber correctly`() {
+        val artifact = Artifact(
+            id = "test-id",
+            title = "Episode Test",
+            status = ArtifactStatus.ACTIVE,
+            episodeNumber = 16L
+        )
+
+        val playerArtifact = artifact.toPlayerArtifact()
+
+        assertEquals(16L, playerArtifact.episodeNumber)
+    }
 }

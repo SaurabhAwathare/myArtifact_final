@@ -1,5 +1,6 @@
 package com.saurabh.artifact
 
+import android.os.Build
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -32,6 +33,9 @@ import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import com.saurabh.artifact.audio.RecordingService
 import com.saurabh.artifact.data.local.RecordingStatus
 import com.saurabh.artifact.model.AppError
+import com.saurabh.artifact.repository.ClaimResult
+import com.saurabh.artifact.repository.SessionState
+import java.util.UUID
 
 sealed class AppStartupState {
     object Initializing : AppStartupState()
@@ -39,6 +43,7 @@ sealed class AppStartupState {
     object Registering : AppStartupState()
     object Rescue : AppStartupState()
     object Recovery : AppStartupState()
+    data class SessionConflict(val activeDeviceName: String) : AppStartupState()
     data class Ready(
         val startDestination: Any,
         val startupAction: Any? = null,
@@ -204,6 +209,27 @@ class MainViewModel @Inject constructor(
                         }
                     }
                 }
+        }
+
+        // Session Revocation Observation
+        viewModelScope.launch {
+            authRepository.sessionState.collect { sessionState ->
+                if (sessionState is SessionState.Revoked) {
+                    diagnosticLogger.warn(DiagnosticCategory.AUTH, "SESSION_REVOKED_EMITTED")
+                    _isCleaning.value = true
+                    try {
+                        logoutCoordinator.performFullCleanup()
+                    } catch (e: Exception) {
+                        diagnosticLogger.error(DiagnosticCategory.AUTH, "REVOCATION_CLEANUP_FAILED", throwable = e)
+                    } finally {
+                        _isCleaning.value = false
+                        _startupState.value = AppStartupState.Ready(
+                            startDestination = Login,
+                            securityStatus = startupCoordinator.securityStatus.value
+                        )
+                    }
+                }
+            }
         }
 
         // Single observation of terminal startup errors
@@ -435,18 +461,15 @@ class MainViewModel @Inject constructor(
             InitialDestination.AUTHENTICATED -> {
                 _startupState.value = AppStartupState.Registering
                 
-                when (val result = registrationCoordinator.ensureProfileExists()) {
-                    RegistrationResult.SuccessExistingUser -> {
-                        Home
-                    }
-                    RegistrationResult.SuccessNewUser -> {
-                        IdentityReveal
-                    }
+                val profileResult = registrationCoordinator.ensureProfileExists()
+                val targetDestination = when (profileResult) {
+                    RegistrationResult.SuccessExistingUser -> Home
+                    RegistrationResult.SuccessNewUser -> IdentityReveal
                     is RegistrationResult.Failure -> {
-                        diagnosticLogger.error(DiagnosticCategory.STARTUP, "STARTUP_REGISTRATION_FAILED", throwable = result.exception)
+                        diagnosticLogger.error(DiagnosticCategory.STARTUP, "STARTUP_REGISTRATION_FAILED", throwable = profileResult.exception)
                         
-                        val isExplicitRevocation = result.exception is FirebaseAuthInvalidUserException ||
-                                result.exception.message?.contains("terminated", ignoreCase = true) == true
+                        val isExplicitRevocation = profileResult.exception is FirebaseAuthInvalidUserException ||
+                                profileResult.exception.message?.contains("terminated", ignoreCase = true) == true
 
                         if (isExplicitRevocation) {
                             diagnosticLogger.warn(DiagnosticCategory.STARTUP, "STARTUP_SESSION_INVALID_RECOVERING")
@@ -460,8 +483,8 @@ class MainViewModel @Inject constructor(
                             }
                             Login
                         } else {
-                            val message = if (result.exception.message?.contains("terminated") == true) {
-                                result.exception.message!!
+                            val message = if (profileResult.exception.message?.contains("terminated") == true) {
+                                profileResult.exception.message!!
                             } else {
                                 "Profile verification failed."
                             }
@@ -471,12 +494,86 @@ class MainViewModel @Inject constructor(
                         }
                     }
                 }
+
+                if (targetDestination == Login) {
+                    Login
+                } else {
+                    // Authoritative Device Session Check
+                    val session = authRepository.awaitAuthoritativeSessionState()
+                    diagnosticLogger.info(DiagnosticCategory.AUTH, "SESSION_STATE_RESOLVED", mapOf("state" to session.javaClass.simpleName))
+
+                    when (session) {
+                        is SessionState.Active -> {
+                            targetDestination
+                        }
+                        is SessionState.NoActiveSession -> {
+                            val deviceName = Build.MODEL ?: "Android Device"
+                            val claimRes = authRepository.claimFirstDevice(deviceName)
+                            if (claimRes.isSuccess) {
+                                when (val claimVal = claimRes.getOrNull()) {
+                                    is ClaimResult.Success -> {
+                                        if (authRepository.sessionState.value is SessionState.Active) {
+                                            targetDestination
+                                        } else {
+                                            _startupState.value = AppStartupState.Error("Token refresh failed after session claim.")
+                                            startupCoordinator.completeAll()
+                                            return
+                                        }
+                                    }
+                                    is ClaimResult.SessionExists -> {
+                                        _startupState.value = AppStartupState.SessionConflict(claimVal.activeDeviceName)
+                                        startupCoordinator.completeAll()
+                                        return
+                                    }
+                                    else -> {
+                                        _startupState.value = AppStartupState.Error("Unknown session claim result.")
+                                        startupCoordinator.completeAll()
+                                        return
+                                    }
+                                }
+                            } else {
+                                val err = claimRes.exceptionOrNull()
+                                _startupState.value = AppStartupState.Error(err?.message ?: "Failed to claim active session.")
+                                startupCoordinator.completeAll()
+                                return
+                            }
+                        }
+                        is SessionState.SessionExistsOnOtherDevice -> {
+                            _startupState.value = AppStartupState.SessionConflict(session.deviceName)
+                            startupCoordinator.completeAll()
+                            return
+                        }
+                        is SessionState.Unavailable -> {
+                            _startupState.value = AppStartupState.Error(session.cause.message ?: "Session verification unavailable. Please check connection.")
+                            startupCoordinator.completeAll()
+                            return
+                        }
+                        is SessionState.TokenRefreshFailed -> {
+                            _startupState.value = AppStartupState.Error("Session token refresh failed. Please try again.")
+                            startupCoordinator.completeAll()
+                            return
+                        }
+                        is SessionState.Revoked -> {
+                            _isCleaning.value = true
+                            try {
+                                logoutCoordinator.performFullCleanup()
+                            } finally {
+                                _isCleaning.value = false
+                            }
+                            Login
+                        }
+                        is SessionState.Uninitialized,
+                        is SessionState.PendingServerVerification -> {
+                            _startupState.value = AppStartupState.Error("Session state unresolved.")
+                            startupCoordinator.completeAll()
+                            return
+                        }
+                    }
+                }
             }
         }
 
         // Integration of Deep Link Intent into the first Ready state
-        // RESOLUTION: If the queue contains a Route, the LAST one becomes the startDestination
-        // and is removed from the queue. InstantRecord is excluded so it remains deferred over Home.
         val lastRouteIndex = pendingStartupEvents.indexOfLast { it is Route && it !is InstantRecord }
         val finalDestination = if (lastRouteIndex != -1 && destination == InitialDestination.AUTHENTICATED) {
             pendingStartupEvents.removeAt(lastRouteIndex) as Route
@@ -486,13 +583,44 @@ class MainViewModel @Inject constructor(
 
         updateStartupState(AppStartupState.Ready(
             startDestination = finalDestination, 
-            startupAction = null, // All remaining events are handled by the deferred observer
+            startupAction = null,
             securityStatus = startupCoordinator.securityStatus.value
         ))
         markAuthReady()
 
         if (pendingStartupEvents.isNotEmpty()) {
             startDeferredNavigationObserver()
+        }
+    }
+
+    fun transferActiveSession() {
+        viewModelScope.launch {
+            diagnosticLogger.info(DiagnosticCategory.AUTH, "USER_INITIATED_SESSION_TRANSFER")
+            val deviceName = android.os.Build.MODEL ?: "Android Device"
+            val correlationId = UUID.randomUUID().toString()
+            val result = authRepository.transferActiveSession(deviceName, correlationId)
+            if (result.isSuccess) {
+                determineInitialRoute()
+            } else {
+                val err = result.exceptionOrNull()
+                diagnosticLogger.error(DiagnosticCategory.AUTH, "SESSION_TRANSFER_FAILED", throwable = err)
+                _startupState.value = AppStartupState.Error(err?.message ?: "Session transfer failed. Please try again.")
+            }
+        }
+    }
+
+    fun signOut() {
+        viewModelScope.launch {
+            _isCleaning.value = true
+            try {
+                logoutCoordinator.executeLogout()
+            } finally {
+                _isCleaning.value = false
+                _startupState.value = AppStartupState.Ready(
+                    startDestination = Login,
+                    securityStatus = startupCoordinator.securityStatus.value
+                )
+            }
         }
     }
 

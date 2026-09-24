@@ -50,5 +50,6 @@ data class ArtifactEntity(
     @ColumnInfo(defaultValue = "0") val identityPropagationVersion: Long = 0,
     @ColumnInfo(defaultValue = "0.0") val resonanceDepth: Float = 0f,
     @ColumnInfo(defaultValue = "1.0") val humanIntegrityFactor: Float = 1.0f,
-    val lastUpdated: Long = System.currentTimeMillis()
+    val lastUpdated: Long = System.currentTimeMillis(),
+    val episodeNumber: Long? = null
 )

@@ -311,6 +311,17 @@ fun ImmersivePlayerScreen(
                             }
                         }
 
+                        val episodeNumber = playableArtifact?.episodeNumber ?: artifact?.episodeNumber
+                        val episodeText = if (episodeNumber != null) "Artifact · Episode $episodeNumber" else "Episode pending"
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = episodeText,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.5f),
+                            fontWeight = FontWeight.Light,
+                            letterSpacing = 1.sp
+                        )
+
                         val emotionsToDisplay = playableArtifact?.effectiveEmotions?.ifEmpty { 
                             listOfNotNull(playableArtifact.emotion.ifBlank { null }) 
                         } ?: artifact?.effectiveEmotions ?: emptyList()

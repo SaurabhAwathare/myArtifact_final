@@ -16,6 +16,7 @@ import com.saurabh.artifact.navigation.Profile
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.startup.StartupCoordinator
 import com.saurabh.artifact.domain.ArtifactVisibilityFilter
+import com.saurabh.artifact.repository.SessionState
 import com.saurabh.artifact.security.PreloadResult
 import com.saurabh.artifact.startup.SecurityStatus
 import com.saurabh.artifact.startup.StartupStage
@@ -86,6 +87,8 @@ class MainViewModelIgnoreGuardTest {
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
         coEvery { maintenanceRepository.getPendingDeletionUid() } returns null
+        coEvery { authRepository.awaitAuthoritativeSessionState() } returns SessionState.Active
+        every { authRepository.sessionState } returns MutableStateFlow(SessionState.Active)
 
         viewModel = MainViewModel(
             authRepository,

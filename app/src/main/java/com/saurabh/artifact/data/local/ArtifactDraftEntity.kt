@@ -102,4 +102,7 @@ data class ArtifactDraftEntity(
     // Phase 2: Local Cleanup Architecture
     val localCleanupStatus: LocalCleanupStatus? = null,
     val cleanupRetryCount: Int = 0,
+
+    // Episode Number
+    val episodeNumber: Long? = null,
 ) : UploadProgress

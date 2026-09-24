@@ -178,7 +178,8 @@ class ArtifactRemoteMediator(
             identityPropagationVersion = artifact.identityPropagationVersion,
             resonanceDepth = artifact.resonanceDepth,
             humanIntegrityFactor = artifact.humanIntegrityFactor,
-            lastUpdated = System.currentTimeMillis()
+            lastUpdated = System.currentTimeMillis(),
+            episodeNumber = artifact.episodeNumber
         )
     }
 

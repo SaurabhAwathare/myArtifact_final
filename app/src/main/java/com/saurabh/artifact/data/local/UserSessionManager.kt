@@ -32,6 +32,23 @@ class UserSessionManager @Inject constructor(
         val ACTIVE_DRAFT_ID = stringPreferencesKey("active_draft_id")
         val ACTIVE_PROMPT_ID = stringPreferencesKey("active_prompt_id")
         val IS_LOGGING_OUT = booleanPreferencesKey("is_logging_out")
+        val LOCAL_SESSION_ID = stringPreferencesKey("local_session_id")
+    }
+
+    /**
+     * Exposes the local active session ID assigned to this device.
+     */
+    val localSessionId: Flow<String?> = dataStore.data
+        .map { preferences -> preferences[PreferencesKeys.LOCAL_SESSION_ID] }
+
+    suspend fun setLocalSessionId(sessionId: String?) {
+        dataStore.edit { preferences ->
+            if (sessionId == null) {
+                preferences.remove(PreferencesKeys.LOCAL_SESSION_ID)
+            } else {
+                preferences[PreferencesKeys.LOCAL_SESSION_ID] = sessionId
+            }
+        }
     }
 
     /**

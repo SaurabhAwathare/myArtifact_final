@@ -23,6 +23,8 @@ import com.saurabh.artifact.domain.ArtifactVisibilityFilter
 import com.saurabh.artifact.audio.RecordingService
 import com.saurabh.artifact.data.local.RecordingStatus
 import com.saurabh.artifact.navigation.*
+import com.saurabh.artifact.repository.SessionState
+import com.saurabh.artifact.repository.TransferResult
 import com.saurabh.artifact.startup.SecurityStatus
 import com.saurabh.artifact.security.PreloadResult
 import io.mockk.*
@@ -60,6 +62,7 @@ class MainViewModelTest {
     private val testAuthFlow = MutableStateFlow<com.google.firebase.auth.FirebaseUser?>(null)
     private val owningUidFlow = MutableStateFlow<String?>(null)
     private val isLoggingOutFlow = MutableStateFlow(false)
+    private val sessionStateFlow = MutableStateFlow<SessionState>(SessionState.Active)
     private lateinit var viewModel: MainViewModel
     private val testDispatcher = UnconfinedTestDispatcher()
 
@@ -92,6 +95,9 @@ class MainViewModelTest {
         every { sessionManager.isLoggingOut } returns isLoggingOutFlow
         coEvery { maintenanceRepository.getPendingDeletionUid() } returns null
         coEvery { logoutCoordinator.performFullCleanup() } returns CleanupResult(status = CleanupStatus.COMPLETED)
+        coEvery { authRepository.awaitAuthoritativeSessionState() } returns SessionState.Active
+        sessionStateFlow.value = SessionState.Active
+        every { authRepository.sessionState } returns sessionStateFlow
 
         every { intent.getStringExtra("notificationType") } returns null
         every { intent.getStringExtra("artifactId") } returns null
@@ -1166,5 +1172,81 @@ class MainViewModelTest {
         // 6. Verify User B's safety sync now proceeds
         coVerify(exactly = 1) { userProfileManager.initializeSafetySync("user_B") }
         assertTrue(!viewModel.isCleaning.value)
+    }
+
+    @Test
+    fun `startup with NoActiveSession claims first device and reaches Home`() = runTest {
+        val user = mockk<com.google.firebase.auth.FirebaseUser> { every { uid } returns "user123" }
+        every { authRepository.currentUserId } returns "user123"
+        testAuthFlow.value = user
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
+        coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
+        coEvery { authRepository.awaitAuthoritativeSessionState() } returns com.saurabh.artifact.repository.SessionState.NoActiveSession
+        coEvery { authRepository.claimFirstDevice(any()) } returns Result.success(com.saurabh.artifact.repository.ClaimResult.Success)
+
+        viewModel.start()
+        advanceUntilIdle()
+
+        coVerify { authRepository.claimFirstDevice(any()) }
+        assertTrue(viewModel.startupState.value is AppStartupState.Ready)
+        assertEquals(Home, (viewModel.startupState.value as AppStartupState.Ready).startDestination)
+    }
+
+    @Test
+    fun `startup with SessionExistsOnOtherDevice reaches SessionConflict and blocks Home`() = runTest {
+        val user = mockk<com.google.firebase.auth.FirebaseUser> { every { uid } returns "user123" }
+        every { authRepository.currentUserId } returns "user123"
+        testAuthFlow.value = user
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
+        coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
+        coEvery { authRepository.awaitAuthoritativeSessionState() } returns com.saurabh.artifact.repository.SessionState.SessionExistsOnOtherDevice("Pixel 9")
+
+        viewModel.start()
+        advanceUntilIdle()
+
+        assertEquals(AppStartupState.SessionConflict("Pixel 9"), viewModel.startupState.value)
+    }
+
+    @Test
+    fun `startup with Unavailable session state reaches Error and blocks Home`() = runTest {
+        val user = mockk<com.google.firebase.auth.FirebaseUser> { every { uid } returns "user123" }
+        every { authRepository.currentUserId } returns "user123"
+        testAuthFlow.value = user
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
+        coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
+        coEvery { authRepository.awaitAuthoritativeSessionState() } returns com.saurabh.artifact.repository.SessionState.Unavailable(Exception("Server verification required"))
+
+        viewModel.start()
+        advanceUntilIdle()
+
+        assertTrue(viewModel.startupState.value is AppStartupState.Error)
+        assertEquals("Server verification required", (viewModel.startupState.value as AppStartupState.Error).message)
+    }
+
+    @Test
+    fun `session revocation emission triggers LogoutCoordinator cleanup`() = runTest {
+        val user = mockk<FirebaseUser> { every { uid } returns "user123" }
+        every { authRepository.currentUserId } returns "user123"
+        testAuthFlow.value = user
+
+        sessionStateFlow.value = SessionState.Revoked
+        advanceUntilIdle()
+
+        coVerify { logoutCoordinator.performFullCleanup() }
+        assertEquals(AppStartupState.Ready(Login), viewModel.startupState.value)
+    }
+
+    @Test
+    fun `transferActiveSession user action invokes repository`() = runTest {
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
+        coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
+        coEvery { authRepository.transferActiveSession(any(), any()) } returns Result.success(
+            TransferResult.Success)
+        coEvery { authRepository.awaitAuthoritativeSessionState() } returns SessionState.Active
+
+        viewModel.transferActiveSession()
+        advanceUntilIdle()
+
+        coVerify { authRepository.transferActiveSession(any(), any()) }
     }
 }

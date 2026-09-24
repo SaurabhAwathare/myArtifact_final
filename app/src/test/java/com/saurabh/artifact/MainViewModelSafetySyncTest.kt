@@ -15,6 +15,7 @@ import com.saurabh.artifact.repository.UserProfileManager
 import com.saurabh.artifact.startup.StartupCoordinator
 import com.saurabh.artifact.startup.StartupMetrics
 import com.saurabh.artifact.navigation.*
+import com.saurabh.artifact.repository.SessionState
 import com.saurabh.artifact.security.PreloadResult
 import com.saurabh.artifact.startup.SecurityStatus
 import com.saurabh.artifact.startup.StartupStage
@@ -69,6 +70,8 @@ class MainViewModelSafetySyncTest {
         every { startupCoordinator.preloadResult } returns MutableStateFlow(PreloadResult.Success)
         every { startupCoordinator.securityStatus } returns MutableStateFlow(SecurityStatus.PENDING)
         every { startupCoordinator.terminalError } returns MutableStateFlow(null)
+        coEvery { authRepository.awaitAuthoritativeSessionState() } returns SessionState.Active
+        every { authRepository.sessionState } returns MutableStateFlow(SessionState.Active)
     }
 
     @After

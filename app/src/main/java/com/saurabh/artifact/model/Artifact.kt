@@ -86,6 +86,7 @@ data class Artifact(
     val username: String = "",
     val resonanceDepth: Float = 0f, // Derived score [0.0 - 1.0]
     val humanIntegrityFactor: Float = 1.0f, // Trust signal [0.5 - 1.0]
+    val episodeNumber: Long? = null,
 ) {
     /**
      * Helper to retrieve all associated emotions, falling back to legacy single emotion.

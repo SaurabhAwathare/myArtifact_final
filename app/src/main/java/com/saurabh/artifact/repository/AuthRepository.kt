@@ -9,6 +9,7 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.MetadataChanges
 import com.saurabh.artifact.diagnostics.ArtifactLogger
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.model.AppError
@@ -27,7 +28,36 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
+import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Singleton
+
+import com.google.firebase.functions.FirebaseFunctions
+import com.saurabh.artifact.data.local.UserSessionManager
+import com.saurabh.artifact.model.UserPrivateSettings
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicInteger
+
+sealed class SessionState {
+    object Uninitialized : SessionState()
+    object PendingServerVerification : SessionState()
+    object Active : SessionState()
+    object NoActiveSession : SessionState()
+    data class SessionExistsOnOtherDevice(val deviceName: String) : SessionState()
+    object Revoked : SessionState()
+    data class TokenRefreshFailed(val cause: Throwable) : SessionState()
+    data class Unavailable(val cause: Throwable) : SessionState()
+}
+
+sealed class ClaimResult {
+    object Success : ClaimResult()
+    data class SessionExists(val activeDeviceName: String) : ClaimResult()
+    data class Failure(val error: Throwable) : ClaimResult()
+}
+
+sealed class TransferResult {
+    object Success : TransferResult()
+    data class Failure(val error: Throwable) : TransferResult()
+}
 
 @Singleton
 class AuthRepository @Inject constructor(
@@ -35,6 +65,8 @@ class AuthRepository @Inject constructor(
     private val firestore: FirebaseFirestore,
     private val credentialManager: CredentialManager,
     private val startupCoordinator: StartupCoordinator,
+    private val firebaseFunctions: FirebaseFunctions? = null,
+    private val userSessionManager: UserSessionManager? = null,
 ) {
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -54,6 +86,9 @@ class AuthRepository @Inject constructor(
     private val _privateSettings = MutableStateFlow<com.saurabh.artifact.model.UserPrivateSettings?>(null)
     val privateSettings: StateFlow<com.saurabh.artifact.model.UserPrivateSettings?> = _privateSettings
 
+    private val _sessionState = MutableStateFlow<SessionState>(SessionState.Uninitialized)
+    val sessionState: StateFlow<SessionState> = _sessionState.asStateFlow()
+
     companion object {
         private const val MAX_LISTENER_ATTEMPTS = 5
         private const val INITIAL_BACKOFF_MS = 200L
@@ -67,6 +102,8 @@ class AuthRepository @Inject constructor(
 
     private var privateSettingsListener: ListenerRegistration? = null
     private var privateSettingsRetryJob: Job? = null
+    private val activePrivateSettingsListenerGeneration = AtomicInteger(0)
+    private val listenerLock = Any()
 
     private val listenerIdGenerator = java.util.concurrent.atomic.AtomicInteger(0)
 
@@ -242,82 +279,197 @@ class AuthRepository @Inject constructor(
             }
     }
 
-    private fun observePrivateSettings(userId: String, attempt: Int = 1) {
+    internal fun observePrivateSettings(userId: String, attempt: Int = 1) {
         privateSettingsRetryJob?.cancel()
         privateSettingsRetryJob = null
 
-        if (firebaseAuth.currentUser?.uid != userId) {
-            ArtifactLogger.w(DiagnosticCategory.AUTH, "PRIVATE_SETTINGS_LISTEN_ABORTED_USER_MISMATCH")
-            return
-        }
+        val listenerGen: Int
+        synchronized(listenerLock) {
+            if (firebaseAuth.currentUser?.uid != userId) {
+                ArtifactLogger.w(DiagnosticCategory.AUTH, "PRIVATE_SETTINGS_LISTEN_ABORTED_USER_MISMATCH")
+                return
+            }
 
-        if (privateSettingsListener != null) {
-            privateSettingsListener?.remove()
-            privateSettingsListener = null
-            ArtifactLogger.i(DiagnosticCategory.AUTH, "LISTENER_TERMINATED", mapOf("path" to "users/$userId/private/settings"))
+            if (privateSettingsListener != null) {
+                privateSettingsListener?.remove()
+                privateSettingsListener = null
+                ArtifactLogger.i(DiagnosticCategory.AUTH, "LISTENER_TERMINATED", mapOf("path" to "users/$userId/private/settings"))
+            }
+
+            listenerGen = activePrivateSettingsListenerGeneration.incrementAndGet()
+            _privateSettings.value = null
+            _sessionState.value = SessionState.PendingServerVerification
         }
 
         firebaseAuth.currentUser?.getIdToken(false)
 
         privateSettingsListener = firestore.collection("users").document(userId)
             .collection("private").document("settings")
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    ArtifactLogger.e(
-                        DiagnosticCategory.AUTH,
-                        "PRIVATE_SETTINGS_CALLBACK_ERROR",
-                        mapOf(
-                            "path" to "users/$userId/private/settings",
-                            "code" to error.code.name,
-                            "message" to (error.message ?: ""),
-                            "attempt" to attempt,
-                            "timestamp" to System.currentTimeMillis()
-                        ),
-                        error
-                    )
+            .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
+                synchronized(listenerLock) {
+                    if (listenerGen != activePrivateSettingsListenerGeneration.get() ||
+                        firebaseAuth.currentUser?.uid != userId) {
+                        return@addSnapshotListener
+                    }
 
-                    if (error.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
-                        if (firebaseAuth.currentUser?.uid == userId && attempt < MAX_LISTENER_ATTEMPTS) {
-                            val calculatedBackoff = INITIAL_BACKOFF_MS * (1 shl (attempt - 1))
-                            val backoffMs = calculatedBackoff.coerceAtMost(MAX_BACKOFF_MS)
-                            ArtifactLogger.w(
-                                DiagnosticCategory.AUTH,
-                                "PRIVATE_SETTINGS_PERMISSION_DENIED_RETRYING",
-                                mapOf("path" to "users/$userId/private/settings", "attempt" to attempt, "backoffMs" to backoffMs)
-                            )
-                            privateSettingsRetryJob = repositoryScope.launch {
-                                delay(backoffMs)
-                                if (firebaseAuth.currentUser?.uid == userId) {
-                                    observePrivateSettings(userId, attempt + 1)
+                    if (error != null) {
+                        ArtifactLogger.e(
+                            DiagnosticCategory.AUTH,
+                            "PRIVATE_SETTINGS_CALLBACK_ERROR",
+                            mapOf(
+                                "path" to "users/$userId/private/settings",
+                                "code" to error.code.name,
+                                "message" to (error.message ?: ""),
+                                "attempt" to attempt,
+                                "timestamp" to System.currentTimeMillis()
+                            ),
+                            error
+                        )
+
+                        if (error.code == FirebaseFirestoreException.Code.PERMISSION_DENIED ||
+                            error.code == FirebaseFirestoreException.Code.UNAUTHENTICATED) {
+                            if (attempt < MAX_LISTENER_ATTEMPTS) {
+                                val calculatedBackoff = INITIAL_BACKOFF_MS * (1 shl (attempt - 1))
+                                val backoffMs = calculatedBackoff.coerceAtMost(MAX_BACKOFF_MS)
+                                ArtifactLogger.w(
+                                    DiagnosticCategory.AUTH,
+                                    "PRIVATE_SETTINGS_PERMISSION_DENIED_RETRYING",
+                                    mapOf("path" to "users/$userId/private/settings", "attempt" to attempt, "backoffMs" to backoffMs)
+                                )
+                                privateSettingsRetryJob = repositoryScope.launch {
+                                    delay(backoffMs)
+                                    synchronized(listenerLock) {
+                                        if (listenerGen == activePrivateSettingsListenerGeneration.get() &&
+                                            firebaseAuth.currentUser?.uid == userId &&
+                                            (_sessionState.value is SessionState.PendingServerVerification || _sessionState.value is SessionState.Active)) {
+                                            observePrivateSettings(userId, attempt + 1)
+                                        }
+                                    }
                                 }
+                            } else {
+                                _sessionState.value = SessionState.Unavailable(error)
+                                ArtifactLogger.e(
+                                    DiagnosticCategory.AUTH,
+                                    "PRIVATE_SETTINGS_PERMISSION_DENIED_PERSISTENT",
+                                    mapOf("path" to "users/$userId/private/settings", "attempt" to attempt)
+                                )
                             }
                         } else {
-                            ArtifactLogger.e(
-                                DiagnosticCategory.AUTH,
-                                "PRIVATE_SETTINGS_PERMISSION_DENIED_PERSISTENT",
-                                mapOf("path" to "users/$userId/private/settings", "attempt" to attempt)
-                            )
+                            _sessionState.value = SessionState.Unavailable(error)
+                        }
+                        return@addSnapshotListener
+                    }
+
+                    if (snapshot == null || snapshot.metadata.isFromCache) {
+                        if (snapshot?.metadata?.isFromCache == true) {
+                            ArtifactLogger.w(DiagnosticCategory.AUTH, "PRIVATE_SETTINGS_SNAPSHOT_FROM_CACHE_IGNORED")
+                        }
+                        return@addSnapshotListener
+                    }
+
+                    ArtifactLogger.i(
+                        DiagnosticCategory.AUTH,
+                        "PRIVATE_SETTINGS_CALLBACK_SUCCESS",
+                        mapOf(
+                            "path" to "users/$userId/private/settings",
+                            "exists" to snapshot.exists(),
+                            "timestamp" to System.currentTimeMillis()
+                        )
+                    )
+
+                    val settings = if (snapshot.exists()) snapshot.toObject(UserPrivateSettings::class.java) else null
+                    _privateSettings.value = settings
+
+                    val serverActiveSessionId = settings?.activeSessionId
+                    val activeDeviceName = settings?.activeDeviceName ?: "Unknown Device"
+
+                    repositoryScope.launch {
+                        val localSessionId = userSessionManager?.localSessionId?.first() ?: ""
+                        synchronized(listenerLock) {
+                            if (listenerGen != activePrivateSettingsListenerGeneration.get() ||
+                                firebaseAuth.currentUser?.uid != userId) {
+                                return@synchronized
+                            }
+
+                            when (_sessionState.value) {
+                                is SessionState.PendingServerVerification -> {
+                                    if (!snapshot.exists() || serverActiveSessionId.isNullOrEmpty()) {
+                                        _sessionState.value = SessionState.NoActiveSession
+                                    } else if (serverActiveSessionId == localSessionId) {
+                                        _sessionState.value = SessionState.Active
+                                    } else {
+                                        _sessionState.value = SessionState.SessionExistsOnOtherDevice(activeDeviceName)
+                                    }
+                                }
+                                is SessionState.Active -> {
+                                    if (!snapshot.exists() || serverActiveSessionId.isNullOrEmpty()) {
+                                        _sessionState.value = SessionState.NoActiveSession
+                                    } else if (serverActiveSessionId != localSessionId) {
+                                        ArtifactLogger.w(
+                                            DiagnosticCategory.AUTH,
+                                            "SESSION_REVOCATION_DETECTED",
+                                            mapOf("serverSession" to (serverActiveSessionId ?: ""), "localSession" to localSessionId)
+                                        )
+                                        _sessionState.value = SessionState.Revoked
+                                    }
+                                }
+                                else -> {
+                                    // Maintain current terminal state
+                                }
+                            }
                         }
                     }
-                    return@addSnapshotListener
-                }
-
-                ArtifactLogger.i(
-                    DiagnosticCategory.AUTH,
-                    "PRIVATE_SETTINGS_CALLBACK_SUCCESS",
-                    mapOf(
-                        "path" to "users/$userId/private/settings",
-                        "exists" to (snapshot?.exists() ?: false),
-                        "timestamp" to System.currentTimeMillis()
-                    )
-                )
-
-                if (snapshot != null && snapshot.exists()) {
-                    _privateSettings.value = snapshot.toObject(com.saurabh.artifact.model.UserPrivateSettings::class.java)
-                } else {
-                    _privateSettings.value = null
                 }
             }
+    }
+
+    suspend fun awaitAuthoritativeSessionState(timeoutMs: Long = 10_000L): SessionState {
+        val timeoutGen: Int
+        val targetUserId: String?
+        synchronized(listenerLock) {
+            timeoutGen = activePrivateSettingsListenerGeneration.get()
+            targetUserId = firebaseAuth.currentUser?.uid
+        }
+
+        val state = withTimeoutOrNull(timeoutMs) {
+            _sessionState.first {
+                it !is SessionState.Uninitialized && it !is SessionState.PendingServerVerification
+            }
+        }
+
+        if (state != null) {
+            return state
+        }
+
+        return synchronized(listenerLock) {
+            if (timeoutGen == activePrivateSettingsListenerGeneration.get() &&
+                firebaseAuth.currentUser?.uid == targetUserId &&
+                _sessionState.value is SessionState.PendingServerVerification) {
+
+                activePrivateSettingsListenerGeneration.incrementAndGet()
+                privateSettingsListener?.remove()
+                privateSettingsListener = null
+
+                val timeoutState = SessionState.Unavailable(Exception("Authoritative session verification timed out"))
+                _sessionState.value = timeoutState
+                timeoutState
+            } else {
+                _sessionState.value
+            }
+        }
+    }
+
+    fun resetSessionVerification() {
+        val uid = firebaseAuth.currentUser?.uid
+        if (uid != null) {
+            observePrivateSettings(uid)
+        } else {
+            synchronized(listenerLock) {
+                privateSettingsListener?.remove()
+                privateSettingsListener = null
+                _sessionState.value = SessionState.Uninitialized
+            }
+        }
     }
 
     private fun cleanupListeners() {
@@ -425,6 +577,79 @@ class AuthRepository @Inject constructor(
      * IMPORTANT: This MUST execute before [firebaseAuth.signOut] because the user's UID
      * is required for the Firestore path.
      */
+    internal suspend fun callCallable(functionName: String, data: Map<String, Any>): Map<*, *>? {
+        val functions = firebaseFunctions ?: return null
+        val callable = functions.getHttpsCallable(functionName)
+        val result = callable.call(data as Any).await()
+        return result.data as? Map<*, *>
+    }
+
+    suspend fun claimFirstDevice(deviceName: String, clientCorrelationId: String? = null): Result<ClaimResult> {
+        if (firebaseAuth.currentUser == null) return Result.failure(AppError.Unauthenticated())
+        return try {
+            val data = hashMapOf<String, Any>(
+                "deviceName" to deviceName,
+                "clientCorrelationId" to (clientCorrelationId ?: UUID.randomUUID().toString())
+            )
+            val resultMap = callCallable("claimFirstDevice", data)
+            val status = resultMap?.get("status") as? String
+            val activeSessionId = resultMap?.get("activeSessionId") as? String
+            val activeDeviceName = (resultMap?.get("activeDeviceName") as? String) ?: "Unknown Device"
+
+            if (status == "CLAIM_SUCCESS" && !activeSessionId.isNullOrEmpty()) {
+                userSessionManager?.setLocalSessionId(activeSessionId)
+                val refreshResult = refreshSession()
+                if (refreshResult.isSuccess) {
+                    _sessionState.value = SessionState.Active
+                    Result.success(ClaimResult.Success)
+                } else {
+                    val cause = refreshResult.exceptionOrNull() ?: Exception("Token refresh failed")
+                    _sessionState.value = SessionState.TokenRefreshFailed(cause)
+                    Result.failure(cause)
+                }
+            } else if (status == "SESSION_EXISTS") {
+                _sessionState.value = SessionState.SessionExistsOnOtherDevice(activeDeviceName)
+                Result.success(ClaimResult.SessionExists(activeDeviceName))
+            } else {
+                Result.failure(Exception("Unknown claim status: $status"))
+            }
+        } catch (e: Exception) {
+            ArtifactLogger.e(DiagnosticCategory.AUTH, "CLAIM_FIRST_DEVICE_FAILED", throwable = e)
+            Result.failure(AppError.from(e))
+        }
+    }
+
+    suspend fun transferActiveSession(deviceName: String, clientCorrelationId: String): Result<TransferResult> {
+        if (firebaseAuth.currentUser == null) return Result.failure(AppError.Unauthenticated())
+        return try {
+            val data = hashMapOf<String, Any>(
+                "deviceName" to deviceName,
+                "clientCorrelationId" to clientCorrelationId
+            )
+            val resultMap = callCallable("transferActiveSession", data)
+            val status = resultMap?.get("status") as? String
+            val activeSessionId = resultMap?.get("activeSessionId") as? String
+
+            if (status == "TRANSFER_SUCCESS" && !activeSessionId.isNullOrEmpty()) {
+                userSessionManager?.setLocalSessionId(activeSessionId)
+                val refreshResult = refreshSession()
+                if (refreshResult.isSuccess) {
+                    _sessionState.value = SessionState.Active
+                    Result.success(TransferResult.Success)
+                } else {
+                    val cause = refreshResult.exceptionOrNull() ?: Exception("Token refresh failed")
+                    _sessionState.value = SessionState.TokenRefreshFailed(cause)
+                    Result.failure(cause)
+                }
+            } else {
+                Result.failure(Exception("Transfer failed: status=$status"))
+            }
+        } catch (e: Exception) {
+            ArtifactLogger.e(DiagnosticCategory.AUTH, "TRANSFER_ACTIVE_SESSION_FAILED", throwable = e)
+            Result.failure(AppError.from(e))
+        }
+    }
+
     private suspend fun clearFcmToken() {
         val uid = firebaseAuth.currentUser?.uid ?: return
         try {

@@ -18,7 +18,8 @@ data class PlayableArtifact(
     val emotion: String = "",
     val emotions: List<String> = emptyList(),
     val originalArtifact: Artifact? = null,
-    val originalDraft: ArtifactDraftEntity? = null
+    val originalDraft: ArtifactDraftEntity? = null,
+    val episodeNumber: Long? = null
 ) {
     val effectiveEmotions: List<String>
         get() = emotions.ifEmpty { if (emotion.isNotBlank()) listOf(emotion) else emptyList() }

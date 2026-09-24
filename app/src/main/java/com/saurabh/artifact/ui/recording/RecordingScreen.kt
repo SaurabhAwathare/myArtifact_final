@@ -337,6 +337,16 @@ fun RecordingScreen(
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.Center
                             ) {
+                                // EPISODE LABEL
+                                Text(
+                                    text = if (uiState.episodeNumber != null) "Artifact · Episode ${uiState.episodeNumber}" else "Episode pending",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = Color.White.copy(alpha = 0.5f),
+                                    letterSpacing = 1.5.sp
+                                )
+
+                                Spacer(modifier = Modifier.height(12.dp))
+
                                 // PROMPT LABEL
                                 Text(
                                     text = "PROMPT",
@@ -444,6 +454,7 @@ fun RecordingScreen(
                                 is RecordingError.PermissionDenied -> "Permission Denied"
                                 is RecordingError.HardwareInUse -> "Microphone in use by another app"
                                 is RecordingError.StorageFull -> "Storage is full"
+                                is RecordingError.ReservationFailed -> "Network connection required to assign Episode Number before recording"
                                 is RecordingError.Unknown -> "Recording failed"
                             }
                             

@@ -84,7 +84,8 @@ data class StudioSessionState(
     val error: String? = null,
     val showPrivacyNudge: Boolean = false,
     val privacyWarnings: List<String> = emptyList(),
-    val isRecoverySetup: Boolean = true
+    val isRecoverySetup: Boolean = true,
+    val episodeNumber: Long? = null
 ) {
     val effectiveEmotions: List<Emotion>
         get() = if (emotions.isNotEmpty()) emotions else if (emotion != null) listOf(emotion) else emptyList()
@@ -176,7 +177,8 @@ class PublishingStudioViewModel @Inject constructor(
                     error = ui.error,
                     showPrivacyNudge = ui.showPrivacyNudge,
                     privacyWarnings = ui.privacyWarnings,
-                    isRecoverySetup = isRecoverySetup
+                    isRecoverySetup = isRecoverySetup,
+                    episodeNumber = draft.episodeNumber
                 )
             }
 

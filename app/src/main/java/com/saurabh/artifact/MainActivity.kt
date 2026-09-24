@@ -38,6 +38,7 @@ import com.saurabh.artifact.navigation.Route
 import com.saurabh.artifact.startup.SecurityStatus
 import com.saurabh.artifact.ui.recovery.MnemonicRestoreScreen
 import com.saurabh.artifact.ui.recovery.RescueScreen
+import com.saurabh.artifact.ui.splash.SessionConflictScreen
 import com.saurabh.artifact.ui.splash.StartupErrorScreen
 import com.saurabh.artifact.util.OnboardingManager
 import dagger.hilt.android.AndroidEntryPoint
@@ -132,6 +133,13 @@ fun AppRoot(
                     activity.finish()
                     activity.startActivity(intent)
                 }
+            )
+        }
+        is AppStartupState.SessionConflict -> {
+            SessionConflictScreen(
+                activeDeviceName = startupState.activeDeviceName,
+                onTransferSession = { mainViewModel.transferActiveSession() },
+                onSignOut = { mainViewModel.signOut() }
             )
         }
         is AppStartupState.Recovery -> {

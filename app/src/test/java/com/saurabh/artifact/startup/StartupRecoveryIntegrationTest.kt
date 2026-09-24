@@ -17,6 +17,7 @@ import com.saurabh.artifact.navigation.Login
 import com.saurabh.artifact.util.RescueTracker
 import com.saurabh.artifact.util.StartupTracer
 import androidx.lifecycle.SavedStateHandle
+import com.saurabh.artifact.repository.SessionState
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -85,8 +86,11 @@ class StartupRecoveryIntegrationTest {
         every { authRepository.currentUser } returns MutableStateFlow(null)
         every { authRepository.currentUserId } returns ""
         every { sessionManager.owningUid } returns flowOf(null)
+        every { sessionManager.isLoggingOut } returns flowOf(false)
         coEvery { maintenanceRepository.getPendingDeletionUid() } returns null
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.UNAUTHENTICATED
+        coEvery { authRepository.awaitAuthoritativeSessionState() } returns SessionState.Active
+        every { authRepository.sessionState } returns MutableStateFlow(SessionState.Active)
 
         // REALISTIC DEPENDENCY MODEL: awaitComponent now actually suspends until readyComponents is updated
         coEvery { startupCoordinator.awaitComponent(any()) } coAnswers {

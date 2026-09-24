@@ -50,6 +50,21 @@ class DraftToArtifactMapperTest {
     }
 
     @Test
+    fun `map should preserve episodeNumber from draft`() {
+        val draft = ArtifactDraftEntity(
+            id = "draft_ep_16",
+            userId = TEST_USER_ID,
+            localAudioPath = "/path/to/audio.wav",
+            episodeNumber = 16L
+        )
+        val author = AuthorSnapshot(anonymousId = "user_456")
+
+        val result = mapper.map(draft, author, "Fallback")
+
+        assertEquals(16L, result.episodeNumber)
+    }
+
+    @Test
     fun `map should map emotion from draft to artifact`() {
         val draft = ArtifactDraftEntity(
             id = "draft_emotion",

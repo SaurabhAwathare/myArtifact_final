@@ -208,4 +208,103 @@ class StartupCoordinatorTest {
         coordinator.awaitComponent(StartupComponent.APP_CHECK)
         // If awaitComponent succeeds without timing out, APP_CHECK component was emitted ready
     }
+
+    @Test
+    fun `ProviderInstaller callback succeeds - security initialization completes without blocking startup`() = runTest(testDispatcher) {
+        coEvery { encryptionManager.preload() } returns PreloadResult.Success
+        coEvery { maintenanceRepository.getPendingDeletionUid() } returns null
+
+        every { ProviderInstaller.installIfNeededAsync(any(), any()) } answers {
+            val listener = secondArg<ProviderInstaller.ProviderInstallListener>()
+            listener.onProviderInstalled()
+        }
+
+        coordinator.start()
+        coordinator.awaitComponent(StartupComponent.SECURITY)
+        coordinator.emitReadiness(StartupComponent.AUTH)
+        advanceUntilIdle()
+
+        assertEquals(StartupStage.STABLE, coordinator.stage.value)
+        assertEquals(null, coordinator.terminalError.value)
+    }
+
+    @Test
+    fun `ProviderInstaller callback fails - startup continues and CORE is emitted`() = runTest(testDispatcher) {
+        coEvery { encryptionManager.preload() } returns PreloadResult.Success
+        coEvery { maintenanceRepository.getPendingDeletionUid() } returns null
+
+        every { ProviderInstaller.installIfNeededAsync(any(), any()) } answers {
+            val listener = secondArg<ProviderInstaller.ProviderInstallListener>()
+            listener.onProviderInstallFailed(2, null)
+        }
+
+        coordinator.start()
+        coordinator.awaitComponent(StartupComponent.CORE)
+        coordinator.emitReadiness(StartupComponent.AUTH)
+        advanceUntilIdle()
+
+        assertEquals(StartupStage.STABLE, coordinator.stage.value)
+        assertEquals(null, coordinator.terminalError.value)
+    }
+
+    @Test
+    fun `ProviderInstaller callback never arrives - operation times out and CORE is emitted`() = runTest(testDispatcher) {
+        coEvery { encryptionManager.preload() } returns PreloadResult.Success
+        coEvery { maintenanceRepository.getPendingDeletionUid() } returns null
+
+        every { ProviderInstaller.installIfNeededAsync(any(), any()) } answers {
+            // Callback never invoked
+        }
+
+        coordinator.start()
+        coordinator.awaitComponent(StartupComponent.CORE)
+
+        testScheduler.advanceTimeBy(4000)
+
+        coordinator.emitReadiness(StartupComponent.AUTH)
+        advanceUntilIdle()
+
+        assertEquals(StartupStage.STABLE, coordinator.stage.value)
+        assertEquals(null, coordinator.terminalError.value)
+    }
+
+    @Test
+    fun `ProviderInstaller late callback - no crash or double resume`() = runTest(testDispatcher) {
+        coEvery { encryptionManager.preload() } returns PreloadResult.Success
+        coEvery { maintenanceRepository.getPendingDeletionUid() } returns null
+
+        var capturedListener: ProviderInstaller.ProviderInstallListener? = null
+        every { ProviderInstaller.installIfNeededAsync(any(), any()) } answers {
+            capturedListener = secondArg()
+        }
+
+        coordinator.start()
+        coordinator.awaitComponent(StartupComponent.CORE)
+
+        testScheduler.advanceTimeBy(4000)
+
+        // Late callback invocation
+        capturedListener?.onProviderInstalled()
+        advanceUntilIdle()
+
+        assertEquals(null, coordinator.terminalError.value)
+    }
+
+    @Test
+    fun `CORE readiness is emitted independently of ProviderInstaller completion`() = runTest(testDispatcher) {
+        coEvery { encryptionManager.preload() } returns PreloadResult.Success
+        coEvery { maintenanceRepository.getPendingDeletionUid() } returns null
+
+        every { ProviderInstaller.installIfNeededAsync(any(), any()) } answers { }
+
+        coordinator.start()
+
+        // CORE is emitted immediately after App Check & Preload.
+        coordinator.awaitComponent(StartupComponent.CORE)
+
+        // Advance 250ms to cross the 200ms delay for PRESENCE stage transition (well before the 3s ProviderInstaller timeout)
+        testScheduler.advanceTimeBy(250)
+
+        assertEquals(StartupStage.PRESENCE, coordinator.stage.value)
+    }
 }

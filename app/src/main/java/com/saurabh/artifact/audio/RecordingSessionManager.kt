@@ -8,6 +8,8 @@ import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.data.local.RecordingStatus
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.diagnostics.LogKeys
+import com.saurabh.artifact.repository.ArtifactPublishingRepository
 import com.saurabh.artifact.repository.RecordingRepository
 import dagger.Lazy
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -36,6 +38,7 @@ class RecordingSessionManager @Inject constructor(
     private val authRepository: com.saurabh.artifact.repository.AuthRepository,
     private val localDraftManager: LocalDraftManager,
     private val draftDao: Lazy<DraftDao>,
+    private val publishingRepository: Lazy<ArtifactPublishingRepository>,
     private val cleanupManager: ArtifactCleanupManager,
     private val diagnosticLogger: DiagnosticLogger
 ) {
@@ -51,22 +54,25 @@ class RecordingSessionManager @Inject constructor(
 
     private val _ritualSeconds = MutableStateFlow(0)
     private var ritualJob: Job? = null
+    private val _reservationError = MutableStateFlow<String?>(null)
 
     // 3. Unified Session State for the UI
     val sessionState: StateFlow<SessionState> = combine(
         _rawServiceState,
         _activeDraft,
-        _ritualSeconds
-    ) { serviceState, draft, ritualSecs ->
+        _ritualSeconds,
+        _reservationError
+    ) { serviceState, draft, ritualSecs, resErr ->
         SessionState(
             status = if (ritualSecs > 0) RecordingStatus.COUNTDOWN else serviceState.status,
             durationSeconds = serviceState.durationSeconds,
             amplitudes = serviceState.amplitudes,
             draftId = serviceState.draftId.ifEmpty { draft?.id ?: "" },
             outputFile = serviceState.outputFile,
-            errorCode = serviceState.errorCode,
+            errorCode = resErr ?: serviceState.errorCode,
             ritualRemainingSeconds = ritualSecs,
-            isStorageLow = serviceState.isStorageLow
+            isStorageLow = serviceState.isStorageLow,
+            episodeNumber = draft?.episodeNumber
         )
     }.stateIn(
         scope = managerScope,
@@ -149,22 +155,26 @@ class RecordingSessionManager @Inject constructor(
         _ritualSeconds.value = 0
     }
 
-    suspend fun startNewSession(explicitDraftId: String? = null) = sessionMutex.withLock {
+    suspend fun startNewSession(explicitDraftId: String? = null): Result<Unit> = sessionMutex.withLock {
         val currentStatus = _rawServiceState.value.status
         if (currentStatus != RecordingStatus.IDLE && currentStatus != RecordingStatus.FAILED && currentStatus != RecordingStatus.COMPLETED) {
             diagnosticLogger.warn(DiagnosticCategory.RECORDING, "SESSION_START_IGNORED", mapOf("currentStatus" to currentStatus.name))
-            return@withLock
+            return@withLock Result.success(Unit)
         }
 
         val userId = userRepository.getCurrentUserId() ?: run {
             diagnosticLogger.error(DiagnosticCategory.RECORDING, "SESSION_START_FAILED_UNAUTHENTICATED")
-            return@withLock
+            _reservationError.value = "UNAUTHENTICATED"
+            return@withLock Result.failure(IllegalStateException("User unauthenticated"))
         }
 
+        _reservationError.value = null
         prepareForRecording()
 
-        val draftId = explicitDraftId ?: UUID.randomUUID().toString()
-        
+        val draftId = explicitDraftId
+            ?: (_activeDraft.value?.takeIf { it.episodeNumber == null }?.id)
+            ?: UUID.randomUUID().toString()
+
         // Ensure draft exists in DB if we're starting fresh
         var draft = draftDao.get().getDraftById(draftId, userId)
         if (draft == null) {
@@ -173,21 +183,40 @@ class RecordingSessionManager @Inject constructor(
             }
             recordingRepository.createDraft(draftId, file.absolutePath, 0).getOrThrow()
             draft = draftDao.get().getDraftById(draftId, userId)
-            
+
             diagnosticLogger.info(
-                DiagnosticCategory.DRAFT, 
-                "DRAFT_SAVED", 
-                mapOf(com.saurabh.artifact.diagnostics.LogKeys.DRAFT_ID to draftId)
+                DiagnosticCategory.DRAFT,
+                "DRAFT_SAVED",
+                mapOf(LogKeys.DRAFT_ID to draftId)
             )
         }
-        
+
         _activeDraft.value = draft
-        
+
+        // Reserve authoritative Episode Number BEFORE microphone recording begins
+        if (draft?.episodeNumber == null) {
+            val reserveResult = publishingRepository.get().reserveEpisode(draftId)
+            if (reserveResult.isFailure) {
+                val exception = reserveResult.exceptionOrNull()
+                diagnosticLogger.error(
+                    DiagnosticCategory.RECORDING,
+                    "SESSION_START_FAILED_EPISODE_RESERVATION",
+                    mapOf(LogKeys.DRAFT_ID to draftId),
+                    exception
+                )
+                _reservationError.value = "RESERVATION_FAILED"
+                return@withLock Result.failure(exception ?: Exception("Failed to reserve episode number"))
+            }
+            draft = draftDao.get().getDraftById(draftId, userId)
+            _activeDraft.value = draft
+        }
+
         val intent = Intent(context, RecordingService::class.java).apply {
             action = RecordingService.ACTION_START
             putExtra("draft_id", draftId)
         }
         ContextCompat.startForegroundService(context, intent)
+        return@withLock Result.success(Unit)
     }
 
     fun stopSession() {
@@ -216,7 +245,7 @@ class RecordingSessionManager @Inject constructor(
             action = RecordingService.ACTION_CANCEL
         }
         context.startService(intent)
-        
+
         val draftId = _activeDraft.value?.id
         if (draftId != null) {
             managerScope.launch {
@@ -224,6 +253,7 @@ class RecordingSessionManager @Inject constructor(
             }
         }
         _activeDraft.value = null
+        _reservationError.value = null
     }
 
     fun isRecordingActive(): Boolean {
@@ -241,6 +271,7 @@ class RecordingSessionManager @Inject constructor(
         val outputFile: java.io.File? = null,
         val errorCode: String? = null,
         val ritualRemainingSeconds: Int = 0,
-        val isStorageLow: Boolean = false
+        val isStorageLow: Boolean = false,
+        val episodeNumber: Long? = null
     )
 }

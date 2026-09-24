@@ -91,7 +91,15 @@ data class UserPrivateSettings(
     val lastActivityTimestamp: Timestamp? = null,
     val softStreakCount: Long = 0,
     val lastSeen: Timestamp? = null,
-    val metadata: Map<String, Any> = emptyMap()
+    val metadata: Map<String, Any> = emptyMap(),
+
+    // One Active Device Per Account fields
+    val activeSessionId: String? = null,
+    val activeDeviceName: String? = null,
+    val activeSessionCreatedAt: Timestamp? = null,
+    val activeSessionUpdatedAt: Timestamp? = null,
+    val lastTransferCorrelationId: String? = null,
+    val lastTransferTimestamp: Timestamp? = null
 ) {
     // Firestore compatibility properties
     @get:PropertyName("email")

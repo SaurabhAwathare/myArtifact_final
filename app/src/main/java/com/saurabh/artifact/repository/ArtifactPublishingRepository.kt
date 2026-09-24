@@ -340,12 +340,45 @@ class ArtifactPublishingRepository @Inject constructor(
         }
     }
 
+    suspend fun reserveEpisode(draftId: String): Result<Long> = withContext(Dispatchers.IO) {
+        return@withContext try {
+            diagnosticLogger.debug(DiagnosticCategory.FIRESTORE, "RESERVE_EPISODE_CALLABLE_START", mapOf(LogKeys.DRAFT_ID to draftId))
+            val data = mapOf("draftId" to draftId)
+            val result = functions.getHttpsCallable("reserveEpisode").call(data).await()
+            val resultMap = result.data as? Map<*, *>
+            val episodeNumber = (resultMap?.get("episodeNumber") as? Number)?.toLong()
+                ?: throw IllegalStateException("reserveEpisode response missing episodeNumber")
+
+            draftRepository.get().updateEpisodeNumber(draftId, episodeNumber)
+
+            diagnosticLogger.info(
+                DiagnosticCategory.FIRESTORE,
+                "RESERVE_EPISODE_CALLABLE_SUCCESS",
+                mapOf(LogKeys.DRAFT_ID to draftId, "episodeNumber" to episodeNumber)
+            )
+            Result.success(episodeNumber)
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "RESERVE_EPISODE_CALLABLE_FAILED", mapOf(LogKeys.DRAFT_ID to draftId), e)
+            Result.failure(e)
+        }
+    }
+
     suspend fun preparePublish(draftId: String): Result<Unit> = withContext(Dispatchers.IO) {
         return@withContext try {
             diagnosticLogger.debug(DiagnosticCategory.FIRESTORE, "PREPARE_PUBLISH_CALLABLE_START", mapOf(LogKeys.DRAFT_ID to draftId))
             val data = mapOf("draftId" to draftId)
-            functions.getHttpsCallable("preparePublish").call(data).await()
-            diagnosticLogger.info(DiagnosticCategory.FIRESTORE, "PREPARE_PUBLISH_CALLABLE_SUCCESS", mapOf(LogKeys.DRAFT_ID to draftId))
+            val result = functions.getHttpsCallable("preparePublish").call(data).await()
+            val resultMap = result.data as? Map<*, *>
+            val episodeNumber = (resultMap?.get("episodeNumber") as? Number)?.toLong()
+            if (episodeNumber != null) {
+                draftRepository.get().updateEpisodeNumber(draftId, episodeNumber)
+            }
+            diagnosticLogger.info(
+                DiagnosticCategory.FIRESTORE,
+                "PREPARE_PUBLISH_CALLABLE_SUCCESS",
+                mapOf(LogKeys.DRAFT_ID to draftId, "episodeNumber" to (episodeNumber ?: -1))
+            )
             Result.success(Unit)
         } catch (e: Exception) {
             if (e is CancellationException) throw e

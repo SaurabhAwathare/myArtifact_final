@@ -236,7 +236,7 @@ describe("Account Deletion Pipeline", () => {
         return makeSnap(false, {}, path);
       });
 
-      const res = await wrapped({ artifactId }, { auth: { uid: callerUid } });
+      const res = await wrapped({ artifactId }, { auth: { uid: callerUid, token: { activeSessionId: "session_123" } } });
 
       expect(res).toEqual({ status: "SUCCESS", artifactId });
       expect(mockDoc.update).toHaveBeenCalledWith(
@@ -272,7 +272,7 @@ describe("Account Deletion Pipeline", () => {
         return makeSnap(false, {}, path);
       });
 
-      const res = await wrapped({ artifactId }, { auth: { uid: callerUid } });
+      const res = await wrapped({ artifactId }, { auth: { uid: callerUid, token: { activeSessionId: "session_123" } } });
 
       expect(res).toEqual({ status: "SUCCESS", artifactId });
       expect(mockDoc.update).toHaveBeenCalledWith(
@@ -299,7 +299,7 @@ describe("Account Deletion Pipeline", () => {
         return makeSnap(false, {}, path);
       });
 
-      await expect(wrapped({ artifactId }, { auth: { uid: userA } })).rejects.toThrow("Unauthorized: You do not own this reflection.");
+      await expect(wrapped({ artifactId }, { auth: { uid: userA, token: { activeSessionId: "session_A" } } })).rejects.toThrow("Unauthorized: You do not own this reflection.");
       expect(mockDoc.update).not.toHaveBeenCalled();
     });
 
@@ -316,7 +316,7 @@ describe("Account Deletion Pipeline", () => {
         return makeSnap(false, {}, path);
       });
 
-      await expect(wrapped({ artifactId }, { auth: { uid: userA } })).rejects.toThrow("Unauthorized: You do not own this reflection.");
+      await expect(wrapped({ artifactId }, { auth: { uid: userA, token: { activeSessionId: "session_A" } } })).rejects.toThrow("Unauthorized: You do not own this reflection.");
       expect(mockDoc.update).not.toHaveBeenCalled();
     });
 
@@ -333,7 +333,7 @@ describe("Account Deletion Pipeline", () => {
         return makeSnap(false, {}, path);
       });
 
-      await expect(wrapped({ artifactId, userId: userB }, { auth: { uid: userA } })).rejects.toThrow("Unauthorized: You do not own this reflection.");
+      await expect(wrapped({ artifactId, userId: userB }, { auth: { uid: userA, token: { activeSessionId: "session_A" } } })).rejects.toThrow("Unauthorized: You do not own this reflection.");
       expect(mockDoc.update).not.toHaveBeenCalled();
     });
 
@@ -354,7 +354,7 @@ describe("Account Deletion Pipeline", () => {
         return makeSnap(false, {}, path);
       });
 
-      await expect(wrapped({ artifactId }, { auth: { uid: userA } })).rejects.toThrow("Unauthorized: You do not own this reflection.");
+      await expect(wrapped({ artifactId }, { auth: { uid: userA, token: { activeSessionId: "session_A" } } })).rejects.toThrow("Unauthorized: You do not own this reflection.");
       expect(mockDoc.update).not.toHaveBeenCalled();
     });
 
@@ -370,7 +370,7 @@ describe("Account Deletion Pipeline", () => {
         return makeSnap(false, {}, path);
       });
 
-      const res = await wrapped({ artifactId }, { auth: { uid: callerUid } });
+      const res = await wrapped({ artifactId }, { auth: { uid: callerUid, token: { activeSessionId: "session_123" } } });
       expect(res).toEqual({ status: "SUCCESS", message: "Artifact already deleted.", artifactId });
     });
 
@@ -383,8 +383,8 @@ describe("Account Deletion Pipeline", () => {
     it("TEST 9: Malformed / missing artifactId -> invalid-argument", async () => {
       const wrapped = testEnv.wrap(myFunctions.deleteArtifact);
 
-      await expect(wrapped({}, { auth: { uid: "user_123" } })).rejects.toThrow("Valid artifactId is required.");
-      await expect(wrapped({ artifactId: "" }, { auth: { uid: "user_123" } })).rejects.toThrow("Valid artifactId is required.");
+      await expect(wrapped({}, { auth: { uid: "user_123", token: { activeSessionId: "session_123" } } })).rejects.toThrow("Valid artifactId is required.");
+      await expect(wrapped({ artifactId: "" }, { auth: { uid: "user_123", token: { activeSessionId: "session_123" } } })).rejects.toThrow("Valid artifactId is required.");
     });
 
     it("TEST 10: Admin deletion -> global admin can delete any artifact", async () => {
@@ -403,7 +403,7 @@ describe("Account Deletion Pipeline", () => {
         return makeSnap(false, {}, path);
       });
 
-      const res = await wrapped({ artifactId }, { auth: { uid: adminUid } });
+      const res = await wrapped({ artifactId }, { auth: { uid: adminUid, token: { activeSessionId: "session_admin" } } });
       expect(res).toEqual({ status: "SUCCESS", artifactId });
       expect(mockDoc.update).toHaveBeenCalledWith(
         expect.objectContaining({

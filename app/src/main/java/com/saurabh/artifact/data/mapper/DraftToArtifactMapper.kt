@@ -67,7 +67,8 @@ class DraftToArtifactMapper @Inject constructor() {
         val transcriptHash: Int?,
         val isPublic: Boolean,
         val isEncrypted: Boolean,
-        val lifecycle: ArtifactLifecycle
+        val lifecycle: ArtifactLifecycle,
+        val episodeNumber: Long?
     )
 
     /**
@@ -103,7 +104,8 @@ class DraftToArtifactMapper @Inject constructor() {
             transcriptHash = transcriptHash,
             isPublic = draft.isPublic,
             isEncrypted = draft.isEncrypted,
-            lifecycle = draft.lifecycle
+            lifecycle = draft.lifecycle,
+            episodeNumber = draft.episodeNumber
         )
 
         val cached = artifactCache[draft.id]
@@ -164,7 +166,8 @@ class DraftToArtifactMapper @Inject constructor() {
             isDraftField = true,
             isEncrypted = draft.isEncrypted,
             visibility = if (draft.isPublic) Visibility.PUBLIC else Visibility.PRIVATE,
-            isPublic = draft.isPublic
+            isPublic = draft.isPublic,
+            episodeNumber = draft.episodeNumber
         )
 
         artifactCache[draft.id] = CachedArtifact(artifact, signature)

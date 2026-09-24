@@ -32,6 +32,7 @@ import kotlin.coroutines.resume
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -96,10 +97,12 @@ class StartupCoordinator @Inject constructor(
 
     companion object {
         private val GLOBAL_STARTUP_TIMEOUT = 20.seconds
+        private val PROVIDER_INSTALLER_TIMEOUT = 3.seconds
     }
 
     private var isStarted = false
     private var startupJob: Job? = null
+    private var providerInstallerJob: Job? = null
     
     private var _isRescueModeActive = false
     val isRescueModeActive: Boolean get() = _isRescueModeActive
@@ -128,6 +131,8 @@ class StartupCoordinator @Inject constructor(
         ArtifactLogger.i(DiagnosticCategory.STARTUP, "COORDINATOR_RESET")
         startupJob?.cancel()
         startupJob = null
+        providerInstallerJob?.cancel()
+        providerInstallerJob = null
         isStarted = false
         _readyComponents.value = emptySet()
         _terminalError.value = null
@@ -217,12 +222,14 @@ class StartupCoordinator @Inject constructor(
                         ArtifactLogger.i(DiagnosticCategory.STARTUP, "ACCELERATED_WARM_START")
                         StartupTracer.mark("Warm Start Sequence Initiated")
                         
+                        providerInstallerJob?.cancel()
+                        providerInstallerJob = scope.launch {
+                            initializeSecurityProviderAsync()
+                        }
+
                         // In a warm start, tech components are usually already ready, 
                         // but we re-verify just in case of transient process states.
-                        coroutineScope {
-                            launch { awaitAppCheckReadiness() }
-                            launch { initializeSecurityProviderSync() }
-                        }
+                        awaitAppCheckReadiness()
                         
                         val result = encryptionManager.preload()
                         if (result is PreloadResult.RecoveryRequired) {
@@ -241,10 +248,12 @@ class StartupCoordinator @Inject constructor(
                     } else {
                         // PHASE 1: Mandatory Core Security (Critical for UI and Backend)
                         // Note: initializeAppCheck() must be called in Application.onCreate()
-                        coroutineScope {
-                            launch { awaitAppCheckReadiness() }
-                            launch { initializeSecurityProviderSync() }
+                        providerInstallerJob?.cancel()
+                        providerInstallerJob = scope.launch {
+                            initializeSecurityProviderAsync()
                         }
+
+                        awaitAppCheckReadiness()
 
                         // Preload database encryption before signaling CORE
                         val result = encryptionManager.preload()
@@ -394,29 +403,45 @@ class StartupCoordinator @Inject constructor(
         }
     }
 
-    private suspend fun initializeSecurityProviderSync() {
+    private suspend fun initializeSecurityProviderAsync() {
         ArtifactLogger.d(DiagnosticCategory.STARTUP, "SECURITY_PROVIDER_INIT_START")
         val availability = GoogleApiAvailability.getInstance()
         val resultCode = availability.isGooglePlayServicesAvailable(context)
 
-        if (resultCode == ConnectionResult.SUCCESS) {
-            return suspendCancellableCoroutine { continuation ->
-                ProviderInstaller.installIfNeededAsync(context, object : ProviderInstaller.ProviderInstallListener {
-                    override fun onProviderInstalled() {
-                        ArtifactLogger.d(DiagnosticCategory.STARTUP, "SECURITY_PROVIDER_READY")
-                        emitReadiness(StartupComponent.SECURITY)
-                        continuation.resume(Unit)
-                    }
-
-                    override fun onProviderInstallFailed(errorCode: Int, recoveryIntent: Intent?) {
-                        ArtifactLogger.w(DiagnosticCategory.STARTUP, "SECURITY_PROVIDER_FAILED", mapOf("errorCode" to errorCode))
-                        emitReadiness(StartupComponent.SECURITY)
-                        continuation.resume(Unit)
-                    }
-                })
-            }
-        } else {
+        if (resultCode != ConnectionResult.SUCCESS) {
             ArtifactLogger.w(DiagnosticCategory.STARTUP, "PLAY_SERVICES_UNAVAILABLE", mapOf("resultCode" to resultCode))
+            emitReadiness(StartupComponent.SECURITY)
+            return
+        }
+
+        val hasResumed = AtomicBoolean(false)
+        try {
+            withTimeout(PROVIDER_INSTALLER_TIMEOUT) {
+                suspendCancellableCoroutine<Unit> { continuation ->
+                    ProviderInstaller.installIfNeededAsync(context, object : ProviderInstaller.ProviderInstallListener {
+                        override fun onProviderInstalled() {
+                            ArtifactLogger.d(DiagnosticCategory.STARTUP, "SECURITY_PROVIDER_READY")
+                            emitReadiness(StartupComponent.SECURITY)
+                            if (continuation.isActive && hasResumed.compareAndSet(false, true)) {
+                                continuation.resume(Unit)
+                            }
+                        }
+
+                        override fun onProviderInstallFailed(errorCode: Int, recoveryIntent: Intent?) {
+                            ArtifactLogger.w(DiagnosticCategory.STARTUP, "SECURITY_PROVIDER_FAILED", mapOf("errorCode" to errorCode))
+                            emitReadiness(StartupComponent.SECURITY)
+                            if (continuation.isActive && hasResumed.compareAndSet(false, true)) {
+                                continuation.resume(Unit)
+                            }
+                        }
+                    })
+                }
+            }
+        } catch (e: TimeoutCancellationException) {
+            ArtifactLogger.w(DiagnosticCategory.STARTUP, "SECURITY_PROVIDER_TIMEOUT")
+            emitReadiness(StartupComponent.SECURITY)
+        } catch (e: Exception) {
+            ArtifactLogger.w(DiagnosticCategory.STARTUP, "SECURITY_PROVIDER_ERROR", throwable = e)
             emitReadiness(StartupComponent.SECURITY)
         }
     }

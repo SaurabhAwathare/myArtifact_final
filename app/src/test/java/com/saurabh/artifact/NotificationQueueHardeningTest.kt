@@ -12,6 +12,7 @@ import com.saurabh.artifact.model.PlaybackSource
 import com.saurabh.artifact.navigation.IncomingArtifact
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.MaintenanceRepository
+import com.saurabh.artifact.repository.SessionState
 import com.saurabh.artifact.repository.UserProfileManager
 import com.saurabh.artifact.security.PreloadResult
 import com.saurabh.artifact.startup.SecurityStatus
@@ -66,6 +67,8 @@ class NotificationQueueHardeningTest {
         every { startupCoordinator.preloadResult } returns MutableStateFlow(PreloadResult.Success)
         every { startupCoordinator.securityStatus } returns MutableStateFlow(SecurityStatus.PENDING)
         every { startupCoordinator.terminalError } returns MutableStateFlow(null)
+        coEvery { authRepository.awaitAuthoritativeSessionState() } returns SessionState.Active
+        every { authRepository.sessionState } returns MutableStateFlow(SessionState.Active)
         
         viewModel = MainViewModel(
             authRepository, getInitialDestinationUseCase, registrationCoordinator,

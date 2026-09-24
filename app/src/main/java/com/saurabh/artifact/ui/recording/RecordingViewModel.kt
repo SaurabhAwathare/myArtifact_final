@@ -112,6 +112,7 @@ class RecordingViewModel @Inject constructor(
                     "PERMISSION_DENIED" -> RecordingError.PermissionDenied
                     "HARDWARE_IN_USE" -> RecordingError.HardwareInUse
                     "STORAGE_FULL" -> RecordingError.StorageFull
+                    "RESERVATION_FAILED" -> RecordingError.ReservationFailed
                     null -> if (state.status == RecordingStatus.FAILED) RecordingError.Unknown else null
                     else -> RecordingError.Unknown
                 }
@@ -123,7 +124,8 @@ class RecordingViewModel @Inject constructor(
                     currentOutputFile = state.outputFile?.absolutePath,
                     amplitudes = state.amplitudes,
                     lastDraftPath = if (state.status == RecordingStatus.COMPLETED) state.outputFile?.absolutePath else it.lastDraftPath,
-                    isStorageLow = state.isStorageLow
+                    isStorageLow = state.isStorageLow,
+                    episodeNumber = state.episodeNumber
                 ) }
 
                 if (state.status == RecordingStatus.COMPLETED && state.draftId.isNotEmpty()) {
@@ -211,7 +213,8 @@ data class RecordingUiState(
     val isPromptLoading: Boolean = false,
     val amplitudes: List<Float> = emptyList(),
     val currentAmplitude: Float = 0f,
-    val isStorageLow: Boolean = false
+    val isStorageLow: Boolean = false,
+    val episodeNumber: Long? = null
 )
 
 enum class RecordingFlowState {
@@ -226,5 +229,6 @@ sealed class RecordingError {
     object PermissionDenied : RecordingError()
     object HardwareInUse : RecordingError()
     object StorageFull : RecordingError()
+    object ReservationFailed : RecordingError()
     object Unknown : RecordingError()
 }

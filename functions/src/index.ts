@@ -8,6 +8,11 @@ import {getPolicy} from "./util/validation/policy";
 import {VALIDATION_VERSION, UnlockReason} from "./util/validation/constants";
 import {ModerationConfig} from "./util/moderation/config";
 import {checkRateLimit} from "./util/moderation/rateLimit";
+import {
+  claimFirstDeviceHandler,
+  transferActiveSessionHandler,
+  assertActiveSession,
+} from "./session";
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -2319,15 +2324,12 @@ export const healArtifactModeration = functions.https.onCall(async (data: any, c
 });
 
 /**
- * Authoritatively creates a private publication reservation document under
- * /users/{uid}/private/published_artifacts/artifacts/{draftId}
- * before audio storage upload to satisfy storage.rules isArtifactOwner() check.
+ * Authoritatively reserves an Episode Number for a draft prior to microphone recording.
+ * Uses the exact same reservation document structure and sequence counter as preparePublish.
  */
-export const preparePublish = functions.https.onCall(async (data, context) => {
-  if (!context.auth || !context.auth.uid) {
-    throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
-  }
-  const uid = context.auth.uid;
+export const reserveEpisode = functions.https.onCall(async (data, context) => {
+  await assertActiveSession(context);
+  const uid = context.auth!.uid;
 
   const draftId = data?.draftId;
   if (!draftId || typeof draftId !== "string" || draftId.trim().length === 0) {
@@ -2345,23 +2347,124 @@ export const preparePublish = functions.https.onCall(async (data, context) => {
     const userData = userDoc.data() || {};
     const identityResetVersion = userData.identityMetadata?.identityResetVersion || 0;
 
-    const reservationRef = db.doc(`users/${uid}/private/published_artifacts/artifacts/${cleanDraftId}`);
-    const reservationDoc = await reservationRef.get();
+    return await db.runTransaction(async (transaction) => {
+      const reservationRef = db.doc(`users/${uid}/private/published_artifacts/artifacts/${cleanDraftId}`);
+      const sequenceRef = db.doc(`users/${uid}/private/sequence`);
 
-    if (!reservationDoc.exists) {
-      await reservationRef.set({
-        createdAt: FieldValue.serverTimestamp(),
-        identityResetVersion: identityResetVersion,
-      });
-      logger.info(`[PREPARE_PUBLISH] Reservation created for draft ${cleanDraftId} under user ${uid}`);
-    } else {
-      logger.info(`[PREPARE_PUBLISH] Reservation re-used for draft ${cleanDraftId} under user ${uid}`);
+      const reservationDoc = await transaction.get(reservationRef);
+      const reservationDocData = reservationDoc.exists ? reservationDoc.data() : null;
+
+      let episodeNumber: number;
+
+      if (reservationDocData && typeof reservationDocData.episodeNumber === "number") {
+        episodeNumber = reservationDocData.episodeNumber;
+        logger.info(`[RESERVE_EPISODE] Reservation re-used for draft ${cleanDraftId} under user ${uid}, episode ${episodeNumber}`);
+      } else {
+        const sequenceDoc = await transaction.get(sequenceRef);
+        const sequenceData = sequenceDoc.exists ? sequenceDoc.data() : null;
+        const lastEpisodeNumber = (sequenceData && typeof sequenceData.lastEpisodeNumber === "number") ? sequenceData.lastEpisodeNumber : 0;
+
+        episodeNumber = lastEpisodeNumber + 1;
+
+        transaction.set(sequenceRef, {
+          lastEpisodeNumber: episodeNumber,
+          updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+
+        const reservationData = {
+          draftId: cleanDraftId,
+          episodeNumber: episodeNumber,
+          allocatedAt: FieldValue.serverTimestamp(),
+          createdAt: reservationDocData && reservationDocData.createdAt ? reservationDocData.createdAt : FieldValue.serverTimestamp(),
+          identityResetVersion: identityResetVersion,
+        };
+
+        transaction.set(reservationRef, reservationData, { merge: true });
+        logger.info(`[RESERVE_EPISODE] Reservation & Episode ${episodeNumber} allocated for draft ${cleanDraftId} under user ${uid}`);
+      }
+
+      return {
+        status: "RESERVED",
+        draftId: cleanDraftId,
+        episodeNumber: episodeNumber,
+      };
+    });
+  } catch (error) {
+    if (error instanceof functions.https.HttpsError) {
+      throw error;
     }
+    logger.error(`[RESERVE_EPISODE] Error for draft ${cleanDraftId}:`, error);
+    throw new functions.https.HttpsError("internal", "An error occurred during episode reservation.");
+  }
+});
 
-    return {
-      status: "RESERVED",
-      draftId: cleanDraftId,
-    };
+/**
+ * Authoritatively creates a private publication reservation document under
+ * /users/{uid}/private/published_artifacts/artifacts/{draftId}
+ * before audio storage upload to satisfy storage.rules isArtifactOwner() check.
+ */
+export const preparePublish = functions.https.onCall(async (data, context) => {
+  await assertActiveSession(context);
+  const uid = context.auth!.uid;
+
+  const draftId = data?.draftId;
+  if (!draftId || typeof draftId !== "string" || draftId.trim().length === 0) {
+    throw new functions.https.HttpsError("invalid-argument", "Valid draftId is required.");
+  }
+  const cleanDraftId = draftId.trim();
+
+  const db = admin.firestore();
+
+  try {
+    const userDoc = await db.doc(`users/${uid}`).get();
+    if (!userDoc.exists) {
+      throw new functions.https.HttpsError("not-found", "User profile does not exist.");
+    }
+    const userData = userDoc.data() || {};
+    const identityResetVersion = userData.identityMetadata?.identityResetVersion || 0;
+
+    return await db.runTransaction(async (transaction) => {
+      const reservationRef = db.doc(`users/${uid}/private/published_artifacts/artifacts/${cleanDraftId}`);
+      const sequenceRef = db.doc(`users/${uid}/private/sequence`);
+
+      const reservationDoc = await transaction.get(reservationRef);
+      const reservationDocData = reservationDoc.exists ? reservationDoc.data() : null;
+
+      let episodeNumber: number;
+
+      if (reservationDocData && typeof reservationDocData.episodeNumber === "number") {
+        episodeNumber = reservationDocData.episodeNumber;
+        logger.info(`[PREPARE_PUBLISH] Reservation re-used for draft ${cleanDraftId} under user ${uid}, episode ${episodeNumber}`);
+      } else {
+        const sequenceDoc = await transaction.get(sequenceRef);
+        const sequenceData = sequenceDoc.exists ? sequenceDoc.data() : null;
+        const lastEpisodeNumber = (sequenceData && typeof sequenceData.lastEpisodeNumber === "number") ? sequenceData.lastEpisodeNumber : 0;
+
+        episodeNumber = lastEpisodeNumber + 1;
+
+        transaction.set(sequenceRef, {
+          lastEpisodeNumber: episodeNumber,
+          updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+
+        const reservationData = {
+          draftId: cleanDraftId,
+          episodeNumber: episodeNumber,
+          allocatedAt: FieldValue.serverTimestamp(),
+          createdAt: reservationDocData && reservationDocData.createdAt ? reservationDocData.createdAt : FieldValue.serverTimestamp(),
+          identityResetVersion: identityResetVersion,
+        };
+
+        transaction.set(reservationRef, reservationData, { merge: true });
+        logger.info(`[PREPARE_PUBLISH] Reservation & Episode ${episodeNumber} allocated for draft ${cleanDraftId} under user ${uid}`);
+      }
+
+      return {
+        status: "RESERVED",
+        draftId: cleanDraftId,
+        episodeNumber: episodeNumber,
+      };
+    });
   } catch (error) {
     if (error instanceof functions.https.HttpsError) {
       throw error;
@@ -2377,10 +2480,8 @@ export const preparePublish = functions.https.onCall(async (data, context) => {
  * Includes platform-authoritative userId for ownership authorization.
  */
 export const finalizePublish = functions.https.onCall(async (data, context) => {
-  if (!context.auth || !context.auth.uid) {
-    throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
-  }
-  const uid = context.auth.uid;
+  await assertActiveSession(context);
+  const uid = context.auth!.uid;
 
   const draftId = data?.draftId;
   if (!draftId || typeof draftId !== "string" || draftId.trim().length === 0) {
@@ -2490,6 +2591,8 @@ export const finalizePublish = functions.https.onCall(async (data, context) => {
       if (!reservationDoc.exists) {
         throw new functions.https.HttpsError("permission-denied", "No publication reservation found for this user.");
       }
+      const reservationData = reservationDoc.data() || {};
+      const episodeNumber = typeof reservationData.episodeNumber === "number" ? reservationData.episodeNumber : null;
 
       const artifactRef = db.doc(`artifacts/${cleanDraftId}`);
       const artifactDoc = await transaction.get(artifactRef);
@@ -2537,6 +2640,7 @@ export const finalizePublish = functions.https.onCall(async (data, context) => {
         },
         audioUrl: serverAudioUrl,
         ...(serverTranscriptUrl ? { transcriptUrl: serverTranscriptUrl } : {}),
+        ...(episodeNumber !== null ? { episodeNumber: episodeNumber } : {}),
         title: title.trim(),
         description: description,
         emotion: primaryEmotion,
@@ -2741,11 +2845,8 @@ export const deleteArtifact = functions
     memory: "256MB",
   })
   .https.onCall(async (data: any, context: functions.https.CallableContext) => {
-    // 1. Authentication Check
-    if (!context.auth || !context.auth.uid) {
-      throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
-    }
-    const callerUid = context.auth.uid;
+    await assertActiveSession(context);
+    const callerUid = context.auth!.uid;
 
     // 2. Input Validation (Ignore client-supplied userId or ownership info)
     const artifactId = data?.artifactId;
@@ -2847,4 +2948,14 @@ export const deleteArtifact = functions
       throw new functions.https.HttpsError("internal", "An error occurred while deleting the artifact.");
     }
   });
+
+/**
+ * First Device Claim Callable Function.
+ */
+export const claimFirstDevice = functions.https.onCall(claimFirstDeviceHandler);
+
+/**
+ * Explicit Session Transfer Callable Function.
+ */
+export const transferActiveSession = functions.https.onCall(transferActiveSessionHandler);
 

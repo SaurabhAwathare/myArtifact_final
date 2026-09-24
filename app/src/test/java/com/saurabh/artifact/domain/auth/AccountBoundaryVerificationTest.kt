@@ -19,6 +19,7 @@ import com.saurabh.artifact.domain.auth.RegistrationCoordinator
 import com.saurabh.artifact.domain.auth.RegistrationResult
 import com.saurabh.artifact.domain.settings.ObserveStealthModeUseCase
 import com.saurabh.artifact.repository.AuthRepository
+import com.saurabh.artifact.repository.SessionState
 import com.saurabh.artifact.repository.SettingsRepository
 import com.saurabh.artifact.security.BackupEncryptionManager
 import com.saurabh.artifact.startup.StartupCoordinator
@@ -101,6 +102,8 @@ class AccountBoundaryVerificationTest {
         every { authRepository.currentUser } returns testAuthFlow
         every { sessionManager.owningUid } returns testOwningUidFlow
         every { observeStealthModeUseCase() } returns flowOf(false)
+        coEvery { authRepository.awaitAuthoritativeSessionState() } returns SessionState.Active
+        every { authRepository.sessionState } returns MutableStateFlow(SessionState.Active)
 
         logoutCoordinator = spyk(LogoutCoordinator(
             context,

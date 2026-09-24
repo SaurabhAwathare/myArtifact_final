@@ -390,7 +390,17 @@ fun StudioReviewStep(
             .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(modifier = Modifier.height(48.dp))
+        Spacer(modifier = Modifier.height(32.dp))
+
+        // Episode Label
+        Text(
+            text = if (state.episodeNumber != null) "Artifact · Episode ${state.episodeNumber}" else "Episode pending",
+            style = MaterialTheme.typography.labelMedium,
+            color = Color.White.copy(alpha = 0.6f),
+            letterSpacing = 1.5.sp
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
 
         // Time and Percentage UI
         Column(horizontalAlignment = Alignment.CenterHorizontally) {

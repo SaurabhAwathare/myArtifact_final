@@ -228,6 +228,10 @@ interface DraftDao {
     @Query("UPDATE artifact_drafts SET status = :status, updatedAt = :timestamp WHERE id = :id AND userId = :userId")
     suspend fun updateSyncStatus(id: String, userId: String, status: DraftStatus, timestamp: Long = System.currentTimeMillis())
 
+    /** User-scoped: Update episode number with ownership enforcement. */
+    @Query("UPDATE artifact_drafts SET episodeNumber = :episodeNumber, updatedAt = :timestamp WHERE id = :id AND userId = :userId")
+    suspend fun updateEpisodeNumber(id: String, userId: String, episodeNumber: Long?, timestamp: Long = System.currentTimeMillis())
+
 
     /** System-maintenance: Fetch all draft IDs for system-level audits. */
     @Query("SELECT id FROM artifact_drafts")

@@ -65,7 +65,8 @@ class PlayableArtifactRepository @Inject constructor(
                         durationMs = artifact.durationMs,
                         sourceType = source,
                         emotion = artifact.emotion,
-                        originalDraft = draft
+                        originalDraft = draft,
+                        episodeNumber = artifact.episodeNumber ?: draft.episodeNumber
                     )
                 )
             }
@@ -113,7 +114,8 @@ class PlayableArtifactRepository @Inject constructor(
                             durationMs = artifact.durationMs,
                             sourceType = source,
                             emotion = artifact.emotion,
-                            originalArtifact = artifact
+                            originalArtifact = artifact,
+                            episodeNumber = artifact.episodeNumber
                         )
                     )
                 }
