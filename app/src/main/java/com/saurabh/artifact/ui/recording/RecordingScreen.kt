@@ -309,6 +309,21 @@ fun RecordingScreen(
                     )
                 )
         ) {
+            // TOP-RIGHT EPISODE HEADER
+            if (uiState.episodeNumber != null) {
+                Text(
+                    text = "Artifact · Episode ${uiState.episodeNumber}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.White.copy(alpha = 0.5f),
+                    letterSpacing = 1.5.sp,
+                    textAlign = TextAlign.End,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(innerPadding)
+                        .padding(top = 16.dp, end = 24.dp)
+                )
+            }
+
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -337,16 +352,6 @@ fun RecordingScreen(
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.Center
                             ) {
-                                // EPISODE LABEL
-                                Text(
-                                    text = if (uiState.episodeNumber != null) "Artifact · Episode ${uiState.episodeNumber}" else "Episode pending",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = Color.White.copy(alpha = 0.5f),
-                                    letterSpacing = 1.5.sp
-                                )
-
-                                Spacer(modifier = Modifier.height(12.dp))
-
                                 // PROMPT LABEL
                                 Text(
                                     text = "PROMPT",

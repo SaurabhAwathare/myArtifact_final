@@ -394,7 +394,7 @@ fun StudioReviewStep(
 
         // Episode Label
         Text(
-            text = if (state.episodeNumber != null) "Artifact · Episode ${state.episodeNumber}" else "Episode pending",
+            text = if (state.episodeNumber != null) "Artifact · Episode ${state.episodeNumber}" else "Artifact",
             style = MaterialTheme.typography.labelMedium,
             color = Color.White.copy(alpha = 0.6f),
             letterSpacing = 1.5.sp

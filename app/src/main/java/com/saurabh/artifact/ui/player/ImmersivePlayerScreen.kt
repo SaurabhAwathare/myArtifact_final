@@ -312,7 +312,7 @@ fun ImmersivePlayerScreen(
                         }
 
                         val episodeNumber = playableArtifact?.episodeNumber ?: artifact?.episodeNumber
-                        val episodeText = if (episodeNumber != null) "Artifact · Episode $episodeNumber" else "Episode pending"
+                        val episodeText = if (episodeNumber != null) "Artifact · Episode $episodeNumber" else "Artifact"
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = episodeText,

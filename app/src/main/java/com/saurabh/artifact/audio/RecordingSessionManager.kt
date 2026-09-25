@@ -172,7 +172,7 @@ class RecordingSessionManager @Inject constructor(
         prepareForRecording()
 
         val draftId = explicitDraftId
-            ?: (_activeDraft.value?.takeIf { it.episodeNumber == null }?.id)
+            ?: _activeDraft.value?.id
             ?: UUID.randomUUID().toString()
 
         // Ensure draft exists in DB if we're starting fresh
@@ -192,24 +192,6 @@ class RecordingSessionManager @Inject constructor(
         }
 
         _activeDraft.value = draft
-
-        // Reserve authoritative Episode Number BEFORE microphone recording begins
-        if (draft?.episodeNumber == null) {
-            val reserveResult = publishingRepository.get().reserveEpisode(draftId)
-            if (reserveResult.isFailure) {
-                val exception = reserveResult.exceptionOrNull()
-                diagnosticLogger.error(
-                    DiagnosticCategory.RECORDING,
-                    "SESSION_START_FAILED_EPISODE_RESERVATION",
-                    mapOf(LogKeys.DRAFT_ID to draftId),
-                    exception
-                )
-                _reservationError.value = "RESERVATION_FAILED"
-                return@withLock Result.failure(exception ?: Exception("Failed to reserve episode number"))
-            }
-            draft = draftDao.get().getDraftById(draftId, userId)
-            _activeDraft.value = draft
-        }
 
         val intent = Intent(context, RecordingService::class.java).apply {
             action = RecordingService.ACTION_START
