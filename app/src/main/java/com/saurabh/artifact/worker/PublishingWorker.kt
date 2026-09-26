@@ -135,16 +135,36 @@ class PublishingWorker @AssistedInject constructor(
 
     private suspend fun handleFailure(draftId: String, e: Throwable): Result {
         val isPermanent = publishingManager.isPermanentError(e)
+        val isNetwork = if (!isPermanent) publishingManager.isNetworkError(e) else false
+        val classification = if (isPermanent) "PERMANENT" else if (isNetwork) "TRANSIENT_NETWORK" else "TRANSIENT_OTHER"
+        val nextStatus = if (isPermanent) {
+            SyncStatus.Failed(e.message ?: "Permanent upload failure")
+        } else if (isNetwork) {
+            SyncStatus.WaitingForNetwork
+        } else {
+            SyncStatus.Queued
+        }
+        val workerResult = if (isPermanent) "FAILURE" else "RETRY"
+
+        diagnosticLogger.error(
+            DiagnosticCategory.PUBLISH,
+            "PUBLISH_FAILURE_CLASSIFIED",
+            mapOf(
+                LogKeys.DRAFT_ID to draftId,
+                "type" to e.javaClass.simpleName,
+                "classification" to classification,
+                "status" to nextStatus.javaClass.simpleName,
+                "workerResult" to workerResult
+            ),
+            e
+        )
 
         return withContext(NonCancellable) {
+            draftRepository.updateUploadStatus(draftId, nextStatus)
             if (isPermanent) {
-                draftRepository.updateUploadStatus(draftId, SyncStatus.Failed(e.message ?: "Permanent upload failure"))
                 NotificationHelper.showUploadErrorNotification(appContext, "Permanent failure")
                 Result.failure()
             } else {
-                val isNetworkError = publishingManager.isNetworkError(e)
-                val nextStatus = if (isNetworkError) SyncStatus.WaitingForNetwork else SyncStatus.Queued
-                draftRepository.updateUploadStatus(draftId, nextStatus)
                 Result.retry()
             }
         }

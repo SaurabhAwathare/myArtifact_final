@@ -11,7 +11,9 @@ import com.saurabh.artifact.data.local.RecordingStatus
 import com.saurabh.artifact.data.local.UserSessionManager
 import com.saurabh.artifact.model.PromptCategory
 import com.saurabh.artifact.model.ReflectionPrompt
+import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.PromptRepository
+import com.saurabh.artifact.repository.UserRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
@@ -23,6 +25,8 @@ import javax.inject.Inject
 @HiltViewModel
 class RecordingViewModel @Inject constructor(
     authRepository: com.saurabh.artifact.repository.AuthRepository,
+    private val userRepository: UserRepository,
+    private val artifactRepository: ArtifactRepository,
     private val promptRepository: PromptRepository,
     private val promptManager: com.saurabh.artifact.domain.prompt.ReflectionPromptManager,
     private val userSessionManager: UserSessionManager,
@@ -41,11 +45,13 @@ class RecordingViewModel @Inject constructor(
     val navigationEvents = _navigationEvents.receiveAsFlow()
 
     init {
-        if (authRepository.currentUser.value == null) {
+        val currentUser = authRepository.currentUser.value
+        if (currentUser == null) {
             diagnosticLogger.warn(DiagnosticCategory.AUTH, "RECORDING_BLOCKED_AUTH", mapOf("reason" to "USER_NULL"))
         } else {
             loadInitialPrompt()
             observeRecordingSession()
+            observeEpisodePreview(currentUser.uid)
             
             // Immediate start for InstantRecord flow
             _uiState.update { it.copy(flowState = RecordingFlowState.RECORDING) }
@@ -54,6 +60,24 @@ class RecordingViewModel @Inject constructor(
                 _events.send(RecordingEvent.RequestStart)
             }
         }
+    }
+
+    private fun observeEpisodePreview(userId: String) {
+        combine(
+            artifactRepository.getMaxPublishedEpisodeNumber(userId),
+            userRepository.streamUserProfile(userId)
+        ) { maxLocalEpisode, userProfile ->
+            val maxLocal = maxLocalEpisode ?: 0L
+            val count = userProfile?.artifactsCount ?: 0L
+            maxOf(maxLocal, count) + 1L
+        }
+        .onEach { preview ->
+            _uiState.update { it.copy(nextEpisodeNumberPreview = preview) }
+        }
+        .catch { e ->
+            diagnosticLogger.error(DiagnosticCategory.RECORDING, "EPISODE_PREVIEW_CALCULATION_FAILED", mapOf("userId" to userId), e)
+        }
+        .launchIn(viewModelScope)
     }
 
     private fun loadInitialPrompt() {
@@ -214,7 +238,8 @@ data class RecordingUiState(
     val amplitudes: List<Float> = emptyList(),
     val currentAmplitude: Float = 0f,
     val isStorageLow: Boolean = false,
-    val episodeNumber: Long? = null
+    val episodeNumber: Long? = null,
+    val nextEpisodeNumberPreview: Long? = null
 )
 
 enum class RecordingFlowState {

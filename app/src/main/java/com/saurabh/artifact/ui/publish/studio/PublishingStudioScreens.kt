@@ -393,8 +393,9 @@ fun StudioReviewStep(
         Spacer(modifier = Modifier.height(32.dp))
 
         // Episode Label
+        val displayEpisode = state.episodeNumber ?: state.nextEpisodeNumberPreview
         Text(
-            text = if (state.episodeNumber != null) "Artifact · Episode ${state.episodeNumber}" else "Artifact",
+            text = if (displayEpisode != null) "Artifact · Episode $displayEpisode" else "Artifact",
             style = MaterialTheme.typography.labelMedium,
             color = Color.White.copy(alpha = 0.6f),
             letterSpacing = 1.5.sp

@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -48,6 +49,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -309,19 +311,27 @@ fun RecordingScreen(
                     )
                 )
         ) {
-            // TOP-RIGHT EPISODE HEADER
-            if (uiState.episodeNumber != null) {
-                Text(
-                    text = "Artifact · Episode ${uiState.episodeNumber}",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Color.White.copy(alpha = 0.5f),
-                    letterSpacing = 1.5.sp,
-                    textAlign = TextAlign.End,
+            // TOP-LEFT EPISODE HEADER
+            val displayEpisode = uiState.episodeNumber ?: uiState.nextEpisodeNumberPreview
+            if (displayEpisode != null) {
+                Surface(
+                    color = Color.Black.copy(alpha = 0.6f),
+                    shape = RoundedCornerShape(8.dp),
                     modifier = Modifier
-                        .align(Alignment.TopEnd)
+                        .align(Alignment.TopStart)
                         .padding(innerPadding)
-                        .padding(top = 16.dp, end = 24.dp)
-                )
+                        .padding(top = 16.dp, start = 24.dp)
+                ) {
+                    Text(
+                        text = "Artifact · Episode $displayEpisode",
+                        style = MaterialTheme.typography.labelLarge.copy(
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 1.2.sp
+                        ),
+                        color = GoldAura500,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                    )
+                }
             }
 
             Column(

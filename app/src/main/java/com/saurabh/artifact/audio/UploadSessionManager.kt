@@ -89,20 +89,11 @@ class PublishStateManager @Inject constructor(
                     it.state == WorkInfo.State.BLOCKED 
                 }
 
-                // If it's an error, we show it regardless of active workers (to allow retry)
-                if (syncStatus is SyncStatus.Failed) {
-                    _currentPublishState.value = PublishState.Error(draftId = id, title = title, message = syncStatus.error)
-                    return@collect
-                }
-
-                // Activity Check: If no service or worker is active, don't show the bar (Ghost Prevention)
-                if (!isServiceActive && !isWorkActive && draft.lifecycle != ArtifactLifecycle.PUBLISHED) {
-                    _currentPublishState.value = null
-                    return@collect
-                }
-
                 // 2. Map to Granular State
                 val newState = when {
+                    syncStatus is SyncStatus.Failed -> 
+                        PublishState.Error(draftId = id, title = title, message = syncStatus.error)
+
                     draft.lifecycle == ArtifactLifecycle.PUBLISHED -> 
                         PublishState.Published(draftId = id, title = title, artifactId = draft.remoteArtifactId ?: "")
                     
@@ -110,33 +101,41 @@ class PublishStateManager @Inject constructor(
                         PublishState.Uploading(draftId = id, title = title, progress = progress, isWaitingForNetwork = true)
                     
                     syncStatus is SyncStatus.Uploading || syncStatus is SyncStatus.Finalizing -> {
-                        if (progress < 0.95f && syncStatus !is SyncStatus.Finalizing) {
-                            PublishState.Uploading(draftId = id, title = title, progress = progress)
+                        if (isServiceActive || isWorkActive) {
+                            if (progress < 0.95f && syncStatus !is SyncStatus.Finalizing) {
+                                PublishState.Uploading(draftId = id, title = title, progress = progress)
+                            } else {
+                                PublishState.Finalizing(draftId = id, title = title)
+                            }
                         } else {
-                            PublishState.Finalizing(draftId = id, title = title)
+                            PublishState.Preparing(draftId = id, title = title, displayStatus = "Waiting to publish...")
                         }
                     }
                     
                     draft.lifecycle == ArtifactLifecycle.PROCESSING -> {
                         val processing = draft.status.processing
-                        val displayTitle = if (processing is ProcessingStatus.Active) {
-                            when (processing.stage) {
-                                ProcessingStage.SAVING -> "Securing artifact..."
-                                ProcessingStage.TRANSCODING -> "Preparing audio..."
-                                ProcessingStage.NORMALIZING -> "Optimizing clarity..."
-                                ProcessingStage.WAVEFORM_GENERATION -> "Generating waveform..."
-                                ProcessingStage.TRANSCRIBING -> "Transcribing audio..."
-                                ProcessingStage.PRIVACY_SCANNING -> "Running privacy checks..."
-                                ProcessingStage.SAFETY_CHECK -> "Finalizing safety..."
-                                ProcessingStage.ENCRYPTING_BACKUP -> "Securing backup..."
-                            }
-                        } else "Creating a calm space..."
-                        
-                        PublishState.Preparing(draftId = id, title = title, displayStatus = displayTitle)
+                        if (processing is ProcessingStatus.Failed) {
+                            PublishState.Error(draftId = id, title = title, message = "Audio processing failed")
+                        } else {
+                            val displayTitle = if (processing is ProcessingStatus.Active) {
+                                when (processing.stage) {
+                                    ProcessingStage.SAVING -> "Securing artifact..."
+                                    ProcessingStage.TRANSCODING -> "Preparing audio..."
+                                    ProcessingStage.NORMALIZING -> "Optimizing clarity..."
+                                    ProcessingStage.WAVEFORM_GENERATION -> "Generating waveform..."
+                                    ProcessingStage.TRANSCRIBING -> "Transcribing audio..."
+                                    ProcessingStage.PRIVACY_SCANNING -> "Running privacy checks..."
+                                    ProcessingStage.SAFETY_CHECK -> "Finalizing safety..."
+                                    ProcessingStage.ENCRYPTING_BACKUP -> "Securing backup..."
+                                }
+                            } else "Creating a calm space..."
+                            
+                            PublishState.Preparing(draftId = id, title = title, displayStatus = displayTitle)
+                        }
                     }
 
-                    draft.lifecycle == ArtifactLifecycle.READY_TO_PUBLISH ->
-                        PublishState.Preparing(draftId = id, title = title, displayStatus = "Enqueuing publication...")
+                    draft.lifecycle == ArtifactLifecycle.READY_TO_PUBLISH || syncStatus is SyncStatus.Queued ->
+                        PublishState.Preparing(draftId = id, title = title, displayStatus = "Waiting to publish...")
                     
                     else -> null
                 }
@@ -147,7 +146,7 @@ class PublishStateManager @Inject constructor(
         
         // Watchdog: Periodically clean up stale processing drafts
         scope.launch {
-            while (true) {
+            while (isActive) {
                 delay(10.minutes) // Every 10 minutes
                 performWatchdogCleanup()
             }
@@ -185,5 +184,9 @@ class PublishStateManager @Inject constructor(
         scope.launch {
             publishingOrchestrator.retryPublishing(draftId)
         }
+    }
+
+    fun cleanup() {
+        scope.cancel()
     }
 }

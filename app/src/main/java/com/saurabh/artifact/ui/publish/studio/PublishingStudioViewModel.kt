@@ -17,8 +17,10 @@ import com.saurabh.artifact.model.Emotion
 import com.saurabh.artifact.model.PlaybackSource
 import com.saurabh.artifact.model.ProcessingStatus
 import com.saurabh.artifact.model.PublishingResult
+import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.RecordingRepository
+import com.saurabh.artifact.repository.UserRepository
 import com.saurabh.artifact.util.SecureString
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -85,7 +87,8 @@ data class StudioSessionState(
     val showPrivacyNudge: Boolean = false,
     val privacyWarnings: List<String> = emptyList(),
     val isRecoverySetup: Boolean = true,
-    val episodeNumber: Long? = null
+    val episodeNumber: Long? = null,
+    val nextEpisodeNumberPreview: Long? = null
 ) {
     val effectiveEmotions: List<Emotion>
         get() = if (emotions.isNotEmpty()) emotions else if (emotion != null) listOf(emotion) else emptyList()
@@ -102,7 +105,9 @@ class PublishingStudioViewModel @Inject constructor(
     private val databaseEncryptionManager: DatabaseEncryptionManager,
     private val workManager: WorkManager,
     private val diagnosticLogger: DiagnosticLogger,
-    private val publishingOrchestrator: PublishingOrchestrator
+    private val publishingOrchestrator: PublishingOrchestrator,
+    private val artifactRepository: ArtifactRepository,
+    private val userRepository: UserRepository
 ) : ViewModel() {
 
     private val _draftId = MutableStateFlow<String?>(null)
@@ -136,12 +141,21 @@ class PublishingStudioViewModel @Inject constructor(
             val reviewFlow = playbackCoordinator.reviewProgress
             val recoveryFlow = recordingRepository.observeRecoveryState(id, workManager)
             val isRecoverySetupFlow = databaseEncryptionManager.isRecoverySetup
+            val episodePreviewFlow: Flow<Long?> = combine(
+                artifactRepository.getMaxPublishedEpisodeNumber(user.uid).onStart { emit(null) },
+                userRepository.streamUserProfile(user.uid).onStart { emit(null) }
+            ) { maxLocalEpisode, userProfile ->
+                val maxLocal = maxLocalEpisode ?: 0L
+                val count = userProfile?.artifactsCount ?: 0L
+                maxOf(maxLocal, count) + 1L
+            }.map<Long, Long?> { it }.catch { emit(null) }
             
             // Combine local UI state
             val localContextFlow = combine(
                 _titleInput,
-                _uiState
-            ) { title, ui -> title to ui }
+                _uiState,
+                episodePreviewFlow
+            ) { title, ui, preview -> Triple(title, ui, preview) }
 
             val persistentStateFlow = combine(
                 draftFlow,
@@ -150,7 +164,7 @@ class PublishingStudioViewModel @Inject constructor(
                 isRecoverySetupFlow,
                 localContextFlow
             ) { draft, review, isRecovering, isRecoverySetup, localContext ->
-                val (titleBuffer, ui) = localContext
+                val (titleBuffer, ui, episodePreview) = localContext
                 val effectiveEmotions = if (draft.emotions.isNotEmpty()) draft.emotions else if (draft.emotion != null) listOf(draft.emotion) else emptyList()
                 
                 StudioSessionState(
@@ -178,7 +192,8 @@ class PublishingStudioViewModel @Inject constructor(
                     showPrivacyNudge = ui.showPrivacyNudge,
                     privacyWarnings = ui.privacyWarnings,
                     isRecoverySetup = isRecoverySetup,
-                    episodeNumber = draft.episodeNumber
+                    episodeNumber = draft.episodeNumber,
+                    nextEpisodeNumberPreview = episodePreview
                 )
             }
 
@@ -471,12 +486,20 @@ class PublishingStudioViewModel @Inject constructor(
 
                         if (result == PublishingResult.FAILED) {
                             _uiState.update { it.copy(isPublishing = false, error = "Publishing failed to initiate. Please try again.") }
-                        } else {
+                        } else if (result == PublishingResult.QUEUED_OFFLINE) {
                             _uiState.update { 
                                 it.copy(
                                     isPublishing = false, 
                                     isSuccess = true,
-                                    isQueuedOffline = result == PublishingResult.QUEUED_OFFLINE
+                                    isQueuedOffline = true
+                                ) 
+                            }
+                        } else {
+                            _uiState.update { 
+                                it.copy(
+                                    isPublishing = false, 
+                                    isSuccess = false,
+                                    isQueuedOffline = false
                                 ) 
                             }
                         }

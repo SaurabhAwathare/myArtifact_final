@@ -3,6 +3,7 @@ package com.saurabh.artifact.data.local
 import androidx.paging.PagingSource
 import androidx.room.*
 import com.saurabh.artifact.model.Emotion
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface ArtifactDao {
@@ -111,4 +112,12 @@ interface ArtifactDao {
         configJson: String,
         identityPropagationVersion: Long
     )
+
+    @Query("""
+        SELECT MAX(episodeNumber) FROM artifacts 
+        WHERE (userId = :userId OR authorAnonymousId = :userId) 
+          AND isDraft = 0 
+          AND episodeNumber IS NOT NULL
+    """)
+    fun getMaxPublishedEpisodeNumber(userId: String): Flow<Long?>
 }

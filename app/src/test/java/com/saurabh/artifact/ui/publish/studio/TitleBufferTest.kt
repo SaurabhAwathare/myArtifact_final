@@ -9,8 +9,10 @@ import com.saurabh.artifact.domain.PublishingOrchestrator
 import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.model.DraftStatus
 import com.saurabh.artifact.model.Emotion
+import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.RecordingRepository
+import com.saurabh.artifact.repository.UserRepository
 import io.mockk.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -36,6 +38,8 @@ class TitleBufferTest {
     private val workManager = mockk<androidx.work.WorkManager>(relaxed = true)
     private val diagnosticLogger = mockk<com.saurabh.artifact.diagnostics.DiagnosticLogger>(relaxed = true)
     private val publishingOrchestrator = mockk<PublishingOrchestrator>(relaxed = true)
+    private val artifactRepository = mockk<ArtifactRepository>(relaxed = true)
+    private val userRepository = mockk<UserRepository>(relaxed = true)
 
     private companion object {
         private const val TEST_USER_ID = "test-user-id"
@@ -105,7 +109,9 @@ class TitleBufferTest {
             databaseEncryptionManager,
             workManager,
             diagnosticLogger,
-            publishingOrchestrator
+            publishingOrchestrator,
+            artifactRepository,
+            userRepository
         )
 
         backgroundScope.launch { viewModel.sessionState.collect() }
@@ -147,7 +153,9 @@ class TitleBufferTest {
             databaseEncryptionManager,
             workManager,
             diagnosticLogger,
-            publishingOrchestrator
+            publishingOrchestrator,
+            artifactRepository,
+            userRepository
         )
 
         backgroundScope.launch { viewModel.sessionState.collect() }

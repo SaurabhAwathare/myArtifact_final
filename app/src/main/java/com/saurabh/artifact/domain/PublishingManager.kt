@@ -1,6 +1,8 @@
 package com.saurabh.artifact.domain
 
+import com.google.firebase.FirebaseNetworkException
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.storage.StorageException
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
@@ -113,15 +115,18 @@ class PublishingManager @Inject constructor(
             diagnosticLogger.debug(DiagnosticCategory.FIRESTORE, "PUBLISH_STEP_3_PREPARE", mapOf(LogKeys.DRAFT_ID to draftId))
             artifactRepository.preparePublish(draftId).getOrThrow()
 
+            // Reload draft to obtain updated server-authoritative fields like episodeNumber
+            val updatedDraft = draftRepository.getDraft(draftId).getOrNull() ?: draft
+
             // 4. Upload Audio (Resumable)
             diagnosticLogger.debug(DiagnosticCategory.STORAGE, "PUBLISH_STEP_4_AUDIO", mapOf(LogKeys.DRAFT_ID to draftId))
-            val downloadUrl = if (draft.uploadedAudioUrl != null) {
+            val downloadUrl = if (updatedDraft.uploadedAudioUrl != null) {
                 diagnosticLogger.info(DiagnosticCategory.STORAGE, "PUBLISH_AUDIO_CHECKPOINT_REUSE", mapOf(LogKeys.DRAFT_ID to draftId))
-                draft.uploadedAudioUrl
+                updatedDraft.uploadedAudioUrl
             } else {
                 val uploadResult = artifactRepository.uploadArtifactResumable(
                     userId = firebaseUser.uid,
-                    draft = draft.copy(localAudioPath = audioPath),
+                    draft = updatedDraft.copy(localAudioPath = audioPath),
                     onProgress = { transferred, total, sessionUri ->
                         diagnosticLogger.debug(DiagnosticCategory.PUBLISH, "UPLOAD_PROGRESS", mapOf(LogKeys.DRAFT_ID to draftId, "transferred" to transferred, "total" to total))
                         draftRepository.updateUploadProgress(draftId, transferred, total, sessionUri?.toString())
@@ -136,11 +141,11 @@ class PublishingManager @Inject constructor(
 
             // 5. Upload Transcript (if present)
             diagnosticLogger.debug(DiagnosticCategory.PUBLISH, "PUBLISH_STEP_5_TRANSCRIPT", mapOf(LogKeys.DRAFT_ID to draftId))
-            val transcriptUrl = if (draft.frozenTranscriptJson != null) {
+            val transcriptUrl = if (updatedDraft.frozenTranscriptJson != null) {
                 val uploadResult = artifactRepository.uploadTranscript(
                     userId = firebaseUser.uid,
-                    draftId = draft.id,
-                    transcriptJson = draft.frozenTranscriptJson.toUnsecureString()
+                    draftId = updatedDraft.id,
+                    transcriptJson = updatedDraft.frozenTranscriptJson.toUnsecureString()
                 )
                 
                 if (uploadResult.isFailure) {
@@ -150,8 +155,8 @@ class PublishingManager @Inject constructor(
                         "TRANSCRIPT_UPLOAD_STEP_FAILED", 
                         mapOf(
                             LogKeys.DRAFT_ID to draftId,
-                            "lifecycle" to draft.lifecycle.name,
-                            "publicationStatus" to draft.status.publication.toString()
+                            "lifecycle" to updatedDraft.lifecycle.name,
+                            "publicationStatus" to updatedDraft.status.publication.toString()
                         ), 
                         error
                     )
@@ -164,7 +169,7 @@ class PublishingManager @Inject constructor(
 
             // 6. Finalize Firestore Document (Server-Authoritative)
             diagnosticLogger.debug(DiagnosticCategory.FIRESTORE, "PUBLISH_STEP_6_FINALIZE", mapOf(LogKeys.DRAFT_ID to draftId, "audioUrl" to downloadUrl, "transcriptUrl" to (transcriptUrl ?: "none")))
-            artifactRepository.finalizePublish(draft = draft).getOrThrow()
+            artifactRepository.finalizePublish(draft = updatedDraft).getOrThrow()
 
             // 7. Success Cleanup
             diagnosticLogger.debug(DiagnosticCategory.PUBLISH, "PUBLISH_STEP_7_CLEANUP", mapOf(LogKeys.DRAFT_ID to draftId))
@@ -200,16 +205,79 @@ class PublishingManager @Inject constructor(
     }
 
     fun isPermanentError(e: Throwable): Boolean {
+        if (e is AppError.Unknown) {
+            return isPermanentError(e.original)
+        }
+
+        when (e) {
+            is AppError.Unauthenticated,
+            is AppError.OwnershipMismatch,
+            is AppError.PermissionDenied,
+            is AppError.InvalidInput,
+            is AppError.UserNotFound,
+            is AppError.NotFound,
+            is AppError.ReauthenticationRequired -> return true
+            is AppError.NetworkFailure -> return false
+            else -> {}
+        }
+
+        if (e is IllegalStateException || e is IllegalArgumentException) {
+            val cause = e.cause
+            if (cause != null && isNetworkError(cause)) {
+                return false
+            }
+            return true
+        }
+
+        if (e is StorageException) {
+            return when (e.errorCode) {
+                StorageException.ERROR_NOT_AUTHORIZED,
+                StorageException.ERROR_OBJECT_NOT_FOUND,
+                StorageException.ERROR_QUOTA_EXCEEDED -> true
+                else -> false
+            }
+        }
+
+        if (e is FirebaseFirestoreException) {
+            return when (e.code) {
+                FirebaseFirestoreException.Code.PERMISSION_DENIED,
+                FirebaseFirestoreException.Code.UNAUTHENTICATED,
+                FirebaseFirestoreException.Code.INVALID_ARGUMENT,
+                FirebaseFirestoreException.Code.NOT_FOUND,
+                FirebaseFirestoreException.Code.ALREADY_EXISTS,
+                FirebaseFirestoreException.Code.FAILED_PRECONDITION -> true
+                else -> false
+            }
+        }
+
         val message = e.message ?: ""
-        return (e is StorageException && 
-            (e.errorCode == StorageException.ERROR_NOT_AUTHORIZED || 
-             e.errorCode == StorageException.ERROR_OBJECT_NOT_FOUND)) ||
-             message.contains("Security or Integrity validation failed")
+        if (message.contains("Security or Integrity validation failed")) {
+            return true
+        }
+
+        return false
     }
 
     fun isNetworkError(e: Throwable): Boolean {
-        return e is IOException || 
-               (e is StorageException && 
-                e.errorCode == StorageException.ERROR_RETRY_LIMIT_EXCEEDED)
+        if (e is AppError.Unknown) {
+            return isNetworkError(e.original)
+        }
+        if (e is AppError.NetworkFailure) {
+            return true
+        }
+        if (e is IOException) {
+            return true
+        }
+        if (e is FirebaseNetworkException) {
+            return true
+        }
+        if (e is StorageException && e.errorCode == StorageException.ERROR_RETRY_LIMIT_EXCEEDED) {
+            return true
+        }
+        if (e is FirebaseFirestoreException &&
+            e.code == FirebaseFirestoreException.Code.UNAVAILABLE) {
+            return true
+        }
+        return false
     }
 }

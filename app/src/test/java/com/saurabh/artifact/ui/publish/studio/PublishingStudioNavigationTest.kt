@@ -9,8 +9,10 @@ import com.saurabh.artifact.domain.PublishingOrchestrator
 import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.model.DraftStatus
 import com.saurabh.artifact.model.PublishingResult
+import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.RecordingRepository
+import com.saurabh.artifact.repository.UserRepository
 import io.mockk.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -265,6 +267,9 @@ class PublishingStudioNavigationTest {
         collectJob.cancel()
     }
 
+    private val artifactRepository = mockk<ArtifactRepository>(relaxed = true)
+    private val userRepository = mockk<UserRepository>(relaxed = true)
+
     private fun createViewModel() = PublishingStudioViewModel(
         recordingRepository,
         cleanupManager,
@@ -275,6 +280,8 @@ class PublishingStudioNavigationTest {
         databaseEncryptionManager,
         workManager,
         diagnosticLogger,
-        publishingOrchestrator
+        publishingOrchestrator,
+        artifactRepository,
+        userRepository
     )
 }

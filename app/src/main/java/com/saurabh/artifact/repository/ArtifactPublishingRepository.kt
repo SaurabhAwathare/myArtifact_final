@@ -5,7 +5,6 @@ import android.net.Uri
 import android.util.Log
 import androidx.core.net.toUri
 import com.google.firebase.Timestamp
-import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.storage.FirebaseStorage
@@ -346,10 +345,16 @@ class ArtifactPublishingRepository @Inject constructor(
             val data = mapOf("draftId" to draftId)
             val result = functions.getHttpsCallable("reserveEpisode").call(data).await()
             val resultMap = result.data as? Map<*, *>
-            val episodeNumber = (resultMap?.get("episodeNumber") as? Number)?.toLong()
-                ?: throw IllegalStateException("reserveEpisode response missing episodeNumber")
+            val episodeNumber = when (val raw = resultMap?.get("episodeNumber")) {
+                is Number -> raw.toLong()
+                is String -> raw.toLongOrNull()
+                else -> null
+            } ?: throw IllegalStateException("reserveEpisode response missing episodeNumber")
 
-            draftRepository.get().updateEpisodeNumber(draftId, episodeNumber)
+            val updateResult = draftRepository.get().updateEpisodeNumber(draftId, episodeNumber)
+            if (updateResult.isFailure) {
+                throw updateResult.exceptionOrNull() ?: IllegalStateException("Failed to update draft episodeNumber in Room")
+            }
 
             diagnosticLogger.info(
                 DiagnosticCategory.FIRESTORE,
@@ -369,15 +374,39 @@ class ArtifactPublishingRepository @Inject constructor(
             diagnosticLogger.debug(DiagnosticCategory.FIRESTORE, "PREPARE_PUBLISH_CALLABLE_START", mapOf(LogKeys.DRAFT_ID to draftId))
             val data = mapOf("draftId" to draftId)
             val result = functions.getHttpsCallable("preparePublish").call(data).await()
-            val resultMap = result.data as? Map<*, *>
-            val episodeNumber = (resultMap?.get("episodeNumber") as? Number)?.toLong()
-            if (episodeNumber != null) {
-                draftRepository.get().updateEpisodeNumber(draftId, episodeNumber)
+            val rawData = result.data
+            diagnosticLogger.info(
+                DiagnosticCategory.FIRESTORE,
+                "PREPARE_PUBLISH_RAW_RESPONSE",
+                mapOf(
+                    LogKeys.DRAFT_ID to draftId,
+                    "rawData" to rawData.toString(),
+                    "rawType" to (rawData?.javaClass?.name ?: "null")
+                )
+            )
+            val resultMap = rawData as? Map<*, *>
+            val episodeNumber = when (val raw = resultMap?.get("episodeNumber")) {
+                is Number -> raw.toLong()
+                is String -> raw.toLongOrNull()
+                else -> null
             }
+
+            if (episodeNumber == null || episodeNumber <= 0) {
+                throw IllegalStateException("preparePublish response missing or invalid episodeNumber")
+            }
+
+            val updateResult = draftRepository.get().updateEpisodeNumber(draftId, episodeNumber)
+            if (updateResult.isFailure) {
+                throw updateResult.exceptionOrNull() ?: IllegalStateException("Failed to update draft episodeNumber in Room")
+            }
+
             diagnosticLogger.info(
                 DiagnosticCategory.FIRESTORE,
                 "PREPARE_PUBLISH_CALLABLE_SUCCESS",
-                mapOf(LogKeys.DRAFT_ID to draftId, "episodeNumber" to (episodeNumber ?: -1))
+                mapOf(
+                    LogKeys.DRAFT_ID to draftId,
+                    "episodeNumber" to episodeNumber
+                )
             )
             Result.success(Unit)
         } catch (e: Exception) {

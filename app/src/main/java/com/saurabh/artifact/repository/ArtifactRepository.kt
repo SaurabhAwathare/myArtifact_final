@@ -834,6 +834,10 @@ class ArtifactRepository @Inject constructor(
     suspend fun recordPlay(userId: String?, artifactId: String, emotion: String): Result<Unit> = 
         artifactEngagementRepository.get().recordPlay(userId, artifactId, emotion)
 
+    fun getMaxPublishedEpisodeNumber(userId: String): Flow<Long?> {
+        return artifactDao.get().getMaxPublishedEpisodeNumber(userId)
+    }
+
     /**
      * Persists a private emotional bookmark for an artifact.
      * Bridge to ArtifactLibraryRepository.

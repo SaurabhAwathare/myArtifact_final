@@ -16,9 +16,11 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.time.Duration
 
 @Singleton
 class PublishingOrchestrator @Inject constructor(
@@ -106,27 +108,29 @@ class PublishingOrchestrator @Inject constructor(
             Log.i("PublishingOrchestrator", "Audio processing in progress. Awaiting completion before upload...")
             ensureProcessingActive(draftId)
 
-            val processingResult = draftRepository.observeDrafts()
-                .map { list -> list.find { it.id == draftId } }
-                .filterNotNull()
-                .mapNotNull { updated ->
-                    when (updated.status.processing) {
-                        is ProcessingStatus.Active -> null
-                        is ProcessingStatus.Failed -> Result.failure<ArtifactDraftEntity>(
-                            Exception("Audio processing failed. Please try again.")
-                        )
-                        is ProcessingStatus.Idle -> {
-                            if (updated.isEncrypted) {
-                                Result.success(updated)
-                            } else {
-                                Result.failure<ArtifactDraftEntity>(
-                                    Exception("Required audio processing/encryption is incomplete or unavailable.")
-                                )
+            val processingResult: Result<ArtifactDraftEntity> = withTimeoutOrNull(15000L) {
+                draftRepository.observeDrafts()
+                    .map { list -> list.find { it.id == draftId } }
+                    .filterNotNull()
+                    .mapNotNull { updated ->
+                        when (updated.status.processing) {
+                            is ProcessingStatus.Active -> null
+                            is ProcessingStatus.Failed -> Result.failure<ArtifactDraftEntity>(
+                                Exception("Audio processing failed. Please try again.")
+                            )
+                            is ProcessingStatus.Idle -> {
+                                if (updated.isEncrypted) {
+                                    Result.success(updated)
+                                } else {
+                                    Result.failure<ArtifactDraftEntity>(
+                                        Exception("Required audio processing/encryption is incomplete or unavailable.")
+                                    )
+                                }
                             }
                         }
                     }
-                }
-                .first()
+                    .first()
+            } ?: Result.failure(Exception("Audio processing timed out. Please try again."))
 
             if (processingResult.isFailure) {
                 return@withContext Result.failure(processingResult.exceptionOrNull() ?: Exception("Audio processing failed"))
@@ -210,8 +214,9 @@ class PublishingOrchestrator @Inject constructor(
             draft = draftRepository.getDraft(draftId).getOrNull() ?: return@withContext
         }
 
-        if (draft.status.publication is SyncStatus.Failed) {
+        if (draft.status.publication is SyncStatus.Failed || draft.lifecycle == ArtifactLifecycle.READY_TO_PUBLISH) {
             draftRepository.updateUploadStatus(draftId, SyncStatus.Queued)
+            UploadService.start(context, draftId)
             enqueuePublishingWork(draftId)
         }
     }
