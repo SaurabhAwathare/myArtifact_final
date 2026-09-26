@@ -3,11 +3,17 @@ package com.saurabh.artifact.worker
 import android.content.Context
 import androidx.work.ListenableWorker
 import androidx.work.WorkerParameters
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.saurabh.artifact.data.local.*
 import com.saurabh.artifact.data.remote.model.CommentPayload
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.*
+import com.saurabh.artifact.security.AppCheckHealthResult
+import com.saurabh.artifact.security.AppCheckStateTracker
+import com.saurabh.artifact.startup.StartupCoordinator
+import dagger.Lazy
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -15,6 +21,7 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
@@ -36,36 +43,42 @@ class InteractionSyncWorkerCommentTest {
     private val firestoreEngagementRepository: FirestoreEngagementRepository = mockk()
     private val commentRepository: CommentRepository = mockk()
     private val userRepository: UserRepository = mockk()
-    private val startupCoordinator: com.saurabh.artifact.startup.StartupCoordinator = mockk(relaxed = true)
+    private val startupCoordinator: StartupCoordinator = mockk(relaxed = true)
+    private val appCheckStateTracker: AppCheckStateTracker = mockk()
 
+    private lateinit var errorClassifier: InteractionErrorClassifier
     private lateinit var worker: InteractionSyncWorker
     private val testDispatcher = StandardTestDispatcher()
 
-    private val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+    private val json = Json { ignoreUnknownKeys = true }
 
     @Before
     fun setup() {
         Dispatchers.setMain(testDispatcher)
         
-        mockkStatic(com.google.firebase.auth.FirebaseAuth::class)
-        val auth = mockk<com.google.firebase.auth.FirebaseAuth>()
-        val user = mockk<com.google.firebase.auth.FirebaseUser>()
-        every { com.google.firebase.auth.FirebaseAuth.getInstance() } returns auth
+        mockkStatic(FirebaseAuth::class)
+        val auth = mockk<FirebaseAuth>()
+        val user = mockk<FirebaseUser>()
+        every { FirebaseAuth.getInstance() } returns auth
         every { auth.currentUser } returns user
         every { user.uid } returns "test-user"
+
+        coEvery { appCheckStateTracker.probeHealth() } returns AppCheckHealthResult.Healthy(mockk(relaxed = true))
+        errorClassifier = InteractionErrorClassifier(appCheckStateTracker)
 
         worker = InteractionSyncWorker(
             context,
             workerParams,
-            dagger.Lazy { pendingInteractionDao },
-            dagger.Lazy { deadLetterDao },
+            Lazy { pendingInteractionDao },
+            Lazy { deadLetterDao },
             reactionRepository,
             artifactLibraryRepository,
             engagementRepository,
             firestoreEngagementRepository,
             commentRepository,
             userRepository,
-            startupCoordinator
+            startupCoordinator,
+            errorClassifier
         )
     }
 
@@ -142,17 +155,43 @@ class InteractionSyncWorkerCommentTest {
     }
 
     @Test
-    fun `account switching - worker fails if UID mismatch`() = runTest {
-        val auth = com.google.firebase.auth.FirebaseAuth.getInstance()
-        every { auth.currentUser?.uid } returns "different-user"
+    fun `R035 - COMMENT retries on AppError PermissionDenied`() = runTest {
+        val commentId = UUID.randomUUID().toString()
+        val comment = Comment(id = commentId, artifactId = "art-1", text = "Hello")
+        val commentJson = json.encodeToString(CommentPayload.serializer(), CommentPayload.fromDomain(comment))
+        
+        val interaction = PendingInteractionEntity(
+            userId = "test-user",
+            artifactId = "art-1",
+            interactionType = InteractionType.COMMENT,
+            action = InteractionAction.ADD,
+            metadata = commentJson
+        )
+
+        val pendingList = mutableListOf(interaction)
+        coEvery { pendingInteractionDao.getPendingForUser("test-user") } answers { pendingList.toList() }
+
+        val domainPermissionError = AppError.PermissionDenied("Permission denied")
+
+        coEvery { commentRepository.createComment(any()) } returns Result.failure(domainPermissionError)
         
         val result = worker.doWork()
         
-        // Should return failure if current authenticated user doesn't match worker context
-        // Wait, InteractionSyncWorker captures currentUserId at start of doWork.
-        // It then fetches pending for THAT user.
-        // So if User A enqueued something, but User B is logged in, 
-        // the worker (running as User B) won't see User A's records.
+        assertEquals(ListenableWorker.Result.retry(), result)
+        
+        coVerify { 
+            pendingInteractionDao.insert(match { 
+                it.lastError == "Permission denied" && it.retryCount == 1 
+            }) 
+        }
+    }
+
+    @Test
+    fun `account switching - worker fails if UID mismatch`() = runTest {
+        val auth = FirebaseAuth.getInstance()
+        every { auth.currentUser?.uid } returns "different-user"
+        
+        val result = worker.doWork()
         
         assertEquals(ListenableWorker.Result.success(), result) // success because queue for B is empty
         coVerify(exactly = 0) { commentRepository.createComment(any()) }

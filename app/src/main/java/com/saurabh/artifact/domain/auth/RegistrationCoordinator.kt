@@ -5,6 +5,9 @@ import com.saurabh.artifact.diagnostics.ArtifactLogger
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.repository.UserRepository
+import com.saurabh.artifact.security.AppCheckHealthResult
+import com.saurabh.artifact.security.AppCheckStateTracker
+import dagger.Lazy
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
@@ -13,7 +16,8 @@ import javax.inject.Singleton
 @Singleton
 class RegistrationCoordinator @Inject constructor(
     private val profileHealthChecker: ProfileHealthChecker,
-    private val userRepository: UserRepository
+    private val userRepository: UserRepository,
+    private val appCheckStateTracker: Lazy<AppCheckStateTracker>
 ) {
     private val mutex = Mutex()
 
@@ -64,6 +68,35 @@ class RegistrationCoordinator @Inject constructor(
                         )
                 }
                 is HealthStatus.PermissionDenied -> {
+                    val healthResult = try {
+                        appCheckStateTracker.get().probeHealth()
+                    } catch (e: Exception) {
+                        AppCheckHealthResult.Unavailable(e)
+                    }
+
+                    if (healthResult is AppCheckHealthResult.Healthy) {
+                        ArtifactLogger.e(
+                            DiagnosticCategory.AUTH,
+                            "REGISTRATION_FAILURE_SECURITY_RULES_DENIED",
+                            mapOf(
+                                "diagnostic" to "Profile verification failed with PERMISSION_DENIED while App Check is HEALTHY.",
+                                "isFixedSecretConfigured" to BuildConfig.APP_CHECK_DEBUG_SECRET.isNotBlank()
+                            ),
+                            throwable = status.cause
+                        )
+                    } else {
+                        ArtifactLogger.w(
+                            DiagnosticCategory.AUTH,
+                            "REGISTRATION_FAILURE_APP_CHECK_UNHEALTHY",
+                            mapOf(
+                                "diagnostic" to "Profile verification failed with PERMISSION_DENIED due to unhealthy App Check state (${healthResult.javaClass.simpleName}).",
+                                "appCheckState" to healthResult.javaClass.simpleName,
+                                "isFixedSecretConfigured" to BuildConfig.APP_CHECK_DEBUG_SECRET.isNotBlank()
+                            ),
+                            throwable = status.cause
+                        )
+                    }
+
                     ArtifactLogger.e(
                         DiagnosticCategory.AUTH,
                         "REGISTRATION_FAILURE_PERMISSION_DENIED",

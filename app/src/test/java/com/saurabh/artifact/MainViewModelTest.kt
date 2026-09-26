@@ -3,6 +3,7 @@ package com.saurabh.artifact
 import androidx.lifecycle.SavedStateHandle
 import android.content.Intent
 import android.util.Log
+import com.google.firebase.FirebaseException
 import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import com.google.firebase.auth.FirebaseUser
 import com.saurabh.artifact.model.AppError
@@ -63,6 +64,7 @@ class MainViewModelTest {
     private val owningUidFlow = MutableStateFlow<String?>(null)
     private val isLoggingOutFlow = MutableStateFlow(false)
     private val sessionStateFlow = MutableStateFlow<SessionState>(SessionState.Active)
+    private val terminalErrorFlow = MutableStateFlow<Throwable?>(null)
     private lateinit var viewModel: MainViewModel
     private val testDispatcher = UnconfinedTestDispatcher()
 
@@ -81,6 +83,7 @@ class MainViewModelTest {
         testAuthFlow.value = null
         owningUidFlow.value = null
         isLoggingOutFlow.value = false
+        terminalErrorFlow.value = null
         every { authRepository.currentUser } returns testAuthFlow
         every { authRepository.currentUserId } answers { testAuthFlow.value?.uid ?: "" }
         coEvery { authRepository.awaitAuthRestoration() } returns Unit
@@ -88,7 +91,7 @@ class MainViewModelTest {
         every { observeStealthModeUseCase.invoke() } returns flowOf(false)
         every { startupCoordinator.stage } returns MutableStateFlow(com.saurabh.artifact.startup.StartupStage.ARRIVAL)
         every { startupCoordinator.securityStatus } returns MutableStateFlow(SecurityStatus.PENDING)
-        every { startupCoordinator.terminalError } returns MutableStateFlow(null)
+        every { startupCoordinator.terminalError } returns terminalErrorFlow
         every { startupCoordinator.preloadResult } returns MutableStateFlow(PreloadResult.Success)
         every { startupCoordinator.isRescueModeActive } returns false
         every { sessionManager.owningUid } returns owningUidFlow
@@ -504,8 +507,8 @@ class MainViewModelTest {
     }
 
     @Test
-    fun `startup should proceed to Ready state when authenticated`() = runTest {
-        val user = mockk<com.google.firebase.auth.FirebaseUser>(relaxed = true)
+    fun `TEST 1 - startup proceeds to Ready(Home) when authenticated, App Check healthy, profile verification succeeds`() = runTest {
+        val user = mockk<FirebaseUser>(relaxed = true)
         testAuthFlow.value = user
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
@@ -515,10 +518,11 @@ class MainViewModelTest {
 
         val state = viewModel.startupState.value
         assertTrue(state is AppStartupState.Ready)
+        assertEquals(Home, (state as AppStartupState.Ready).startDestination)
     }
 
     @Test
-    fun `startup should handle PERMISSION_DENIED registration failure by transitioning to Error without cleanup`() = runTest {
+    fun `TEST 2 - startup does not become terminal failure when authenticated and profile read returns PERMISSION_DENIED due to App Check unavailable`() = runTest {
         val user = mockk<FirebaseUser>(relaxed = true)
         testAuthFlow.value = user
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
@@ -529,8 +533,68 @@ class MainViewModelTest {
         advanceUntilIdle()
 
         val state = viewModel.startupState.value
-        assertTrue("State should be Error", state is AppStartupState.Error)
+        assertTrue("State should be Ready in degraded mode", state is AppStartupState.Ready)
+        assertEquals(Home, (state as AppStartupState.Ready).startDestination)
         coVerify(exactly = 0) { logoutCoordinator.performFullCleanup(any()) }
+    }
+
+    @Test
+    fun `TEST 3 - startup does not become terminal failure when authenticated and profile read returns PERMISSION_DENIED due to App Check throttled`() = runTest {
+        val user = mockk<FirebaseUser>(relaxed = true)
+        testAuthFlow.value = user
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
+        val throttledException = AppError.PermissionDenied("429 Too Many Requests")
+        coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.Failure(throttledException)
+
+        viewModel.start()
+        advanceUntilIdle()
+
+        val state = viewModel.startupState.value
+        assertTrue("State should be Ready in degraded mode", state is AppStartupState.Ready)
+        assertEquals(Home, (state as AppStartupState.Ready).startDestination)
+        coVerify(exactly = 0) { logoutCoordinator.performFullCleanup(any()) }
+    }
+
+    @Test
+    fun `TEST 4 - startup handles non-fatal profile authorization failure by reaching degraded authenticated UI without false success classification`() = runTest {
+        val user = mockk<FirebaseUser>(relaxed = true)
+        testAuthFlow.value = user
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
+        val securityFailure = AppError.PermissionDenied("Security rules denied access")
+        coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.Failure(securityFailure)
+
+        viewModel.start()
+        advanceUntilIdle()
+
+        val state = viewModel.startupState.value
+        assertTrue(state is AppStartupState.Ready)
+        assertEquals(Home, (state as AppStartupState.Ready).startDestination)
+        coVerify(exactly = 1) { registrationCoordinator.ensureProfileExists() }
+    }
+
+    @Test
+    fun `TEST 5 - startup routes to Login or Onboarding when no authenticated session exists`() = runTest {
+        testAuthFlow.value = null
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.UNAUTHENTICATED
+
+        viewModel.start()
+        advanceUntilIdle()
+
+        val state = viewModel.startupState.value
+        assertTrue(state is AppStartupState.Ready)
+        assertEquals(Login, (state as AppStartupState.Ready).startDestination)
+    }
+
+    @Test
+    fun `TEST 6 - startup shows Error screen on genuine fatal infrastructure failure`() = runTest {
+        val fatalException = RuntimeException("Fatal database encryption failure")
+        terminalErrorFlow.value = fatalException
+
+        advanceUntilIdle()
+
+        val state = viewModel.startupState.value
+        assertTrue(state is AppStartupState.Error)
+        assertEquals("Fatal database encryption failure", (state as AppStartupState.Error).message)
     }
 
     @Test
@@ -549,21 +613,6 @@ class MainViewModelTest {
         assertTrue(state is AppStartupState.Ready)
         assertEquals(Login, (state as AppStartupState.Ready).startDestination)
         coVerify(exactly = 1) { logoutCoordinator.performFullCleanup(any()) }
-    }
-
-    @Test
-    fun `startup should unblock coordinator on registration failure`() = runTest {
-        val user = mockk<com.google.firebase.auth.FirebaseUser>(relaxed = true)
-        testAuthFlow.value = user
-        coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
-        coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.Failure(Exception("Network error"))
-
-        viewModel.start()
-        advanceUntilIdle()
-
-        val state = viewModel.startupState.value
-        assertTrue(state is AppStartupState.Error)
-        verify { startupCoordinator.completeAll() }
     }
 
     @Test
@@ -1209,7 +1258,7 @@ class MainViewModelTest {
     }
 
     @Test
-    fun `startup with Unavailable session state reaches Error and blocks Home`() = runTest {
+    fun `startup with Unavailable session state enters Ready(Home) in degraded mode`() = runTest {
         val user = mockk<com.google.firebase.auth.FirebaseUser> { every { uid } returns "user123" }
         every { authRepository.currentUserId } returns "user123"
         testAuthFlow.value = user
@@ -1220,8 +1269,8 @@ class MainViewModelTest {
         viewModel.start()
         advanceUntilIdle()
 
-        assertTrue(viewModel.startupState.value is AppStartupState.Error)
-        assertEquals("Server verification required", (viewModel.startupState.value as AppStartupState.Error).message)
+        assertTrue(viewModel.startupState.value is AppStartupState.Ready)
+        assertEquals(Home, (viewModel.startupState.value as AppStartupState.Ready).startDestination)
     }
 
     @Test
@@ -1249,5 +1298,109 @@ class MainViewModelTest {
         advanceUntilIdle()
 
         coVerify { authRepository.transferActiveSession(any(), any()) }
+    }
+
+    @Test
+    fun `BUG 2 TEST D - claimFirstDevice App Check 403 failure enters Ready(Home) in degraded mode without global error`() = runTest {
+        val user = mockk<FirebaseUser> { every { uid } returns "user123" }
+        every { authRepository.currentUserId } returns "user123"
+        testAuthFlow.value = user
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
+        coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
+        coEvery { authRepository.awaitAuthoritativeSessionState() } returns SessionState.NoActiveSession
+        
+        val appCheck403Error = mockk<FirebaseException> {
+            every { message } returns "Error returned from API. code: 403"
+            every { cause } returns null
+        }
+        coEvery { authRepository.claimFirstDevice(any()) } returns Result.failure(AppError.from(appCheck403Error))
+
+        viewModel.start()
+        advanceUntilIdle()
+
+        assertTrue(viewModel.startupState.value is AppStartupState.Ready)
+        assertEquals(Home, (viewModel.startupState.value as AppStartupState.Ready).startDestination)
+    }
+
+    @Test
+    fun `BUG 2 TEST E - claimFirstDevice Too many attempts failure enters Ready(Home) in degraded mode without retry loop`() = runTest {
+        val user = mockk<FirebaseUser> { every { uid } returns "user123" }
+        every { authRepository.currentUserId } returns "user123"
+        testAuthFlow.value = user
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
+        coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
+        coEvery { authRepository.awaitAuthoritativeSessionState() } returns SessionState.NoActiveSession
+        
+        val throttledError = mockk<FirebaseException> {
+            every { message } returns "Too many attempts."
+            every { cause } returns null
+        }
+        coEvery { authRepository.claimFirstDevice(any()) } returns Result.failure(AppError.from(throttledError))
+
+        viewModel.start()
+        advanceUntilIdle()
+
+        assertTrue(viewModel.startupState.value is AppStartupState.Ready)
+        assertEquals(Home, (viewModel.startupState.value as AppStartupState.Ready).startDestination)
+    }
+
+    @Test
+    fun `BUG 2 TEST F - claimFirstDevice genuine unrelated Cloud Function failure produces terminal AppStartupState Error`() = runTest {
+        val user = mockk<FirebaseUser> { every { uid } returns "user123" }
+        every { authRepository.currentUserId } returns "user123"
+        testAuthFlow.value = user
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
+        coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
+        coEvery { authRepository.awaitAuthoritativeSessionState() } returns SessionState.NoActiveSession
+        
+        val internalError = RuntimeException("Database query failed")
+        coEvery { authRepository.claimFirstDevice(any()) } returns Result.failure(internalError)
+
+        viewModel.start()
+        advanceUntilIdle()
+
+        assertTrue(viewModel.startupState.value is AppStartupState.Error)
+        assertEquals("Database query failed", (viewModel.startupState.value as AppStartupState.Error).message)
+    }
+
+    @Test
+    fun `BUG 2 TEST G - claimFirstDevice explicit session revocation cleans up session and routes to Login`() = runTest {
+        val user = mockk<FirebaseUser> { every { uid } returns "user123" }
+        every { authRepository.currentUserId } returns "user123"
+        testAuthFlow.value = user
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
+        coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
+        coEvery { authRepository.awaitAuthoritativeSessionState() } returns SessionState.NoActiveSession
+        coEvery { logoutCoordinator.performFullCleanup(any()) } returns CleanupResult(CleanupStatus.COMPLETED)
+
+        val revokedError = mockk<FirebaseAuthInvalidUserException> {
+            every { errorCode } returns "user-not-found"
+            every { message } returns "User account disabled"
+            every { cause } returns null
+        }
+        coEvery { authRepository.claimFirstDevice(any()) } returns Result.failure(revokedError)
+
+        viewModel.start()
+        advanceUntilIdle()
+
+        coVerify { logoutCoordinator.performFullCleanup(any()) }
+        assertTrue(viewModel.startupState.value is AppStartupState.Ready)
+        assertEquals(Login, (viewModel.startupState.value as AppStartupState.Ready).startDestination)
+    }
+
+    @Test
+    fun `RETRY LOOP REGRESSION TEST - retryStartup resets coordinator and executes startup normally`() = runTest {
+        val user = mockk<FirebaseUser> { every { uid } returns "user123" }
+        every { authRepository.currentUserId } returns "user123"
+        testAuthFlow.value = user
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
+        coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
+        coEvery { authRepository.awaitAuthoritativeSessionState() } returns SessionState.Active
+
+        viewModel.retryStartup()
+        advanceUntilIdle()
+
+        assertTrue(viewModel.startupState.value is AppStartupState.Ready)
+        assertEquals(Home, (viewModel.startupState.value as AppStartupState.Ready).startDestination)
     }
 }

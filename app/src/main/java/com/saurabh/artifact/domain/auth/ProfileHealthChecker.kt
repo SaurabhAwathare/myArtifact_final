@@ -9,6 +9,9 @@ import com.google.firebase.firestore.FirebaseFirestoreException
 import com.saurabh.artifact.BuildConfig
 import com.saurabh.artifact.model.User
 import com.saurabh.artifact.model.UserPrivateSettings
+import com.saurabh.artifact.security.AppCheckHealthResult
+import com.saurabh.artifact.security.AppCheckStateTracker
+import dagger.Lazy
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.tasks.await
@@ -31,7 +34,8 @@ sealed class HealthStatus {
 @Singleton
 class ProfileHealthChecker @Inject constructor(
     private val auth: FirebaseAuth,
-    private val firestore: FirebaseFirestore
+    private val firestore: FirebaseFirestore,
+    private val appCheckStateTracker: Lazy<AppCheckStateTracker>
 ) {
     companion object {
         private const val MAX_ATTEMPTS = 5
@@ -86,6 +90,40 @@ class ProfileHealthChecker @Inject constructor(
                     return HealthStatus.Unrecoverable
                 }
                 return HealthStatus.Missing
+            }
+        }
+
+        val healthResult = try {
+            appCheckStateTracker.get().probeHealth()
+        } catch (e: Exception) {
+            AppCheckHealthResult.Unavailable(e)
+        }
+
+        when (healthResult) {
+            is AppCheckHealthResult.Healthy -> {
+                ArtifactLogger.e(
+                    DiagnosticCategory.AUTH,
+                    "PROFILE_CHECK_SECURITY_RULES_PERMISSION_DENIED",
+                    mapOf(
+                        "diagnostic" to "Firestore PERMISSION_DENIED during profile health check while App Check is HEALTHY. Check Firestore Security Rules for path users/$userId.",
+                        "isFixedSecretConfigured" to BuildConfig.APP_CHECK_DEBUG_SECRET.isNotBlank()
+                    ),
+                    throwable = lastPermissionException
+                )
+            }
+            is AppCheckHealthResult.Unavailable,
+            is AppCheckHealthResult.Throttled,
+            AppCheckHealthResult.Expired -> {
+                ArtifactLogger.w(
+                    DiagnosticCategory.AUTH,
+                    "PROFILE_CHECK_APP_CHECK_UNHEALTHY_PERMISSION_DENIED",
+                    mapOf(
+                        "diagnostic" to "Firestore PERMISSION_DENIED during profile health check due to unhealthy App Check state (${healthResult.javaClass.simpleName}).",
+                        "appCheckState" to healthResult.javaClass.simpleName,
+                        "isFixedSecretConfigured" to BuildConfig.APP_CHECK_DEBUG_SECRET.isNotBlank()
+                    ),
+                    throwable = lastPermissionException
+                )
             }
         }
 

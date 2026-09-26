@@ -31,11 +31,17 @@ import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import androidx.annotation.OptIn
 import com.google.firebase.auth.FirebaseAuthInvalidUserException
+import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.functions.FirebaseFunctionsException
+import com.saurabh.artifact.security.AppCheckHealthResult
+import kotlinx.coroutines.CancellationException
 import com.saurabh.artifact.audio.RecordingService
 import com.saurabh.artifact.data.local.RecordingStatus
 import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.repository.ClaimResult
 import com.saurabh.artifact.repository.SessionState
+import com.saurabh.artifact.security.AppCheckStateTracker
+import dagger.Lazy
 import java.util.UUID
 
 sealed class AppStartupState {
@@ -68,6 +74,7 @@ class MainViewModel @Inject constructor(
     private val startupCoordinator: StartupCoordinator,
     private val savedStateHandle: SavedStateHandle,
     private val diagnosticLogger: DiagnosticLogger,
+    private val appCheckStateTracker: Lazy<AppCheckStateTracker>? = null,
 ) : ViewModel() {
 
     companion object {
@@ -451,12 +458,82 @@ class MainViewModel @Inject constructor(
                 if (_startupState.value !is AppStartupState.Error) {
                     determineInitialRoute()
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 diagnosticLogger.error(DiagnosticCategory.STARTUP, "STARTUP_CRITICAL_FAILURE", throwable = e)
                 _startupState.value = AppStartupState.Error("An unexpected error occurred during startup.")
                 startupCoordinator.completeAll()
             }
         }
+    }
+
+    private suspend fun isAppCheckOrDegradedClaimError(err: Throwable): Boolean {
+        val rootCause = getRootCause(err)
+
+        if (rootCause is FirebaseFirestoreException && rootCause.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+            return true
+        }
+
+        if (rootCause is FirebaseFunctionsException) {
+            val codeName = rootCause.code.name
+            if (codeName == "PERMISSION_DENIED" ||
+                codeName == "UNAUTHENTICATED" ||
+                codeName == "RESOURCE_EXHAUSTED" ||
+                codeName == "UNAVAILABLE"
+            ) {
+                return true
+            }
+        }
+
+        val msg = rootCause.message.orEmpty()
+        val errStr = err.message.orEmpty()
+        val combinedMsg = "$msg $errStr"
+
+        if (combinedMsg.contains("403") ||
+            combinedMsg.contains("429") ||
+            combinedMsg.contains("Too many attempts", ignoreCase = true) ||
+            combinedMsg.contains("AppCheck", ignoreCase = true) ||
+            combinedMsg.contains("App Check", ignoreCase = true) ||
+            combinedMsg.contains("app check", ignoreCase = true) ||
+            combinedMsg.contains("RESOURCE_EXHAUSTED", ignoreCase = true) ||
+            combinedMsg.contains("UNAUTHENTICATED", ignoreCase = true) ||
+            combinedMsg.contains("PERMISSION_DENIED", ignoreCase = true)
+        ) {
+            return true
+        }
+
+        val tracker = appCheckStateTracker?.get() ?: return false
+        val healthResult = try {
+            tracker.probeHealth()
+        } catch (e: Exception) {
+            AppCheckHealthResult.Unavailable(e)
+        }
+
+        return healthResult !is AppCheckHealthResult.Healthy
+    }
+
+    private fun isExplicitSessionRevocation(err: Throwable): Boolean {
+        val rootCause = getRootCause(err)
+        if (rootCause is FirebaseAuthInvalidUserException || rootCause is AppError.ReauthenticationRequired) {
+            return true
+        }
+        val msg = "${rootCause.message} ${err.message}"
+        return msg.contains("terminated", ignoreCase = true) ||
+               msg.contains("Session revoked", ignoreCase = true) ||
+               msg.contains("user-not-found", ignoreCase = true) ||
+               msg.contains("user-disabled", ignoreCase = true)
+    }
+
+    private fun getRootCause(throwable: Throwable): Throwable {
+        var cause: Throwable = throwable
+        if (cause is AppError.Unknown) {
+            cause = cause.original
+        }
+        while (cause.cause != null && cause.cause != cause) {
+            cause = cause.cause!!
+        }
+        return cause
     }
 
     private suspend fun determineInitialRoute() {
@@ -484,7 +561,8 @@ class MainViewModel @Inject constructor(
                         diagnosticLogger.error(DiagnosticCategory.STARTUP, "STARTUP_REGISTRATION_FAILED", throwable = profileResult.exception)
                         
                         val isExplicitRevocation = profileResult.exception is FirebaseAuthInvalidUserException ||
-                                profileResult.exception.message?.contains("terminated", ignoreCase = true) == true
+                                profileResult.exception.message?.contains("terminated", ignoreCase = true) == true ||
+                                profileResult.exception.message?.contains("Session revoked", ignoreCase = true) == true
 
                         if (isExplicitRevocation) {
                             diagnosticLogger.warn(DiagnosticCategory.STARTUP, "STARTUP_SESSION_INVALID_RECOVERING")
@@ -502,14 +580,17 @@ class MainViewModel @Inject constructor(
                             }
                             Login
                         } else {
-                            val message = if (profileResult.exception.message?.contains("terminated") == true) {
-                                profileResult.exception.message!!
-                            } else {
-                                "Profile verification failed."
-                            }
-                            _startupState.value = AppStartupState.Error(message)
-                            startupCoordinator.completeAll()
-                            return
+                            // DEGRADED AUTHENTICATED STATE:
+                            // Remote profile verification failed (e.g. PERMISSION_DENIED due to App Check failure/unavailability or network issue),
+                            // but the local FirebaseAuth session is valid and not revoked/terminated.
+                            // Do NOT block the authenticated user with a global terminal StartupErrorScreen ("The path is blocked").
+                            // Proceed to Home (the authenticated UI) in degraded mode.
+                            diagnosticLogger.warn(
+                                DiagnosticCategory.STARTUP,
+                                "STARTUP_PROFILE_VERIFICATION_DEGRADED",
+                                mapOf("reason" to (profileResult.exception.message ?: "Unknown remote failure"))
+                            )
+                            Home
                         }
                     }
                 }
@@ -534,9 +615,8 @@ class MainViewModel @Inject constructor(
                                         if (authRepository.sessionState.value is SessionState.Active) {
                                             targetDestination
                                         } else {
-                                            _startupState.value = AppStartupState.Error("Token refresh failed after session claim.")
-                                            startupCoordinator.completeAll()
-                                            return
+                                            diagnosticLogger.warn(DiagnosticCategory.AUTH, "STARTUP_SESSION_CLAIM_UNAVAILABLE_DEGRADED")
+                                            targetDestination
                                         }
                                     }
                                     is ClaimResult.SessionExists -> {
@@ -551,10 +631,30 @@ class MainViewModel @Inject constructor(
                                     }
                                 }
                             } else {
-                                val err = claimRes.exceptionOrNull()
-                                _startupState.value = AppStartupState.Error(err?.message ?: "Failed to claim active session.")
-                                startupCoordinator.completeAll()
-                                return
+                                val err = claimRes.exceptionOrNull() ?: Exception("Failed to claim active session.")
+                                if (isExplicitSessionRevocation(err)) {
+                                    diagnosticLogger.warn(DiagnosticCategory.AUTH, "STARTUP_SESSION_REVOKED_ON_CLAIM", throwable = err)
+                                    _isCleaning.value = true
+                                    try {
+                                        val key = CleanupEventKey(
+                                            targetUid = authRepository.currentUserId,
+                                            sessionInstanceId = sessionManager.localSessionId.first() ?: "UNKNOWN"
+                                        )
+                                        logoutCoordinator.performFullCleanup(key)
+                                    } catch (cleanupErr: Exception) {
+                                        diagnosticLogger.error(DiagnosticCategory.AUTH, "STARTUP_SESSION_CLEANUP_FAILED", throwable = cleanupErr)
+                                    } finally {
+                                        _isCleaning.value = false
+                                    }
+                                    Login
+                                } else if (isAppCheckOrDegradedClaimError(err)) {
+                                    diagnosticLogger.warn(DiagnosticCategory.AUTH, "STARTUP_DEVICE_CLAIM_APP_CHECK_DEGRADED", throwable = err)
+                                    targetDestination
+                                } else {
+                                    _startupState.value = AppStartupState.Error(err.message ?: "Failed to claim active session.")
+                                    startupCoordinator.completeAll()
+                                    return
+                                }
                             }
                         }
                         is SessionState.SessionExistsOnOtherDevice -> {
@@ -563,14 +663,20 @@ class MainViewModel @Inject constructor(
                             return
                         }
                         is SessionState.Unavailable -> {
-                            _startupState.value = AppStartupState.Error(session.cause.message ?: "Session verification unavailable. Please check connection.")
-                            startupCoordinator.completeAll()
-                            return
+                            diagnosticLogger.warn(
+                                DiagnosticCategory.AUTH,
+                                "STARTUP_SESSION_VERIFICATION_DEGRADED",
+                                mapOf("reason" to (session.cause.message ?: "Session verification unavailable"))
+                            )
+                            targetDestination
                         }
                         is SessionState.TokenRefreshFailed -> {
-                            _startupState.value = AppStartupState.Error("Session token refresh failed. Please try again.")
-                            startupCoordinator.completeAll()
-                            return
+                            diagnosticLogger.warn(
+                                DiagnosticCategory.AUTH,
+                                "STARTUP_TOKEN_REFRESH_FAILED_DEGRADED",
+                                mapOf("reason" to (session.cause.message ?: "Token refresh failed"))
+                            )
+                            targetDestination
                         }
                         is SessionState.Revoked -> {
                             _isCleaning.value = true
@@ -587,9 +693,8 @@ class MainViewModel @Inject constructor(
                         }
                         is SessionState.Uninitialized,
                         is SessionState.PendingServerVerification -> {
-                            _startupState.value = AppStartupState.Error("Session state unresolved.")
-                            startupCoordinator.completeAll()
-                            return
+                            diagnosticLogger.warn(DiagnosticCategory.AUTH, "STARTUP_SESSION_UNRESOLVED_DEGRADED")
+                            targetDestination
                         }
                     }
                 }

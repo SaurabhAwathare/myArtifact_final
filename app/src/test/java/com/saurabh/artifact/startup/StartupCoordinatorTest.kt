@@ -3,6 +3,7 @@ package com.saurabh.artifact.startup
 import android.content.Context
 import android.util.Log
 import android.os.SystemClock
+import android.text.TextUtils
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.appcheck.AppCheckToken
 import com.google.firebase.appcheck.FirebaseAppCheck
@@ -29,8 +30,11 @@ import com.saurabh.artifact.domain.auth.LogoutCoordinator
 import com.google.android.gms.common.GoogleApiAvailability
 import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.security.ProviderInstaller
+import com.google.firebase.FirebaseException
 import com.saurabh.artifact.security.PreloadResult
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import java.io.IOException
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class StartupCoordinatorTest {
@@ -57,6 +61,9 @@ class StartupCoordinatorTest {
         every { Log.i(any(), any()) } returns 0
         every { Log.w(any<String>(), any<String>()) } returns 0
         every { Log.e(any(), any()) } returns 0
+
+        mockkStatic(TextUtils::class)
+        every { TextUtils.isEmpty(any()) } answers { firstArg<CharSequence?>().isNullOrEmpty() }
 
         mockkStatic(SystemClock::class)
         every { SystemClock.elapsedRealtime() } returns 1000L
@@ -183,21 +190,7 @@ class StartupCoordinatorTest {
     }
 
     @Test
-    fun `App Check token acquisition failure blocks APP_CHECK readiness and sets terminal error`() = runTest(testDispatcher) {
-        val appCheckError = Exception("Debug token invalid")
-        every { firebaseAppCheck.getAppCheckToken(false) } returns Tasks.forException(appCheckError)
-        coEvery { encryptionManager.preload() } returns PreloadResult.Success
-        coEvery { maintenanceRepository.getPendingDeletionUid() } returns null
-
-        coordinator.start()
-        advanceUntilIdle()
-
-        val terminalErr = coordinator.terminalError.value
-        assertEquals("Debug token invalid", terminalErr?.message)
-    }
-
-    @Test
-    fun `App Check token acquisition success emits APP_CHECK readiness`() = runTest(testDispatcher) {
+    fun `TEST 1 - App Check token acquisition succeeds - startup succeeds`() = runTest(testDispatcher) {
         val mockToken = mockk<AppCheckToken>()
         every { mockToken.token } returns "valid-debug-token"
         every { firebaseAppCheck.getAppCheckToken(false) } returns Tasks.forResult(mockToken)
@@ -205,8 +198,69 @@ class StartupCoordinatorTest {
         coEvery { maintenanceRepository.getPendingDeletionUid() } returns null
 
         coordinator.start()
-        coordinator.awaitComponent(StartupComponent.APP_CHECK)
-        // If awaitComponent succeeds without timing out, APP_CHECK component was emitted ready
+        coordinator.emitReadiness(StartupComponent.AUTH)
+        advanceUntilIdle()
+
+        assertEquals(StartupStage.STABLE, coordinator.stage.value)
+        assertEquals(null, coordinator.terminalError.value)
+    }
+
+    @Test
+    fun `TEST 2 - App Check token acquisition throws Too Many Attempts - startup succeeds non-blockingly`() = runTest(testDispatcher) {
+        val appCheckError = FirebaseException("Too many attempts")
+        every { firebaseAppCheck.getAppCheckToken(false) } returns Tasks.forException(appCheckError)
+        coEvery { encryptionManager.preload() } returns PreloadResult.Success
+        coEvery { maintenanceRepository.getPendingDeletionUid() } returns null
+
+        coordinator.start()
+        coordinator.emitReadiness(StartupComponent.AUTH)
+        advanceUntilIdle()
+
+        assertEquals(StartupStage.STABLE, coordinator.stage.value)
+        assertEquals(null, coordinator.terminalError.value)
+    }
+
+    @Test
+    fun `TEST 3 - App Check token acquisition throws 403 App attestation failed - startup succeeds non-blockingly`() = runTest(testDispatcher) {
+        val appCheckError = FirebaseException("Error returned from API. code: 403 body: App attestation failed.")
+        every { firebaseAppCheck.getAppCheckToken(false) } returns Tasks.forException(appCheckError)
+        coEvery { encryptionManager.preload() } returns PreloadResult.Success
+        coEvery { maintenanceRepository.getPendingDeletionUid() } returns null
+
+        coordinator.start()
+        coordinator.emitReadiness(StartupComponent.AUTH)
+        advanceUntilIdle()
+
+        assertEquals(StartupStage.STABLE, coordinator.stage.value)
+        assertEquals(null, coordinator.terminalError.value)
+    }
+
+    @Test
+    fun `TEST 4 - App Check network failure - startup remains usable and succeeds`() = runTest(testDispatcher) {
+        val appCheckError = IOException("Network timeout acquiring App Check token")
+        every { firebaseAppCheck.getAppCheckToken(false) } returns Tasks.forException(appCheckError)
+        coEvery { encryptionManager.preload() } returns PreloadResult.Success
+        coEvery { maintenanceRepository.getPendingDeletionUid() } returns null
+
+        coordinator.start()
+        coordinator.emitReadiness(StartupComponent.AUTH)
+        advanceUntilIdle()
+
+        assertEquals(StartupStage.STABLE, coordinator.stage.value)
+        assertEquals(null, coordinator.terminalError.value)
+    }
+
+    @Test
+    fun `TEST 5 - Genuine unrelated startup failure - terminal error is set`() = runTest(testDispatcher) {
+        val fatalDbException = RuntimeException("Database corrupted")
+        coEvery { encryptionManager.preload() } returns PreloadResult.FatalFailure(fatalDbException)
+        coEvery { maintenanceRepository.getPendingDeletionUid() } returns null
+
+        coordinator.start()
+        advanceUntilIdle()
+
+        val terminalErr = coordinator.terminalError.value
+        assertEquals("Database corrupted", terminalErr?.message)
     }
 
     @Test
@@ -306,5 +360,58 @@ class StartupCoordinatorTest {
         testScheduler.advanceTimeBy(250)
 
         assertEquals(StartupStage.PRESENCE, coordinator.stage.value)
+    }
+
+    @Test
+    fun `BUG 1 TEST A - cancelling startup job propagates CancellationException without setting terminalError`() = runTest(testDispatcher) {
+        coEvery { encryptionManager.preload() } coAnswers { delay(5000); PreloadResult.Success }
+        coEvery { maintenanceRepository.getPendingDeletionUid() } returns null
+
+        coordinator.start()
+        testScheduler.advanceTimeBy(100)
+
+        val startupJobField = coordinator.javaClass.getDeclaredField("startupJob")
+        startupJobField.isAccessible = true
+        val job = startupJobField.get(coordinator) as? Job
+
+        job?.cancel(kotlinx.coroutines.CancellationException("Test Cancellation"))
+        advanceUntilIdle()
+
+        assertEquals(null, coordinator.terminalError.value)
+    }
+
+    @Test
+    fun `BUG 1 TEST B - calling reset while suspended cancels job without terminal error and allows restart`() = runTest(testDispatcher) {
+        coEvery { encryptionManager.preload() } coAnswers { delay(5000); PreloadResult.Success }
+        coEvery { maintenanceRepository.getPendingDeletionUid() } returns null
+
+        coordinator.start()
+        testScheduler.advanceTimeBy(100)
+
+        coordinator.reset()
+        advanceUntilIdle()
+
+        assertEquals(null, coordinator.terminalError.value)
+
+        // Subsequent start executes normally
+        coEvery { encryptionManager.preload() } returns PreloadResult.Success
+        coordinator.start()
+        coordinator.emitReadiness(StartupComponent.AUTH)
+        advanceUntilIdle()
+
+        assertEquals(StartupStage.STABLE, coordinator.stage.value)
+        assertEquals(null, coordinator.terminalError.value)
+    }
+
+    @Test
+    fun `BUG 1 TEST C - genuine non-cancellation startup exception still becomes terminal error`() = runTest(testDispatcher) {
+        val fatalException = RuntimeException("Fatal initialization error")
+        coEvery { encryptionManager.preload() } returns PreloadResult.FatalFailure(fatalException)
+        coEvery { maintenanceRepository.getPendingDeletionUid() } returns null
+
+        coordinator.start()
+        advanceUntilIdle()
+
+        assertEquals("Fatal initialization error", coordinator.terminalError.value?.message)
     }
 }

@@ -8,6 +8,9 @@ import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.User
 import com.saurabh.artifact.repository.ProfileResult
 import com.saurabh.artifact.repository.UserRepository
+import com.saurabh.artifact.security.AppCheckHealthResult
+import com.saurabh.artifact.security.AppCheckStateTracker
+import dagger.Lazy
 import io.mockk.*
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -20,13 +23,16 @@ class RegistrationCoordinatorTest {
 
     private val profileHealthChecker = mockk<ProfileHealthChecker>()
     private val userRepository = mockk<UserRepository>()
+    private val appCheckStateTracker = mockk<AppCheckStateTracker>(relaxed = true)
     private val fakeLogger = FakeDiagnosticLogger()
     private lateinit var coordinator: RegistrationCoordinator
 
     @Before
     fun setup() {
         ArtifactLogger.init(fakeLogger)
-        coordinator = RegistrationCoordinator(profileHealthChecker, userRepository)
+        coEvery { appCheckStateTracker.probeHealth() } returns AppCheckHealthResult.Unavailable(null)
+        coordinator = RegistrationCoordinator(profileHealthChecker, userRepository,
+            Lazy { appCheckStateTracker })
     }
 
     @After

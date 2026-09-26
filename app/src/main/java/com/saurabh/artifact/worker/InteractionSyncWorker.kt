@@ -26,6 +26,7 @@ import com.saurabh.artifact.repository.EngagementRepository
 import com.saurabh.artifact.repository.FirestoreEngagementRepository
 import com.saurabh.artifact.repository.ReactionRepository
 import com.saurabh.artifact.repository.UserRepository
+import com.saurabh.artifact.startup.StartupCoordinator
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
@@ -45,7 +46,8 @@ class InteractionSyncWorker @AssistedInject constructor(
     private val firestoreEngagementRepository: FirestoreEngagementRepository,
     private val commentRepository: com.saurabh.artifact.repository.CommentRepository,
     private val userRepository: UserRepository,
-    private val startupCoordinator: com.saurabh.artifact.startup.StartupCoordinator
+    private val startupCoordinator: StartupCoordinator,
+    private val errorClassifier: InteractionErrorClassifier
 ) : CoroutineWorker(appContext, workerParams) {
 
     private val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
@@ -113,27 +115,44 @@ class InteractionSyncWorker @AssistedInject constructor(
                     pendingInteractionDao.get().delete(interaction)
                 } else {
                     val error = result.exceptionOrNull() ?: Exception("Unknown error")
-                    val isTransient = ArtifactRepository.isTransientError(error)
-                    
-                    // R035: Handle locked artifact race for comments.
-                    // If it's a comment and we get Permission Denied, it's likely the backend 
-                    // hasn't flipped the isCommentUnlocked bit yet despite local evidence sync.
-                    val isPermissionDenied = error is FirebaseFirestoreException &&
-                            error.code == FirebaseFirestoreException.Code.PERMISSION_DENIED
-                    val isRetryableComment = interaction.interactionType == InteractionType.COMMENT && isPermissionDenied
+                    val classification = errorClassifier.classify(
+                        error = error,
+                        interactionType = interaction.interactionType
+                    )
 
                     val errorInteraction = processingInteraction.copy(
                         lastError = error.message,
                         retryCount = processingInteraction.retryCount
                     )
                     
-                    if (isTransient || isRetryableComment) {
+                    if (classification.isRetryable) {
                         if (errorInteraction.retryCount >= MAX_RETRIES) {
-                            ArtifactLogger.logInteraction(errorInteraction, "RETRY_LIMIT_EXCEEDED", mapOf("error" to error.message, "exception" to error.javaClass.simpleName, "isRetryableComment" to isRetryableComment))
+                            ArtifactLogger.logInteraction(
+                                errorInteraction,
+                                "RETRY_LIMIT_EXCEEDED",
+                                mapOf(
+                                    "error" to (error.message ?: ""),
+                                    "exception" to error.javaClass.simpleName,
+                                    "classification" to classification.javaClass.simpleName
+                                )
+                            )
                             moveToDeadLetterQueue(errorInteraction, "RETRY_LIMIT_EXCEEDED", error.message)
                             pendingInteractionDao.get().delete(interaction)
                         } else {
-                            ArtifactLogger.logInteraction(errorInteraction, if (isRetryableComment) "RETRYABLE_PERMISSION_DENIED" else "TRANSIENT_FAILURE", mapOf("error" to error.message, "exception" to error.javaClass.simpleName))
+                            val logTag = when (classification) {
+                                is InteractionErrorClassification.TransientAppCheckUnhealthy -> "RETRYABLE_APP_CHECK_UNHEALTHY"
+                                is InteractionErrorClassification.TransientCommentLock -> "RETRYABLE_PERMISSION_DENIED"
+                                else -> "TRANSIENT_FAILURE"
+                            }
+                            ArtifactLogger.logInteraction(
+                                errorInteraction,
+                                logTag,
+                                mapOf(
+                                    "error" to (error.message ?: ""),
+                                    "exception" to error.javaClass.simpleName,
+                                    "classification" to classification.javaClass.simpleName
+                                )
+                            )
                             // Update retry count and error in DB for the next run
                             pendingInteractionDao.get().insert(errorInteraction)
                             hasInteractionTransientFailure = true
@@ -142,9 +161,23 @@ class InteractionSyncWorker @AssistedInject constructor(
                             break
                         }
                     } else {
-                        // Permanent error (e.g. 404, 403)
-                        ArtifactLogger.logInteraction(errorInteraction, "PERMANENT_FAILURE", mapOf("artifactId" to interaction.artifactId, "error" to error.message))
-                        moveToDeadLetterQueue(errorInteraction, "PERMANENT", error.message)
+                        // Permanent error (e.g. 404, 403, Security Rules PERMISSION_DENIED)
+                        val failureType = if (classification is InteractionErrorClassification.PermanentSecurityRulesDenial) {
+                            "SECURITY_RULES_DENIED"
+                        } else {
+                            "PERMANENT"
+                        }
+                        ArtifactLogger.logInteraction(
+                            errorInteraction,
+                            "PERMANENT_FAILURE",
+                            mapOf(
+                                "artifactId" to interaction.artifactId,
+                                "error" to (error.message ?: ""),
+                                "failureType" to failureType,
+                                "classification" to classification.javaClass.simpleName
+                            )
+                        )
+                        moveToDeadLetterQueue(errorInteraction, failureType, error.message)
                         pendingInteractionDao.get().delete(interaction)
                     }
                 }
@@ -208,14 +241,14 @@ class InteractionSyncWorker @AssistedInject constructor(
                 }
             } else {
                 val error = result.exceptionOrNull() ?: Exception("Unknown sync error")
-                val isTransient = ArtifactRepository.isTransientError(error)
+                val classification = errorClassifier.classify(error)
                 
-                if (isTransient) {
-                    ArtifactLogger.w(DiagnosticCategory.SYNC, "ENGAGEMENT_SYNC_TRANSIENT", mapOf<String, Any>("artifactId" to evidence.artifactId, "error" to (error.message ?: "unknown")))
+                if (classification.isRetryable) {
+                    ArtifactLogger.w(DiagnosticCategory.SYNC, "ENGAGEMENT_SYNC_TRANSIENT", mapOf<String, Any>("artifactId" to evidence.artifactId, "error" to (error.message ?: "unknown"), "classification" to classification.javaClass.simpleName))
                     engagementRepository.updateSyncStatus(evidence.artifactId, SyncState.PENDING, error.message)
                     hasTransientFailure = true
                 } else {
-                    ArtifactLogger.e(DiagnosticCategory.SYNC, "ENGAGEMENT_SYNC_PERMANENT", mapOf<String, Any>("artifactId" to evidence.artifactId, "error" to (error.message ?: "unknown")))
+                    ArtifactLogger.e(DiagnosticCategory.SYNC, "ENGAGEMENT_SYNC_PERMANENT", mapOf<String, Any>("artifactId" to evidence.artifactId, "error" to (error.message ?: "unknown"), "classification" to classification.javaClass.simpleName))
                     engagementRepository.updateSyncStatus(evidence.artifactId, SyncState.FAILED, error.message)
                 }
             }

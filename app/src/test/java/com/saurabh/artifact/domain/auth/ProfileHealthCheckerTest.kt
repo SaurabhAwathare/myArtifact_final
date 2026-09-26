@@ -12,6 +12,9 @@ import com.saurabh.artifact.model.User
 import com.saurabh.artifact.model.UserPrivateSettings
 import com.saurabh.artifact.diagnostics.ArtifactLogger
 import com.saurabh.artifact.diagnostics.FakeDiagnosticLogger
+import com.saurabh.artifact.security.AppCheckHealthResult
+import com.saurabh.artifact.security.AppCheckStateTracker
+import dagger.Lazy
 import io.mockk.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
@@ -29,15 +32,18 @@ class ProfileHealthCheckerTest {
     private val auth = mockk<FirebaseAuth>()
     private val firestore = mockk<FirebaseFirestore>()
     private val firebaseUser = mockk<FirebaseUser>()
+    private val appCheckStateTracker = mockk<AppCheckStateTracker>(relaxed = true)
     
     private lateinit var profileHealthChecker: ProfileHealthChecker
 
     @Before
     fun setup() {
-        clearMocks(auth, firestore, firebaseUser)
+        clearMocks(auth, firestore, firebaseUser, appCheckStateTracker)
         ArtifactLogger.init(FakeDiagnosticLogger())
 
-        profileHealthChecker = ProfileHealthChecker(auth, firestore)
+        coEvery { appCheckStateTracker.probeHealth() } returns AppCheckHealthResult.Unavailable(null)
+
+        profileHealthChecker = ProfileHealthChecker(auth, firestore, Lazy { appCheckStateTracker })
         every { auth.currentUser } returns firebaseUser
         every { firebaseUser.uid } returns "test_uid"
     }

@@ -1,6 +1,7 @@
 package com.saurabh.artifact.di
 
 
+import com.google.firebase.appcheck.FirebaseAppCheck
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.storage.FirebaseStorage
@@ -14,6 +15,10 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 object FirebaseModule {
+
+    @Provides
+    @Singleton
+    fun provideFirebaseAppCheck(): FirebaseAppCheck = FirebaseAppCheck.getInstance()
 
     @Provides
     @Singleton
