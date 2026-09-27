@@ -51,7 +51,9 @@ configure<com.android.build.api.dsl.ApplicationExtension> {
     val storePasswordValue = getProp("storePassword", "ARTIFACT_RELEASE_STORE_PASSWORD")
     val keyAliasValue = getProp("keyAlias", "ARTIFACT_RELEASE_KEY_ALIAS")
     val keyPasswordValue = getProp("keyPassword", "ARTIFACT_RELEASE_KEY_PASSWORD")
-    val appCheckDebugSecret = getSecretProp("APP_CHECK_DEBUG_SECRET", "APP_CHECK_DEBUG_SECRET") ?: ""
+    val appCheckDebugSecret = getSecretProp("APP_CHECK_DEBUG_SECRET", "APP_CHECK_DEBUG_SECRET")
+        ?.takeIf { it.isNotBlank() }
+        ?: ""
 
     val storeFileObj = storeFilePath?.let {
         if (it.startsWith("/") || it.contains(":\\")) file(it) else rootProject.file(it)

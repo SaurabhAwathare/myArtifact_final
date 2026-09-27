@@ -1,6 +1,7 @@
 package com.saurabh.artifact.ui.player
 
 import androidx.lifecycle.SavedStateHandle
+import com.google.firebase.auth.FirebaseUser
 import com.saurabh.artifact.audio.PlaybackCoordinator
 import com.saurabh.artifact.audio.ReviewSessionManager
 import com.saurabh.artifact.audio.ReviewState
@@ -14,9 +15,11 @@ import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.PlayableArtifact
 import com.saurabh.artifact.model.PlaybackSource
+import com.saurabh.artifact.model.User
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.PlayableArtifactRepository
+import dagger.Lazy
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -27,6 +30,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.*
 import org.junit.After
+import org.junit.Assert
 import org.junit.Before
 import org.junit.Test
 import kotlin.time.Duration.Companion.seconds
@@ -67,8 +71,13 @@ class PlayerViewModelTest {
         every { playbackCoordinator.activePlayback } returns MutableStateFlow(null)
         every { playbackCoordinator.error } returns MutableSharedFlow()
         every { playbackCoordinator.playbackCompletedEvent } returns MutableSharedFlow()
+        val mockFirebaseUser = mockk<FirebaseUser>(relaxed = true) {
+            every { uid } returns "user123"
+        }
+        val testUser = User(id = "user123", anonymousId = "anon123")
         every { reviewSessionManager.reviewProgress } returns MutableStateFlow(ReviewState())
-        every { authRepository.currentUser } returns MutableStateFlow(mockk(relaxed = true))
+        every { authRepository.currentUser } returns MutableStateFlow(mockFirebaseUser)
+        every { authRepository.userData } returns MutableStateFlow(testUser)
         every { authRepository.currentUserId } returns "user123"
         every { playbackCoordinator.currentProgress } returns MutableStateFlow(null)
 
@@ -350,5 +359,195 @@ class PlayerViewModelTest {
         
         // Should only be called ONCE
         verify(exactly = 1) { playbackCoordinator.playArtifact(match { it.id == artifactId }, any(), any(), any()) }
+    }
+
+    @Test
+    fun `Test 1 - Published Artifact with episodeNumber retains episodeNumber in PlayerUiState`() = runTest {
+        val artifactId = "ep40_art"
+        val artifact = Artifact(id = artifactId, title = "Ep40 Final Verification", episodeNumber = 40L)
+        val playable = PlayableArtifact(
+            id = artifactId,
+            title = "Ep40 Final Verification",
+            audioUrl = "http://test.audio",
+            authorName = "Test Author",
+            authorSigil = "Sigil",
+            sigilSeed = "Seed",
+            durationMs = 1000L,
+            sourceType = PlaybackSource.FEED_PLAYBACK,
+            episodeNumber = 40L,
+            originalArtifact = artifact
+        )
+        
+        val currentArtifactFlow = MutableStateFlow<Artifact?>(null)
+        every { playbackCoordinator.currentArtifact } returns currentArtifactFlow
+        coEvery { playableArtifactRepository.resolveArtifact(artifactId, any()) } returns Result.success(playable)
+        every { playbackCoordinator.playArtifact(any(), any(), any(), any()) } answers {
+            currentArtifactFlow.value = artifact
+        }
+
+        val newViewModel = PlayerViewModel(
+            savedStateHandle, playbackCoordinator, authRepository,
+            Lazy { reactionUseCase },
+            Lazy { playerInteractionUseCase },
+            getPlayerContextUseCase,
+            Lazy { playableArtifactRepository },
+            reviewSessionManager,
+            Lazy { deleteArtifactUseCase },
+            publishingPolicy, diagnosticLogger
+        )
+
+        backgroundScope.launch { newViewModel.uiState.collect {} }
+        advanceUntilIdle()
+
+        newViewModel.playArtifactById(artifactId)
+        advanceUntilIdle()
+
+        val state = newViewModel.uiState.value
+        Assert.assertEquals(40L, state.currentArtifact?.episodeNumber)
+        Assert.assertEquals(40L, state.currentPlayableArtifact?.episodeNumber)
+    }
+
+    @Test
+    fun `Test 2 - Placeholder transition retains episodeNumber 40 during initialization`() = runTest {
+        val artifactId = "ep40_art"
+        val realArtifact = Artifact(id = artifactId, title = "Ep40 Final Verification", episodeNumber = 40L)
+        val placeholderArtifact = Artifact(id = artifactId, title = "Artifact", episodeNumber = null)
+        val playable = PlayableArtifact(
+            id = artifactId,
+            title = "Ep40 Final Verification",
+            audioUrl = "http://test.audio",
+            authorName = "Test Author",
+            authorSigil = "Sigil",
+            sigilSeed = "Seed",
+            durationMs = 1000L,
+            sourceType = PlaybackSource.FEED_PLAYBACK,
+            episodeNumber = 40L,
+            originalArtifact = realArtifact
+        )
+
+        val currentArtifactFlow = MutableStateFlow<Artifact?>(null)
+        every { playbackCoordinator.currentArtifact } returns currentArtifactFlow
+        coEvery { playableArtifactRepository.resolveArtifact(artifactId, any()) } returns Result.success(playable)
+        every { playbackCoordinator.playArtifact(any(), any(), any(), any()) } answers {
+            currentArtifactFlow.value = realArtifact
+        }
+
+        val newViewModel = PlayerViewModel(
+            savedStateHandle, playbackCoordinator, authRepository,
+            Lazy { reactionUseCase },
+            Lazy { playerInteractionUseCase },
+            getPlayerContextUseCase,
+            Lazy { playableArtifactRepository },
+            reviewSessionManager,
+            Lazy { deleteArtifactUseCase },
+            publishingPolicy, diagnosticLogger
+        )
+
+        backgroundScope.launch { newViewModel.uiState.collect {} }
+        advanceUntilIdle()
+
+        // 1. Resolve PlayableArtifact
+        newViewModel.playArtifactById(artifactId)
+        advanceUntilIdle()
+
+        // 2. Simulate PlaybackSessionManager emitting placeholder artifact with episodeNumber = null
+        currentArtifactFlow.value = placeholderArtifact
+        advanceUntilIdle()
+
+        val state = newViewModel.uiState.value
+        // Verify that PlayerArtifact in PlayerUiState fallbacks to 40L from _currentPlayableArtifact
+        Assert.assertEquals(40L, state.currentArtifact?.episodeNumber)
+    }
+
+    @Test
+    fun `Test 3 - Legacy Artifact with null episodeNumber displays null`() = runTest {
+        val artifactId = "legacy_art"
+        val artifact = Artifact(id = artifactId, title = "Legacy Reflection", episodeNumber = null)
+        val playable = PlayableArtifact(
+            id = artifactId,
+            title = "Legacy Reflection",
+            audioUrl = "http://test.audio",
+            authorName = "Test Author",
+            authorSigil = "Sigil",
+            sigilSeed = "Seed",
+            durationMs = 1000L,
+            sourceType = PlaybackSource.FEED_PLAYBACK,
+            episodeNumber = null,
+            originalArtifact = artifact
+        )
+
+        val currentArtifactFlow = MutableStateFlow<Artifact?>(null)
+        every { playbackCoordinator.currentArtifact } returns currentArtifactFlow
+        coEvery { playableArtifactRepository.resolveArtifact(artifactId, any()) } returns Result.success(playable)
+        every { playbackCoordinator.playArtifact(any(), any(), any(), any()) } answers {
+            currentArtifactFlow.value = artifact
+        }
+
+        val newViewModel = PlayerViewModel(
+            savedStateHandle, playbackCoordinator, authRepository,
+            Lazy { reactionUseCase },
+            Lazy { playerInteractionUseCase },
+            getPlayerContextUseCase,
+            Lazy { playableArtifactRepository },
+            reviewSessionManager,
+            Lazy { deleteArtifactUseCase },
+            publishingPolicy, diagnosticLogger
+        )
+
+        backgroundScope.launch { newViewModel.uiState.collect {} }
+        advanceUntilIdle()
+
+        newViewModel.playArtifactById(artifactId)
+        advanceUntilIdle()
+
+        val state = newViewModel.uiState.value
+        org.junit.Assert.assertNull(state.currentArtifact?.episodeNumber)
+        org.junit.Assert.assertNull(state.currentPlayableArtifact?.episodeNumber)
+    }
+
+    @Test
+    fun `Test 4 - Different episode number 41 retains episodeNumber 41`() = runTest {
+        val artifactId = "ep41_art"
+        val artifact = Artifact(id = artifactId, title = "Ep41 Verification", episodeNumber = 41L)
+        val playable = PlayableArtifact(
+            id = artifactId,
+            title = "Ep41 Verification",
+            audioUrl = "http://test.audio",
+            authorName = "Test Author",
+            authorSigil = "Sigil",
+            sigilSeed = "Seed",
+            durationMs = 1000L,
+            sourceType = PlaybackSource.FEED_PLAYBACK,
+            episodeNumber = 41L,
+            originalArtifact = artifact
+        )
+
+        val currentArtifactFlow = MutableStateFlow<Artifact?>(null)
+        every { playbackCoordinator.currentArtifact } returns currentArtifactFlow
+        coEvery { playableArtifactRepository.resolveArtifact(artifactId, any()) } returns Result.success(playable)
+        every { playbackCoordinator.playArtifact(any(), any(), any(), any()) } answers {
+            currentArtifactFlow.value = artifact
+        }
+
+        val newViewModel = PlayerViewModel(
+            savedStateHandle, playbackCoordinator, authRepository,
+            Lazy { reactionUseCase },
+            Lazy { playerInteractionUseCase },
+            getPlayerContextUseCase,
+            Lazy { playableArtifactRepository },
+            reviewSessionManager,
+            Lazy { deleteArtifactUseCase },
+            publishingPolicy, diagnosticLogger
+        )
+
+        backgroundScope.launch { newViewModel.uiState.collect {} }
+        advanceUntilIdle()
+
+        newViewModel.playArtifactById(artifactId)
+        advanceUntilIdle()
+
+        val state = newViewModel.uiState.value
+        org.junit.Assert.assertEquals(41L, state.currentArtifact?.episodeNumber)
+        org.junit.Assert.assertEquals(41L, state.currentPlayableArtifact?.episodeNumber)
     }
 }

@@ -325,7 +325,7 @@ fun RecordingScreen(
                     Text(
                         text = "Artifact · Episode $displayEpisode",
                         style = MaterialTheme.typography.labelLarge.copy(
-                            fontWeight = FontWeight.SemiBold,
+                            fontWeight = FontWeight.Normal,
                             letterSpacing = 1.2.sp
                         ),
                         color = GoldAura500,

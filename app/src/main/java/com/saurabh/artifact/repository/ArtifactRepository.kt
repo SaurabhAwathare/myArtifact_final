@@ -886,19 +886,6 @@ class ArtifactRepository @Inject constructor(
         onProgress: suspend (Long, Long, Uri?) -> Unit = { _, _, _ -> }
     ): Result<String> = publishingRepository.get().uploadArtifactResumable(userId, draft, onProgress)
 
-    suspend fun createArtifactDocument(
-        userId: String,
-        author: AuthorSnapshot,
-        audioUrl: String,
-        draft: ArtifactDraftEntity,
-        identityVersion: Long,
-        status: ArtifactStatus = ArtifactStatus.ACTIVE,
-        isPublic: Boolean = true,
-        transcriptUrl: String? = null
-    ): Result<String> = publishingRepository.get().createArtifactDocument(
-        userId, author, audioUrl, draft, identityVersion, status, isPublic, transcriptUrl
-    )
-
     /**
      * Finalizes a pre-registered artifact by adding the audio URL and marking it as ACTIVE.
      * Bridge: Delegated to ArtifactPublishingRepository.

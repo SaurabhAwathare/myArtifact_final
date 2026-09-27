@@ -1403,4 +1403,40 @@ class MainViewModelTest {
         assertTrue(viewModel.startupState.value is AppStartupState.Ready)
         assertEquals(Home, (viewModel.startupState.value as AppStartupState.Ready).startDestination)
     }
+
+    @Test
+    fun `CANCELLATION SAFETY TEST - cancellation during checkLocalAccountBoundary propagates without terminal error`() = runTest {
+        val user = mockk<FirebaseUser> { every { uid } returns "user123" }
+        every { authRepository.currentUserId } returns "user123"
+        testAuthFlow.value = user
+        owningUidFlow.value = "differentUser" // trigger checkLocalAccountBoundary
+        coEvery { logoutCoordinator.performFullCleanup(any()) } throws kotlinx.coroutines.CancellationException("Job cancelled")
+
+        viewModel.start()
+        advanceUntilIdle()
+
+        assertTrue(
+            "Cancellation must not produce AppStartupState.Error",
+            viewModel.startupState.value !is AppStartupState.Error
+        )
+    }
+
+    @Test
+    fun `CANCELLATION SAFETY TEST - cancellation during claimFirstDevice propagates without terminal error`() = runTest {
+        val user = mockk<FirebaseUser> { every { uid } returns "user123" }
+        every { authRepository.currentUserId } returns "user123"
+        testAuthFlow.value = user
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
+        coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
+        coEvery { authRepository.awaitAuthoritativeSessionState() } returns SessionState.NoActiveSession
+        coEvery { authRepository.claimFirstDevice(any()) } throws kotlinx.coroutines.CancellationException("Job cancelled")
+
+        viewModel.start()
+        advanceUntilIdle()
+
+        assertTrue(
+            "Cancellation during claimFirstDevice must not produce AppStartupState.Error",
+            viewModel.startupState.value !is AppStartupState.Error
+        )
+    }
 }

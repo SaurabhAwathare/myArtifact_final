@@ -72,7 +72,7 @@ fun PublishingStudioScreen(
     }
 
     LaunchedEffect(sessionState.isSuccess) {
-        if (sessionState.isSuccess && !sessionState.isQueuedOffline) {
+        if (sessionState.isSuccess) {
             logger.info(DiagnosticCategory.PUBLISH, "STUDIO_SUCCESS_NAVIGATE")
             onFinish()
         }
@@ -580,6 +580,26 @@ fun StudioApprovalStep(
                         "You must listen to the entire recording before publishing.",
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.Yellow
+                    )
+                }
+            }
+        }
+
+        if (state.error != null) {
+            Surface(
+                color = MaterialTheme.colorScheme.errorContainer,
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(Spacing.Medium),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Rounded.Error, null, tint = MaterialTheme.colorScheme.error)
+                    Spacer(Modifier.width(Spacing.Small))
+                    Text(
+                        state.error,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onErrorContainer
                     )
                 }
             }

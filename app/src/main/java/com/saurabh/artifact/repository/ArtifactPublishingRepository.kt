@@ -4,7 +4,6 @@ import android.content.Context
 import android.net.Uri
 import android.util.Log
 import androidx.core.net.toUri
-import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.storage.FirebaseStorage
@@ -13,7 +12,6 @@ import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
-import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.ArtifactConversationMetadata
 import com.saurabh.artifact.model.ArtifactStatus
 import com.saurabh.artifact.model.AuthorSnapshot
@@ -251,94 +249,6 @@ class ArtifactPublishingRepository @Inject constructor(
         return null
     }
 
-    suspend fun createArtifactDocument(
-        userId: String,
-        author: AuthorSnapshot,
-        audioUrl: String,
-        draft: ArtifactDraftEntity,
-        identityVersion: Long,
-        status: ArtifactStatus = ArtifactStatus.ACTIVE,
-        isPublic: Boolean = true,
-        transcriptUrl: String? = null
-    ): Result<String> = withContext(Dispatchers.IO) {
-        return@withContext try {
-            // HARDENING: Audit Snapshot before persistence
-            diagnosticLogger.debug(DiagnosticCategory.FIRESTORE, "ARTIFACT_DOCUMENT_PRE_REGISTER", mapOf(LogKeys.DRAFT_ID to draft.id))
-            
-            // 1. Recover Transcript from Frozen Snapshot (Legacy support)
-            val transcript = draft.frozenTranscriptJson?.toUnsecureString()?.let { json ->
-                try {
-                    kotlinx.serialization.json.Json.decodeFromString<List<TranscriptSegment>>(json)
-                } catch (e: Exception) {
-                    diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "TRANSCRIPT_DECODE_FAILED", mapOf(LogKeys.DRAFT_ID to draft.id), e)
-                    emptyList()
-                }
-            } ?: emptyList()
-
-            val effectiveDraftEmotions = if (draft.emotions.isNotEmpty()) {
-                draft.emotions
-            } else if (draft.emotion != null) {
-                listOf(draft.emotion)
-            } else {
-                emptyList()
-            }
-            val emotionLabels = effectiveDraftEmotions.map { it.label }
-            val primaryLabel = emotionLabels.firstOrNull() ?: draft.emotion?.label ?: ""
-
-            val artifact = Artifact(
-                id = draft.id, // IDEMPOTENCY: Use draftId as the Firestore Document ID
-                userId = userId,
-                author = author,
-                audioUrl = audioUrl,
-                createdAt = Timestamp.now(),
-                isPublic = isPublic,
-                visibility = if (isPublic) Visibility.PUBLIC else Visibility.PRIVATE,
-                status = status,
-                durationMs = draft.durationMs,
-                title = draft.title ?: "Untitled Artifact",
-                description = draft.description ?: "",
-                emotion = primaryLabel,
-                emotions = emotionLabels,
-                emotionTag = primaryLabel,
-                prompt = "",
-                transcript = transcript,
-                transcriptUrl = transcriptUrl,
-                amplitudeData = draft.amplitudeData,
-                reactionVisibility = draft.reactionVisibility ?: ReactionVisibilityMode.APPROXIMATE,
-                conversationMetadata = ArtifactConversationMetadata(
-                    primaryStyle = draft.primaryStyle,
-                    isAIGenerated = true
-                ),
-                moderation = ModerationMetadata(
-                    status = ModerationStatus.SAFE,
-                    updatedAt = Timestamp.now()
-                ),
-                identityVersion = identityVersion,
-                identityPropagationVersion = identityVersion
-            )
-            val artifactData = mapArtifactToFirestoreData(artifact)
-            
-            // 2. Sequential Deterministic Write (Idempotent)
-            // WRITE 1: Private Ownership Registry Record First
-            // Must be committed to Firestore before artifacts/{artifactId} creation to satisfy firestore.rules:
-            // exists(/databases/$(database)/documents/users/$(request.auth.uid)/private/published_artifacts/artifacts/$(artifactId))
-            val ownershipRef = firestore.collection("users").document(userId)
-                .collection("private").document("published_artifacts")
-                .collection("artifacts").document(draft.id)
-            ownershipRef.set(mapOf("createdAt" to Timestamp.now())).await()
-
-            // WRITE 2: Public Artifact Document
-            // Executed ONLY after Write 1 succeeds and commits to Firestore
-            val artifactRef = firestore.collection("artifacts").document(draft.id)
-            artifactRef.set(artifactData).await()
-            
-            Result.success(draft.id)
-        } catch (e: Exception) {
-            diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "ARTIFACT_DOCUMENT_CREATE_FAILED", mapOf(LogKeys.DRAFT_ID to draft.id), e)
-            Result.failure(e)
-        }
-    }
-
     suspend fun reserveEpisode(draftId: String): Result<Long> = withContext(Dispatchers.IO) {
         return@withContext try {
             diagnosticLogger.debug(DiagnosticCategory.FIRESTORE, "RESERVE_EPISODE_CALLABLE_START", mapOf(LogKeys.DRAFT_ID to draftId))
@@ -479,55 +389,5 @@ class ArtifactPublishingRepository @Inject constructor(
             diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "ARTIFACT_DOCUMENT_FINALIZE_FAILED", mapOf(LogKeys.ARTIFACT_ID to artifactId), e)
             Result.failure(e)
         }
-    }
-
-    private fun mapArtifactToFirestoreData(artifact: Artifact): Map<String, Any?> {
-        val data = mutableMapOf<String, Any?>(
-            "userId" to artifact.userId,
-            "author" to mapOf(
-                "anonymousId" to artifact.author.anonymousId,
-                "name" to artifact.author.name,
-                "sigil" to artifact.author.sigil,
-                "sigilSeed" to artifact.author.sigilSeed,
-                "sigilColor" to artifact.author.sigilColor,
-                "sigilConfig" to artifact.author.sigilConfig
-            ),
-            "audioUrl" to artifact.audioUrl,
-            "createdAt" to artifact.createdAt,
-            "isPublic" to artifact.isPublic,
-            "visibility" to artifact.visibility.name,
-            "status" to artifact.status.name,
-            "isDraft" to (artifact.status == ArtifactStatus.DRAFT || artifact.status == ArtifactStatus.PENDING_UPLOAD),
-            "durationMs" to artifact.durationMs,
-            "title" to artifact.title,
-            "description" to artifact.description,
-            "emotion" to artifact.emotion,
-            "emotions" to artifact.effectiveEmotions,
-            "emotionTag" to artifact.emotionTag,
-            "emotionConfidence" to artifact.emotionConfidence,
-            "prompt" to artifact.prompt,
-            "reactionVisibility" to artifact.reactionVisibility.name,
-            "amplitudeData" to artifact.amplitudeData,
-            "identityVersion" to artifact.identityVersion,
-            "identityPropagationVersion" to artifact.identityPropagationVersion,
-            "moderation" to mapOf(
-                "status" to artifact.moderation.status.name,
-                "score" to artifact.moderation.score,
-                "updatedAt" to artifact.moderation.updatedAt
-            ),
-            "playCount" to artifact.playCount,
-            "commentCount" to 0L,
-            "reactionCount" to artifact.reactionCount,
-            "reportCount" to artifact.reportCount,
-            "safetyConcernCount" to 0L,
-            "conversationMetadata" to mapOf(
-                "primaryStyle" to artifact.conversationMetadata.primaryStyle?.name,
-                "isAIGenerated" to artifact.conversationMetadata.isAIGenerated
-            )
-        )
-
-        artifact.transcriptUrl?.let { data["transcriptUrl"] = it }
-
-        return data
     }
 }

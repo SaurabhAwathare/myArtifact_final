@@ -472,34 +472,24 @@ class PublishingStudioViewModel @Inject constructor(
         val userId = authRepository.currentUserId
         if (userId.isEmpty()) return
 
-        // Transition to Publishing step immediately to provide feedback
-        _currentStepOverride.value = StudioStep.PUBLISHING
-
         viewModelScope.launch {
-            _uiState.update { it.copy(isPublishing = true) }
+            _uiState.update { it.copy(isPublishing = true, error = null) }
             
             recordingRepository.getDraft(draftId).onSuccess { draft ->
                 publishArtifactUseCase(draft.id)
                     .onSuccess { result ->
-                        diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISH_INITIATION_SUCCESS", mapOf(LogKeys.DRAFT_ID to draftId))
+                        diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISH_INITIATION_SUCCESS", mapOf(LogKeys.DRAFT_ID to draftId, "result" to result.name))
                         playbackCoordinator.stop()
 
                         if (result == PublishingResult.FAILED) {
                             _uiState.update { it.copy(isPublishing = false, error = "Publishing failed to initiate. Please try again.") }
-                        } else if (result == PublishingResult.QUEUED_OFFLINE) {
-                            _uiState.update { 
-                                it.copy(
-                                    isPublishing = false, 
-                                    isSuccess = true,
-                                    isQueuedOffline = true
-                                ) 
-                            }
                         } else {
                             _uiState.update { 
                                 it.copy(
                                     isPublishing = false, 
-                                    isSuccess = false,
-                                    isQueuedOffline = false
+                                    isSuccess = true,
+                                    isQueuedOffline = (result == PublishingResult.QUEUED_OFFLINE),
+                                    error = null
                                 ) 
                             }
                         }
@@ -507,7 +497,7 @@ class PublishingStudioViewModel @Inject constructor(
                     .onFailure { e ->
                         diagnosticLogger.error(DiagnosticCategory.PUBLISH, "PUBLISH_INITIATION_ERROR", mapOf(LogKeys.DRAFT_ID to draftId, LogKeys.EXCEPTION_MESSAGE to (e.message ?: "null")), e)
                         _uiState.update { 
-                            it.copy(isPublishing = false, error = e.message) 
+                            it.copy(isPublishing = false, error = e.message ?: "Failed to initiate publishing.") 
                         }
                     }
             }

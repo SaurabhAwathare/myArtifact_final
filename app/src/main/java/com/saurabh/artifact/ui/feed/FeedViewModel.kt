@@ -13,6 +13,8 @@ import com.saurabh.artifact.audio.PlaybackCoordinator
 import com.saurabh.artifact.audio.PublishStateManager
 import com.saurabh.artifact.domain.feed.GetFeedFlowUseCase
 import com.saurabh.artifact.domain.feed.GetPersonalizedFeedFlowUseCase
+import com.saurabh.artifact.domain.feed.FeedErrorClassification
+import com.saurabh.artifact.domain.feed.FeedErrorClassifier
 import com.saurabh.artifact.domain.prompt.GetReflectionPromptUseCase
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.ArtifactRepository
@@ -40,8 +42,10 @@ import com.saurabh.artifact.ui.util.UiError
 import com.saurabh.artifact.ui.util.ErrorMessageMapper
 import com.saurabh.artifact.R
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.ListenerRegistration
+import com.saurabh.artifact.util.NetworkUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
@@ -101,8 +105,27 @@ class FeedViewModel @Inject constructor(
     getPersonalizedFeedFlowUseCase: GetPersonalizedFeedFlowUseCase,
     private val getReflectionPromptUseCase: GetReflectionPromptUseCase,
     private val diagnosticLogger: DiagnosticLogger,
-    private val userRepository: UserRepository? = null
+    private val userRepository: UserRepository? = null,
+    private val feedErrorClassifier: FeedErrorClassifier? = null
 ) : ViewModel(), MemoryTrimable {
+
+    suspend fun classifyFeedError(error: Throwable): FeedErrorClassification {
+        return feedErrorClassifier?.classify(error) ?: run {
+            val isPermissionDenied = error is AppError.PermissionDenied ||
+                    (error is FirebaseFirestoreException && error.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) ||
+                    (error.cause is AppError.PermissionDenied) ||
+                    (error.cause is FirebaseFirestoreException && (error.cause as FirebaseFirestoreException).code == FirebaseFirestoreException.Code.PERMISSION_DENIED) ||
+                    (error.message?.contains("PERMISSION_DENIED", ignoreCase = true) == true)
+
+            if (isPermissionDenied) {
+                FeedErrorClassification.AppCheckDegraded
+            } else if (NetworkUtils.isTransientError(error) || error is AppError.NetworkFailure) {
+                FeedErrorClassification.NetworkFailure
+            } else {
+                FeedErrorClassification.Generic(error)
+            }
+        }
+    }
 
     fun observeCreatorProfile(userId: String, anonymousId: String): Flow<User?> {
         return userRepository?.observeCreatorProfile(userId, anonymousId) ?: flowOf(null)

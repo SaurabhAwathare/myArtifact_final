@@ -377,6 +377,8 @@ class MainViewModel @Inject constructor(
                     _startupState.value = AppStartupState.Error("Data maintenance required. Please restart the app.")
                     false
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 diagnosticLogger.error(DiagnosticCategory.AUTH, "STARTUP_CLEANUP_FAILED", throwable = e)
                 _startupState.value = AppStartupState.Error("Security boundary violation. Please contact support.")

@@ -8,6 +8,7 @@ import com.saurabh.artifact.repository.UserRepository
 import com.saurabh.artifact.security.AppCheckHealthResult
 import com.saurabh.artifact.security.AppCheckStateTracker
 import dagger.Lazy
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
@@ -122,6 +123,8 @@ class RegistrationCoordinator @Inject constructor(
                     RegistrationResult.Failure(AppError.Unauthenticated("Profile is unrecoverable: Session revoked or invalid"))
                 }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             ArtifactLogger.e(DiagnosticCategory.AUTH, "REGISTRATION_FAILURE", throwable = e)
             RegistrationResult.Failure(AppError.from(e))

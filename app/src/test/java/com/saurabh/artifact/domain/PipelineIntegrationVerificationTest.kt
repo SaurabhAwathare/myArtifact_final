@@ -251,7 +251,6 @@ class PipelineIntegrationVerificationTest {
         every { user.anonymousName } returns "hero_1"
         every { user.anonymousSigil } returns "sigil_123"
         coEvery { userRepository.getOrCreateProfile() } returns Result.success(ProfileResult(user, false))
-        coEvery { artifactRepository.createArtifactDocument(any(), any(), any(), any(), any(), any(), any()) } returns Result.success("artifact_123")
         coEvery { artifactRepository.uploadArtifactResumable(any(), any(), any()) } returns Result.success("https://cdn.com/audio.m4a")
         coEvery { artifactRepository.finalizeArtifactDocument(any(), any(), any(), any(), any()) } returns Result.success(Unit)
 

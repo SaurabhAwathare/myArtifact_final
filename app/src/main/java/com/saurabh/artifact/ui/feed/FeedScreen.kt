@@ -40,6 +40,7 @@ import com.saurabh.artifact.ui.components.CrisisSupportCard
 import com.saurabh.artifact.ui.components.EmotionList
 import com.saurabh.artifact.ui.components.state.EmptyFeedState
 import com.saurabh.artifact.ui.components.state.FeedErrorState
+import com.saurabh.artifact.domain.feed.FeedErrorClassification
 import com.saurabh.artifact.ui.components.ReflectionPromptCard
 import androidx.compose.foundation.lazy.rememberLazyListState
 import com.saurabh.artifact.ui.components.motion.FadeInContent
@@ -348,6 +349,18 @@ private fun FeedContent(
     val isEmpty = !isLoading && !isError && currentArtifacts.itemCount == 0
     val showOverlay = isLoading || isError || isEmpty
 
+    val feedErrorClassification by produceState<FeedErrorClassification?>(
+        initialValue = null,
+        key1 = refreshState
+    ) {
+        val error = (refreshState as? LoadState.Error)?.error
+        value = if (error != null) {
+            viewModel.classifyFeedError(error)
+        } else {
+            null
+        }
+    }
+
     Box(modifier = modifier) {
         // ALWAYS keep LazyColumn in composition tree to preserve scroll restoration anchor.
         // Even if empty, the Paging library will soon populate it from Room if SKIP_INITIAL_REFRESH was used.
@@ -419,6 +432,7 @@ private fun FeedContent(
                     isError -> {
                         FeedErrorState(
                             onRetry = { currentArtifacts.retry() },
+                            classification = feedErrorClassification,
                             modifier = Modifier.fillMaxSize()
                         )
                     }

@@ -16,6 +16,7 @@ import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.User
 import com.saurabh.artifact.startup.StartupCoordinator
 import com.saurabh.artifact.startup.StartupComponent
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -667,6 +668,8 @@ class AuthRepository @Inject constructor(
             } else {
                 Result.failure(Exception("Unknown claim status: $status"))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             ArtifactLogger.e(DiagnosticCategory.AUTH, "CLAIM_FIRST_DEVICE_FAILED", throwable = e)
             Result.failure(AppError.from(e))
@@ -698,6 +701,8 @@ class AuthRepository @Inject constructor(
             } else {
                 Result.failure(Exception("Transfer failed: status=$status"))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             ArtifactLogger.e(DiagnosticCategory.AUTH, "TRANSFER_ACTIVE_SESSION_FAILED", throwable = e)
             Result.failure(AppError.from(e))

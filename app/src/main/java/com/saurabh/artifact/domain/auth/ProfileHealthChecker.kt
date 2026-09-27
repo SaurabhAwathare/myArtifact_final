@@ -12,6 +12,7 @@ import com.saurabh.artifact.model.UserPrivateSettings
 import com.saurabh.artifact.security.AppCheckHealthResult
 import com.saurabh.artifact.security.AppCheckStateTracker
 import dagger.Lazy
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.tasks.await
@@ -72,6 +73,8 @@ class ProfileHealthChecker @Inject constructor(
             } catch (e: TimeoutCancellationException) {
                 ArtifactLogger.e(DiagnosticCategory.AUTH, "PROFILE_CHECK_TIMEOUT")
                 return HealthStatus.Missing
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: FirebaseFirestoreException) {
                 if (e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
                     lastPermissionException = e

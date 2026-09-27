@@ -103,22 +103,6 @@ class ArtifactRepositoryTest {
     }
 
     @Test
-    fun `createArtifactDocument should delegate to PublishingRepository`() = runBlocking {
-        val userId = "user123"
-        val draft = ArtifactDraftEntity(id = "draft123", userId = TEST_USER_ID, localAudioPath = "/path")
-        val author = AuthorSnapshot(name = "Author")
-        val identityVersion = 1L
-        
-        coEvery { publishingRepository.createArtifactDocument(userId, author, "url", draft, identityVersion) } returns Result.success("id123")
-        
-        val result = repository.createArtifactDocument(userId, author, "url", draft, identityVersion)
-        
-        assert(result.isSuccess)
-        assertEquals("id123", result.getOrThrow())
-        coVerify { publishingRepository.createArtifactDocument(userId, author, "url", draft, identityVersion) }
-    }
-
-    @Test
     fun `getArtifactsByIds should return ordered list from cache and remote`() = runBlocking {
         val id1 = "id1"
         val id2 = "id2"

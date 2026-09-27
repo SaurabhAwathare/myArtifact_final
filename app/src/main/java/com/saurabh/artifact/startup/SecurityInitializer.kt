@@ -18,6 +18,11 @@ import com.saurabh.artifact.diagnostics.DiagnosticCategory
 class SecurityInitializer : Initializer<Unit> {
     override fun create(context: Context) {
         if (BuildConfig.DEBUG) {
+            check(BuildConfig.APP_CHECK_DEBUG_SECRET.isNotBlank()) {
+                "APP_CHECK_DEBUG_SECRET is missing from local.properties! " +
+                "Debug builds require a registered APP_CHECK_DEBUG_SECRET to initialize Firebase App Check. " +
+                "Add APP_CHECK_DEBUG_SECRET=<your-debug-secret> to local.properties."
+            }
             configureFixedDebugAppCheckSecret(context)
             val appCheck = FirebaseAppCheck.getInstance()
             appCheck.installAppCheckProviderFactory(

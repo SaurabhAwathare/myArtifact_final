@@ -20,6 +20,7 @@ import com.saurabh.artifact.repository.PlayableArtifactRepository
 import com.saurabh.artifact.repository.UserRepository
 import dagger.Lazy
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -111,7 +112,7 @@ class PlayerViewModel @Inject constructor(
                         diagnosticLogger.info(DiagnosticCategory.SYNC, "PLAYER_ID_MISMATCH_PURGE", mapOf("staleId" to currentPlayable.id, "newId" to artifact.id))
                         _currentPlayableArtifact.value = null
                         _loadState.value = PlayerLoadState.IDLE
-                    } else if (artifact == null) {
+                    } else if (artifact == null && currentPlayable != null && _loadState.value != PlayerLoadState.LOADING && _loadState.value != PlayerLoadState.LOADED) {
                         _currentPlayableArtifact.value = null
                         _loadState.value = PlayerLoadState.IDLE
                     }
@@ -197,11 +198,16 @@ class PlayerViewModel @Inject constructor(
 
     private val resolvedPlayerArtifactFlow: Flow<Pair<Artifact?, PlayerArtifact?>> = combine(
         playbackCoordinator.currentArtifact,
-        creatorProfileFlow
-    ) { artifact: Artifact?, creatorProfile: User? ->
+        creatorProfileFlow,
+        _currentPlayableArtifact
+    ) { artifact: Artifact?, creatorProfile: User?, playable: PlayableArtifact? ->
         if (artifact == null) return@combine null to null
         val resolved = ResolvedCreatorIdentity.resolve(artifact, creatorProfile)
+        val authoritativeEpisodeNumber = artifact.episodeNumber
+            ?: if (playable?.id == artifact.id) playable.episodeNumber else null
+
         val playerArtifact = artifact.toPlayerArtifact().copy(
+            episodeNumber = authoritativeEpisodeNumber,
             author = AuthorSnapshot(
                 anonymousId = resolved.personaId,
                 name = resolved.name,
@@ -516,7 +522,9 @@ class PlayerViewModel @Inject constructor(
         diagnosticLogger.debug(DiagnosticCategory.NAVIGATION, "PLAYER_SCREEN_ENTERED", mapOf("source" to "playArtifact", "artifactId" to artifact.id))
         setExpanded(true)
         _loadState.value = PlayerLoadState.LOADED
-        _currentPlayableArtifact.value = null // Clear playable as we have a real artifact
+        if (_currentPlayableArtifact.value?.id != artifact.id) {
+            _currentPlayableArtifact.value = null
+        }
         playbackCoordinator.playArtifact(
             artifact = artifact,
             collection = collection,
@@ -549,6 +557,16 @@ class PlayerViewModel @Inject constructor(
                     _currentPlayableArtifact.value = playable
                     _loadState.value = PlayerLoadState.LOADED
                     
+                    diagnosticLogger.info(
+                        DiagnosticCategory.PLAYER,
+                        "PLAYABLE_RESOLVED_EPISODE_CHECK",
+                        mapOf(
+                            "artifactId" to artifactId,
+                            "playableEpisode" to (playable.episodeNumber?.toString() ?: "null"),
+                            "originalEpisode" to (playable.originalArtifact?.episodeNumber?.toString() ?: "null")
+                        )
+                    )
+
                     // Track resolution success with source context
                     playbackCoordinator.trackPlayableStart(playable)
                     
@@ -561,7 +579,7 @@ class PlayerViewModel @Inject constructor(
                 },
                 onFailure = { error ->
                     // Ignore cancellation errors as they are expected when a newer request arrives
-                    if (error !is kotlinx.coroutines.CancellationException) {
+                    if (error !is CancellationException) {
                         _loadState.value = PlayerLoadState.ERROR
                         reportError(mapAppErrorToUserMessage(error), DiagnosticCategory.PLAYER, error)
                     }

@@ -2,6 +2,7 @@ package com.saurabh.artifact.ui.components.state
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import com.saurabh.artifact.domain.feed.FeedErrorClassification
 import com.saurabh.artifact.ui.components.base.AppButton
 import com.saurabh.artifact.ui.components.base.AppEmptyState
 
@@ -41,12 +42,40 @@ fun EmptyFeedState(
 fun FeedErrorState(
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
+    classification: FeedErrorClassification? = null,
     message: String? = null
 ) {
+    val title: String
+    val description: String
+    val emoji: String
+
+    when (classification) {
+        is FeedErrorClassification.AppCheckDegraded -> {
+            title = "Verification unavailable"
+            description = "Security verification is currently unavailable. Feed access is limited."
+            emoji = "🛡️"
+        }
+        is FeedErrorClassification.SecurityRulesDenial -> {
+            title = "The path is blocked"
+            description = "Your access to this content is restricted."
+            emoji = "🌑"
+        }
+        is FeedErrorClassification.NetworkFailure -> {
+            title = "Connection faded"
+            description = "Unable to load artifacts right now. Please check your connection and try again."
+            emoji = "🌑"
+        }
+        is FeedErrorClassification.Generic, null -> {
+            title = "The path is blocked"
+            description = message ?: "Unable to load artifacts right now. Please try again."
+            emoji = "🌑"
+        }
+    }
+
     AppEmptyState(
-        title = "The path is blocked",
-        description = message ?: "Unable to load artifacts right now. Please check your connection and try again.",
-        emoji = "🌑",
+        title = title,
+        description = description,
+        emoji = emoji,
         modifier = modifier,
         action = {
             AppButton(

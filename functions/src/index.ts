@@ -2592,7 +2592,19 @@ export const finalizePublish = functions.https.onCall(async (data, context) => {
         throw new functions.https.HttpsError("permission-denied", "No publication reservation found for this user.");
       }
       const reservationData = reservationDoc.data() || {};
-      const episodeNumber = typeof reservationData.episodeNumber === "number" ? reservationData.episodeNumber : null;
+      const episodeNumber = reservationData.episodeNumber;
+      if (
+        typeof episodeNumber !== "number" ||
+        isNaN(episodeNumber) ||
+        !Number.isFinite(episodeNumber) ||
+        !Number.isInteger(episodeNumber) ||
+        episodeNumber <= 0
+      ) {
+        throw new functions.https.HttpsError(
+          "failed-precondition",
+          "Reservation document missing authoritative episodeNumber"
+        );
+      }
 
       const artifactRef = db.doc(`artifacts/${cleanDraftId}`);
       const artifactDoc = await transaction.get(artifactRef);
@@ -2640,7 +2652,7 @@ export const finalizePublish = functions.https.onCall(async (data, context) => {
         },
         audioUrl: serverAudioUrl,
         ...(serverTranscriptUrl ? { transcriptUrl: serverTranscriptUrl } : {}),
-        ...(episodeNumber !== null ? { episodeNumber: episodeNumber } : {}),
+        episodeNumber: episodeNumber,
         title: title.trim(),
         description: description,
         emotion: primaryEmotion,
