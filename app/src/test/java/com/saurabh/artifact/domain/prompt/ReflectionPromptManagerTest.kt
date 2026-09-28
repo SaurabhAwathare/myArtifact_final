@@ -6,6 +6,7 @@ import com.saurabh.artifact.repository.PromptRepository
 import io.mockk.*
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
 
@@ -31,12 +32,11 @@ class ReflectionPromptManagerTest {
     }
 
     @Test
-    fun `getNextPrompt should return fallback if repository returns null`() = runBlocking {
+    fun `getNextPrompt should return null if repository returns null`() = runBlocking {
         coEvery { promptRepository.getNewPrompt() } returns null
 
         val result = manager.getNextPrompt()
 
-        assertEquals(PromptCategory.GENERAL, result.category)
-        assert(result.id.startsWith("fallback_"))
+        assertNull(result)
     }
 }

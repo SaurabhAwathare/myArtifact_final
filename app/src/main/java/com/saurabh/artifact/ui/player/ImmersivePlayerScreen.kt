@@ -30,7 +30,6 @@ import androidx.compose.ui.zIndex
 import com.saurabh.artifact.model.PlayableArtifact
 import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.model.ResolvedCreatorIdentity
-import com.saurabh.artifact.ui.components.EmotionTag
 import com.saurabh.artifact.ui.components.EmotionTagsGroup
 import com.saurabh.artifact.ui.player.components.*
 import com.saurabh.artifact.ui.theme.GoldAura400
@@ -310,17 +309,6 @@ fun ImmersivePlayerScreen(
                                 }
                             }
                         }
-
-                        val episodeNumber = playableArtifact?.episodeNumber ?: artifact?.episodeNumber
-                        val episodeText = if (episodeNumber != null) "Artifact · Episode $episodeNumber" else "Artifact"
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = episodeText,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.5f),
-                            fontWeight = FontWeight.Light,
-                            letterSpacing = 1.sp
-                        )
 
                         val emotionsToDisplay = playableArtifact?.effectiveEmotions?.ifEmpty { 
                             listOfNotNull(playableArtifact.emotion.ifBlank { null }) 

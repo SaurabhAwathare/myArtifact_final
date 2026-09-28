@@ -88,7 +88,8 @@ class ReflectionAIServiceImpl @Inject constructor(
                 mapOf("emotion" to (emotion ?: "null"))
             )
             val fallback = promptRepository.getSmartFallback(emotion)
-            return Result.success(fallback ?: getHardcodedFallback())
+            return fallback?.let { Result.success(it) }
+                ?: Result.failure(NoSuchElementException("No local prompt available"))
         }
 
         // 2. App Check Attestation (Mandatory Enforcement for v1.1)
@@ -107,7 +108,8 @@ class ReflectionAIServiceImpl @Inject constructor(
                 e
             )
             val fallback = promptRepository.getSmartFallback(emotion)
-            return Result.success(fallback ?: getHardcodedFallback())
+            return fallback?.let { Result.success(it) }
+                ?: Result.failure(NoSuchElementException("No local prompt available"))
         }
 
         return try {
@@ -173,17 +175,9 @@ class ReflectionAIServiceImpl @Inject constructor(
             
             // 4. Fallback Logic: Use smart local fallback if AI fails or times out
             val fallback = promptRepository.getSmartFallback(emotion)
-            Result.success(fallback ?: getHardcodedFallback())
+            fallback?.let { Result.success(it) }
+                ?: Result.failure(NoSuchElementException("No local prompt available"))
         }
-    }
-
-    private fun getHardcodedFallback(): ReflectionPrompt {
-        return ReflectionPrompt(
-            id = "fallback_generic",
-            question = "What's resting on your heart in this quiet moment?",
-            category = PromptCategory.GENERAL,
-            tone = EmotionalTone.REFLECTIVE
-        )
     }
 
     private fun buildPrompt(emotion: String?, context: String?, timeOfDay: String?): String {

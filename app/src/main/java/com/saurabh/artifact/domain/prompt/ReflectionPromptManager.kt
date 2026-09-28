@@ -1,6 +1,5 @@
 package com.saurabh.artifact.domain.prompt
 
-import com.saurabh.artifact.model.PromptCategory
 import com.saurabh.artifact.model.ReflectionPrompt
 import com.saurabh.artifact.repository.PromptRepository
 import kotlinx.coroutines.Dispatchers
@@ -20,14 +19,10 @@ class ReflectionPromptManager @Inject constructor(
     /**
      * Fetches the next eligible reflection prompt from the local question bank.
      * Guarantees zero AI cost and works fully offline.
+     * Supports optional [excludedPromptId] to prevent immediate re-selection of skipped prompts.
      */
-    suspend fun getNextPrompt(): ReflectionPrompt = withContext(Dispatchers.IO) {
-        return@withContext promptRepository.getNewPrompt() ?: ReflectionPrompt(
-            id = "fallback_${System.currentTimeMillis()}",
-            category = PromptCategory.GENERAL,
-            question = "What's one thing that stayed with you today?",
-            depthLevel = 1
-        )
+    suspend fun getNextPrompt(excludedPromptId: String? = null): ReflectionPrompt? = withContext(Dispatchers.IO) {
+        return@withContext promptRepository.getNewPrompt(excludedPromptId)
     }
 
     /**
@@ -37,5 +32,5 @@ class ReflectionPromptManager @Inject constructor(
         emotion: String? = null,
         context: String? = null,
         timeOfDay: String? = null
-    ): ReflectionPrompt = getNextPrompt()
+    ): ReflectionPrompt? = getNextPrompt()
 }

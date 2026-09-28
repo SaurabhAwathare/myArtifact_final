@@ -42,13 +42,13 @@ fun NavGraphBuilder.feedNavigation(
         }
 
         FeedScreen(
-            onNavigateToRecord = { prompt ->
+            onNavigateToRecord = { promptId, promptText ->
                 if (recordingSessionManager.isRecordingActive()) {
-                    navController.navigate(InstantRecord(prompt)) {
+                    navController.navigate(InstantRecord(promptId = promptId, prompt = promptText)) {
                         launchSingleTop = true
                     }
                 } else {
-                    navController.navigate(PreRecordingWarning(prompt)) {
+                    navController.navigate(PreRecordingWarning(promptId = promptId, prompt = promptText)) {
                         launchSingleTop = true
                     }
                 }
@@ -92,13 +92,13 @@ fun NavGraphBuilder.feedNavigation(
         }
 
         FeedScreen(
-            onNavigateToRecord = { prompt ->
+            onNavigateToRecord = { promptId, promptText ->
                 if (recordingSessionManager.isRecordingActive()) {
-                    navController.navigate(InstantRecord(prompt)) {
+                    navController.navigate(InstantRecord(promptId = promptId, prompt = promptText)) {
                         launchSingleTop = true
                     }
                 } else {
-                    navController.navigate(PreRecordingWarning(prompt)) {
+                    navController.navigate(PreRecordingWarning(promptId = promptId, prompt = promptText)) {
                         launchSingleTop = true
                     }
                 }

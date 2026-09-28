@@ -2,7 +2,6 @@ package com.saurabh.artifact.model
 
 import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.PropertyName
-import com.saurabh.artifact.ui.player.toPlayerArtifact
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -64,10 +63,6 @@ class ArtifactFirestoreRoundTripTest {
         method.isAccessible = true
         val artifact = method.invoke(null, map, Artifact::class.java, null) as Artifact
         assertEquals(35L, artifact.episodeNumber)
-
-        val playerArtifact = artifact.toPlayerArtifact()
-        val formattedLabel = if (playerArtifact.episodeNumber != null) "Artifact · Episode ${playerArtifact.episodeNumber}" else "Artifact"
-        assertEquals("Artifact · Episode 35", formattedLabel)
     }
 
     @Test
@@ -86,10 +81,6 @@ class ArtifactFirestoreRoundTripTest {
         method.isAccessible = true
         val artifact = method.invoke(null, map, Artifact::class.java, null) as Artifact
         assertNull(artifact.episodeNumber)
-
-        val playerArtifact = artifact.toPlayerArtifact()
-        val formattedLabel = if (playerArtifact.episodeNumber != null) "Artifact · Episode ${playerArtifact.episodeNumber}" else "Artifact"
-        assertEquals("Artifact", formattedLabel)
     }
 
     @Test

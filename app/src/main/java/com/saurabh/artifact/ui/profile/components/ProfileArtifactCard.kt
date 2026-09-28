@@ -160,12 +160,13 @@ fun ProfileArtifactCard(
 
                 // Ambient Waveform
                 AmbientWaveform(
-                    amplitudes = artifact.amplitudeData.takeIf { it.isNotEmpty() } ?: listOf(0.3f, 0.5f, 0.4f, 0.6f, 0.2f, 0.7f, 0.5f, 0.4f),
+                    amplitudes = artifact.amplitudeData.takeIf { it.isNotEmpty() } ?: listOf(0.4f, 0.6f, 0.5f, 0.8f, 0.3f, 0.7f, 0.5f, 0.4f, 0.6f, 0.9f, 0.5f, 0.4f),
                     progress = progress,
                     modifier = Modifier
                         .weight(1f)
                         .height(36.dp),
                     isPaused = !isPlaying,
+                    isStatic = !isPlaying,
                     context = if (isPlaying) WaveformContext.Player else WaveformContext.Feed,
                     id = artifact.id
                 )

@@ -92,15 +92,13 @@ class ReflectionAIServiceTest {
     }
 
     @Test
-    fun `generatePrompt returns generic fallback when repository is empty`() = runTest {
+    fun `generatePrompt returns failure when repository is empty`() = runTest {
         coEvery { promptRepository.getSmartFallback(any()) } returns null
         
         val result = service.generatePrompt("Joy", null, "Morning")
         
-        assertTrue(result.isSuccess)
-        val prompt = result.getOrThrow()
-        assertEquals("fallback_generic", prompt.id)
-        assertTrue(prompt.question.contains("resting on your heart"))
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull() is NoSuchElementException)
     }
 
     @Test

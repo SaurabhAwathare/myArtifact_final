@@ -25,8 +25,7 @@ data class PlayerArtifact(
     val transcript: List<TranscriptSegment>,
     val recommendationState: RecommendationState = RecommendationState.ACTIVE,
     val isPublic: Boolean,
-    val isDraft: Boolean,
-    val episodeNumber: Long? = null
+    val isDraft: Boolean
 ) {
     val effectiveEmotions: List<String>
         get() = emotions.ifEmpty { if (emotion.isNotBlank()) listOf(emotion) else emptyList() }

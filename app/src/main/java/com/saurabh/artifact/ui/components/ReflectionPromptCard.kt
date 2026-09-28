@@ -20,11 +20,13 @@ import com.saurabh.artifact.service.SafetyLevel
 fun ReflectionPromptCard(
     prompt: ReflectionPrompt?,
     isLoading: Boolean,
-    onUse: (String) -> Unit,
+    onUse: (promptId: String, promptText: String) -> Unit,
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
     safetyLevel: SafetyLevel = SafetyLevel.LOW
 ) {
+    if (prompt == null && !isLoading) return
+
     val containerColor = when (safetyLevel) {
         SafetyLevel.HIGH -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.1f)
         SafetyLevel.MEDIUM -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.15f)
@@ -102,7 +104,7 @@ fun ReflectionPromptCard(
                     Spacer(modifier = Modifier.height(16.dp))
 
                     Button(
-                        onClick = { currentPrompt?.let { onUse(it.question) } },
+                        onClick = { currentPrompt?.let { onUse(it.id, it.question) } },
                         enabled = !loading && currentPrompt != null,
                         shape = RoundedCornerShape(12.dp),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),

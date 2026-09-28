@@ -68,7 +68,7 @@ fun NavGraphBuilder.recordingNavigation(
         val route = backStackEntry.toRoute<PreRecordingWarning>()
         PreRecordingWarningScreen(
             onContinue = {
-                navController.navigate(InstantRecord(route.prompt)) {
+                navController.navigate(InstantRecord(promptId = route.promptId, prompt = route.prompt)) {
                     popUpTo(PreRecordingWarning()) { inclusive = true }
                     launchSingleTop = true
                 }

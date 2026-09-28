@@ -75,10 +75,16 @@ object DraftList : Route
 data class DraftEdit(val draftId: String) : Route
 
 @Serializable
-data class PreRecordingWarning(val prompt: String? = null) : Route
+data class PreRecordingWarning(
+    val promptId: String? = null,
+    val prompt: String? = null
+) : Route
 
 @Serializable
-data class InstantRecord(val prompt: String? = null) : Route
+data class InstantRecord(
+    val promptId: String? = null,
+    val prompt: String? = null
+) : Route
 
 @Serializable
 data class IncomingArtifact(

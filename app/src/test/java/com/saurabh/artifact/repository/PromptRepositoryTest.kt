@@ -39,25 +39,57 @@ class PromptRepositoryTest {
     @Test
     fun `getNewPrompt should select prompt based on depth level 1 for new users`() = runBlocking {
         coEvery { promptDao.getConsumedCount() } returns 0
+        coEvery { promptDao.getUnconsumedCount() } returns 10
         val expectedEntity = PromptEntity("L1_001", "Q1", PromptCategory.GENERAL, EmotionalTone.GENTLE, depthLevel = 1)
-        coEvery { promptDao.getNextEligiblePrompt(1) } returns expectedEntity
+        coEvery { promptDao.getNextEligiblePrompt(1, null) } returns expectedEntity
 
         val result = repository.getNewPrompt()
 
         assertEquals("L1_001", result?.id)
-        coVerify { promptDao.getNextEligiblePrompt(1) }
+        coVerify { promptDao.getNextEligiblePrompt(1, null) }
     }
 
     @Test
     fun `getNewPrompt should select depth level 2 after 30 prompts`() = runBlocking {
         coEvery { promptDao.getConsumedCount() } returns 35
+        coEvery { promptDao.getUnconsumedCount() } returns 10
         val expectedEntity = PromptEntity("L2_001", "Q2", PromptCategory.GENERAL, EmotionalTone.GENTLE, depthLevel = 2)
-        coEvery { promptDao.getNextEligiblePrompt(2) } returns expectedEntity
+        coEvery { promptDao.getNextEligiblePrompt(2, null) } returns expectedEntity
 
         val result = repository.getNewPrompt()
 
         assertEquals("L2_001", result?.id)
-        coVerify { promptDao.getNextEligiblePrompt(2) }
+        coVerify { promptDao.getNextEligiblePrompt(2, null) }
+    }
+
+    @Test
+    fun `getNewPrompt with excludedPromptId should pass excluded id to DAO`() = runBlocking {
+        coEvery { promptDao.getConsumedCount() } returns 0
+        coEvery { promptDao.getUnconsumedCount() } returns 10
+        val expectedEntity = PromptEntity("L1_002", "Q2", PromptCategory.GENERAL, EmotionalTone.GENTLE, depthLevel = 1)
+        coEvery { promptDao.getNextEligiblePrompt(1, "L1_001") } returns expectedEntity
+
+        val result = repository.getNewPrompt(excludedPromptId = "L1_001")
+
+        assertEquals("L1_002", result?.id)
+        coVerify { promptDao.getNextEligiblePrompt(1, "L1_001") }
+    }
+
+    @Test
+    fun `getNewPrompt should trigger recycling when all prompts are consumed`() = runBlocking {
+        coEvery { promptDao.getConsumedCount() } returnsMany listOf(500, 0)
+        coEvery { promptDao.getUnconsumedCount() } returnsMany listOf(0, 500)
+        coEvery { promptDao.getPromptCount() } returns 500
+        coEvery { promptDao.getNextEligiblePrompt(4, null) } returns null
+        coEvery { promptDao.getOldestPrompt(null) } returns null
+
+        val recycledEntity = PromptEntity("L1_001", "Q1", PromptCategory.GENERAL, EmotionalTone.GENTLE, depthLevel = 1)
+        coEvery { promptDao.getNextEligiblePrompt(1, null) } returns recycledEntity
+
+        val result = repository.getNewPrompt()
+
+        assertEquals("L1_001", result?.id)
+        coVerify { promptDao.resetConsumedPrompts() }
     }
 
     @Test

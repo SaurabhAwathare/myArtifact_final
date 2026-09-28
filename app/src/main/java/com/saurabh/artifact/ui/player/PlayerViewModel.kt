@@ -198,16 +198,12 @@ class PlayerViewModel @Inject constructor(
 
     private val resolvedPlayerArtifactFlow: Flow<Pair<Artifact?, PlayerArtifact?>> = combine(
         playbackCoordinator.currentArtifact,
-        creatorProfileFlow,
-        _currentPlayableArtifact
-    ) { artifact: Artifact?, creatorProfile: User?, playable: PlayableArtifact? ->
+        creatorProfileFlow
+    ) { artifact: Artifact?, creatorProfile: User? ->
         if (artifact == null) return@combine null to null
         val resolved = ResolvedCreatorIdentity.resolve(artifact, creatorProfile)
-        val authoritativeEpisodeNumber = artifact.episodeNumber
-            ?: if (playable?.id == artifact.id) playable.episodeNumber else null
 
         val playerArtifact = artifact.toPlayerArtifact().copy(
-            episodeNumber = authoritativeEpisodeNumber,
             author = AuthorSnapshot(
                 anonymousId = resolved.personaId,
                 name = resolved.name,
@@ -556,16 +552,6 @@ class PlayerViewModel @Inject constructor(
                 onSuccess = { playable ->
                     _currentPlayableArtifact.value = playable
                     _loadState.value = PlayerLoadState.LOADED
-                    
-                    diagnosticLogger.info(
-                        DiagnosticCategory.PLAYER,
-                        "PLAYABLE_RESOLVED_EPISODE_CHECK",
-                        mapOf(
-                            "artifactId" to artifactId,
-                            "playableEpisode" to (playable.episodeNumber?.toString() ?: "null"),
-                            "originalEpisode" to (playable.originalArtifact?.episodeNumber?.toString() ?: "null")
-                        )
-                    )
 
                     // Track resolution success with source context
                     playbackCoordinator.trackPlayableStart(playable)

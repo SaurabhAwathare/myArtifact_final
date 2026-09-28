@@ -325,28 +325,12 @@ class PlaybackSessionManager @Inject constructor(
                 
                 // R037: Handle partial or complete resolution failure
                 val orderedQueue = mediaIds.map { id -> 
-                    val fetched = artifactMap[id]
-                    if (fetched != null) {
-                        if (fetched.episodeNumber == null && _currentArtifact.value?.id == id) {
-                            fetched.copy(episodeNumber = _currentArtifact.value?.episodeNumber)
-                        } else {
-                            fetched
-                        }
-                    } else {
-                        createPlaceholderArtifact(controller, id)
-                    }
+                    artifactMap[id] ?: createPlaceholderArtifact(controller, id)
                 }
 
                 // 4. Update state atomically to prevent transient UI blanking
                 val syncedCurrent = artifactMap[currentMediaItem.mediaId] ?: orderedQueue.find { it.id == currentMediaItem.mediaId }
-                val finalCurrent = syncedCurrent?.let { current ->
-                    if (current.episodeNumber == null && _currentArtifact.value?.id == current.id) {
-                        current.copy(episodeNumber = _currentArtifact.value?.episodeNumber)
-                    } else {
-                        current
-                    }
-                }
-                _currentArtifact.value = finalCurrent
+                _currentArtifact.value = syncedCurrent
                 _queue.value = orderedQueue
                 
                 diagnosticLogger.debug(
@@ -355,8 +339,7 @@ class PlaybackSessionManager @Inject constructor(
                     mapOf(
                         "queueSize" to orderedQueue.size, 
                         "currentId" to currentMediaItem.mediaId,
-                        "resolvedCount" to artifacts.size,
-                        "episodeNumber" to (finalCurrent?.episodeNumber?.toString() ?: "null")
+                        "resolvedCount" to artifacts.size
                     )
                 )
             }
@@ -368,28 +351,20 @@ class PlaybackSessionManager @Inject constructor(
      * Used as a fallback when repository resolution fails during foreground synchronization.
      */
     private fun createPlaceholderArtifact(controller: MediaController, id: String): Artifact {
-        val existing = _currentArtifact.value
-        val existingEpisodeNumber = if (existing?.id == id) existing.episodeNumber else null
-
         for (i in 0 until controller.mediaItemCount) {
             val item = controller.getMediaItemAt(i)
             if (item.mediaId == id) {
                 val metadata = item.mediaMetadata
-                val extraEpisodeNumber = metadata.extras?.let {
-                    if (it.containsKey("episode_number")) it.getLong("episode_number") else null
-                }
-                val episodeNumber = existingEpisodeNumber ?: extraEpisodeNumber
                 return Artifact(
                     id = id,
                     title = metadata.title?.toString() ?: "Artifact",
                     author = com.saurabh.artifact.model.AuthorSnapshot(
                         name = metadata.artist?.toString() ?: "Presence"
-                    ),
-                    episodeNumber = episodeNumber
+                    )
                 )
             }
         }
-        return Artifact(id = id, title = "Artifact", episodeNumber = existingEpisodeNumber)
+        return Artifact(id = id, title = "Artifact")
     }
 
     fun play(
@@ -506,7 +481,6 @@ class PlaybackSessionManager @Inject constructor(
                              * Status: Deprecated for backward compatibility.
                              */
                             putString("avatar_seed", resolved.sigilSeed)
-                            artifact.episodeNumber?.let { putLong("episode_number", it) }
                         }
                     )
                     .build()

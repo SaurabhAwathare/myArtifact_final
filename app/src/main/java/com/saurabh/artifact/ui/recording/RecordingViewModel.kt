@@ -84,7 +84,15 @@ class RecordingViewModel @Inject constructor(
         viewModelScope.launch {
             promptRepository.initializeIfEmpty()
 
+            val allPrompts = promptRepository.getAllPrompts().firstOrNull() ?: emptyList()
+            if (allPrompts.isEmpty()) {
+                _uiState.update { it.copy(currentPrompt = null, isPromptVisible = false) }
+                userSessionManager.setActivePromptId(null)
+                return@launch
+            }
+
             // Priority 1: Navigation Argument
+            val navPromptId = savedStateHandle.get<String>("promptId")?.takeIf { it.isNotBlank() }
             val navPromptEncoded = savedStateHandle.get<String>("prompt")
             val navPrompt = navPromptEncoded?.let {
                 try {
@@ -92,28 +100,33 @@ class RecordingViewModel @Inject constructor(
                 } catch (_: Exception) {
                     it
                 }
+            }?.takeIf { it.isNotBlank() }
+
+            if (navPromptId != null) {
+                val existingPrompt = allPrompts.find { it.id == navPromptId }
+                val targetPrompt = existingPrompt ?: ReflectionPrompt(
+                    id = navPromptId,
+                    category = PromptCategory.GENERAL,
+                    question = navPrompt ?: ""
+                )
+                _uiState.update { it.copy(currentPrompt = targetPrompt, isPromptVisible = true) }
+                userSessionManager.setActivePromptId(targetPrompt.id)
+                return@launch
             }
 
             if (navPrompt != null) {
                 val targetPrompt = ReflectionPrompt(
                     id = "nav_${System.currentTimeMillis()}",
                     category = PromptCategory.GENERAL,
-                    question = navPrompt.trim()
+                    question = navPrompt
                 )
                 _uiState.update { it.copy(currentPrompt = targetPrompt, isPromptVisible = true) }
                 return@launch
             }
 
             // Priority 2: Session-active prompt (if not already consumed)
-            val activePromptId = userSessionManager.activePromptId.first()
+            val activePromptId = userSessionManager.activePromptId.firstOrNull()
             if (activePromptId != null) {
-                // We should ideally check if it's consumed, but for simplicity we fetch it if it exists
-                // The repo will handle variety if we ask for a new one.
-                // For now, let's just get a fresh one if we don't have one cached to ensure non-repetition
-                // if the user restarts after seeing one but before "consuming" it.
-                // BUT the requirement says "survive app restart". 
-                // So we check if the active one is still valid.
-                val allPrompts = promptRepository.getAllPrompts().first()
                 val activePrompt = allPrompts.find { it.id == activePromptId }
                 
                 if (activePrompt != null && (!activePrompt.isConsumed)) { 
@@ -124,8 +137,8 @@ class RecordingViewModel @Inject constructor(
 
             // Priority 3: Fresh eligible prompt
             val freshPrompt = promptManager.getNextPrompt()
-            _uiState.update { it.copy(currentPrompt = freshPrompt, isPromptVisible = true) }
-            userSessionManager.setActivePromptId(freshPrompt.id)
+            _uiState.update { it.copy(currentPrompt = freshPrompt, isPromptVisible = freshPrompt != null) }
+            userSessionManager.setActivePromptId(freshPrompt?.id)
         }
     }
 
@@ -205,21 +218,23 @@ class RecordingViewModel @Inject constructor(
     }
 
     fun nextPrompt() {
+        if (uiState.value.isPromptLoading) return
         viewModelScope.launch {
             _uiState.update { it.copy(isPromptLoading = true) }
             
-            // Mark current as consumed
-            uiState.value.currentPrompt?.id?.let { id ->
-                promptRepository.markAsConsumed(id)
+            val currentId = uiState.value.currentPrompt?.id
+            if (currentId != null) {
+                promptRepository.markAsConsumed(currentId)
             }
             
-            // Fetch new one
-            val nextPrompt = promptManager.getNextPrompt()
+            // Fetch new prompt, excluding current prompt to prevent immediate re-selection
+            val nextPrompt = promptManager.getNextPrompt(excludedPromptId = currentId)
             _uiState.update { it.copy(
                 currentPrompt = nextPrompt,
+                isPromptVisible = nextPrompt != null,
                 isPromptLoading = false
             ) }
-            userSessionManager.setActivePromptId(nextPrompt.id)
+            userSessionManager.setActivePromptId(nextPrompt?.id)
         }
     }
 }

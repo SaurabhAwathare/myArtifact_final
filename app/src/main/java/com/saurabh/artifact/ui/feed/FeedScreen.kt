@@ -75,7 +75,7 @@ import kotlin.time.Duration.Companion.milliseconds
 @OptIn(ExperimentalMaterial3Api::class, kotlinx.coroutines.FlowPreview::class, ExperimentalFoundationApi::class)
 @Composable
 fun FeedScreen(
-    onNavigateToRecord: (String?) -> Unit,
+    onNavigateToRecord: (promptId: String?, promptText: String?) -> Unit,
     onNavigateToProfile: () -> Unit,
     onNavigateToNotifications: () -> Unit,
     onNavigateToDebugMenu: () -> Unit,
@@ -146,7 +146,7 @@ fun FeedScreen(
         snackbarHost = { AppSnackbarHost(snackbarHostState) },
         floatingActionButton = {
             AuraDock(
-                onInitiate = { onNavigateToRecord(null) },
+                onInitiate = { onNavigateToRecord(null, null) },
                 modifier = Modifier.padding(bottom = 16.dp)
             )
         },
@@ -324,7 +324,7 @@ private fun FeedContent(
     viewModel: FeedViewModel,
     reflectionPrompt: ReflectionPrompt?,
     stage: StartupStage,
-    onNavigateToRecord: (String?) -> Unit,
+    onNavigateToRecord: (promptId: String?, promptText: String?) -> Unit,
     onReportClick: (String) -> Unit,
     onAuthorClick: (String) -> Unit,
     onNavigateToSecurity: () -> Unit,
@@ -438,7 +438,7 @@ private fun FeedContent(
                     }
                     else -> {
                         EmptyFeedState(
-                            onRecordClick = { onNavigateToRecord(null) },
+                            onRecordClick = { onNavigateToRecord(null, null) },
                             selectedEmotion = selectedEmotion
                         )
                     }
@@ -453,7 +453,7 @@ fun FeedHeader(
     viewModel: FeedViewModel, 
     reflectionPrompt: ReflectionPrompt?, 
     stage: StartupStage,
-    onNavigateToRecord: (String?) -> Unit,
+    onNavigateToRecord: (promptId: String?, promptText: String?) -> Unit,
     modifier: Modifier = Modifier,
     onNavigateToSecurity: () -> Unit = {},
     selectedEmotion: String? = null
@@ -492,12 +492,12 @@ fun FeedHeader(
             }
 
             // Defer heavy prompt card rendering until IMMERSION stage
-            FadeInContent(visible = stage >= StartupStage.IMMERSION) {
+            FadeInContent(visible = stage >= StartupStage.IMMERSION && reflectionPrompt != null) {
                 ReflectionPromptCard(
                     prompt = reflectionPrompt,
                     isLoading = isPromptLoading,
                     safetyLevel = safetyLevel,
-                    onUse = { onNavigateToRecord(it) },
+                    onUse = { promptId, promptText -> onNavigateToRecord(promptId, promptText) },
                     onRefresh = { viewModel.refreshReflectionPrompt() }
                 )
             }

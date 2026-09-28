@@ -9,6 +9,9 @@ interface PromptDao {
     @Query("SELECT * FROM prompts ORDER BY lastUsedTimestamp DESC")
     fun getAllPrompts(): Flow<List<PromptEntity>>
 
+    @Query("SELECT * FROM prompts")
+    suspend fun getAllPromptsList(): List<PromptEntity>
+
     @Query("SELECT * FROM prompts WHERE category = :category")
     fun getPromptsByCategory(category: PromptCategory): Flow<List<PromptEntity>>
 
@@ -17,6 +20,12 @@ interface PromptDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPrompts(prompts: List<PromptEntity>)
+
+    @Delete
+    suspend fun deletePrompts(prompts: List<PromptEntity>)
+
+    @Update
+    suspend fun updatePrompts(prompts: List<PromptEntity>)
 
     @Update
     suspend fun updatePrompt(prompt: PromptEntity)
@@ -27,8 +36,14 @@ interface PromptDao {
     @Query("UPDATE prompts SET isConsumed = 1 WHERE id = :id")
     suspend fun markAsConsumed(id: String)
 
+    @Query("UPDATE prompts SET isConsumed = 0")
+    suspend fun resetConsumedPrompts()
+
     @Query("SELECT COUNT(*) FROM prompts WHERE isConsumed = 1")
     suspend fun getConsumedCount(): Int
+
+    @Query("SELECT COUNT(*) FROM prompts WHERE isConsumed = 0")
+    suspend fun getUnconsumedCount(): Int
 
     @Query("UPDATE prompts SET usageCount = usageCount + 1, lastUsedTimestamp = :timestamp WHERE id = :id")
     suspend fun recordUsage(id: String, timestamp: Long = System.currentTimeMillis())
@@ -45,11 +60,11 @@ interface PromptDao {
     @Query("SELECT * FROM prompts WHERE mood = :mood AND isConsumed = 0 ORDER BY lastUsedTimestamp ASC LIMIT 1")
     suspend fun getOldestPromptByMood(mood: String): PromptEntity?
 
-    @Query("SELECT * FROM prompts WHERE isConsumed = 0 ORDER BY lastUsedTimestamp ASC LIMIT 1")
-    suspend fun getOldestPrompt(): PromptEntity?
+    @Query("SELECT * FROM prompts WHERE isConsumed = 0 AND (:excludedPromptId IS NULL OR id != :excludedPromptId) ORDER BY lastUsedTimestamp ASC LIMIT 1")
+    suspend fun getOldestPrompt(excludedPromptId: String? = null): PromptEntity?
 
-    @Query("SELECT * FROM prompts WHERE isConsumed = 0 AND depthLevel <= :maxDepth ORDER BY depthLevel DESC, RANDOM() LIMIT 1")
-    suspend fun getNextEligiblePrompt(maxDepth: Int): PromptEntity?
+    @Query("SELECT * FROM prompts WHERE isConsumed = 0 AND depthLevel <= :maxDepth AND (:excludedPromptId IS NULL OR id != :excludedPromptId) ORDER BY depthLevel DESC, RANDOM() LIMIT 1")
+    suspend fun getNextEligiblePrompt(maxDepth: Int, excludedPromptId: String? = null): PromptEntity?
 
     @Query("SELECT * FROM prompts ORDER BY lastUsedTimestamp DESC LIMIT :limit")
     suspend fun getRecentPrompts(limit: Int): List<PromptEntity>
