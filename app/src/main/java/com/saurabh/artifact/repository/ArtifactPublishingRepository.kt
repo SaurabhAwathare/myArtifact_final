@@ -7,6 +7,7 @@ import androidx.core.net.toUri
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.storage.FirebaseStorage
+import com.google.firebase.storage.StorageException
 import com.google.firebase.storage.StorageMetadata
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
@@ -142,19 +143,26 @@ class ArtifactPublishingRepository @Inject constructor(
                             }.await()
                         } catch (e: com.google.firebase.storage.StorageException) {
                             val httpCode = e.httpResultCode
-                            // Detect expired or invalid resumable session (404/410)
-                            if (currentSessionUri != null && (httpCode == 404 || httpCode == 410)) {
+                            val isTerminated = NetworkUtils.isServerTerminatedSession(e)
+                            // Detect expired or server-terminated resumable session (404/410 or -13000 / terminated session message)
+                            if (currentSessionUri != null && (httpCode == 404 || httpCode == 410 || isTerminated)) {
+                                val logEvent = if (isTerminated) "UPLOAD_SESSION_TERMINATED" else "UPLOAD_SESSION_EXPIRED"
                                 diagnosticLogger.warn(
                                     DiagnosticCategory.STORAGE, 
-                                    "UPLOAD_SESSION_EXPIRED", 
-                                    mapOf(LogKeys.DRAFT_ID to workingDraft.id, "httpCode" to httpCode)
+                                    logEvent, 
+                                    mapOf(
+                                        LogKeys.DRAFT_ID to workingDraft.id, 
+                                        "httpCode" to httpCode,
+                                        "errorCode" to e.errorCode,
+                                        "message" to (e.message ?: "")
+                                    )
                                 )
                                 // Clear session in DB and local state
                                 draftRepository.get().updateUploadProgress(workingDraft.id, 0, workingDraft.totalBytes, null)
                                 currentSessionUri = null
                                 
                                 // Throw transient error to trigger restart from scratch in next loop iteration
-                                throw Exception("Resumable session expired, restarting upload")
+                                throw Exception("Resumable session expired or terminated by server, restarting upload")
                             } else {
                                 throw e
                             }
@@ -171,9 +179,21 @@ class ArtifactPublishingRepository @Inject constructor(
                     // Phase 8: Reliability - Ensure cancellation is never swallowed
                     if (e is CancellationException) throw e
 
-                    val isSessionExpired = e.message?.contains("Resumable session expired") == true
+                    val isSessionExpiredOrTerminated = e.message?.contains("Resumable session expired") == true ||
+                            e.message?.contains("terminated by server") == true ||
+                            (currentSessionUri != null && e is StorageException && NetworkUtils.isServerTerminatedSession(e))
+
+                    if (currentSessionUri != null && e is StorageException && (e.httpResultCode == 404 || e.httpResultCode == 410 || NetworkUtils.isServerTerminatedSession(e))) {
+                        diagnosticLogger.warn(
+                            DiagnosticCategory.STORAGE, 
+                            "UPLOAD_SESSION_INVALIDATED_OUTER", 
+                            mapOf(LogKeys.DRAFT_ID to workingDraft.id, "httpCode" to e.httpResultCode, "errorCode" to e.errorCode)
+                        )
+                        draftRepository.get().updateUploadProgress(workingDraft.id, 0, workingDraft.totalBytes, null)
+                        currentSessionUri = null
+                    }
                     
-                    if (!isTransientError(e) && !isSessionExpired) {
+                    if (!isTransientError(e) && !isSessionExpiredOrTerminated) {
                         diagnosticLogger.error(
                             DiagnosticCategory.STORAGE, 
                             "UPLOAD_FAILED_TERMINAL", 
@@ -203,8 +223,8 @@ class ArtifactPublishingRepository @Inject constructor(
                                     "reason" to (e.message ?: "Transient error")
                                 )
                             )
-                            // If session expired, we don't necessarily need a long delay as we are starting fresh
-                            val effectiveDelay = if (isSessionExpired) 500L else delayTime
+                            // If session expired or terminated, restart quickly with fresh session
+                            val effectiveDelay = if (isSessionExpiredOrTerminated) 500L else delayTime
                             delay(effectiveDelay.milliseconds)
                             // Continue to next attempt
                         }

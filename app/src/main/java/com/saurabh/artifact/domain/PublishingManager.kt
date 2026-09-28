@@ -18,6 +18,7 @@ import com.saurabh.artifact.repository.UserRepository
 import com.saurabh.artifact.security.UploadGuard
 import com.saurabh.artifact.data.local.UploadOwner
 import com.saurabh.artifact.model.AuthorSnapshot
+import com.saurabh.artifact.util.NetworkUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
@@ -271,7 +272,7 @@ class PublishingManager @Inject constructor(
         if (e is FirebaseNetworkException) {
             return true
         }
-        if (e is StorageException && e.errorCode == StorageException.ERROR_RETRY_LIMIT_EXCEEDED) {
+        if (e is StorageException && (e.errorCode == StorageException.ERROR_RETRY_LIMIT_EXCEEDED || NetworkUtils.isServerTerminatedSession(e))) {
             return true
         }
         if (e is FirebaseFirestoreException &&

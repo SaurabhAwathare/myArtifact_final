@@ -54,6 +54,24 @@ object NetworkUtils {
     }
 
     /**
+     * Checks if a StorageException represents a server-terminated resumable upload session.
+     * Firebase Storage / GCS reports code -13000 (ERROR_UNKNOWN) with HTTP 200 and message
+     * "The server has terminated the upload session" when a session has been terminated on the server.
+     */
+    fun isServerTerminatedSession(e: StorageException): Boolean {
+        val message = try {
+            "${e.message.orEmpty()} ${e.cause?.message.orEmpty()}"
+        } catch (_: Exception) {
+            ""
+        }
+        val isTerminatedMessage = message.contains("The server has terminated the upload session", ignoreCase = true) ||
+                (message.contains("terminated", ignoreCase = true) && message.contains("session", ignoreCase = true))
+        val errorCode = try { e.errorCode } catch (_: Exception) { 0 }
+        val httpCode = try { e.httpResultCode } catch (_: Exception) { 0 }
+        return isTerminatedMessage || (errorCode == StorageException.ERROR_UNKNOWN && httpCode == 200 && message.contains("terminated", ignoreCase = true))
+    }
+
+    /**
      * Determines if an error is transient (retriable) or terminal.
      */
     fun isTransientError(e: Throwable): Boolean {
@@ -79,7 +97,7 @@ object NetworkUtils {
                     StorageException.ERROR_NOT_AUTHORIZED -> false // Terminal: Needs user action
                     else -> {
                         val httpCode = e.httpResultCode
-                        httpCode == 408 || httpCode == 429 || httpCode >= 500
+                        httpCode == 408 || httpCode == 429 || httpCode >= 500 || isServerTerminatedSession(e)
                     }
                 }
             }
