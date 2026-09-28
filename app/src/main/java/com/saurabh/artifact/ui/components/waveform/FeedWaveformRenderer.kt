@@ -15,13 +15,11 @@ object FeedWaveformRenderer {
      */
     fun downsample(source: List<Float>, targetSize: Int): List<Float> {
         if (source.isEmpty()) return List(targetSize) { 0.1f }
-        if (source.size == targetSize) return source
-
-        val step = source.size.toFloat() / targetSize
-        return List(targetSize) { i ->
-            val index = (i * step).toInt().coerceIn(0, source.size - 1)
-            source[index]
-        }
+        return WaveformProcessor.process(
+            rawAmplitudes = source,
+            targetSize = targetSize,
+            mode = WaveformProcessor.SamplingMode.COMPRESS
+        )
     }
 
     /**

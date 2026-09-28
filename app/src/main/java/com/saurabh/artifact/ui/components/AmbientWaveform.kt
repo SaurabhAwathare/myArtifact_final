@@ -249,7 +249,7 @@ private fun StaticWaveform(
 
                 waveform.forEachIndexed { index, amp ->
                     val x = index * cycleWidth
-                    val height = (amp * size.height * 0.7f).coerceAtLeast(4.dp.toPx())
+                    val height = (amp * size.height * 0.7f).coerceAtLeast(2.dp.toPx())
                     drawRoundRect(
                         color = color,
                         topLeft = Offset(x, centerY - height / 2f),

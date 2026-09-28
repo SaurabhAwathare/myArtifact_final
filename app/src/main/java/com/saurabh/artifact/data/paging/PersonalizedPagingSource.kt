@@ -10,6 +10,8 @@ import com.saurabh.artifact.repository.FeedRepository
 import com.saurabh.artifact.service.FeedRanker
 import com.saurabh.artifact.domain.ArtifactVisibilityFilter
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 
 class PersonalizedPagingSource(
@@ -41,19 +43,25 @@ class PersonalizedPagingSource(
                 val key = params.key ?: PageKey(isFirstPage = true)
                 val pageSize = maxOf(1, params.loadSize / 2) // Split between two sources
 
-                val resonatedResult = feedRepository.getResonatingArtifacts(
-                    userId = userId,
-                    limit = pageSize,
-                    lastVisible = key.resonatedLast,
-                    emotion = emotion
-                ).getOrThrow()
-
-                val discoveryResult = feedRepository.getDiscoveryCandidates(
-                    userId = userId,
-                    limit = pageSize,
-                    lastVisible = key.discoveryLast,
-                    emotion = emotion
-                ).getOrThrow()
+                val (resonatedResult, discoveryResult) = coroutineScope {
+                    val resonatedDeferred = async {
+                        feedRepository.getResonatingArtifacts(
+                            userId = userId,
+                            limit = pageSize,
+                            lastVisible = key.resonatedLast,
+                            emotion = emotion
+                        )
+                    }
+                    val discoveryDeferred = async {
+                        feedRepository.getDiscoveryCandidates(
+                            userId = userId,
+                            limit = pageSize,
+                            lastVisible = key.discoveryLast,
+                            emotion = emotion
+                        )
+                    }
+                    resonatedDeferred.await().getOrThrow() to discoveryDeferred.await().getOrThrow()
+                }
 
                 ArtifactLogger.d(DiagnosticCategory.FEED, "PAGING_SOURCE_LOAD", mapOf("offset" to key.offset))
 

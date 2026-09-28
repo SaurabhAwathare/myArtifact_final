@@ -132,18 +132,25 @@ class ArtifactRepository @Inject constructor(
         
         try {
             val chunks = artifactIds.chunked(10)
-            val allStats = mutableMapOf<String, ArtifactStats>()
-            
-            for (chunk in chunks) {
-                val snapshot = firestore.collection("artifact_stats")
-                    .whereIn(com.google.firebase.firestore.FieldPath.documentId(), chunk)
-                    .get()
-                    .await()
-                
-                snapshot.documents.forEach { doc ->
-                    doc.toObject(ArtifactStats::class.java)?.let { stats ->
-                        allStats[doc.id] = stats
+            val chunkResults = coroutineScope {
+                chunks.map { chunk ->
+                    async {
+                        val snapshot = firestore.collection("artifact_stats")
+                            .whereIn(FieldPath.documentId(), chunk)
+                            .get()
+                            .await()
+                        snapshot.documents.mapNotNull { doc ->
+                            doc.toObject(ArtifactStats::class.java)?.let { stats ->
+                                doc.id to stats
+                            }
+                        }
                     }
+                }.awaitAll()
+            }
+            val allStats = mutableMapOf<String, ArtifactStats>()
+            chunkResults.forEach { list ->
+                list.forEach { (id, stats) ->
+                    allStats[id] = stats
                 }
             }
             allStats

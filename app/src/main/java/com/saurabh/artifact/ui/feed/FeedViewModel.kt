@@ -398,7 +398,6 @@ class FeedViewModel @Inject constructor(
 
     fun setEmotionFilter(emotion: String?) {
         savedStateHandle[KEY_SELECTED_EMOTION] = emotion
-        loadRankedFeed()
     }
 
     fun loadRankedFeed(): kotlinx.coroutines.Job {
