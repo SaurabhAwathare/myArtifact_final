@@ -97,4 +97,30 @@ class PromptRepositoryTest {
         repository.markAsConsumed("test_id")
         coVerify { promptDao.markAsConsumed("test_id") }
     }
+
+    @Test
+    fun `syncPromptsFromAsset syncs when prompts table is empty even if isSynced was true`() = runBlocking {
+        val jsonContent = """[{"id":"P1","question":"Q1","category":"GENERAL","tone":"GENTLE","depthLevel":1}]"""
+        every { context.assets.open("prompts.json") } answers { jsonContent.byteInputStream() }
+        coEvery { promptDao.getPromptCount() } returns 0
+        coEvery { promptDao.getAllPromptsList() } returns emptyList()
+
+        repository.syncPromptsFromAsset()
+
+        coVerify { promptDao.insertPrompts(any()) }
+    }
+
+    @Test
+    fun `resetSyncState allows subsequent sync`() = runBlocking {
+        val jsonContent = """[{"id":"P1","question":"Q1","category":"GENERAL","tone":"GENTLE","depthLevel":1}]"""
+        every { context.assets.open("prompts.json") } answers { jsonContent.byteInputStream() }
+        coEvery { promptDao.getPromptCount() } returnsMany listOf(10, 0)
+        coEvery { promptDao.getAllPromptsList() } returns emptyList()
+
+        repository.syncPromptsFromAsset()
+        repository.resetSyncState()
+        repository.syncPromptsFromAsset()
+
+        coVerify { promptDao.insertPrompts(any()) }
+    }
 }

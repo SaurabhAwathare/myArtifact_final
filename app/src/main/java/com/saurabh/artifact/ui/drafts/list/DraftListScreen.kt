@@ -26,6 +26,7 @@ import com.saurabh.artifact.model.ProcessingStatus
 import com.saurabh.artifact.model.SyncStatus
 import com.saurabh.artifact.model.progress
 import com.saurabh.artifact.repository.DraftWithUpload
+import com.saurabh.artifact.util.TimeUtils
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -260,6 +261,14 @@ fun DraftItem(
     val locale = configuration.locales[0]
     val date = SimpleDateFormat("MMM dd, yyyy HH:mm", locale).format(Date(draft.createdAt))
     
+    val displayTitle = remember(draft.title, draft.createdAt, locale) {
+        if (!draft.title.isNullOrBlank()) {
+            draft.title
+        } else {
+            TimeUtils.formatDraftTitle(draft.createdAt, locale)
+        }
+    }
+
     var showMenu by remember { mutableStateOf(false) }
 
     val isProcessing = draft.status.processing is ProcessingStatus.Active || 
@@ -287,7 +296,7 @@ fun DraftItem(
             ) {
                 Column(Modifier.weight(1f)) {
                     Text(
-                        text = draft.title?.ifBlank { "Untitled Artifact" } ?: "Untitled Artifact",
+                        text = displayTitle,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface

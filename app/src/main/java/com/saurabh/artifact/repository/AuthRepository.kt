@@ -21,7 +21,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -35,6 +37,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Singleton
 
 import com.google.firebase.functions.FirebaseFunctions
+import com.google.firebase.messaging.FirebaseMessaging
 import com.saurabh.artifact.data.local.UserSessionManager
 import com.saurabh.artifact.model.UserPrivateSettings
 import java.util.UUID
@@ -712,18 +715,38 @@ class AuthRepository @Inject constructor(
     private suspend fun clearFcmToken() {
         val uid = firebaseAuth.currentUser?.uid ?: return
         try {
-            // 1. Invalidate local FCM token to prevent reuse/leakage
-            com.google.firebase.messaging.FirebaseMessaging.getInstance().deleteToken().await()
-            
-            // 2. Remove token reference from Firestore
-            firestore.collection("users").document(uid)
-                .collection("private").document("settings")
-                .update("fcmToken", FieldValue.delete())
-                .await()
+            withTimeoutOrNull(2000L) {
+                coroutineScope {
+                    val fcmJob = launch {
+                        runCatching {
+                            FirebaseMessaging.getInstance().deleteToken().await()
+                        }.onFailure { e ->
+                            if (e !is CancellationException) {
+                                ArtifactLogger.e(DiagnosticCategory.AUTH, "FCM_TOKEN_DELETE_FAILED", throwable = e)
+                            }
+                        }
+                    }
+
+                    val firestoreJob = launch {
+                        runCatching {
+                            firestore.collection("users").document(uid)
+                                .collection("private").document("settings")
+                                .update("fcmToken", FieldValue.delete())
+                                .await()
+                        }.onFailure { e ->
+                            if (e !is CancellationException) {
+                                ArtifactLogger.e(DiagnosticCategory.AUTH, "FIRESTORE_FCM_TOKEN_CLEAR_FAILED", throwable = e)
+                            }
+                        }
+                    }
+
+                    joinAll(fcmJob, firestoreJob)
+                }
+            } ?: run {
+                ArtifactLogger.w(DiagnosticCategory.AUTH, "FCM_TOKEN_CLEAR_TIMEOUT")
+            }
         } catch (e: Exception) {
-            // Handle failures gracefully as per requirement.
-            // Failure to remove the token must NOT leave the application in an inconsistent logout state.
-            // No identifiers (UID) are logged for privacy.
+            if (e is CancellationException) throw e
             ArtifactLogger.e(DiagnosticCategory.AUTH, "FCM_TOKEN_CLEAR_FAILED", throwable = e)
         }
     }

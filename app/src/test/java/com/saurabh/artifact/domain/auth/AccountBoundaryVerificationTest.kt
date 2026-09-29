@@ -19,6 +19,7 @@ import com.saurabh.artifact.domain.auth.RegistrationCoordinator
 import com.saurabh.artifact.domain.auth.RegistrationResult
 import com.saurabh.artifact.domain.settings.ObserveStealthModeUseCase
 import com.saurabh.artifact.repository.AuthRepository
+import com.saurabh.artifact.repository.PromptRepository
 import com.saurabh.artifact.repository.SessionState
 import com.saurabh.artifact.repository.SettingsRepository
 import com.saurabh.artifact.security.BackupEncryptionManager
@@ -60,6 +61,7 @@ class AccountBoundaryVerificationTest {
     private val onboardingManager = mockk<com.saurabh.artifact.util.OnboardingManager>(relaxed = true)
     private val databaseEncryptionManager = mockk<com.saurabh.artifact.security.DatabaseEncryptionManager>(relaxed = true)
     private val personalizationEngine = mockk<com.saurabh.artifact.service.PersonalizationEngine>(relaxed = true)
+    private val promptRepository = mockk<PromptRepository>(relaxed = true)
     
     // Dependencies for MainViewModel
     private val getInitialDestinationUseCase = mockk<GetInitialDestinationUseCase>(relaxed = true)
@@ -123,6 +125,7 @@ class AccountBoundaryVerificationTest {
             onboardingManager,
             databaseEncryptionManager,
             { personalizationEngine },
+            { promptRepository },
             fakeLogger
         ).apply {
             ioDispatcher = testDispatcher

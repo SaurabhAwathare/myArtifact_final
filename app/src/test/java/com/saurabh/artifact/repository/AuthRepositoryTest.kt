@@ -123,7 +123,7 @@ class AuthRepositoryTest {
         assertTrue(result.isSuccess)
         
         verify { firebaseAuth.signOut() }
-        fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "FCM_TOKEN_CLEAR_FAILED")
+        fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "FIRESTORE_FCM_TOKEN_CLEAR_FAILED")
     }
 
     @Test
@@ -155,7 +155,7 @@ class AuthRepositoryTest {
 
         assertTrue(result.isSuccess)
         verify { firebaseAuth.signOut() }
-        fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "FCM_TOKEN_CLEAR_FAILED")
+        fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "FIRESTORE_FCM_TOKEN_CLEAR_FAILED")
     }
 
     @Test

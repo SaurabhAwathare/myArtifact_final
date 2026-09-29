@@ -2,6 +2,9 @@ package com.saurabh.artifact.util
 
 import android.content.res.Configuration
 import androidx.core.os.ConfigurationCompat
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 object TimeUtils {
     /**
@@ -35,5 +38,15 @@ object TimeUtils {
             diff < 86400000 -> "${(diff / 3600000).coerceAtLeast(1)}h ago"
             else -> "${(diff / 86400000).coerceAtLeast(1)}d ago"
         }
+    }
+
+    /**
+     * Formats a draft creation timestamp into a display title.
+     * Pattern: "Artifact — MMM d, yyyy, h:mm a"
+     * Example: "Artifact — Sep 29, 2026, 3:42 PM"
+     */
+    fun formatDraftTitle(createdAtMs: Long, locale: Locale = Locale.getDefault()): String {
+        val formatter = SimpleDateFormat("MMM d, yyyy, h:mm a", locale)
+        return "Artifact — ${formatter.format(Date(createdAtMs))}"
     }
 }

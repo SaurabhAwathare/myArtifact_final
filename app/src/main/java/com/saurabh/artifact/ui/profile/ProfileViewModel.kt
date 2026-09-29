@@ -21,6 +21,7 @@ import com.saurabh.artifact.repository.*
 import com.saurabh.artifact.ui.profile.models.DraftUiModel
 import com.saurabh.artifact.ui.util.UiText
 import com.saurabh.artifact.ui.util.ErrorMessageMapper
+import com.saurabh.artifact.util.TimeUtils
 import com.saurabh.artifact.R
 import com.saurabh.artifact.data.local.UserSessionManager
 import com.saurabh.artifact.domain.auth.CleanupEventKey
@@ -209,10 +210,12 @@ class ProfileViewModel @Inject constructor(
             val author = data.userProfile?.let { AuthorSnapshot.fromUser(it) } 
                 ?: AuthorSnapshot(name = "Private Draft")
             
+            val effectiveDraft = if (draft.title.isNullOrBlank()) draft.copy(title = null) else draft
+
             val artifact = draftMapper.map(
-                draft = draft,
+                draft = effectiveDraft,
                 author = author,
-                fallbackTitle = "Unfinished Recording"
+                fallbackTitle = TimeUtils.formatDraftTitle(draft.createdAt)
             )
             
             DraftUiModel(

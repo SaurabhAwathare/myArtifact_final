@@ -28,6 +28,7 @@ import org.robolectric.RobolectricTestRunner
 import androidx.work.Operation
 import androidx.work.WorkManager
 import com.google.firebase.auth.FirebaseUser
+import com.saurabh.artifact.repository.PromptRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert
@@ -50,6 +51,7 @@ class LogoutCoordinatorTest {
     private val onboardingManager = mockk<com.saurabh.artifact.util.OnboardingManager>(relaxed = true)
     private val databaseEncryptionManager = mockk<com.saurabh.artifact.security.DatabaseEncryptionManager>(relaxed = true)
     private val personalizationEngine = mockk<com.saurabh.artifact.service.PersonalizationEngine>(relaxed = true)
+    private val promptRepository = mockk<PromptRepository>(relaxed = true)
     private val fakeLogger = FakeDiagnosticLogger()
     
     private val testDispatcher = UnconfinedTestDispatcher()
@@ -93,6 +95,7 @@ class LogoutCoordinatorTest {
             onboardingManager,
             databaseEncryptionManager,
             { personalizationEngine },
+            { promptRepository },
             fakeLogger
         ).apply {
             ioDispatcher = testDispatcher
@@ -146,11 +149,42 @@ class LogoutCoordinatorTest {
         // Verify Personalization cleanup
         verify { personalizationEngine.clearLocalData() }
 
+        // Verify prompt sync state reset
+        verify { promptRepository.resetSyncState() }
+
+        // Verify database encryption passphrase is retained (not cleared)
+        coVerify(exactly = 0) { databaseEncryptionManager.clear() }
+
         // Verify Phase E: Sign Out
         coVerify { authRepository.signOutAuthorized(any(), any(), any()) }
         
         fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "LOGOUT_FIREBASE_SUCCESS")
         fakeLogger.assertEventExists(DiagnosticCategory.AUTH, "LOGOUT_CLEANUP_COMPLETED")
+    }
+
+    @Test
+    fun `logout clears session tables resets prompt sync state and retains encryption key`() = runTest(testDispatcher) {
+        val result = coordinator.executeLogout()
+
+        assertTrue(result.isSuccess)
+        verify { database.clearSessionTables() }
+        verify { promptRepository.resetSyncState() }
+        coVerify(exactly = 0) { databaseEncryptionManager.clear() }
+    }
+
+    @Test
+    fun `logout completes even if work manager cancellation times out`() = runTest(testDispatcher) {
+        val pendingFuture = mockk<ListenableFuture<Operation.State.SUCCESS>>(relaxed = true)
+        // Never invoke listener to simulate hanging work manager
+        every { pendingFuture.addListener(any(), any()) } just runs
+        val operationResult = mockk<Operation>(relaxed = true)
+        every { operationResult.result } returns pendingFuture
+        every { workManager.cancelAllWorkByTag(any()) } returns operationResult
+
+        val result = coordinator.executeLogout()
+
+        assertTrue(result.isSuccess)
+        assertEquals(CleanupStatus.COMPLETED, result.getOrThrow().status)
     }
 
     @Test

@@ -12,6 +12,8 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import java.util.Locale
@@ -25,6 +27,7 @@ class PromptRepository @Inject constructor(
 ) {
 
     private val json = Json { ignoreUnknownKeys = true }
+    private val syncMutex = Mutex()
     private var isSynced = false
 
     /**
@@ -118,64 +121,70 @@ class PromptRepository @Inject constructor(
      * user consumption state (`isConsumed`, `isFavorite`, `usageCount`, `lastUsedTimestamp`).
      */
     suspend fun syncPromptsFromAsset() = withContext(Dispatchers.IO) {
-        if (isSynced) return@withContext
-        try {
-            val jsonString = context.assets.open("prompts.json").bufferedReader().use { it.readText() }
-            val assetPrompts = json.decodeFromString<List<ReflectionPrompt>>(jsonString)
-            
-            val existingPrompts = promptDao.get().getAllPromptsList()
-            if (assetPrompts.isEmpty()) {
-                if (existingPrompts.isNotEmpty()) {
-                    promptDao.get().deletePrompts(existingPrompts)
-                }
-            } else if (existingPrompts.isEmpty()) {
-                promptDao.get().insertPrompts(assetPrompts.map { it.toEntity() })
-            } else {
-                val existingMap = existingPrompts.associateBy { it.id }
-                val assetIds = assetPrompts.map { it.id }.toSet()
-                val toInsert = mutableListOf<PromptEntity>()
-                val toUpdate = mutableListOf<PromptEntity>()
-                val toDelete = existingPrompts.filter { it.id !in assetIds }
+        syncMutex.withLock {
+            if (isSynced && promptDao.get().getPromptCount() > 0) return@withLock
+            try {
+                val jsonString = context.assets.open("prompts.json").bufferedReader().use { it.readText() }
+                val assetPrompts = json.decodeFromString<List<ReflectionPrompt>>(jsonString)
+                
+                val existingPrompts = promptDao.get().getAllPromptsList()
+                if (assetPrompts.isEmpty()) {
+                    if (existingPrompts.isNotEmpty()) {
+                        promptDao.get().deletePrompts(existingPrompts)
+                    }
+                } else if (existingPrompts.isEmpty()) {
+                    promptDao.get().insertPrompts(assetPrompts.map { it.toEntity() })
+                } else {
+                    val existingMap = existingPrompts.associateBy { it.id }
+                    val assetIds = assetPrompts.map { it.id }.toSet()
+                    val toInsert = mutableListOf<PromptEntity>()
+                    val toUpdate = mutableListOf<PromptEntity>()
+                    val toDelete = existingPrompts.filter { it.id !in assetIds }
 
-                for (assetPrompt in assetPrompts) {
-                    val existing = existingMap[assetPrompt.id]
-                    if (existing == null) {
-                        toInsert.add(assetPrompt.toEntity())
-                    } else {
-                        // Check if prompt metadata changed, while keeping consumption and usage history
-                        if (existing.question != assetPrompt.question ||
-                            existing.category != assetPrompt.category ||
-                            existing.tone != assetPrompt.tone ||
-                            existing.mood != assetPrompt.mood ||
-                            existing.depthLevel != assetPrompt.depthLevel
-                        ) {
-                            toUpdate.add(
-                                existing.copy(
-                                    question = assetPrompt.question,
-                                    category = assetPrompt.category,
-                                    tone = assetPrompt.tone,
-                                    mood = assetPrompt.mood,
-                                    depthLevel = assetPrompt.depthLevel
+                    for (assetPrompt in assetPrompts) {
+                        val existing = existingMap[assetPrompt.id]
+                        if (existing == null) {
+                            toInsert.add(assetPrompt.toEntity())
+                        } else {
+                            // Check if prompt metadata changed, while keeping consumption and usage history
+                            if (existing.question != assetPrompt.question ||
+                                existing.category != assetPrompt.category ||
+                                existing.tone != assetPrompt.tone ||
+                                existing.mood != assetPrompt.mood ||
+                                existing.depthLevel != assetPrompt.depthLevel
+                            ) {
+                                toUpdate.add(
+                                    existing.copy(
+                                        question = assetPrompt.question,
+                                        category = assetPrompt.category,
+                                        tone = assetPrompt.tone,
+                                        mood = assetPrompt.mood,
+                                        depthLevel = assetPrompt.depthLevel
+                                    )
                                 )
-                            )
+                            }
                         }
                     }
-                }
 
-                if (toDelete.isNotEmpty()) {
-                    promptDao.get().deletePrompts(toDelete)
+                    if (toDelete.isNotEmpty()) {
+                        promptDao.get().deletePrompts(toDelete)
+                    }
+                    if (toInsert.isNotEmpty()) {
+                        promptDao.get().insertPrompts(toInsert)
+                    }
+                    if (toUpdate.isNotEmpty()) {
+                        promptDao.get().updatePrompts(toUpdate)
+                    }
                 }
-                if (toInsert.isNotEmpty()) {
-                    promptDao.get().insertPrompts(toInsert)
-                }
-                if (toUpdate.isNotEmpty()) {
-                    promptDao.get().updatePrompts(toUpdate)
-                }
+                isSynced = true
+            } catch (e: Exception) {
+                Log.e("PromptRepository", "Failed to sync prompts from asset", e)
             }
-            isSynced = true
-        } catch (e: Exception) {
-            Log.e("PromptRepository", "Failed to sync prompts from asset", e)
         }
+    }
+
+    fun resetSyncState() {
+        isSynced = false
     }
 
     /**

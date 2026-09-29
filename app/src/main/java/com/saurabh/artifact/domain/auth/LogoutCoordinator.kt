@@ -19,6 +19,7 @@ import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.SessionManager
 import com.saurabh.artifact.repository.AuthRepository
+import com.saurabh.artifact.repository.PromptRepository
 import com.saurabh.artifact.repository.SettingsRepository
 import com.saurabh.artifact.security.BackupEncryptionManager
 import com.saurabh.artifact.security.DatabaseEncryptionManager
@@ -61,6 +62,7 @@ class LogoutCoordinator @Inject constructor(
     private val onboardingManager: OnboardingManager,
     private val databaseEncryptionManager: DatabaseEncryptionManager,
     private val personalizationEngine: Lazy<PersonalizationEngine>,
+    private val promptRepository: Lazy<PromptRepository>,
     private val diagnosticLogger: DiagnosticLogger,
     private val diagnosticSessionManager: SessionManager? = null,
 ) {
@@ -398,7 +400,6 @@ class LogoutCoordinator @Inject constructor(
         // 4. Stop background upload service
         try {
             context.stopService(Intent(context, UploadService::class.java))
-            delay(200)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -408,8 +409,9 @@ class LogoutCoordinator @Inject constructor(
 
         // 5. Cancel user-scoped background workers
         try {
-            workManager.cancelAllWorkByTag(SessionConstants.TAG_USER_SESSION_WORK).result.await()
-            delay(500)
+            withTimeoutOrNull(1000) {
+                workManager.cancelAllWorkByTag(SessionConstants.TAG_USER_SESSION_WORK).result.await()
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -516,11 +518,11 @@ class LogoutCoordinator @Inject constructor(
             }
 
             try {
-                databaseEncryptionManager.clear()
+                promptRepository.get().resetSyncState()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_DB_ENCRYPTION_FAILED", throwable = e)
+                diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_PROMPT_SYNC_FAILED", throwable = e)
             }
         } else {
             diagnosticLogger.warn(DiagnosticCategory.AUTH, "LOGOUT_SKIP_DATASTORE_CLEAR", mapOf("reason" to "DB cleanup failed"))
