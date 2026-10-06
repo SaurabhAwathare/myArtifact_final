@@ -29,6 +29,7 @@ import com.saurabh.artifact.worker.InteractionSyncWorker
 import io.mockk.*
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.tasks.await
+import org.junit.Assert
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
@@ -138,19 +139,16 @@ class ArtifactRepositoryTest {
         every { doc2.id } returns id2
         every { doc2.toObject(Artifact::class.java) } returns Artifact(id = id2, title = "Title 2")
         
-        val querySnapshot = mockk<com.google.firebase.firestore.QuerySnapshot>(relaxed = true)
-        every { querySnapshot.documents } returns listOf(doc2)
-        
-        val collection = mockk<com.google.firebase.firestore.CollectionReference>(relaxed = true)
+        val collection = mockk<CollectionReference>(relaxed = true)
         every { firestore.collection("artifacts") } returns collection
-        val query = mockk<com.google.firebase.firestore.Query>(relaxed = true)
-        every { collection.whereIn(com.google.firebase.firestore.FieldPath.documentId(), any()) } returns query
         
-        val task = mockk<com.google.android.gms.tasks.Task<com.google.firebase.firestore.QuerySnapshot>>(relaxed = true)
-        every { query.get() } returns task
+        val docRef2 = mockk<DocumentReference>(relaxed = true)
+        every { collection.document(id2) } returns docRef2
+        val task2 = mockk<Task<DocumentSnapshot>>(relaxed = true)
+        every { docRef2.get() } returns task2
         
         mockkStatic("kotlinx.coroutines.tasks.TasksKt")
-        coEvery { task.await() } returns querySnapshot
+        coEvery { task2.await() } returns doc2
 
         val result = repository.getArtifactsByIds(ids)
         
@@ -162,6 +160,175 @@ class ArtifactRepositoryTest {
         assertEquals("Title 2", list[1].title)
         
         coVerify { artifactDao.insertAll(any()) }
+    }
+
+    @Test
+    fun `getArtifactsByIds with empty list should return empty result without querying firestore`() = runBlocking {
+        val result = repository.getArtifactsByIds(emptyList())
+
+        Assert.assertTrue(result.isSuccess)
+        Assert.assertTrue(result.getOrThrow().isEmpty())
+        coVerify(exactly = 0) { artifactDao.getArtifactsByIds(any()) }
+        verify(exactly = 0) { firestore.collection(any()) }
+    }
+
+    @Test
+    fun `getArtifactsByIds on cache miss should fetch individual documents and update cache`() = runBlocking {
+        val id1 = "art_miss_1"
+        val ids = listOf(id1)
+
+        coEvery { artifactDao.getArtifactsByIds(ids) } returns emptyList()
+
+        val collection = mockk<CollectionReference>(relaxed = true)
+        every { firestore.collection("artifacts") } returns collection
+
+        val doc1 = mockk<DocumentSnapshot>(relaxed = true)
+        every { doc1.exists() } returns true
+        every { doc1.id } returns id1
+        every { doc1.toObject(Artifact::class.java) } returns Artifact(id = id1, title = "Miss Title 1")
+
+        val docRef1 = mockk<DocumentReference>(relaxed = true)
+        every { collection.document(id1) } returns docRef1
+        val task1 = mockk<Task<DocumentSnapshot>>(relaxed = true)
+        every { docRef1.get() } returns task1
+
+        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        coEvery { task1.await() } returns doc1
+
+        val result = repository.getArtifactsByIds(ids)
+
+        Assert.assertTrue(result.isSuccess)
+        val list = result.getOrThrow()
+        assertEquals(1, list.size)
+        assertEquals(id1, list[0].id)
+        assertEquals("Miss Title 1", list[0].title)
+
+        verify(exactly = 1) { collection.document(id1) }
+        coVerify(exactly = 1) { artifactDao.insertAll(any()) }
+    }
+
+    @Test
+    fun `getArtifactsByIds with multiple missing artifacts should fetch each individually and return ordered results`() = runBlocking {
+        val ids = (1..5).map { "art_multi_$it" }
+
+        coEvery { artifactDao.getArtifactsByIds(ids) } returns emptyList()
+
+        val collection = mockk<CollectionReference>(relaxed = true)
+        every { firestore.collection("artifacts") } returns collection
+
+        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        ids.forEach { id ->
+            val doc = mockk<DocumentSnapshot>(relaxed = true)
+            every { doc.exists() } returns true
+            every { doc.id } returns id
+            every { doc.toObject(Artifact::class.java) } returns Artifact(id = id, title = "Title $id")
+
+            val docRef = mockk<DocumentReference>(relaxed = true)
+            every { collection.document(id) } returns docRef
+            val task = mockk<Task<DocumentSnapshot>>(relaxed = true)
+            every { docRef.get() } returns task
+            coEvery { task.await() } returns doc
+        }
+
+        val result = repository.getArtifactsByIds(ids)
+
+        Assert.assertTrue(result.isSuccess)
+        val list = result.getOrThrow()
+        assertEquals(5, list.size)
+        ids.forEachIndexed { index, id ->
+            assertEquals(id, list[index].id)
+        }
+
+        ids.forEach { id ->
+            verify(exactly = 1) { collection.document(id) }
+        }
+    }
+
+    @Test
+    fun `getArtifactsByIds with mixed cache state should only fetch missing IDs from firestore`() = runBlocking {
+        val idA = "idA"
+        val idB = "idB"
+        val idC = "idC"
+        val idD = "idD"
+        val ids = listOf(idA, idB, idC, idD)
+
+        val entityA = ArtifactEntity(
+            id = idA, userId = "u1", authorName = "A", title = "Title A",
+            emotion = Emotion.CALM, lastUpdated = System.currentTimeMillis(),
+            authorAnonymousId = "", authorSigil = "", authorSigilSeed = "", authorSigilColor = "",
+            authorSigilConfigJson = "{}", audioUrl = "", createdAt = 0, durationMs = 0,
+            description = "", emotionTag = "", playCount = 0, reactionCount = 0, amplitudeData = emptyList()
+        )
+        val entityC = entityA.copy(id = idC, title = "Title C")
+
+        coEvery { artifactDao.getArtifactsByIds(ids) } returns listOf(entityA, entityC)
+
+        val collection = mockk<CollectionReference>(relaxed = true)
+        every { firestore.collection("artifacts") } returns collection
+
+        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        listOf(idB, idD).forEach { id ->
+            val doc = mockk<DocumentSnapshot>(relaxed = true)
+            every { doc.exists() } returns true
+            every { doc.id } returns id
+            every { doc.toObject(Artifact::class.java) } returns Artifact(id = id, title = "Title $id")
+
+            val docRef = mockk<DocumentReference>(relaxed = true)
+            every { collection.document(id) } returns docRef
+            val task = mockk<Task<DocumentSnapshot>>(relaxed = true)
+            every { docRef.get() } returns task
+            coEvery { task.await() } returns doc
+        }
+
+        val result = repository.getArtifactsByIds(ids)
+
+        Assert.assertTrue(result.isSuccess)
+        val list = result.getOrThrow()
+        assertEquals(4, list.size)
+        assertEquals(listOf(idA, idB, idC, idD), list.map { it.id })
+
+        verify(exactly = 0) { collection.document(idA) }
+        verify(exactly = 1) { collection.document(idB) }
+        verify(exactly = 0) { collection.document(idC) }
+        verify(exactly = 1) { collection.document(idD) }
+    }
+
+    @Test
+    fun `getArtifactsByIds handling single document fetch failure should return remaining valid items`() = runBlocking {
+        val id1 = "art_valid"
+        val id2 = "art_failed"
+        val ids = listOf(id1, id2)
+
+        coEvery { artifactDao.getArtifactsByIds(ids) } returns emptyList()
+
+        val collection = mockk<CollectionReference>(relaxed = true)
+        every { firestore.collection("artifacts") } returns collection
+
+        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+
+        val doc1 = mockk<DocumentSnapshot>(relaxed = true)
+        every { doc1.exists() } returns true
+        every { doc1.id } returns id1
+        every { doc1.toObject(Artifact::class.java) } returns Artifact(id = id1, title = "Valid Title")
+
+        val docRef1 = mockk<DocumentReference>(relaxed = true)
+        every { collection.document(id1) } returns docRef1
+        val task1 = mockk<Task<DocumentSnapshot>>(relaxed = true)
+        every { docRef1.get() } returns task1
+        coEvery { task1.await() } returns doc1
+
+        val docRef2 = mockk<DocumentReference>(relaxed = true)
+        every { collection.document(id2) } returns docRef2
+        val task2 = mockk<Task<DocumentSnapshot>>(relaxed = true)
+        every { docRef2.get() } returns task2
+        coEvery { task2.await() } throws RuntimeException("Firestore network error")
+
+        val result = repository.getArtifactsByIds(ids)
+
+        Assert.assertTrue(result.isSuccess)
+        val list = result.getOrThrow()
+        assertEquals(1, list.size)
+        assertEquals(id1, list[0].id)
     }
 
     @Test

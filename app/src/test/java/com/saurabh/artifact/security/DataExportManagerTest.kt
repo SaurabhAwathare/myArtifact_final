@@ -10,12 +10,15 @@ import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.QuerySnapshot
 import com.google.firebase.storage.FirebaseStorage
 import com.google.android.gms.tasks.Tasks
+import com.google.firebase.Timestamp
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.ArtifactLifecycle
+import com.saurabh.artifact.model.Emotion
 import com.saurabh.artifact.model.User
+import com.saurabh.artifact.model.Visibility
 import com.saurabh.artifact.repository.ArtifactLibraryRepository
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.AuthRepository
@@ -306,5 +309,52 @@ class DataExportManagerTest {
         
         assertTrue("Should contain engagement history", hasEngagement)
         assertTrue("Should contain authored reports", hasReports)
+    }
+
+    @Test
+    fun `test export includes published artifacts retrieved from getUserArtifactsPage`() = runBlocking {
+        val userId = TEST_USER_ID
+        every { authRepository.currentUserId } returns userId
+
+        coEvery { userRepository.getCachedProfile(userId) } returns User(id = userId, anonymousName = "Test User")
+
+        val artifact1 = Artifact(
+            id = "art_pub_1",
+            title = "My Published Artifact",
+            description = "Test Description",
+            createdAt = Timestamp.now(),
+            emotion = Emotion.CALM.name,
+            emotionTag = "Calmness",
+            durationMs = 12000L,
+            visibility = Visibility.PUBLIC
+        )
+
+        coEvery { artifactRepository.getUserArtifactsPage(userId, any(), any(), any(), any()) } returns Result.success(
+            listOf(artifact1) to null
+        )
+        coEvery { draftDao.getAllDraftsByUserId(userId) } returns emptyList()
+        coEvery { draftDao.getDraftByArtifactId("art_pub_1", userId) } returns null
+        every { userRepository.observeResonatingWithIds(userId) } returns flowOf(emptySet())
+        every { libraryRepository.getSavedArtifactIds(userId) } returns flowOf(emptySet())
+
+        val outputFile = tempFolder.newFile("published_artifacts_export.zip")
+        val uri = mockk<Uri>()
+        every { contentResolver.openOutputStream(uri) } returns FileOutputStream(outputFile)
+
+        val result = dataExportManager.exportData(uri)
+        assertTrue(result.isSuccess)
+
+        var hasPublishedArtifactMetadata = false
+        ZipInputStream(outputFile.inputStream()).use { zipIn ->
+            var entry = zipIn.nextEntry
+            while (entry != null) {
+                if (entry.name.startsWith("Artifacts/") && entry.name.endsWith("/metadata.json")) {
+                    hasPublishedArtifactMetadata = true
+                }
+                entry = zipIn.nextEntry
+            }
+        }
+
+        assertTrue("Should contain published artifact metadata.json", hasPublishedArtifactMetadata)
     }
 }

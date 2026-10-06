@@ -338,25 +338,37 @@ class ArtifactRepository @Inject constructor(
             val validLocal = localEntities.filter { currentTime - it.lastUpdated < twoHoursMillis }
                 .associateBy { it.id }
             
-            val missingIds = ids.filter { !validLocal.containsKey(it) }
+            val missingIds = ids.filter { !validLocal.containsKey(it) }.distinct()
             
             if (missingIds.isEmpty()) {
                 val ordered = ids.mapNotNull { id -> validLocal[id]?.let { mapArtifactEntityToArtifact(it) } }
                 return@withContext Result.success(ordered)
             }
 
-            // 2. Fetch missing from Firestore in chunks (whereIn limit is 10/30 depending on SDK)
+            // 2. Fetch missing from Firestore using individual document GETs to satisfy security rules
             val fetchedRemote = mutableMapOf<String, Artifact>()
-            missingIds.chunked(10).forEach { chunk ->
-                val snapshot = firestore.collection("artifacts")
-                    .whereIn(com.google.firebase.firestore.FieldPath.documentId(), chunk)
-                    .get()
-                    .await()
-                
-                snapshot.documents.forEach { doc ->
-                    doc.toObject(Artifact::class.java)?.copy(id = doc.id)?.let { artifact ->
-                        fetchedRemote[doc.id] = artifact
+            coroutineScope {
+                missingIds.map { id ->
+                    async {
+                        try {
+                            val doc = firestore.collection("artifacts").document(id).get().await()
+                            if (doc.exists()) {
+                                doc.toObject(Artifact::class.java)?.copy(id = doc.id)
+                            } else {
+                                null
+                            }
+                        } catch (e: Exception) {
+                            diagnosticLogger.warn(
+                                DiagnosticCategory.FIRESTORE,
+                                "ARTIFACT_SINGLE_FETCH_FAILED",
+                                mapOf("artifactId" to id),
+                                e
+                            )
+                            null
+                        }
                     }
+                }.awaitAll().filterNotNull().forEach { artifact ->
+                    fetchedRemote[artifact.id] = artifact
                 }
             }
 
