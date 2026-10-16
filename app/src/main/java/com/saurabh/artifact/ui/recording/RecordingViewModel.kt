@@ -15,6 +15,7 @@ import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.PromptRepository
 import com.saurabh.artifact.repository.UserRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -154,16 +155,31 @@ class RecordingViewModel @Inject constructor(
                     else -> RecordingError.Unknown
                 }
 
-                _uiState.update { it.copy(
-                    status = state.status,
-                    error = error,
-                    durationSeconds = state.durationSeconds,
-                    currentOutputFile = state.outputFile?.absolutePath,
-                    amplitudes = state.amplitudes,
-                    lastDraftPath = if (state.status == RecordingStatus.COMPLETED) state.outputFile?.absolutePath else it.lastDraftPath,
-                    isStorageLow = state.isStorageLow,
-                    episodeNumber = state.episodeNumber
-                ) }
+                _uiState.update { current ->
+                    // Retain FAILED status and error if service resets to IDLE after process/service shutdown
+                    val isServiceResetAfterFailure = state.status == RecordingStatus.IDLE &&
+                            current.status == RecordingStatus.FAILED &&
+                            current.error != null
+
+                    val resolvedStatus = if (isServiceResetAfterFailure) RecordingStatus.FAILED else state.status
+                    val resolvedError = if (isServiceResetAfterFailure) current.error else error
+
+                    val isStoppedOrFailed = resolvedStatus == RecordingStatus.FAILED || resolvedStatus == RecordingStatus.IDLE
+                    val resolvedAmplitudes = if (isStoppedOrFailed) emptyList() else state.amplitudes
+                    val resolvedAmplitude = if (isStoppedOrFailed) 0f else current.currentAmplitude
+
+                    current.copy(
+                        status = resolvedStatus,
+                        error = resolvedError,
+                        durationSeconds = state.durationSeconds,
+                        currentOutputFile = state.outputFile?.absolutePath ?: current.currentOutputFile,
+                        amplitudes = resolvedAmplitudes,
+                        currentAmplitude = resolvedAmplitude,
+                        lastDraftPath = if (state.status == RecordingStatus.COMPLETED) state.outputFile?.absolutePath else current.lastDraftPath,
+                        isStorageLow = state.isStorageLow,
+                        episodeNumber = state.episodeNumber
+                    )
+                }
 
                 if (state.status == RecordingStatus.COMPLETED && state.draftId.isNotEmpty()) {
                     diagnosticLogger.info(DiagnosticCategory.RECORDING, "RECORDING_FINALIZED", mapOf(LogKeys.DRAFT_ID to state.draftId))
@@ -183,7 +199,10 @@ class RecordingViewModel @Inject constructor(
         recordingSessionManager.amplitude
             .onEach { rawAmplitude ->
                 val normalized = (rawAmplitude.toFloat() / 32767f).coerceIn(0f, 1f)
-                _uiState.update { it.copy(currentAmplitude = normalized) }
+                _uiState.update { current ->
+                    val isStoppedOrFailed = current.status == RecordingStatus.FAILED || current.status == RecordingStatus.IDLE
+                    current.copy(currentAmplitude = if (isStoppedOrFailed) 0f else normalized)
+                }
             }
             .launchIn(viewModelScope)
     }
@@ -191,6 +210,7 @@ class RecordingViewModel @Inject constructor(
     fun startRecording() {
         viewModelScope.launch {
             diagnosticLogger.debug(DiagnosticCategory.RECORDING, "RECORDING_AUTO_START")
+            _uiState.update { it.copy(error = null, status = RecordingStatus.IDLE) }
             recordingSessionManager.startNewSession()
         }
     }
@@ -214,6 +234,7 @@ class RecordingViewModel @Inject constructor(
         recordingSessionManager.cancelSession()
         viewModelScope.launch {
             userSessionManager.setActivePromptId(null)
+            _uiState.update { it.copy(error = null, status = RecordingStatus.IDLE) }
         }
     }
 
@@ -221,20 +242,31 @@ class RecordingViewModel @Inject constructor(
         if (uiState.value.isPromptLoading) return
         viewModelScope.launch {
             _uiState.update { it.copy(isPromptLoading = true) }
-            
-            val currentId = uiState.value.currentPrompt?.id
-            if (currentId != null) {
-                promptRepository.markAsConsumed(currentId)
+            try {
+                val currentId = uiState.value.currentPrompt?.id
+                if (currentId != null) {
+                    promptRepository.markAsConsumed(currentId)
+                }
+                
+                // Fetch new prompt, excluding current prompt to prevent immediate re-selection
+                val nextPrompt = promptManager.getNextPrompt(excludedPromptId = currentId)
+                _uiState.update { it.copy(
+                    currentPrompt = nextPrompt,
+                    isPromptVisible = nextPrompt != null
+                ) }
+                userSessionManager.setActivePromptId(nextPrompt?.id)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                diagnosticLogger.error(
+                    DiagnosticCategory.RECORDING,
+                    "PROMPT_LOADING_FAILED",
+                    mapOf("currentPromptId" to (uiState.value.currentPrompt?.id ?: "none")),
+                    e
+                )
+            } finally {
+                _uiState.update { it.copy(isPromptLoading = false) }
             }
-            
-            // Fetch new prompt, excluding current prompt to prevent immediate re-selection
-            val nextPrompt = promptManager.getNextPrompt(excludedPromptId = currentId)
-            _uiState.update { it.copy(
-                currentPrompt = nextPrompt,
-                isPromptVisible = nextPrompt != null,
-                isPromptLoading = false
-            ) }
-            userSessionManager.setActivePromptId(nextPrompt?.id)
         }
     }
 }
