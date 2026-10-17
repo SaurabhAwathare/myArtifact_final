@@ -113,7 +113,7 @@ fun PublishingStudioScreen(
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
             title = { Text("Delete Draft") },
-            text = { Text("Are you sure you want to delete this draft? This action cannot be undone.") },
+            text = { Text("Are you sure you want to delete this draft? The local recording will be permanently deleted from this device and cannot be recovered.") },
             confirmButton = {
                 TextButton(
                     onClick = {

@@ -82,7 +82,7 @@ fun ImmersivePlayerScreen(
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
             title = { Text("Delete Draft?", color = Color.White) },
-            text = { Text("This will permanently remove this private reflection.", color = Color.White.copy(alpha = 0.7f)) },
+            text = { Text("This will permanently remove this private reflection and local audio recording from this device.", color = Color.White.copy(alpha = 0.7f)) },
             confirmButton = {
                 TextButton(
                     onClick = {

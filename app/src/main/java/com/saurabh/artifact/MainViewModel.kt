@@ -39,6 +39,7 @@ import com.saurabh.artifact.audio.RecordingService
 import com.saurabh.artifact.data.local.RecordingStatus
 import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.repository.ClaimResult
+import com.saurabh.artifact.repository.SessionGateResult
 import com.saurabh.artifact.repository.SessionState
 import com.saurabh.artifact.security.AppCheckStateTracker
 import dagger.Lazy
@@ -224,27 +225,34 @@ class MainViewModel @Inject constructor(
                 }
         }
 
-        // Session Revocation Observation
+        // Session State Observation (Revocation & Conflict)
         viewModelScope.launch {
             authRepository.sessionState.collect { sessionState ->
-                if (sessionState is SessionState.Revoked) {
-                    diagnosticLogger.warn(DiagnosticCategory.AUTH, "SESSION_REVOKED_EMITTED")
-                    _isCleaning.value = true
-                    try {
-                        val key = CleanupEventKey(
-                            targetUid = authRepository.currentUserId,
-                            sessionInstanceId = sessionManager.localSessionId.first() ?: "UNKNOWN"
-                        )
-                        logoutCoordinator.performFullCleanup(key)
-                    } catch (e: Exception) {
-                        diagnosticLogger.error(DiagnosticCategory.AUTH, "REVOCATION_CLEANUP_FAILED", throwable = e)
-                    } finally {
-                        _isCleaning.value = false
-                        _startupState.value = AppStartupState.Ready(
-                            startDestination = Login,
-                            securityStatus = startupCoordinator.securityStatus.value
-                        )
+                when (sessionState) {
+                    is SessionState.Revoked -> {
+                        diagnosticLogger.warn(DiagnosticCategory.AUTH, "SESSION_REVOKED_EMITTED")
+                        _isCleaning.value = true
+                        try {
+                            val key = CleanupEventKey(
+                                targetUid = authRepository.currentUserId,
+                                sessionInstanceId = sessionManager.localSessionId.first() ?: "UNKNOWN"
+                            )
+                            logoutCoordinator.performFullCleanup(key)
+                        } catch (e: Exception) {
+                            diagnosticLogger.error(DiagnosticCategory.AUTH, "REVOCATION_CLEANUP_FAILED", throwable = e)
+                        } finally {
+                            _isCleaning.value = false
+                            _startupState.value = AppStartupState.Ready(
+                                startDestination = Login,
+                                securityStatus = startupCoordinator.securityStatus.value
+                            )
+                        }
                     }
+                    is SessionState.SessionExistsOnOtherDevice -> {
+                        diagnosticLogger.warn(DiagnosticCategory.AUTH, "SESSION_CONFLICT_DETECTED", mapOf("device" to sessionState.deviceName))
+                        _startupState.value = AppStartupState.SessionConflict(sessionState.deviceName)
+                    }
+                    else -> {}
                 }
             }
         }
@@ -500,7 +508,10 @@ class MainViewModel @Inject constructor(
             combinedMsg.contains("app check", ignoreCase = true) ||
             combinedMsg.contains("RESOURCE_EXHAUSTED", ignoreCase = true) ||
             combinedMsg.contains("UNAUTHENTICATED", ignoreCase = true) ||
-            combinedMsg.contains("PERMISSION_DENIED", ignoreCase = true)
+            combinedMsg.contains("PERMISSION_DENIED", ignoreCase = true) ||
+            combinedMsg.contains("verification", ignoreCase = true) ||
+            combinedMsg.contains("timed out", ignoreCase = true) ||
+            combinedMsg.contains("unavailable", ignoreCase = true)
         ) {
             return true
         }
@@ -600,103 +611,44 @@ class MainViewModel @Inject constructor(
                 if (targetDestination == Login) {
                     Login
                 } else {
-                    // Authoritative Device Session Check
-                    val session = authRepository.awaitAuthoritativeSessionState()
-                    diagnosticLogger.info(DiagnosticCategory.AUTH, "SESSION_STATE_RESOLVED", mapOf("state" to session.javaClass.simpleName))
+                    val deviceName = Build.MODEL ?: "Android Device"
+                    val gateResult = authRepository.resolveSessionGate(deviceName)
+                    diagnosticLogger.info(DiagnosticCategory.AUTH, "SESSION_GATE_RESOLVED", mapOf("result" to gateResult.javaClass.simpleName))
 
-                    when (session) {
-                        is SessionState.Active -> {
+                    when (gateResult) {
+                        is SessionGateResult.Approved -> {
                             targetDestination
                         }
-                        is SessionState.NoActiveSession -> {
-                            val deviceName = Build.MODEL ?: "Android Device"
-                            val claimRes = authRepository.claimFirstDevice(deviceName)
-                            if (claimRes.isSuccess) {
-                                when (val claimVal = claimRes.getOrNull()) {
-                                    is ClaimResult.Success -> {
-                                        if (authRepository.sessionState.value is SessionState.Active) {
-                                            targetDestination
-                                        } else {
-                                            diagnosticLogger.warn(DiagnosticCategory.AUTH, "STARTUP_SESSION_CLAIM_UNAVAILABLE_DEGRADED")
-                                            targetDestination
-                                        }
-                                    }
-                                    is ClaimResult.SessionExists -> {
-                                        _startupState.value = AppStartupState.SessionConflict(claimVal.activeDeviceName)
-                                        startupCoordinator.completeAll()
-                                        return
-                                    }
-                                    else -> {
-                                        _startupState.value = AppStartupState.Error("Unknown session claim result.")
-                                        startupCoordinator.completeAll()
-                                        return
-                                    }
-                                }
-                            } else {
-                                val err = claimRes.exceptionOrNull() ?: Exception("Failed to claim active session.")
-                                if (isExplicitSessionRevocation(err)) {
-                                    diagnosticLogger.warn(DiagnosticCategory.AUTH, "STARTUP_SESSION_REVOKED_ON_CLAIM", throwable = err)
-                                    _isCleaning.value = true
-                                    try {
-                                        val key = CleanupEventKey(
-                                            targetUid = authRepository.currentUserId,
-                                            sessionInstanceId = sessionManager.localSessionId.first() ?: "UNKNOWN"
-                                        )
-                                        logoutCoordinator.performFullCleanup(key)
-                                    } catch (cleanupErr: Exception) {
-                                        diagnosticLogger.error(DiagnosticCategory.AUTH, "STARTUP_SESSION_CLEANUP_FAILED", throwable = cleanupErr)
-                                    } finally {
-                                        _isCleaning.value = false
-                                    }
-                                    Login
-                                } else if (isAppCheckOrDegradedClaimError(err)) {
-                                    diagnosticLogger.warn(DiagnosticCategory.AUTH, "STARTUP_DEVICE_CLAIM_APP_CHECK_DEGRADED", throwable = err)
-                                    targetDestination
-                                } else {
-                                    _startupState.value = AppStartupState.Error(err.message ?: "Failed to claim active session.")
-                                    startupCoordinator.completeAll()
-                                    return
-                                }
-                            }
-                        }
-                        is SessionState.SessionExistsOnOtherDevice -> {
-                            _startupState.value = AppStartupState.SessionConflict(session.deviceName)
+                        is SessionGateResult.Conflict -> {
+                            _startupState.value = AppStartupState.SessionConflict(gateResult.activeDeviceName)
                             startupCoordinator.completeAll()
                             return
                         }
-                        is SessionState.Unavailable -> {
-                            diagnosticLogger.warn(
-                                DiagnosticCategory.AUTH,
-                                "STARTUP_SESSION_VERIFICATION_DEGRADED",
-                                mapOf("reason" to (session.cause.message ?: "Session verification unavailable"))
-                            )
-                            targetDestination
-                        }
-                        is SessionState.TokenRefreshFailed -> {
-                            diagnosticLogger.warn(
-                                DiagnosticCategory.AUTH,
-                                "STARTUP_TOKEN_REFRESH_FAILED_DEGRADED",
-                                mapOf("reason" to (session.cause.message ?: "Token refresh failed"))
-                            )
-                            targetDestination
-                        }
-                        is SessionState.Revoked -> {
-                            _isCleaning.value = true
-                            try {
-                                val key = CleanupEventKey(
-                                    targetUid = authRepository.currentUserId,
-                                    sessionInstanceId = sessionManager.localSessionId.first() ?: "UNKNOWN"
-                                )
-                                logoutCoordinator.performFullCleanup(key)
-                            } finally {
-                                _isCleaning.value = false
+                        is SessionGateResult.Failure -> {
+                            val err = gateResult.error
+                            if (isExplicitSessionRevocation(err)) {
+                                diagnosticLogger.warn(DiagnosticCategory.AUTH, "STARTUP_SESSION_REVOKED", throwable = err)
+                                _isCleaning.value = true
+                                try {
+                                    val key = CleanupEventKey(
+                                        targetUid = authRepository.currentUserId,
+                                        sessionInstanceId = sessionManager.localSessionId.first() ?: "UNKNOWN"
+                                    )
+                                    logoutCoordinator.performFullCleanup(key)
+                                } catch (cleanupErr: Exception) {
+                                    diagnosticLogger.error(DiagnosticCategory.STARTUP, "STARTUP_SESSION_CLEANUP_FAILED", throwable = cleanupErr)
+                                } finally {
+                                    _isCleaning.value = false
+                                }
+                                Login
+                            } else if (isAppCheckOrDegradedClaimError(err)) {
+                                diagnosticLogger.warn(DiagnosticCategory.AUTH, "STARTUP_SESSION_GATE_DEGRADED", throwable = err)
+                                targetDestination
+                            } else {
+                                _startupState.value = AppStartupState.Error(err.message ?: "Failed to resolve session gate.")
+                                startupCoordinator.completeAll()
+                                return
                             }
-                            Login
-                        }
-                        is SessionState.Uninitialized,
-                        is SessionState.PendingServerVerification -> {
-                            diagnosticLogger.warn(DiagnosticCategory.AUTH, "STARTUP_SESSION_UNRESOLVED_DEGRADED")
-                            targetDestination
                         }
                     }
                 }
@@ -723,13 +675,18 @@ class MainViewModel @Inject constructor(
         }
     }
 
+    private var pendingTransferCorrelationId: String? = null
+
     fun transferActiveSession() {
         viewModelScope.launch {
             diagnosticLogger.info(DiagnosticCategory.AUTH, "USER_INITIATED_SESSION_TRANSFER")
-            val deviceName = android.os.Build.MODEL ?: "Android Device"
-            val correlationId = UUID.randomUUID().toString()
+            val deviceName = Build.MODEL ?: "Android Device"
+            val correlationId = pendingTransferCorrelationId ?: UUID.randomUUID().toString().also {
+                pendingTransferCorrelationId = it
+            }
             val result = authRepository.transferActiveSession(deviceName, correlationId)
             if (result.isSuccess) {
+                pendingTransferCorrelationId = null
                 determineInitialRoute()
             } else {
                 val err = result.exceptionOrNull()
@@ -741,6 +698,7 @@ class MainViewModel @Inject constructor(
 
     fun signOut() {
         viewModelScope.launch {
+            pendingTransferCorrelationId = null
             _isCleaning.value = true
             try {
                 val key = CleanupEventKey(

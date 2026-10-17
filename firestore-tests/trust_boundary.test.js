@@ -4,49 +4,69 @@ const {
   initializeTestEnvironment,
 } = require("@firebase/rules-unit-testing");
 const fs = require("fs");
-
-let testEnv;
+const path = require("path");
 
 describe("Trust Boundary Hardening", () => {
+  let testEnv;
+
   before(async () => {
+    const rulesPath = path.join(__dirname, "..", "firestore.rules");
     testEnv = await initializeTestEnvironment({
-      projectId: "myartifact-555e3",
+      projectId: "myartifact-trust-boundary-test",
       firestore: {
-        rules: fs.readFileSync("../firestore.rules", "utf8"),
+        rules: fs.readFileSync(rulesPath, "utf8"),
       },
     });
   });
 
   after(async () => {
-    await testEnv.cleanup();
+    if (testEnv) {
+      await testEnv.cleanup();
+    }
   });
 
   beforeEach(async () => {
     await testEnv.clearFirestore();
   });
 
-  async function setupUser(uid, data) {
-    await testEnv.withSecurityRulesDisabled(async (context) => {
-      await context.firestore().collection("users").doc(uid).set(data);
-    });
-  }
+  async function setupFixtures(db, { users = [], artifacts = [], engagements = [], registryEntries = [] }) {
+    for (const u of users) {
+      await db.collection("users").doc(u.uid).set({
+        identityMetadata: { identityResetVersion: 0 },
+        anonymousId: u.anonymousId || ("anon_" + u.uid),
+        anonymousName: u.name || ("User " + u.uid)
+      });
+      await db.collection("users").doc(u.uid).collection("private").doc("settings").set({
+        activeSessionId: "session_" + u.uid,
+        accountStatus: "ACTIVE",
+        isAdmin: false
+      });
+    }
 
-  async function setupArtifact(artifactId, data) {
-    await testEnv.withSecurityRulesDisabled(async (context) => {
-      await context.firestore().collection("artifacts").doc(artifactId).set(data);
-    });
-  }
+    for (const a of artifacts) {
+      await db.collection("artifacts").doc(a.id).set(a.data);
+    }
 
-  async function setupEngagement(uid, artifactId, data) {
-    await testEnv.withSecurityRulesDisabled(async (context) => {
-      await context.firestore().collection("users").doc(uid).collection("engagement").doc(artifactId).set(data);
-    });
+    for (const e of engagements) {
+      await db.collection("users").doc(e.uid).collection("engagement").doc(e.artifactId).set(e.data);
+    }
+
+    for (const r of registryEntries) {
+      await db.collection("users").doc(r.uid)
+        .collection("private").doc("published_artifacts")
+        .collection("artifacts").doc(r.artifactId).set({ createdAt: new Date() });
+    }
   }
 
   it("should prevent artifact creation with forged anonymousId", async () => {
-    await setupUser("alice", { anonymousId: "real_alice_id" });
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setupFixtures(context.firestore(), {
+        users: [{ uid: "alice", anonymousId: "real_alice_id" }],
+        registryEntries: [{ uid: "alice", artifactId: "art1" }]
+      });
+    });
 
-    const alice = testEnv.authenticatedContext("alice");
+    const alice = testEnv.authenticatedContext("alice", { activeSessionId: "session_alice" });
     await assertFails(
       alice.firestore().collection("artifacts").doc("art1").set({
         userId: "alice",
@@ -54,15 +74,29 @@ describe("Trust Boundary Hardening", () => {
           anonymousId: "forged_id",
           name: "Alice",
         },
+        status: "PENDING_UPLOAD",
+        audioUrl: "",
+        isDraft: true,
+        playCount: 0,
+        reactionCount: 0,
+        commentCount: 0,
+        reportCount: 0,
+        identityVersion: 0,
+        identityPropagationVersion: 0,
         isPublic: true,
       })
     );
   });
 
-  it("should allow artifact creation with correct anonymousId", async () => {
-    await setupUser("alice", { anonymousId: "real_alice_id" });
+  it("should allow artifact creation with correct anonymousId and active session", async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setupFixtures(context.firestore(), {
+        users: [{ uid: "alice", anonymousId: "real_alice_id" }],
+        registryEntries: [{ uid: "alice", artifactId: "art1" }]
+      });
+    });
 
-    const alice = testEnv.authenticatedContext("alice");
+    const alice = testEnv.authenticatedContext("alice", { activeSessionId: "session_alice" });
     await assertSucceeds(
       alice.firestore().collection("artifacts").doc("art1").set({
         userId: "alice",
@@ -70,17 +104,30 @@ describe("Trust Boundary Hardening", () => {
           anonymousId: "real_alice_id",
           name: "Alice",
         },
+        status: "PENDING_UPLOAD",
+        audioUrl: "",
+        isDraft: true,
+        playCount: 0,
+        reactionCount: 0,
+        commentCount: 0,
+        reportCount: 0,
+        identityVersion: 0,
+        identityPropagationVersion: 0,
         isPublic: true,
       })
     );
   });
 
   it("should prevent comment creation with forged artifactOwnerId", async () => {
-    await setupArtifact("art1", { userId: "bob" });
-    await setupUser("alice", { anonymousId: "anon1" });
-    await setupEngagement("alice", "art1", { isCommentUnlocked: true });
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setupFixtures(context.firestore(), {
+        users: [{ uid: "alice", anonymousId: "anon1" }],
+        artifacts: [{ id: "art1", data: { userId: "bob", isPublic: true } }],
+        engagements: [{ uid: "alice", artifactId: "art1", data: { isCommentUnlocked: true } }]
+      });
+    });
 
-    const alice = testEnv.authenticatedContext("alice");
+    const alice = testEnv.authenticatedContext("alice", { activeSessionId: "session_alice" });
     await assertFails(
       alice.firestore().collection("artifacts").doc("art1").collection("comments").doc("com1").set({
         artifactId: "art1",
@@ -93,16 +140,20 @@ describe("Trust Boundary Hardening", () => {
     );
   });
 
-  it("should allow comment creation with correct payload", async () => {
-    await setupArtifact("art1", { userId: "bob" });
-    await setupUser("alice", { anonymousId: "anon1" });
-    await setupEngagement("alice", "art1", { isCommentUnlocked: true });
+  it("should block direct comment creation on /comments subcollection for non-admin", async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setupFixtures(context.firestore(), {
+        users: [{ uid: "alice", anonymousId: "anon1" }],
+        artifacts: [{ id: "art1", data: { userId: "bob", isPublic: true } }],
+        engagements: [{ uid: "alice", artifactId: "art1", data: { isCommentUnlocked: true } }]
+      });
+    });
 
-    const alice = testEnv.authenticatedContext("alice");
-    await assertSucceeds(
+    const alice = testEnv.authenticatedContext("alice", { activeSessionId: "session_alice" });
+    await assertFails(
       alice.firestore().collection("artifacts").doc("art1").collection("comments").doc("com1").set({
         artifactId: "art1",
-        creatorId: "alice",
+        authorAnonymousId: "anon1",
         author: { anonymousId: "anon1", name: "Alice", sigil: "A" },
         text: "Hello",
         status: "ACTIVE",
@@ -111,8 +162,14 @@ describe("Trust Boundary Hardening", () => {
   });
 
   it("should prevent direct modification of artifact aggregates by owner", async () => {
-    await setupArtifact("art1", { userId: "alice", reactionCount: 0 });
-    const alice = testEnv.authenticatedContext("alice");
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setupFixtures(context.firestore(), {
+        users: [{ uid: "alice", anonymousId: "real_alice_id" }],
+        artifacts: [{ id: "art1", data: { userId: "alice", reactionCount: 0, isPublic: true } }]
+      });
+    });
+
+    const alice = testEnv.authenticatedContext("alice", { activeSessionId: "session_alice" });
     await assertFails(
       alice.firestore().collection("artifacts").doc("art1").update({
         reactionCount: 1
@@ -121,7 +178,13 @@ describe("Trust Boundary Hardening", () => {
   });
 
   it("should prevent direct notification creation", async () => {
-    const alice = testEnv.authenticatedContext("alice");
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setupFixtures(context.firestore(), {
+        users: [{ uid: "alice", anonymousId: "real_alice_id" }]
+      });
+    });
+
+    const alice = testEnv.authenticatedContext("alice", { activeSessionId: "session_alice" });
     await assertFails(
       alice.firestore().collection("notifications").add({
         userId: "alice",
@@ -132,10 +195,15 @@ describe("Trust Boundary Hardening", () => {
   });
 
   it("should prevent client from self-unlocking comments in engagement", async () => {
-    const alice = testEnv.authenticatedContext("alice");
-    const engagementRef = alice.firestore().collection("users").doc("alice").collection("engagement").doc("art1");
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setupFixtures(context.firestore(), {
+        users: [{ uid: "alice", anonymousId: "real_alice_id" }],
+        engagements: [{ uid: "alice", artifactId: "art1", data: { isCommentUnlocked: false } }]
+      });
+    });
 
-    await setupEngagement("alice", "art1", { isCommentUnlocked: false });
+    const alice = testEnv.authenticatedContext("alice", { activeSessionId: "session_alice" });
+    const engagementRef = alice.firestore().collection("users").doc("alice").collection("engagement").doc("art1");
 
     await assertFails(
       engagementRef.update({
@@ -144,11 +212,16 @@ describe("Trust Boundary Hardening", () => {
     );
   });
 
-  it("should allow writing to deep interaction intents", async () => {
-    const alice = testEnv.authenticatedContext("alice");
-    const intentRef = alice.firestore().collection("users").doc("alice")
-      .collection("private").doc("intents")
-      .collection("reactions").doc("art1");
+  it("should allow writing to deep interaction intents with active session", async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setupFixtures(context.firestore(), {
+        users: [{ uid: "alice", anonymousId: "real_alice_id" }],
+        artifacts: [{ id: "art1", data: { userId: "bob", isPublic: true } }]
+      });
+    });
+
+    const alice = testEnv.authenticatedContext("alice", { activeSessionId: "session_alice" });
+    const intentRef = alice.firestore().doc("users/alice/private/intents/reactions/art1");
 
     await assertSucceeds(
       intentRef.set({
@@ -160,11 +233,15 @@ describe("Trust Boundary Hardening", () => {
     );
   });
 
-  it("should allow writing to follow intents", async () => {
-    const alice = testEnv.authenticatedContext("alice");
-    const followRef = alice.firestore().collection("users").doc("alice")
-      .collection("private").doc("intents")
-      .collection("follow").doc("bob");
+  it("should allow writing to follow intents with active session", async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setupFixtures(context.firestore(), {
+        users: [{ uid: "alice", anonymousId: "real_alice_id" }]
+      });
+    });
+
+    const alice = testEnv.authenticatedContext("alice", { activeSessionId: "session_alice" });
+    const followRef = alice.firestore().doc("users/alice/private/intents/follow/anon_bob");
 
     await assertSucceeds(
       followRef.set({

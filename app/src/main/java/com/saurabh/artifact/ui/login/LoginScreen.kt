@@ -142,6 +142,20 @@ fun LoginScreen(
                     style = MaterialTheme.typography.bodySmall,
                     textAlign = TextAlign.Center
                 )
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(
+                    onClick = { viewModel.retrySessionGate() },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = GoldAura500,
+                        contentColor = Obsidian950
+                    ),
+                    shape = RoundedCornerShape(20.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.action_retry),
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(48.dp))

@@ -53,6 +53,11 @@ class PublishingManager @Inject constructor(
                     diagnosticLogger.error(DiagnosticCategory.PUBLISH, "PUBLISH_FAILED", mapOf(LogKeys.DRAFT_ID to draftId, "reason" to "UNAUTHENTICATED"))
                 }
 
+            if (draft.lifecycle == ArtifactLifecycle.PUBLISHED) {
+                diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISH_ALREADY_LOCAL_PUBLISHED", mapOf(LogKeys.DRAFT_ID to draftId))
+                return@withContext Result.success(Unit)
+            }
+
             // Phase 3.5: Authoritative Ownership Re-validation (Concurrency Defense)
             // Ensures that this execution path still authoritatively owns the lock in the database.
             val currentTask = draftRepository.getUploadTask(draftId)
@@ -101,11 +106,6 @@ class PublishingManager @Inject constructor(
                 withContext(NonCancellable) {
                     draftRepository.markAsPublished(draftId, draftId)
                 }
-                return@withContext Result.success(Unit)
-            }
-
-            if (draft.lifecycle == ArtifactLifecycle.PUBLISHED) {
-                diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISH_ALREADY_LOCAL_PUBLISHED", mapOf(LogKeys.DRAFT_ID to draftId))
                 return@withContext Result.success(Unit)
             }
 

@@ -103,7 +103,12 @@ class ArtifactPublishingRepository @Inject constructor(
         
         try {
             diagnosticLogger.debug(DiagnosticCategory.STORAGE, "DECRYPTION_FOR_UPLOAD_START", mapOf(LogKeys.DRAFT_ID to workingDraft.id))
-            SecurityArchitecture.openDecryptingStream(context, originalFile).use { input ->
+            val inputStream = if (workingDraft.isEncrypted) {
+                SecurityArchitecture.openDecryptingStream(context, originalFile)
+            } else {
+                originalFile.inputStream()
+            }
+            inputStream.use { input ->
                 // Write to the unique temp file
                 FileOutputStream(tempFile).use { output ->
                     input.copyTo(output)

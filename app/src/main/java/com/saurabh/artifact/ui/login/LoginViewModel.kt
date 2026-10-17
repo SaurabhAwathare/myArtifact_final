@@ -1,11 +1,13 @@
 package com.saurabh.artifact.ui.login
 
+import android.os.Build
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.saurabh.artifact.auth.CredentialHelper
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.repository.AuthRepository
+import com.saurabh.artifact.repository.SessionGateResult
 import com.saurabh.artifact.domain.auth.RegistrationCoordinator
 import com.saurabh.artifact.domain.auth.RegistrationResult
 import com.saurabh.artifact.ui.util.UiText
@@ -35,21 +37,7 @@ class LoginViewModel @Inject constructor(
                 .onSuccess { firebaseUser ->
                     if (firebaseUser != null) {
                         diagnosticLogger.info(DiagnosticCategory.AUTH, "GOOGLE_SIGN_IN_SUCCESS")
-                        val result = registrationCoordinator.ensureProfileExists()
-                        when (result) {
-                            is RegistrationResult.SuccessNewUser -> {
-                                diagnosticLogger.info(DiagnosticCategory.AUTH, "PROFILE_REGISTRATION_SUCCESS", mapOf("user_type" to "NEW"))
-                                _loginState.value = LoginState.Success(RegistrationResult.SuccessNewUser)
-                            }
-                            is RegistrationResult.SuccessExistingUser -> {
-                                diagnosticLogger.info(DiagnosticCategory.AUTH, "PROFILE_REGISTRATION_SUCCESS", mapOf("user_type" to "EXISTING"))
-                                _loginState.value = LoginState.Success(RegistrationResult.SuccessExistingUser)
-                            }
-                            is RegistrationResult.Failure -> {
-                                diagnosticLogger.error(DiagnosticCategory.AUTH, "PROFILE_REGISTRATION_FAILED", throwable = result.exception)
-                                _loginState.value = LoginState.Error(ErrorMessageMapper.map(result.exception))
-                            }
-                        }
+                        completeLoginWithSessionGate()
                     } else {
                         diagnosticLogger.error(DiagnosticCategory.AUTH, "GOOGLE_SIGN_IN_FAILED", mapOf("reason" to "FirebaseUser is null"))
                         _loginState.value = LoginState.Error(UiText.DynamicString("Google Sign-In failed: User is null"))
@@ -62,6 +50,55 @@ class LoginViewModel @Inject constructor(
         }
     }
 
+    fun retrySessionGate() {
+        if (authRepository.currentUser.value != null) {
+            _loginState.value = LoginState.Loading
+            viewModelScope.launch {
+                completeLoginWithSessionGate()
+            }
+        }
+    }
+
+    private suspend fun completeLoginWithSessionGate() {
+        val result = registrationCoordinator.ensureProfileExists()
+        when (result) {
+            is RegistrationResult.SuccessNewUser,
+            is RegistrationResult.SuccessExistingUser -> {
+                val deviceName = Build.MODEL ?: "Android Device"
+                when (val gateResult = authRepository.resolveSessionGate(deviceName)) {
+                    is SessionGateResult.Approved -> {
+                        diagnosticLogger.info(
+                            DiagnosticCategory.AUTH,
+                            "LOGIN_SESSION_GATE_APPROVED",
+                            mapOf("user_type" to if (result is RegistrationResult.SuccessNewUser) "NEW" else "EXISTING")
+                        )
+                        _loginState.value = LoginState.Success(result)
+                    }
+                    is SessionGateResult.Conflict -> {
+                        diagnosticLogger.warn(
+                            DiagnosticCategory.AUTH,
+                            "LOGIN_SESSION_GATE_CONFLICT",
+                            mapOf("activeDevice" to gateResult.activeDeviceName)
+                        )
+                        _loginState.value = LoginState.Conflict(gateResult.activeDeviceName)
+                    }
+                    is SessionGateResult.Failure -> {
+                        diagnosticLogger.error(
+                            DiagnosticCategory.AUTH,
+                            "LOGIN_SESSION_GATE_FAILED",
+                            throwable = gateResult.error
+                        )
+                        _loginState.value = LoginState.Error(ErrorMessageMapper.map(gateResult.error))
+                    }
+                }
+            }
+            is RegistrationResult.Failure -> {
+                diagnosticLogger.error(DiagnosticCategory.AUTH, "PROFILE_REGISTRATION_FAILED", throwable = result.exception)
+                _loginState.value = LoginState.Error(ErrorMessageMapper.map(result.exception))
+            }
+        }
+    }
+
     fun onError(message: String) {
         _loginState.value = LoginState.Error(ErrorMessageMapper.map(message))
     }
@@ -71,5 +108,6 @@ sealed class LoginState {
     object Idle : LoginState()
     object Loading : LoginState()
     data class Success(val result: RegistrationResult) : LoginState()
+    data class Conflict(val activeDeviceName: String) : LoginState()
     data class Error(val message: UiText) : LoginState()
 }

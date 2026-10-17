@@ -2034,6 +2034,11 @@ export const onNotificationCreated = functions.firestore
       };
 
       // 3. Dispatch the message
+      if (process.env.FUNCTIONS_EMULATOR === "true") {
+        logger.info(`[FCM] Emulator mode active (FUNCTIONS_EMULATOR=true) - suppressing external FCM delivery for notification ${context.params.notificationId} (user ${userId})`);
+        return null;
+      }
+
       const response = await admin.messaging().send(message);
       logger.info(`[FCM] Successfully sent message: ${response} | UserID=${userId}`);
 

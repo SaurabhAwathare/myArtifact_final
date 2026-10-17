@@ -227,7 +227,7 @@ fun DeleteConfirmationDialog(
                 if (isPublished) {
                     "This artifact will disappear from the archive for everyone.\n\nThis action cannot be undone."
                 } else {
-                    "This action cannot be undone."
+                    "This local draft and its audio recording will be permanently deleted from this device.\n\nThis action cannot be undone."
                 },
                 style = ArtifactTheme.typography.bodyMedium,
                 color = ArtifactTheme.colors.onSurfaceMuted

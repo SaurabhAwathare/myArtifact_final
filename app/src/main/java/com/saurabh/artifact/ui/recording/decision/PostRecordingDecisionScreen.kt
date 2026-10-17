@@ -1,5 +1,6 @@
 package com.saurabh.artifact.ui.recording.decision
 
+import android.widget.Toast
 import androidx.compose.animation.core.EaseInOutSine
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -18,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -33,6 +35,8 @@ fun PostRecordingDecisionScreen(
     onReview: (String) -> Unit,
     onSaveAsDraft: () -> Unit
 ) {
+    val context = LocalContext.current
+
     // Ambient cinematic glow
     val infiniteTransition = rememberInfiniteTransition(label = "Atmosphere")
     val alpha by infiniteTransition.animateFloat(
@@ -127,7 +131,14 @@ fun PostRecordingDecisionScreen(
 
                 // 5. SAVE FOR LATER BUTTON
                 TextButton(
-                    onClick = onSaveAsDraft,
+                    onClick = {
+                        Toast.makeText(
+                            context,
+                            "Draft saved to this device. Clearing app data or uninstalling may permanently delete local drafts.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        onSaveAsDraft()
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(60.dp)

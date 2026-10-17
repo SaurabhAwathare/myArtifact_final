@@ -65,6 +65,12 @@ sealed class TransferResult {
     data class Failure(val error: Throwable) : TransferResult()
 }
 
+sealed class SessionGateResult {
+    object Approved : SessionGateResult()
+    data class Conflict(val activeDeviceName: String) : SessionGateResult()
+    data class Failure(val error: Throwable) : SessionGateResult()
+}
+
 @Singleton
 class AuthRepository @Inject constructor(
     private val firebaseAuth: FirebaseAuth,
@@ -464,6 +470,85 @@ class AuthRepository @Inject constructor(
             } else {
                 _sessionState.value
             }
+        }
+    }
+
+    suspend fun resolveSessionGate(deviceName: String): SessionGateResult {
+        val user = firebaseAuth.currentUser ?: return SessionGateResult.Failure(AppError.Unauthenticated())
+
+        return try {
+            val session = awaitAuthoritativeSessionState()
+            when (session) {
+                is SessionState.Active -> {
+                    val localSessionId = userSessionManager?.localSessionId?.first() ?: ""
+                    var tokenResult = user.getIdToken(false).await()
+                    var tokenClaim = tokenResult.claims["activeSessionId"] as? String
+
+                    if (tokenClaim != localSessionId || tokenClaim.isNullOrEmpty()) {
+                        val refreshResult = refreshSession()
+                        if (refreshResult.isFailure) {
+                            return SessionGateResult.Failure(
+                                refreshResult.exceptionOrNull() ?: Exception("Token refresh failed")
+                            )
+                        }
+                        tokenResult = user.getIdToken(false).await()
+                        tokenClaim = tokenResult.claims["activeSessionId"] as? String
+                    }
+
+                    if (tokenClaim == localSessionId && localSessionId.isNotEmpty()) {
+                        SessionGateResult.Approved
+                    } else {
+                        SessionGateResult.Failure(Exception("Token claim activeSessionId mismatch"))
+                    }
+                }
+                is SessionState.NoActiveSession -> {
+                    val claimRes = claimFirstDevice(deviceName)
+                    if (claimRes.isSuccess) {
+                        when (val claimVal = claimRes.getOrNull()) {
+                            is ClaimResult.Success -> {
+                                val localSessionId = userSessionManager?.localSessionId?.first() ?: ""
+                                val tokenClaim = user.getIdToken(false).await().claims["activeSessionId"] as? String
+                                if (tokenClaim == localSessionId && localSessionId.isNotEmpty()) {
+                                    SessionGateResult.Approved
+                                } else {
+                                    SessionGateResult.Failure(Exception("Token claim activeSessionId mismatch after claim"))
+                                }
+                            }
+                            is ClaimResult.SessionExists -> {
+                                SessionGateResult.Conflict(claimVal.activeDeviceName)
+                            }
+                            is ClaimResult.Failure -> {
+                                SessionGateResult.Failure(claimVal.error)
+                            }
+                            null -> SessionGateResult.Failure(Exception("Unknown session claim result"))
+                        }
+                    } else {
+                        val err = claimRes.exceptionOrNull() ?: Exception("Failed to claim active session")
+                        SessionGateResult.Failure(err)
+                    }
+                }
+                is SessionState.SessionExistsOnOtherDevice -> {
+                    SessionGateResult.Conflict(session.deviceName)
+                }
+                is SessionState.Revoked -> {
+                    SessionGateResult.Failure(AppError.Unauthenticated())
+                }
+                is SessionState.TokenRefreshFailed -> {
+                    SessionGateResult.Failure(session.cause)
+                }
+                is SessionState.Unavailable -> {
+                    SessionGateResult.Failure(session.cause)
+                }
+                is SessionState.Uninitialized,
+                is SessionState.PendingServerVerification -> {
+                    SessionGateResult.Failure(Exception("Unresolved session state"))
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ArtifactLogger.e(DiagnosticCategory.AUTH, "RESOLVE_SESSION_GATE_FAILED", throwable = e)
+            SessionGateResult.Failure(AppError.from(e))
         }
     }
 

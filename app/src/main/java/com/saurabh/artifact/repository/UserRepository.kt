@@ -349,13 +349,13 @@ open class UserRepository @Inject constructor(
 
                 if (privateMissing && fieldsToMove.isEmpty()) {
                     // Standard initialization for new users or missing private doc
-                    val defaultPrivate = UserPrivateSettings(
-                        secureEmail = SecureString.fromString(currentUser.email ?: ""),
-                        secureRealName = SecureString.fromString(currentUser.displayName ?: ""),
-                        isAdmin = false,
-                        accountStatus = "ACTIVE"
+                    val defaultPrivateMap = mapOf(
+                        "email" to (currentUser.email ?: ""),
+                        "realName" to (currentUser.displayName ?: ""),
+                        "isAdmin" to false,
+                        "accountStatus" to "ACTIVE"
                     )
-                    transaction[privateRef] = defaultPrivate
+                    transaction.set(privateRef, defaultPrivateMap, SetOptions.merge())
                 }
             }
 
@@ -437,18 +437,16 @@ open class UserRepository @Inject constructor(
                 emotionalProfile = "New Soul"
             )
 
-            val privateSettings = UserPrivateSettings(
-                secureEmail = SecureString.fromString(currentUser.email ?: ""),
-                secureRealName = SecureString.fromString(currentUser.displayName ?: ""),
-                isAdmin = false,
-                accountStatus = "ACTIVE"
+            val privateSettingsMap = mapOf(
+                "email" to (currentUser.email ?: ""),
+                "realName" to (currentUser.displayName ?: "")
             )
 
             val newUsernameRef = usernamesCollection.document(anonymousName.lowercase().trim())
             transaction[newUsernameRef]
 
             transaction[userRef] = newProfile
-            transaction[privateRef] = privateSettings
+            transaction.set(privateRef, privateSettingsMap, SetOptions.merge())
             transaction[newUsernameRef] = mapOf(
                 "reserved" to true,
                 "status" to "ACTIVE",
@@ -514,21 +512,31 @@ open class UserRepository @Inject constructor(
                 }
 
                 try {
+                    try { currentUser.getIdToken(true).await() } catch (_: Exception) {}
                     profileResult = withTimeout(15.seconds) {
                         executeProfileTransaction(userRef, privateRef, currentUser)
                     }
                     break
                 } catch (e: FirebaseFirestoreException) {
+                    diagnosticLogger.error(
+                        DiagnosticCategory.AUTH,
+                        "EXECUTE_PROFILE_TX_FIRESTORE_EX",
+                        mapOf(LogKeys.USER_ID to targetUserId, "code" to e.code.name, "msg" to (e.message ?: "")),
+                        e
+                    )
                     if (e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
                         lastException = e
-                        diagnosticLogger.warn(
-                            DiagnosticCategory.AUTH,
-                            "REGISTRATION_PERMISSION_DENIED_RETRYING",
-                            mapOf<String, Any>(LogKeys.USER_ID to targetUserId, "attempt" to attempt, "maxAttempts" to maxAttempts)
-                        )
                     } else {
                         throw e
                     }
+                } catch (e: Exception) {
+                    diagnosticLogger.error(
+                        DiagnosticCategory.AUTH,
+                        "EXECUTE_PROFILE_TX_EX",
+                        mapOf(LogKeys.USER_ID to targetUserId, "msg" to (e.message ?: "")),
+                        e
+                    )
+                    throw e
                 }
             }
 

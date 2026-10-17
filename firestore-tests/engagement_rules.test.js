@@ -4,130 +4,120 @@ const {
   initializeTestEnvironment,
 } = require("@firebase/rules-unit-testing");
 const fs = require("fs");
-const firebase = require("firebase/compat/app");
-require("firebase/compat/firestore");
-
-let testEnv;
+const path = require("path");
 
 describe("Phase 3: Engagement and Comment Authorization", () => {
+  let testEnv;
+
   before(async () => {
+    const rulesPath = path.join(__dirname, "..", "firestore.rules");
+    const rules = fs.readFileSync(rulesPath, "utf8");
     testEnv = await initializeTestEnvironment({
-      projectId: "myartifact-phase3",
-      firestore: {
-        rules: fs.readFileSync("../firestore.rules", "utf8"),
-      },
+      projectId: "myartifact-engagement-test",
+      firestore: { rules },
     });
   });
 
   after(async () => {
-    await testEnv.cleanup();
+    if (testEnv) {
+      await testEnv.cleanup();
+    }
   });
 
   beforeEach(async () => {
     await testEnv.clearFirestore();
   });
 
-  async function setupArtifact(artifactId, userId = "bob") {
-    await testEnv.withSecurityRulesDisabled(async (context) => {
-      await context.firestore().collection("artifacts").doc(artifactId).set({
-        userId: userId,
+  async function setupFixtures(db, { uid, artifactId, isUnlocked = false, creatorUid = "bob" }) {
+    if (creatorUid) {
+      await db.collection("artifacts").doc(artifactId).set({
+        userId: creatorUid,
         isPublic: true,
         durationMs: 60000,
         createdAt: new Date()
       });
-    });
-  }
+    }
 
-  async function setupUser(uid, anonymousId = "anon1") {
-    await testEnv.withSecurityRulesDisabled(async (context) => {
-      await context.firestore().collection("users").doc(uid).set({
-        anonymousId: anonymousId,
+    if (uid) {
+      await db.collection("users").doc(uid).set({
+        anonymousId: "anon_" + uid,
         anonymousName: "User " + uid
       });
-    });
-  }
+      await db.collection("users").doc(uid).collection("private").doc("settings").set({
+        activeSessionId: "session_" + uid,
+        accountStatus: "ACTIVE",
+        isAdmin: false
+      });
 
-  async function setupEngagement(uid, artifactId, isUnlocked = false) {
-    await testEnv.withSecurityRulesDisabled(async (context) => {
-      await context.firestore()
-        .collection("users").doc(uid)
-        .collection("engagement").doc(artifactId)
-        .set({
+      if (isUnlocked !== null) {
+        await db.collection("users").doc(uid).collection("engagement").doc(artifactId).set({
           artifactId: artifactId,
           isCommentUnlocked: isUnlocked,
           lastPositionMs: 1000
         });
-    });
+      }
+    }
   }
 
-  // --- CASE 1: UNLOCKED USER ---
-  it("should ALLOW comment creation for an unlocked user", async () => {
+  // --- CASE 1: UNLOCKED USER COMMENT INTENT ---
+  it("should ALLOW comment intent creation for an unlocked user", async () => {
     const uid = "alice";
     const artifactId = "art1";
-    await setupUser(uid);
-    await setupArtifact(artifactId);
-    await setupEngagement(uid, artifactId, true);
 
-    const alice = testEnv.authenticatedContext(uid);
-    const commentRef = alice.firestore()
-      .collection("artifacts").doc(artifactId)
-      .collection("comments").doc();
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setupFixtures(context.firestore(), { uid, artifactId, isUnlocked: true });
+    });
+
+    const alice = testEnv.authenticatedContext(uid, { activeSessionId: "session_" + uid });
+    const commentIntentRef = alice.firestore()
+      .doc(`users/${uid}/private/intents/comments/c1`);
 
     await assertSucceeds(
-      commentRef.set({
+      commentIntentRef.set({
         artifactId: artifactId,
-        creatorId: uid,
-        author: { anonymousId: "anon1", name: "Alice", sigil: "A" },
         text: "Great artifact!",
-        status: "ACTIVE"
       })
     );
   });
 
-  // --- CASE 2: LOCKED USER ---
-  it("should DENY comment creation for a locked user", async () => {
+  // --- CASE 2: LOCKED USER COMMENT INTENT ---
+  it("should DENY comment intent creation for a locked user", async () => {
     const uid = "alice";
     const artifactId = "art1";
-    await setupUser(uid);
-    await setupArtifact(artifactId);
-    await setupEngagement(uid, artifactId, false);
 
-    const alice = testEnv.authenticatedContext(uid);
-    const commentRef = alice.firestore()
-      .collection("artifacts").doc(artifactId)
-      .collection("comments").doc();
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setupFixtures(context.firestore(), { uid, artifactId, isUnlocked: false });
+    });
+
+    const alice = testEnv.authenticatedContext(uid, { activeSessionId: "session_" + uid });
+    const commentIntentRef = alice.firestore()
+      .doc(`users/${uid}/private/intents/comments/c1`);
 
     await assertFails(
-      commentRef.set({
+      commentIntentRef.set({
         artifactId: artifactId,
-        creatorId: uid,
-        author: { anonymousId: "anon1", name: "Alice", sigil: "A" },
         text: "I shouldn't be able to comment.",
-        status: "ACTIVE"
       })
     );
   });
 
   // --- CASE 3: MISSING ENGAGEMENT ---
-  it("should DENY comment creation if engagement document is missing", async () => {
+  it("should DENY comment intent creation if engagement document is missing", async () => {
     const uid = "alice";
     const artifactId = "art1";
-    await setupUser(uid);
-    await setupArtifact(artifactId);
-    // No setupEngagement here
 
-    const alice = testEnv.authenticatedContext(uid);
-    const commentRef = alice.firestore()
-      .collection("artifacts").doc(artifactId)
-      .collection("comments").doc();
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setupFixtures(context.firestore(), { uid, artifactId, isUnlocked: null });
+    });
+
+    const alice = testEnv.authenticatedContext(uid, { activeSessionId: "session_" + uid });
+    const commentIntentRef = alice.firestore()
+      .doc(`users/${uid}/private/intents/comments/c1`);
 
     await assertFails(
-      commentRef.set({
+      commentIntentRef.set({
         artifactId: artifactId,
-        creatorId: uid,
-        author: { anonymousId: "anon1", name: "Alice", sigil: "A" },
         text: "Where is my engagement?",
-        status: "ACTIVE"
       })
     );
   });
@@ -136,7 +126,12 @@ describe("Phase 3: Engagement and Comment Authorization", () => {
   it("should DENY client from setting isCommentUnlocked or unlockTimestamp", async () => {
     const uid = "alice";
     const artifactId = "art1";
-    const alice = testEnv.authenticatedContext(uid);
+
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setupFixtures(context.firestore(), { uid, artifactId, isUnlocked: null });
+    });
+
+    const alice = testEnv.authenticatedContext(uid, { activeSessionId: "session_" + uid });
     const engagementRef = alice.firestore()
       .collection("users").doc(uid)
       .collection("engagement").doc(artifactId);
@@ -151,10 +146,10 @@ describe("Phase 3: Engagement and Comment Authorization", () => {
 
     // Initial valid create
     await testEnv.withSecurityRulesDisabled(async (context) => {
-        await context.firestore().collection("users").doc(uid).collection("engagement").doc(artifactId).set({
-            artifactId: artifactId,
-            isCommentUnlocked: false
-        });
+      await context.firestore().collection("users").doc(uid).collection("engagement").doc(artifactId).set({
+        artifactId: artifactId,
+        isCommentUnlocked: false
+      });
     });
 
     // Update attempt with forbidden field
@@ -173,9 +168,18 @@ describe("Phase 3: Engagement and Comment Authorization", () => {
 
   // --- CASE 6: CROSS-USER ACCESS ---
   it("should DENY user from modifying another user's engagement", async () => {
-    const alice = testEnv.authenticatedContext("alice");
+    const uid = "alice";
+    const otherUid = "bob";
+
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      await setupFixtures(db, { uid, artifactId: "art1", isUnlocked: false });
+      await setupFixtures(db, { uid: otherUid, artifactId: "art1", isUnlocked: false });
+    });
+
+    const alice = testEnv.authenticatedContext(uid, { activeSessionId: "session_" + uid });
     const bobEngagementRef = alice.firestore()
-      .collection("users").doc("bob")
+      .collection("users").doc(otherUid)
       .collection("engagement").doc("art1");
 
     await assertFails(
@@ -186,25 +190,26 @@ describe("Phase 3: Engagement and Comment Authorization", () => {
     );
   });
 
-  // --- CASE 7: FORGED COMMENT PAYLOAD ---
-  it("should DENY comment creation if creatorId does not match auth.uid", async () => {
+  // --- CASE 7: DIRECT COMMENT CREATION ON SUBCOLLECTION BLOCKED FOR NON-ADMIN ---
+  it("should DENY direct comment creation on /comments subcollection for non-admin", async () => {
     const uid = "alice";
     const artifactId = "art1";
-    await setupUser(uid);
-    await setupArtifact(artifactId);
-    await setupEngagement(uid, artifactId, true);
 
-    const alice = testEnv.authenticatedContext(uid);
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setupFixtures(context.firestore(), { uid, artifactId, isUnlocked: true });
+    });
+
+    const alice = testEnv.authenticatedContext(uid, { activeSessionId: "session_" + uid });
     const commentRef = alice.firestore()
       .collection("artifacts").doc(artifactId)
-      .collection("comments").doc();
+      .collection("comments").doc("c1");
 
     await assertFails(
       commentRef.set({
         artifactId: artifactId,
-        creatorId: "bob", // Forged ID
-        author: { anonymousId: "anon1", name: "Alice", sigil: "A" },
-        text: "I am pretending to be Bob.",
+        authorAnonymousId: "anon_alice",
+        author: { anonymousId: "anon_alice", name: "Alice", sigil: "A" },
+        text: "I am trying to bypass intent system.",
         status: "ACTIVE"
       })
     );
@@ -213,10 +218,12 @@ describe("Phase 3: Engagement and Comment Authorization", () => {
   it("should ALLOW client to update listening evidence fields", async () => {
     const uid = "alice";
     const artifactId = "art1";
-    await setupUser(uid);
-    await setupEngagement(uid, artifactId, false);
 
-    const alice = testEnv.authenticatedContext(uid);
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setupFixtures(context.firestore(), { uid, artifactId, isUnlocked: false });
+    });
+
+    const alice = testEnv.authenticatedContext(uid, { activeSessionId: "session_" + uid });
     const engagementRef = alice.firestore()
       .collection("users").doc(uid)
       .collection("engagement").doc(artifactId);

@@ -24,6 +24,7 @@ import com.saurabh.artifact.domain.ArtifactVisibilityFilter
 import com.saurabh.artifact.audio.RecordingService
 import com.saurabh.artifact.data.local.RecordingStatus
 import com.saurabh.artifact.navigation.*
+import com.saurabh.artifact.repository.SessionGateResult
 import com.saurabh.artifact.repository.SessionState
 import com.saurabh.artifact.repository.TransferResult
 import com.saurabh.artifact.startup.SecurityStatus
@@ -100,6 +101,7 @@ class MainViewModelTest {
         coEvery { maintenanceRepository.getPendingDeletionUid() } returns null
         coEvery { logoutCoordinator.performFullCleanup(any()) } returns CleanupResult(status = CleanupStatus.COMPLETED)
         coEvery { authRepository.awaitAuthoritativeSessionState() } returns SessionState.Active
+        coEvery { authRepository.resolveSessionGate(any()) } returns SessionGateResult.Approved
         sessionStateFlow.value = SessionState.Active
         every { authRepository.sessionState } returns sessionStateFlow
 
@@ -1231,13 +1233,12 @@ class MainViewModelTest {
         testAuthFlow.value = user
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
-        coEvery { authRepository.awaitAuthoritativeSessionState() } returns com.saurabh.artifact.repository.SessionState.NoActiveSession
-        coEvery { authRepository.claimFirstDevice(any()) } returns Result.success(com.saurabh.artifact.repository.ClaimResult.Success)
+        coEvery { authRepository.resolveSessionGate(any()) } returns SessionGateResult.Approved
 
         viewModel.start()
         advanceUntilIdle()
 
-        coVerify { authRepository.claimFirstDevice(any()) }
+        coVerify { authRepository.resolveSessionGate(any()) }
         assertTrue(viewModel.startupState.value is AppStartupState.Ready)
         assertEquals(Home, (viewModel.startupState.value as AppStartupState.Ready).startDestination)
     }
@@ -1249,7 +1250,7 @@ class MainViewModelTest {
         testAuthFlow.value = user
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
-        coEvery { authRepository.awaitAuthoritativeSessionState() } returns com.saurabh.artifact.repository.SessionState.SessionExistsOnOtherDevice("Pixel 9")
+        coEvery { authRepository.resolveSessionGate(any()) } returns SessionGateResult.Conflict("Pixel 9")
 
         viewModel.start()
         advanceUntilIdle()
@@ -1264,7 +1265,7 @@ class MainViewModelTest {
         testAuthFlow.value = user
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
-        coEvery { authRepository.awaitAuthoritativeSessionState() } returns com.saurabh.artifact.repository.SessionState.Unavailable(Exception("Server verification required"))
+        coEvery { authRepository.resolveSessionGate(any()) } returns SessionGateResult.Failure(Exception("Server verification required"))
 
         viewModel.start()
         advanceUntilIdle()
@@ -1292,12 +1293,55 @@ class MainViewModelTest {
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
         coEvery { authRepository.transferActiveSession(any(), any()) } returns Result.success(
             TransferResult.Success)
-        coEvery { authRepository.awaitAuthoritativeSessionState() } returns SessionState.Active
+        coEvery { authRepository.resolveSessionGate(any()) } returns SessionGateResult.Approved
 
         viewModel.transferActiveSession()
         advanceUntilIdle()
 
         coVerify { authRepository.transferActiveSession(any(), any()) }
+    }
+
+    @Test
+    fun `transferActiveSession retry preserves original correlation ID`() = runTest {
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
+        coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
+
+        val correlationIdSlot1 = slot<String>()
+        coEvery {
+            authRepository.transferActiveSession(any(), capture(correlationIdSlot1))
+        } returns Result.failure(Exception("Transfer failed"))
+
+        viewModel.transferActiveSession()
+        advanceUntilIdle()
+
+        val firstCorrelationId = correlationIdSlot1.captured
+
+        val correlationIdSlot2 = slot<String>()
+        coEvery {
+            authRepository.transferActiveSession(any(), capture(correlationIdSlot2))
+        } returns Result.success(TransferResult.Success)
+
+        viewModel.transferActiveSession()
+        advanceUntilIdle()
+
+        val secondCorrelationId = correlationIdSlot2.captured
+
+        assertEquals("Correlation ID must be preserved across retries of the same transfer attempt", firstCorrelationId, secondCorrelationId)
+    }
+
+    @Test
+    fun `token refresh failure after backend transfer does not cause premature Home navigation`() = runTest {
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
+        coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
+
+        val tokenRefreshErr = Exception("Token refresh failed after transfer")
+        coEvery { authRepository.transferActiveSession(any(), any()) } returns Result.failure(tokenRefreshErr)
+
+        viewModel.transferActiveSession()
+        advanceUntilIdle()
+
+        assertTrue(viewModel.startupState.value is AppStartupState.Error)
+        assertEquals("Token refresh failed after transfer", (viewModel.startupState.value as AppStartupState.Error).message)
     }
 
     @Test
@@ -1307,13 +1351,12 @@ class MainViewModelTest {
         testAuthFlow.value = user
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
-        coEvery { authRepository.awaitAuthoritativeSessionState() } returns SessionState.NoActiveSession
-        
+
         val appCheck403Error = mockk<FirebaseException> {
             every { message } returns "Error returned from API. code: 403"
             every { cause } returns null
         }
-        coEvery { authRepository.claimFirstDevice(any()) } returns Result.failure(AppError.from(appCheck403Error))
+        coEvery { authRepository.resolveSessionGate(any()) } returns SessionGateResult.Failure(AppError.from(appCheck403Error))
 
         viewModel.start()
         advanceUntilIdle()
@@ -1329,13 +1372,12 @@ class MainViewModelTest {
         testAuthFlow.value = user
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
-        coEvery { authRepository.awaitAuthoritativeSessionState() } returns SessionState.NoActiveSession
-        
+
         val throttledError = mockk<FirebaseException> {
             every { message } returns "Too many attempts."
             every { cause } returns null
         }
-        coEvery { authRepository.claimFirstDevice(any()) } returns Result.failure(AppError.from(throttledError))
+        coEvery { authRepository.resolveSessionGate(any()) } returns SessionGateResult.Failure(AppError.from(throttledError))
 
         viewModel.start()
         advanceUntilIdle()
@@ -1351,10 +1393,9 @@ class MainViewModelTest {
         testAuthFlow.value = user
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
-        coEvery { authRepository.awaitAuthoritativeSessionState() } returns SessionState.NoActiveSession
-        
+
         val internalError = RuntimeException("Database query failed")
-        coEvery { authRepository.claimFirstDevice(any()) } returns Result.failure(internalError)
+        coEvery { authRepository.resolveSessionGate(any()) } returns SessionGateResult.Failure(internalError)
 
         viewModel.start()
         advanceUntilIdle()
@@ -1370,7 +1411,6 @@ class MainViewModelTest {
         testAuthFlow.value = user
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
-        coEvery { authRepository.awaitAuthoritativeSessionState() } returns SessionState.NoActiveSession
         coEvery { logoutCoordinator.performFullCleanup(any()) } returns CleanupResult(CleanupStatus.COMPLETED)
 
         val revokedError = mockk<FirebaseAuthInvalidUserException> {
@@ -1378,7 +1418,7 @@ class MainViewModelTest {
             every { message } returns "User account disabled"
             every { cause } returns null
         }
-        coEvery { authRepository.claimFirstDevice(any()) } returns Result.failure(revokedError)
+        coEvery { authRepository.resolveSessionGate(any()) } returns SessionGateResult.Failure(revokedError)
 
         viewModel.start()
         advanceUntilIdle()
@@ -1395,7 +1435,7 @@ class MainViewModelTest {
         testAuthFlow.value = user
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
-        coEvery { authRepository.awaitAuthoritativeSessionState() } returns SessionState.Active
+        coEvery { authRepository.resolveSessionGate(any()) } returns SessionGateResult.Approved
 
         viewModel.retryStartup()
         advanceUntilIdle()
@@ -1428,8 +1468,7 @@ class MainViewModelTest {
         testAuthFlow.value = user
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
-        coEvery { authRepository.awaitAuthoritativeSessionState() } returns SessionState.NoActiveSession
-        coEvery { authRepository.claimFirstDevice(any()) } throws kotlinx.coroutines.CancellationException("Job cancelled")
+        coEvery { authRepository.resolveSessionGate(any()) } throws kotlinx.coroutines.CancellationException("Job cancelled")
 
         viewModel.start()
         advanceUntilIdle()

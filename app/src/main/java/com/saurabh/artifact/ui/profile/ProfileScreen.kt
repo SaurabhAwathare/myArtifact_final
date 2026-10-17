@@ -224,7 +224,8 @@ fun ProfileScreen(
                                     onPublishClick = { id -> onNavigateToPublish(id) },
                                     onDelete = { id -> 
                                         viewModel.deleteDraft(id)
-                                    }
+                                    },
+                                    onNavigateToSettings = onNavigateToSettings
                                 )
 
                                 if (uiState.cloudDrafts.isNotEmpty()) {
