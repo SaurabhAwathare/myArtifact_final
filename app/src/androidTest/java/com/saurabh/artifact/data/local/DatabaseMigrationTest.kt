@@ -349,11 +349,30 @@ class DatabaseMigrationTest {
     }
 
     /**
-     * Verifies the full migration chain from baseline Version 60 to Version 70.
+     * Verifies MIGRATION_73_74 adds cachedProgressionCount column to current_user_profile.
      */
     @Test
     @Throws(IOException::class)
-    fun migrateAll_60_to_70() {
+    fun migrate73To74_isolated() {
+        helper.createDatabase(TEST_DB, 73).apply {
+            execSQL("INSERT INTO current_user_profile (id, anonymousId, anonymousName, anonymousSigil, sigilSeed, sigilColor, sigilConfigJson, lastUpdated) VALUES ('u73', 'anon73', 'Name', 'Sigil', 'Seed', 'Color', '{}', 1000)")
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 74, true, DatabaseMigrations.MIGRATION_73_74)
+
+        val cursor = db.query("SELECT cachedProgressionCount FROM current_user_profile WHERE id = 'u73'")
+        assert(cursor.moveToFirst())
+        assertEquals(0, cursor.getInt(0))
+        cursor.close()
+    }
+
+    /**
+     * Verifies the full migration chain from baseline Version 60 to Version 74.
+     */
+    @Test
+    @Throws(IOException::class)
+    fun migrateAll_60_to_74() {
         helper.createDatabase(TEST_DB, 60).apply {
             execSQL(
                 """
@@ -379,7 +398,7 @@ class DatabaseMigrationTest {
             close()
         }
 
-        val db = helper.runMigrationsAndValidate(TEST_DB, 70, true, *DatabaseMigrations.ALL_MIGRATIONS)
+        val db = helper.runMigrationsAndValidate(TEST_DB, 74, true, *DatabaseMigrations.ALL_MIGRATIONS)
 
         val draftCursor = db.query("SELECT * FROM artifact_drafts WHERE id = 'draft_60'")
         assert(draftCursor.moveToFirst())

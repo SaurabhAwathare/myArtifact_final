@@ -37,26 +37,43 @@ class PromptRepositoryTest {
     }
 
     @Test
-    fun `getNewPrompt should select prompt based on depth level 1 for new users`() = runBlocking {
-        coEvery { promptDao.getConsumedCount() } returns 0
-        coEvery { promptDao.getUnconsumedCount() } returns 10
+    fun `calculateMaxDepth correct mapping for progression thresholds`() {
+        assertEquals(1, repository.calculateMaxDepth(0))
+        assertEquals(1, repository.calculateMaxDepth(1))
+        assertEquals(1, repository.calculateMaxDepth(2))
+
+        assertEquals(2, repository.calculateMaxDepth(3))
+        assertEquals(2, repository.calculateMaxDepth(5))
+        assertEquals(2, repository.calculateMaxDepth(9))
+
+        assertEquals(3, repository.calculateMaxDepth(10))
+        assertEquals(3, repository.calculateMaxDepth(15))
+        assertEquals(3, repository.calculateMaxDepth(24))
+
+        assertEquals(4, repository.calculateMaxDepth(25))
+        assertEquals(4, repository.calculateMaxDepth(30))
+        assertEquals(4, repository.calculateMaxDepth(100))
+    }
+
+    @Test
+    fun `getNewPrompt should select prompt based on depth level 1 for progression 0`() = runBlocking {
+        coEvery { promptDao.getUnconsumedCountByDepth(1) } returns 10
         val expectedEntity = PromptEntity("L1_001", "Q1", PromptCategory.GENERAL, EmotionalTone.GENTLE, depthLevel = 1)
         coEvery { promptDao.getNextEligiblePrompt(1, null) } returns expectedEntity
 
-        val result = repository.getNewPrompt()
+        val result = repository.getNewPrompt(progressionCount = 0)
 
         assertEquals("L1_001", result?.id)
         coVerify { promptDao.getNextEligiblePrompt(1, null) }
     }
 
     @Test
-    fun `getNewPrompt should select depth level 2 after 30 prompts`() = runBlocking {
-        coEvery { promptDao.getConsumedCount() } returns 35
-        coEvery { promptDao.getUnconsumedCount() } returns 10
+    fun `getNewPrompt should select depth level 2 for progression 3`() = runBlocking {
+        coEvery { promptDao.getUnconsumedCountByDepth(2) } returns 10
         val expectedEntity = PromptEntity("L2_001", "Q2", PromptCategory.GENERAL, EmotionalTone.GENTLE, depthLevel = 2)
         coEvery { promptDao.getNextEligiblePrompt(2, null) } returns expectedEntity
 
-        val result = repository.getNewPrompt()
+        val result = repository.getNewPrompt(progressionCount = 3)
 
         assertEquals("L2_001", result?.id)
         coVerify { promptDao.getNextEligiblePrompt(2, null) }
@@ -64,38 +81,54 @@ class PromptRepositoryTest {
 
     @Test
     fun `getNewPrompt with excludedPromptId should pass excluded id to DAO`() = runBlocking {
-        coEvery { promptDao.getConsumedCount() } returns 0
-        coEvery { promptDao.getUnconsumedCount() } returns 10
+        coEvery { promptDao.getUnconsumedCountByDepth(1) } returns 10
         val expectedEntity = PromptEntity("L1_002", "Q2", PromptCategory.GENERAL, EmotionalTone.GENTLE, depthLevel = 1)
         coEvery { promptDao.getNextEligiblePrompt(1, "L1_001") } returns expectedEntity
 
-        val result = repository.getNewPrompt(excludedPromptId = "L1_001")
+        val result = repository.getNewPrompt(progressionCount = 0, excludedPromptId = "L1_001")
 
         assertEquals("L1_002", result?.id)
         coVerify { promptDao.getNextEligiblePrompt(1, "L1_001") }
     }
 
     @Test
-    fun `getNewPrompt should trigger recycling when all prompts are consumed`() = runBlocking {
-        coEvery { promptDao.getConsumedCount() } returnsMany listOf(500, 0)
-        coEvery { promptDao.getUnconsumedCount() } returnsMany listOf(0, 500)
-        coEvery { promptDao.getPromptCount() } returns 500
-        coEvery { promptDao.getNextEligiblePrompt(4, null) } returns null
-        coEvery { promptDao.getOldestPrompt(null) } returns null
+    fun `getNewPrompt should trigger depth-scoped recycling when all prompts at depth are consumed`() = runBlocking {
+        coEvery { promptDao.getUnconsumedCountByDepth(1) } returnsMany listOf(0, 10)
+        coEvery { promptDao.getPromptCountByDepth(1) } returns 10
+        coEvery { promptDao.getNextEligiblePrompt(1, null) } returnsMany listOf(null, PromptEntity("L1_001", "Q1", PromptCategory.GENERAL, EmotionalTone.GENTLE, depthLevel = 1))
 
-        val recycledEntity = PromptEntity("L1_001", "Q1", PromptCategory.GENERAL, EmotionalTone.GENTLE, depthLevel = 1)
-        coEvery { promptDao.getNextEligiblePrompt(1, null) } returns recycledEntity
-
-        val result = repository.getNewPrompt()
+        val result = repository.getNewPrompt(progressionCount = 0)
 
         assertEquals("L1_001", result?.id)
-        coVerify { promptDao.resetConsumedPrompts() }
+        coVerify { promptDao.resetConsumedPromptsForDepth(1) }
+        coVerify(exactly = 0) { promptDao.resetConsumedPrompts() }
     }
 
     @Test
-    fun `markAsConsumed should delegate to DAO`() = runBlocking {
-        repository.markAsConsumed("test_id")
-        coVerify { promptDao.markAsConsumed("test_id") }
+    fun `getNewPrompt should fallback to excluded prompt when it is the only unconsumed option`() = runBlocking {
+        coEvery { promptDao.getUnconsumedCountByDepth(1) } returns 1
+        val excludedEntity = PromptEntity("L1_001", "Q1", PromptCategory.GENERAL, EmotionalTone.GENTLE, depthLevel = 1)
+        coEvery { promptDao.getNextEligiblePrompt(1, "L1_001") } returns null
+        coEvery { promptDao.getNextEligiblePrompt(1, null) } returns excludedEntity
+
+        val result = repository.getNewPrompt(progressionCount = 0, excludedPromptId = "L1_001")
+
+        assertEquals("L1_001", result?.id)
+        coVerify { promptDao.getNextEligiblePrompt(1, "L1_001") }
+        coVerify { promptDao.getNextEligiblePrompt(1, null) }
+    }
+
+    @Test
+    fun `markAsConsumed should ignore blank and nav_ synthetic prompt IDs`() = runBlocking {
+        repository.markAsConsumed("")
+        repository.markAsConsumed("   ")
+        repository.markAsConsumed("nav_1712345678")
+        repository.markAsConsumed("nav_test")
+
+        coVerify(exactly = 0) { promptDao.markAsConsumed(any()) }
+
+        repository.markAsConsumed("valid_id")
+        coVerify(exactly = 1) { promptDao.markAsConsumed("valid_id") }
     }
 
     @Test

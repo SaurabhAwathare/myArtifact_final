@@ -19,18 +19,23 @@ class ReflectionPromptManager @Inject constructor(
     /**
      * Fetches the next eligible reflection prompt from the local question bank.
      * Guarantees zero AI cost and works fully offline.
+     * Requires explicit [progressionCount] parameter to determine unlocked depth.
      * Supports optional [excludedPromptId] to prevent immediate re-selection of skipped prompts.
      */
-    suspend fun getNextPrompt(excludedPromptId: String? = null): ReflectionPrompt? = withContext(Dispatchers.IO) {
-        return@withContext promptRepository.getNewPrompt(excludedPromptId)
+    suspend fun getNextPrompt(
+        progressionCount: Int,
+        excludedPromptId: String? = null
+    ): ReflectionPrompt? = withContext(Dispatchers.IO) {
+        return@withContext promptRepository.getNewPrompt(progressionCount, excludedPromptId)
     }
 
     /**
      * Legacy bridge for existing callers. Delegates to getNextPrompt().
      */
     suspend fun getSmartReflectionPrompt(
+        progressionCount: Int,
         emotion: String? = null,
         context: String? = null,
         timeOfDay: String? = null
-    ): ReflectionPrompt? = getNextPrompt()
+    ): ReflectionPrompt? = getNextPrompt(progressionCount = progressionCount)
 }

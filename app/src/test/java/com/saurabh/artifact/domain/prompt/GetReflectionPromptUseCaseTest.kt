@@ -41,19 +41,19 @@ class GetReflectionPromptUseCaseTest {
         every { safetyEvaluator.evaluate("I want to end it all") } returns safetyResult
         
         // Act
-        val result = useCase.invoke(null, context)
+        val result = useCase.invoke(progressionCount = 0, emotion = null, context = context)
         
         // Assert
         assertEquals(safetyPrompt, result.prompt)
         assertEquals(SafetyLevel.HIGH, result.safetyLevel)
         assertTrue(result.isCrisis)
         
-        // Verify AI service was NEVER called
-        coVerify(exactly = 0) { reflectionPromptManager.getSmartReflectionPrompt(any(), any(), any()) }
+        // Verify ReflectionPromptManager was NEVER called
+        coVerify(exactly = 0) { reflectionPromptManager.getSmartReflectionPrompt(any(), any(), any(), any()) }
     }
 
     @Test
-    fun `invoke with low risk context calls AI service`() = runTest {
+    fun `invoke with low risk context calls ReflectionPromptManager`() = runTest {
         // Arrange
         val emotion = "Joy"
         val context = "I had a great day at the park"
@@ -62,18 +62,18 @@ class GetReflectionPromptUseCaseTest {
         
         // Mock combined input: "Joy I had a great day at the park"
         every { safetyEvaluator.evaluate("Joy I had a great day at the park") } returns safetyResult
-        coEvery { reflectionPromptManager.getSmartReflectionPrompt(any(), eq(context), any()) } returns aiPrompt
+        coEvery { reflectionPromptManager.getSmartReflectionPrompt(5, "Joy", context, any()) } returns aiPrompt
         
         // Act
-        val result = useCase.invoke(emotion, context)
+        val result = useCase.invoke(progressionCount = 5, emotion = emotion, context = context)
         
         // Assert
         assertEquals(aiPrompt, result.prompt)
         assertEquals(SafetyLevel.LOW, result.safetyLevel)
         assertEquals(false, result.isCrisis)
         
-        // Verify AI service WAS called
-        coVerify(exactly = 1) { reflectionPromptManager.getSmartReflectionPrompt("Joy", context, any()) }
+        // Verify ReflectionPromptManager WAS called with progressionCount
+        coVerify(exactly = 1) { reflectionPromptManager.getSmartReflectionPrompt(5, "Joy", context, any()) }
     }
 
     @Test
@@ -92,15 +92,15 @@ class GetReflectionPromptUseCaseTest {
         every { safetyEvaluator.evaluate("suicidal I am at the park") } returns safetyResult
         
         // Act
-        val result = useCase.invoke(emotion, context)
+        val result = useCase.invoke(progressionCount = 0, emotion = emotion, context = context)
         
         // Assert
         assertEquals(safetyPrompt, result.prompt)
         assertEquals(SafetyLevel.HIGH, result.safetyLevel)
         assertTrue(result.isCrisis)
         
-        // Verify AI service was NEVER called
-        coVerify(exactly = 0) { reflectionPromptManager.getSmartReflectionPrompt(any(), any(), any()) }
+        // Verify ReflectionPromptManager was NEVER called
+        coVerify(exactly = 0) { reflectionPromptManager.getSmartReflectionPrompt(any(), any(), any(), any()) }
     }
 
     @Test
@@ -118,13 +118,13 @@ class GetReflectionPromptUseCaseTest {
         every { safetyEvaluator.evaluate("I feel so alone") } returns safetyResult
         
         // Act
-        val result = useCase.invoke(null, context)
+        val result = useCase.invoke(progressionCount = 0, emotion = null, context = context)
         
         // Assert
         assertEquals(safetyPrompt, result.prompt)
         assertEquals(SafetyLevel.MEDIUM, result.safetyLevel)
         
-        // Verify AI service was NEVER called because we had a suggestion
-        coVerify(exactly = 0) { reflectionPromptManager.getSmartReflectionPrompt(any(), any(), any()) }
+        // Verify ReflectionPromptManager was NEVER called because we had a suggestion
+        coVerify(exactly = 0) { reflectionPromptManager.getSmartReflectionPrompt(any(), any(), any(), any()) }
     }
 }

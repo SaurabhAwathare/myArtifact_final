@@ -31,49 +31,53 @@ class PromptRepository @Inject constructor(
     private var isSynced = false
 
     /**
-     * Selects the next eligible unconsumed prompt based on depth level.
+     * Selects the next eligible unconsumed prompt based on depth level and user progression.
+     * Requires an explicit [progressionCount] parameter.
      * Supports optional [excludedPromptId] to prevent immediately repeating a skipped prompt.
-     * Automatically triggers Question Bank recycling when all prompts are consumed.
+     * Automatically triggers depth-scoped Question Bank recycling when all prompts at or below maxDepth are consumed.
      */
-    suspend fun getNewPrompt(excludedPromptId: String? = null): ReflectionPrompt? = withContext(Dispatchers.IO) {
+    suspend fun getNewPrompt(
+        progressionCount: Int,
+        excludedPromptId: String? = null
+    ): ReflectionPrompt? = withContext(Dispatchers.IO) {
         syncPromptsFromAsset()
 
-        val consumedCount = promptDao.get().getConsumedCount()
-        val maxDepth = calculateMaxDepth(consumedCount)
+        val maxDepth = calculateMaxDepth(progressionCount)
 
-        var entity = promptDao.get().getNextEligiblePrompt(maxDepth, excludedPromptId) 
-            ?: promptDao.get().getOldestPrompt(excludedPromptId) // Final fallback if depth exhausted
+        var entity = promptDao.get().getNextEligiblePrompt(maxDepth, excludedPromptId)
 
-        // If exclusion produced null, check if there's any unconsumed prompt without exclusion
-        if (entity == null && excludedPromptId != null) {
-            entity = promptDao.get().getOldestPrompt(null)
+        val unconsumedCount = promptDao.get().getUnconsumedCountByDepth(maxDepth)
+
+        // Fallback 1: If exclusion produced null, check if there's an unconsumed prompt at/below maxDepth without exclusion
+        if (entity == null && excludedPromptId != null && unconsumedCount > 0) {
+            entity = promptDao.get().getNextEligiblePrompt(maxDepth, null)
         }
 
-        // Exhaustion check: if no unconsumed prompts exist at all, recycle the bank
-        if (entity == null && promptDao.get().getUnconsumedCount() == 0 && promptDao.get().getPromptCount() > 0) {
-            promptDao.get().resetConsumedPrompts()
-            val resetConsumedCount = promptDao.get().getConsumedCount()
-            val resetMaxDepth = calculateMaxDepth(resetConsumedCount)
-            entity = promptDao.get().getNextEligiblePrompt(resetMaxDepth, excludedPromptId)
-                ?: promptDao.get().getOldestPrompt(null)
+        // Exhaustion check: if no unconsumed prompts exist at or below maxDepth, recycle ONLY prompts for maxDepth
+        if (entity == null && unconsumedCount == 0 && promptDao.get().getPromptCountByDepth(maxDepth) > 0) {
+            promptDao.get().resetConsumedPromptsForDepth(maxDepth)
+            entity = promptDao.get().getNextEligiblePrompt(maxDepth, excludedPromptId)
+                ?: promptDao.get().getNextEligiblePrompt(maxDepth, null)
         }
 
         entity?.toDomainModel()
     }
 
-    private fun calculateMaxDepth(consumedCount: Int): Int {
+    fun calculateMaxDepth(progressionCount: Int): Int {
         return when {
-            consumedCount < 30 -> 1
-            consumedCount < 100 -> 2
-            consumedCount < 250 -> 3
-            else -> 4
+            progressionCount < 3 -> 1   // 0–2 -> Depth 1
+            progressionCount < 10 -> 2  // 3–9 -> Depth 2
+            progressionCount < 25 -> 3  // 10–24 -> Depth 3
+            else -> 4                   // 25+ -> Depth 4
         }
     }
 
     /**
      * Marks a prompt as permanently consumed.
+     * Synthetic IDs (blank or beginning with "nav_") are ignored to prevent unnecessary DB updates.
      */
     suspend fun markAsConsumed(promptId: String) = withContext(Dispatchers.IO) {
+        if (promptId.isBlank() || promptId.startsWith("nav_")) return@withContext
         promptDao.get().markAsConsumed(promptId)
     }
 

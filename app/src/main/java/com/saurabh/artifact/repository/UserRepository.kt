@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
@@ -59,6 +60,7 @@ import com.saurabh.artifact.model.sigil.SigilStyle
 import com.saurabh.artifact.model.sigil.SigilVariant
 import com.saurabh.artifact.worker.InteractionSyncWorker
 import kotlinx.coroutines.delay
+import kotlinx.serialization.json.Json
 import java.util.UUID
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
@@ -126,7 +128,7 @@ open class UserRepository @Inject constructor(
                 try {
                     userRef.update("anonymousName", trimmedOldName).await()
                     getCachedProfile(userId.trim())?.let { cached ->
-                        userDao.get().insertProfile(mapUserToLocal(cached.copy(anonymousName = trimmedOldName)))
+                        insertProfilePreservingProgression(cached.copy(anonymousName = trimmedOldName))
                     }
                 } catch (e: Exception) {
                     diagnosticLogger.error(
@@ -268,8 +270,7 @@ open class UserRepository @Inject constructor(
                 sigilSeed = sigilConfig?.seed ?: (cached ?: user).sigilSeed,
                 anonymousSigil = newSigilForCache ?: (cached ?: user).anonymousSigil
             )
-            userDao.get().deleteProfileByKey(targetUserId, (cached ?: user).anonymousId.trim())
-            userDao.get().insertProfile(mapUserToLocal(updated))
+            insertProfilePreservingProgression(updated)
 
             Result.success(Unit)
         } catch (e: Exception) {
@@ -512,7 +513,6 @@ open class UserRepository @Inject constructor(
                 }
 
                 try {
-                    try { currentUser.getIdToken(true).await() } catch (_: Exception) {}
                     profileResult = withTimeout(15.seconds) {
                         executeProfileTransaction(userRef, privateRef, currentUser)
                     }
@@ -556,8 +556,7 @@ open class UserRepository @Inject constructor(
             
             // Cache the profile locally
             try {
-                userDao.get().deleteProfileByKey(profileResult.user.id.trim(), profileResult.user.anonymousId.trim())
-                userDao.get().insertProfile(mapUserToLocal(profileResult.user))
+                insertProfilePreservingProgression(profileResult.user)
             } catch (e: Exception) {
                 diagnosticLogger.error(DiagnosticCategory.DATABASE, "USER_PROFILE_CACHE_FAILED", mapOf(LogKeys.USER_ID to profileResult.user.id), e)
             }
@@ -674,8 +673,7 @@ open class UserRepository @Inject constructor(
             }
 
             if (user != null && user.anonymousName.isNotBlank()) {
-                userDao.get().deleteProfileByKey(user.id.trim(), user.anonymousId.trim())
-                userDao.get().insertProfile(mapUserToLocal(user))
+                insertProfilePreservingProgression(user)
                 return user
             }
         } catch (e: Exception) {
@@ -782,8 +780,7 @@ open class UserRepository @Inject constructor(
         }
 
         if (fetchedUsers.isNotEmpty()) {
-            val localsToInsert = fetchedUsers.map { mapUserToLocal(it) }
-            userDao.get().insertProfiles(localsToInsert)
+            insertProfilesPreservingProgression(fetchedUsers)
 
             fetchedUsers.forEach { user ->
                 if (user.id.isNotBlank()) result[user.id] = user
@@ -817,7 +814,7 @@ open class UserRepository @Inject constructor(
             .distinctUntilChanged()
     }
 
-    internal fun mapUserToLocal(user: User): UserLocalEntity {
+    internal fun mapUserToLocal(user: User, cachedProgressionCount: Int = 0): UserLocalEntity {
         return UserLocalEntity(
             id = user.id,
             anonymousId = user.anonymousId,
@@ -825,8 +822,42 @@ open class UserRepository @Inject constructor(
             anonymousSigil = user.anonymousSigil,
             sigilSeed = user.sigilSeed,
             sigilColor = user.sigilColor,
-            sigilConfigJson = kotlinx.serialization.json.Json.encodeToString(user.sigilConfig)
+            sigilConfigJson = Json.encodeToString(user.sigilConfig),
+            cachedProgressionCount = cachedProgressionCount
         )
+    }
+
+    internal suspend fun insertProfilePreservingProgression(user: User) {
+        val targetId = user.id.trim()
+        val targetAnonId = user.anonymousId.trim()
+        val existingLocal = (if (targetId.isNotBlank()) userDao.get().getProfile(targetId) else null)
+            ?: (if (targetAnonId.isNotBlank()) userDao.get().getProfile(targetAnonId) else null)
+        val existingCount = existingLocal?.cachedProgressionCount ?: 0
+
+        userDao.get().deleteProfileByKey(targetId, targetAnonId)
+        userDao.get().insertProfile(mapUserToLocal(user, cachedProgressionCount = existingCount))
+    }
+
+    internal suspend fun insertProfilesPreservingProgression(users: List<User>) {
+        if (users.isEmpty()) return
+        val userKeys = users.flatMap { listOf(it.id.trim(), it.anonymousId.trim()) }.filter { it.isNotBlank() }
+        val existingProfiles = if (userKeys.isNotEmpty()) {
+            userDao.get().getProfiles(userKeys).let { list ->
+                val map = mutableMapOf<String, UserLocalEntity>()
+                list.forEach { entity ->
+                    if (entity.id.isNotBlank()) map[entity.id] = entity
+                    if (entity.anonymousId.isNotBlank()) map[entity.anonymousId] = entity
+                }
+                map
+            }
+        } else emptyMap()
+
+        val localsToInsert = users.map { user ->
+            val existing = existingProfiles[user.id.trim()] ?: existingProfiles[user.anonymousId.trim()]
+            val existingCount = existing?.cachedProgressionCount ?: 0
+            mapUserToLocal(user, cachedProgressionCount = existingCount)
+        }
+        userDao.get().insertProfiles(localsToInsert)
     }
 
     internal fun mapLocalToUser(local: UserLocalEntity): User {
@@ -1276,8 +1307,7 @@ open class UserRepository @Inject constructor(
                     sigilSeed = config.seed,
                     anonymousSigil = newSigil
                 )
-                userDao.get().deleteProfileByKey(targetUserId, cached.anonymousId.trim())
-                userDao.get().insertProfile(mapUserToLocal(updated))
+                insertProfilePreservingProgression(updated)
             }
 
             diagnosticLogger.info(DiagnosticCategory.AUTH, "SIGIL_CONFIG_UPDATED", mapOf(LogKeys.USER_ID to userId))
@@ -1665,4 +1695,55 @@ open class UserRepository @Inject constructor(
         val userId = getCurrentUserId() ?: return flowOf(emptySet())
         return ignoredUserDao.get().observeAllIgnoredUserIds(userId).map { it.toSet() }
     }
+
+    /**
+     * Reads the owner-accessible remote sequence number from Firestore `/users/{uid}/private/sequence`.
+     * Returns null if document is missing, unreadable, or device is offline.
+     */
+    suspend fun fetchRemoteSequenceNumber(userId: String): Int? = withContext(Dispatchers.IO) {
+        if (userId.isBlank()) return@withContext null
+        try {
+            val doc = usersCollection.document(userId.trim()).collection("private").document("sequence").get().await()
+            if (doc.exists()) {
+                doc.getLong("lastEpisodeNumber")?.toInt()
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            diagnosticLogger.warn(DiagnosticCategory.FIRESTORE, "FETCH_SEQUENCE_NUMBER_FAILED", mapOf(LogKeys.USER_ID to userId), e)
+            null
+        }
+    }
+
+    /**
+     * Maintains a monotonic high-water mark for user progression count,
+     * resolved as maxOf(localCached, sequenceLastEpisodeNumber, activeArtifactsCount).
+     * Strictly isolated per authenticated UID.
+     * Known limitation: For legacy accounts created before sequence tracking whose deleted
+     * historical Artifacts cannot be reconstructed and have no local cache, the account safely
+     * initializes at active artifactsCount and writes to cachedProgressionCount for that UID,
+     * guaranteeing zero future regressions.
+     */
+    open fun getUserProgressionCount(userId: String): Flow<Int> = flow {
+        if (userId.isBlank()) {
+            emit(0)
+            return@flow
+        }
+
+        val localEntity = userDao.get().getProfile(userId)
+        val localCached = localEntity?.cachedProgressionCount ?: 0
+
+        val cachedUser = getCachedProfile(userId)
+        val activeCount = (cachedUser?.artifactsCount ?: 0L).toInt()
+
+        val sequenceVal = fetchRemoteSequenceNumber(userId)
+
+        val resolvedProgression = maxOf(localCached, sequenceVal ?: 0, activeCount)
+
+        if (localEntity != null && resolvedProgression > localEntity.cachedProgressionCount) {
+            userDao.get().updateCachedProgression(localEntity.id, resolvedProgression)
+        }
+
+        emit(resolvedProgression)
+    }.catch { emit(0) }.distinctUntilChanged()
 }

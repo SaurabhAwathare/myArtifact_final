@@ -66,6 +66,15 @@ interface PromptDao {
     @Query("SELECT * FROM prompts WHERE isConsumed = 0 AND depthLevel <= :maxDepth AND (:excludedPromptId IS NULL OR id != :excludedPromptId) ORDER BY depthLevel DESC, RANDOM() LIMIT 1")
     suspend fun getNextEligiblePrompt(maxDepth: Int, excludedPromptId: String? = null): PromptEntity?
 
+    @Query("SELECT COUNT(*) FROM prompts WHERE isConsumed = 0 AND depthLevel <= :maxDepth")
+    suspend fun getUnconsumedCountByDepth(maxDepth: Int): Int
+
+    @Query("SELECT COUNT(*) FROM prompts WHERE depthLevel <= :maxDepth")
+    suspend fun getPromptCountByDepth(maxDepth: Int): Int
+
+    @Query("UPDATE prompts SET isConsumed = 0 WHERE depthLevel <= :maxDepth")
+    suspend fun resetConsumedPromptsForDepth(maxDepth: Int)
+
     @Query("SELECT * FROM prompts ORDER BY lastUsedTimestamp DESC LIMIT :limit")
     suspend fun getRecentPrompts(limit: Int): List<PromptEntity>
 }

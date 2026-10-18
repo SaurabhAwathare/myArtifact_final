@@ -33,12 +33,15 @@ import androidx.annotation.OptIn
 import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.functions.FirebaseFunctionsException
+import com.saurabh.artifact.audio.PlaybackService
 import com.saurabh.artifact.security.AppCheckHealthResult
 import kotlinx.coroutines.CancellationException
 import com.saurabh.artifact.audio.RecordingService
 import com.saurabh.artifact.data.local.RecordingStatus
 import com.saurabh.artifact.model.AppError
+import com.saurabh.artifact.model.ArtifactLifecycle
 import com.saurabh.artifact.repository.ClaimResult
+import com.saurabh.artifact.repository.DraftRepository
 import com.saurabh.artifact.repository.SessionGateResult
 import com.saurabh.artifact.repository.SessionState
 import com.saurabh.artifact.security.AppCheckStateTracker
@@ -76,6 +79,7 @@ class MainViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle,
     private val diagnosticLogger: DiagnosticLogger,
     private val appCheckStateTracker: Lazy<AppCheckStateTracker>? = null,
+    private val draftRepository: Lazy<DraftRepository>? = null,
 ) : ViewModel() {
 
     companion object {
@@ -657,8 +661,24 @@ class MainViewModel @Inject constructor(
 
         // Integration of Deep Link Intent into the first Ready state
         val lastRouteIndex = pendingStartupEvents.indexOfLast { it is Route && it !is InstantRecord }
-        val finalDestination = if (lastRouteIndex != -1 && destination == InitialDestination.AUTHENTICATED) {
-            pendingStartupEvents.removeAt(lastRouteIndex) as Route
+        val candidateRoute = if (lastRouteIndex != -1 && destination == InitialDestination.AUTHENTICATED) {
+            pendingStartupEvents[lastRouteIndex] as Route
+        } else null
+
+        val finalDestination = if (candidateRoute != null) {
+            if (candidateRoute is PublishingStudio) {
+                if (isValidReviewDraft(candidateRoute.draftId)) {
+                    pendingStartupEvents.removeAt(lastRouteIndex)
+                    candidateRoute
+                } else {
+                    diagnosticLogger.warn(DiagnosticCategory.NAV, "COLD_START_REVIEW_RESTORATION_REJECTED", mapOf("draftId" to candidateRoute.draftId))
+                    pendingStartupEvents.removeAt(lastRouteIndex)
+                    baseDestination
+                }
+            } else {
+                pendingStartupEvents.removeAt(lastRouteIndex)
+                candidateRoute
+            }
         } else {
             baseDestination
         }
@@ -673,6 +693,17 @@ class MainViewModel @Inject constructor(
         if (pendingStartupEvents.isNotEmpty()) {
             startDeferredNavigationObserver()
         }
+    }
+
+    private suspend fun isValidReviewDraft(draftId: String): Boolean {
+        val repository = draftRepository?.get() ?: return false
+        val currentUid = authRepository.currentUserId
+        if (currentUid.isBlank()) return false
+        val draft = repository.getDraft(draftId).getOrNull() ?: return false
+        if (draft.userId != currentUid) return false
+        return draft.lifecycle == ArtifactLifecycle.REVIEW_REQUIRED ||
+               draft.lifecycle == ArtifactLifecycle.METADATA_REQUIRED ||
+               draft.lifecycle == ArtifactLifecycle.READY_TO_PUBLISH
     }
 
     private var pendingTransferCorrelationId: String? = null
@@ -765,6 +796,17 @@ class MainViewModel @Inject constructor(
         val currentState = _startupState.value
         if (currentState is AppStartupState.Ready && authRepository.currentUser.value != null) {
             // Warm Start: Application is already ready, deliver via standard channel
+            if (event is PublishingStudio) {
+                viewModelScope.launch {
+                    if (isValidReviewDraft(event.draftId)) {
+                        diagnosticLogger.info(DiagnosticCategory.NAV, "WARM_START_REVIEW_RESTORATION_DELIVERED", mapOf("draftId" to event.draftId))
+                        emitNavigationEvent(event)
+                    } else {
+                        diagnosticLogger.warn(DiagnosticCategory.NAV, "WARM_START_REVIEW_RESTORATION_REJECTED", mapOf("draftId" to event.draftId))
+                    }
+                }
+                return
+            }
             diagnosticLogger.info(DiagnosticCategory.NAV, "WARM_START_INTENT_DELIVERY", mapOf("event" to event.javaClass.simpleName))
             emitNavigationEvent(event)
         } else {
@@ -852,6 +894,13 @@ class MainViewModel @Inject constructor(
                     }
                 }
 
+                if (event is PublishingStudio) {
+                    if (!isValidReviewDraft(event.draftId)) {
+                        diagnosticLogger.warn(DiagnosticCategory.NAV, "DEFERRED_REVIEW_RESTORATION_REJECTED", mapOf("draftId" to event.draftId))
+                        return@forEach
+                    }
+                }
+
                 diagnosticLogger.info(DiagnosticCategory.NAV, "DEEP_LINK_DELIVERED", mapOf("event" to event.javaClass.simpleName))
                 emitNavigationEvent(event)
             }
@@ -861,7 +910,18 @@ class MainViewModel @Inject constructor(
     private fun parseIntent(intent: android.content.Intent?): Any? {
         if (intent == null) return null
 
-        // 1. Handle Recording Shortcut
+        // 1. Handle Review Draft Restoration from Media Notification
+        if (intent.getBooleanExtra(PlaybackService.EXTRA_RESTORE_REVIEW_DRAFT, false)) {
+            val draftId = intent.getStringExtra(PlaybackService.EXTRA_REVIEW_DRAFT_ID)
+            if (!draftId.isNullOrBlank()) {
+                return PublishingStudio(draftId)
+            } else {
+                diagnosticLogger.warn(DiagnosticCategory.NAV, "REVIEW_RESTORATION_INTENT_REJECTED_MALFORMED")
+                return null
+            }
+        }
+
+        // 2. Handle Recording Shortcut
         if (intent.getBooleanExtra("navigate_to_recording", false)) {
             return InstantRecord()
         }

@@ -18,6 +18,7 @@ import com.saurabh.artifact.MainActivity
 import com.saurabh.artifact.util.NotificationHelper
 import android.os.Handler
 import android.os.Looper
+import androidx.annotation.OptIn
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import dagger.hilt.android.AndroidEntryPoint
@@ -37,6 +38,7 @@ import com.saurabh.artifact.repository.PlayableArtifactRepository
 import com.saurabh.artifact.repository.EngagementRepository
 import com.saurabh.artifact.repository.UserRepository
 import dagger.Lazy
+import com.saurabh.artifact.model.PlaybackSource
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -53,13 +55,22 @@ class PlaybackService : MediaSessionService() {
     @Inject lateinit var engagementRepository: dagger.Lazy<EngagementRepository>
     @Inject lateinit var userRepository: Lazy<UserRepository>
     @Inject lateinit var settingsDataStore: PlaybackSettingsDataStore
+    @Inject lateinit var playbackSessionManager: Lazy<PlaybackSessionManager>
 
     private var mediaSession: MediaSession? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     
     private lateinit var attributionContext: android.content.Context
+    private var currentSessionActivityDraftId: String? = null
+    private var isSessionActivityInitialized = false
 
     companion object {
+        const val EXTRA_RESTORE_REVIEW_DRAFT = "restore_review_draft"
+        const val EXTRA_REVIEW_DRAFT_ID = "review_draft_id"
+
+        private const val REQUEST_CODE_DEFAULT = 0
+        private const val REQUEST_CODE_REVIEW_DRAFT = 1001
+
         private val ARTIFACT_AUDIO_ATTRIBUTES = AudioAttributes.Builder()
             .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
             .setUsage(C.USAGE_MEDIA)
@@ -320,6 +331,32 @@ class PlaybackService : MediaSessionService() {
             .setCallback(callback)
             .setSessionActivity(createSessionActivityPendingIntent())
             .build()
+
+        serviceScope.launch {
+            playbackSessionManager.get().activePlayback.collect { active ->
+                val reviewDraftId = if (active != null &&
+                    active.playbackType == PlaybackType.DRAFT_PREVIEW &&
+                    active.source == PlaybackSource.REVIEW_DRAFT) {
+                    active.artifactId
+                } else {
+                    null
+                }
+                updateSessionActivityIfNeeded(reviewDraftId)
+            }
+        }
+    }
+
+    @OptIn(UnstableApi::class)
+    private fun updateSessionActivityIfNeeded(reviewDraftId: String?) {
+        if (isSessionActivityInitialized && reviewDraftId == currentSessionActivityDraftId) {
+            return
+        }
+        currentSessionActivityDraftId = reviewDraftId
+        isSessionActivityInitialized = true
+
+        val pendingIntent = createSessionActivityPendingIntent(reviewDraftId)
+        mediaSession?.setSessionActivity(pendingIntent)
+        triggerNotificationUpdate()
     }
 
     private fun createMediaItem(artifact: com.saurabh.artifact.model.Artifact): MediaItem {
@@ -365,11 +402,18 @@ class PlaybackService : MediaSessionService() {
             .build()
     }
 
-    private fun createSessionActivityPendingIntent(): PendingIntent {
-        val intent = Intent(this, MainActivity::class.java)
+    private fun createSessionActivityPendingIntent(reviewDraftId: String? = null): PendingIntent {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            if (!reviewDraftId.isNullOrBlank()) {
+                putExtra(EXTRA_RESTORE_REVIEW_DRAFT, true)
+                putExtra(EXTRA_REVIEW_DRAFT_ID, reviewDraftId)
+            }
+        }
+        val requestCode = if (!reviewDraftId.isNullOrBlank()) REQUEST_CODE_REVIEW_DRAFT else REQUEST_CODE_DEFAULT
         return PendingIntent.getActivity(
             this,
-            0,
+            requestCode,
             intent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )

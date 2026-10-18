@@ -1,431 +1,186 @@
-# Final Implementation Plan: Lifecycle-Safe Logout Cleanup & Remote Sign-Out Ownership
+# Implementation Plan: Artifact Question Bank — Phase 1 Blocker Resolution
 
-Establish deterministic, race-free, session-isolated, cancellation-safe, and authorized lifecycle cleanup in Artifact Android via `LogoutCoordinator`.
-
----
-
-## 1. Problem Summary
-
-Architectural revisions established an Application-scoped `@Singleton` `LogoutCoordinator` to manage local cleanup and remote sign-out without ViewModel truncation, resolving event identity capture (Blocker 1), dual completion models (Blockers 2 & 3), account boundary authorization conflicts (Blocker 4), and post-completion local cleanup state tracking (Blocker 5).
-
-A final critical security and account isolation issue was identified in review:
-
-* **Blocker 6 (Firebase Remote Sign-Out Ownership Race):** The previous design allowed a completed local cleanup record `Key(A, S1)` (`localCleanupCompleted = true`, `remoteSignOutCompleted = false`) to later trigger a Phase-E-only operation calling `authRepository.signOut()`. Because the Firebase Auth SDK operates globally on `firebaseAuth.currentUser` rather than targeting a specific historical session ID, if Account B became authenticated in the interim (`currentUid = B`), a delayed or retried Phase E for Account A would call `authRepository.signOut()` and forcibly sign out Account B!
-
-This revised implementation plan resolves Blocker 6 by explicitly separating **Local Cleanup Authority** from **Remote Firebase Sign-Out Authority**, establishing a strict **Current Session Ownership Check** before executing `authRepository.signOut()`, and marking historical remote sign-outs as **superseded** when authentication state transitions occur.
+Corrected technical specification for Phase 1 of the Artifact Question Bank improvements. Sourced strictly from static code analysis of `PromptRepository`, `PromptDao`, `ReflectionPromptManager`, `RecordingViewModel`, `ArtifactDao`, and `UserRepository`.
 
 ---
 
-## 2. Blocker 6 Resolution — Separation of Authorities
+## 1. Executive Summary & Context
 
-### Core Security Invariant
-> *"An old cleanup event may continue cleaning its own authorized local state after authentication changes, but it must never invoke `FirebaseAuth.signOut()` against a newer authenticated account or session."*
+Phase 1 establishes local question consumption, depth-based Creator progression, non-repetition via prompt exclusion, and recycling without AI overhead, schema migrations, or new external services.
 
-### Distinction Between Authorities
-1. **Local Cleanup Authority:**
-   - Granted **at request creation time** when an authorized lifecycle transition (user logout, account boundary swap, session revocation, startup recovery) triggers cleanup for `CleanupEventKey(targetUid, sessionInstanceId)`.
-   - Owned by the Application-scoped `LogoutCoordinator`.
-   - Continues background local cleanup (Phases A-D) for `Key(A, S1)` even if Firebase Auth subsequently changes to Account B.
-   - Operates strictly on `(A, S1)`'s key-scoped resources without modifying or inspecting Account B.
-
-2. **Remote Firebase Sign-Out Authority:**
-   - Evaluated **immediately before Phase E execution** (`authRepository.signOut()`).
-   - Requires that the currently active Firebase authentication session on the device STILL belongs to `CleanupEventKey(targetUid, sessionInstanceId)`.
-   - A `CleanupEventKey(A, S1)` identifies local cleanup ownership, but DOES NOT grant authority to invoke `firebaseAuth.signOut()` at a later point in time if Account B or Session S2 is currently active.
+This corrected plan resolves two specific technical blockers identified during architecture review:
+1. **Eligible-pool exhaustion:** Prevents prompt starvation on the recording screen when all prompts for a Creator's current `maxDepth` have been consumed while higher-depth prompts remain unconsumed.
+2. **Completed Artifact count correctness:** Disambiguates `nextEpisodeNumberPreview`, `ArtifactDao.getMaxPublishedEpisodeNumber()`, and `userProfile.artifactsCount` to establish an authoritative, local-first signal for Creator progression (`completedCount`) that survives artifact deletions, offline usage, question skipping, and question-bank recycling.
 
 ---
 
-## 3. Local Cleanup Authority
+## 2. Technical Findings Classified by Confidence
 
-Local cleanup (Phases A-D) MUST remain independent of remote sign-out authority:
-
-```
-Account A / Session S1 active
-   ↓
-A/S1 cleanup begins (Phases A-D)
-   ↓
-Firebase changes to B (currentUser = B)
-   ↓
-A/S1 local cleanup (Phases A-D) CONTINUES in background
-   ↓
-Account B local state remains COMPLETELY UNTOUCHED
-```
-
-* **Why local cleanup continues:** Local disk state, Room database rows, cache files, and DataStore keys belonging to Account A must still be purged to prevent local cross-account data leakage.
-* **Isolation guarantee:** All Phase A-D tasks execute strictly against `CleanupEventKey(A, S1)`. Key matching is exact (`Key(A, S1) != Key(B, S2)`), ensuring Account B's state is never touched.
+| Finding | Confidence | Static Code Evidence & Reference |
+| :--- | :--- | :--- |
+| **F1: `getConsumedCount()` is NOT Creator progression** | **HIGH (100%)** | [`PromptDao.kt:L41`](file:///F:/Android%20Project/01/app/src/main/java/com/saurabh/artifact/data/local/PromptDao.kt#L41): `@Query("SELECT COUNT(*) FROM prompts WHERE isConsumed = 1")`. Sourcing progression from `getConsumedCount()` causes question skipping to advance progression (violating Principle 1) and question-bank recycling to reset progression back to Depth 1 (violating Principle 3). |
+| **F2: Global recycling fails on depth-pool exhaustion** | **HIGH (100%)** | [`PromptRepository.kt:L52`](file:///F:/Android%20Project/01/app/src/main/java/com/saurabh/artifact/repository/PromptRepository.kt#L52): `promptDao.get().getUnconsumedCount() == 0`. When a Depth 1 Creator consumes all Depth 1 prompts, `getUnconsumedCount()` is > 0 due to unconsumed Depth 2–4 prompts. Global recycling never triggers, and `getOldestPrompt()` selects higher-depth prompts prematurely. |
+| **F3: `getMaxPublishedEpisodeNumber()` is a MAX, not a count** | **HIGH (100%)** | [`ArtifactDao.kt:L122`](file:///F:/Android%20Project/01/app/src/main/java/com/saurabh/artifact/data/local/ArtifactDao.kt#L122): `SELECT MAX(episodeNumber) FROM artifacts ...`. `maxEpisode` is an ordinal high-water mark. If Episode 2 of 3 is deleted, `maxEpisode` remains 3 while active count drops to 2. |
+| **F4: `artifactsCount` is server-authoritative active count** | **HIGH (100%)** | [`User.kt:L40`](file:///F:/Android%20Project/01/app/src/main/java/com/saurabh/artifact/model/User.kt#L40), [`UserRepository.kt:L1542`](file:///F:/Android%20Project/01/app/src/main/java/com/saurabh/artifact/repository/UserRepository.kt#L1542), [`PublishingManager.kt:L183`](file:///F:/Android%20Project/01/app/src/main/java/com/saurabh/artifact/domain/PublishingManager.kt#L183). `artifactsCount` increments on publish and decrements on soft-delete. |
+| **F5: `nextEpisodeNumberPreview` is a UI preview, not a count** | **HIGH (100%)** | [`RecordingViewModel.kt:L74`](file:///F:/Android%20Project/01/app/src/main/java/com/saurabh/artifact/ui/recording/RecordingViewModel.kt#L74), [`PublishingStudioViewModel.kt:L196`](file:///F:/Android%20Project/01/app/src/main/java/com/saurabh/artifact/ui/publish/studio/PublishingStudioViewModel.kt#L196). `nextEpisodeNumberPreview` equals `maxOf(maxLocalEpisode, artifactsCount) + 1L`. |
+| **F6: Default parameter `= 0` causes silent progression demotion** | **HIGH (100%)** | [`ReflectionPromptManager.kt:L24`](file:///F:/Android%20Project/01/app/src/main/java/com/saurabh/artifact/domain/prompt/ReflectionPromptManager.kt#L24), [`PromptRepository.kt:L38`](file:///F:/Android%20Project/01/app/src/main/java/com/saurabh/artifact/repository/PromptRepository.kt#L38). If `completedCount: Int = 0` has a default argument, callers omitting it default to 0, locking experienced Creators to Depth 1 prompts. |
 
 ---
 
-## 4. Firebase Remote Sign-Out Authority
+## 3. Resolution of Blocker 1: Eligible-Pool Exhaustion & Depth Recycling
 
-Firebase Auth SDK mechanics dictate that `firebaseAuth.signOut()` unconditionally terminates whichever user is currently signed into Firebase (`firebaseAuth.currentUser`). It cannot accept a target UID or session ID parameter.
+### Problem Mechanics
+When a Creator's current progression unlocks up to `maxDepth` (e.g. `maxDepth = 1` for `completedCount < 30`), and all prompts matching `depthLevel <= maxDepth` have been consumed (`isConsumed = 1`):
+1. `promptDao.getNextEligiblePrompt(maxDepth, excludedPromptId)` returns `null`.
+2. Existing fallback `getOldestPrompt(excludedPromptId)` returns an unconsumed prompt with `depthLevel > maxDepth` (e.g. Depth 3 or 4), exposing beginner Creators to overly complex prompts prematurely.
+3. If `getOldestPrompt` is restricted to `depthLevel <= maxDepth` without depth-pool recycling, `getNewPrompt()` returns `null` because `getUnconsumedCount()` > 0 (due to unconsumed higher-depth prompts), preventing global recycling. The recording screen runs out of prompts.
 
-Therefore:
-* Calling `authRepository.signOut()` is ONLY authorized when `firebaseAuth.currentUser?.uid == key.targetUid` AND the local device session has not been reassigned to a newer session instance ID (`S2`).
-* If `currentUser` has changed to `B` or local session has changed to `S2`, Phase E (`authRepository.signOut()`) MUST BE SKIPPED for `Key(A, S1)`.
+### Corrective Algorithm in `PromptRepository.getNewPrompt`
+1. **Query Primary Eligible Pool:**
+   `var entity = promptDao.get().getNextEligiblePrompt(maxDepth, excludedPromptId)`
+2. **Exclusion Fallback (Single-Prompt Pool):**
+   If `entity == null` and `excludedPromptId != null`:
+   `entity = promptDao.get().getNextEligiblePrompt(maxDepth, null)`
+3. **Depth-Scoped Pool Recycling:**
+   If `entity == null` and `promptDao.get().getUnconsumedCountForMaxDepth(maxDepth) == 0`:
+   - Execute `promptDao.get().resetConsumedPromptsForDepth(maxDepth)`
+   - Re-query `entity = promptDao.get().getNextEligiblePrompt(maxDepth, excludedPromptId)`
+   - If `entity == null` and `excludedPromptId != null`:
+     `entity = promptDao.get().getNextEligiblePrompt(maxDepth, null)`
 
----
-
-## 5. Phase-E Eligibility Rules
-
-Before any call to `authRepository.signOut()`, `LogoutCoordinator` evaluates **Phase-E Eligibility**:
-
-### The Two Mandatory Eligibility Conditions
-Phase E is eligible to execute for `key = CleanupEventKey(targetUid, sessionInstanceId)` IF AND ONLY IF:
-
-1. **Current Firebase UID Match:** `authRepository.currentUser?.uid == key.targetUid`
-   *(The current Firebase user must match the target UID of the cleanup event).*
-2. **Current Local Session Match:** `currentLocalSessionId == null || currentLocalSessionId == key.sessionInstanceId`
-   *(The current local session in DataStore either matches the event's `sessionInstanceId` OR was cleared by `(A, S1)`'s own Phase C local cleanup without any NEW session `S2` or Account `B` being initialized).*
-
-If EITHER condition fails:
-* `authRepository.signOut()` is **NOT CALLED**.
-* Remote sign-out for `Key(A, S1)` is marked as **SUPERSEDED** (`isRemoteSignOutSuperseded = true`).
-* The event `Key(A, S1)` transitions to a **TERMINAL COMPLETED** state.
-* Account B or Session S2 remains fully authenticated and unaffected.
-
----
-
-## 6. Current Session Ownership Check
-
-### Exact Decision Function in `LogoutCoordinator`
-
+### Added Room Queries in `PromptDao.kt`
 ```kotlin
-suspend fun isRemoteSignOutEligible(key: CleanupEventKey): Boolean {
-    val currentFirebaseUid = authRepository.currentUser.value?.uid ?: firebaseAuth.currentUser?.uid
-    val currentLocalSessionId = sessionManager.localSessionId.first()
+@Query("SELECT COUNT(*) FROM prompts WHERE isConsumed = 0 AND depthLevel <= :maxDepth")
+suspend fun getUnconsumedCountForMaxDepth(maxDepth: Int): Int
 
-    val isUidMatch = currentFirebaseUid != null && currentFirebaseUid == key.targetUid
-    val isSessionMatch = currentLocalSessionId == null || currentLocalSessionId == key.sessionInstanceId
-
-    return isUidMatch && isSessionMatch
-}
+@Query("UPDATE prompts SET isConsumed = 0 WHERE depthLevel <= :maxDepth")
+suspend fun resetConsumedPromptsForDepth(maxDepth: Int)
 ```
 
-### Execution Flow in Phase E
+### Invariants Preserved
+- Beginners (`maxDepth = 1`) are **never** served Depth 2, 3, or 4 prompts.
+- The recording screen **never** runs out of eligible prompts.
+- Skipping a prompt (`excludedPromptId`) prevents immediate re-selection during recycling unless the eligible pool size is 1.
+- Experienced Creators (`maxDepth = 3`) continue to receive Depth 1, 2, and 3 prompts randomly, keeping simple questions available.
 
+---
+
+## 4. Resolution of Blocker 2: Authoritative Progression Signal
+
+### Data Source Classification
+1. `ArtifactDao.getMaxPublishedEpisodeNumber(userId)`: **High-Water Mark Local Episode Index** (`Long?`). Not a count.
+2. `userProfile.artifactsCount`: **Active Server-Authoritative Artifact Count** (`Long`). Decrements on soft-delete.
+3. `nextEpisodeNumberPreview`: **UI Display Preview** (`Long?`). Represents `maxOf(maxLocalEpisode, artifactsCount) + 1L`. Not a count.
+
+### Authoritative Progression Signal Definition
+Creator progression MUST be driven by historical published artifact count, defined as:
 ```kotlin
-private suspend fun executePhaseE(key: CleanupEventKey): Result<Unit> {
-    // Under stateMutex / atomic check before calling authRepository.signOut()
-    if (!isRemoteSignOutEligible(key)) {
-        diagnosticLogger.info(
-            DiagnosticCategory.AUTH,
-            "LOGOUT_FIREBASE_SKIPPED_SUPERSEDED",
-            mapOf(
-                "targetUid" to key.targetUid,
-                "currentUid" to (authRepository.currentUser.value?.uid ?: "null"),
-                "sessionInstanceId" to key.sessionInstanceId
-            )
-        )
-        // Mark as superseded in completion record under stateMutex
-        updateRecordRemoteSignOutSuperseded(key)
-        return Result.success(Unit)
-    }
+val completedCount = maxOf(maxLocalEpisode ?: 0L, userProfile?.artifactsCount ?: 0L).toInt()
+```
+- **Local-First & Offline Resilience:** Sourcing from `maxOf(maxLocalEpisode, artifactsCount)` guarantees that progression is available offline and monotonically non-decreasing.
+- **Deletions & Skipping Immunity:** Deleting an old artifact or skipping prompts during recording never demotes a Creator's depth level.
 
-    return try {
-        authRepository.signOut()
-        diagnosticLogger.info(DiagnosticCategory.AUTH, "LOGOUT_FIREBASE_SUCCESS")
-        updateRecordRemoteSignOutSuccess(key)
-        Result.success(Unit)
-    } catch (e: Exception) {
-        diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_FIREBASE_FAILED", throwable = e)
-        Result.failure(e)
+### Depth Calculation Formula (`calculateMaxDepth`)
+```kotlin
+private fun calculateMaxDepth(completedCount: Int): Int {
+    return when {
+        completedCount < 30 -> 1
+        completedCount < 100 -> 2
+        completedCount < 250 -> 3
+        else -> 4
     }
 }
 ```
 
----
-
-## 7. Account Boundary Behavior (Account A -> Account B)
-
-### Step-by-Step Transition Analysis
-1. `Account_A / Session_S1` is active.
-2. `MainViewModel` or AuthStateListener detects Firebase Auth changed to `Account_B` (`currentUid = B`, DataStore `owningUid = A`).
-3. `MainViewModel` triggers `logoutCoordinator.performFullCleanup(Key(Account_A, Session_S1))`.
-4. Creation Authorization check passes: `targetUid (A) == owningUid (A)`. Operation registered as `activeOperations[Key(A, S1)]`.
-5. Local cleanup (Phases A-D) executes in background for Account A.
-6. Local cleanup completes: `completionRecords[Key(A, S1)] = Record(localCleanupCompleted = true, remoteSignOutCompleted = false)`.
-7. Phase E requested for `Key(A, S1)`.
-8. `isRemoteSignOutEligible(Key(A, S1))` evaluates:
-   - `currentFirebaseUid` is `B` (`B != A`). Check returns `FALSE`.
-9. `authRepository.signOut()` is **NOT called**. Account B remains fully authenticated in the foreground.
-10. `completionRecords[Key(A, S1)]` is updated: `isRemoteSignOutSuperseded = true` (`isFullyTerminal = true`).
-11. `sessionManager.setLoggingOut(false)` is reset to `false`.
-12. `Key(A, S1)` becomes terminally completed. No retry will ever attempt to sign out B.
+### Call-Site Verification & Compile-Time Safeguards
+To prevent callers from silently defaulting `completedCount` to `0` (which would lock experienced Creators to Depth 1 prompts):
+- `PromptRepository.getNewPrompt` MUST NOT have a default value for `completedCount`:
+  `suspend fun getNewPrompt(completedCount: Int, excludedPromptId: String? = null): ReflectionPrompt?`
+- `ReflectionPromptManager.getNextPrompt` MUST NOT have a default value for `completedCount`:
+  `suspend fun getNextPrompt(completedCount: Int, excludedPromptId: String? = null): ReflectionPrompt?`
+- The Kotlin compiler enforces that every call site explicitly supplies `completedCount`.
 
 ---
 
-## 8. Same-UID Session Behavior (A/S1 -> A/S2)
+## 5. Minimum Required File Changes
 
-### Step-by-Step Transition Analysis
-1. User A is active on `Session_S1`. Local cleanup begins for `Key(A, S1)`.
-2. User A logs in or claims a new session `Session_S2` (`localSessionId = S2`).
-3. A delayed Phase-E request or retry arrives for `Key(A, S1)`.
-4. `isRemoteSignOutEligible(Key(A, S1))` evaluates:
-   - `currentFirebaseUid` is `A` (`A == A`).
-   - `currentLocalSessionId` is `S2` (`S2 != S1`).
-   - `isSessionMatch` returns `FALSE`.
-5. Check returns `FALSE`. `authRepository.signOut()` is **NOT called**.
-6. `Session_S2` remains active and authenticated.
-7. `Key(A, S1)` remote sign-out is marked as superseded (`isRemoteSignOutSuperseded = true`).
+### 1. `PromptDao.kt`
+Path: [`app/src/main/java/com/saurabh/artifact/data/local/PromptDao.kt`](file:///F:/Android%20Project/01/app/src/main/java/com/saurabh/artifact/data/local/PromptDao.kt)
+- Add `getUnconsumedCountForMaxDepth(maxDepth: Int): Int` query.
+- Add `resetConsumedPromptsForDepth(maxDepth: Int)` query.
 
----
+### 2. `PromptRepository.kt`
+Path: [`app/src/main/java/com/saurabh/artifact/repository/PromptRepository.kt`](file:///F:/Android%20Project/01/app/src/main/java/com/saurabh/artifact/repository/PromptRepository.kt)
+- Update `getNewPrompt` signature to require `completedCount: Int` (no default value).
+- Replace `consumedCount` query lookup with the `completedCount` parameter in `calculateMaxDepth`.
+- Implement depth-scoped recycling and exclusion fallback in `getNewPrompt`.
 
-## 9. Session Revocation Behavior
+### 3. `ReflectionPromptManager.kt`
+Path: [`app/src/main/java/com/saurabh/artifact/domain/prompt/ReflectionPromptManager.kt`](file:///F:/Android%20Project/01/app/src/main/java/com/saurabh/artifact/domain/prompt/ReflectionPromptManager.kt)
+- Update `getNextPrompt` signature to require `completedCount: Int` (no default value).
+- Delegate `getNewPrompt(completedCount, excludedPromptId)`.
+- Update legacy `getSmartReflectionPrompt` to accept `completedCount: Int = 0` for non-recording contexts.
 
-1. `SessionState.Revoked` is emitted for `(A, S1)`.
-2. `MainViewModel` invokes `logoutCoordinator.performFullCleanup(Key(A, S1))`.
-3. If Firebase Auth has already cleared or transitioned (`currentUser == null` or `currentUser == B`):
-   - Local cleanup (Phases A-D) executes and completes.
-   - Phase E eligibility check sees `currentFirebaseUid != A` -> `signOut()` is skipped as superseded.
-   - Cleanup returns `CleanupResult(status = COMPLETED)`.
-   - UI navigates cleanly to Login screen without transient exceptions.
+### 4. `GetReflectionPromptUseCase.kt`
+Path: [`app/src/main/java/com/saurabh/artifact/domain/prompt/GetReflectionPromptUseCase.kt`](file:///F:/Android%20Project/01/app/src/main/java/com/saurabh/artifact/domain/prompt/GetReflectionPromptUseCase.kt)
+- Update `invoke` to accept optional `completedCount: Int = 0` and pass to `reflectionPromptManager.getSmartReflectionPrompt`.
 
----
+### 5. `RecordingViewModel.kt`
+Path: [`app/src/main/java/com/saurabh/artifact/ui/recording/RecordingViewModel.kt`](file:///F:/Android%20Project/01/app/src/main/java/com/saurabh/artifact/ui/recording/RecordingViewModel.kt)
+- Calculate `completedCount` from `maxOf(maxLocalEpisode ?: 0L, userProfile?.artifactsCount ?: 0L).toInt()`.
+- Pass `completedCount` on initial prompt load (`loadInitialPrompt`) and next prompt skip (`nextPrompt`).
 
-## 10. Stale Callback Behavior
-
-* Stale/delayed callbacks carry an immutable `CleanupEventKey(targetUid, sessionInstanceId)`.
-* When the callback executes, `LogoutCoordinator` evaluates the key against `activeOperations` and `completionRecords` under `stateMutex`.
-* If `completionRecords[key]` exists and is terminal (`isFullyTerminal == true`), the callback receives the cached result without invoking side effects.
-* If no record exists and creation authorization fails (`targetUid != currentUid` AND `targetUid != owningUid`), the callback is safely discarded (NO-OP).
-
----
-
-## 11. Phase-E Race Handling
-
-### Concurrent Phase E Callers
-* Multiple callers requesting Phase E for `Key(A, S1)` while `(A, S1)` is active share a single `activePhaseEOperations[Key(A, S1)]` `Deferred`.
-* `authRepository.signOut()` executes exactly **ONCE**.
-
-### In-Flight Auth State Transition
-* The eligibility check `isRemoteSignOutEligible(key)` is re-evaluated immediately before executing `authRepository.signOut()`.
-* If Firebase Auth changes while Phase E is in flight:
-  - `authRepository.signOut()` finishes clearing Firebase state.
-  - After execution, `LogoutCoordinator` verifies `authRepository.currentUser.value == null`.
-  - If `currentUser == null`, `remoteSignOutCompleted = true`.
+### 6. Test Suite
+Paths:
+- [`app/src/test/java/com/saurabh/artifact/repository/PromptRepositoryTest.kt`](file:///F:/Android%20Project/01/app/src/test/java/com/saurabh/artifact/repository/PromptRepositoryTest.kt)
+- [`app/src/test/java/com/saurabh/artifact/repository/QuestionBankLifecycleTest.kt`](file:///F:/Android%20Project/01/app/src/test/java/com/saurabh/artifact/repository/QuestionBankLifecycleTest.kt)
+- [`app/src/test/java/com/saurabh/artifact/domain/prompt/ReflectionPromptManagerTest.kt`](file:///F:/Android%20Project/01/app/src/test/java/com/saurabh/artifact/domain/prompt/ReflectionPromptManagerTest.kt)
+- [`app/src/test/java/com/saurabh/artifact/ui/recording/RecordingQuestionExperienceTest.kt`](file:///F:/Android%20Project/01/app/src/test/java/com/saurabh/artifact/ui/recording/RecordingQuestionExperienceTest.kt)
+- Update test calls to supply explicit `completedCount` arguments.
+- Add tests for depth-scoped pool recycling and exclusion fallback edge cases.
 
 ---
 
-## 12. Process Death and Startup Recovery
+## 6. Edge Case Validation & Test Plan
 
-* Memory `completionRecords` is cleared on process death.
-* On cold boot, `StartupCoordinator` checks `sessionManager.isLoggingOut` and `maintenanceRepository.getPendingDeletionUid()`.
-* If `isLoggingOut == true`:
-  - `StartupCoordinator` executes startup recovery: `performFullCleanup(Key(RecoveryUid, "RECOVERY_" + UUID))`.
-  - Fresh Phase A-D recovery runs idempotently to ensure disk/database handles are cleared before UI setup.
-  - Before attempting Phase E, recovery eligibility check evaluates `isRemoteSignOutEligible(key)`:
-    - If `currentUser == null` (logged out), `signOut()` is skipped.
-    - If a new user `B` authenticated on cold boot, `currentUser == B` (`B != RecoveryUid`) -> `signOut()` is SKIPPED. Account B is NEVER signed out on cold startup recovery.
-
----
-
-## 13. CompletionRecord Lifecycle & Bounded Storage
-
-### Data Model
-
-```kotlin
-data class CleanupCompletionRecord(
-    val key: CleanupEventKey,
-    val localCleanupCompleted: Boolean,
-    val remoteSignOutCompleted: Boolean,
-    val isRemoteSignOutSuperseded: Boolean = false,
-    val completionTimestamp: Long = System.currentTimeMillis()
-) {
-    val isFullyTerminal: Boolean
-        get() = localCleanupCompleted && (remoteSignOutCompleted || isRemoteSignOutSuperseded)
-}
-```
-
-### In-Memory Maps inside `LogoutCoordinator`
-
-```kotlin
-private val activeOperations = mutableMapOf<CleanupEventKey, ActiveCleanupOperation>()
-private val activePhaseEOperations = mutableMapOf<CleanupEventKey, Deferred<Result<Unit>>>()
-private val completionRecords = mutableMapOf<CleanupEventKey, CleanupCompletionRecord>()
-```
-
-### Lifecycle Rules for `completionRecords`
-1. **Creation:** Stored under `stateMutex` immediately when Phase A-D completes for `key`: `localCleanupCompleted = true, remoteSignOutCompleted = false`.
-2. **Update (Remote Success):** When Phase E succeeds for `key`: sets `remoteSignOutCompleted = true` (`isFullyTerminal = true`).
-3. **Update (Remote Superseded):** When Phase E ownership check fails (session changed): sets `isRemoteSignOutSuperseded = true` (`isFullyTerminal = true`).
-4. **Eviction:** Bounded LRU map (max 10 entries); evicted on session rotation or process death.
+1. **Eligible-Pool Exhaustion (Depth 1):**
+   - Seed 10 Depth 1 prompts and 20 Depth 2 prompts. Mark all 10 Depth 1 prompts as `isConsumed = 1`. Call `getNewPrompt(completedCount = 5)`.
+   - Verify `resetConsumedPromptsForDepth(1)` is called, a Depth 1 prompt is returned, and NO Depth 2 prompt is selected.
+2. **Exclusion During Depth Recycling:**
+   - Consume all Depth 1 prompts. Call `getNewPrompt(completedCount = 5, excludedPromptId = "P10")`.
+   - Verify Depth 1 pool is recycled and returned prompt is NOT "P10".
+3. **Skipping Does Not Advance Depth:**
+   - Call `nextPrompt()` 50 times without publishing an artifact (`completedCount = 0`).
+   - Verify `maxDepth` remains 1 throughout all skips.
+4. **Recycling Does Not Reset Progression:**
+   - Creator with `completedCount = 35` (`maxDepth = 2`) triggers depth recycling.
+   - Verify subsequent prompt selection uses `maxDepth = 2` (eligible for Depths 1 and 2).
+5. **Artifact Deletion Immunity:**
+   - Creator publishes 30 artifacts (`maxLocalEpisode = 30`), then soft-deletes 5 artifacts (`artifactsCount = 25`).
+   - Verify `completedCount = maxOf(30, 25) = 30`, retaining `maxDepth = 2`.
+6. **Compile-Time Call-Site Verification:**
+   - Verify that omitting `completedCount` in `getNewPrompt` or `getNextPrompt` fails Kotlin compilation.
 
 ---
 
-## 14. State Machine Diagram & Decision Matrix
+## 7. Principles Compliance Matrix
 
-### Decision Flow Before Phase E
-
-```
-                  Phase E Requested for Key(targetUid, sessionInstanceId)
-                                         │
-                                         ▼
-                     Evaluate Session Ownership Check:
-                     1. authRepository.currentUser?.uid == key.targetUid?
-                     2. AND (sessionManager.localSessionId.first() == null
-                             OR sessionManager.localSessionId.first() == key.sessionInstanceId)?
-                                         │
-                        ┌────────────────┴────────────────┐
-                        ▼                                 ▼
-                      [YES]                             [NO]
-                        │                                 │
-                        ▼                                 ▼
-         Call authRepository.signOut()        DO NOT call signOut()
-                        │                                 │
-               ┌────────┴────────┐                        │
-               ▼                 ▼                        │
-           [SUCCESS]          [ERROR]                     │
-               │                 │                        │
-               ▼                 ▼                        ▼
-       Set remote=true     Keep remote=false      Set isSuperseded=true
-       Record Terminal     Retryable IF STILL     Record Terminal
-                           matching session       Superseded
-```
-
-### Decision Matrix
-
-| Scenario | Local Cleanup State | Remote Sign-Out State | Ownership Check | `authRepository.signOut()` Called? | Event Terminal? | `isLoggingOut` |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Normal Logout (A/S1 current)** | Completed | Completed | YES | **YES (Once)** | YES | `false` |
-| **Account Switch (A -> B during A cleanup)** | Completed | Superseded | NO (`currentUid = B`) | **NO** | YES | `false` |
-| **Same UID New Session (S1 -> S2)** | Completed | Superseded | NO (`session = S2`) | **NO** | YES | `false` |
-| **Delayed A/S1 Retry when B active** | Completed (Cached) | Superseded | NO (`currentUid = B`) | **NO** | YES | `false` |
-| **Phase E Network Error (A/S1 still current)** | Completed | Failed | YES | **YES** | NO (Retryable) | `true` |
-| **Session Revoked (Already logged out)** | Completed | Superseded | NO (`currentUid = null`) | **NO** | YES | `false` |
-| **Startup Recovery (New User B active)** | Completed | Superseded | NO (`currentUid = B`) | **NO** | YES | `false` |
+| Principle | Verification Result | Implementation Detail |
+| :--- | :--- | :--- |
+| **1. Question skipping does not advance progression** | **COMPLIANT** | Skipping calls `markAsConsumed(id)`, updating `prompts.isConsumed`. `completedCount` is sourced from published artifact count and is unaffected by `prompts.isConsumed`. |
+| **2. Simple questions remain available to experienced Creators** | **COMPLIANT** | `getNextEligiblePrompt` uses `WHERE depthLevel <= :maxDepth`. Depth 1 prompts remain in the pool for Depth 2, 3, and 4 Creators. |
+| **3. Progression survives question-bank recycling** | **COMPLIANT** | Recycling executes `UPDATE prompts SET isConsumed = 0`. `completedCount` is stored separately in profile/artifacts and is never reset by prompt recycling. |
+| **4. Existing local-first architecture preserved** | **COMPLIANT** | Sourced strictly from local Room DB (`prompts`, `artifacts`) and cached User profile. |
+| **5. No unnecessary Firebase reads, AI calls, schema migrations** | **COMPLIANT** | Zero new tables, zero schema changes, zero network calls. |
+| **6. Question generation/expansion separate phase** | **COMPLIANT** | Scope restricted strictly to local prompt selection and progression mechanics. |
 
 ---
 
-## 15. Files to Modify
+## 8. Final Approval Readiness Statement
 
-1. `LogoutCoordinator.kt` — Implement `CleanupEventKey`, `CleanupCompletionRecord`, `activeOperations`, `activePhaseEOperations`, `completionRecords`, `isRemoteSignOutEligible` check, Phase-E execution, atomic `stateMutex` updates, and `CancellationException` re-throwing.
-2. `UserSessionManager.kt` — Expose `localSessionId` flow and `owningUid`.
-3. `MainViewModel.kt` — Pass `CleanupEventKey` on account boundary detection, session revocation, and explicit sign-out.
-4. `SettingsViewModel.kt` — Construct `CleanupEventKey` and invoke `logoutCoordinator.executeLogout(key)`.
-5. `ProfileViewModel.kt` — Construct `CleanupEventKey` and invoke `logoutCoordinator.executeLogout(key)`.
-6. `SettingsRepository.kt` — Construct `CleanupEventKey` and invoke `logoutCoordinator.get().performFullCleanup(key)`.
-7. `StartupCoordinator.kt` — Construct `CleanupEventKey` for startup recovery.
+With the resolution of Blockers 1 and 2:
+- Eligible-pool exhaustion is handled deterministically via depth-scoped recycling.
+- Creator progression is anchored to an authoritative, local-first completed artifact count signal.
+- Compile-time signatures prevent silent defaulting of completed count to zero.
 
----
-
-## 16. Exact Production Call-Site Changes
-
-### `MainViewModel.kt`
-```kotlin
-// Account boundary
-val key = CleanupEventKey(
-    targetUid = owningUid ?: previousUid ?: "",
-    sessionInstanceId = localSessionId ?: "UNKNOWN"
-)
-logoutCoordinator.performFullCleanup(key)
-
-// Explicit sign-out
-val key = CleanupEventKey(
-    targetUid = currentUid ?: "",
-    sessionInstanceId = localSessionId ?: "UNKNOWN"
-)
-logoutCoordinator.executeLogout(key)
-```
-
-### `SettingsViewModel.kt`
-```kotlin
-fun logout() {
-    val key = CleanupEventKey(
-        targetUid = authRepository.currentUser.value?.uid ?: "",
-        sessionInstanceId = sessionManager.localSessionId.value ?: "UNKNOWN"
-    )
-    viewModelScope.launch {
-        logoutCoordinator.executeLogout(key)
-    }
-}
-```
-
-### `ProfileViewModel.kt`
-```kotlin
-fun logout() {
-    val key = CleanupEventKey(
-        targetUid = authRepository.currentUser.value?.uid ?: "",
-        sessionInstanceId = sessionManager.localSessionId.value ?: "UNKNOWN"
-    )
-    viewModelScope.launch {
-        logoutCoordinator.executeLogout(key)
-    }
-}
-```
-
----
-
-## 17. Updated Automated Tests
-
-### Blocker 6 Specific Ownership Tests:
-1. **Normal Phase E:** Explicit A/S1 logout while A/S1 is current -> `signOut()` called once, `remoteSignOutCompleted = true`.
-2. **Account switch during local cleanup:** A/S1 cleanup starts, Firebase changes to B -> A-D complete, B remains authenticated, `signOut()` is NOT called against B.
-3. **Phase-E retry while B is current:** A/S1 Phase-E retry arrives while B is current -> `signOut()` is NOT called, B remains authenticated.
-4. **Stale callback while B is current:** A/S1 stale callback arrives while B is current -> no `signOut()`, no B cleanup.
-5. **Same UID / new session (A/S1 -> A/S2):** S1 Phase-E retry cannot sign out S2.
-6. **Same UID stale callback:** A/S1 stale callback cannot affect A/S2.
-7. **Concurrent Phase E callers:** Two callers for A/S1 while A/S1 is current -> one `signOut()`, both share same result.
-8. **Session changes while Phase E prepared:** Verify ownership decision prevents unsafe `signOut()`.
-9. **Session changes during Phase E:** Verify no newer session is accidentally terminated.
-10. **Account B explicit logout:** B/S2 explicit logout while A/S1 record exists -> B/S2 gets its own cleanup, A/S1 record is not reused, `signOut()` applies only to B/S2.
-11. **Session revocation:** A/S1 revoked before Phase E -> local cleanup remains safe, no unsafe `signOut()` of a newer account/session.
-12. **Process death startup recovery:** Recovery when new account B active -> recovery cannot sign out account B.
-
----
-
-## 18. Manual Verification
-
-1. **TEST 1 — Normal Logout:** Account A -> Logout -> Confirm login screen transition and `LOGOUT_FIREBASE_SUCCESS` logcat.
-2. **TEST 2 — Account Switch During Cleanup:** Trigger Account A cleanup -> Switch/login Account B -> Verify Account B remains authenticated and Account A cleanup completes in background without `signOut()` against B.
-3. **TEST 3 — Same UID Session Isolation:** Account A / Session 1 cleanup -> Login Account A / Session 2 -> Verify stale Session 1 activity cannot sign out Session 2.
-4. **TEST 4 — Account B Isolation:** Account A cleanup record exists -> Login Account B -> Logout Account B -> Verify B performs its own cleanup and A's record is not reused.
-5. **TEST 5 — Draft Preservation:** Verify `artifact_drafts` database table and local draft audio files remain intact after cleanup.
-
----
-
-## 19. Risks and Mitigations
-
-* **Risk:** Concurrency lock contention on `stateMutex`.
-  * **Mitigation:** `stateMutex` is held strictly for microseconds to read/write map records and instantiate `Deferred` instances. All heavy Phase A-D and Phase E I/O runs outside `stateMutex`.
-* **Risk:** Memory growth in `completionRecords`.
-  * **Mitigation:** `completionRecords` is a bounded LRU map (max 10 entries) and rotates on session changes.
-
----
-
-## 20. Rollback Strategy
-
-If unexpected regressions occur, revert `LogoutCoordinator.kt` to the prior Mutex-protected `performFullCleanup` implementation while preserving Application scoping.
-
----
-
-## 21. Final Recommendation
-
-BLOCKER 6: RESOLVED
-
-Local cleanup may continue after account/session change:
-YES
-
-Historical cleanup event can call FirebaseAuth.signOut() against a newer session:
-MUST BE NO
-
-Phase-E current-session ownership check:
-DEFINED
-
-Account A → Account B isolation:
-VERIFIED IN PLAN
-
-Same UID S1 → S2 isolation:
-VERIFIED IN PLAN
-
-Remaining assumptions:
-None
-
-Remaining unknowns:
-None
-
-Additional investigation needed:
-NO
-
-Final status:
-APPROVED FOR IMPLEMENTATION
+**Phase 1 is READY FOR APPROVAL.**

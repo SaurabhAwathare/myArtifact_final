@@ -12,6 +12,7 @@ import com.saurabh.artifact.data.local.UserSessionManager
 import com.saurabh.artifact.model.PromptCategory
 import com.saurabh.artifact.model.ReflectionPrompt
 import com.saurabh.artifact.repository.ArtifactRepository
+import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.PromptRepository
 import com.saurabh.artifact.repository.UserRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -25,7 +26,7 @@ import javax.inject.Inject
 
 @HiltViewModel
 class RecordingViewModel @Inject constructor(
-    authRepository: com.saurabh.artifact.repository.AuthRepository,
+    private val authRepository: AuthRepository,
     private val userRepository: UserRepository,
     private val artifactRepository: ArtifactRepository,
     private val promptRepository: PromptRepository,
@@ -137,7 +138,11 @@ class RecordingViewModel @Inject constructor(
             }
 
             // Priority 3: Fresh eligible prompt
-            val freshPrompt = promptManager.getNextPrompt()
+            val currentUser = authRepository.currentUser.value
+            val progressionCount = if (currentUser != null) {
+                userRepository.getUserProgressionCount(currentUser.uid).firstOrNull() ?: 0
+            } else 0
+            val freshPrompt = promptManager.getNextPrompt(progressionCount = progressionCount)
             _uiState.update { it.copy(currentPrompt = freshPrompt, isPromptVisible = freshPrompt != null) }
             userSessionManager.setActivePromptId(freshPrompt?.id)
         }
@@ -249,7 +254,11 @@ class RecordingViewModel @Inject constructor(
                 }
                 
                 // Fetch new prompt, excluding current prompt to prevent immediate re-selection
-                val nextPrompt = promptManager.getNextPrompt(excludedPromptId = currentId)
+                val currentUser = authRepository.currentUser.value
+                val progressionCount = if (currentUser != null) {
+                    userRepository.getUserProgressionCount(currentUser.uid).firstOrNull() ?: 0
+                } else 0
+                val nextPrompt = promptManager.getNextPrompt(progressionCount = progressionCount, excludedPromptId = currentId)
                 _uiState.update { it.copy(
                     currentPrompt = nextPrompt,
                     isPromptVisible = nextPrompt != null

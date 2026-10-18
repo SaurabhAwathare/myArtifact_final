@@ -12,5 +12,6 @@ data class UserLocalEntity(
     val sigilSeed: String,
     val sigilColor: String,
     val sigilConfigJson: String,
+    val cachedProgressionCount: Int = 0,
     val lastUpdated: Long = System.currentTimeMillis()
 )

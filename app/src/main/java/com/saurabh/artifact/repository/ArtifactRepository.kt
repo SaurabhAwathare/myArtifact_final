@@ -841,10 +841,11 @@ class ArtifactRepository @Inject constructor(
      * Bridge to ReflectionPromptManager.
      */
     suspend fun getSmartReflectionPrompt(
+        progressionCount: Int,
         emotion: String?,
         context: String?,
         timeOfDay: String?
-    ): ReflectionPrompt? = reflectionPromptManager.get().getSmartReflectionPrompt(emotion, context, timeOfDay)
+    ): ReflectionPrompt? = reflectionPromptManager.get().getSmartReflectionPrompt(progressionCount, emotion, context, timeOfDay)
 
     /**
      * Records a playback event for an artifact.

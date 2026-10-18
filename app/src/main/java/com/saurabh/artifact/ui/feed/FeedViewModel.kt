@@ -380,7 +380,12 @@ class FeedViewModel @Inject constructor(
             
             _uiState.update { it.copy(isPromptLoading = true) }
             runCatching {
+                val currentUid = userRepository?.getCurrentUserId()
+                val progressionCount = if (currentUid != null) {
+                    userRepository.getUserProgressionCount(currentUid).firstOrNull() ?: 0
+                } else 0
                 val result = getReflectionPromptUseCase(
+                    progressionCount = progressionCount,
                     emotion = selectedEmotion.value,
                     context = context
                 )

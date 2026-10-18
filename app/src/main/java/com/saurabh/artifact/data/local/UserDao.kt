@@ -26,6 +26,9 @@ interface UserDao {
     @Query("DELETE FROM current_user_profile WHERE id = :key OR (:anonymousId != '' AND id = :anonymousId) OR anonymousId = :key OR (:anonymousId != '' AND anonymousId = :anonymousId)")
     suspend fun deleteProfileByKey(key: String, anonymousId: String = "")
 
+    @Query("UPDATE current_user_profile SET cachedProgressionCount = :count WHERE id = :userId OR anonymousId = :userId")
+    suspend fun updateCachedProgression(userId: String, count: Int)
+
     @Query("DELETE FROM current_user_profile")
     suspend fun clear()
 }

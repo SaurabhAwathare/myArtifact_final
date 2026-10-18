@@ -150,6 +150,17 @@ object DatabaseMigrations {
             )
         }
     }
+
+    /**
+     * Migration 73 -> 74: Adaptive Question Bank Progression Cache.
+     * Adds 'cachedProgressionCount' column to 'current_user_profile' table to maintain
+     * monotonic local high-water mark for question bank progression offline.
+     */
+    val MIGRATION_73_74 = object : Migration(73, 74) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE current_user_profile ADD COLUMN cachedProgressionCount INTEGER NOT NULL DEFAULT 0")
+        }
+    }
     
     val ALL_MIGRATIONS = arrayOf<Migration>(
         MIGRATION_60_61,
@@ -157,6 +168,7 @@ object DatabaseMigrations {
         MIGRATION_62_63,
         MIGRATION_63_64,
         MIGRATION_68_69,
-        MIGRATION_69_70
+        MIGRATION_69_70,
+        MIGRATION_73_74
     )
 }

@@ -20,6 +20,7 @@ class GetReflectionPromptUseCase @Inject constructor(
     private val adManager: AdManager,
 ) {
     suspend operator fun invoke(
+        progressionCount: Int,
         emotion: String?,
         context: String?,
     ): PromptResult = withContext(Dispatchers.Default) {
@@ -45,8 +46,9 @@ class GetReflectionPromptUseCase @Inject constructor(
             )
         }
 
-        // 4. Otherwise, proceed with AI generation
+        // 4. Otherwise, proceed with prompt selection
         val prompt = reflectionPromptManager.getSmartReflectionPrompt(
+            progressionCount = progressionCount,
             emotion = emotion,
             context = context,
             timeOfDay = getTimeOfDayContext(),

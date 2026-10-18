@@ -489,10 +489,10 @@ class ArtifactRepositoryTest {
     @Test
     fun `getSmartReflectionPrompt should delegate to ReflectionPromptManager`() = runBlocking {
         val prompt = ReflectionPrompt(id = "1", question = "Q", category = PromptCategory.GENERAL)
-        coEvery { reflectionPromptManager.getSmartReflectionPrompt(any(), any(), any()) } returns prompt
-        val result = repository.getSmartReflectionPrompt("Joy", "Ctx", "Time")
+        coEvery { reflectionPromptManager.getSmartReflectionPrompt(5, "Joy", "Ctx", "Time") } returns prompt
+        val result = repository.getSmartReflectionPrompt(5, "Joy", "Ctx", "Time")
         assertEquals(prompt, result)
-        coVerify { reflectionPromptManager.getSmartReflectionPrompt("Joy", "Ctx", "Time") }
+        coVerify { reflectionPromptManager.getSmartReflectionPrompt(5, "Joy", "Ctx", "Time") }
     }
 
     @Test
