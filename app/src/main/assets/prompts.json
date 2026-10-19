@@ -830,7 +830,7 @@
     {
         "id": "L1_139",
         "category": "COMFORT",
-        "question": "What's the best temperature for hot water in the shower? 🚿",
+        "question": "Do you prefer a steaming hot shower or a cooler shower? 🚿",
         "tone": "CALM"
     },
     {
@@ -920,7 +920,7 @@
     {
         "id": "L1_154",
         "category": "COMFORT",
-        "question": "What's the best smell of fresh baking? 🍞",
+        "question": "What's your favorite freshly baked smell? 🍞",
         "tone": "CALM"
     },
     {
@@ -1022,7 +1022,7 @@
     {
         "id": "L1_171",
         "category": "COMFORT",
-        "question": "What's your favorite way to spend an hour off? ☕️",
+        "question": "What's your favorite way to spend a free hour? ☕️",
         "tone": "CALM"
     },
     {
@@ -1064,7 +1064,7 @@
     {
         "id": "L1_178",
         "category": "CREATIVITY",
-        "question": "What's your favorite background music while working? 🎵",
+        "question": "What's your favorite music to have playing in the background? 🎵",
         "tone": "CALM"
     },
     {
@@ -1082,7 +1082,7 @@
     {
         "id": "L1_181",
         "category": "COMFORT",
-        "question": "What's your favorite spot in your garden or balcony? 🌿",
+        "question": "What's your favorite outdoor spot to relax? 🌿",
         "tone": "CALM"
     },
     {
@@ -1124,7 +1124,7 @@
     {
         "id": "L1_188",
         "category": "CHECK_IN",
-        "question": "What's your favorite time to drink water? 💧",
+        "question": "Do you prefer ice-cold water or room temperature water? 💧",
         "tone": "CALM"
     },
     {
@@ -3294,7 +3294,7 @@
     {
         "id": "L1_207",
         "category": "FUN",
-        "question": "Would you rather spend a evening playing board games or watching movies?",
+        "question": "Would you rather spend an evening playing board games or watching movies?",
         "tone": "GENTLE"
     },
     {
@@ -3438,7 +3438,7 @@
     {
         "id": "L1_231",
         "category": "FUN",
-        "question": "Would you rather spend an afternoon stargazing or cloud watching? ☁️",
+        "question": "Would you rather spend an afternoon cloud watching or stargazing? ☁️",
         "tone": "CALM"
     },
     {
@@ -3570,19 +3570,19 @@
     {
         "id": "L1_253",
         "category": "COMFORT",
-        "question": "What is a comfortable pair of shoes or clothes you love wearing?",
+        "question": "What's your most comfortable outfit? 👕",
         "tone": "GENTLE"
     },
     {
         "id": "L1_254",
         "category": "COMFORT",
-        "question": "What scent immediately makes you feel at ease?",
+        "question": "What scent instantly relaxes you? 🌿",
         "tone": "CALM"
     },
     {
         "id": "L1_255",
         "category": "COMFORT",
-        "question": "What gentle sound helps you feel grounded when you are resting?",
+        "question": "What's a sound that helps you relax? 🌧️",
         "tone": "CALM"
     },
     {
@@ -3600,19 +3600,19 @@
     {
         "id": "L1_258",
         "category": "COMFORT",
-        "question": "What item on your desk or nightstand brings you quiet peace?",
+        "question": "What's on your nightstand or desk right now?",
         "tone": "CALM"
     },
     {
         "id": "L1_259",
         "category": "COMFORT",
-        "question": "What is a simple comfort routine you look forward to every night?",
+        "question": "What's your favorite bedtime routine? 🌙",
         "tone": "CALM"
     },
     {
         "id": "L1_260",
         "category": "COMFORT",
-        "question": "What temperature setting or weather makes you feel coziest?",
+        "question": "What kind of weather makes you feel cozy?",
         "tone": "CALM"
     },
     {
@@ -3624,19 +3624,19 @@
     {
         "id": "L1_262",
         "category": "COMFORT",
-        "question": "What simple meal always feels nourishing after a busy day?",
+        "question": "What meal hits the spot after a long day? 🍲",
         "tone": "GENTLE"
     },
     {
         "id": "L1_263",
         "category": "COMFORT",
-        "question": "What lighting in your living space feels warmest and softest?",
+        "question": "Do you prefer soft lamps or bright lights at home?",
         "tone": "CALM"
     },
     {
         "id": "L1_264",
         "category": "COMFORT",
-        "question": "What short break during the day brings you the most relief?",
+        "question": "How do you like to take a quick break?",
         "tone": "GENTLE"
     },
     {
@@ -3654,13 +3654,13 @@
     {
         "id": "L1_267",
         "category": "COMFORT",
-        "question": "What kind of stretch or physical movement feels best today?",
+        "question": "What's a quick stretch that feels good right now?",
         "tone": "CALM"
     },
     {
         "id": "L1_268",
         "category": "COMFORT",
-        "question": "What gentle word or reminder brings you immediate calm?",
+        "question": "What's a phrase that always calms you down?",
         "tone": "CALM"
     },
     {
@@ -3672,13 +3672,13 @@
     {
         "id": "L1_270",
         "category": "COMFORT",
-        "question": "What warm water activity (shower, bath, wash) rests your mind?",
+        "question": "Do you prefer a long shower or a warm bath? 🛁",
         "tone": "CALM"
     },
     {
         "id": "L1_271",
         "category": "COMFORT",
-        "question": "What comforting flavor brings back happy home memories?",
+        "question": "What flavor reminds you of home? 🥧",
         "tone": "GENTLE"
     },
     {
@@ -3696,19 +3696,19 @@
     {
         "id": "L1_274",
         "category": "COMFORT",
-        "question": "What gentle habit helps you ease into your mornings smoothly?",
+        "question": "What's your favorite part of your morning routine? 🌅",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_275",
         "category": "COMFORT",
-        "question": "What friendly sound in your environment brings background comfort?",
+        "question": "What background noise do you find comforting? 🍃",
         "tone": "CALM"
     },
     {
         "id": "L1_276",
         "category": "COMFORT",
-        "question": "What simple chore brings surprising satisfaction when finished?",
+        "question": "What chore feels super satisfying to finish? 🧹",
         "tone": "GENTLE"
     },
     {
@@ -3744,13 +3744,13 @@
     {
         "id": "L1_282",
         "category": "COMFORT",
-        "question": "What gentle stretch eases tension in your shoulders or neck?",
+        "question": "How do you stretch when your shoulders feel tight?",
         "tone": "CALM"
     },
     {
         "id": "L1_283",
         "category": "COMFORT",
-        "question": "What kind words did someone say that made you feel safe?",
+        "question": "What's a nice compliment someone gave you recently?",
         "tone": "GENTLE"
     },
     {
@@ -3762,13 +3762,13 @@
     {
         "id": "L1_285",
         "category": "COMFORT",
-        "question": "What relaxing ambient noise (rain, waves, fan) helps you sleep?",
+        "question": "What sound helps you fall asleep? 🌧️",
         "tone": "CALM"
     },
     {
         "id": "L1_286",
         "category": "COMFORT",
-        "question": "What soft clothing item gives you confidence and ease?",
+        "question": "What's your favorite cozy hoodie or sweater? 🧥",
         "tone": "GENTLE"
     },
     {
@@ -3786,31 +3786,31 @@
     {
         "id": "L1_289",
         "category": "COMFORT",
-        "question": "What gentle routine brings you back to yourself when tired?",
+        "question": "How do you unwind when you're super tired?",
         "tone": "CALM"
     },
     {
         "id": "L1_290",
         "category": "COMFORT",
-        "question": "What calming herbal tea or hot drink helps you relax?",
+        "question": "What's your favorite tea or hot drink? 🍵",
         "tone": "CALM"
     },
     {
         "id": "L1_291",
         "category": "COMFORT",
-        "question": "What cozy memory from this week warm your heart?",
+        "question": "What's a happy memory from this week? ✨",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_292",
         "category": "COMFORT",
-        "question": "What peaceful playlist is your favorite background soundtrack?",
+        "question": "What's your go-to playlist for background music? 🎶",
         "tone": "CALM"
     },
     {
         "id": "L1_293",
         "category": "COMFORT",
-        "question": "What physical sensation lets you know your body is unwinding?",
+        "question": "How do you know when you're starting to relax?",
         "tone": "CALM"
     },
     {
@@ -3828,13 +3828,13 @@
     {
         "id": "L1_296",
         "category": "COMFORT",
-        "question": "What simple arrangement in your room makes it feel organized?",
+        "question": "What's one thing in your room that's super clean or organized?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_297",
         "category": "COMFORT",
-        "question": "What gentle breathing rhythm feels most natural right now?",
+        "question": "Take a deep breath — how does it feel? 🫁",
         "tone": "CALM"
     },
     {
@@ -3846,7 +3846,7 @@
     {
         "id": "L1_299",
         "category": "COMFORT",
-        "question": "What reassuring thought helps you put work away for the night?",
+        "question": "How do you switch off work mode at night?",
         "tone": "CALM"
     },
     {
@@ -3858,7 +3858,7 @@
     {
         "id": "L1_301",
         "category": "CHECK_IN",
-        "question": "How does your body feel physically in this exact moment?",
+        "question": "How are you feeling physically right now?",
         "tone": "GENTLE"
     },
     {
@@ -3876,7 +3876,7 @@
     {
         "id": "L1_304",
         "category": "CHECK_IN",
-        "question": "Where are you resting your hands as you read this?",
+        "question": "Where are you sitting or standing right now?",
         "tone": "CALM"
     },
     {
@@ -3888,7 +3888,7 @@
     {
         "id": "L1_306",
         "category": "CHECK_IN",
-        "question": "Take a soft breath—how does your chest feel expanding?",
+        "question": "Take a slow breath — how are you feeling?",
         "tone": "CALM"
     },
     {
@@ -4029,7 +4029,7 @@
     {
         "id": "L1_330",
         "category": "CHECK_IN",
-        "question": "How present do you feel on a percentage scale right now?",
+        "question": "What's one small thing helping you focus right now? 🌱",
         "tone": "GENTLE"
     },
     {
@@ -4106,49 +4106,49 @@
     {
         "id": "L1_343",
         "category": "CHECK_IN",
-        "question": "How light or heavy does your breathing feel right now?",
+        "question": "Is your breath shallow or deep right now?",
         "tone": "CALM"
     },
     {
         "id": "L1_344",
         "category": "CHECK_IN",
-        "question": "What visual detail on your desk or wall seems interesting?",
+        "question": "What's one thing on your desk that looks interesting?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_345",
         "category": "CHECK_IN",
-        "question": "How easy has it been to take breaks today?",
+        "question": "Have you taken enough breaks today?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_346",
         "category": "CHECK_IN",
-        "question": "Are you feeling peaceful, curious, or busy in your spirit?",
+        "question": "Are you feeling peaceful, curious, or busy today?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_347",
         "category": "CHECK_IN",
-        "question": "What gentle self-care step could you take in 5 minutes?",
+        "question": "What's a 5-minute self-care step you can take right now?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_348",
         "category": "CHECK_IN",
-        "question": "What tone of voice are you using with yourself today?",
+        "question": "Are you being kind to yourself today?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_349",
         "category": "CHECK_IN",
-        "question": "What single word describes the vibe of your current space?",
+        "question": "What word describes the vibe of your room right now?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_350",
         "category": "CHECK_IN",
-        "question": "How balanced do you feel between rest and activity today?",
+        "question": "Did you find a good balance between work and rest today?",
         "tone": "GENTLE"
     },
     {
@@ -4160,228 +4160,228 @@
     {
         "id": "L1_352",
         "category": "CREATIVITY",
-        "question": "What title would you give to the current chapter of your week?",
+        "question": "If your week was a book chapter, what would it be called?",
         "tone": "STIMULATING"
     },
     {
         "id": "L1_353",
         "category": "CREATIVITY",
-        "question": "If your mood had its own signature dish, what would it taste like?",
+        "question": "If your current mood was a flavor, would it be sweet or spicy?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_354",
         "category": "CREATIVITY",
-        "question": "What doodle or shape do you draw most often when daydreaming?",
+        "question": "What do you usually doodle when daydreaming?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_355",
         "category": "CREATIVITY",
-        "question": "If you wrote a short song right now, what would the chorus be?",
+        "question": "If you wrote a quick song right now, what would the chorus be?",
         "tone": "STIMULATING"
     },
     {
         "id": "L1_356",
         "category": "CREATIVITY",
-        "question": "What fictional house or room would you love to spend a day in?",
+        "question": "Which fictional house would you love to live in for a day?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_357",
         "category": "CREATIVITY",
-        "question": "If you could invent a new ice cream flavor, what ingredients go in?",
+        "question": "If you created a new ice cream flavor, what would it taste like?",
         "tone": "STIMULATING"
     },
     {
         "id": "L1_358",
         "category": "CREATIVITY",
-        "question": "What color pencil would you use to draw today's mood?",
+        "question": "What color crayon represents your mood today?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_359",
         "category": "CREATIVITY",
-        "question": "If you opened a tiny shop tomorrow, what curious items would you sell?",
+        "question": "If you opened a small shop tomorrow, what would you sell?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_360",
         "category": "CREATIVITY",
-        "question": "What background music would play during your walking scene in a movie?",
+        "question": "If your life were a movie right now, what background music would play?",
         "tone": "STIMULATING"
     },
     {
         "id": "L1_361",
         "category": "CREATIVITY",
-        "question": "If you could design a quiet park bench, where would it look out to?",
+        "question": "Where would your dream park bench be located?",
         "tone": "CALM"
     },
     {
         "id": "L1_362",
         "category": "CREATIVITY",
-        "question": "What mascot or animal symbol matches your personality today?",
+        "question": "What animal matches your vibe today?",
         "tone": "STIMULATING"
     },
     {
         "id": "L1_363",
         "category": "CREATIVITY",
-        "question": "If you painted a canvas using only two colors, which two would you choose?",
+        "question": "If you painted a canvas using only two colors, which ones would you pick?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_364",
         "category": "CREATIVITY",
-        "question": "What name would you give to a peaceful, newly discovered island?",
+        "question": "What would you name a quiet, undiscovered island?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_365",
         "category": "CREATIVITY",
-        "question": "If you made a cozy playlist, what would be the first track?",
+        "question": "What's the first song on your cozy playlist?",
         "tone": "CALM"
     },
     {
         "id": "L1_366",
         "category": "CREATIVITY",
-        "question": "What scent combination would you create for a customized candle?",
+        "question": "What scent would your custom candle have?",
         "tone": "CALM"
     },
     {
         "id": "L1_367",
         "category": "CREATIVITY",
-        "question": "If you could craft a handmade gift today, what would you make?",
+        "question": "What handmade gift would you make for a friend?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_368",
         "category": "CREATIVITY",
-        "question": "What super silly power would make your daily routine funnier?",
+        "question": "What silly superpower would make your morning routine easier?",
         "tone": "STIMULATING"
     },
     {
         "id": "L1_369",
         "category": "CREATIVITY",
-        "question": "If your day was a short poem, what would the last line be?"
+        "question": "If your day were a poem, what would the last line be?"
     },
     {
         "id": "L1_370",
         "category": "CREATIVITY",
-        "question": "What creative craft (knitting, origami, clay) sounds fun to try?",
+        "question": "What new creative craft sounds fun to try?",
         "tone": "STIMULATING"
     },
     {
         "id": "L1_371",
         "category": "CREATIVITY",
-        "question": "If you designed a cozy reading nook, what cushion colors would you pick?",
+        "question": "What color cushions would you put in your cozy reading spot?",
         "tone": "CALM"
     },
     {
         "id": "L1_372",
         "category": "CREATIVITY",
-        "question": "What funny caption would you give to your pet or favorite animal photo?",
+        "question": "What funny caption would you give your favorite pet photo?",
         "tone": "STIMULATING"
     },
     {
         "id": "L1_373",
         "category": "CREATIVITY",
-        "question": "If you could decorate a bookmark, what pattern would you draw?",
+        "question": "What pattern would you draw on a homemade bookmark?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_374",
         "category": "CREATIVITY",
-        "question": "What genre of story best describes your current day—cozy, adventure, mystery?",
+        "question": "Does your day feel like a cozy story, an adventure, or a mystery?",
         "tone": "STIMULATING"
     },
     {
         "id": "L1_375",
         "category": "CREATIVITY",
-        "question": "If you could build a secret door in your home, where would it lead?",
+        "question": "If you had a secret door in your room, where would it lead?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_376",
         "category": "CREATIVITY",
-        "question": "What shape best represents how organized your thoughts feel right now?",
+        "question": "Does your mind feel structured or open right now?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_377",
         "category": "CREATIVITY",
-        "question": "If you wrote a thank-you note to a favorite object, what object is it?",
+        "question": "What favorite item in your room deserves a thank-you note?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_378",
         "category": "CREATIVITY",
-        "question": "What texture or material inspires your artistic side—wood, glass, fabric?",
+        "question": "What texture do you like working with most—wood, glass, or fabric?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_379",
         "category": "CREATIVITY",
-        "question": "If you created a new holiday for rest, what would people do on it?",
+        "question": "If you invented a holiday dedicated to rest, how would people celebrate it?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_380",
         "category": "CREATIVITY",
-        "question": "What favorite quote or line would you print on a desk sign?",
+        "question": "What short quote would you put on your desk for daily inspiration?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_381",
         "category": "CREATIVITY",
-        "question": "If you designed a custom teacup, what design is on the ceramic?",
+        "question": "What pattern or image would you paint on a custom coffee mug?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_382",
         "category": "CREATIVITY",
-        "question": "What animation style matches how your thoughts move—stop-motion or watercolor?",
+        "question": "Does your mind feel like smooth watercolor or energetic animation today?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_383",
         "category": "CREATIVITY",
-        "question": "If you made a collage of happy things today, what cut-outs are in it?",
+        "question": "What's one happy picture you'd put in a collage of your week?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_384",
         "category": "CREATIVITY",
-        "question": "What fun name would you give to a imaginary pet robot?",
+        "question": "What would you name a friendly pet robot?",
         "tone": "STIMULATING"
     },
     {
         "id": "L1_385",
         "category": "CREATIVITY",
-        "question": "If you had a magic paintbrush, what is the first thing you'd paint?",
+        "question": "If you had a magic paintbrush, what would you paint first?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_386",
         "category": "CREATIVITY",
-        "question": "What kind of house plant would you breed if you were a botanist?",
+        "question": "If you could design a new houseplant, what would it look like?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_387",
         "category": "CREATIVITY",
-        "question": "If you wrote a short riddle about your favorite snack, what would it say?",
+        "question": "How would you describe your favorite snack in three clues?",
         "tone": "STIMULATING"
     },
     {
         "id": "L1_388",
         "category": "CREATIVITY",
-        "question": "What wallpaper pattern would make your bedroom feel super peaceful?",
+        "question": "What wallpaper pattern would make your bedroom feel super cozy?",
         "tone": "CALM"
     },
     {
         "id": "L1_389",
         "category": "CREATIVITY",
-        "question": "If you made a comic strip about today, what is the funny punchline?",
+        "question": "If today were a comic strip, what would the final panel show?",
         "tone": "STIMULATING"
     },
     {
@@ -4393,60 +4393,60 @@
     {
         "id": "L1_391",
         "category": "CREATIVITY",
-        "question": "If you created a cozy café menu, what would be the star beverage?",
+        "question": "What would be the star drink on your cozy cafe menu?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_392",
         "category": "CREATIVITY",
-        "question": "What cute sticker design would you put on your laptop or journal?",
+        "question": "What cute sticker design would you put on your laptop?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_393",
         "category": "CREATIVITY",
-        "question": "If your laughter had a color, what bright hue would it be?",
+        "question": "If your laughter had a color, what hue would it be?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_394",
         "category": "CREATIVITY",
-        "question": "What fun theme would you choose for a cozy dinner party?",
+        "question": "What fun theme would you pick for a cozy dinner with friends?",
         "tone": "STIMULATING"
     },
     {
         "id": "L1_395",
         "category": "CREATIVITY",
-        "question": "If you designed a postcard from your hometown, what landmark is on it?",
+        "question": "What landmark would you feature on a postcard of your town?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_396",
         "category": "CREATIVITY",
-        "question": "What sound effect would accompany your favorite daily achievement?",
+        "question": "What fun sound effect matches your best moment today?",
         "tone": "STIMULATING"
     },
     {
         "id": "L1_397",
         "category": "CREATIVITY",
-        "question": "If you could wear a costume today without judgment, what would it be?",
+        "question": "If you could wear any costume today, what would you pick?",
         "tone": "STIMULATING"
     },
     {
         "id": "L1_398",
         "category": "CREATIVITY",
-        "question": "What art form helps you express feelings when words aren't enough?"
+        "question": "What creative activity helps you unwind when words aren't enough?"
     },
     {
         "id": "L1_399",
         "category": "CREATIVITY",
-        "question": "If you wrote a 3-word bedtime story, what are those 3 words?",
+        "question": "What three words would you use to tell a bedtime story?",
         "tone": "CALM"
     },
     {
         "id": "L1_400",
         "category": "CREATIVITY",
-        "question": "What imaginative dream destination sounds wonderful for a nap?",
+        "question": "What dream destination sounds like the best place for a nap?",
         "tone": "CALM"
     },
     {
@@ -4464,7 +4464,7 @@
     {
         "id": "L1_403",
         "category": "GENERAL",
-        "question": "What habit makes your workday morning go smoother?",
+        "question": "What habit makes your morning go smoother?",
         "tone": "GENTLE"
     },
     {
@@ -4482,7 +4482,7 @@
     {
         "id": "L1_406",
         "category": "GENERAL",
-        "question": "Do you prefer quiet backgrounds or background music when working?",
+        "question": "Do you prefer silence or background music when focusing?",
         "tone": "CALM"
     },
     {
@@ -4494,7 +4494,7 @@
     {
         "id": "L1_408",
         "category": "GENERAL",
-        "question": "Do you prefer organizing things by color, category, or keep it loose?",
+        "question": "Do you prefer organizing things by color, by category, or more casually?",
         "tone": "GENTLE"
     },
     {
@@ -4524,7 +4524,7 @@
     {
         "id": "L1_413",
         "category": "GENERAL",
-        "question": "What season's wardrobe do you enjoy wearing most?",
+        "question": "Which season’s clothes do you most enjoy wearing?",
         "tone": "GENTLE"
     },
     {
@@ -4536,19 +4536,19 @@
     {
         "id": "L1_415",
         "category": "GENERAL",
-        "question": "What short video channel or podcast topic do you enjoy lately?",
+        "question": "What podcast or video channel have you been enjoying lately?",
         "tone": "STIMULATING"
     },
     {
         "id": "L1_416",
         "category": "GENERAL",
-        "question": "Do you prefer quiet solitude or friendly company after work?",
+        "question": "Do you prefer quiet solitude or friendly company after a long day?",
         "tone": "CALM"
     },
     {
         "id": "L1_417",
         "category": "GENERAL",
-        "question": "What daily ritual helps you transition out of work mode?",
+        "question": "What daily ritual helps you unwind at the end of the day?",
         "tone": "CALM"
     },
     {
@@ -4572,13 +4572,13 @@
     {
         "id": "L1_421",
         "category": "GENERAL",
-        "question": "What simple household chore feels most satisfying when completed?",
+        "question": "What simple household chore feels most satisfying to finish?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_422",
         "category": "GENERAL",
-        "question": "Do you keep your phone on silent, vibrate, or ring tone?",
+        "question": "Do you usually keep your phone on silent, vibrate, or ring?",
         "tone": "CALM"
     },
     {
@@ -4590,13 +4590,13 @@
     {
         "id": "L1_424",
         "category": "GENERAL",
-        "question": "Do you prefer sweet or savory snacks during mid-afternoon?",
+        "question": "Do you prefer sweet or savory snacks in the afternoon?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_425",
         "category": "GENERAL",
-        "question": "What time do you usually like to turn off lights for sleep?",
+        "question": "What time do you usually like to turn off the lights for sleep?",
         "tone": "CALM"
     },
     {
@@ -4614,7 +4614,7 @@
     {
         "id": "L1_428",
         "category": "GENERAL",
-        "question": "Do you prefer short quick walks or long leisurely strolls?",
+        "question": "Do you prefer short walks or long, leisurely strolls?",
         "tone": "CALM"
     },
     {
@@ -4626,7 +4626,7 @@
     {
         "id": "L1_430",
         "category": "GENERAL",
-        "question": "Do you prefer reading physical news or scrolling headlines?",
+        "question": "Do you prefer reading a physical newspaper or scrolling headlines?",
         "tone": "GENTLE"
     },
     {
@@ -4650,13 +4650,13 @@
     {
         "id": "L1_434",
         "category": "GENERAL",
-        "question": "Do you prefer structured routines or spontaneous days on weekends?",
+        "question": "Do you prefer planned weekends or weekends that unfold spontaneously?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_435",
         "category": "GENERAL",
-        "question": "What small craft or hobby gear do you keep around?",
+        "question": "What small craft or hobby items do you keep around?",
         "tone": "GENTLE"
     },
     {
@@ -4715,7 +4715,7 @@
     {
         "id": "L1_445",
         "category": "GENERAL",
-        "question": "What local park or green area is closest to your home?",
+        "question": "What local park or green space is closest to your home?",
         "tone": "GENTLE"
     },
     {
@@ -4751,19 +4751,19 @@
     {
         "id": "L1_451",
         "category": "GRATITUDE",
-        "question": "What small pleasant surprise happened today?",
+        "question": "What's one pleasant surprise that happened today?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_452",
         "category": "GRATITUDE",
-        "question": "What comfortable thing in your room are you thankful for right now?",
+        "question": "What comfy item in your room are you thankful for right now?",
         "tone": "CALM"
     },
     {
         "id": "L1_453",
         "category": "GRATITUDE",
-        "question": "What helpful service or utility made your day easier today?",
+        "question": "What simple tool or app made your day easier today?",
         "tone": "GENTLE"
     },
     {
@@ -4775,139 +4775,139 @@
     {
         "id": "L1_455",
         "category": "GRATITUDE",
-        "question": "What kind word from a friend or coworker brightened your spirit?",
+        "question": "What kind words or message brightened your day?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_456",
         "category": "GRATITUDE",
-        "question": "What peaceful moment in nature did you catch a glimpse of today?",
+        "question": "What pretty thing in nature did you spot today?",
         "tone": "CALM"
     },
     {
         "id": "L1_457",
         "category": "GRATITUDE",
-        "question": "What reliability in your home (running water, electricity) do you appreciate?",
+        "question": "What simple home comfort are you most grateful for today?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_458",
         "category": "GRATITUDE",
-        "question": "What song or melody made your day feel a bit sweeter?",
+        "question": "What song made your day feel a little sweeter?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_459",
         "category": "GRATITUDE",
-        "question": "What warm gesture did someone extend to you recently?",
+        "question": "What nice gesture did someone do for you recently?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_460",
         "category": "GRATITUDE",
-        "question": "What part of your physical body served you well today?",
+        "question": "What's one way your body took care of you today?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_461",
         "category": "GRATITUDE",
-        "question": "What cozy item of clothing kept you warm or comfortable today?",
+        "question": "What cozy clothing item kept you comfortable today?",
         "tone": "CALM"
     },
     {
         "id": "L1_462",
         "category": "GRATITUDE",
-        "question": "What laugh or chuckle did you share today?",
+        "question": "What made you laugh or smile today?",
         "tone": "STIMULATING"
     },
     {
         "id": "L1_463",
         "category": "GRATITUDE",
-        "question": "What book, video, or art brought a fresh perspective today?",
+        "question": "What cool video, book, or post gave you a good idea today?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_464",
         "category": "GRATITUDE",
-        "question": "What clean, fresh item (like fresh sheets or towel) felt great today?",
+        "question": "What fresh or clean item felt great to use today?",
         "tone": "CALM"
     },
     {
         "id": "L1_465",
         "category": "GRATITUDE",
-        "question": "What pet or friendly animal encounter brightened your day?",
+        "question": "Did you see a cute pet or animal today?",
         "tone": "STIMULATING"
     },
     {
         "id": "L1_466",
         "category": "GRATITUDE",
-        "question": "What driver, pedestrian, or cashier was courteous to you today?",
+        "question": "What polite interaction made your errands easier today?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_467",
         "category": "GRATITUDE",
-        "question": "What accomplishment, no matter how small, are you proud of today?",
+        "question": "What small win are you proud of today?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_468",
         "category": "GRATITUDE",
-        "question": "What warm beverage warmed your hands or morning?",
+        "question": "What drink did you enjoy holding in your hands today?",
         "tone": "CALM"
     },
     {
         "id": "L1_469",
         "category": "GRATITUDE",
-        "question": "What quiet minute of calm restored your energy today?",
+        "question": "When did you get a quiet moment of calm today?",
         "tone": "CALM"
     },
     {
         "id": "L1_470",
         "category": "GRATITUDE",
-        "question": "What green leaf, flower, or plant did you admire today?",
+        "question": "What plant or flower did you admire today?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_471",
         "category": "GRATITUDE",
-        "question": "What technology tool worked smoothly and saved you time today?",
+        "question": "What small shortcut made something easier for you today?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_472",
         "category": "GRATITUDE",
-        "question": "What comfortable seat welcomed you when you were tired?",
+        "question": "What comfortable chair or couch felt great to sit on today?",
         "tone": "CALM"
     },
     {
         "id": "L1_473",
         "category": "GRATITUDE",
-        "question": "What memory from earlier this month still makes you smile?",
+        "question": "What's a happy memory from earlier this month?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_474",
         "category": "GRATITUDE",
-        "question": "What fresh scent or fragrance lifted your mood today?",
+        "question": "What nice scent lifted your mood today?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_475",
         "category": "GRATITUDE",
-        "question": "What friendly wave or head nod did you receive today?",
+        "question": "What friendly gesture or wave did you receive today?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_476",
         "category": "GRATITUDE",
-        "question": "What piece of good news reached you recently?",
+        "question": "What's a piece of good news you heard recently?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_477",
         "category": "GRATITUDE",
-        "question": "What lesson learned today will help you tomorrow?"
+        "question": "What's one thing you learned today that will help tomorrow?"
     },
     {
         "id": "L1_478",
@@ -4918,43 +4918,43 @@
     {
         "id": "L1_479",
         "category": "GRATITUDE",
-        "question": "What favorite food item was in your pantry or fridge today?",
+        "question": "What tasty food in your fridge or pantry were you glad to have today?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_480",
         "category": "GRATITUDE",
-        "question": "What smooth green light or easy step made your journey smooth?",
+        "question": "What small bit of good luck made your day easier?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_481",
         "category": "GRATITUDE",
-        "question": "What warm sunshine or refreshing breeze touched your face?",
+        "question": "What pleasant weather moment did you enjoy today?",
         "tone": "CALM"
     },
     {
         "id": "L1_482",
         "category": "GRATITUDE",
-        "question": "What quiet space welcomed you for a moment of reflection?",
+        "question": "Where was a quiet spot that welcomed you today?",
         "tone": "CALM"
     },
     {
         "id": "L1_483",
         "category": "GRATITUDE",
-        "question": "What cute picture or message did a loved one send you?",
+        "question": "What cute photo or message did someone send you today?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_484",
         "category": "GRATITUDE",
-        "question": "What fun game, puzzle, or riddle cheered you up?",
+        "question": "What game or puzzle cheered you up recently?",
         "tone": "STIMULATING"
     },
     {
         "id": "L1_485",
         "category": "GRATITUDE",
-        "question": "What comfortable bed or pillow is waiting for you tonight?",
+        "question": "How good does your cozy bed feel at the end of the day?",
         "tone": "CALM"
     },
     {
@@ -4966,91 +4966,91 @@
     {
         "id": "L1_487",
         "category": "GRATITUDE",
-        "question": "What small problem solved itself easily today?",
+        "question": "What small problem got solved easily today?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_488",
         "category": "GRATITUDE",
-        "question": "What piece of advice served you well recently?",
+        "question": "What good piece of advice helped you recently?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_489",
         "category": "GRATITUDE",
-        "question": "What act of self-care did you give yourself today?",
+        "question": "What small act of self-care did you do today?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_490",
         "category": "GRATITUDE",
-        "question": "What colorful sky or cloud pattern did you spot today?",
+        "question": "Did you spot a pretty sky or cloud pattern today?",
         "tone": "CALM"
     },
     {
         "id": "L1_491",
         "category": "GRATITUDE",
-        "question": "What soft blanket kept you cozy while resting?",
+        "question": "What soft blanket or hoodie kept you cozy today?",
         "tone": "CALM"
     },
     {
         "id": "L1_492",
         "category": "GRATITUDE",
-        "question": "What old memory suddenly brought a warm smile today?",
+        "question": "What old memory brought a warm smile to your face today?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_493",
         "category": "GRATITUDE",
-        "question": "What gentle tone of voice helped calm a situation today?",
+        "question": "What calm conversation made things feel better today?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_494",
         "category": "GRATITUDE",
-        "question": "What delicious fruit or snack refreshed your afternoon?",
+        "question": "What snack or drink refreshed your afternoon today?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_495",
         "category": "GRATITUDE",
-        "question": "What feeling of progress cheered you on today?",
+        "question": "What progress made you feel good about your day?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_496",
         "category": "GRATITUDE",
-        "question": "What quiet sanctuary in your home gives you peace?",
+        "question": "What quiet corner in your home brings you peace?",
         "tone": "CALM"
     },
     {
         "id": "L1_497",
         "category": "GRATITUDE",
-        "question": "What uplifting quote or sentence caught your eye today?",
+        "question": "What uplifting quote or message caught your eye today?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_498",
         "category": "GRATITUDE",
-        "question": "What smooth transaction or interaction went well today?",
+        "question": "What errand or chat went smoothly today?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_499",
         "category": "GRATITUDE",
-        "question": "What moment of deep breath released tension today?",
+        "question": "When did taking a deep breath help you relax today?",
         "tone": "CALM"
     },
     {
         "id": "L1_500",
         "category": "GRATITUDE",
-        "question": "What loving connection reminded you that you are cared for?",
+        "question": "What nice gesture reminded you that you are cared for today?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_501",
         "category": "RELATIONSHIPS",
-        "question": "Who is someone that always makes you laugh easily? 😂",
+        "question": "Who always makes you laugh easily? 😂",
         "tone": "HOPEFUL"
     },
     {
@@ -5062,19 +5062,19 @@
     {
         "id": "L1_503",
         "category": "RELATIONSHIPS",
-        "question": "Who gave you a memorable compliment recently?",
+        "question": "Who gave you a nice compliment recently?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_504",
         "category": "RELATIONSHIPS",
-        "question": "What loved one's voice is always comforting to hear?",
+        "question": "Whose voice is always comforting to hear?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_505",
         "category": "RELATIONSHIPS",
-        "question": "Who is a person you enjoy sharing a quiet meal with?",
+        "question": "Who do you enjoy sharing a quiet meal with?",
         "tone": "CALM"
     },
     {
@@ -5086,175 +5086,175 @@
     {
         "id": "L1_507",
         "category": "RELATIONSHIPS",
-        "question": "Who is someone whose work or attitude inspires you?",
+        "question": "Whose attitude or work inspires you right now?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_508",
         "category": "RELATIONSHIPS",
-        "question": "What family member or mentor gave you great advice growing up?",
+        "question": "Who gave you great advice growing up?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_509",
         "category": "RELATIONSHIPS",
-        "question": "Who is a friend you haven't talked to recently but still care about?",
+        "question": "Who's an old friend you still care about but haven't talked to in a while?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_510",
         "category": "RELATIONSHIPS",
-        "question": "What friendly neighbour or community member brightens your street?",
+        "question": "Which friendly neighbor brightens your day?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_511",
         "category": "RELATIONSHIPS",
-        "question": "Who is someone you love exchanging music or book recommendations with?",
+        "question": "Who do you swap music or book recommendations with?",
         "tone": "STIMULATING"
     },
     {
         "id": "L1_512",
         "category": "RELATIONSHIPS",
-        "question": "What kind gesture did a friend do for you this week?",
+        "question": "What nice gesture did a friend do for you this week?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_513",
         "category": "RELATIONSHIPS",
-        "question": "Who is someone you feel completely relaxed around?",
+        "question": "Who do you feel completely relaxed around?",
         "tone": "CALM"
     },
     {
         "id": "L1_514",
         "category": "RELATIONSHIPS",
-        "question": "What silly memory with a friend still makes you grin?",
+        "question": "What funny memory with a friend still makes you smile?",
         "tone": "STIMULATING"
     },
     {
         "id": "L1_515",
         "category": "RELATIONSHIPS",
-        "question": "Who is a coworker or teammate who makes work days lighter?",
+        "question": "Who makes your days feel lighter?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_516",
         "category": "RELATIONSHIPS",
-        "question": "What favorite tradition do you enjoy sharing with loved ones?",
+        "question": "What favorite tradition do you enjoy with loved ones?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_517",
         "category": "RELATIONSHIPS",
-        "question": "Who is someone you can call when you need honest feedback?",
+        "question": "Who can you call when you need honest advice?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_518",
         "category": "RELATIONSHIPS",
-        "question": "What sweet text did you send to someone today?",
+        "question": "What sweet message did you send to someone today?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_519",
         "category": "RELATIONSHIPS",
-        "question": "Who is someone you love cooking or baking for?",
+        "question": "Who do you love cooking or baking for?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_520",
         "category": "RELATIONSHIPS",
-        "question": "What topic of conversation with a friend could last for hours?",
+        "question": "What topic could you talk about with a friend for hours?",
         "tone": "STIMULATING"
     },
     {
         "id": "L1_521",
         "category": "RELATIONSHIPS",
-        "question": "Who is a companion you love taking long walks with?",
+        "question": "Who do you love taking walks with?",
         "tone": "CALM"
     },
     {
         "id": "L1_522",
         "category": "RELATIONSHIPS",
-        "question": "What compliment do you love giving to others?",
+        "question": "What compliment do you love giving to people?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_523",
         "category": "RELATIONSHIPS",
-        "question": "Who is someone you admire for their patience and kindness?",
+        "question": "Who do you admire for their patience?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_524",
         "category": "RELATIONSHIPS",
-        "question": "What favorite activity do you enjoy doing alongside someone in silence?",
+        "question": "What activity do you enjoy doing quietly next to someone?",
         "tone": "CALM"
     },
     {
         "id": "L1_525",
         "category": "RELATIONSHIPS",
-        "question": "Who introduced you to one of your favorite hobbies or artists?",
+        "question": "Who introduced you to one of your favorite hobbies?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_526",
         "category": "RELATIONSHIPS",
-        "question": "What sweet nickname do you have for a pet or loved one?",
+        "question": "What cute nickname do you use for a pet or friend?",
         "tone": "STIMULATING"
     },
     {
         "id": "L1_527",
         "category": "RELATIONSHIPS",
-        "question": "Who is someone you felt proud of recently?",
+        "question": "Who made you feel proud recently?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_528",
         "category": "RELATIONSHIPS",
-        "question": "What fun group activity or game night memory do you cherish?",
+        "question": "What's a fun game night memory you love?",
         "tone": "STIMULATING"
     },
     {
         "id": "L1_529",
         "category": "RELATIONSHIPS",
-        "question": "Who is a person that always notices when you need a hug or smile?",
+        "question": "Who always notices when you need a smile?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_530",
         "category": "RELATIONSHIPS",
-        "question": "What shared meal recently felt warm and nourishing?",
+        "question": "What recent meal with others felt warm and nourishing?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_531",
         "category": "RELATIONSHIPS",
-        "question": "Who is someone whose sense of humor matches yours perfectly?",
+        "question": "Whose sense of humor matches yours perfectly?",
         "tone": "STIMULATING"
     },
     {
         "id": "L1_532",
         "category": "RELATIONSHIPS",
-        "question": "What friendly conversation brightened your morning today?",
+        "question": "What friendly chat brightened your morning today?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_533",
         "category": "RELATIONSHIPS",
-        "question": "Who is someone you trust with your quiet thoughts?",
+        "question": "Who do you trust with your quiet thoughts?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_534",
         "category": "RELATIONSHIPS",
-        "question": "What small gift or token brought joy to someone you gave it to?",
+        "question": "What small gift brought joy to a friend recently?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_535",
         "category": "RELATIONSHIPS",
-        "question": "Who is a teacher or mentor who believed in you early on?",
+        "question": "Which teacher or mentor believed in you?",
         "tone": "GENTLE"
     },
     {
@@ -5266,19 +5266,19 @@
     {
         "id": "L1_537",
         "category": "RELATIONSHIPS",
-        "question": "Who is someone you love celebrating good news with?",
+        "question": "Who do you love celebrating good news with?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_538",
         "category": "RELATIONSHIPS",
-        "question": "What simple way do you show gratitude to people around you?",
+        "question": "How do you usually show gratitude to people around you?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_539",
         "category": "RELATIONSHIPS",
-        "question": "Who is a friend who always remembers important dates?",
+        "question": "Who always remembers important dates or birthdays?",
         "tone": "HOPEFUL"
     },
     {
@@ -5290,61 +5290,61 @@
     {
         "id": "L1_541",
         "category": "RELATIONSHIPS",
-        "question": "Who is someone you love visiting during holidays or weekends?",
+        "question": "Who do you love visiting on weekends?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_542",
         "category": "RELATIONSHIPS",
-        "question": "What quality do you appreciate most in your closest friend?",
+        "question": "What quality do you appreciate most in your best friend?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_543",
         "category": "RELATIONSHIPS",
-        "question": "Who is someone who taught you a practical skill you use often?",
+        "question": "Who taught you a practical skill you use often?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_544",
         "category": "RELATIONSHIPS",
-        "question": "What warm hug cheered you up when you needed it?",
+        "question": "What warm hug cheered you up recently?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_545",
         "category": "RELATIONSHIPS",
-        "question": "Who is someone who makes you feel heard and understood?",
+        "question": "Who makes you feel heard and understood?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_546",
         "category": "RELATIONSHIPS",
-        "question": "What fun adventure or day trip did you share with a friend?",
+        "question": "What fun day trip did you share with a friend?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_547",
         "category": "RELATIONSHIPS",
-        "question": "Who is a family member whose stories you love hearing?",
+        "question": "Whose family stories do you love hearing?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_548",
         "category": "RELATIONSHIPS",
-        "question": "What small act of cooperation made a project easier today?",
+        "question": "What small teamwork moment made a task easier today?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_549",
         "category": "RELATIONSHIPS",
-        "question": "Who is someone you are looking forward to seeing soon?",
+        "question": "Who are you looking forward to seeing soon?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_550",
         "category": "RELATIONSHIPS",
-        "question": "What warm sense of belonging did you feel in a group recently?",
+        "question": "When did you feel a warm sense of belonging recently?",
         "tone": "HOPEFUL"
     },
     {
@@ -5356,7 +5356,7 @@
     {
         "id": "L1_552",
         "category": "IMAGINATION",
-        "question": "If you could speak to any calm animal for five minutes, which animal?",
+        "question": "If you could speak to any animal for five minutes, which one would you choose?",
         "tone": "STIMULATING"
     },
     {
@@ -5368,7 +5368,7 @@
     {
         "id": "L1_554",
         "category": "IMAGINATION",
-        "question": "If you could instantly learn one traditional craft, what craft is it?",
+        "question": "If you could instantly learn one traditional craft, what would it be?",
         "tone": "HOPEFUL"
     },
     {
@@ -5380,7 +5380,7 @@
     {
         "id": "L1_556",
         "category": "IMAGINATION",
-        "question": "If you could design a quiet sanctuary garden, what tree is in the center?",
+        "question": "If you could design a quiet sanctuary garden, what tree would be at the center?",
         "tone": "CALM"
     },
     {
@@ -5392,13 +5392,13 @@
     {
         "id": "L1_558",
         "category": "IMAGINATION",
-        "question": "If you could travel anywhere by cozy train tonight, where does it land?",
+        "question": "If you could take a cozy train ride tonight, where would you go?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_559",
         "category": "IMAGINATION",
-        "question": "If you wrote a gentle message in a bottle, what sentence is inside?"
+        "question": "If you wrote a message in a bottle, what would it say?"
     },
     {
         "id": "L1_560",
@@ -5409,7 +5409,7 @@
     {
         "id": "L1_561",
         "category": "IMAGINATION",
-        "question": "If your current mood was an instrument, what instrument would play?",
+        "question": "If your current mood were an instrument, what would it be?",
         "tone": "CALM"
     },
     {
@@ -5427,7 +5427,7 @@
     {
         "id": "L1_564",
         "category": "IMAGINATION",
-        "question": "If you wrote a lullaby for restless thoughts, what instrument leads it?",
+        "question": "If you wrote a lullaby for restless thoughts, what instrument would lead it?",
         "tone": "CALM"
     },
     {
@@ -5493,7 +5493,7 @@
     {
         "id": "L1_575",
         "category": "IMAGINATION",
-        "question": "If you could choose any soft light source for your room, what light source?",
+        "question": "If you could choose soft lighting for your room, what would you pick?",
         "tone": "CALM"
     },
     {
@@ -5511,7 +5511,7 @@
     {
         "id": "L1_578",
         "category": "IMAGINATION",
-        "question": "If you wrote a children's story, what cute animal is the main hero?",
+        "question": "If you wrote a children's story, what animal would be the main character?",
         "tone": "STIMULATING"
     },
     {
@@ -5523,7 +5523,7 @@
     {
         "id": "L1_580",
         "category": "IMAGINATION",
-        "question": "If you could bake a pastry that grants quiet sleep, what flavor is it?",
+        "question": "If you could bake a pastry that brings restful sleep, what flavor would it be?",
         "tone": "CALM"
     },
     {
@@ -5547,25 +5547,25 @@
     {
         "id": "L1_584",
         "category": "IMAGINATION",
-        "question": "If you could compose a ringtone from nature sounds, what sounds go in?",
+        "question": "If you could create a ringtone from nature sounds, which sounds would you include?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_585",
         "category": "IMAGINATION",
-        "question": "If your heart had a quiet porch, who is sitting on the rocking chair?",
+        "question": "If your heart had a quiet porch, who would be sitting in the rocking chair?",
         "tone": "CALM"
     },
     {
         "id": "L1_586",
         "category": "IMAGINATION",
-        "question": "If you could hold a star in a jar, what warm glow would it give your desk?",
+        "question": "If you could keep a star in a jar, what kind of glow would it cast?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_587",
         "category": "IMAGINATION",
-        "question": "If you wrote a book of gentle reminders, what is rule number one?",
+        "question": "If you wrote a book of gentle reminders, what would the first one be?",
         "tone": "GENTLE"
     },
     {
@@ -5577,7 +5577,7 @@
     {
         "id": "L1_589",
         "category": "IMAGINATION",
-        "question": "If you could plant a seed that grows into instant comfort, what plant grows?",
+        "question": "If you could plant a seed that grows into instant comfort, what kind of plant would it be?",
         "tone": "CALM"
     },
     {
@@ -5601,7 +5601,7 @@
     {
         "id": "L1_593",
         "category": "IMAGINATION",
-        "question": "If you could design a stained glass window, what scene does the light shine through?",
+        "question": "If you could design a stained glass window, what scene would it depict?",
         "tone": "HOPEFUL"
     },
     {
@@ -5624,7 +5624,7 @@
     {
         "id": "L1_597",
         "category": "IMAGINATION",
-        "question": "If your evening routine was a lullaby, what instrument plays the ending chord?",
+        "question": "If your evening routine were a lullaby, what instrument would play the final note?",
         "tone": "CALM"
     },
     {
@@ -5642,7 +5642,7 @@
     {
         "id": "L1_600",
         "category": "IMAGINATION",
-        "question": "If you could send a warm breeze of encouragement to your future self, what does it feel like?",
+        "question": "If you could send a warm breeze of encouragement to your future self, what would it feel like?",
         "tone": "HOPEFUL"
     },
     {
@@ -5672,13 +5672,13 @@
     {
         "id": "L1_605",
         "category": "ANXIETY",
-        "question": "What is one soft sound in your room that you can focus on gently?",
+        "question": "What's a soft sound in your room you can focus on gently?",
         "tone": "CALM"
     },
     {
         "id": "L1_606",
         "category": "ANXIETY",
-        "question": "What gentle word would you tell a dear friend who feels worried right now?",
+        "question": "What gentle words would you say to a friend who feels worried right now?",
         "tone": "GENTLE"
     },
     {
@@ -5690,7 +5690,7 @@
     {
         "id": "L1_608",
         "category": "ANXIETY",
-        "question": "What is one small thing in your current room that is completely calm?",
+        "question": "What's one small thing in your room that feels completely calm?",
         "tone": "CALM"
     },
     {
@@ -5750,13 +5750,13 @@
     {
         "id": "L1_618",
         "category": "ANXIETY",
-        "question": "What soothing melody helps lower your heart rate when you listen?",
+        "question": "What soothing melody helps lower your heart rate?",
         "tone": "CALM"
     },
     {
         "id": "L1_619",
         "category": "ANXIETY",
-        "question": "What gentle self-compassion thought can you offer yourself right now?",
+        "question": "What gentle thought of compassion can you offer yourself right now?",
         "tone": "GENTLE"
     },
     {
@@ -5768,13 +5768,13 @@
     {
         "id": "L1_621",
         "category": "ANXIETY",
-        "question": "What familiar routine brings predictable comfort when day feels uncertain?",
+        "question": "What familiar routine brings predictable comfort when the day feels uncertain?",
         "tone": "CALM"
     },
     {
         "id": "L1_622",
         "category": "ANXIETY",
-        "question": "What soft blanket or warm sweater can wrap around you right now?",
+        "question": "What soft blanket or warm sweater can you wrap around yourself right now?",
         "tone": "CALM"
     },
     {
@@ -5792,13 +5792,13 @@
     {
         "id": "L1_625",
         "category": "ANXIETY",
-        "question": "What supportive person's voice brings a feeling of calm assurance?",
+        "question": "Whose supportive voice brings you a feeling of calm assurance?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_626",
         "category": "ANXIETY",
-        "question": "What gentle pace allows you to complete your next task without rush?",
+        "question": "What gentle pace allows you to complete your next task without feeling rushed?",
         "tone": "CALM"
     },
     {
@@ -5816,7 +5816,7 @@
     {
         "id": "L1_629",
         "category": "ANXIETY",
-        "question": "What is one small comfort you can give your physical body today?",
+        "question": "What is one small comfort you can give your body today?",
         "tone": "GENTLE"
     },
     {
@@ -5828,7 +5828,7 @@
     {
         "id": "L1_631",
         "category": "ANXIETY",
-        "question": "What encouraging word helps remind you that feelings pass like weather?",
+        "question": "What encouraging word reminds you that feelings pass like weather?",
         "tone": "GENTLE"
     },
     {
@@ -5900,7 +5900,7 @@
     {
         "id": "L1_643",
         "category": "ANXIETY",
-        "question": "What small order of operations can break a task into easy steps?",
+        "question": "What simple steps can help you break a task down into manageable pieces?",
         "tone": "GENTLE"
     },
     {
@@ -5912,13 +5912,13 @@
     {
         "id": "L1_645",
         "category": "ANXIETY",
-        "question": "Can you sip a warm liquid slowly and feel the warmth move down?",
+        "question": "Can you sip a warm drink slowly and feel the warmth move down?",
         "tone": "CALM"
     },
     {
         "id": "L1_646",
         "category": "ANXIETY",
-        "question": "What gentle reminder helps you remember that you don't have to figure everything out today?",
+        "question": "What gentle thought reassures you that you don't have to figure everything out today?",
         "tone": "GENTLE"
     },
     {
@@ -5942,7 +5942,7 @@
     {
         "id": "L1_650",
         "category": "ANXIETY",
-        "question": "What simple act of stepping outside for 60 seconds resets your mind?",
+        "question": "How can stepping outside for just 60 seconds help reset your mind?",
         "tone": "GENTLE"
     },
     {
@@ -6007,12 +6007,12 @@
     {
         "id": "L1_661",
         "category": "SELF_REFLECTION",
-        "question": "What emotion did you notice coming up most frequently today?"
+        "question": "What emotion did you notice coming up most often today?"
     },
     {
         "id": "L1_662",
         "category": "SELF_REFLECTION",
-        "question": "What topic or subject has been sparking your curiosity lately?",
+        "question": "What topic has been sparking your curiosity lately?",
         "tone": "STIMULATING"
     },
     {
@@ -6065,7 +6065,7 @@
     {
         "id": "L1_671",
         "category": "SELF_REFLECTION",
-        "question": "What small choice helped you honor your physical need for rest?",
+        "question": "What small choice helped you honor your need for rest today?",
         "tone": "GENTLE"
     },
     {
@@ -6111,13 +6111,13 @@
     {
         "id": "L1_679",
         "category": "SELF_REFLECTION",
-        "question": "What small progress in a personal goal cheered you up today?",
+        "question": "What small progress on a personal goal cheered you up today?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_680",
         "category": "SELF_REFLECTION",
-        "question": "What realization helped you slow down when feeling rushed?",
+        "question": "What realization helped you slow down when you felt rushed today?",
         "tone": "CALM"
     },
     {
@@ -6147,7 +6147,7 @@
     {
         "id": "L1_685",
         "category": "SELF_REFLECTION",
-        "question": "What favorite aspect of your personality felt present today?",
+        "question": "What favorite part of your personality shone through today?",
         "tone": "HOPEFUL"
     },
     {
@@ -6165,7 +6165,7 @@
     {
         "id": "L1_688",
         "category": "SELF_REFLECTION",
-        "question": "What piece of self-knowledge felt clear and reassuring today?"
+        "question": "What simple insight felt clear and reassuring today?"
     },
     {
         "id": "L1_689",
@@ -6284,7 +6284,7 @@
     {
         "id": "L1_708",
         "category": "FUN",
-        "question": "Would you rather take a midnight walk under a full moon or sunrise jog?",
+        "question": "Would you rather take a midnight walk under a full moon or go for a sunrise jog?",
         "tone": "CALM"
     },
     {
@@ -6326,13 +6326,13 @@
     {
         "id": "L1_715",
         "category": "FUN",
-        "question": "Would you rather make homemade ice cream or bake artisanal pie?",
+        "question": "Would you rather make homemade ice cream or bake an artisanal pie?",
         "tone": "GENTLE"
     },
     {
         "id": "L1_716",
         "category": "FUN",
-        "question": "Would you rather travel back to the 1920s or 1980s for a weekend?",
+        "question": "Would you rather travel back to the 1920s or the 1980s for a weekend?",
         "tone": "STIMULATING"
     },
     {
@@ -6434,7 +6434,7 @@
     {
         "id": "L1_733",
         "category": "FUN",
-        "question": "Would you rather learn arching or horseback riding?",
+        "question": "Would you rather learn archery or horseback riding?",
         "tone": "STIMULATING"
     },
     {
@@ -6518,19 +6518,19 @@
     {
         "id": "L1_747",
         "category": "FUN",
-        "question": "Would you rather go on a weekend retreat to a cabin or beach house?",
+        "question": "Would you rather go on a weekend retreat to a cabin or a beach house?",
         "tone": "CALM"
     },
     {
         "id": "L1_748",
         "category": "FUN",
-        "question": "Would you rather listen to the rain on a tin roof or canvas tent?",
+        "question": "Would you rather listen to the rain on a tin roof or a canvas tent?",
         "tone": "CALM"
     },
     {
         "id": "L1_749",
         "category": "FUN",
-        "question": "Would you rather have a indoor pool or a cozy rooftop garden?",
+        "question": "Would you rather have an indoor pool or a cozy rooftop garden?",
         "tone": "HOPEFUL"
     },
     {
@@ -6542,7 +6542,7 @@
     {
         "id": "L1_751",
         "category": "COMFORT",
-        "question": "What familiar flavor brings an instant feeling of nostalgic comfort?",
+        "question": "What familiar flavor brings instant comfort to you?",
         "tone": "GENTLE"
     },
     {
@@ -6554,19 +6554,19 @@
     {
         "id": "L1_753",
         "category": "COMFORT",
-        "question": "What relaxing ritual helps you ease out of a busy afternoon?",
+        "question": "What simple habit helps you unwind in the afternoon?",
         "tone": "CALM"
     },
     {
         "id": "L1_754",
         "category": "COMFORT",
-        "question": "What soft blanket texture feels like pure rest against your skin?",
+        "question": "What soft blanket feels like pure rest to you?",
         "tone": "CALM"
     },
     {
         "id": "L1_755",
         "category": "COMFORT",
-        "question": "What reassuring phrase helps quiet overthinking when you rest?",
+        "question": "What reassuring phrase calms your mind when you're overthinking?",
         "tone": "CALM"
     },
     {
@@ -6590,7 +6590,7 @@
     {
         "id": "L1_759",
         "category": "COMFORT",
-        "question": "What calming scent of rain on dry ground (petrichor) do you love?",
+        "question": "What calming scent of rain on dry ground do you love?",
         "tone": "CALM"
     },
     {
@@ -6620,7 +6620,7 @@
     {
         "id": "L1_764",
         "category": "COMFORT",
-        "question": "What gentle glow from a desk lamp or candle makes evening calm?",
+        "question": "What gentle glow from a lamp or candle makes your evening feel calm?",
         "tone": "CALM"
     },
     {
@@ -6650,19 +6650,19 @@
     {
         "id": "L1_769",
         "category": "COMFORT",
-        "question": "What soft pillow density helps you fall asleep comfortably?",
+        "question": "What kind of pillow helps you fall asleep comfortably?",
         "tone": "CALM"
     },
     {
         "id": "L1_770",
         "category": "COMFORT",
-        "question": "What reassuring friend message came right when you needed it?",
+        "question": "What reassuring message from a friend came right when you needed it?",
         "tone": "HOPEFUL"
     },
     {
         "id": "L1_771",
         "category": "COMFORT",
-        "question": "What gentle habit of sipping warm water hydrates your morning?",
+        "question": "What gentle morning habit helps you stay hydrated?",
         "tone": "CALM"
     },
     {
@@ -6710,7 +6710,7 @@
     {
         "id": "L1_779",
         "category": "COMFORT",
-        "question": "What quiet moment sitting on the porch or balcony gives peace?",
+        "question": "What quiet moment sitting on the porch or balcony brings you peace?",
         "tone": "CALM"
     },
     {
@@ -6746,7 +6746,7 @@
     {
         "id": "L1_785",
         "category": "COMFORT",
-        "question": "What quiet sound of wind through trees gives background calm?",
+        "question": "What quiet sound of wind through the trees brings a sense of calm?",
         "tone": "CALM"
     },
     {
@@ -6758,7 +6758,7 @@
     {
         "id": "L1_787",
         "category": "COMFORT",
-        "question": "What warm cup held in both hands grounds you in winter?",
+        "question": "What warm cup held in both hands feels best in winter?",
         "tone": "CALM"
     },
     {
@@ -6776,7 +6776,7 @@
     {
         "id": "L1_790",
         "category": "COMFORT",
-        "question": "What reassuring thought lets you know you are doing okay?",
+        "question": "What reassuring thought reminds you that you are doing okay?",
         "tone": "GENTLE"
     },
     {
@@ -6788,7 +6788,7 @@
     {
         "id": "L1_792",
         "category": "COMFORT",
-        "question": "What peaceful view of stars or moon brings quiet wonder?",
+        "question": "What peaceful view of the stars or the moon brings quiet wonder?",
         "tone": "CALM"
     },
     {
@@ -6830,7 +6830,7 @@
     {
         "id": "L1_799",
         "category": "COMFORT",
-        "question": "What comfortable space lets you lay down and rest deeply?",
+        "question": "What comfortable space lets you lie down and rest deeply?",
         "tone": "CALM"
     },
     {
