@@ -12,6 +12,9 @@ interface PromptDao {
     @Query("SELECT * FROM prompts")
     suspend fun getAllPromptsList(): List<PromptEntity>
 
+    @Query("SELECT * FROM prompts WHERE id = :id")
+    suspend fun getPromptById(id: String): PromptEntity?
+
     @Query("SELECT * FROM prompts WHERE category = :category")
     fun getPromptsByCategory(category: PromptCategory): Flow<List<PromptEntity>>
 
@@ -26,6 +29,23 @@ interface PromptDao {
 
     @Update
     suspend fun updatePrompts(prompts: List<PromptEntity>)
+
+    @Transaction
+    suspend fun syncPromptsTransaction(
+        toDelete: List<PromptEntity>,
+        toInsert: List<PromptEntity>,
+        toUpdate: List<PromptEntity>,
+    ) {
+        if (toDelete.isNotEmpty()) {
+            deletePrompts(toDelete)
+        }
+        if (toInsert.isNotEmpty()) {
+            insertPrompts(toInsert)
+        }
+        if (toUpdate.isNotEmpty()) {
+            updatePrompts(toUpdate)
+        }
+    }
 
     @Update
     suspend fun updatePrompt(prompt: PromptEntity)

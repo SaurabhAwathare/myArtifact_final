@@ -9,7 +9,6 @@ import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.audio.RecordingSessionManager
 import com.saurabh.artifact.data.local.RecordingStatus
 import com.saurabh.artifact.data.local.UserSessionManager
-import com.saurabh.artifact.model.PromptCategory
 import com.saurabh.artifact.model.ReflectionPrompt
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.AuthRepository
@@ -20,8 +19,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import java.net.URLDecoder
-import java.nio.charset.StandardCharsets
 import javax.inject.Inject
 
 @HiltViewModel
@@ -86,65 +83,41 @@ class RecordingViewModel @Inject constructor(
         viewModelScope.launch {
             promptRepository.initializeIfEmpty()
 
-            val allPrompts = promptRepository.getAllPrompts().firstOrNull() ?: emptyList()
-            if (allPrompts.isEmpty()) {
-                _uiState.update { it.copy(currentPrompt = null, isPromptVisible = false) }
-                userSessionManager.setActivePromptId(null)
-                return@launch
-            }
-
-            // Priority 1: Navigation Argument
+            // Priority 1: Navigation Argument (Must be a valid approved prompt ID)
             val navPromptId = savedStateHandle.get<String>("promptId")?.takeIf { it.isNotBlank() }
-            val navPromptEncoded = savedStateHandle.get<String>("prompt")
-            val navPrompt = navPromptEncoded?.let {
-                try {
-                    URLDecoder.decode(it, StandardCharsets.UTF_8.toString())
-                } catch (_: Exception) {
-                    it
-                }
-            }?.takeIf { it.isNotBlank() }
-
             if (navPromptId != null) {
-                val existingPrompt = allPrompts.find { it.id == navPromptId }
-                val targetPrompt = existingPrompt ?: ReflectionPrompt(
-                    id = navPromptId,
-                    category = PromptCategory.GENERAL,
-                    question = navPrompt ?: ""
-                )
-                _uiState.update { it.copy(currentPrompt = targetPrompt, isPromptVisible = true) }
-                userSessionManager.setActivePromptId(targetPrompt.id)
-                return@launch
+                val approvedPrompt = promptRepository.getApprovedPromptById(navPromptId)
+                if (approvedPrompt != null) {
+                    _uiState.update { it.copy(currentPrompt = approvedPrompt, isPromptVisible = true) }
+                    userSessionManager.setActivePromptId(approvedPrompt.id)
+                    return@launch
+                }
+                // Unknown, synthetic, malformed, or unapproved prompt IDs fall through
             }
 
-            if (navPrompt != null) {
-                val targetPrompt = ReflectionPrompt(
-                    id = "nav_${System.currentTimeMillis()}",
-                    category = PromptCategory.GENERAL,
-                    question = navPrompt
-                )
-                _uiState.update { it.copy(currentPrompt = targetPrompt, isPromptVisible = true) }
-                return@launch
-            }
-
-            // Priority 2: Session-active prompt (if not already consumed)
+            // Priority 2: Session-active prompt (if valid approved & unconsumed)
             val activePromptId = userSessionManager.activePromptId.firstOrNull()
             if (activePromptId != null) {
-                val activePrompt = allPrompts.find { it.id == activePromptId }
-                
-                if (activePrompt != null && (!activePrompt.isConsumed)) { 
+                val activePrompt = promptRepository.getApprovedPromptById(activePromptId)
+                if (activePrompt != null && !activePrompt.isConsumed) { 
                     _uiState.update { it.copy(currentPrompt = activePrompt, isPromptVisible = true) }
                     return@launch
                 }
             }
 
-            // Priority 3: Fresh eligible prompt
+            // Priority 3: Fresh eligible approved prompt
             val currentUser = authRepository.currentUser.value
             val progressionCount = if (currentUser != null) {
                 userRepository.getUserProgressionCount(currentUser.uid).firstOrNull() ?: 0
             } else 0
             val freshPrompt = promptManager.getNextPrompt(progressionCount = progressionCount)
-            _uiState.update { it.copy(currentPrompt = freshPrompt, isPromptVisible = freshPrompt != null) }
-            userSessionManager.setActivePromptId(freshPrompt?.id)
+            if (freshPrompt != null && promptRepository.isApprovedPrompt(freshPrompt)) {
+                _uiState.update { it.copy(currentPrompt = freshPrompt, isPromptVisible = true) }
+                userSessionManager.setActivePromptId(freshPrompt.id)
+            } else {
+                _uiState.update { it.copy(currentPrompt = null, isPromptVisible = false) }
+                userSessionManager.setActivePromptId(null)
+            }
         }
     }
 

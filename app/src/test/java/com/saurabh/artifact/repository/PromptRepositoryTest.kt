@@ -10,6 +10,9 @@ import io.mockk.*
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -18,11 +21,25 @@ class PromptRepositoryTest {
     private val context = mockk<Context>(relaxed = true)
     private lateinit var repository: PromptRepository
 
+    private val sampleJsonContent = """
+        [
+            {"id":"L1_001","question":"Q1","category":"GENERAL","tone":"GENTLE","depthLevel":1},
+            {"id":"L1_002","question":"Q2","category":"GENERAL","tone":"GENTLE","depthLevel":1},
+            {"id":"L2_001","question":"Q2","category":"GENERAL","tone":"GENTLE","depthLevel":2},
+            {"id":"valid_id","question":"Valid Question","category":"GENERAL","tone":"GENTLE","depthLevel":1},
+            {"id":"P1","question":"Q1","category":"GENERAL","tone":"GENTLE","depthLevel":1}
+        ]
+    """.trimIndent()
+
     @Before
     fun setup() {
         mockkStatic(Log::class)
+        every { Log.e(any(), any()) } returns 0
         every { Log.e(any(), any(), any()) } returns 0
+        every { Log.w(any(), any<String>()) } returns 0
+        every { Log.w(any(), any<String>(), any()) } returns 0
 
+        every { context.assets.open("prompts.json") } answers { sampleJsonContent.byteInputStream() }
         coEvery { promptDao.getPromptCount() } returns 10
 
         repository = PromptRepository(
@@ -119,11 +136,14 @@ class PromptRepositoryTest {
     }
 
     @Test
-    fun `markAsConsumed should ignore blank and nav_ synthetic prompt IDs`() = runBlocking {
+    fun `markAsConsumed should ignore blank, nav_, ai_, safety_ and unapproved prompt IDs`() = runBlocking {
         repository.markAsConsumed("")
         repository.markAsConsumed("   ")
         repository.markAsConsumed("nav_1712345678")
         repository.markAsConsumed("nav_test")
+        repository.markAsConsumed("ai_123456789")
+        repository.markAsConsumed("safety_high")
+        repository.markAsConsumed("unapproved_unknown_id")
 
         coVerify(exactly = 0) { promptDao.markAsConsumed(any()) }
 
@@ -132,9 +152,34 @@ class PromptRepositoryTest {
     }
 
     @Test
+    fun `getApprovedPromptById rejects synthetic and unapproved IDs`() = runBlocking {
+        repository.syncPromptsFromAsset()
+
+        assertNull(repository.getApprovedPromptById("ai_12345"))
+        assertNull(repository.getApprovedPromptById("nav_9999"))
+        assertNull(repository.getApprovedPromptById("safety_high"))
+        assertNull(repository.getApprovedPromptById("unknown_id"))
+
+        val approved = repository.getApprovedPromptById("valid_id")
+        assertEquals("valid_id", approved?.id)
+        assertEquals("Valid Question", approved?.question)
+    }
+
+    @Test
+    fun `getApprovedPromptById rejects corrupted DB record with mismatched question text`() = runBlocking {
+        repository.syncPromptsFromAsset()
+
+        // DB contains a record with valid ID 'valid_id' but corrupted question text
+        val corruptedEntity = PromptEntity("valid_id", "Hacked Text", PromptCategory.GENERAL, EmotionalTone.GENTLE, depthLevel = 1)
+        coEvery { promptDao.getPromptById("valid_id") } returns corruptedEntity
+
+        val result = repository.getApprovedPromptById("valid_id")
+        // Should ignore corrupted DB text and return canonical approved question
+        assertEquals("Valid Question", result?.question)
+    }
+
+    @Test
     fun `syncPromptsFromAsset syncs when prompts table is empty even if isSynced was true`() = runBlocking {
-        val jsonContent = """[{"id":"P1","question":"Q1","category":"GENERAL","tone":"GENTLE","depthLevel":1}]"""
-        every { context.assets.open("prompts.json") } answers { jsonContent.byteInputStream() }
         coEvery { promptDao.getPromptCount() } returns 0
         coEvery { promptDao.getAllPromptsList() } returns emptyList()
 
@@ -145,8 +190,6 @@ class PromptRepositoryTest {
 
     @Test
     fun `resetSyncState allows subsequent sync`() = runBlocking {
-        val jsonContent = """[{"id":"P1","question":"Q1","category":"GENERAL","tone":"GENTLE","depthLevel":1}]"""
-        every { context.assets.open("prompts.json") } answers { jsonContent.byteInputStream() }
         coEvery { promptDao.getPromptCount() } returnsMany listOf(10, 0)
         coEvery { promptDao.getAllPromptsList() } returns emptyList()
 
