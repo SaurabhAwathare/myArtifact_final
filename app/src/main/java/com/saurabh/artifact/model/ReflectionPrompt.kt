@@ -12,8 +12,22 @@ data class ReflectionPrompt(
     val isFavorite: Boolean = false,
     val usageCount: Int = 0,
     val depthLevel: Int = 1,
-    val isConsumed: Boolean = false
+    val isConsumed: Boolean = false,
+    val batchNumber: Int = 0,
+    val sectionIndex: Int = 1,
+    val sectionTitle: String = ""
 )
+
+sealed class PromptSelectionResult {
+    data class Success(
+        val prompt: ReflectionPrompt,
+        val batchNumber: Int
+    ) : PromptSelectionResult()
+
+    object BatchExhausted : PromptSelectionResult()
+    object CatalogExhausted : PromptSelectionResult()
+    data class Error(val cause: Throwable) : PromptSelectionResult()
+}
 
 @Serializable
 enum class PromptCategory(val displayName: String) {
@@ -30,5 +44,12 @@ enum class PromptCategory(val displayName: String) {
     IMAGINATION("Imagination"),
     FUN("Fun"),
     AI_GUIDED("AI Guided"),
-    GENERAL("General")
+    GENERAL("General");
+
+    val displayLabel: String
+        get() = when (this) {
+            GENERAL -> "EVERYDAY LIFE"
+            GROWTH -> "PERSONAL DEVELOPMENT"
+            else -> displayName.uppercase()
+        }
 }

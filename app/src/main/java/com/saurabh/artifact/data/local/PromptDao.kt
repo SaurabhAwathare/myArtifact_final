@@ -97,4 +97,29 @@ interface PromptDao {
 
     @Query("SELECT * FROM prompts ORDER BY lastUsedTimestamp DESC LIMIT :limit")
     suspend fun getRecentPrompts(limit: Int): List<PromptEntity>
+
+    @Query("""
+        SELECT * FROM prompts 
+        WHERE batchNumber = :batchNumber 
+          AND id NOT IN (SELECT promptId FROM user_consumed_prompts WHERE userId = :userId)
+        ORDER BY sectionIndex ASC, id ASC 
+        LIMIT 1
+    """)
+    suspend fun getNextUnconsumedPromptInBatch(userId: String, batchNumber: Int): PromptEntity?
+
+    @Query("""
+        SELECT COUNT(*) FROM prompts 
+        WHERE id NOT IN (SELECT promptId FROM user_consumed_prompts WHERE userId = :userId)
+    """)
+    suspend fun getTotalUnconsumedCount(userId: String): Int
+
+    @Query("""
+        SELECT COUNT(*) FROM prompts 
+        WHERE batchNumber = :batchNumber 
+          AND id NOT IN (SELECT promptId FROM user_consumed_prompts WHERE userId = :userId)
+    """)
+    suspend fun getUnconsumedCountForBatch(userId: String, batchNumber: Int): Int
+
+    @Query("SELECT COUNT(*) FROM prompts WHERE batchNumber = :batchNumber")
+    suspend fun getPromptCountForBatch(batchNumber: Int): Int
 }

@@ -47,7 +47,8 @@ class RecordingRepository @Inject constructor(
         durationMs: Long,
         checksum: String? = null,
         isEncrypted: Boolean = false,
-        mimeType: String = "audio/wav"
+        mimeType: String = "audio/wav",
+        promptId: String? = null
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
             val currentUserId = userRepository.getCurrentUserId() 
@@ -64,6 +65,7 @@ class RecordingRepository @Inject constructor(
                 uploadFormatVersion = 2, // Current version for new recordings
                 lifecycle = if (durationMs > 0) ArtifactLifecycle.REVIEW_REQUIRED else ArtifactLifecycle.RECORDING,
                 mimeType = mimeType,
+                promptId = promptId,
                 status = DraftStatus(
                     publication = SyncStatus.LocalOnly
                 ),
@@ -78,7 +80,8 @@ class RecordingRepository @Inject constructor(
                 createdAt = draft.createdAt, 
                 mimeType = mimeType,
                 title = null,
-                emotion = null
+                emotion = null,
+                promptId = promptId
             )
             
             draftDao.get().insert(draft)
@@ -192,7 +195,8 @@ class RecordingRepository @Inject constructor(
                     createdAt = draft.createdAt,
                     mimeType = draft.mimeType,
                     title = draft.title,
-                    emotion = draft.emotion
+                    emotion = draft.emotion,
+                    promptId = draft.promptId
                 )
             }
 
@@ -217,7 +221,8 @@ class RecordingRepository @Inject constructor(
                     mimeType = draft.mimeType,
                     title = draft.title,
                     emotion = draft.emotion,
-                    emotions = draft.emotions
+                    emotions = draft.emotions,
+                    promptId = draft.promptId
                 )
             }
 
@@ -560,6 +565,7 @@ class RecordingRepository @Inject constructor(
                             mimeType = manifest.mimeType,
                             title = manifest.title,
                             emotion = manifest.emotion,
+                            promptId = manifest.promptId,
                             isEncrypted = m4aFile.exists(),
                             uploadFormatVersion = 2,
                             lifecycle = ArtifactLifecycle.REVIEW_REQUIRED,

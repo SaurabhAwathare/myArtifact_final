@@ -15,5 +15,6 @@ data class DraftManifest(
     val title: String? = null,
     val emotion: Emotion? = null,
     val emotions: List<Emotion> = emptyList(),
+    val promptId: String? = null,
     val version: Int = 3
 )

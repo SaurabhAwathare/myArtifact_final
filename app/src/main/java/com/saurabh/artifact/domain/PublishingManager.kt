@@ -17,8 +17,10 @@ import com.saurabh.artifact.repository.DraftRepository
 import com.saurabh.artifact.repository.UserRepository
 import com.saurabh.artifact.security.UploadGuard
 import com.saurabh.artifact.data.local.UploadOwner
+import com.saurabh.artifact.domain.prompt.ReflectionPromptManager
 import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.util.NetworkUtils
+import dagger.Lazy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
@@ -33,6 +35,7 @@ class PublishingManager @Inject constructor(
     private val userRepository: UserRepository,
     private val cleanupManager: ArtifactCleanupManager,
     private val uploadGuard: UploadGuard,
+    private val reflectionPromptManager: Lazy<ReflectionPromptManager>,
     private val diagnosticLogger: DiagnosticLogger
 ) {
 
@@ -55,6 +58,20 @@ class PublishingManager @Inject constructor(
 
             if (draft.lifecycle == ArtifactLifecycle.PUBLISHED) {
                 diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISH_ALREADY_LOCAL_PUBLISHED", mapOf(LogKeys.DRAFT_ID to draftId))
+                val promptIdToConsume = draft.promptId
+                if (!promptIdToConsume.isNullOrBlank()) {
+                    val consumeResult = reflectionPromptManager.get().markPromptConsumed(userId = draft.userId, promptId = promptIdToConsume)
+                    if (consumeResult.isFailure) {
+                        val consumeError = consumeResult.exceptionOrNull() ?: Exception("Prompt consumption failed")
+                        diagnosticLogger.error(
+                            DiagnosticCategory.PUBLISH,
+                            "PROMPT_CONSUMPTION_FAILED",
+                            mapOf(LogKeys.DRAFT_ID to draftId, "promptId" to promptIdToConsume),
+                            consumeError
+                        )
+                        return@withContext Result.failure(consumeError)
+                    }
+                }
                 return@withContext Result.success(Unit)
             }
 
@@ -104,6 +121,20 @@ class PublishingManager @Inject constructor(
             if (remoteArtifact != null && remoteArtifact.status == ArtifactStatus.ACTIVE) {
                 diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISH_ALREADY_ACTIVE", mapOf(LogKeys.DRAFT_ID to draftId))
                 withContext(NonCancellable) {
+                    val promptIdToConsume = draft.promptId
+                    if (!promptIdToConsume.isNullOrBlank()) {
+                        val consumeResult = reflectionPromptManager.get().markPromptConsumed(userId = draft.userId, promptId = promptIdToConsume)
+                        if (consumeResult.isFailure) {
+                            val consumeError = consumeResult.exceptionOrNull() ?: Exception("Prompt consumption failed")
+                            diagnosticLogger.error(
+                                DiagnosticCategory.PUBLISH,
+                                "PROMPT_CONSUMPTION_FAILED",
+                                mapOf(LogKeys.DRAFT_ID to draftId, "promptId" to promptIdToConsume),
+                                consumeError
+                            )
+                            throw consumeError
+                        }
+                    }
                     draftRepository.markAsPublished(draftId, draftId)
                 }
                 return@withContext Result.success(Unit)
@@ -175,13 +206,34 @@ class PublishingManager @Inject constructor(
             // 7. Success Cleanup
             diagnosticLogger.debug(DiagnosticCategory.PUBLISH, "PUBLISH_STEP_7_CLEANUP", mapOf(LogKeys.DRAFT_ID to draftId))
             withContext(NonCancellable) {
+                val promptIdToConsume = updatedDraft.promptId
+                if (!promptIdToConsume.isNullOrBlank()) {
+                    val consumeResult = reflectionPromptManager.get().markPromptConsumed(userId = updatedDraft.userId, promptId = promptIdToConsume)
+                    if (consumeResult.isFailure) {
+                        val consumeError = consumeResult.exceptionOrNull() ?: Exception("Prompt consumption failed")
+                        diagnosticLogger.error(
+                            DiagnosticCategory.PUBLISH,
+                            "PROMPT_CONSUMPTION_FAILED",
+                            mapOf(LogKeys.DRAFT_ID to draftId, "promptId" to promptIdToConsume),
+                            consumeError
+                        )
+                        throw consumeError
+                    }
+                }
                 draftRepository.markAsPublished(draftId, draftId)
             }
 
-            cleanupManager.scheduleRetentionCleanup(draftId)
-            
-            // Increment artifactsCount now that it is ACTIVE and public
-            userRepository.enqueueArtifactCountIncrement(firebaseUser.uid, draftId)
+            try {
+                cleanupManager.scheduleRetentionCleanup(draftId)
+            } catch (e: Exception) {
+                diagnosticLogger.warn(DiagnosticCategory.PUBLISH, "RETENTION_CLEANUP_SCHEDULE_FAILED", mapOf(LogKeys.DRAFT_ID to draftId), e)
+            }
+
+            try {
+                userRepository.enqueueArtifactCountIncrement(firebaseUser.uid, draftId)
+            } catch (e: Exception) {
+                diagnosticLogger.warn(DiagnosticCategory.PUBLISH, "ARTIFACT_COUNT_INCREMENT_FAILED", mapOf(LogKeys.DRAFT_ID to draftId), e)
+            }
             
             diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISH_SUCCESS", mapOf(LogKeys.ARTIFACT_ID to draftId))
             android.util.Log.e("PHASE32_VERIFY", "STEP 8 PUBLISH COMPLETED END-TO-END: SUCCEEDED")

@@ -254,7 +254,7 @@ class PipelineIntegrationVerificationTest {
         coEvery { artifactRepository.uploadArtifactResumable(any(), any(), any()) } returns Result.success("https://cdn.com/audio.m4a")
         coEvery { artifactRepository.finalizeArtifactDocument(any(), any(), any(), any(), any()) } returns Result.success(Unit)
 
-        val publishingManager = PublishingManager(draftRepository, artifactRepository, userRepository, mockk(relaxed = true), uploadGuard, diagnosticLogger)
+        val publishingManager = PublishingManager(draftRepository, artifactRepository, userRepository, mockk(relaxed = true), uploadGuard, Lazy { mockk(relaxed = true) }, diagnosticLogger)
 
         val pubWorker = spyk(
             TestListenableWorkerBuilder<PublishingWorker>(appContext)

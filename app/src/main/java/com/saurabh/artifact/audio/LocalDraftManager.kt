@@ -42,7 +42,8 @@ class LocalDraftManager @Inject constructor(
         mimeType: String,
         title: String? = null,
         emotion: Emotion? = null,
-        emotions: List<Emotion> = emptyList()
+        emotions: List<Emotion> = emptyList(),
+        promptId: String? = null
     ) {
         try {
             val effectiveEmotions = if (emotions.isNotEmpty()) emotions else if (emotion != null) listOf(emotion) else emptyList()
@@ -54,7 +55,8 @@ class LocalDraftManager @Inject constructor(
                 mimeType = mimeType,
                 title = title,
                 emotion = primaryEmotion,
-                emotions = effectiveEmotions
+                emotions = effectiveEmotions,
+                promptId = promptId
             )
             val file = getManifestFile(draftId)
             encryptedStorageManager.getEncryptedOutputStream(file).use { output ->

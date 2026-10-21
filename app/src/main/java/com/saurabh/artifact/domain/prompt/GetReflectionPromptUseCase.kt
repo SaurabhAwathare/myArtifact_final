@@ -1,9 +1,10 @@
 package com.saurabh.artifact.domain.prompt
 
+import com.saurabh.artifact.model.PromptSelectionResult
 import com.saurabh.artifact.model.ReflectionPrompt
+import com.saurabh.artifact.service.AdManager
 import com.saurabh.artifact.service.SafetyEvaluator
 import com.saurabh.artifact.service.SafetyLevel
-import com.saurabh.artifact.service.AdManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -14,11 +15,59 @@ data class PromptResult(
     val isCrisis: Boolean = false,
 )
 
+data class SessionPromptResult(
+    val selectionResult: PromptSelectionResult,
+    val safetyLevel: SafetyLevel,
+    val isCrisis: Boolean = false,
+)
+
 class GetReflectionPromptUseCase @Inject constructor(
     private val reflectionPromptManager: ReflectionPromptManager,
     private val safetyEvaluator: SafetyEvaluator,
     private val adManager: AdManager,
 ) {
+    /**
+     * Account-scoped session prompt selection with safety evaluation.
+     */
+    suspend fun getPromptForSession(
+        userId: String,
+        startBatchNumber: Int = 1,
+        emotion: String? = null,
+        context: String? = null,
+    ): SessionPromptResult = withContext(Dispatchers.Default) {
+        val assessment = safetyEvaluator.evaluate(listOfNotNull(emotion, context).joinToString(" "))
+        adManager.updateSafetyContext(assessment)
+
+        if (assessment.isCrisis) {
+            val crisisPrompt = assessment.suggestedPrompt
+            return@withContext SessionPromptResult(
+                selectionResult = if (crisisPrompt != null) PromptSelectionResult.Success(crisisPrompt, startBatchNumber) else PromptSelectionResult.CatalogExhausted,
+                safetyLevel = assessment.level,
+                isCrisis = true,
+            )
+        }
+
+        if ((assessment.level == SafetyLevel.MEDIUM) && (assessment.suggestedPrompt != null)) {
+            val suggested = assessment.suggestedPrompt
+            return@withContext SessionPromptResult(
+                selectionResult = PromptSelectionResult.Success(suggested, startBatchNumber),
+                safetyLevel = assessment.level,
+                isCrisis = false,
+            )
+        }
+
+        val selectionResult = reflectionPromptManager.getNextPromptForUser(
+            userId = userId,
+            startBatchNumber = startBatchNumber
+        )
+
+        SessionPromptResult(
+            selectionResult = selectionResult,
+            safetyLevel = assessment.level,
+            isCrisis = false,
+        )
+    }
+
     suspend operator fun invoke(
         progressionCount: Int,
         emotion: String?,

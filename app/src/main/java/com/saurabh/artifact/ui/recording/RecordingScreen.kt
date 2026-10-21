@@ -359,18 +359,18 @@ fun RecordingScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(horizontal = 48.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
+                                horizontalAlignment = Alignment.Start,
                                 verticalArrangement = Arrangement.Center
                             ) {
-                                // PROMPT LABEL
+                                // CATEGORY LABEL
                                 Text(
-                                    text = "PROMPT",
+                                    text = prompt.category.displayLabel,
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = Color.White.copy(alpha = 0.2f),
+                                    color = GoldAura500.copy(alpha = 0.7f),
                                     letterSpacing = 2.sp
                                 )
                                 
-                                Spacer(modifier = Modifier.height(24.dp))
+                                Spacer(modifier = Modifier.height(16.dp))
 
                                 Text(
                                     text = prompt.question,
@@ -379,7 +379,7 @@ fun RecordingScreen(
                                         fontSize = 32.sp
                                     ),
                                     color = Color.White,
-                                    textAlign = TextAlign.Center,
+                                    textAlign = TextAlign.Start,
                                     lineHeight = 44.sp
                                 )
                                 
@@ -391,7 +391,8 @@ fun RecordingScreen(
                                         onClick = { viewModel.nextPrompt() },
                                         colors = ButtonDefaults.textButtonColors(
                                             contentColor = Color(0xFFFFB74D).copy(alpha = 0.6f) // Warm amber
-                                        )
+                                        ),
+                                        contentPadding = PaddingValues(0.dp)
                                     ) {
                                         Text(
                                             text = "Try Another Prompt →",
@@ -413,7 +414,7 @@ fun RecordingScreen(
                                     text = "There’s no pressure to sound perfect.",
                                     style = MaterialTheme.typography.bodyLarge,
                                     color = Color.White.copy(alpha = 0.4f),
-                                    textAlign = TextAlign.Center
+                                    textAlign = TextAlign.Start
                                 )
                             }
                         } else {

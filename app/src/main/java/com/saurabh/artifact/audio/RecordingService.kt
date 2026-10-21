@@ -228,7 +228,7 @@ class RecordingService : Service() {
         }
     }
 
-    private fun handleAction(action: String?, draftId: String) {
+    private fun handleAction(action: String?, draftId: String, promptId: String? = null) {
         when (action) {
             ACTION_START -> {
                 if ((_recordingState.value.status == RecordingStatus.IDLE) || 
@@ -240,7 +240,7 @@ class RecordingService : Service() {
                     diagnosticLogger.debug(DiagnosticCategory.RECORDER, "RECORDING_START_REQUESTED")
                     _recordingState.value = RecordingState(status = RecordingStatus.PREPARING)
                     serviceScope.launch {
-                        startRecording(draftId)
+                        startRecording(draftId, promptId)
                     }
                 } else {
                     diagnosticLogger.warn(DiagnosticCategory.RECORDING, "RECORDING_START_IGNORED", mapOf("status" to _recordingState.value.status.name))
@@ -252,7 +252,7 @@ class RecordingService : Service() {
             ACTION_CANCEL -> cancelRecording()
             else -> {
                 if (action == null && _recordingState.value.status == RecordingStatus.IDLE) {
-                    handleAction(ACTION_START, draftId)
+                    handleAction(ACTION_START, draftId, promptId)
                 }
             }
         }
@@ -262,6 +262,7 @@ class RecordingService : Service() {
         hasLoggedNotificationPermissionMissing = false
         val action = intent?.action
         val draftId = intent?.getStringExtra("draft_id") ?: ""
+        val promptId = intent?.getStringExtra("prompt_id")
 
         diagnosticLogger.debug(DiagnosticCategory.RECORDING, "SERVICE_START_COMMAND", mapOf("action" to (action ?: "null")))
 
@@ -281,12 +282,12 @@ class RecordingService : Service() {
         }
 
         // 2. Handle Actions
-        handleAction(action, draftId)
+        handleAction(action, draftId, promptId)
         
         return START_NOT_STICKY
     }
 
-    suspend fun startRecording(draftId: String = "") {
+    suspend fun startRecording(draftId: String = "", promptId: String? = null) {
         hasLoggedNotificationPermissionMissing = false
         // Permission Check inside Service (Defense in Depth)
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
@@ -342,7 +343,7 @@ class RecordingService : Service() {
             }
 
             if (draft == null) {
-                recordingRepository.createDraft(finalDraftId, file.absolutePath, 0, mimeType = "audio/wav")
+                recordingRepository.createDraft(finalDraftId, file.absolutePath, 0, mimeType = "audio/wav", promptId = promptId)
             }
 
             try {

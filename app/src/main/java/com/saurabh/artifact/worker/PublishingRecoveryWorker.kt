@@ -3,11 +3,15 @@ package com.saurabh.artifact.worker
 import android.content.Context
 import androidx.hilt.work.HiltWorker
 import androidx.work.*
+import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.util.WorkNames
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.domain.auth.SessionConstants
+import com.saurabh.artifact.model.ArtifactLifecycle
+import com.saurabh.artifact.repository.PromptRepository
+import dagger.Lazy
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import java.util.concurrent.TimeUnit
@@ -21,6 +25,8 @@ class PublishingRecoveryWorker @AssistedInject constructor(
     @Assisted private val context: Context,
     @Assisted params: WorkerParameters,
     private val uploadTaskDao: dagger.Lazy<com.saurabh.artifact.data.local.UploadTaskDao>,
+    private val draftDao: Lazy<DraftDao>,
+    private val promptRepository: Lazy<PromptRepository>,
     private val workManager: WorkManager,
     private val startupCoordinator: com.saurabh.artifact.startup.StartupCoordinator,
     private val diagnosticLogger: DiagnosticLogger
@@ -31,6 +37,26 @@ class PublishingRecoveryWorker @AssistedInject constructor(
         startupCoordinator.awaitComponent(com.saurabh.artifact.startup.StartupComponent.DATABASE)
 
         diagnosticLogger.info(DiagnosticCategory.WORKMANAGER, "PUBLISHING_RECOVERY_STARTED")
+
+        // Reconcile missing prompt consumption for published drafts
+        try {
+            val publishedDrafts = draftDao.get().getDraftsByLifecycleAgnostic(ArtifactLifecycle.PUBLISHED)
+            for (draft in publishedDrafts) {
+                val promptId = draft.promptId
+                if (!promptId.isNullOrBlank()) {
+                    if (!promptRepository.get().isPromptConsumed(draft.userId, promptId)) {
+                        diagnosticLogger.info(
+                            DiagnosticCategory.PUBLISH,
+                            "PUBLISHING_RECOVERY_PROMPT_RECONCILED",
+                            mapOf(LogKeys.DRAFT_ID to draft.id, "promptId" to promptId)
+                        )
+                        promptRepository.get().markPromptConsumed(draft.userId, promptId)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            diagnosticLogger.warn(DiagnosticCategory.WORKMANAGER, "PUBLISHING_RECOVERY_PROMPT_RECONCILIATION_FAILED", throwable = e)
+        }
         
         val now = System.currentTimeMillis()
         val oneHourAgo = now - TimeUnit.HOURS.toMillis(1)

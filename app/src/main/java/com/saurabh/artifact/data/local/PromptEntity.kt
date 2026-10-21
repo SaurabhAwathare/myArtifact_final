@@ -17,7 +17,10 @@ data class PromptEntity(
     val usageCount: Int = 0,
     val lastUsedTimestamp: Long = 0,
     val depthLevel: Int = 1,
-    val isConsumed: Boolean = false
+    val isConsumed: Boolean = false,
+    val batchNumber: Int = 1,
+    val sectionIndex: Int = 1,
+    val sectionTitle: String = ""
 )
 
 fun PromptEntity.toDomainModel(): ReflectionPrompt {
@@ -30,7 +33,10 @@ fun PromptEntity.toDomainModel(): ReflectionPrompt {
         isFavorite = isFavorite,
         usageCount = usageCount,
         depthLevel = depthLevel,
-        isConsumed = isConsumed
+        isConsumed = isConsumed,
+        batchNumber = batchNumber,
+        sectionIndex = sectionIndex,
+        sectionTitle = sectionTitle
     )
 }
 
@@ -44,6 +50,9 @@ fun ReflectionPrompt.toEntity(): PromptEntity {
         isFavorite = isFavorite,
         usageCount = usageCount,
         depthLevel = depthLevel,
-        isConsumed = isConsumed
+        isConsumed = isConsumed,
+        batchNumber = batchNumber,
+        sectionIndex = sectionIndex,
+        sectionTitle = sectionTitle
     )
 }

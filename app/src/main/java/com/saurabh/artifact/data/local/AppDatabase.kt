@@ -17,8 +17,9 @@ import androidx.room.TypeConverters
         DeadLetterInteractionEntity::class,
         ReportedArtifactEntity::class,
         IgnoredUserEntity::class,
+        UserConsumedPromptEntity::class,
     ],
-    version = 74,
+    version = 75,
     autoMigrations = [
         AutoMigration(from = 64, to = 65),
         AutoMigration(from = 65, to = 66),
@@ -42,10 +43,12 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun userDao(): UserDao
     abstract fun reportedArtifactDao(): ReportedArtifactDao
     abstract fun ignoredUserDao(): IgnoredUserDao
+    abstract fun userConsumedPromptDao(): UserConsumedPromptDao
 
     /**
      * Clears all transient session, feed, and cache tables during logout,
-     * while explicitly preserving local draft metadata in [ArtifactDraftEntity] (`artifact_drafts`).
+     * while explicitly preserving local draft metadata in [ArtifactDraftEntity] (`artifact_drafts`)
+     * and permanent account-scoped prompt consumption history in [UserConsumedPromptEntity] (`user_consumed_prompts`).
      */
     open fun clearSessionTables() {
         runInTransaction {

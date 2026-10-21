@@ -161,6 +161,50 @@ object DatabaseMigrations {
             db.execSQL("ALTER TABLE current_user_profile ADD COLUMN cachedProgressionCount INTEGER NOT NULL DEFAULT 0")
         }
     }
+
+    /**
+     * Migration 74 -> 75: Artifact Prompt System Phase 1.
+     * Creates 'user_consumed_prompts' table to record account-scoped prompt consumption.
+     * Adds 'batchNumber', 'sectionIndex', and 'sectionTitle' to 'prompts' table.
+     * Adds 'promptId' to 'artifact_drafts' table.
+     */
+    val MIGRATION_74_75 = object : Migration(74, 75) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `user_consumed_prompts` (
+                    `userId` TEXT NOT NULL,
+                    `promptId` TEXT NOT NULL,
+                    `consumedAt` INTEGER NOT NULL,
+                    `syncState` TEXT NOT NULL,
+                    `lastSyncAttempt` INTEGER NOT NULL,
+                    `lastSyncSuccess` INTEGER NOT NULL,
+                    PRIMARY KEY(`userId`, `promptId`)
+                )
+                """.trimIndent()
+            )
+
+            db.execSQL(
+                """
+                CREATE INDEX IF NOT EXISTS `index_user_consumed_prompts_userId` 
+                ON `user_consumed_prompts` (`userId`)
+                """.trimIndent()
+            )
+
+            db.execSQL(
+                """
+                CREATE INDEX IF NOT EXISTS `index_user_consumed_prompts_userId_syncState` 
+                ON `user_consumed_prompts` (`userId`, `syncState`)
+                """.trimIndent()
+            )
+
+            db.execSQL("ALTER TABLE prompts ADD COLUMN batchNumber INTEGER NOT NULL DEFAULT 1")
+            db.execSQL("ALTER TABLE prompts ADD COLUMN sectionIndex INTEGER NOT NULL DEFAULT 1")
+            db.execSQL("ALTER TABLE prompts ADD COLUMN sectionTitle TEXT NOT NULL DEFAULT ''")
+
+            db.execSQL("ALTER TABLE artifact_drafts ADD COLUMN promptId TEXT DEFAULT NULL")
+        }
+    }
     
     val ALL_MIGRATIONS = arrayOf<Migration>(
         MIGRATION_60_61,
@@ -169,6 +213,7 @@ object DatabaseMigrations {
         MIGRATION_63_64,
         MIGRATION_68_69,
         MIGRATION_69_70,
-        MIGRATION_73_74
+        MIGRATION_73_74,
+        MIGRATION_74_75
     )
 }

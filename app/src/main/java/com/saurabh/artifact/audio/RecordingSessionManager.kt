@@ -155,7 +155,10 @@ class RecordingSessionManager @Inject constructor(
         _ritualSeconds.value = 0
     }
 
-    suspend fun startNewSession(explicitDraftId: String? = null): Result<Unit> = sessionMutex.withLock {
+    suspend fun startNewSession(
+        explicitDraftId: String? = null,
+        promptId: String? = null
+    ): Result<Unit> = sessionMutex.withLock {
         val currentStatus = _rawServiceState.value.status
         if (currentStatus != RecordingStatus.IDLE && currentStatus != RecordingStatus.FAILED && currentStatus != RecordingStatus.COMPLETED) {
             diagnosticLogger.warn(DiagnosticCategory.RECORDING, "SESSION_START_IGNORED", mapOf("currentStatus" to currentStatus.name))
@@ -181,7 +184,12 @@ class RecordingSessionManager @Inject constructor(
             val file = withContext(Dispatchers.IO) {
                 localDraftManager.createDraftFile(draftId, "wav")
             }
-            recordingRepository.createDraft(draftId, file.absolutePath, 0).getOrThrow()
+            recordingRepository.createDraft(
+                id = draftId,
+                path = file.absolutePath,
+                durationMs = 0,
+                promptId = promptId
+            ).getOrThrow()
             draft = draftDao.get().getDraftById(draftId, userId)
 
             diagnosticLogger.info(
@@ -196,6 +204,9 @@ class RecordingSessionManager @Inject constructor(
         val intent = Intent(context, RecordingService::class.java).apply {
             action = RecordingService.ACTION_START
             putExtra("draft_id", draftId)
+            if (!promptId.isNullOrBlank()) {
+                putExtra("prompt_id", promptId)
+            }
         }
         ContextCompat.startForegroundService(context, intent)
         return@withLock Result.success(Unit)

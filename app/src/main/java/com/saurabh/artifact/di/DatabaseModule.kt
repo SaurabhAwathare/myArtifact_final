@@ -6,6 +6,7 @@ import com.saurabh.artifact.data.local.AppDatabase
 import com.saurabh.artifact.data.local.DatabaseMigrations
 import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.data.local.PromptDao
+import com.saurabh.artifact.data.local.UserConsumedPromptDao
 import com.saurabh.artifact.security.DatabaseEncryptionManager
 import dagger.Module
 import dagger.Provides
@@ -81,5 +82,10 @@ object DatabaseModule {
     @Provides
     fun provideIgnoredUserDao(database: AppDatabase): com.saurabh.artifact.data.local.IgnoredUserDao {
         return database.ignoredUserDao()
+    }
+
+    @Provides
+    fun provideUserConsumedPromptDao(database: AppDatabase): UserConsumedPromptDao {
+        return database.userConsumedPromptDao()
     }
 }

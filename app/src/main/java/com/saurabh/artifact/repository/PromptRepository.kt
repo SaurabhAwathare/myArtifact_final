@@ -4,9 +4,14 @@ import android.content.Context
 import android.util.Log
 import com.saurabh.artifact.data.local.PromptDao
 import com.saurabh.artifact.data.local.PromptEntity
+import com.saurabh.artifact.data.local.UserConsumedPromptDao
+import com.saurabh.artifact.data.local.UserConsumedPromptEntity
 import com.saurabh.artifact.data.local.toDomainModel
 import com.saurabh.artifact.data.local.toEntity
+import com.saurabh.artifact.model.PromptSelectionResult
 import com.saurabh.artifact.model.ReflectionPrompt
+import com.saurabh.artifact.worker.PromptSyncWorker
+import androidx.work.ExistingWorkPolicy
 import dagger.Lazy
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -23,6 +28,7 @@ import javax.inject.Singleton
 @Singleton
 class PromptRepository @Inject constructor(
     private val promptDao: Lazy<PromptDao>,
+    private val userConsumedPromptDao: Lazy<UserConsumedPromptDao>,
     @param:ApplicationContext private val context: Context,
 ) {
 
@@ -42,9 +48,28 @@ class PromptRepository @Inject constructor(
         return canonical.question == prompt.question
     }
 
+    /**
+     * Derives a prompt's batch number from its ID when explicit batch is missing or invalid.
+     * Validates ID format (e.g. B1_001 -> 1, B8_250 -> 8).
+     * Throws [IllegalArgumentException] if format is invalid.
+     */
+    fun deriveBatchFromId(id: String, explicitBatch: Int? = null): Int {
+        if (explicitBatch != null && explicitBatch in 1..8) {
+            return explicitBatch
+        }
+        if (id.isBlank()) {
+            throw IllegalArgumentException("Prompt ID cannot be blank.")
+        }
+        val regex = Regex("""^B([1-8])_\d+$""")
+        val match = regex.matchEntire(id)
+            ?: throw IllegalArgumentException("Invalid prompt ID format: '$id'. Expected format 'B<1-8>_<number>' e.g. 'B1_001'.")
+        return match.groupValues[1].toInt()
+    }
+
     suspend fun getApprovedPromptById(id: String): ReflectionPrompt? = withContext(Dispatchers.IO) {
         if (id.isBlank()) return@withContext null
-        syncPromptsFromAsset()
+        val syncResult = syncPromptsFromAsset()
+        if (syncResult.isFailure) return@withContext null
         val canonical = approvedPromptsMap[id] ?: return@withContext null
         val entity = promptDao.get().getPromptById(id)
         if (entity != null) {
@@ -56,16 +81,133 @@ class PromptRepository @Inject constructor(
     }
 
     /**
+     * Selects the next eligible prompt for a specific batch and account [userId].
+     * Excludes prompt IDs present in [UserConsumedPromptEntity] for that user.
+     * Rejects missing or blank user ID explicitly.
+     */
+    suspend fun getPromptForBatch(userId: String, batchNumber: Int): PromptSelectionResult = withContext(Dispatchers.IO) {
+        if (userId.isBlank()) {
+            return@withContext PromptSelectionResult.Error(IllegalArgumentException("User ID must not be blank"))
+        }
+        if (batchNumber !in 1..8) {
+            return@withContext PromptSelectionResult.Error(IllegalArgumentException("Batch number must be between 1 and 8, got $batchNumber"))
+        }
+        val syncResult = syncPromptsFromAsset()
+        if (syncResult.isFailure) {
+            return@withContext PromptSelectionResult.Error(
+                syncResult.exceptionOrNull() ?: IllegalStateException("Prompt asset synchronization failed")
+            )
+        }
+
+        val entity = promptDao.get().getNextUnconsumedPromptInBatch(userId, batchNumber)
+        if (entity != null) {
+            return@withContext PromptSelectionResult.Success(entity.toDomainModel(), batchNumber)
+        }
+
+        val totalUnconsumed = promptDao.get().getTotalUnconsumedCount(userId)
+        if (totalUnconsumed == 0 && promptDao.get().getPromptCount() > 0) {
+            PromptSelectionResult.CatalogExhausted
+        } else {
+            PromptSelectionResult.BatchExhausted
+        }
+    }
+
+    /**
+     * Advances session progression starting from [startBatchNumber] through 1..8 wrap-around.
+     * Returns first unconsumed prompt for [userId], skipping exhausted batches.
+     * Returns [PromptSelectionResult.CatalogExhausted] if all catalog prompts are consumed.
+     */
+    suspend fun getNextPromptInProgression(userId: String, startBatchNumber: Int = 1): PromptSelectionResult = withContext(Dispatchers.IO) {
+        if (userId.isBlank()) {
+            return@withContext PromptSelectionResult.Error(IllegalArgumentException("User ID must not be blank"))
+        }
+        if (startBatchNumber !in 1..8) {
+            return@withContext PromptSelectionResult.Error(IllegalArgumentException("Start batch number must be between 1 and 8, got $startBatchNumber"))
+        }
+        val syncResult = syncPromptsFromAsset()
+        if (syncResult.isFailure) {
+            return@withContext PromptSelectionResult.Error(
+                syncResult.exceptionOrNull() ?: IllegalStateException("Prompt asset synchronization failed")
+            )
+        }
+
+        val totalUnconsumed = promptDao.get().getTotalUnconsumedCount(userId)
+        if (totalUnconsumed == 0 && promptDao.get().getPromptCount() > 0) {
+            return@withContext PromptSelectionResult.CatalogExhausted
+        }
+
+        for (i in 0 until 8) {
+            val targetBatch = ((startBatchNumber - 1 + i) % 8) + 1
+            val entity = promptDao.get().getNextUnconsumedPromptInBatch(userId, targetBatch)
+            if (entity != null) {
+                return@withContext PromptSelectionResult.Success(entity.toDomainModel(), targetBatch)
+            }
+        }
+
+        PromptSelectionResult.CatalogExhausted
+    }
+
+    /**
+     * Permanently marks a prompt as consumed for [userId] in [UserConsumedPromptEntity].
+     * Operation is idempotent via Room IGNORE conflict strategy.
+     */
+    suspend fun markPromptConsumed(userId: String, promptId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        if (userId.isBlank()) {
+            return@withContext Result.failure(IllegalArgumentException("User ID must not be blank"))
+        }
+        if (promptId.isBlank() || promptId.startsWith("nav_")) {
+            return@withContext Result.success(Unit)
+        }
+        val syncResult = syncPromptsFromAsset()
+        if (syncResult.isFailure) {
+            return@withContext Result.failure(
+                syncResult.exceptionOrNull() ?: IllegalStateException("Prompt asset synchronization failed")
+            )
+        }
+        if (!isApprovedPromptId(promptId)) {
+            Log.w("PromptRepository", "Ignoring markPromptConsumed for unapproved prompt ID: $promptId")
+            return@withContext Result.success(Unit)
+        }
+
+        try {
+            userConsumedPromptDao.get().markConsumed(
+                UserConsumedPromptEntity(
+                    userId = userId,
+                    promptId = promptId,
+                    consumedAt = System.currentTimeMillis(),
+                    syncState = "PENDING"
+                )
+            )
+            try {
+                PromptSyncWorker.enqueue(context, userId, ExistingWorkPolicy.APPEND_OR_REPLACE)
+            } catch (e: Exception) {
+                Log.w("PromptRepository", "Failed to enqueue PromptSyncWorker for user $userId", e)
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("PromptRepository", "Failed to mark prompt $promptId as consumed for user $userId", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Checks if a prompt has been consumed by [userId].
+     */
+    suspend fun isPromptConsumed(userId: String, promptId: String): Boolean = withContext(Dispatchers.IO) {
+        if (userId.isBlank() || promptId.isBlank()) return@withContext false
+        userConsumedPromptDao.get().isPromptConsumed(userId, promptId)
+    }
+
+    /**
      * Selects the next eligible unconsumed prompt based on depth level and user progression.
-     * Requires an explicit [progressionCount] parameter.
-     * Supports optional [excludedPromptId] to prevent immediately repeating a skipped prompt.
-     * Automatically triggers depth-scoped Question Bank recycling when all prompts at or below maxDepth are consumed.
+     * Legacy progression method.
      */
     suspend fun getNewPrompt(
         progressionCount: Int,
         excludedPromptId: String? = null
     ): ReflectionPrompt? = withContext(Dispatchers.IO) {
-        syncPromptsFromAsset()
+        val syncResult = syncPromptsFromAsset()
+        if (syncResult.isFailure) return@withContext null
 
         val maxDepth = calculateMaxDepth(progressionCount)
 
@@ -73,12 +215,10 @@ class PromptRepository @Inject constructor(
 
         val unconsumedCount = promptDao.get().getUnconsumedCountByDepth(maxDepth)
 
-        // Fallback 1: If exclusion produced null, check if there's an unconsumed prompt at/below maxDepth without exclusion
         if (entity == null && excludedPromptId != null && unconsumedCount > 0) {
             entity = promptDao.get().getNextEligiblePrompt(maxDepth, null)
         }
 
-        // Exhaustion check: if no unconsumed prompts exist at or below maxDepth, recycle ONLY prompts for maxDepth
         if (entity == null && unconsumedCount == 0 && promptDao.get().getPromptCountByDepth(maxDepth) > 0) {
             promptDao.get().resetConsumedPromptsForDepth(maxDepth)
             entity = promptDao.get().getNextEligiblePrompt(maxDepth, excludedPromptId)
@@ -105,13 +245,10 @@ class PromptRepository @Inject constructor(
         }
     }
 
-    /**
-     * Marks a prompt as permanently consumed.
-     * Synthetic IDs (blank, unapproved, or beginning with "nav_") are ignored to prevent unnecessary DB updates.
-     */
     suspend fun markAsConsumed(promptId: String) = withContext(Dispatchers.IO) {
         if (promptId.isBlank() || promptId.startsWith("nav_")) return@withContext
-        syncPromptsFromAsset()
+        val syncResult = syncPromptsFromAsset()
+        if (syncResult.isFailure) return@withContext
         if (!isApprovedPromptId(promptId)) {
             Log.w("PromptRepository", "Ignoring markAsConsumed for unapproved prompt ID: $promptId")
             return@withContext
@@ -119,20 +256,13 @@ class PromptRepository @Inject constructor(
         promptDao.get().markAsConsumed(promptId)
     }
 
-    /**
-     * Explicitly recycles the Question Bank by clearing consumed state across all prompts.
-     */
     suspend fun recycleQuestionBank() = withContext(Dispatchers.IO) {
         promptDao.get().resetConsumedPrompts()
     }
 
-    /**
-     * Selects the least recently used prompt (context-aware if mood provided)
-     * and expands templates like `EMOTION`.
-     * DEPRECATED: Use getNewPrompt() for the new consumption-based flow.
-     */
     suspend fun getSmartFallback(mood: String? = null): ReflectionPrompt? = withContext(Dispatchers.IO) {
-        syncPromptsFromAsset()
+        val syncResult = syncPromptsFromAsset()
+        if (syncResult.isFailure) return@withContext null
 
         val entity = if (mood != null) {
             promptDao.get().getOldestPromptByMood(mood) ?: promptDao.get().getOldestPrompt()
@@ -144,7 +274,6 @@ class PromptRepository @Inject constructor(
             recordUsage(it.id)
             val domainModel = it.toDomainModel()
             
-            // Template Expansion: Inject the current emotion if placeholder exists
             if (mood != null && (domainModel.question.contains("[EMOTION]"))) {
                 val expandedQuestion = domainModel.question.replace(
                     "[EMOTION]",
@@ -158,67 +287,79 @@ class PromptRepository @Inject constructor(
     }
 
     /**
-     * Initializes or syncs the database with prompts from JSON asset.
-     * Inserts new prompts and updates existing asset prompts while preserving
-     * user consumption state (`isConsumed`, `isFavorite`, `usageCount`, `lastUsedTimestamp`).
+     * Synchronizes local database with JSON asset.
+     * Repairs metadata (batchNumber, sectionIndex, sectionTitle) while preserving identity
+     * and user consumption history.
      */
-    suspend fun syncPromptsFromAsset() = withContext(Dispatchers.IO) {
+    suspend fun syncPromptsFromAsset(): Result<Unit> = withContext(Dispatchers.IO) {
         syncMutex.withLock {
-            if (approvedPromptsMap.isEmpty() || !isSynced || promptDao.get().getPromptCount() == 0) {
-                try {
-                    val jsonString = context.assets.open("prompts.json").bufferedReader().use { it.readText() }
-                    val assetPrompts = json.decodeFromString<List<ReflectionPrompt>>(jsonString)
-                    approvedPromptsMap = assetPrompts.associateBy { it.id }
+            if (approvedPromptsMap.isNotEmpty() && isSynced && promptDao.get().getPromptCount() > 0) {
+                return@withContext Result.success(Unit)
+            }
+            try {
+                val jsonString = context.assets.open("prompts.json").bufferedReader().use { it.readText() }
+                val rawAssetPrompts = json.decodeFromString<List<ReflectionPrompt>>(jsonString)
+                if (rawAssetPrompts.isEmpty()) {
+                    throw IllegalStateException("Asset 'prompts.json' is empty.")
+                }
 
-                    if (isSynced && promptDao.get().getPromptCount() > 0) return@withLock
+                val assetPrompts = rawAssetPrompts.map { prompt ->
+                    val derivedBatch = deriveBatchFromId(prompt.id, if (prompt.batchNumber > 0) prompt.batchNumber else null)
+                    prompt.copy(batchNumber = derivedBatch)
+                }
 
-                    val existingPrompts = promptDao.get().getAllPromptsList()
-                    if (assetPrompts.isEmpty()) {
-                        if (existingPrompts.isNotEmpty()) {
-                            promptDao.get().deletePrompts(existingPrompts)
-                        }
-                    } else if (existingPrompts.isEmpty()) {
-                        promptDao.get().insertPrompts(assetPrompts.map { it.toEntity() })
-                    } else {
-                        val existingMap = existingPrompts.associateBy { it.id }
-                        val assetIds = assetPrompts.map { it.id }.toSet()
-                        val toInsert = mutableListOf<PromptEntity>()
-                        val toUpdate = mutableListOf<PromptEntity>()
-                        val toDelete = existingPrompts.filter { it.id !in assetIds }
+                val existingPrompts = promptDao.get().getAllPromptsList()
+                if (existingPrompts.isEmpty()) {
+                    promptDao.get().insertPrompts(assetPrompts.map { it.toEntity() })
+                } else {
+                    val existingMap = existingPrompts.associateBy { it.id }
+                    val assetIds = assetPrompts.map { it.id }.toSet()
+                    val toInsert = mutableListOf<PromptEntity>()
+                    val toUpdate = mutableListOf<PromptEntity>()
+                    val toDelete = existingPrompts.filter { it.id !in assetIds }
 
-                        for (assetPrompt in assetPrompts) {
-                            val existing = existingMap[assetPrompt.id]
-                            if (existing == null) {
-                                toInsert.add(assetPrompt.toEntity())
-                            } else {
-                                // Check if prompt metadata changed, while keeping consumption and usage history
-                                if (existing.question != assetPrompt.question ||
-                                    existing.category != assetPrompt.category ||
-                                    existing.tone != assetPrompt.tone ||
-                                    existing.mood != assetPrompt.mood ||
-                                    existing.depthLevel != assetPrompt.depthLevel
-                                ) {
-                                    toUpdate.add(
-                                        existing.copy(
-                                            question = assetPrompt.question,
-                                            category = assetPrompt.category,
-                                            tone = assetPrompt.tone,
-                                            mood = assetPrompt.mood,
-                                            depthLevel = assetPrompt.depthLevel
-                                        )
+                    for (assetPrompt in assetPrompts) {
+                        val existing = existingMap[assetPrompt.id]
+                        if (existing == null) {
+                            toInsert.add(assetPrompt.toEntity())
+                        } else {
+                            if (existing.question != assetPrompt.question ||
+                                existing.category != assetPrompt.category ||
+                                existing.tone != assetPrompt.tone ||
+                                existing.mood != assetPrompt.mood ||
+                                existing.depthLevel != assetPrompt.depthLevel ||
+                                existing.batchNumber != assetPrompt.batchNumber ||
+                                existing.sectionIndex != assetPrompt.sectionIndex ||
+                                existing.sectionTitle != assetPrompt.sectionTitle
+                            ) {
+                                toUpdate.add(
+                                    existing.copy(
+                                        question = assetPrompt.question,
+                                        category = assetPrompt.category,
+                                        tone = assetPrompt.tone,
+                                        mood = assetPrompt.mood,
+                                        depthLevel = assetPrompt.depthLevel,
+                                        batchNumber = assetPrompt.batchNumber,
+                                        sectionIndex = assetPrompt.sectionIndex,
+                                        sectionTitle = assetPrompt.sectionTitle
                                     )
-                                }
+                                )
                             }
                         }
-
-                        if (toDelete.isNotEmpty() || toInsert.isNotEmpty() || toUpdate.isNotEmpty()) {
-                            promptDao.get().syncPromptsTransaction(toDelete, toInsert, toUpdate)
-                        }
                     }
-                    isSynced = true
-                } catch (e: Exception) {
-                    Log.e("PromptRepository", "Failed to sync prompts from asset", e)
+
+                    if (toDelete.isNotEmpty() || toInsert.isNotEmpty() || toUpdate.isNotEmpty()) {
+                        promptDao.get().syncPromptsTransaction(toDelete, toInsert, toUpdate)
+                    }
                 }
+
+                approvedPromptsMap = assetPrompts.associateBy { it.id }
+                isSynced = true
+                Result.success(Unit)
+            } catch (e: Exception) {
+                isSynced = false
+                Log.e("PromptRepository", "Failed to sync prompts from asset", e)
+                Result.failure(e)
             }
         }
     }
@@ -227,17 +368,11 @@ class PromptRepository @Inject constructor(
         isSynced = false
     }
 
-    /**
-     * Compatibility alias for initializeIfEmpty.
-     */
     suspend fun initializeIfEmpty() = syncPromptsFromAsset()
 
     fun getAllPrompts(): Flow<List<ReflectionPrompt>> = 
         promptDao.get().getAllPrompts().map { list -> list.map { it.toDomainModel() } }
 
-    /**
-     * Records that a prompt was used to help track variety in the future.
-     */
     suspend fun recordUsage(promptId: String) = withContext(Dispatchers.IO) {
         promptDao.get().recordUsage(promptId)
     }

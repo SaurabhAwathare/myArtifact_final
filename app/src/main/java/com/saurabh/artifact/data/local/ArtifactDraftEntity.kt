@@ -105,4 +105,7 @@ data class ArtifactDraftEntity(
 
     // Episode Number
     val episodeNumber: Long? = null,
+
+    // Artifact Prompt System Phase 1
+    @ColumnInfo(defaultValue = "NULL") val promptId: String? = null,
 ) : UploadProgress

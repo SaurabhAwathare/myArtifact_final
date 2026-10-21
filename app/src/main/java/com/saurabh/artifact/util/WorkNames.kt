@@ -15,4 +15,9 @@ object WorkNames {
      * Name for the artifact processing chain (transcoding, normalization, etc.).
      */
     fun forProcessing(draftId: String): String = "process_$draftId"
+
+    /**
+     * Name for account-scoped prompt consumption synchronization worker.
+     */
+    fun forPromptSync(userId: String): String = "prompt_sync_$userId"
 }

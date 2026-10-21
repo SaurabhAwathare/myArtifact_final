@@ -1,5 +1,6 @@
 package com.saurabh.artifact.domain.prompt
 
+import com.saurabh.artifact.model.PromptSelectionResult
 import com.saurabh.artifact.model.ReflectionPrompt
 import com.saurabh.artifact.repository.PromptRepository
 import kotlinx.coroutines.Dispatchers
@@ -9,7 +10,7 @@ import javax.inject.Singleton
 
 /**
  * Manages the selection of reflection prompts from the local question bank.
- * This manager ensures that prompts follow the non-repetition and depth-progression rules.
+ * Phase 2 implementation provides account-scoped batch selection and session progression.
  */
 @Singleton
 class ReflectionPromptManager @Inject constructor(
@@ -17,10 +18,39 @@ class ReflectionPromptManager @Inject constructor(
 ) {
 
     /**
+     * Fetches the next prompt for a user according to the batch progression flow (1 -> 2 -> ... -> 8 -> 1).
+     * Rejects blank [userId].
+     */
+    suspend fun getNextPromptForUser(
+        userId: String,
+        startBatchNumber: Int = 1
+    ): PromptSelectionResult = withContext(Dispatchers.IO) {
+        promptRepository.getNextPromptInProgression(userId, startBatchNumber)
+    }
+
+    /**
+     * Permanently marks a prompt as consumed for the specified [userId].
+     */
+    suspend fun markPromptConsumed(
+        userId: String,
+        promptId: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        promptRepository.markPromptConsumed(userId, promptId)
+    }
+
+    /**
+     * Checks if a prompt has been consumed by [userId].
+     */
+    suspend fun isPromptConsumed(
+        userId: String,
+        promptId: String
+    ): Boolean = withContext(Dispatchers.IO) {
+        promptRepository.isPromptConsumed(userId, promptId)
+    }
+
+    /**
      * Fetches the next eligible reflection prompt from the local question bank.
-     * Guarantees zero AI cost and works fully offline.
-     * Requires explicit [progressionCount] parameter to determine unlocked depth.
-     * Supports optional [excludedPromptId] to prevent immediate re-selection of skipped prompts.
+     * Legacy depth-based method.
      */
     suspend fun getNextPrompt(
         progressionCount: Int,
