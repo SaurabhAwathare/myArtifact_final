@@ -68,6 +68,49 @@ class GetReflectionPromptUseCase @Inject constructor(
         )
     }
 
+    /**
+     * Batch-locked prompt selection with safety evaluation.
+     * Does not advance session progression or consume the prompt.
+     */
+    suspend fun getPromptForBatch(
+        userId: String,
+        batchNumber: Int,
+        emotion: String? = null,
+        context: String? = null,
+    ): SessionPromptResult = withContext(Dispatchers.Default) {
+        val assessment = safetyEvaluator.evaluate(listOfNotNull(emotion, context).joinToString(" "))
+        adManager.updateSafetyContext(assessment)
+
+        if (assessment.isCrisis) {
+            val crisisPrompt = assessment.suggestedPrompt
+            return@withContext SessionPromptResult(
+                selectionResult = if (crisisPrompt != null) PromptSelectionResult.Success(crisisPrompt, batchNumber) else PromptSelectionResult.CatalogExhausted,
+                safetyLevel = assessment.level,
+                isCrisis = true,
+            )
+        }
+
+        if ((assessment.level == SafetyLevel.MEDIUM) && (assessment.suggestedPrompt != null)) {
+            val suggested = assessment.suggestedPrompt
+            return@withContext SessionPromptResult(
+                selectionResult = PromptSelectionResult.Success(suggested, batchNumber),
+                safetyLevel = assessment.level,
+                isCrisis = false,
+            )
+        }
+
+        val selectionResult = reflectionPromptManager.getPromptForBatch(
+            userId = userId,
+            batchNumber = batchNumber
+        )
+
+        SessionPromptResult(
+            selectionResult = selectionResult,
+            safetyLevel = assessment.level,
+            isCrisis = false,
+        )
+    }
+
     suspend operator fun invoke(
         progressionCount: Int,
         emotion: String?,

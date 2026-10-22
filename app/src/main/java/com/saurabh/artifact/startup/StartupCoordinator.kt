@@ -376,6 +376,7 @@ class StartupCoordinator @Inject constructor(
         emitReadiness(StartupComponent.APP_CHECK)
 
         scope.launch(Dispatchers.IO) {
+            val provider = if (BuildConfig.DEBUG) "debug" else "play_integrity"
             try {
                 val appCheck = FirebaseAppCheck.getInstance()
                 val tokenResult = appCheck.getAppCheckToken(false).await()
@@ -386,14 +387,16 @@ class StartupCoordinator @Inject constructor(
                         "APP_CHECK_STARTUP_NON_BLOCKING",
                         mapOf(
                             "message" to "App Check token acquisition returned an empty token, proceeding non-blockingly.",
+                            "provider" to provider,
                             "isFixedSecretConfigured" to BuildConfig.APP_CHECK_DEBUG_SECRET.isNotBlank()
                         )
                     )
                 } else {
                     ArtifactLogger.i(
                         DiagnosticCategory.STARTUP,
-                        "APP_CHECK_TOKEN_ACQUIRED_DEBUG",
+                        if (BuildConfig.DEBUG) "APP_CHECK_TOKEN_ACQUIRED_DEBUG" else "APP_CHECK_TOKEN_ACQUIRED",
                         mapOf(
+                            "provider" to provider,
                             "isFixedSecretConfigured" to BuildConfig.APP_CHECK_DEBUG_SECRET.isNotBlank()
                         )
                     )
@@ -404,6 +407,7 @@ class StartupCoordinator @Inject constructor(
                     "APP_CHECK_STARTUP_NON_BLOCKING",
                     mapOf(
                         "message" to "Firebase App Check token acquisition failed during startup, proceeding non-blockingly.",
+                        "provider" to provider,
                         "isFixedSecretConfigured" to BuildConfig.APP_CHECK_DEBUG_SECRET.isNotBlank()
                     ),
                     throwable = e

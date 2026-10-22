@@ -1,6 +1,7 @@
 package com.saurabh.artifact.domain.prompt
 
 import com.saurabh.artifact.model.PromptCategory
+import com.saurabh.artifact.model.PromptSelectionResult
 import com.saurabh.artifact.model.ReflectionPrompt
 import com.saurabh.artifact.service.AdManager
 import com.saurabh.artifact.service.SafetyEvaluator
@@ -126,5 +127,41 @@ class GetReflectionPromptUseCaseTest {
         
         // Verify ReflectionPromptManager was NEVER called because we had a suggestion
         coVerify(exactly = 0) { reflectionPromptManager.getSmartReflectionPrompt(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `getPromptForBatch with low risk calls reflectionPromptManager getPromptForBatch`() = runTest {
+        val prompt = ReflectionPrompt(id = "B1_001", question = "Batch 1 Q", category = PromptCategory.GENERAL, batchNumber = 1)
+        val selectionResult = PromptSelectionResult.Success(prompt, 1)
+        val safetyResult = SafetyResult(level = SafetyLevel.LOW, isCrisis = false)
+
+        every { safetyEvaluator.evaluate("") } returns safetyResult
+        coEvery { reflectionPromptManager.getPromptForBatch("user_123", 1) } returns selectionResult
+
+        val result = useCase.getPromptForBatch("user_123", 1)
+
+        assertEquals(selectionResult, result.selectionResult)
+        assertEquals(SafetyLevel.LOW, result.safetyLevel)
+        assertEquals(false, result.isCrisis)
+        coVerify(exactly = 1) { reflectionPromptManager.getPromptForBatch("user_123", 1) }
+    }
+
+    @Test
+    fun `getPromptForBatch with crisis short-circuits safety prompt without calling manager`() = runTest {
+        val safetyPrompt = ReflectionPrompt(id = "safety", question = "Help is here", category = PromptCategory.GENERAL)
+        val safetyResult = SafetyResult(level = SafetyLevel.HIGH, isCrisis = true, suggestedPrompt = safetyPrompt)
+
+        every { safetyEvaluator.evaluate("suicidal") } returns safetyResult
+
+        val result = useCase.getPromptForBatch("user_123", 1, emotion = "suicidal")
+
+        assertTrue(result.selectionResult is PromptSelectionResult.Success)
+        val success = result.selectionResult as PromptSelectionResult.Success
+        assertEquals(safetyPrompt, success.prompt)
+        assertEquals(1, success.batchNumber)
+        assertEquals(SafetyLevel.HIGH, result.safetyLevel)
+        assertTrue(result.isCrisis)
+
+        coVerify(exactly = 0) { reflectionPromptManager.getPromptForBatch(any(), any()) }
     }
 }

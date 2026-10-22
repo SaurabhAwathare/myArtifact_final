@@ -23,20 +23,26 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import com.saurabh.artifact.R
 import com.saurabh.artifact.startup.StartupStage
+import com.saurabh.artifact.ui.components.motion.MotionTokens
 import com.saurabh.artifact.ui.theme.GoldAura500
 import com.saurabh.artifact.ui.theme.Obsidian950
-import com.saurabh.artifact.ui.components.AuraLogo
 import androidx.compose.ui.tooling.preview.Preview
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import kotlin.math.PI
@@ -63,9 +69,9 @@ fun SplashUI(stage: StartupStage = StartupStage.ARRIVAL) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            AuraLogo(
-                size = 80.dp,
-                modifier = Modifier.padding(bottom = 24.dp)
+            HumanALogo(
+                size = 96.dp,
+                modifier = Modifier.padding(bottom = 20.dp)
             )
 
             Text(
@@ -107,6 +113,64 @@ fun SplashUI(stage: StartupStage = StartupStage.ARRIVAL) {
 fun SplashUIPreview() {
     ArtifactTheme {
         SplashUI()
+    }
+}
+
+@Composable
+fun HumanALogo(
+    modifier: Modifier = Modifier,
+    size: Dp = 96.dp,
+    isPulsing: Boolean = true
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "HumanABreathing")
+    
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = if (isPulsing) 1.05f else 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(3000, easing = MotionTokens.CalmEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "PulseScale"
+    )
+
+    val glowAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.25f,
+        targetValue = if (isPulsing) 0.5f else 0.35f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(3000, easing = MotionTokens.CalmEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "GlowAlpha"
+    )
+
+    Box(
+        modifier = modifier
+            .size(size)
+            .drawBehind {
+                // Soft ambient aura behind Human A icon
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            GoldAura500.copy(alpha = glowAlpha * 0.4f),
+                            Color.Transparent
+                        )
+                    ),
+                    radius = (size.toPx() * pulseScale * 0.75f)
+                )
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Image(
+            painter = painterResource(id = R.drawable.ic_launcher_foreground),
+            contentDescription = stringResource(R.string.app_name),
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = pulseScale
+                    scaleY = pulseScale
+                }
+        )
     }
 }
 

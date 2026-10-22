@@ -158,6 +158,7 @@ class UploadService : Service() {
                     handleFailure(draftId, e)
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 diagnosticLogger.error(DiagnosticCategory.PUBLISH, "UPLOAD_SERVICE_FATAL", mapOf(LogKeys.ARTIFACT_ID to draftId), e)
                 handleFailure(draftId, e)
             } finally {

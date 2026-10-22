@@ -21,6 +21,7 @@ import com.saurabh.artifact.domain.prompt.ReflectionPromptManager
 import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.util.NetworkUtils
 import dagger.Lazy
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
@@ -239,6 +240,7 @@ class PublishingManager @Inject constructor(
             android.util.Log.e("PHASE32_VERIFY", "STEP 8 PUBLISH COMPLETED END-TO-END: SUCCEEDED")
             Result.success(Unit)
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             diagnosticLogger.error(DiagnosticCategory.PUBLISH, "UPLOAD_FAILED", mapOf(LogKeys.DRAFT_ID to draftId, "stage" to getFailureStage(e)), e)
             
             // HARDENING: Ensure draft status is updated to Failed so UI reflects the error

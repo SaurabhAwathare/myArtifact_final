@@ -29,6 +29,17 @@ class ReflectionPromptManager @Inject constructor(
     }
 
     /**
+     * Fetches an eligible unconsumed prompt for a specific batch and account [userId].
+     * Does not advance session progression or consume the prompt.
+     */
+    suspend fun getPromptForBatch(
+        userId: String,
+        batchNumber: Int
+    ): PromptSelectionResult = withContext(Dispatchers.IO) {
+        promptRepository.getPromptForBatch(userId, batchNumber)
+    }
+
+    /**
      * Permanently marks a prompt as consumed for the specified [userId].
      */
     suspend fun markPromptConsumed(

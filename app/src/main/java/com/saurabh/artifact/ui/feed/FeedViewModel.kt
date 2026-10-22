@@ -47,6 +47,7 @@ import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.ListenerRegistration
 import com.saurabh.artifact.util.NetworkUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.Dispatchers
@@ -377,27 +378,43 @@ class FeedViewModel @Inject constructor(
     fun refreshReflectionPrompt(context: String? = null): kotlinx.coroutines.Job {
         return viewModelScope.launch {
             if (uiState.value.isPromptLoading) return@launch
-            
+
             _uiState.update { it.copy(isPromptLoading = true) }
-            runCatching {
-                val currentUid = userRepository?.getCurrentUserId()
-                val progressionCount = if (currentUid != null) {
-                    userRepository.getUserProgressionCount(currentUid).firstOrNull() ?: 0
-                } else 0
-                val result = getReflectionPromptUseCase(
-                    progressionCount = progressionCount,
+            try {
+                val currentUid = userRepository?.getCurrentUserId() ?: currentUserId
+                if (currentUid.isNullOrBlank()) {
+                    _uiState.update { it.copy(reflectionPrompt = null) }
+                    return@launch
+                }
+
+                val result = getReflectionPromptUseCase.getPromptForBatch(
+                    userId = currentUid,
+                    batchNumber = 1,
                     emotion = selectedEmotion.value,
                     context = context
                 )
-                _uiState.update { it.copy(
-                    safetyLevel = result.safetyLevel,
-                    isCrisis = result.isCrisis,
-                    reflectionPrompt = result.prompt
-                ) }
-            }.onFailure {
-                diagnosticLogger.error(DiagnosticCategory.FEED, "PROMPT_REFRESH_FAILED", throwable = it)
+
+                val prompt = when (val selection = result.selectionResult) {
+                    is PromptSelectionResult.Success -> selection.prompt
+                    is PromptSelectionResult.BatchExhausted,
+                    is PromptSelectionResult.CatalogExhausted,
+                    is PromptSelectionResult.Error -> null
+                }
+
+                _uiState.update {
+                    it.copy(
+                        safetyLevel = result.safetyLevel,
+                        isCrisis = result.isCrisis,
+                        reflectionPrompt = prompt
+                    )
+                }
+            } catch (e: Throwable) {
+                if (e is CancellationException) throw e
+                diagnosticLogger.error(DiagnosticCategory.FEED, "PROMPT_REFRESH_FAILED", throwable = e)
+                _uiState.update { it.copy(reflectionPrompt = null) }
+            } finally {
+                _uiState.update { it.copy(isPromptLoading = false) }
             }
-            _uiState.update { it.copy(isPromptLoading = false) }
         }
     }
 

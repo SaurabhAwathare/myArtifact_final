@@ -9,6 +9,7 @@ import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.StorageException
 import com.google.firebase.storage.StorageMetadata
+import com.google.firebase.storage.UploadTask
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
@@ -101,6 +102,8 @@ class ArtifactPublishingRepository @Inject constructor(
         val uniqueSuffix = java.util.UUID.randomUUID().toString().take(8)
         val tempFile = File(storageManager.tempUploadDirectory, "decrypted_${workingDraft.id}_$uniqueSuffix.m4a")
         
+        var activeUploadTask: UploadTask? = null
+
         try {
             diagnosticLogger.debug(DiagnosticCategory.STORAGE, "DECRYPTION_FOR_UPLOAD_START", mapOf(LogKeys.DRAFT_ID to workingDraft.id))
             val inputStream = if (workingDraft.isEncrypted) {
@@ -133,56 +136,88 @@ class ArtifactPublishingRepository @Inject constructor(
                 )
 
                 try {
-                    val downloadUrl = withTimeout(5.minutes) {
-                        val uploadTask = if (currentSessionUri != null) {
-                            fileRef.putFile(tempFile.toUri(), metadata, currentSessionUri.toUri())
-                        } else {
-                            fileRef.putFile(tempFile.toUri(), metadata)
+                    // Check if file is already completely uploaded in Firebase Storage
+                    // This handles cases where a previous attempt successfully transferred the file
+                    // but failed during download URL retrieval, preventing unnecessary re-uploads.
+                    if (currentRetry > 0 || currentSessionUri != null) {
+                        val existingUrl = try {
+                            fileRef.downloadUrl.await().toString()
+                        } catch (_: Exception) {
+                            null
                         }
-
-                        val taskSnapshot = try {
-                            uploadTask.addOnProgressListener { snapshot ->
-                                launch {
-                                    onProgress(snapshot.bytesTransferred, snapshot.totalByteCount, snapshot.uploadSessionUri)
-                                }
-                            }.await()
-                        } catch (e: com.google.firebase.storage.StorageException) {
-                            val httpCode = e.httpResultCode
-                            val isTerminated = NetworkUtils.isServerTerminatedSession(e)
-                            // Detect expired or server-terminated resumable session (404/410 or -13000 / terminated session message)
-                            if (currentSessionUri != null && (httpCode == 404 || httpCode == 410 || isTerminated)) {
-                                val logEvent = if (isTerminated) "UPLOAD_SESSION_TERMINATED" else "UPLOAD_SESSION_EXPIRED"
-                                diagnosticLogger.warn(
-                                    DiagnosticCategory.STORAGE, 
-                                    logEvent, 
-                                    mapOf(
-                                        LogKeys.DRAFT_ID to workingDraft.id, 
-                                        "httpCode" to httpCode,
-                                        "errorCode" to e.errorCode,
-                                        "message" to (e.message ?: "")
-                                    )
-                                )
-                                // Clear session in DB and local state
-                                draftRepository.get().updateUploadProgress(workingDraft.id, 0, workingDraft.totalBytes, null)
-                                currentSessionUri = null
-                                
-                                // Throw transient error to trigger restart from scratch in next loop iteration
-                                throw Exception("Resumable session expired or terminated by server, restarting upload")
-                            } else {
-                                throw e
-                            }
+                        if (existingUrl != null) {
+                            diagnosticLogger.info(
+                                DiagnosticCategory.STORAGE,
+                                "UPLOAD_ALREADY_COMPLETED_RECOVERED_URL",
+                                mapOf(LogKeys.DRAFT_ID to workingDraft.id)
+                            )
+                            return@withContext Result.success(existingUrl)
                         }
-
-                        // HARDENING: Retrieve downloadUrl from snapshot storage reference for better reliability
-                        retryDownloadUrlFetch(taskSnapshot.storage)
-                            ?: throw Exception("Upload succeeded but URL retrieval timed out.")
                     }
+
+                    val uploadTask = if (currentSessionUri != null) {
+                        fileRef.putFile(tempFile.toUri(), metadata, currentSessionUri.toUri())
+                    } else {
+                        fileRef.putFile(tempFile.toUri(), metadata)
+                    }
+                    activeUploadTask = uploadTask
+
+                    val taskSnapshot = try {
+                        uploadTask.addOnProgressListener { snapshot ->
+                            launch {
+                                onProgress(snapshot.bytesTransferred, snapshot.totalByteCount, snapshot.uploadSessionUri)
+                            }
+                        }.await()
+                    } catch (e: StorageException) {
+                        val httpCode = e.httpResultCode
+                        val isTerminated = NetworkUtils.isServerTerminatedSession(e)
+                        // Detect expired or server-terminated resumable session (404/410 or -13000 / terminated session message)
+                        if (currentSessionUri != null && (httpCode == 404 || httpCode == 410 || isTerminated)) {
+                            val logEvent = if (isTerminated) "UPLOAD_SESSION_TERMINATED" else "UPLOAD_SESSION_EXPIRED"
+                            diagnosticLogger.warn(
+                                DiagnosticCategory.STORAGE, 
+                                logEvent, 
+                                mapOf(
+                                    LogKeys.DRAFT_ID to workingDraft.id, 
+                                    "httpCode" to httpCode,
+                                    "errorCode" to e.errorCode,
+                                    "message" to (e.message ?: "")
+                                )
+                            )
+                            // Clear session in DB and local state
+                            draftRepository.get().updateUploadProgress(workingDraft.id, 0, workingDraft.totalBytes, null)
+                            currentSessionUri = null
+                            
+                            // Throw transient error to trigger restart from scratch in next loop iteration
+                            throw Exception("Resumable session expired or terminated by server, restarting upload")
+                        } else {
+                            throw e
+                        }
+                    }
+
+                    // HARDENING: Retrieve downloadUrl from snapshot storage reference with bounded retry logic
+                    val downloadUrl = retryDownloadUrlFetch(taskSnapshot.storage)
+                        ?: throw Exception("Upload succeeded but URL retrieval timed out.")
 
                     return@withContext Result.success(downloadUrl)
 
                 } catch (e: Exception) {
-                    // Phase 8: Reliability - Ensure cancellation is never swallowed
-                    if (e is CancellationException) throw e
+                    // Phase 8: Reliability - Ensure cancellation is never swallowed and active Firebase task is cleaned up
+                    if (e is CancellationException) {
+                        try {
+                            if (activeUploadTask?.isInProgress == true) {
+                                activeUploadTask?.cancel()
+                            }
+                        } catch (taskCancelEx: Exception) {
+                            diagnosticLogger.warn(
+                                DiagnosticCategory.STORAGE,
+                                "UPLOAD_TASK_CANCEL_FAILED",
+                                mapOf(LogKeys.DRAFT_ID to workingDraft.id),
+                                taskCancelEx
+                            )
+                        }
+                        throw e
+                    }
 
                     val isSessionExpiredOrTerminated = e.message?.contains("Resumable session expired") == true ||
                             e.message?.contains("terminated by server") == true ||
@@ -238,9 +273,15 @@ class ArtifactPublishingRepository @Inject constructor(
             }
             Result.failure(Exception("Upload failed after $maxRetries retries"))
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             diagnosticLogger.error(DiagnosticCategory.STORAGE, "DECRYPTION_FAILED_FOR_UPLOAD", mapOf(LogKeys.DRAFT_ID to workingDraft.id), e)
             Result.failure(e)
         } finally {
+            try {
+                if (activeUploadTask?.isInProgress == true) {
+                    activeUploadTask?.cancel()
+                }
+            } catch (_: Exception) {}
             if (tempFile.exists()) {
                 val deleted = tempFile.delete()
                 diagnosticLogger.debug(DiagnosticCategory.STORAGE, "TEMP_FILE_CLEANUP", mapOf(LogKeys.DRAFT_ID to workingDraft.id, "success" to deleted))
