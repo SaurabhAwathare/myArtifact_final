@@ -21,6 +21,7 @@ import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.RecordingRepository
 import com.saurabh.artifact.repository.UserRepository
+import com.saurabh.artifact.util.OnboardingManager
 import com.saurabh.artifact.util.SecureString
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -107,7 +108,8 @@ class PublishingStudioViewModel @Inject constructor(
     private val diagnosticLogger: DiagnosticLogger,
     private val publishingOrchestrator: PublishingOrchestrator,
     private val artifactRepository: ArtifactRepository,
-    private val userRepository: UserRepository
+    private val userRepository: UserRepository,
+    private val onboardingManager: OnboardingManager
 ) : ViewModel() {
 
     private val _draftId = MutableStateFlow<String?>(null)
@@ -140,7 +142,7 @@ class PublishingStudioViewModel @Inject constructor(
                 }
             val reviewFlow = playbackCoordinator.reviewProgress
             val recoveryFlow = recordingRepository.observeRecoveryState(id, workManager)
-            val isRecoverySetupFlow = databaseEncryptionManager.isRecoverySetup
+            val isRecoverySetupFlow = onboardingManager.isMnemonicSaved(user.uid)
             val episodePreviewFlow: Flow<Long?> = combine(
                 artifactRepository.getMaxPublishedEpisodeNumber(user.uid).onStart { emit(null) },
                 userRepository.streamUserProfile(user.uid).onStart { emit(null) }

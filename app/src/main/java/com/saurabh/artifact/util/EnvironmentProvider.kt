@@ -6,6 +6,7 @@ import javax.inject.Singleton
 
 enum class AppEnvironment {
     DEBUG,
+    STAGING,
     PRODUCTION
 }
 
@@ -17,8 +18,9 @@ interface EnvironmentProvider {
 
 @Singleton
 class EnvironmentProviderImpl @Inject constructor() : EnvironmentProvider {
-    override val environment: AppEnvironment = when (BuildConfig.FIREBASE_ENV) {
-        "DEBUG" -> AppEnvironment.DEBUG
+    override val environment: AppEnvironment = when {
+        BuildConfig.FIREBASE_ENV == "STAGING" -> AppEnvironment.STAGING
+        BuildConfig.DEBUG -> AppEnvironment.DEBUG
         else -> AppEnvironment.PRODUCTION
     }
 

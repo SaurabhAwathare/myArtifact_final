@@ -299,6 +299,8 @@ class FeedRepository @Inject constructor(
             }
 
             Result.success(PaginatedArtifacts(candidatesToEmit, firestoreCursorToReturn))
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             diagnosticLogger.error(DiagnosticCategory.FEED, "FEED_DISCOVERY_FETCH_FAILED", throwable = e)
             runCatching {

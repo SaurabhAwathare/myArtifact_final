@@ -27,6 +27,7 @@ fun MnemonicRevealScreen(
     viewModel: MnemonicRevealViewModel = lifecycleHiltViewModel()
 ) {
     val words by viewModel.mnemonicWords.collectAsStateWithLifecycle()
+    val isExistingPhrase by viewModel.isExistingPhrase.collectAsStateWithLifecycle()
     val isProcessing by viewModel.isProcessing.collectAsStateWithLifecycle()
     val setupError by viewModel.setupError.collectAsStateWithLifecycle()
     
@@ -46,7 +47,7 @@ fun MnemonicRevealScreen(
             Spacer(modifier = Modifier.height(48.dp))
 
             Text(
-                text = "Secure Your Journey",
+                text = if (isExistingPhrase) "Your Recovery Phrase" else "Secure Your Journey",
                 style = MaterialTheme.typography.headlineMedium,
                 color = GoldAura500,
                 fontWeight = FontWeight.Bold
@@ -55,7 +56,10 @@ fun MnemonicRevealScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = "These 12 words are the only way to recover your artifacts if you change devices or lose access. Store them somewhere safe and private.",
+                text = if (isExistingPhrase) 
+                    "These 12 words are your recovery phrase for your artifacts. Store them somewhere safe and private."
+                else 
+                    "These 12 words are the only way to recover your artifacts if you change devices or lose access. Store them somewhere safe and private.",
                 style = MaterialTheme.typography.bodyLarge,
                 color = ArtifactTheme.colors.onSurfaceMuted,
                 textAlign = TextAlign.Center,
@@ -65,28 +69,32 @@ fun MnemonicRevealScreen(
             Spacer(modifier = Modifier.height(32.dp))
 
             // Word Grid
-            WordGrid(words = words)
+            if (words.isNotEmpty()) {
+                WordGrid(words = words)
+            }
 
             Spacer(modifier = Modifier.height(48.dp))
 
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Checkbox(
-                    checked = hasConfirmed,
-                    onCheckedChange = { hasConfirmed = it },
-                    colors = CheckboxDefaults.colors(
-                        checkedColor = GoldAura500,
-                        uncheckedColor = ArtifactTheme.colors.onSurfaceMuted
+            if (!isExistingPhrase) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Checkbox(
+                        checked = hasConfirmed,
+                        onCheckedChange = { hasConfirmed = it },
+                        colors = CheckboxDefaults.colors(
+                            checkedColor = GoldAura500,
+                            uncheckedColor = ArtifactTheme.colors.onSurfaceMuted
+                        )
                     )
-                )
-                Text(
-                    text = "I have written down or saved my recovery words in a safe place.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = ArtifactTheme.colors.onSurfaceMain,
-                    modifier = Modifier.padding(start = 8.dp)
-                )
+                    Text(
+                        text = "I have written down or saved my recovery words in a safe place.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = ArtifactTheme.colors.onSurfaceMain,
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
+                }
             }
 
             if (setupError != null) {
@@ -101,9 +109,17 @@ fun MnemonicRevealScreen(
             Spacer(modifier = Modifier.weight(1f))
 
             AppButton(
-                text = if (isProcessing) "Securing..." else "Continue to Artifact",
+                text = when {
+                    isProcessing -> if (isExistingPhrase) "Loading..." else "Securing..."
+                    isExistingPhrase -> "Done"
+                    else -> "Continue to Artifact"
+                },
                 onClick = { viewModel.completeSetup(onComplete) },
-                enabled = hasConfirmed && !isProcessing,
+                enabled = if (isExistingPhrase) {
+                    !isProcessing && setupError == null && words.isNotEmpty()
+                } else {
+                    hasConfirmed && !isProcessing && setupError == null
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 24.dp)

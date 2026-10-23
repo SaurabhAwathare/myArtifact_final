@@ -66,6 +66,7 @@ data class ProfileUiState(
     val isBuffering: Boolean = false,
     val currentPosition: Long = 0,
     val durationMs: Long = 0,
+    val isError: Boolean = false,
 )
 
 private data class ProfileContent(
@@ -81,6 +82,7 @@ private data class ProfileContent(
     val mappedLocalDrafts: List<DraftUiModel>,
     val mappedPublishedArtifacts: List<Artifact>,
     val mappedCloudDrafts: List<Artifact>,
+    val isError: Boolean = false,
 )
 
 private data class PlaybackState(
@@ -158,8 +160,15 @@ class ProfileViewModel @Inject constructor(
     private val _titleInput = MutableStateFlow<String?>(null)
     private var renameDebounceJob: kotlinx.coroutines.Job? = null
 
-    private val profileDataFlow = _refreshTrigger.flatMapLatest {
-        getProfileDataUseCase(_targetUserId.value, _targetPersonaId.value)
+    private var hasLoadedSuccessfully = false
+    private var lastKnownHeadPublished = emptyList<Artifact>()
+
+    private val profileDataFlow = combine(_targetUserId, _targetPersonaId, _refreshTrigger) { targetUserId, targetPersonaId, _ ->
+        targetUserId to targetPersonaId
+    }.flatMapLatest { (targetUserId, targetPersonaId) ->
+        hasLoadedSuccessfully = false
+        lastKnownHeadPublished = emptyList()
+        getProfileDataUseCase(targetUserId, targetPersonaId)
     }
 
     private val profileContentFlow = combine(
@@ -225,7 +234,35 @@ class ProfileViewModel @Inject constructor(
             )
         } ?: emptyList()
 
-        val headPublished = data?.publishedArtifacts ?: emptyList()
+        var isError = false
+        val headPublished: List<Artifact>
+        if (data != null) {
+            val err = data.artifactsError
+            if (err == null) {
+                hasLoadedSuccessfully = true
+                lastKnownHeadPublished = data.publishedArtifacts
+                headPublished = data.publishedArtifacts
+                isError = false
+            } else {
+                if (hasLoadedSuccessfully) {
+                    headPublished = lastKnownHeadPublished
+                    isError = false
+                    if (message == null) {
+                        _message.value = ErrorMessageMapper.map(err)
+                    }
+                } else {
+                    headPublished = emptyList()
+                    isError = true
+                    if (message == null) {
+                        _message.value = ErrorMessageMapper.map(err)
+                    }
+                }
+            }
+        } else {
+            headPublished = emptyList()
+            isError = false
+        }
+
         val mappedPublished = (headPublished + additionalPublished)
             .distinctBy { it.id } // Prevent duplicates if item moves between pages
             .map { mapArtifact(it) }
@@ -244,7 +281,8 @@ class ProfileViewModel @Inject constructor(
             hasMorePublished = hasMore,
             mappedLocalDrafts = mappedLocalDrafts,
             mappedPublishedArtifacts = mappedPublished,
-            mappedCloudDrafts = mappedCloudDrafts
+            mappedCloudDrafts = mappedCloudDrafts,
+            isError = isError
         )
     }
 
@@ -302,8 +340,15 @@ class ProfileViewModel @Inject constructor(
             isBuffering = playback.isBuffering,
             currentPosition = playback.position.inWholeMilliseconds,
             durationMs = playback.duration.inWholeMilliseconds,
+            isError = content.isError
         )
     }.catch { e ->
+        _message.value = ErrorMessageMapper.map(e)
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5.seconds),
+        initialValue = ProfileUiState(),
+    ).catch { e ->
         _message.value = ErrorMessageMapper.map(e)
     }.stateIn(
         scope = viewModelScope,

@@ -46,7 +46,7 @@ object FirebaseModule {
 
     @Provides
     @Singleton
-    fun provideFirebaseStorage(): FirebaseStorage = FirebaseStorage.getInstance("gs://myartifact-555e3.firebasestorage.app")
+    fun provideFirebaseStorage(): FirebaseStorage = FirebaseStorage.getInstance()
 
     @Provides
     @Singleton

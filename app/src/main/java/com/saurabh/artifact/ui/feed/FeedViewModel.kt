@@ -31,6 +31,7 @@ import com.saurabh.artifact.service.FeedComposer
 import com.saurabh.artifact.service.PersonalizationEngine
 import com.saurabh.artifact.service.SafetyLevel
 import com.saurabh.artifact.service.FeedSeparatorMapper
+import com.saurabh.artifact.security.DatabaseEncryptionManager
 import com.saurabh.artifact.security.UploadGuard
 import com.saurabh.artifact.startup.StartupCoordinator
 import com.saurabh.artifact.startup.StartupMetrics
@@ -51,6 +52,7 @@ import kotlinx.coroutines.CancellationException
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
@@ -107,7 +109,8 @@ class FeedViewModel @Inject constructor(
     private val getReflectionPromptUseCase: GetReflectionPromptUseCase,
     private val diagnosticLogger: DiagnosticLogger,
     private val userRepository: UserRepository? = null,
-    private val feedErrorClassifier: FeedErrorClassifier? = null
+    private val feedErrorClassifier: FeedErrorClassifier? = null,
+    private val databaseEncryptionManager: DatabaseEncryptionManager? = null
 ) : ViewModel(), MemoryTrimable {
 
     suspend fun classifyFeedError(error: Throwable): FeedErrorClassification {
@@ -139,15 +142,25 @@ class FeedViewModel @Inject constructor(
     // Persisted state properties (Single Source of Truth)
     val selectedEmotion = savedStateHandle.getStateFlow<String?>(KEY_SELECTED_EMOTION, null)
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val isMnemonicSavedFlow: Flow<Boolean> = authRepository.currentUser
+        .flatMapLatest { user ->
+            if (user != null) {
+                onboardingManager.isMnemonicSaved(user.uid)
+            } else {
+                onboardingManager.isMnemonicSaved
+            }
+        }
+
     private val _uiState = MutableStateFlow(FeedUiState())
     val uiState: StateFlow<FeedUiState> = combine(
         _uiState,
         selectedEmotion,
-        onboardingManager.isMnemonicSaved
-    ) { current, emotion, mnemonicSaved ->
+        isMnemonicSavedFlow
+    ) { current, emotion, isMnemonicSaved ->
         current.copy(
             selectedEmotion = emotion,
-            isMnemonicSaved = mnemonicSaved
+            isMnemonicSaved = isMnemonicSaved
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, FeedUiState())
 
@@ -216,7 +229,27 @@ class FeedViewModel @Inject constructor(
 
     init {
         memoryManager.register(this)
-        start()
+        
+        viewModelScope.launch {
+            authRepository.currentUser.collect { user ->
+                if (user != null) {
+                    start()
+                } else {
+                    started = false
+                    currentStartedUserId = null
+                    newContentListener?.remove()
+                    newContentListener = null
+                    _uiState.update { current ->
+                        current.copy(
+                            artifactCache = emptyMap(),
+                            hydrationLevels = emptyMap(),
+                            artifactDetails = emptyMap(),
+                            recommendationReasons = emptyMap()
+                        )
+                    }
+                }
+            }
+        }
 
         // Listen for save events
         viewModelScope.launch {
@@ -253,15 +286,18 @@ class FeedViewModel @Inject constructor(
 
     private val startupJob = kotlinx.coroutines.SupervisorJob()
     private var started = false
+    private var currentStartedUserId: String? = null
 
     fun start() {
-        if (currentUserId == null) {
+        val uid = currentUserId
+        if (uid == null) {
             diagnosticLogger.warn(DiagnosticCategory.FEED, "FEED_START_BLOCKED", mapOf("reason" to "User is null"))
             _uiState.update { it.copy(artifactCache = emptyMap(), hydrationLevels = emptyMap()) }
             return
         }
-        if (started) return
+        if (started && currentStartedUserId == uid) return
         started = true
+        currentStartedUserId = uid
 
         diagnosticLogger.info(DiagnosticCategory.FEED, "FEED_HYDRATION_STARTED")
         StartupTracer.mark("Feed Hydration Started")

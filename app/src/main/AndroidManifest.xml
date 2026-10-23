@@ -130,8 +130,8 @@
                 <category android:name="android.intent.category.BROWSABLE" />
 
                 <data android:scheme="https" />
-                <data android:host="myartifact-555e3.web.app" />
-                <data android:host="myartifact-555e3.firebaseapp.com" />
+                <data android:host="${deepLinkHost}" />
+                <data android:host="${deepLinkSecondaryHost}" />
                 <data android:pathPrefix="/a/" />
             </intent-filter>
         </activity>

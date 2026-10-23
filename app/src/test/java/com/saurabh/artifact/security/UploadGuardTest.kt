@@ -57,7 +57,7 @@ class UploadGuardTest {
             publishApprovalTimestamp = testTimestamp
         )
 
-        every { FileIntegrity.calculateChecksum(audioPath) } returns testChecksum
+        every { uploadGuard.calculatePlaintextChecksum(audioPath, false) } returns testChecksum
         every { uploadGuard.generateApprovalToken(testUserId, testDraftId, testChecksum, testTimestamp) } returns token
 
         val result = uploadGuard.validateApproval(draft, testUserId)
@@ -80,7 +80,7 @@ class UploadGuardTest {
             publishApprovalTimestamp = testTimestamp
         )
 
-        every { FileIntegrity.calculateChecksum(audioPath) } returns "DIFFERENT_CHECKSUM"
+        every { uploadGuard.calculatePlaintextChecksum(audioPath, false) } returns "DIFFERENT_CHECKSUM"
 
         val result = uploadGuard.validateApproval(draft, testUserId)
         
@@ -102,7 +102,7 @@ class UploadGuardTest {
             publishApprovalTimestamp = testTimestamp
         )
 
-        every { FileIntegrity.calculateChecksum(audioPath) } returns testChecksum
+        every { uploadGuard.calculatePlaintextChecksum(audioPath, false) } returns testChecksum
         every { uploadGuard.generateApprovalToken(testUserId, testDraftId, testChecksum, testTimestamp) } returns "CORRECT_TOKEN"
 
         val result = uploadGuard.validateApproval(draft, testUserId)
@@ -126,7 +126,7 @@ class UploadGuardTest {
             publishApprovalTimestamp = testTimestamp
         )
 
-        every { FileIntegrity.calculateChecksum(audioPath) } returns testChecksum
+        every { uploadGuard.calculatePlaintextChecksum(audioPath, false) } returns testChecksum
         every { uploadGuard.generateApprovalToken(testUserId, testDraftId, testChecksum, testTimestamp) } returns token
 
         val result = uploadGuard.validateApproval(draft, testUserId)

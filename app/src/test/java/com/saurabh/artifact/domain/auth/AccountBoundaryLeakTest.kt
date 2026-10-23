@@ -1,18 +1,16 @@
 package com.saurabh.artifact.domain.auth
 
 import android.content.Context
-import androidx.datastore.preferences.core.PreferenceDataStoreFactory
-import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.test.core.app.ApplicationProvider
 import com.saurabh.artifact.util.OnboardingManager
-import io.mockk.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.After
-import org.junit.Assert.*
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -24,8 +22,6 @@ import java.io.File
 class AccountBoundaryLeakTest {
 
     private lateinit var context: Context
-    private val testDispatcher = UnconfinedTestDispatcher()
-    private val testScope = TestScope(testDispatcher)
     private lateinit var onboardingManager: OnboardingManager
 
     @Before
@@ -41,19 +37,22 @@ class AccountBoundaryLeakTest {
 
     @Test
     fun `isMnemonicSaved should be false for a new device session`() = runTest {
-        assertFalse(onboardingManager.isMnemonicSaved.first())
+        assertFalse(onboardingManager.isMnemonicSaved("new_user").first())
     }
 
     @Test
-    fun `isMnemonicSaved persists across sessions but should be cleared on logout`() = runTest {
+    fun `isMnemonicSaved is scoped by UID and persists across logouts without leaking to new accounts`() = runTest {
         // 1. User A sets up mnemonic
-        onboardingManager.setMnemonicSaved(true)
-        assertTrue(onboardingManager.isMnemonicSaved.first())
+        onboardingManager.setMnemonicSaved("user_A", true)
+        assertTrue(onboardingManager.isMnemonicSaved("user_A").first())
         
         // 2. Simulate Logout
         onboardingManager.clearUserSessionData()
         
-        // 3. Verify User B starts fresh
-        assertFalse(onboardingManager.isMnemonicSaved.first())
+        // 3. User A recovery status is preserved across logout
+        assertTrue(onboardingManager.isMnemonicSaved("user_A").first())
+
+        // 4. User B (new account) starts fresh without recovery setup
+        assertFalse(onboardingManager.isMnemonicSaved("user_B").first())
     }
 }

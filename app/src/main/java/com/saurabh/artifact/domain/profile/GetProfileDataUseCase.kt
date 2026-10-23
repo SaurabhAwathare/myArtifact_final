@@ -19,7 +19,8 @@ data class ProfileData(
     val localDrafts: List<ArtifactDraftEntity>,
     val isResonating: Boolean,
     val isIgnored: Boolean = false,
-    val isSelf: Boolean
+    val isSelf: Boolean,
+    val artifactsError: Throwable? = null
 )
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -98,7 +99,7 @@ class GetProfileDataUseCase @Inject constructor(
                         @Suppress("UNCHECKED_CAST")
                         val profile = params[0] as User?
                         @Suppress("UNCHECKED_CAST")
-                        val artifactsWithSnapshot = params[1] as Pair<List<Artifact>, DocumentSnapshot?>
+                        val artifactsResult = params[1] as Result<Pair<List<Artifact>, DocumentSnapshot?>>
                         @Suppress("UNCHECKED_CAST")
                         val rawLocalDrafts = params[2] as List<ArtifactDraftEntity>
                         val localDrafts = rawLocalDrafts.filter { it.lifecycle != ArtifactLifecycle.PUBLISHED }
@@ -107,7 +108,8 @@ class GetProfileDataUseCase @Inject constructor(
                         @Suppress("UNCHECKED_CAST")
                         val suppressedIds = params[5] as Set<String>
 
-                        val (allArtifacts, lastDoc) = artifactsWithSnapshot
+                        val artifactsError = artifactsResult.exceptionOrNull()
+                        val (allArtifacts, lastDoc) = artifactsResult.getOrDefault(emptyList<Artifact>() to null)
                         val statusPublished = ArtifactStatus.ACTIVE
                         val localDraftIds = localDrafts.map { it.id }.toSet()
 
@@ -127,7 +129,8 @@ class GetProfileDataUseCase @Inject constructor(
                             localDrafts = localDrafts,
                             isResonating = isResonating,
                             isIgnored = isIgnored,
-                            isSelf = isSelf
+                            isSelf = isSelf,
+                            artifactsError = artifactsError
                         )
                     }
                 }

@@ -13,6 +13,7 @@ android {
         targetSdk = 37
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        missingDimensionStrategy("environment", "prod")
     }
 
     buildTypes {

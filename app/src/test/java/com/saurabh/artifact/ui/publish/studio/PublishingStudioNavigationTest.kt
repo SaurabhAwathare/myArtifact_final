@@ -20,6 +20,7 @@ import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.RecordingRepository
 import com.saurabh.artifact.repository.UserRepository
 import com.saurabh.artifact.security.DatabaseEncryptionManager
+import com.saurabh.artifact.util.OnboardingManager
 import io.mockk.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -45,6 +46,7 @@ class PublishingStudioNavigationTest {
     private val authRepository = mockk<AuthRepository>(relaxed = true)
     private val cleanupManager = mockk<ArtifactCleanupManager>(relaxed = true)
     private val databaseEncryptionManager = mockk<DatabaseEncryptionManager>(relaxed = true)
+    private val onboardingManager = mockk<OnboardingManager>(relaxed = true)
     private val workManager = mockk<WorkManager>(relaxed = true)
     private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
     private val publishingOrchestrator = mockk<PublishingOrchestrator>(relaxed = true)
@@ -90,6 +92,7 @@ class PublishingStudioNavigationTest {
         every { playbackCoordinator.duration } returns flowOf(0.milliseconds)
         every { recordingRepository.observeRecoveryState(any(), any()) } returns flowOf(false)
         every { databaseEncryptionManager.isRecoverySetup } returns flowOf(true)
+        every { onboardingManager.isMnemonicSaved } returns flowOf(true)
         
         every { identityScout.detectLeaks(any(), any(), any()) } returns emptyList()
     }
@@ -259,6 +262,39 @@ class PublishingStudioNavigationTest {
         collectJob.cancel()
     }
 
+    @Test
+    fun `performPublish redirects to SECURITY_REQUIRED when account mnemonic is not saved despite device recovery wrapper`() = runTest {
+        every { databaseEncryptionManager.isRecoverySetup } returns flowOf(true)
+        every { onboardingManager.isMnemonicSaved } returns flowOf(false)
+
+        val viewModel = createViewModel()
+        val states = mutableListOf<StudioSessionState>()
+        val collectJob = launch(UnconfinedTestDispatcher()) {
+            viewModel.sessionState.toList(states)
+        }
+
+        viewModel.loadDraft(draftId)
+        runCurrent()
+
+        draftFlow.value = draftFlow.value!!.copy(
+            lifecycle = ArtifactLifecycle.READY_TO_PUBLISH,
+            emotion = Emotion.CALM,
+            reviewCompleted = true,
+            titleCompleted = true,
+            emotionCompleted = true
+        )
+        runCurrent()
+
+        viewModel.onPublishClick()
+        runCurrent()
+
+        val lastState = states.last()
+        assertEquals(StudioStep.SECURITY_REQUIRED, lastState.currentStep)
+        coVerify(exactly = 0) { publishArtifactUseCase(any()) }
+
+        collectJob.cancel()
+    }
+
     private val artifactRepository = mockk<ArtifactRepository>(relaxed = true)
     private val userRepository = mockk<UserRepository>(relaxed = true)
 
@@ -274,6 +310,7 @@ class PublishingStudioNavigationTest {
         diagnosticLogger,
         publishingOrchestrator,
         artifactRepository,
-        userRepository
+        userRepository,
+        onboardingManager
     )
 }

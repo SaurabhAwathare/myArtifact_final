@@ -6,7 +6,6 @@ import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.test.core.app.ApplicationProvider
 import com.google.crypto.tink.Aead
 import com.google.crypto.tink.aead.AeadConfig
-import com.google.crypto.tink.subtle.AesGcmJce
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import io.mockk.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -18,7 +17,6 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import java.io.File
-import android.util.Base64
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import kotlinx.coroutines.test.TestScope
@@ -77,6 +75,11 @@ class DatabaseRecoveryTest {
         // This will call generateAndStoreNewPassphrase internally
         encryptionManager.preload() 
         
+        // Clear in-memory cached passphrase so second preload decrypts testPassphrase
+        val cacheField = DatabaseEncryptionManager::class.java.getDeclaredField("cachedPassphrase")
+        cacheField.isAccessible = true
+        cacheField.set(encryptionManager, null)
+
         val result = encryptionManager.preload()
         assertEquals(PreloadResult.Success, result)
         assertArrayEquals(testPassphrase, encryptionManager.getDatabasePassphrase())
@@ -104,6 +107,8 @@ class DatabaseRecoveryTest {
 
     @Test
     fun `tryRecovery successfully unwraps passphrase and re-binds Keystore`() = runTest {
+        every { mockAead.encrypt(any(), any()) } returns "encrypted".toByteArray()
+
         // 1. Setup: Valid wrapper exists
         encryptionManager.createRecoveryWrapper(testMnemonic)
         val originalPassphrase = encryptionManager.getDatabasePassphrase()
@@ -126,8 +131,11 @@ class DatabaseRecoveryTest {
 
     @Test
     fun `tryRecovery fails with incorrect mnemonic`() = runTest {
+        every { mockAead.encrypt(any(), any()) } returns "encrypted".toByteArray()
         encryptionManager.createRecoveryWrapper(testMnemonic)
         
+        clearMocks(encryptionManager, answers = false, verificationMarks = true)
+
         val wrongMnemonic = "wrong words here ..."
         val recoveryResult = encryptionManager.tryRecovery(wrongMnemonic)
         
@@ -138,15 +146,12 @@ class DatabaseRecoveryTest {
 
     @Test
     fun `preload renames database only when no recovery option exists`() = runTest {
-        // Setup: No wrapper in DataStore
-        // Simulate Keystore failure
+        every { mockAead.encrypt(any(), any()) } returns "encrypted".toByteArray()
         every { mockAead.decrypt(any(), any()) } throws Exception("Keystore fail")
         
         val result = encryptionManager.preload()
         
-        // Success because it fallbacks to generateAndStoreNewPassphrase which returns a result
-        // Wait, preload returns Success if it managed to get A passphrase.
-        assertEquals(PreloadResult.Success, result) 
+        assertEquals(PreloadResult.InitialSetup, result) 
         coVerify { encryptionManager.renameCorruptedDatabase() }
     }
 }

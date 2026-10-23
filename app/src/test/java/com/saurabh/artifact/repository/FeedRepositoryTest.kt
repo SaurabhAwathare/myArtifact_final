@@ -15,6 +15,7 @@ import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.ArtifactStatus
 import com.saurabh.artifact.service.RecommendationService
 import io.mockk.*
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.test.runTest
@@ -346,6 +347,60 @@ class FeedRepositoryTest {
         val result2 = repository.getDiscoveryCandidates(userId, limit = 5, lastVisible = null).getOrThrow()
         assertEquals(5, result2.artifacts.size)
         assertEquals((6..10).map { "cached_$it" }, result2.artifacts.map { it.id })
+
+        unmockkStatic("kotlinx.coroutines.tasks.TasksKt")
+    }
+
+    @Test
+    fun `getDiscoveryCandidates rethrows CancellationException and skips cache fallback when cancelled`() = runTest {
+        val collectionRef = mockk<CollectionReference>(relaxed = true)
+        val query = mockk<Query>(relaxed = true)
+        val task = mockk<Task<QuerySnapshot>>(relaxed = true)
+
+        every { firestore.collection("artifacts") } returns collectionRef
+        every { collectionRef.whereEqualTo("isPublic", true) } returns query
+        every { query.whereEqualTo("status", ArtifactStatus.ACTIVE.name) } returns query
+        every { query.orderBy("createdAt", Query.Direction.DESCENDING) } returns query
+        every { query.limit(50) } returns query
+        every { query.get() } returns task
+
+        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        val cancellation = kotlinx.coroutines.CancellationException("Request cancelled")
+        coEvery { task.await() } throws cancellation
+
+        var caughtCancellation = false
+        try {
+            repository.getDiscoveryCandidates(userId, limit = 5, lastVisible = null)
+        } catch (e: CancellationException) {
+            caughtCancellation = true
+        }
+
+        assertTrue("Expected CancellationException to be thrown", caughtCancellation)
+        coVerify(exactly = 0) { artifactRepository.getRecentCachedArtifacts(any(), any(), any()) }
+        verify(exactly = 0) { diagnosticLogger.error(any(), "FEED_DISCOVERY_FETCH_FAILED", any(), any()) }
+
+        unmockkStatic("kotlinx.coroutines.tasks.TasksKt")
+    }
+
+    @Test
+    fun `getDiscoveryCandidates returns failure on genuine Firestore exception when cache is empty`() = runTest {
+        val collectionRef = mockk<CollectionReference>(relaxed = true)
+        val query = mockk<Query>(relaxed = true)
+        val task = mockk<Task<QuerySnapshot>>(relaxed = true)
+
+        every { firestore.collection("artifacts") } returns collectionRef
+        every { collectionRef.whereEqualTo("isPublic", true) } returns query
+        every { query.whereEqualTo("status", ArtifactStatus.ACTIVE.name) } returns query
+        every { query.orderBy("createdAt", Query.Direction.DESCENDING) } returns query
+        every { query.limit(50) } returns query
+        every { query.get() } returns task
+
+        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        coEvery { task.await() } throws RuntimeException("Network down")
+        coEvery { artifactRepository.getRecentCachedArtifacts(userId, null, 50) } returns emptyList()
+
+        val result = repository.getDiscoveryCandidates(userId, limit = 5, lastVisible = null)
+        assertTrue(result.isFailure)
 
         unmockkStatic("kotlinx.coroutines.tasks.TasksKt")
     }

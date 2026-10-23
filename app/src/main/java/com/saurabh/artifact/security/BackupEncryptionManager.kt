@@ -26,7 +26,9 @@ private val Context.backupPrefs by preferencesDataStore(name = "backup_security"
 class BackupEncryptionManager @Inject constructor(
     @param:ApplicationContext private val context: Context
 ) {
-    private val mnemonicKey = stringPreferencesKey("recovery_mnemonic")
+    private val legacyMnemonicKey = stringPreferencesKey("recovery_mnemonic")
+    
+    private fun userMnemonicKey(uid: String) = stringPreferencesKey("recovery_mnemonic_$uid")
     
     private val keyMutex = Mutex()
     private var cachedBackupKey: SecretKeySpec? = null
@@ -45,25 +47,80 @@ class BackupEncryptionManager @Inject constructor(
     }
 
     /**
-     * Stores the mnemonic securely after encrypting it with a Keystore-backed key.
+     * Stores the mnemonic securely after encrypting it with a Keystore-backed key, scoped by UID.
+     */
+    suspend fun saveMnemonic(uid: String, mnemonic: String) {
+        invalidateCache()
+        val encrypted = localAead.encrypt(mnemonic.toByteArray(), null)
+        val encoded = Base64.encodeToString(encrypted, Base64.DEFAULT)
+        context.backupPrefs.edit { prefs ->
+            prefs[userMnemonicKey(uid)] = encoded
+            prefs[legacyMnemonicKey] = encoded
+        }
+    }
+
+    /**
+     * Legacy overload for saveMnemonic.
      */
     suspend fun saveMnemonic(mnemonic: String) {
         invalidateCache()
         val encrypted = localAead.encrypt(mnemonic.toByteArray(), null)
         val encoded = Base64.encodeToString(encrypted, Base64.DEFAULT)
-        context.backupPrefs.edit { it[mnemonicKey] = encoded }
+        context.backupPrefs.edit { prefs ->
+            prefs[legacyMnemonicKey] = encoded
+        }
     }
 
     /**
-     * Retrieves and decrypts the stored recovery phrase.
+     * Retrieves and decrypts the stored recovery phrase for the given UID (or legacy fallback).
      */
-    suspend fun getRecoveryPhrase(): String? {
-        val stored = context.backupPrefs.data.first()[mnemonicKey] ?: return null
-        return try {
+    suspend fun getRecoveryPhrase(uid: String? = null): String? {
+        val prefs = context.backupPrefs.data.first()
+        val stored = if (uid != null) {
+            val userVal = prefs[userMnemonicKey(uid)]
+            if (userVal != null) {
+                userVal
+            } else {
+                val hasAnyUidKey = prefs.asMap().keys.any { it.name.startsWith("recovery_mnemonic_") }
+                if (!hasAnyUidKey) prefs[legacyMnemonicKey] else null
+            }
+        } else {
+            prefs[legacyMnemonicKey]
+        } ?: return null
+
+        val phrase = try {
             val encrypted = Base64.decode(stored, Base64.DEFAULT)
             localAead.decrypt(encrypted, null).decodeToString()
         } catch (_: Exception) {
-            null
+            return null
+        }
+
+        // Non-destructive legacy migration: if read via legacy for a specific UID, migrate to UID key
+        if (uid != null && prefs[userMnemonicKey(uid)] == null) {
+            try {
+                val encrypted = localAead.encrypt(phrase.toByteArray(), null)
+                val encoded = Base64.encodeToString(encrypted, Base64.DEFAULT)
+                context.backupPrefs.edit { it[userMnemonicKey(uid)] = encoded }
+            } catch (_: Exception) {
+                // Ignore migration write errors, fallback read remains safe
+            }
+        }
+
+        return phrase
+    }
+
+    /**
+     * Explicitly deletes stored recovery phrase for a specific UID.
+     * Should only be called on explicit account deletion.
+     */
+    suspend fun deleteMnemonicForUser(uid: String) {
+        invalidateCache()
+        try {
+            context.backupPrefs.edit { prefs ->
+                prefs.remove(userMnemonicKey(uid))
+            }
+        } catch (_: Exception) {
+            // Silently handle DataStore failures
         }
     }
 
@@ -72,13 +129,13 @@ class BackupEncryptionManager @Inject constructor(
      * Uses a deterministic salt to ensure cross-device recovery.
      * Results are cached in-memory for the process lifetime to optimize performance.
      */
-    suspend fun getBackupKey(): SecretKeySpec {
+    suspend fun getBackupKey(uid: String? = null): SecretKeySpec {
         cachedBackupKey?.let { return it }
 
         return keyMutex.withLock {
             cachedBackupKey?.let { return@withLock it }
 
-            val phrase = getRecoveryPhrase() ?: throw IllegalStateException("Backup not initialized")
+            val phrase = getRecoveryPhrase(uid) ?: throw IllegalStateException("Backup not initialized")
             
             // Use a fixed deterministic salt for cross-device recovery from mnemonic.
             // This is safe because the entropy comes from the 128/256-bit mnemonic seed.
@@ -97,13 +154,13 @@ class BackupEncryptionManager @Inject constructor(
      * Derives a 256-bit encryption key dedicated to data export.
      * Uses a distinct salt from the backup key to ensure cryptographic domain separation.
      */
-    suspend fun getExportKey(): SecretKeySpec {
+    suspend fun getExportKey(uid: String? = null): SecretKeySpec {
         cachedExportKey?.let { return it }
 
         return keyMutex.withLock {
             cachedExportKey?.let { return@withLock it }
 
-            val phrase = getRecoveryPhrase() ?: throw IllegalStateException("Backup/Export not initialized")
+            val phrase = getRecoveryPhrase(uid) ?: throw IllegalStateException("Backup/Export not initialized")
             
             // DISTINCT salt for Export domain separation
             val exportSalt = "artifact_export_v1_salt".toByteArray()
@@ -118,8 +175,8 @@ class BackupEncryptionManager @Inject constructor(
     }
 
     /**
-     * Clears all stored recovery data and invalidates in-memory key caches.
-     * Should be called during logout or account deletion.
+     * Invalidates in-memory key caches during logout or user transition.
+     * Preserves persistent UID-scoped recovery phrases on disk across logouts.
      */
     suspend fun clear() {
         invalidateCache()

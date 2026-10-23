@@ -13,6 +13,7 @@ import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.RecordingRepository
 import com.saurabh.artifact.repository.UserRepository
+import com.saurabh.artifact.util.OnboardingManager
 import io.mockk.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -35,6 +36,7 @@ class TitleBufferTest {
     private val authRepository = mockk<AuthRepository>(relaxed = true)
     private val cleanupManager = mockk<com.saurabh.artifact.audio.ArtifactCleanupManager>(relaxed = true)
     private val databaseEncryptionManager = mockk<com.saurabh.artifact.security.DatabaseEncryptionManager>(relaxed = true)
+    private val onboardingManager = mockk<OnboardingManager>(relaxed = true)
     private val workManager = mockk<androidx.work.WorkManager>(relaxed = true)
     private val diagnosticLogger = mockk<com.saurabh.artifact.diagnostics.DiagnosticLogger>(relaxed = true)
     private val publishingOrchestrator = mockk<PublishingOrchestrator>(relaxed = true)
@@ -83,6 +85,7 @@ class TitleBufferTest {
         every { playbackCoordinator.currentArtifact } returns MutableStateFlow(null)
         every { recordingRepository.observeRecoveryState(any(), any()) } returns flowOf(false)
         every { databaseEncryptionManager.isRecoverySetup } returns MutableStateFlow(true)
+        every { onboardingManager.isMnemonicSaved } returns flowOf(true)
         coEvery { recordingRepository.updateDraftMetadata(any(), any(), any<List<Emotion>>()) } answers {
             val titleArg = secondArg<String?>()
             draftFlow.value = draftFlow.value?.copy(title = titleArg)
@@ -111,7 +114,8 @@ class TitleBufferTest {
             diagnosticLogger,
             publishingOrchestrator,
             artifactRepository,
-            userRepository
+            userRepository,
+            onboardingManager
         )
 
         backgroundScope.launch { viewModel.sessionState.collect() }
@@ -155,7 +159,8 @@ class TitleBufferTest {
             diagnosticLogger,
             publishingOrchestrator,
             artifactRepository,
-            userRepository
+            userRepository,
+            onboardingManager
         )
 
         backgroundScope.launch { viewModel.sessionState.collect() }

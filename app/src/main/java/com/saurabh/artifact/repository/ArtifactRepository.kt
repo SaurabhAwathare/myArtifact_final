@@ -428,7 +428,7 @@ class ArtifactRepository @Inject constructor(
         isSelf: Boolean? = null,
         onlyActive: Boolean = false, 
         limit: Int = 20
-    ): Flow<Pair<List<Artifact>, DocumentSnapshot?>> = callbackFlow {
+    ): Flow<Result<Pair<List<Artifact>, DocumentSnapshot?>>> = callbackFlow {
         val currentUserId = auth.currentUser?.uid
         val resolvedIsSelf = isSelf ?: (userId.isNotEmpty() && userId == currentUserId)
 
@@ -444,12 +444,12 @@ class ArtifactRepository @Inject constructor(
             val subscription = registryQuery.addSnapshotListener { registrySnapshot, error ->
                 if (error != null) {
                     diagnosticLogger.error(DiagnosticCategory.PROFILE, "SELF_REGISTRY_QUERY_FAILED", mapOf("userId" to authenticatedUid), error)
-                    trySend(emptyList<Artifact>() to null)
+                    trySend(Result.failure(AppError.from(error)))
                     return@addSnapshotListener
                 }
 
                 if (registrySnapshot == null || registrySnapshot.isEmpty) {
-                    trySend(emptyList<Artifact>() to null)
+                    trySend(Result.success(emptyList<Artifact>() to null))
                     return@addSnapshotListener
                 }
 
@@ -468,6 +468,7 @@ class ArtifactRepository @Inject constructor(
                                             )
                                         } else null
                                     } catch (e: Exception) {
+                                        if (e is CancellationException) throw e
                                         diagnosticLogger.warn(DiagnosticCategory.PROFILE, "SELF_ARTIFACT_SINGLE_FETCH_FAILED", mapOf("artifactId" to id), e)
                                         null
                                     }
@@ -475,10 +476,11 @@ class ArtifactRepository @Inject constructor(
                             }.awaitAll().filterNotNull()
                         }.sortedByDescending { it.createdAt }
 
-                        trySend(artifacts to registrySnapshot.documents.lastOrNull())
+                        trySend(Result.success(artifacts to registrySnapshot.documents.lastOrNull()))
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
                         diagnosticLogger.error(DiagnosticCategory.PROFILE, "SELF_ARTIFACT_BATCH_FETCH_FAILED", mapOf("userId" to authenticatedUid), e)
-                        trySend(emptyList<Artifact>() to null)
+                        trySend(Result.failure(AppError.from(e)))
                     }
                 }
             }
@@ -508,53 +510,65 @@ class ArtifactRepository @Inject constructor(
                         ),
                         throwable = error
                     )
-                    trySend(emptyList<Artifact>() to null)
+                    trySend(Result.failure(AppError.from(error)))
                     return@addSnapshotListener
                 }
                 
                 repositoryScope.launch(Dispatchers.Default) {
-                    val suppressedIds = currentUserId?.let { 
-                        visibilityFilter.get().getSuppressedIdsSnapshot(it)
-                    } ?: emptySet()
+                    try {
+                        val suppressedIds = currentUserId?.let { 
+                            visibilityFilter.get().getSuppressedIdsSnapshot(it)
+                        } ?: emptySet()
 
-                    val artifacts = snapshot?.documents?.mapNotNull { doc ->
-                        try {
-                            val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
-                            if (artifact == null) return@mapNotNull null
+                        val artifacts = snapshot?.documents?.mapNotNull { doc ->
+                            try {
+                                val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
+                                if (artifact == null) return@mapNotNull null
 
-                            // Apply safety policy for other-user profile view
-                            val reportCount = doc.getLong("reportCount") ?: 0L
-                            val safetyConcernCount = doc.getLong("safetyConcernCount") ?: 0L
-                            
-                            val artifactSnapshot = artifact.copy(
-                                reportCount = reportCount,
-                                safetyConcernCount = safetyConcernCount,
-                                reporterIds = emptyList() // Deprecated
-                            )
+                                // Apply safety policy for other-user profile view
+                                val reportCount = doc.getLong("reportCount") ?: 0L
+                                val safetyConcernCount = doc.getLong("safetyConcernCount") ?: 0L
+                                
+                                val artifactSnapshot = artifact.copy(
+                                    reportCount = reportCount,
+                                    safetyConcernCount = safetyConcernCount,
+                                    reporterIds = emptyList() // Deprecated
+                                )
 
-                            val isEligible = safetyPolicy.isEligibleForDiscovery(
-                                artifact = artifactSnapshot,
-                                currentUserId = currentUserId,
-                                isSuppressedByUser = suppressedIds.contains(doc.id)
-                            )
-                            
-                            if (isEligible) artifactSnapshot else null
-                        } catch (e: Exception) {
-                            diagnosticLogger.error(
-                                category = DiagnosticCategory.PROFILE,
-                                eventName = "ARTIFACT_DESERIALIZATION_FAILED",
-                                metadata = mapOf(
-                                    LogKeys.ARTIFACT_ID to doc.id,
-                                    "userId" to userId,
-                                    "context" to "getUserArtifacts"
-                                ),
-                                throwable = e
-                            )
-                            null
-                        }
-                    } ?: emptyList()
-                    
-                    trySend(artifacts to snapshot?.documents?.lastOrNull())
+                                val isEligible = safetyPolicy.isEligibleForDiscovery(
+                                    artifact = artifactSnapshot,
+                                    currentUserId = currentUserId,
+                                    isSuppressedByUser = suppressedIds.contains(doc.id)
+                                )
+                                
+                                if (isEligible) artifactSnapshot else null
+                            } catch (e: Exception) {
+                                if (e is CancellationException) throw e
+                                diagnosticLogger.error(
+                                    category = DiagnosticCategory.PROFILE,
+                                    eventName = "ARTIFACT_DESERIALIZATION_FAILED",
+                                    metadata = mapOf(
+                                        LogKeys.ARTIFACT_ID to doc.id,
+                                        "userId" to userId,
+                                        "context" to "getUserArtifacts"
+                                    ),
+                                    throwable = e
+                                )
+                                null
+                            }
+                        } ?: emptyList()
+                        
+                        trySend(Result.success(artifacts to snapshot?.documents?.lastOrNull()))
+                    } catch (e: Exception) {
+                        if (e is CancellationException) throw e
+                        diagnosticLogger.error(
+                            category = DiagnosticCategory.PROFILE,
+                            eventName = "PROFILE_ARTIFACT_PROCESSING_FAILED",
+                            metadata = mapOf("personaId" to userId),
+                            throwable = e
+                        )
+                        trySend(Result.failure(AppError.from(e)))
+                    }
                 }
             }
             awaitClose { subscription.remove() }

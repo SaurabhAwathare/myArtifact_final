@@ -132,6 +132,8 @@ class EndToEndRecoveryTest {
         
         encryptionManager.preload()
         
+        clearMocks(encryptionManager, answers = false, verificationMarks = true)
+
         // 3. Wrong Mnemonic
         val result = encryptionManager.tryRecovery("wrong mnemonic phrase ...")
         assertTrue(result.isFailure)

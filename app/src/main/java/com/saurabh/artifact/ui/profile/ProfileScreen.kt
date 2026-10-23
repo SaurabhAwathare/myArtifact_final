@@ -20,6 +20,7 @@ import com.saurabh.artifact.ui.profile.components.ProfileHeader
 import com.saurabh.artifact.ui.profile.components.draftSection
 import com.saurabh.artifact.ui.profile.components.userArtifactsList
 import com.saurabh.artifact.ui.components.AppSnackbarHost
+import com.saurabh.artifact.ui.components.base.AppEmptyState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -183,32 +184,46 @@ fun ProfileScreen(
 
                     when (uiState.selectedTab) {
                         ProfileTab.PUBLISHED -> {
-                            userArtifactsList(
-                                artifacts = uiState.publishedArtifacts,
-                                currentlyPlayingArtifact = uiState.currentlyPlayingArtifact,
-                                isPlaying = uiState.isPlaying,
-                                isBuffering = uiState.isBuffering,
-                                currentPosition = uiState.currentPosition,
-                                duration = uiState.durationMs,
-                                isSelf = uiState.isSelf,
-                                currentUserId = viewModel.currentUserId,
-                                savedIds = savedIds,
-                                onPlayClick = { viewModel.playAudio(it) },
-                                onRename = { artifact, newTitle -> 
-                                    viewModel.renamePublishedArtifact(artifact.id, newTitle)
-                                },
-                                onDelete = { artifact -> 
-                                    viewModel.deletePublishedArtifact(artifact.id)
-                                },
-                                onSaveClick = { viewModel.toggleSave(it) },
-                                emptyMessage = if (uiState.isSelf) "You haven't shared any reflections yet." else "This journey is just beginning.",
-                                onResonatorsCountClick = { artifact ->
-                                    onNavigateToArtifactResonators(artifact.id, artifact.userId == viewModel.currentUserId || uiState.isSelf)
-                                },
-                                onLoadMore = { viewModel.loadMorePublished() },
-                                isLoadingMore = uiState.isMorePublishedLoading,
-                                hasMore = uiState.hasMorePublished
-                            )
+                            if (uiState.isError) {
+                                item {
+                                    AppEmptyState(
+                                        title = "Unable to load profile",
+                                        description = "Something went wrong while fetching reflections. Please try again.",
+                                        action = {
+                                            OutlinedButton(onClick = { viewModel.refresh() }) {
+                                                Text("Retry")
+                                            }
+                                        }
+                                    )
+                                }
+                            } else {
+                                userArtifactsList(
+                                    artifacts = uiState.publishedArtifacts,
+                                    currentlyPlayingArtifact = uiState.currentlyPlayingArtifact,
+                                    isPlaying = uiState.isPlaying,
+                                    isBuffering = uiState.isBuffering,
+                                    currentPosition = uiState.currentPosition,
+                                    duration = uiState.durationMs,
+                                    isSelf = uiState.isSelf,
+                                    currentUserId = viewModel.currentUserId,
+                                    savedIds = savedIds,
+                                    onPlayClick = { viewModel.playAudio(it) },
+                                    onRename = { artifact, newTitle -> 
+                                        viewModel.renamePublishedArtifact(artifact.id, newTitle)
+                                    },
+                                    onDelete = { artifact -> 
+                                        viewModel.deletePublishedArtifact(artifact.id)
+                                    },
+                                    onSaveClick = { viewModel.toggleSave(it) },
+                                    emptyMessage = if (uiState.isSelf) "You haven't shared any reflections yet." else "This journey is just beginning.",
+                                    onResonatorsCountClick = { artifact ->
+                                        onNavigateToArtifactResonators(artifact.id, artifact.userId == viewModel.currentUserId || uiState.isSelf)
+                                    },
+                                    onLoadMore = { viewModel.loadMorePublished() },
+                                    isLoadingMore = uiState.isMorePublishedLoading,
+                                    hasMore = uiState.hasMorePublished
+                                )
+                            }
                         }
                         ProfileTab.DRAFTS -> {
                             if (uiState.isSelf) {

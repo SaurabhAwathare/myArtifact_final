@@ -1,5 +1,6 @@
 package com.saurabh.artifact.domain.profile
 
+import com.google.firebase.auth.FirebaseUser
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.*
@@ -7,6 +8,7 @@ import com.saurabh.artifact.domain.ArtifactVisibilityFilter
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
@@ -14,7 +16,6 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
-import java.util.Date
 
 class GetProfileDataUseCaseTest {
 
@@ -36,11 +37,11 @@ class GetProfileDataUseCaseTest {
             visibilityFilter
         )
         
-        val mockUser = mockk<com.google.firebase.auth.FirebaseUser> {
+        val mockUser = mockk<FirebaseUser> {
             every { uid } returns "user123"
         }
         every { authRepository.currentUserId } returns "user123"
-        every { authRepository.currentUser } returns kotlinx.coroutines.flow.MutableStateFlow(mockUser)
+        every { authRepository.currentUser } returns MutableStateFlow(mockUser)
         every { userRepository.streamUserProfile(any()) } returns flowOf(null)
         every { userRepository.observeIsResonating(any(), any()) } returns flowOf(false)
         every { visibilityFilter.observeSuppressedIds(any()) } returns flowOf(emptySet())
@@ -62,7 +63,7 @@ class GetProfileDataUseCaseTest {
             every { id } returns artifactId
             every { status } returns ArtifactStatus.PENDING_UPLOAD
         }
-        every { artifactRepository.getUserArtifacts("user123", isSelf = true, onlyActive = false) } returns flowOf(listOf(cloudArtifact) to null)
+        every { artifactRepository.getUserArtifacts("user123", isSelf = true, onlyActive = false) } returns flowOf(Result.success(listOf(cloudArtifact) to null))
 
         val result = useCase(null, null).first()
 
@@ -82,7 +83,7 @@ class GetProfileDataUseCaseTest {
             every { id } returns "unique_cloud_id"
             every { status } returns ArtifactStatus.PENDING_UPLOAD
         }
-        every { artifactRepository.getUserArtifacts("user123", isSelf = true, onlyActive = false) } returns flowOf(listOf(cloudArtifact) to null)
+        every { artifactRepository.getUserArtifacts("user123", isSelf = true, onlyActive = false) } returns flowOf(Result.success(listOf(cloudArtifact) to null))
 
         val result = useCase(null, null).first()
 
@@ -103,10 +104,10 @@ class GetProfileDataUseCaseTest {
             every { status } returns ArtifactStatus.ACTIVE
         }
         
-        every { artifactRepository.getUserArtifacts(any(), isSelf = any(), onlyActive = any()) } returns flowOf(listOf(artifact1, artifact2) to null)
+        every { artifactRepository.getUserArtifacts(any(), isSelf = any(), onlyActive = any()) } returns flowOf(Result.success(listOf(artifact1, artifact2) to null))
         every { recordingRepository.observeDrafts() } returns flowOf(emptyList())
         
-        val suppressedFlow = kotlinx.coroutines.flow.MutableStateFlow(emptySet<String>())
+        val suppressedFlow = MutableStateFlow(emptySet<String>())
         every { visibilityFilter.observeSuppressedIds(any()) } returns suppressedFlow
 
         val results = mutableListOf<ProfileData?>()
@@ -132,7 +133,7 @@ class GetProfileDataUseCaseTest {
     @Test
     fun `should pass isSelf true and currentUserId when viewing self profile`() = runTest {
         every { recordingRepository.observeDrafts() } returns flowOf(emptyList())
-        every { artifactRepository.getUserArtifacts("user123", isSelf = true, onlyActive = false) } returns flowOf(emptyList<Artifact>() to null)
+        every { artifactRepository.getUserArtifacts("user123", isSelf = true, onlyActive = false) } returns flowOf(Result.success(emptyList<Artifact>() to null))
 
         val result = useCase(targetUserId = "user123", targetPersonaId = null).first()
 
@@ -144,7 +145,7 @@ class GetProfileDataUseCaseTest {
     fun `should pass isSelf false and personaId when viewing public profile`() = runTest {
         every { recordingRepository.observeDrafts() } returns flowOf(emptyList())
         every { userRepository.observeIgnoredUsers() } returns flowOf(emptySet())
-        every { artifactRepository.getUserArtifacts("usr_OTHER", isSelf = false, onlyActive = true) } returns flowOf(emptyList<Artifact>() to null)
+        every { artifactRepository.getUserArtifacts("usr_OTHER", isSelf = false, onlyActive = true) } returns flowOf(Result.success(emptyList<Artifact>() to null))
 
         val result = useCase(targetUserId = null, targetPersonaId = "usr_OTHER").first()
 
@@ -156,7 +157,7 @@ class GetProfileDataUseCaseTest {
     fun `Test A - targetPersonaId exists should query using targetPersonaId`() = runTest {
         every { recordingRepository.observeDrafts() } returns flowOf(emptyList())
         every { userRepository.observeIgnoredUsers() } returns flowOf(emptySet())
-        every { artifactRepository.getUserArtifacts("usr_PERSONA_A", isSelf = false, onlyActive = true) } returns flowOf(emptyList<Artifact>() to null)
+        every { artifactRepository.getUserArtifacts("usr_PERSONA_A", isSelf = false, onlyActive = true) } returns flowOf(Result.success(emptyList<Artifact>() to null))
 
         val result = useCase(targetUserId = null, targetPersonaId = "usr_PERSONA_A").first()
 
@@ -175,7 +176,7 @@ class GetProfileDataUseCaseTest {
         every { userRepository.streamUserProfile("uid_CREATOR_B") } returns flowOf(creatorProfile)
         every { recordingRepository.observeDrafts() } returns flowOf(emptyList())
         every { userRepository.observeIgnoredUsers() } returns flowOf(emptySet())
-        every { artifactRepository.getUserArtifacts("usr_PERSONA_B", isSelf = false, onlyActive = true) } returns flowOf(emptyList<Artifact>() to null)
+        every { artifactRepository.getUserArtifacts("usr_PERSONA_B", isSelf = false, onlyActive = true) } returns flowOf(Result.success(emptyList<Artifact>() to null))
 
         val result = useCase(targetUserId = "uid_CREATOR_B", targetPersonaId = null).first()
 
@@ -194,7 +195,7 @@ class GetProfileDataUseCaseTest {
         every { userRepository.streamUserProfile("uid_CREATOR_C") } returns flowOf(null)
         every { recordingRepository.observeDrafts() } returns flowOf(emptyList())
         every { userRepository.observeIgnoredUsers() } returns flowOf(emptySet())
-        every { artifactRepository.getUserArtifacts("", isSelf = false, onlyActive = true) } returns flowOf(emptyList<Artifact>() to null)
+        every { artifactRepository.getUserArtifacts("", isSelf = false, onlyActive = true) } returns flowOf(Result.success(emptyList<Artifact>() to null))
 
         val result = useCase(targetUserId = "uid_CREATOR_C", targetPersonaId = null).first()
 
@@ -216,7 +217,7 @@ class GetProfileDataUseCaseTest {
         every { userRepository.streamUserProfile("usr_PERSONA_D") } returns flowOf(creatorProfile)
         every { recordingRepository.observeDrafts() } returns flowOf(emptyList())
         every { userRepository.observeIgnoredUsers() } returns flowOf(emptySet())
-        every { artifactRepository.getUserArtifacts("usr_PERSONA_D", isSelf = false, onlyActive = true) } returns flowOf(emptyList<Artifact>() to null)
+        every { artifactRepository.getUserArtifacts("usr_PERSONA_D", isSelf = false, onlyActive = true) } returns flowOf(Result.success(emptyList<Artifact>() to null))
 
         val result = useCase(targetUserId = "uid_CREATOR_D", targetPersonaId = "usr_PERSONA_D").first()
 
@@ -233,7 +234,7 @@ class GetProfileDataUseCaseTest {
     @Test
     fun `Test G - self Profile uses existing private account-owned path`() = runTest {
         every { recordingRepository.observeDrafts() } returns flowOf(emptyList())
-        every { artifactRepository.getUserArtifacts("user123", isSelf = true, onlyActive = false) } returns flowOf(emptyList<Artifact>() to null)
+        every { artifactRepository.getUserArtifacts("user123", isSelf = true, onlyActive = false) } returns flowOf(Result.success(emptyList<Artifact>() to null))
 
         val result = useCase(targetUserId = "user123", targetPersonaId = null).first()
 
@@ -255,7 +256,7 @@ class GetProfileDataUseCaseTest {
             every { lifecycle } returns ArtifactLifecycle.REVIEW_REQUIRED
         }
         every { recordingRepository.observeDrafts() } returns flowOf(listOf(publishedDraft, activeDraft))
-        every { artifactRepository.getUserArtifacts("user123", isSelf = true, onlyActive = false) } returns flowOf(emptyList<Artifact>() to null)
+        every { artifactRepository.getUserArtifacts("user123", isSelf = true, onlyActive = false) } returns flowOf(Result.success(emptyList<Artifact>() to null))
 
         val result = useCase(null, null).first()
 
@@ -286,12 +287,25 @@ class GetProfileDataUseCaseTest {
         }
 
         every { recordingRepository.observeDrafts() } returns flowOf(activeDrafts + publishedDraft)
-        every { artifactRepository.getUserArtifacts("user123", isSelf = true, onlyActive = false) } returns flowOf(emptyList<Artifact>() to null)
+        every { artifactRepository.getUserArtifacts("user123", isSelf = true, onlyActive = false) } returns flowOf(Result.success(emptyList<Artifact>() to null))
 
         val result = useCase(null, null).first()
 
         assertNotNull(result)
         assertEquals(5, result!!.localDrafts.size)
         assertTrue(result.localDrafts.none { it.lifecycle == ArtifactLifecycle.PUBLISHED })
+    }
+
+    @Test
+    fun `should propagate artifactsError in ProfileData when getUserArtifacts emits Result failure`() = runTest {
+        val error = AppError.NetworkFailure()
+        every { recordingRepository.observeDrafts() } returns flowOf(emptyList())
+        every { artifactRepository.getUserArtifacts("user123", isSelf = true, onlyActive = false) } returns flowOf(Result.failure(error))
+
+        val result = useCase(null, null).first()
+
+        assertNotNull(result)
+        assertEquals(error, result!!.artifactsError)
+        assertTrue(result.publishedArtifacts.isEmpty())
     }
 }

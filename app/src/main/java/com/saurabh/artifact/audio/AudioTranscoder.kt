@@ -7,6 +7,7 @@ import android.media.MediaMuxer
 import android.util.Log
 import java.io.File
 import java.io.FileInputStream
+import java.io.FileNotFoundException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -27,12 +28,11 @@ class AudioTranscoder @Inject constructor() {
      * Transcodes a WAV file to an M4A file with AAC encoding.
      * Assumes 44100Hz, Mono, 16-bit PCM input (Artifact's standard).
      */
-    fun transcodeWavToAac(input: File, output: File) {
-        if (!input.exists()) throw java.io.FileNotFoundException("Input file not found: ${input.absolutePath}")
+    fun transcodeWavToAac(input: File, output: File, bitrate: Int = 48000) {
+        if (!input.exists()) throw FileNotFoundException("Input file not found: ${input.absolutePath}")
         
         val sampleRate = 44100
         val channels = 1
-        val bitrate = 128000
 
         val format = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, sampleRate, channels)
         format.setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)

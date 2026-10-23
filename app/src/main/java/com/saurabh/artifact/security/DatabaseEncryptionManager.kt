@@ -1,9 +1,7 @@
 package com.saurabh.artifact.security
 
 import android.content.Context
-import android.os.Looper
 import android.util.Base64
-import android.util.Log
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
@@ -62,11 +60,32 @@ class DatabaseEncryptionManager @Inject constructor(
     @Volatile
     private var cachedPassphrase: ByteArray? = null
 
+    private fun userWrapperKey(uid: String) = stringPreferencesKey("recovery_passphrase_wrapper_$uid")
+
     /**
-     * Checks if a recovery wrapper exists in the local DataStore.
+     * Checks if a recovery wrapper exists for the given UID or as legacy key.
+     */
+    fun isRecoverySetupForUser(uid: String?): Flow<Boolean> = dataStore.data
+        .map { preferences ->
+            if (uid != null) {
+                if (preferences[userWrapperKey(uid)] != null) {
+                    true
+                } else {
+                    val hasAnyUidKey = preferences.asMap().keys.any { it.name.startsWith("recovery_passphrase_wrapper_") }
+                    if (!hasAnyUidKey) preferences[RECOVERY_WRAPPER_KEY] != null else false
+                }
+            } else {
+                preferences[RECOVERY_WRAPPER_KEY] != null || preferences.asMap().keys.any { it.name.startsWith("recovery_passphrase_wrapper") }
+            }
+        }
+
+    /**
+     * Checks if any recovery wrapper exists in the local DataStore.
      */
     val isRecoverySetup: Flow<Boolean> = dataStore.data
-        .map { preferences -> preferences[RECOVERY_WRAPPER_KEY] != null }
+        .map { preferences ->
+            preferences[RECOVERY_WRAPPER_KEY] != null || preferences.asMap().keys.any { it.name.startsWith("recovery_passphrase_wrapper") }
+        }
 
     /**
      * Preloads and validates the database passphrase on a background thread.
@@ -78,7 +97,7 @@ class DatabaseEncryptionManager @Inject constructor(
         try {
             val prefs = dataStore.data.first()
             val encryptedPassphrase = prefs[DB_PASSPHRASE_KEY]
-            val recoveryWrapper = prefs[RECOVERY_WRAPPER_KEY]
+            val recoveryWrapper = prefs[RECOVERY_WRAPPER_KEY] ?: prefs.asMap().keys.firstOrNull { it.name.startsWith("recovery_passphrase_wrapper") }
 
             if (encryptedPassphrase == null) {
                 // If no passphrase but a recovery wrapper exists, this is a restore state
@@ -126,13 +145,15 @@ class DatabaseEncryptionManager @Inject constructor(
     }
 
     /**
-     * Attempts to recover the database passphrase using a mnemonic phrase.
+     * Attempts to recover the database passphrase using a mnemonic phrase for a user.
      * If successful, the passphrase is re-bound to the current device's Keystore.
      */
-    suspend fun tryRecovery(mnemonic: String): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun tryRecovery(uid: String?, mnemonic: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val prefs = dataStore.data.first()
-            val wrapper = prefs[RECOVERY_WRAPPER_KEY] ?: return@withContext Result.failure(IllegalStateException("No recovery wrapper found"))
+            val userKey = if (uid != null) userWrapperKey(uid) else null
+            val wrapper = (userKey?.let { prefs[it] }) ?: prefs[RECOVERY_WRAPPER_KEY] 
+                ?: return@withContext Result.failure(IllegalStateException("No recovery wrapper found"))
             
             // 1. Derive Recovery Key
             val salt = RECOVERY_SALT.toByteArray(Charsets.UTF_8)
@@ -151,6 +172,16 @@ class DatabaseEncryptionManager @Inject constructor(
             // 4. Re-bind to current device Keystore
             saveEncryptedPassphrase(rawPassphrase)
             cachedPassphrase = rawPassphrase
+
+            // Non-destructive legacy migration if applicable
+            if (uid != null && userKey != null && prefs[userKey] == null && prefs[RECOVERY_WRAPPER_KEY] != null) {
+                try {
+                    dataStore.edit { preferences ->
+                        preferences[userKey] = wrapper
+                        preferences[RECOVERY_VERSION_KEY] = CURRENT_RECOVERY_VERSION
+                    }
+                } catch (_: Exception) {}
+            }
             
             diagnosticLogger.info(DiagnosticCategory.SECURITY, "DB_RECOVERY_SUCCESS")
             Result.success(Unit)
@@ -160,11 +191,113 @@ class DatabaseEncryptionManager @Inject constructor(
         }
     }
 
+    suspend fun tryRecovery(mnemonic: String): Result<Unit> = tryRecovery(null, mnemonic)
+
     /**
-     * Creates a secondary recovery wrapper for the current database passphrase.
-     * This wrapper is backed by a key derived from the mnemonic and can be 
-     * used to restore access on a different device.
+     * Verifies whether the provided mnemonic phrase can successfully decrypt the recovery wrapper
+     * and validate against the current database passphrase without modifying any state.
+     * Performs non-destructive migration from legacy wrapper to UID-scoped wrapper upon successful validation.
      */
+    suspend fun validateRecoveryPhrase(uid: String?, mnemonic: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val prefs = dataStore.data.first()
+            val userKey = if (uid != null) userWrapperKey(uid) else null
+            val hasAnyUidKey = prefs.asMap().keys.any { it.name.startsWith("recovery_passphrase_wrapper_") }
+            val wrapper: String = (if (userKey != null && prefs[userKey] != null) {
+                prefs[userKey]
+            } else if (!hasAnyUidKey) {
+                prefs[RECOVERY_WRAPPER_KEY]
+            } else {
+                null
+            }) ?: return@withContext false
+
+            val isLegacy = userKey != null && prefs[userKey] == null && prefs[RECOVERY_WRAPPER_KEY] != null
+
+            val salt = RECOVERY_SALT.toByteArray(Charsets.UTF_8)
+            val recoveryKeyBytes = SecurityArchitecture.deriveKey(mnemonic, salt)
+            val cipher = AesGcmJce(recoveryKeyBytes)
+            val encryptedBytes = Base64.decode(wrapper, Base64.DEFAULT)
+            val rawPassphrase = cipher.decrypt(encryptedBytes, null)
+            val isValid = validatePassphrase(rawPassphrase)
+
+            // NON-DESTRUCTIVE LEGACY MIGRATION (Safety Condition 3)
+            if (isValid && isLegacy && uid != null && userKey != null) {
+                try {
+                    // 1. Persist UID-scoped wrapper
+                    dataStore.edit { preferences ->
+                        preferences[userKey] = wrapper
+                        preferences[RECOVERY_VERSION_KEY] = CURRENT_RECOVERY_VERSION
+                    }
+                    // 2. Validate UID-scoped wrapper after persist
+                    val updatedPrefs = dataStore.data.first()
+                    val persistedWrapper = updatedPrefs[userKey]
+                    if (persistedWrapper != null) {
+                        val checkBytes = Base64.decode(persistedWrapper, Base64.DEFAULT)
+                        val checkPassphrase = cipher.decrypt(checkBytes, null)
+                        if (validatePassphrase(checkPassphrase)) {
+                            // 3. Only after confirming UID wrapper is valid, remove legacy wrapper
+                            dataStore.edit { preferences ->
+                                preferences.remove(RECOVERY_WRAPPER_KEY)
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    diagnosticLogger.warn(DiagnosticCategory.SECURITY, "DB_WRAPPER_MIGRATION_FAILED", mapOf("reason" to (e.message ?: "unknown")))
+                }
+            }
+
+            isValid
+        } catch (e: Exception) {
+            diagnosticLogger.warn(
+                DiagnosticCategory.SECURITY,
+                "RECOVERY_PHRASE_VALIDATION_FAILED",
+                mapOf("reason" to (e.message ?: "unknown"))
+            )
+            false
+        }
+    }
+
+    suspend fun validateRecoveryPhrase(mnemonic: String): Boolean = validateRecoveryPhrase(null, mnemonic)
+
+    /**
+     * Creates a recovery wrapper for the current database passphrase, scoped to a specific UID.
+     * Validates the created wrapper before completing.
+     */
+    suspend fun createRecoveryWrapper(uid: String, mnemonic: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val currentPassphrase = getDatabasePassphrase()
+            
+            val salt = RECOVERY_SALT.toByteArray(Charsets.UTF_8)
+            val recoveryKeyBytes = SecurityArchitecture.deriveKey(mnemonic, salt)
+            
+            val cipher = AesGcmJce(recoveryKeyBytes)
+            val wrapped = cipher.encrypt(currentPassphrase, null)
+            val encoded = Base64.encodeToString(wrapped, Base64.DEFAULT)
+            
+            val userKey = userWrapperKey(uid)
+            dataStore.edit { preferences ->
+                preferences[userKey] = encoded
+                preferences[RECOVERY_WRAPPER_KEY] = encoded
+                preferences[RECOVERY_VERSION_KEY] = CURRENT_RECOVERY_VERSION
+            }
+
+            // Validate that the persisted wrapper can decrypt correctly
+            val checkPrefs = dataStore.data.first()
+            val checkWrapper = checkPrefs[userKey] ?: return@withContext Result.failure(IllegalStateException("Failed to verify saved wrapper"))
+            val checkEncryptedBytes = Base64.decode(checkWrapper, Base64.DEFAULT)
+            val checkPassphrase = cipher.decrypt(checkEncryptedBytes, null)
+            if (!validatePassphrase(checkPassphrase)) {
+                return@withContext Result.failure(IllegalStateException("Persisted recovery wrapper validation failed"))
+            }
+            
+            diagnosticLogger.info(DiagnosticCategory.SECURITY, "DB_RECOVERY_WRAPPER_CREATED")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            diagnosticLogger.error(DiagnosticCategory.SECURITY, "DB_WRAPPER_CREATION_FAILED", throwable = e)
+            Result.failure(e)
+        }
+    }
+
     suspend fun createRecoveryWrapper(mnemonic: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val currentPassphrase = getDatabasePassphrase()
@@ -190,6 +323,17 @@ class DatabaseEncryptionManager @Inject constructor(
     }
 
     /**
+     * Deletes the recovery wrapper for a specific UID.
+     */
+    suspend fun deleteRecoveryWrapperForUser(uid: String) {
+        try {
+            dataStore.edit { preferences ->
+                preferences.remove(userWrapperKey(uid))
+            }
+        } catch (_: Exception) {}
+    }
+
+    /**
      * Gets or creates a high-entropy passphrase for the database.
      * 
      * WARNING: If [preload] has not been called, this will trigger a synchronous
@@ -203,7 +347,7 @@ class DatabaseEncryptionManager @Inject constructor(
         val passphrase = runBlocking {
             val prefs = dataStore.data.first()
             val encryptedPassphrase = prefs[DB_PASSPHRASE_KEY]
-            val recoveryWrapper = prefs[RECOVERY_WRAPPER_KEY]
+            val recoveryWrapper = prefs[RECOVERY_WRAPPER_KEY] ?: prefs.asMap().keys.firstOrNull { it.name.startsWith("recovery_passphrase_wrapper") }
 
             if (encryptedPassphrase != null) {
                 try {

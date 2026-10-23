@@ -14,7 +14,10 @@ import com.saurabh.artifact.domain.ArtifactVisibilityFilter
 import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.model.ResolvedCreatorIdentity
 import com.saurabh.artifact.repository.UserRepository
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
@@ -26,33 +29,41 @@ class GetPersonalizedFeedFlowUseCase @Inject constructor(
     private val visibilityFilter: ArtifactVisibilityFilter,
     private val userRepository: UserRepository? = null
 ) {
+    @OptIn(ExperimentalCoroutinesApi::class)
     operator fun invoke(emotion: String?): Flow<PagingData<FeedDisplayItem.ArtifactItem>> {
-        val userId = authRepository.currentUser.value?.uid ?: return flowOf(PagingData.empty())
-        
-        return Pager(
-            config = PagingConfig(
-                pageSize = 10,
-                prefetchDistance = 2,
-                initialLoadSize = 10,
-                enablePlaceholders = false
-            ),
-            pagingSourceFactory = { 
-                PersonalizedPagingSource(
-                    userId = userId,
-                    feedRepository = feedRepository,
-                    feedRanker = feedRanker,
-                    visibilityFilter = visibilityFilter,
-                    emotion = emotion
-                ) 
+        return authRepository.currentUser
+            .map { it?.uid }
+            .distinctUntilChanged()
+            .flatMapLatest { userId ->
+                if (userId.isNullOrBlank()) {
+                    flowOf(PagingData.empty())
+                } else {
+                    Pager(
+                        config = PagingConfig(
+                            pageSize = 10,
+                            prefetchDistance = 2,
+                            initialLoadSize = 10,
+                            enablePlaceholders = false
+                        ),
+                        pagingSourceFactory = { 
+                            PersonalizedPagingSource(
+                                userId = userId,
+                                feedRepository = feedRepository,
+                                feedRanker = feedRanker,
+                                visibilityFilter = visibilityFilter,
+                                emotion = emotion
+                            ) 
+                        }
+                    ).flow.map { pagingData ->
+                        pagingData.map { (artifact, index) ->
+                            FeedDisplayItem.ArtifactItem(
+                                artifact = resolveIdentity(artifact),
+                                absoluteIndex = index
+                            )
+                        }
+                    }
+                }
             }
-        ).flow.map { pagingData ->
-            pagingData.map { (artifact, index) ->
-                FeedDisplayItem.ArtifactItem(
-                    artifact = resolveIdentity(artifact),
-                    absoluteIndex = index
-                )
-            }
-        }
     }
 
     private suspend fun resolveIdentity(artifact: Artifact): Artifact {

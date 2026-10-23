@@ -82,8 +82,8 @@ configure<com.android.build.api.dsl.ApplicationExtension> {
     }
 
     signingConfigs {
-        if (isSigningConfigured) {
-            create("release") {
+        create("release") {
+            if (isSigningConfigured) {
                 storeFile = storeFileObj
                 storePassword = storePasswordValue
                 keyAlias = keyAliasValue
@@ -92,24 +92,37 @@ configure<com.android.build.api.dsl.ApplicationExtension> {
         }
     }
 
+    flavorDimensions += "environment"
+
+    productFlavors {
+        create("prod") {
+            dimension = "environment"
+            buildConfigField("String", "FIREBASE_ENV", "\"PROD\"")
+            buildConfigField("String", "FIREBASE_PROJECT_ID", "\"myartifact-555e3\"")
+            manifestPlaceholders["deepLinkHost"] = "myartifact-555e3.web.app"
+            manifestPlaceholders["deepLinkSecondaryHost"] = "myartifact-555e3.firebaseapp.com"
+        }
+        create("staging") {
+            dimension = "environment"
+            applicationIdSuffix = ".staging"
+            buildConfigField("String", "FIREBASE_ENV", "\"STAGING\"")
+            buildConfigField("String", "FIREBASE_PROJECT_ID", "\"myartifact-staging\"")
+            manifestPlaceholders["deepLinkHost"] = "myartifact-staging.web.app"
+            manifestPlaceholders["deepLinkSecondaryHost"] = "myartifact-staging.firebaseapp.com"
+            manifestPlaceholders["appLabel"] = "@string/app_name_staging"
+        }
+    }
+
     buildTypes {
         debug {
             isDebuggable = true
             applicationIdSuffix = ".debug"
             manifestPlaceholders["appLabel"] = "@string/app_name_debug"
-            buildConfigField("String", "FIREBASE_ENV", "\"DEBUG\"")
-            buildConfigField("String", "FIREBASE_PROJECT_ID", "\"myartifact-555e3\"")
             buildConfigField("String", "APP_CHECK_DEBUG_SECRET", "\"$appCheckDebugSecret\"")
         }
         release {
-            signingConfig = if (isSigningConfigured) {
-                signingConfigs.getByName("release")
-            } else {
-                signingConfigs.getByName("debug")
-            }
+            signingConfig = signingConfigs.getByName("release")
             manifestPlaceholders["appLabel"] = "@string/app_name"
-            buildConfigField("String", "FIREBASE_ENV", "\"PROD\"")
-            buildConfigField("String", "FIREBASE_PROJECT_ID", "\"myartifact-555e3\"")
             buildConfigField("String", "APP_CHECK_DEBUG_SECRET", "\"\"")
             isMinifyEnabled = true
             isShrinkResources = true
@@ -295,6 +308,21 @@ dependencies {
 
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+}
+
+tasks.configureEach {
+    if (name.contains("Staging", ignoreCase = true) && name.contains("GoogleServices", ignoreCase = true)) {
+        doFirst {
+            val stagingConfigFile = file("src/staging/google-services.json")
+            if (!stagingConfigFile.exists()) {
+                throw GradleException(
+                    "BUILD FAILED: Staging Firebase configuration is missing.\n" +
+                    "Expected staging configuration file at: ${stagingConfigFile.absolutePath}\n" +
+                    "Please create the staging Firebase project 'myartifact-staging' and place its google-services.json at app/src/staging/google-services.json."
+                )
+            }
+        }
+    }
 }
 
 
