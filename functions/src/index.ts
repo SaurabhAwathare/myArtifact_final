@@ -898,9 +898,13 @@ export const onUserIdentityReset = functions
 /**
  * Authoritatively syncs public profile metadata to the sanitized profiles collection.
  * Triggered on any update to a user document.
+ * Hardened with event retry policy, atomic transactions, and stale write guards.
  */
-export const onUserProfileUpdated = functions.firestore
-  .document("users/{uid}")
+export const onUserProfileUpdated = functions
+  .runWith({
+    failurePolicy: true,
+  })
+  .firestore.document("users/{uid}")
   .onWrite(async (change, context) => {
     const newData = change.after.data();
     if (!newData) {
@@ -910,6 +914,24 @@ export const onUserProfileUpdated = functions.firestore
 
     const anonymousId = newData.anonymousId;
     if (!anonymousId) return null;
+
+    const uid = context.params.uid;
+
+    // Determine authoritative event timestamp from source user document write
+    let eventTimestamp: admin.firestore.Timestamp;
+    if (change.after.exists && change.after.updateTime) {
+      eventTimestamp = change.after.updateTime;
+    } else if (change.before.exists && change.before.updateTime) {
+      eventTimestamp = change.before.updateTime;
+    } else if (context.timestamp) {
+      eventTimestamp = admin.firestore.Timestamp.fromDate(new Date(context.timestamp));
+    } else {
+      eventTimestamp = admin.firestore.Timestamp.now();
+    }
+
+    const incomingIdentityVersion = typeof newData.identityMetadata?.identityResetVersion === "number"
+      ? newData.identityMetadata.identityResetVersion
+      : 0;
 
     const profileData = {
       id: anonymousId,
@@ -922,29 +944,86 @@ export const onUserProfileUpdated = functions.firestore
       resonanceOutCount: newData.resonanceOutCount || 0,
       followersCount: newData.followersCount || 0,
       followingCount: newData.followingCount || 0,
-      identityVersion: newData.identityMetadata?.identityResetVersion || 0,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      identityVersion: incomingIdentityVersion,
+      updatedAt: eventTimestamp,
     };
 
     const db = admin.firestore();
-    await db.collection("profiles").doc(anonymousId).set(profileData, {merge: true});
 
-    // Internal Routing Mapping (Private)
-    await db.collection("persona_mapping").doc(anonymousId).set({
-      userId: context.params.uid,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp()
-    });
+    try {
+      await db.runTransaction(async (transaction) => {
+        const profileRef = db.collection("profiles").doc(anonymousId);
+        const userRef = db.collection("users").doc(uid);
 
-    // R050: Identity History (Private to User) - Required for comprehensive Data Export
-    await db.collection("users").doc(context.params.uid)
-      .collection("private").doc("identity_history")
-      .collection("personas").doc(anonymousId).set({
-        anonymousId: anonymousId,
-        addedAt: admin.firestore.FieldValue.serverTimestamp()
+        const [profileSnap, userSnap] = await Promise.all([
+          transaction.get(profileRef),
+          transaction.get(userRef),
+        ]);
+
+        // Guard 1: Stale event from a superseded user identity on users/{uid}
+        if (userSnap.exists) {
+          const currentUserData = userSnap.data();
+          const currentIdentityVersion = typeof currentUserData?.identityMetadata?.identityResetVersion === "number"
+            ? currentUserData.identityMetadata.identityResetVersion
+            : 0;
+          const currentAnonId = currentUserData?.anonymousId;
+
+          if (currentIdentityVersion > incomingIdentityVersion || (currentAnonId && currentAnonId !== anonymousId && currentIdentityVersion >= incomingIdentityVersion)) {
+            logger.info(`[PROFILE_SYNC] Suppressed stale event for UID ${uid} | Incoming identity (${anonymousId}, v${incomingIdentityVersion}) superseded by current user identity (${currentAnonId}, v${currentIdentityVersion})`);
+            return;
+          }
+        }
+
+        // Guard 2: Stale write / reordered updates on profiles/{anonymousId}
+        if (profileSnap.exists) {
+          const existingProfile = profileSnap.data();
+          const existingIdentityVersion = typeof existingProfile?.identityVersion === "number"
+            ? existingProfile.identityVersion
+            : 0;
+
+          if (existingIdentityVersion > incomingIdentityVersion) {
+            logger.info(`[PROFILE_SYNC] Suppressed stale event for persona ${anonymousId} | Incoming version v${incomingIdentityVersion} < Existing version v${existingIdentityVersion}`);
+            return;
+          }
+
+          if (existingIdentityVersion === incomingIdentityVersion) {
+            const existingUpdatedAt = existingProfile?.updatedAt;
+            if (existingUpdatedAt && typeof existingUpdatedAt.toMillis === "function") {
+              if (eventTimestamp.toMillis() <= existingUpdatedAt.toMillis()) {
+                logger.info(`[PROFILE_SYNC] Suppressed stale event for persona ${anonymousId} | EventTS=${eventTimestamp.toMillis()} <= StoredTS=${existingUpdatedAt.toMillis()}`);
+                return;
+              }
+            }
+          }
+        }
+
+        // Atomic writes across profile, persona_mapping, and identity_history
+        // 1. Sanitized Public Profile
+        transaction.set(profileRef, profileData, { merge: true });
+
+        // 2. Private Persona Mapping
+        const personaMappingRef = db.collection("persona_mapping").doc(anonymousId);
+        transaction.set(personaMappingRef, {
+          userId: uid,
+          updatedAt: eventTimestamp,
+        }, { merge: true });
+
+        // 3. Private Identity History
+        const identityHistoryRef = db.collection("users").doc(uid)
+          .collection("private").doc("identity_history")
+          .collection("personas").doc(anonymousId);
+        transaction.set(identityHistoryRef, {
+          anonymousId: anonymousId,
+          addedAt: eventTimestamp,
+        }, { merge: true });
       });
 
-    logger.info(`[PROFILE_SYNC] Synced ${anonymousId} for UID ${context.params.uid}`);
-    return null;
+      logger.info(`[PROFILE_SYNC] Synced ${anonymousId} for UID ${uid}`);
+      return null;
+    } catch (error) {
+      logger.error(`[PROFILE_SYNC] FATAL ERROR | UID=${uid} | AnonymousId=${anonymousId}:`, error);
+      throw error; // Re-throw error to trigger Function retry policy
+    }
   });
 
 /**
