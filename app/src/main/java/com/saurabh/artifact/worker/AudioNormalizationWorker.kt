@@ -15,9 +15,7 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.CancellationException
 import java.io.File
-import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 @HiltWorker
@@ -34,8 +32,14 @@ class AudioNormalizationWorker @AssistedInject constructor(
         startupCoordinator.awaitComponent(StartupComponent.DATABASE)
 
         val draftId = inputData.getString(KEY_DRAFT_ID) ?: return@withContext Result.failure()
-        val userId = authRepository.currentUserId
+        var userId = authRepository.currentUserId
 
+        if (userId.isEmpty()) {
+            val draft = draftDao.get().internalGetDraftByIdAgnostic(draftId)
+            if (draft != null) {
+                userId = draft.userId
+            }
+        }
         if (userId.isEmpty()) return@withContext Result.failure()
 
         try {
@@ -55,17 +59,20 @@ class AudioNormalizationWorker @AssistedInject constructor(
 
             updateSubState(draftId, userId, ProcessingStage.NORMALIZING)
 
-            // Simulation of audio normalization
-            delay(2.seconds)
-
             Result.success()
         } catch (e: Exception) {
             if (e is CancellationException) throw e
-            Result.retry()
+            if (runAttemptCount >= 3) {
+                updateSubState(draftId, userId, null, e.message ?: "Audio normalization failed after retries")
+                Result.failure()
+            } else {
+                Result.retry()
+            }
         }
     }
 
     private suspend fun updateSubState(id: String, userId: String, stage: ProcessingStage?, error: String? = null) {
+        if (isStopped) return
         val newProcessing = when {
             error != null -> ProcessingStatus.Failed
             stage != null -> ProcessingStatus.Active(stage)

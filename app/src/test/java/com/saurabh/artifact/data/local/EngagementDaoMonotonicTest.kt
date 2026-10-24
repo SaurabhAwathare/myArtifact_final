@@ -130,6 +130,23 @@ class EngagementDaoMonotonicTest {
         assertNull(dao.getEngagement("non_existent", "test_user"))
     }
 
+    @Test
+    fun `getEngagementsRequiringSync returns only PENDING records and ignores FAILED or SYNCED`() = runBlocking {
+        val pending = createEngagement("art_pending", isUnlocked = false).copy(syncState = SyncState.PENDING)
+        val failed = createEngagement("art_failed", isUnlocked = false).copy(syncState = SyncState.FAILED)
+        val synced = createEngagement("art_synced", isUnlocked = false).copy(syncState = SyncState.SYNCED)
+
+        dao.insertEngagement(pending)
+        dao.insertEngagement(failed)
+        dao.insertEngagement(synced)
+
+        val requiringSync = dao.getEngagementsRequiringSync("test_user")
+
+        assertEquals(1, requiringSync.size)
+        assertEquals("art_pending", requiringSync.first().artifactId)
+        assertEquals(SyncState.PENDING, requiringSync.first().syncState)
+    }
+
     private fun createEngagement(
         id: String, 
         isUnlocked: Boolean, 

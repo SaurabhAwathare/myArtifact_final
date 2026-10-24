@@ -178,38 +178,45 @@ class RecordingSessionManager @Inject constructor(
             ?: _activeDraft.value?.id
             ?: UUID.randomUUID().toString()
 
-        // Ensure draft exists in DB if we're starting fresh
-        var draft = draftDao.get().getDraftById(draftId, userId)
-        if (draft == null) {
-            val file = withContext(Dispatchers.IO) {
-                localDraftManager.createDraftFile(draftId, "wav")
+        try {
+            // Ensure draft exists in DB if we're starting fresh
+            var draft = draftDao.get().getDraftById(draftId, userId)
+            if (draft == null) {
+                val file = withContext(Dispatchers.IO) {
+                    localDraftManager.createDraftFile(draftId, "wav")
+                }
+                recordingRepository.createDraft(
+                    id = draftId,
+                    path = file.absolutePath,
+                    durationMs = 0,
+                    promptId = promptId
+                ).getOrThrow()
+                draft = draftDao.get().getDraftById(draftId, userId)
+
+                diagnosticLogger.info(
+                    DiagnosticCategory.DRAFT,
+                    "DRAFT_SAVED",
+                    mapOf(LogKeys.DRAFT_ID to draftId)
+                )
             }
-            recordingRepository.createDraft(
-                id = draftId,
-                path = file.absolutePath,
-                durationMs = 0,
-                promptId = promptId
-            ).getOrThrow()
-            draft = draftDao.get().getDraftById(draftId, userId)
 
-            diagnosticLogger.info(
-                DiagnosticCategory.DRAFT,
-                "DRAFT_SAVED",
-                mapOf(LogKeys.DRAFT_ID to draftId)
-            )
-        }
+            _activeDraft.value = draft
 
-        _activeDraft.value = draft
-
-        val intent = Intent(context, RecordingService::class.java).apply {
-            action = RecordingService.ACTION_START
-            putExtra("draft_id", draftId)
-            if (!promptId.isNullOrBlank()) {
-                putExtra("prompt_id", promptId)
+            val intent = Intent(context, RecordingService::class.java).apply {
+                action = RecordingService.ACTION_START
+                putExtra("draft_id", draftId)
+                if (!promptId.isNullOrBlank()) {
+                    putExtra("prompt_id", promptId)
+                }
             }
+            ContextCompat.startForegroundService(context, intent)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            diagnosticLogger.error(DiagnosticCategory.RECORDING, "SESSION_START_FAILED", mapOf(LogKeys.DRAFT_ID to draftId), e)
+            _activeDraft.value = null
+            _reservationError.value = "STORAGE_ERROR"
+            Result.failure(e)
         }
-        ContextCompat.startForegroundService(context, intent)
-        return@withLock Result.success(Unit)
     }
 
     fun stopSession() {

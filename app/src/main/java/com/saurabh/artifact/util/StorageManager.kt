@@ -6,6 +6,7 @@ import android.os.StatFs
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
+import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -47,11 +48,17 @@ class StorageManager @Inject constructor(
      */
     val draftsRootDirectory: File
         get() {
-            val persistentDir = context.getExternalFilesDir(Environment.DIRECTORY_MUSIC)?.let {
+            val externalDir = context.getExternalFilesDir(Environment.DIRECTORY_MUSIC)?.let {
                 File(it, "Artifact/Drafts")
-            } ?: File(context.filesDir, "Artifact/Drafts")
-
-            return persistentDir
+            }
+            if (externalDir != null && (externalDir.exists() || externalDir.mkdirs())) {
+                return externalDir
+            }
+            val internalDir = File(context.filesDir, "Artifact/Drafts")
+            if (!internalDir.exists()) {
+                internalDir.mkdirs()
+            }
+            return internalDir
         }
 
     val waveformsDirectory: File
@@ -82,11 +89,31 @@ class StorageManager @Inject constructor(
 
     /**
      * Resolves a specific directory for a draft ID.
+     * Checks external files directory first, then falls back to internal files directory.
+     * Throws [IOException] if directory cannot be created in either location.
      */
     fun getDraftDirectory(draftId: String): File {
-        return File(draftsRootDirectory, "draft_$draftId").apply {
-            if (!exists()) mkdirs()
+        val externalParent = context.getExternalFilesDir(Environment.DIRECTORY_MUSIC)?.let {
+            File(it, "Artifact/Drafts")
         }
+        if (externalParent != null) {
+            val externalDraftDir = File(externalParent, "draft_$draftId")
+            if (externalDraftDir.exists() || externalDraftDir.mkdirs()) {
+                if (externalDraftDir.exists() && externalDraftDir.isDirectory) {
+                    return externalDraftDir
+                }
+            }
+        }
+
+        val internalParent = File(context.filesDir, "Artifact/Drafts")
+        val internalDraftDir = File(internalParent, "draft_$draftId")
+        if (internalDraftDir.exists() || internalDraftDir.mkdirs()) {
+            if (internalDraftDir.exists() && internalDraftDir.isDirectory) {
+                return internalDraftDir
+            }
+        }
+
+        throw IOException("Failed to create draft directory for $draftId in external and internal storage")
     }
 
     /**

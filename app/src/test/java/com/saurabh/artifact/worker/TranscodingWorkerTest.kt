@@ -272,4 +272,56 @@ class TranscodingWorkerTest {
 
         tempDir.deleteRecursively()
     }
+
+    @Test
+    fun `doWork should fail and update status to Failed after max retries`() = runTest {
+        val tempDir = Files.createTempDirectory("transcode_test_max_retry").toFile()
+        val rawFile = File(tempDir, "raw.wav").apply { writeText("PCM") }
+        val finalPath = File(tempDir, "final.m4a").absolutePath
+
+        val draftId = "d1"
+        every { workerParams.inputData } returns workDataOf("key_draft_id" to draftId)
+        every { workerParams.runAttemptCount } returns 3
+
+        val draft = mockk<ArtifactDraftEntity>(relaxed = true) {
+            every { id } returns draftId
+            every { userId } returns TEST_USER_ID
+            every { rawPcmPath } returns rawFile.absolutePath
+            every { localAudioPath } returns finalPath
+        }
+
+        coEvery { draftDao.getDraftById(draftId, TEST_USER_ID) } returns draft
+        every { localDraftManager.createDraftFile(draftId, "m4a") } returns File(finalPath)
+        every { audioTranscoder.transcodeWavToAac(any(), any()) } throws RuntimeException("Encoder failed permanently")
+
+        val result = worker.doWork()
+
+        assert(result is ListenableWorker.Result.Failure)
+        coVerify { draftDao.updateProcessingStatus(draftId, TEST_USER_ID, ProcessingStatus.Failed, any()) }
+
+        tempDir.deleteRecursively()
+    }
+
+    @Test
+    fun `doWork should skip updating status if worker is stopped`() = runTest {
+        val draftId = "d1"
+        every { workerParams.inputData } returns workDataOf("key_draft_id" to draftId)
+        every { workerParams.runAttemptCount } returns 3
+
+        val spyWorker = spyk(worker)
+        every { spyWorker.isStopped } returns true
+
+        val draft = mockk<ArtifactDraftEntity>(relaxed = true) {
+            every { id } returns draftId
+            every { userId } returns TEST_USER_ID
+            every { rawPcmPath } returns null
+        }
+
+        coEvery { draftDao.getDraftById(draftId, TEST_USER_ID) } returns draft
+
+        val result = spyWorker.doWork()
+
+        assert(result is ListenableWorker.Result.Failure)
+        coVerify(exactly = 0) { draftDao.updateProcessingStatus(any(), any(), any(), any()) }
+    }
 }

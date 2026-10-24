@@ -2,6 +2,7 @@ package com.saurabh.artifact.ui.comment
 
 import android.util.Log
 import androidx.lifecycle.SavedStateHandle
+import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.DocumentSnapshot
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.domain.artifact.ArtifactOwnershipAuthority
@@ -17,10 +18,19 @@ import com.saurabh.artifact.domain.review.EngagementEvidence
 import com.saurabh.artifact.domain.review.UnlockStatus
 import com.saurabh.artifact.model.SyncState
 import com.saurabh.artifact.repository.UserRepository
+import com.saurabh.artifact.data.local.DeadLetterInteractionDao
+import com.saurabh.artifact.data.local.DeadLetterInteractionEntity
+import com.saurabh.artifact.data.local.InteractionType
+import com.saurabh.artifact.data.remote.model.CommentPayload
+import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.model.CommentStatus
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
@@ -45,9 +55,11 @@ class CommentViewModelTest {
     private val authRepository: AuthRepository = mockk(relaxed = true)
     private val ownershipAuthority: ArtifactOwnershipAuthority = mockk()
     private val userRepository: UserRepository = mockk(relaxed = true)
-    private val diagnosticLogger: com.saurabh.artifact.diagnostics.DiagnosticLogger = mockk(relaxed = true)
+    private val deadLetterInteractionDao: DeadLetterInteractionDao = mockk(relaxed = true)
+    private val diagnosticLogger: DiagnosticLogger = mockk(relaxed = true)
     private val savedStateHandle: SavedStateHandle = SavedStateHandle(mapOf("artifactId" to "test-artifact"))
-    private val currentUserFlow = MutableStateFlow<com.google.firebase.auth.FirebaseUser?>(null)
+    private val currentUserFlow = MutableStateFlow<FirebaseUser?>(null)
+    private val json = Json { ignoreUnknownKeys = true }
 
     @Before
     fun setup() {
@@ -68,6 +80,7 @@ class CommentViewModelTest {
         every { engagementRepository.observeEngagementEvidence(any()) } returns flowOf(null)
         every { authRepository.currentUser } returns currentUserFlow
         every { authRepository.currentUserId } returns (currentUserFlow.value?.uid ?: "")
+        every { deadLetterInteractionDao.observeDeadLettersForArtifact(any(), any(), any()) } returns flowOf(emptyList())
         
         viewModel = CommentViewModel(
             savedStateHandle,
@@ -79,6 +92,7 @@ class CommentViewModelTest {
             authRepository,
             ownershipAuthority,
             userRepository,
+            deadLetterInteractionDao,
             diagnosticLogger
         )
     }
@@ -572,5 +586,288 @@ class CommentViewModelTest {
         assertEquals(1, viewModel.uiState.value.comments.size)
         assertEquals("c1", viewModel.uiState.value.comments[0].id)
         assertEquals(false, viewModel.uiState.value.hasMorePages)
+    }
+
+    @Test
+    fun `permanent failure reconciles matching optimistic comment to FAILED status`() = runTest {
+        val artifactId = "art-1"
+        val commentId = "client-uuid-101"
+        val deadLetterFlow = MutableStateFlow<List<DeadLetterInteractionEntity>>(emptyList())
+        
+        every { authRepository.currentUserId } returns "user-123"
+        every { deadLetterInteractionDao.observeDeadLettersForArtifact("art-1", "user-123", InteractionType.COMMENT) } returns deadLetterFlow
+
+        val optimisticComment = Comment(id = commentId, artifactId = artifactId, text = "Optimistic comment")
+        coEvery { addCommentUseCase(artifactId, "Optimistic comment") } returns Result.success(optimisticComment)
+
+        viewModel.initialize(artifactId, forceRefresh = true)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.submitComment("Optimistic comment")
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(1, viewModel.uiState.value.comments.size)
+        assertEquals(CommentStatus.ACTIVE, viewModel.uiState.value.comments[0].status)
+
+        val metadata = json.encodeToString(CommentPayload(id = commentId, artifactId = artifactId))
+        val deadLetter = DeadLetterInteractionEntity(
+            id = 1L,
+            userId = "user-123",
+            originalId = 100L,
+            artifactId = artifactId,
+            interactionType = InteractionType.COMMENT,
+            action = "ADD",
+            metadata = metadata,
+            createdAt = System.currentTimeMillis(),
+            correlationId = "corr-1",
+            failureReason = "Rate limit exceeded permanently",
+            failureType = "PERMANENT",
+            retryCount = 3
+        )
+
+        val events = mutableListOf<CommentUiEvent>()
+        val eventsJob = launch { viewModel.events.collect { events.add(it) } }
+
+        deadLetterFlow.value = listOf(deadLetter)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(1, viewModel.uiState.value.comments.size)
+        assertEquals(CommentStatus.FAILED, viewModel.uiState.value.comments[0].status)
+        assertEquals("Optimistic comment", viewModel.uiState.value.comments[0].text)
+
+        assertEquals(1, events.size)
+        val event = events[0] as CommentUiEvent.SubmissionFailed
+        assertEquals("Rate limit exceeded permanently", event.error)
+
+        eventsJob.cancel()
+    }
+
+    @Test
+    fun `dead letter reconciliation affects only matching comment UUID when multiple exist`() = runTest {
+        val artifactId = "art-1"
+        val commentId1 = "comment-111"
+        val commentId2 = "comment-222"
+        val deadLetterFlow = MutableStateFlow<List<DeadLetterInteractionEntity>>(emptyList())
+
+        every { authRepository.currentUserId } returns "user-123"
+        every { deadLetterInteractionDao.observeDeadLettersForArtifact("art-1", "user-123", InteractionType.COMMENT) } returns deadLetterFlow
+
+        val c1 = Comment(id = commentId1, artifactId = artifactId, text = "First comment")
+        val c2 = Comment(id = commentId2, artifactId = artifactId, text = "Second comment")
+
+        coEvery { addCommentUseCase(artifactId, "First comment") } returns Result.success(c1)
+        coEvery { addCommentUseCase(artifactId, "Second comment") } returns Result.success(c2)
+
+        viewModel.initialize(artifactId, forceRefresh = true)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.submitComment("First comment")
+        viewModel.submitComment("Second comment")
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(2, viewModel.uiState.value.comments.size)
+
+        // Only comment 2 failed permanently
+        val metadata2 = json.encodeToString(CommentPayload(id = commentId2, artifactId = artifactId))
+        val deadLetter = DeadLetterInteractionEntity(
+            id = 2L,
+            userId = "user-123",
+            originalId = 200L,
+            artifactId = artifactId,
+            interactionType = InteractionType.COMMENT,
+            action = "ADD",
+            metadata = metadata2,
+            createdAt = System.currentTimeMillis(),
+            correlationId = "corr-2",
+            failureReason = "Backend rejected comment 2",
+            failureType = "PERMANENT",
+            retryCount = 3
+        )
+
+        deadLetterFlow.value = listOf(deadLetter)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val comments = viewModel.uiState.value.comments
+        val comment1 = comments.find { it.id == commentId1 }
+        val comment2 = comments.find { it.id == commentId2 }
+
+        Assert.assertNotNull(comment1)
+        Assert.assertNotNull(comment2)
+        assertEquals(CommentStatus.ACTIVE, comment1?.status)
+        assertEquals(CommentStatus.FAILED, comment2?.status)
+    }
+
+    @Test
+    fun `transient failure in pending state does not mark comment as failed`() = runTest {
+        val artifactId = "art-1"
+        val commentId = "comment-transient"
+        val deadLetterFlow = MutableStateFlow<List<DeadLetterInteractionEntity>>(emptyList())
+
+        every { authRepository.currentUserId } returns "user-123"
+        every { deadLetterInteractionDao.observeDeadLettersForArtifact("art-1", "user-123", InteractionType.COMMENT) } returns deadLetterFlow
+
+        val comment = Comment(id = commentId, artifactId = artifactId, text = "Transient comment")
+        coEvery { addCommentUseCase(artifactId, "Transient comment") } returns Result.success(comment)
+
+        viewModel.initialize(artifactId, forceRefresh = true)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.submitComment("Transient comment")
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // No dead letters emitted (it remains in pending queue)
+        deadLetterFlow.value = emptyList()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(1, viewModel.uiState.value.comments.size)
+        assertEquals(CommentStatus.ACTIVE, viewModel.uiState.value.comments[0].status)
+    }
+
+    @Test
+    fun `successful remote comment remains active and is not marked failed`() = runTest {
+        val artifactId = "art-1"
+        val comment = Comment(id = "remote-1", artifactId = artifactId, text = "Remote active comment")
+
+        coEvery { getCommentsUseCase(artifactId, any(), isNull()) } returns Result.success(
+            PaginatedComments(listOf(comment), null)
+        )
+
+        viewModel.initialize(artifactId, forceRefresh = true)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(1, viewModel.uiState.value.comments.size)
+        assertEquals(CommentStatus.ACTIVE, viewModel.uiState.value.comments[0].status)
+    }
+
+    @Test
+    fun `repeated emissions of same dead letter do not produce duplicate events`() = runTest {
+        val artifactId = "art-1"
+        val commentId = "dup-comment-id"
+        val deadLetterFlow = MutableStateFlow<List<DeadLetterInteractionEntity>>(emptyList())
+
+        every { authRepository.currentUserId } returns "user-123"
+        every { deadLetterInteractionDao.observeDeadLettersForArtifact("art-1", "user-123", InteractionType.COMMENT) } returns deadLetterFlow
+
+        val comment = Comment(id = commentId, artifactId = artifactId, text = "Duplicate test comment")
+        coEvery { addCommentUseCase(artifactId, "Duplicate test comment") } returns Result.success(comment)
+
+        viewModel.initialize(artifactId, forceRefresh = true)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.submitComment("Duplicate test comment")
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val events = mutableListOf<CommentUiEvent>()
+        val eventsJob = launch { viewModel.events.collect { events.add(it) } }
+
+        val metadata = json.encodeToString(CommentPayload(id = commentId, artifactId = artifactId))
+        val deadLetter = DeadLetterInteractionEntity(
+            id = 55L,
+            userId = "user-123",
+            originalId = 550L,
+            artifactId = artifactId,
+            interactionType = InteractionType.COMMENT,
+            action = "ADD",
+            metadata = metadata,
+            createdAt = System.currentTimeMillis(),
+            correlationId = "corr-55",
+            failureReason = "Permanent failure",
+            failureType = "PERMANENT",
+            retryCount = 5
+        )
+
+        // First emission
+        deadLetterFlow.value = listOf(deadLetter)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // Re-emit exact same list
+        deadLetterFlow.value = listOf(deadLetter)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // Re-emit exact same list again
+        deadLetterFlow.value = listOf(deadLetter)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals("Only 1 event should be emitted despite 3 re-emissions", 1, events.size)
+        assertEquals(1, viewModel.uiState.value.comments.size)
+
+        eventsJob.cancel()
+    }
+
+    @Test
+    fun `observation passes correct artifactId and userId to DAO`() = runTest {
+        val artifactId = "isolated-art"
+        every { authRepository.currentUserId } returns "user-isolated"
+
+        viewModel.initialize(artifactId, forceRefresh = true)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        verify {
+            deadLetterInteractionDao.observeDeadLettersForArtifact(
+                artifactId = "isolated-art",
+                userId = "user-isolated",
+                interactionType = InteractionType.COMMENT
+            )
+        }
+    }
+
+    @Test
+    fun `malformed or unreadable dead letter metadata is handled safely without crash`() = runTest {
+        val artifactId = "art-1"
+        val commentId = "valid-comment"
+        val deadLetterFlow = MutableStateFlow<List<DeadLetterInteractionEntity>>(emptyList())
+
+        every { authRepository.currentUserId } returns "user-123"
+        every { deadLetterInteractionDao.observeDeadLettersForArtifact("art-1", "user-123", InteractionType.COMMENT) } returns deadLetterFlow
+
+        val comment = Comment(id = commentId, artifactId = artifactId, text = "Valid comment")
+        coEvery { addCommentUseCase(artifactId, "Valid comment") } returns Result.success(comment)
+
+        viewModel.initialize(artifactId, forceRefresh = true)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.submitComment("Valid comment")
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val malformedDeadLetter = DeadLetterInteractionEntity(
+            id = 99L,
+            userId = "user-123",
+            originalId = 990L,
+            artifactId = artifactId,
+            interactionType = InteractionType.COMMENT,
+            action = "ADD",
+            metadata = "{ invalid corrupt json }",
+            createdAt = System.currentTimeMillis(),
+            correlationId = "corr-99",
+            failureReason = "Corrupt metadata",
+            failureType = "PERMANENT",
+            retryCount = 1
+        )
+
+        deadLetterFlow.value = listOf(malformedDeadLetter)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // Valid comment should NOT be affected or crash
+        assertEquals(1, viewModel.uiState.value.comments.size)
+        assertEquals(CommentStatus.ACTIVE, viewModel.uiState.value.comments[0].status)
+    }
+
+    @Test
+    fun `lifecycle safety cancels previous dead letter observation when artifact changes`() = runTest {
+        val flow1 = MutableStateFlow<List<DeadLetterInteractionEntity>>(emptyList())
+        val flow2 = MutableStateFlow<List<DeadLetterInteractionEntity>>(emptyList())
+
+        every { authRepository.currentUserId } returns "user-123"
+        every { deadLetterInteractionDao.observeDeadLettersForArtifact("art-A", "user-123", InteractionType.COMMENT) } returns flow1
+        every { deadLetterInteractionDao.observeDeadLettersForArtifact("art-B", "user-123", InteractionType.COMMENT) } returns flow2
+
+        viewModel.initialize("art-A", forceRefresh = true)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.initialize("art-B", forceRefresh = true)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        verify { deadLetterInteractionDao.observeDeadLettersForArtifact("art-A", "user-123", InteractionType.COMMENT) }
+        verify { deadLetterInteractionDao.observeDeadLettersForArtifact("art-B", "user-123", InteractionType.COMMENT) }
     }
 }

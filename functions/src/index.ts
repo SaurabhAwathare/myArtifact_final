@@ -13,6 +13,8 @@ import {
   transferActiveSessionHandler,
   assertActiveSession,
 } from "./session";
+import { resolveStorageBucket } from "./util/storage";
+export { resolveStorageBucket };
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -130,7 +132,7 @@ export const onArtifactCleanupTrigger = functions
 
     const artifactId = context.params.artifactId;
     const db = admin.firestore();
-    const bucket = admin.storage().bucket();
+    const { bucket } = resolveStorageBucket();
     const startTime = Date.now();
 
     // Only trigger if status transitioned to DELETED
@@ -1048,7 +1050,7 @@ export const onUserDeleted = functions
   .onDelete(async (user) => {
     const uid = user.uid;
     const db = admin.firestore();
-    const bucket = admin.storage().bucket();
+    const { bucket } = resolveStorageBucket();
     const startTime = Date.now();
 
     logger.info(`[DELETE USER] START | UID=${uid}`);
@@ -2120,7 +2122,7 @@ export const revealModerationEvidence = functions.https.onCall(async (data: any,
     const creatorEmail = creatorSettings.data()?.email;
 
     // 6. Data Retrieval: Audio Evidence (Signed URL)
-    const bucket = admin.storage().bucket();
+    const { bucket } = resolveStorageBucket();
     const audioPath = `artifacts/${creatorUid}_${artifactId}.m4a`;
     const audioFile = bucket.file(audioPath);
 
@@ -2329,6 +2331,32 @@ export const healArtifactModeration = functions.https.onCall(async (data: any, c
 });
 
 /**
+ * Authoritatively checks if publishing is enabled on the backend.
+ * Configuration document: /system/config
+ * Required field: publishingEnabled (boolean)
+ * Fail-Closed: Returns false if the configuration document or required field is missing,
+ * malformed, unavailable, or on any read error.
+ */
+export async function checkPublishingEnabled(db: admin.firestore.Firestore): Promise<boolean> {
+  try {
+    const configDoc = await db.doc("system/config").get();
+    if (!configDoc.exists) {
+      logger.warn("[PUBLISHING_GATE] /system/config document missing. Defaulting to fail-closed (publishing disabled).");
+      return false;
+    }
+    const data = configDoc.data();
+    if (!data || typeof data.publishingEnabled !== "boolean") {
+      logger.warn("[PUBLISHING_GATE] /system/config field 'publishingEnabled' is missing or not a boolean. Defaulting to fail-closed.");
+      return false;
+    }
+    return data.publishingEnabled === true;
+  } catch (error) {
+    logger.error("[PUBLISHING_GATE] Error reading /system/config. Defaulting to fail-closed.", error);
+    return false;
+  }
+}
+
+/**
  * Authoritatively reserves an Episode Number for a draft prior to microphone recording.
  * Uses the exact same reservation document structure and sequence counter as preparePublish.
  */
@@ -2343,6 +2371,12 @@ export const reserveEpisode = functions.https.onCall(async (data, context) => {
   const cleanDraftId = draftId.trim();
 
   const db = admin.firestore();
+
+  const publishingEnabled = await checkPublishingEnabled(db);
+  if (!publishingEnabled) {
+    logger.warn(`[RESERVE_EPISODE] Blocked reserveEpisode for draft ${cleanDraftId} under user ${uid} because publishing is paused.`);
+    throw new functions.https.HttpsError("unavailable", "Publishing is currently paused.");
+  }
 
   try {
     const userDoc = await db.doc(`users/${uid}`).get();
@@ -2419,6 +2453,12 @@ export const preparePublish = functions.https.onCall(async (data, context) => {
   const cleanDraftId = draftId.trim();
 
   const db = admin.firestore();
+
+  const publishingEnabled = await checkPublishingEnabled(db);
+  if (!publishingEnabled) {
+    logger.warn(`[PREPARE_PUBLISH] Blocked preparePublish for draft ${cleanDraftId} under user ${uid} because publishing is paused.`);
+    throw new functions.https.HttpsError("unavailable", "Publishing is currently paused.");
+  }
 
   try {
     const userDoc = await db.doc(`users/${uid}`).get();
@@ -2553,8 +2593,26 @@ export const finalizePublish = functions.https.onCall(async (data, context) => {
   }
 
   const db = admin.firestore();
-  const bucketName = "myartifact-555e3.firebasestorage.app";
-  const bucket = admin.storage().bucket(bucketName);
+
+  // Gate check: publishing must be explicitly enabled to publish a new or non-active artifact
+  const publishingEnabled = await checkPublishingEnabled(db);
+  if (!publishingEnabled) {
+    // Check if this is an idempotent retry for an artifact that was already finalized and active prior to the pause
+    const artifactRef = db.doc(`artifacts/${cleanDraftId}`);
+    const artifactDoc = await artifactRef.get();
+    if (artifactDoc.exists && artifactDoc.data()?.status === "ACTIVE") {
+      const reservationRef = db.doc(`users/${uid}/private/published_artifacts/artifacts/${cleanDraftId}`);
+      const reservationDoc = await reservationRef.get();
+      if (reservationDoc.exists) {
+        logger.info(`[FINALIZE_PUBLISH] Artifact ${cleanDraftId} is already ACTIVE for caller ${uid} (during publishing pause). Idempotent return.`);
+        return { status: "SUCCESS", artifactId: cleanDraftId };
+      }
+    }
+
+    logger.warn(`[FINALIZE_PUBLISH] Blocked finalizePublish for draft ${cleanDraftId} under user ${uid} because publishing is paused.`);
+    throw new functions.https.HttpsError("unavailable", "Publishing is currently paused.");
+  }
+  const { bucket, bucketName } = resolveStorageBucket();
 
   try {
     const audioPath = `artifacts/${cleanDraftId}.m4a`;

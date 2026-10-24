@@ -9,6 +9,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
+import java.io.IOException
 
 class StorageManagerTest {
 
@@ -127,16 +128,32 @@ class StorageManagerTest {
 
     @Test
     fun `test clearUserStorage handles partial failures`() {
-        // Create a directory that cannot be deleted (simulated by making it non-writable/readable might not work in all environments, 
-        // but we can mock deleteDirectoryRecursively if it was non-private, but it is private).
-        // Instead, we can verify that if one target exists and is deleted, and another doesn't, it still reports correctly.
-        
         val waveformsDir = File(filesDir, "waveforms").apply { mkdirs() }
         
-        val result = storageManager.clearUserStorage()
+        val result = storageManager.clearUserStorage(preserveDrafts = true)
         
-        assertFalse(waveformsDir.exists())
-        assertTrue(result.deletedDirectories.contains("Waveforms"))
+        assertTrue(waveformsDir.exists())
+        assertTrue(result.skippedDirectories.contains("Waveforms"))
         assertTrue(result.skippedDirectories.contains("Drafts Root"))
+    }
+
+    @Test
+    fun `test getDraftDirectory falls back to internal storage when external storage is null`() {
+        val draftDir = storageManager.getDraftDirectory("test_draft_123")
+        assertTrue(draftDir.exists())
+        assertTrue(draftDir.isDirectory)
+        assertTrue(draftDir.absolutePath.contains(filesDir.absolutePath))
+    }
+
+    @Test(expected = IOException::class)
+    fun `test getDraftDirectory throws IOException when directory creation fails`() {
+        val invalidContext = mockk<Context>()
+        every { invalidContext.getExternalFilesDir(any()) } returns null
+        // Point filesDir to a file (not a directory) so mkdirs() fails
+        val blockedFile = File(tempFolder.root, "blocked_file").apply { createNewFile() }
+        every { invalidContext.filesDir } returns blockedFile
+
+        val invalidStorageManager = StorageManager(invalidContext)
+        invalidStorageManager.getDraftDirectory("test_draft_456")
     }
 }

@@ -5,13 +5,18 @@ import android.media.AudioRecord
 import io.mockk.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.test.runTest
+import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import java.io.File
+import java.io.FileNotFoundException
+import java.io.IOException
+import java.lang.reflect.InvocationTargetException
 import kotlin.coroutines.Continuation
+import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
 
 @RunWith(RobolectricTestRunner::class)
 class WavRecorderHardeningTest {
@@ -26,6 +31,16 @@ class WavRecorderHardeningTest {
         context = mockk(relaxed = true)
         outputFile = File.createTempFile("test_hardening", ".wav")
         wavRecorder = WavRecorder(context, outputFile)
+    }
+
+    @After
+    fun tearDown() {
+        if (::wavRecorder.isInitialized) {
+            wavRecorder.release()
+        }
+        if (::outputFile.isInitialized && outputFile.exists()) {
+            outputFile.deleteRecursively()
+        }
     }
 
     @Test
@@ -69,5 +84,56 @@ class WavRecorderHardeningTest {
         
         assertEquals(AudioRecord.ERROR_BAD_VALUE, reportedError)
         unmockkStatic(AudioRecord::class)
+    }
+
+    @Test
+    fun `writeAudioDataToFile invokes onStorageError when file open fails`() {
+        // Use a directory path as outputFile so RandomAccessFile throws FileNotFoundException
+        val invalidFile = File.createTempFile("blocked_dir", "").apply {
+            delete()
+            mkdir()
+        }
+        val invalidRecorder = WavRecorder(context, invalidFile)
+        try {
+            var capturedException: Exception? = null
+            invalidRecorder.onStorageError = { capturedException = it }
+
+            val writeMethod = WavRecorder::class.java.getDeclaredMethod(
+                "writeAudioDataToFile",
+                Boolean::class.javaPrimitiveType,
+                Continuation::class.java
+            )
+            writeMethod.isAccessible = true
+
+            runBlocking(Dispatchers.IO) {
+                suspendCancellableCoroutine<Unit> { cont ->
+                    try {
+                        val result = writeMethod.invoke(invalidRecorder, false, cont)
+                        if (result != COROUTINE_SUSPENDED && cont.isActive) {
+                            cont.resumeWith(Result.success(Unit))
+                        }
+                    } catch (e: InvocationTargetException) {
+                        if (cont.isActive) {
+                            cont.resumeWith(Result.failure(e.cause ?: e))
+                        }
+                    } catch (e: Exception) {
+                        if (cont.isActive) {
+                            cont.resumeWith(Result.failure(e))
+                        }
+                    }
+                }
+            }
+
+            assertNotNull(capturedException)
+            assertTrue(capturedException is FileNotFoundException || capturedException is IOException)
+        } finally {
+            try {
+                invalidRecorder.release()
+            } finally {
+                if (invalidFile.exists()) {
+                    invalidFile.deleteRecursively()
+                }
+            }
+        }
     }
 }

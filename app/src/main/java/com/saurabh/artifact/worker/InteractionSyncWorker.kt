@@ -137,7 +137,6 @@ class InteractionSyncWorker @AssistedInject constructor(
                                 )
                             )
                             moveToDeadLetterQueue(errorInteraction, "RETRY_LIMIT_EXCEEDED", error.message)
-                            pendingInteractionDao.get().delete(interaction)
                         } else {
                             val logTag = when (classification) {
                                 is InteractionErrorClassification.TransientAppCheckUnhealthy -> "RETRYABLE_APP_CHECK_UNHEALTHY"
@@ -178,7 +177,6 @@ class InteractionSyncWorker @AssistedInject constructor(
                             )
                         )
                         moveToDeadLetterQueue(errorInteraction, failureType, error.message)
-                        pendingInteractionDao.get().delete(interaction)
                     }
                 }
             }
@@ -275,7 +273,7 @@ class InteractionSyncWorker @AssistedInject constructor(
             failureType = failureType,
             retryCount = interaction.retryCount
         )
-        deadLetterInteractionDao.get().insert(dlqEntry)
+        deadLetterInteractionDao.get().moveToDeadLetter(dlqEntry, interaction)
         ArtifactLogger.w(DiagnosticCategory.SYNC, "DLQ_MOVE", mapOf("interactionId" to interaction.id, "failureType" to failureType, "reason" to (reason ?: "unknown")))
     }
 

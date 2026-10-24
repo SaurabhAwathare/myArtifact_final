@@ -44,8 +44,8 @@ class LocalDraftManager @Inject constructor(
         emotion: Emotion? = null,
         emotions: List<Emotion> = emptyList(),
         promptId: String? = null
-    ) {
-        try {
+    ): Result<Unit> {
+        return try {
             val effectiveEmotions = if (emotions.isNotEmpty()) emotions else if (emotion != null) listOf(emotion) else emptyList()
             val primaryEmotion = emotion ?: effectiveEmotions.firstOrNull()
             val manifest = DraftManifest(
@@ -62,8 +62,10 @@ class LocalDraftManager @Inject constructor(
             encryptedStorageManager.getEncryptedOutputStream(file).use { output ->
                 output.write(Json.encodeToString(manifest).toByteArray())
             }
+            Result.success(Unit)
         } catch (e: Exception) {
             Log.e("LocalDraftManager", "Failed to write draft manifest for $draftId", e)
+            Result.failure(e)
         }
     }
 

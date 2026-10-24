@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.model.Comment
+import com.saurabh.artifact.model.CommentStatus
 import com.saurabh.artifact.model.ResolvedCreatorIdentity
 import com.saurabh.artifact.ui.components.ArtifactSigil
 import com.saurabh.artifact.ui.theme.ArtifactTheme
@@ -79,11 +80,20 @@ fun CommentItem(
 
                 Spacer(modifier = Modifier.weight(1f))
 
-                Text(
-                    text = TimeUtils.getRelativeTime(comment.createdAt),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                )
+                if (comment.status == CommentStatus.FAILED) {
+                    Text(
+                        text = "Failed to post",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                        fontWeight = FontWeight.Medium
+                    )
+                } else {
+                    Text(
+                        text = TimeUtils.getRelativeTime(comment.createdAt),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(2.dp))
@@ -91,9 +101,20 @@ fun CommentItem(
             Text(
                 text = comment.text,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f),
+                color = if (comment.status == CommentStatus.FAILED) 
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f) 
+                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f),
                 lineHeight = 20.sp
             )
+
+            if (comment.status == CommentStatus.FAILED) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "Submission failed permanently. Text preserved.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
+                )
+            }
         }
 
         if (isOwner) {

@@ -9,7 +9,8 @@ enum class CommentStatus {
     ACTIVE,
     DELETED,
     HIDDEN,
-    MODERATED
+    MODERATED,
+    FAILED
 }
 
 /**

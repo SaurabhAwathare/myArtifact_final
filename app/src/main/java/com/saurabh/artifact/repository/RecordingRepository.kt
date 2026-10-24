@@ -82,7 +82,7 @@ class RecordingRepository @Inject constructor(
                 title = null,
                 emotion = null,
                 promptId = promptId
-            )
+            ).getOrThrow()
             
             draftDao.get().insert(draft)
             
@@ -197,7 +197,7 @@ class RecordingRepository @Inject constructor(
                     title = draft.title,
                     emotion = draft.emotion,
                     promptId = draft.promptId
-                )
+                ).getOrThrow()
             }
 
             Result.success(Unit)
@@ -223,7 +223,7 @@ class RecordingRepository @Inject constructor(
                     emotion = draft.emotion,
                     emotions = draft.emotions,
                     promptId = draft.promptId
-                )
+                ).getOrThrow()
             }
 
             Result.success(Unit)

@@ -338,12 +338,30 @@ class RecordingService : Service() {
             val finalDraftId = draftId.ifEmpty { UUID.randomUUID().toString() }
             
             val draft = draftDao.get().internalGetDraftByIdAgnostic(finalDraftId)
-            val file = withContext(Dispatchers.IO) {
-                draft?.let { File(it.localAudioPath) } ?: localDraftManager.createDraftFile(finalDraftId, "wav")
+            val file = try {
+                withContext(Dispatchers.IO) {
+                    draft?.let { File(it.localAudioPath) } ?: localDraftManager.createDraftFile(finalDraftId, "wav")
+                }
+            } catch (e: Exception) {
+                diagnosticLogger.error(DiagnosticCategory.RECORDING, "DRAFT_FILE_CREATION_FAILED", mapOf(LogKeys.DRAFT_ID to finalDraftId), e)
+                cleanupFailedStart(finalDraftId, "STORAGE_ERROR")
+                return@launch
             }
 
             if (draft == null) {
-                recordingRepository.createDraft(finalDraftId, file.absolutePath, 0, mimeType = "audio/wav", promptId = promptId)
+                val createResult = recordingRepository.createDraft(
+                    finalDraftId,
+                    file.absolutePath,
+                    0,
+                    mimeType = "audio/wav",
+                    promptId = promptId
+                )
+                if (createResult.isFailure) {
+                    val err = createResult.exceptionOrNull()
+                    diagnosticLogger.error(DiagnosticCategory.RECORDING, "DRAFT_CREATION_FAILED", mapOf(LogKeys.DRAFT_ID to finalDraftId), err)
+                    cleanupFailedStart(finalDraftId, "STORAGE_ERROR")
+                    return@launch
+                }
             }
 
             try {
@@ -371,9 +389,7 @@ class RecordingService : Service() {
 
                 if (!started) {
                     diagnosticLogger.error(DiagnosticCategory.RECORDING, "RECORDING_HARDWARE_TIMEOUT", mapOf(LogKeys.DRAFT_ID to finalDraftId))
-                    _recordingState.value = RecordingState(status = RecordingStatus.FAILED)
-                    stopForeground(STOP_FOREGROUND_REMOVE)
-                    stopSelf()
+                    cleanupFailedStart(finalDraftId, "HARDWARE_TIMEOUT")
                     return@launch
                 }
                 
@@ -399,11 +415,25 @@ class RecordingService : Service() {
                 diagnosticLogger.info(DiagnosticCategory.RECORDER, "RECORDING_STARTED", mapOf(LogKeys.DRAFT_ID to finalDraftId))
             } catch (e: Exception) {
                 diagnosticLogger.error(DiagnosticCategory.RECORDING, "RECORDING_START_FAILED", mapOf(LogKeys.DRAFT_ID to finalDraftId), e)
-                _recordingState.value = _recordingState.value.copy(status = RecordingStatus.FAILED)
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
+                cleanupFailedStart(finalDraftId, "STORAGE_ERROR")
             }
         }
+    }
+
+    private suspend fun cleanupFailedStart(draftId: String, errorCode: String) {
+        _recordingState.value = RecordingState(
+            status = RecordingStatus.FAILED,
+            errorCode = errorCode,
+            draftId = draftId
+        )
+        try {
+            userSessionManager.setActiveDraftId(null)
+        } catch (e: Exception) {
+            diagnosticLogger.error(DiagnosticCategory.RECORDING, "CLEAR_ACTIVE_DRAFT_FAILED", throwable = e)
+        }
+        cleanup()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
 
     fun pauseRecording() {
@@ -461,6 +491,7 @@ class RecordingService : Service() {
 
     fun stopRecording() {
         if ((_recordingState.value.status == RecordingStatus.IDLE) || 
+            (_recordingState.value.status == RecordingStatus.FAILED) ||
             (_recordingState.value.status == RecordingStatus.COMPLETED)) {
             diagnosticLogger.debug(DiagnosticCategory.RECORDING, "RECORDING_STOP_IGNORED", mapOf("status" to _recordingState.value.status.name))
             return
@@ -470,7 +501,8 @@ class RecordingService : Service() {
         serviceScope.launch {
             stopMutex.withLock {
                 // Re-check status inside lock to prevent race conditions
-                if (_recordingState.value.status == RecordingStatus.COMPLETED) {
+                val currentStatus = _recordingState.value.status
+                if (currentStatus == RecordingStatus.COMPLETED || currentStatus == RecordingStatus.FAILED) {
                     diagnosticLogger.debug(DiagnosticCategory.RECORDER, "RECORDING_STOP_RACE_PREVENTED")
                     return@withLock
                 }

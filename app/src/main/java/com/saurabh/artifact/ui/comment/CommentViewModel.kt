@@ -39,6 +39,12 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
+import com.saurabh.artifact.data.local.DeadLetterInteractionDao
+import com.saurabh.artifact.data.local.DeadLetterInteractionEntity
+import com.saurabh.artifact.data.local.InteractionType
+import com.saurabh.artifact.data.remote.model.CommentPayload
+import com.saurabh.artifact.model.CommentStatus
+import kotlinx.serialization.json.Json
 import javax.inject.Inject
 
 /**
@@ -59,6 +65,7 @@ class CommentViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val ownershipAuthority: ArtifactOwnershipAuthority,
     private val userRepository: UserRepository,
+    private val deadLetterInteractionDao: DeadLetterInteractionDao,
     private val diagnosticLogger: DiagnosticLogger
 ) : ViewModel() {
 
@@ -76,6 +83,9 @@ class CommentViewModel @Inject constructor(
 
     private var unlockObservationJob: Job? = null
     private var loadJob: Job? = null
+    private var deadLetterObservationJob: Job? = null
+    private val processedDeadLetterIds = mutableSetOf<Long>()
+    private val json = Json { ignoreUnknownKeys = true }
 
     init {
         observeAuthChanges()
@@ -106,6 +116,8 @@ class CommentViewModel @Inject constructor(
     private fun resetState() {
         loadJob?.cancel()
         unlockObservationJob?.cancel()
+        deadLetterObservationJob?.cancel()
+        processedDeadLetterIds.clear()
         lastVisibleCursor = null
         _uiState.update { 
             CommentUiState(
@@ -157,6 +169,7 @@ class CommentViewModel @Inject constructor(
 
             loadInitialComments()
             observeUnlockStatus()
+            observeDeadLetters()
         }
     }
 
@@ -203,6 +216,88 @@ class CommentViewModel @Inject constructor(
                         }
                     }
                 }
+        }
+    }
+
+    /**
+     * Observes dead-letter records for permanently failed comment sync attempts.
+     */
+    private fun observeDeadLetters() {
+        val currentArtifactId = artifactId
+        val userId = currentUid ?: authRepository.currentUserId
+        if (currentArtifactId.isEmpty() || userId.isEmpty()) return
+
+        deadLetterObservationJob?.cancel()
+        deadLetterObservationJob = viewModelScope.launch {
+            deadLetterInteractionDao.observeDeadLettersForArtifact(
+                artifactId = currentArtifactId,
+                userId = userId,
+                interactionType = InteractionType.COMMENT
+            )
+            .catch { e ->
+                diagnosticLogger.error(
+                    DiagnosticCategory.COMMENT,
+                    "DEAD_LETTER_OBSERVATION_FAILED",
+                    mapOf(LogKeys.ARTIFACT_ID to currentArtifactId),
+                    e
+                )
+            }
+            .collect { deadLetters ->
+                reconcileDeadLetters(deadLetters)
+            }
+        }
+    }
+
+    private suspend fun reconcileDeadLetters(deadLetters: List<DeadLetterInteractionEntity>) {
+        if (deadLetters.isEmpty()) return
+
+        val newlyDiscoveredFailures = mutableListOf<String>()
+
+        for (dl in deadLetters) {
+            val isFirstTimeDiscovered = !processedDeadLetterIds.contains(dl.id)
+            processedDeadLetterIds.add(dl.id)
+
+            val metadata = dl.metadata
+            if (metadata.isNullOrBlank()) continue
+
+            val failedCommentId = try {
+                json.decodeFromString(CommentPayload.serializer(), metadata).id
+            } catch (_: Exception) {
+                diagnosticLogger.warn(
+                    DiagnosticCategory.COMMENT,
+                    "DEAD_LETTER_METADATA_PARSE_FAILED",
+                    mapOf("dlId" to dl.id.toString(), "metadata" to metadata)
+                )
+                null
+            }
+
+            if (failedCommentId.isNullOrBlank()) continue
+
+            var commentFoundAndUpdated = false
+            _uiState.update { currentState ->
+                val updatedComments = currentState.comments.map { comment ->
+                    if (comment.id == failedCommentId) {
+                        commentFoundAndUpdated = true
+                        comment.copy(status = CommentStatus.FAILED)
+                    } else {
+                        comment
+                    }
+                }
+                if (commentFoundAndUpdated) {
+                    currentState.copy(comments = updatedComments)
+                } else {
+                    currentState
+                }
+            }
+
+            if (isFirstTimeDiscovered && commentFoundAndUpdated) {
+                val failureReason = dl.failureReason ?: "Comment submission failed permanently."
+                newlyDiscoveredFailures.add(failureReason)
+            }
+        }
+
+        for (reason in newlyDiscoveredFailures) {
+            _events.emit(CommentUiEvent.SubmissionFailed(reason))
         }
     }
 

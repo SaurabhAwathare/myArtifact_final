@@ -298,15 +298,8 @@ class ReactionRepository @Inject constructor(
      */
     suspend fun setVisibilityMode(artifactId: String, mode: ReactionVisibilityMode): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            firestore.runBatch { batch ->
-                // 1. Update reaction counts aggregate
-                val countRef = firestore.collection("artifact_reaction_counts").document(artifactId)
-                batch.update(countRef, "visibility", mode.name)
-                
-                // 2. Sync to main artifact document for efficient feed loading
-                val artifactRef = firestore.collection("artifacts").document(artifactId)
-                batch.update(artifactRef, "reactionVisibility", mode.name)
-            }.await()
+            val artifactRef = firestore.collection("artifacts").document(artifactId)
+            artifactRef.update("reactionVisibility", mode.name).await()
             Result.success(Unit)
         } catch (e: Exception) {
             ArtifactLogger.e(

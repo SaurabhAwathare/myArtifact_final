@@ -213,66 +213,68 @@ class WavRecorder(
      */
     private suspend fun writeAudioDataToFile(append: Boolean = false) {
         withContext(Dispatchers.IO) {
-            RandomAccessFile(outputFile, "rw").use { raf ->
-                try {
-                    if (!append) {
-                        // Initial valid WAV header (0 length)
-                        val header = WavHeaderUtils.createHeader(0, sampleRate, if (channelConfig == AudioFormat.CHANNEL_IN_MONO) 1 else 2, 16)
-                        raf.seek(0)
-                        raf.write(header)
-                        totalBytesWritten = 0
-                    } else {
-                        // If appending, move to the end of the file
-                        raf.seek(outputFile.length())
-                        totalBytesWritten = maxOf(0, outputFile.length() - WavHeaderUtils.HEADER_SIZE.toLong())
-                    }
+            try {
+                RandomAccessFile(outputFile, "rw").use { raf ->
+                    try {
+                        if (!append) {
+                            // Initial valid WAV header (0 length)
+                            val header = WavHeaderUtils.createHeader(0, sampleRate, if (channelConfig == AudioFormat.CHANNEL_IN_MONO) 1 else 2, 16)
+                            raf.seek(0)
+                            raf.write(header)
+                            totalBytesWritten = 0
+                        } else {
+                            // If appending, move to the end of the file
+                            raf.seek(outputFile.length())
+                            totalBytesWritten = maxOf(0, outputFile.length() - WavHeaderUtils.HEADER_SIZE.toLong())
+                        }
 
-                    for (audioBuffer in audioChannel) {
-                        try {
-                            raf.write(audioBuffer.data, 0, audioBuffer.size)
-                            val size = audioBuffer.size.toLong()
-                            totalBytesWritten += size
-                            bytesSinceLastSync += size
+                        for (audioBuffer in audioChannel) {
+                            try {
+                                raf.write(audioBuffer.data, 0, audioBuffer.size)
+                                val size = audioBuffer.size.toLong()
+                                totalBytesWritten += size
+                                bytesSinceLastSync += size
 
-                            // Periodic Hard Sync: Durability Barrier
-                            if (bytesSinceLastSync >= syncIntervalBytes) {
-                                Log.d("WavRecorder", "Durability Barrier: fsync() and header update at $totalBytesWritten bytes")
-                                raf.fd.sync() // BLOCKING HARD SYNC
-                                
-                                // Update header proactively
-                                val currentPos = raf.filePointer
-                                val header = WavHeaderUtils.createHeader(totalBytesWritten, sampleRate, if (channelConfig == AudioFormat.CHANNEL_IN_MONO) 1 else 2, 16)
-                                raf.seek(0)
-                                raf.write(header)
-                                raf.seek(currentPos)
-                                raf.fd.sync()
-                                
-                                bytesSinceLastSync = 0
-                                
-                                // Notify checkpoint manager (e.g. Database)
-                                onDurableSync?.invoke(totalBytesWritten)
+                                // Periodic Hard Sync: Durability Barrier
+                                if (bytesSinceLastSync >= syncIntervalBytes) {
+                                    Log.d("WavRecorder", "Durability Barrier: fsync() and header update at $totalBytesWritten bytes")
+                                    raf.fd.sync() // BLOCKING HARD SYNC
+                                    
+                                    // Update header proactively
+                                    val currentPos = raf.filePointer
+                                    val header = WavHeaderUtils.createHeader(totalBytesWritten, sampleRate, if (channelConfig == AudioFormat.CHANNEL_IN_MONO) 1 else 2, 16)
+                                    raf.seek(0)
+                                    raf.write(header)
+                                    raf.seek(currentPos)
+                                    raf.fd.sync()
+                                    
+                                    bytesSinceLastSync = 0
+                                    
+                                    // Notify checkpoint manager (e.g. Database)
+                                    onDurableSync?.invoke(totalBytesWritten)
+                                }
+                            } finally {
+                                bufferPool?.release(audioBuffer.data)
                             }
-                        } finally {
-                            bufferPool?.release(audioBuffer.data)
+                            
+                            if (isPaused) break // Exit loop if paused to flush current state
                         }
-                        
-                        if (isPaused) break // Exit loop if paused to flush current state
-                    }
-                } catch (e: Exception) {
-                    Log.e("WavRecorder", "Writer loop error", e)
-                    if (e is java.io.IOException) {
-                        withContext(Dispatchers.Main) {
-                            onStorageError?.invoke(e)
+                    } finally {
+                        try {
+                            val header = WavHeaderUtils.createHeader(totalBytesWritten, sampleRate, if (channelConfig == AudioFormat.CHANNEL_IN_MONO) 1 else 2, 16)
+                            val currentPos = raf.filePointer
+                            raf.seek(0)
+                            raf.write(header)
+                            raf.seek(currentPos)
+                            raf.fd.sync() // Ensure last bits are durable
+                        } catch (e: Exception) {
+                            Log.w("WavRecorder", "Failed to update final WAV header", e)
                         }
                     }
-                } finally {
-                    val header = WavHeaderUtils.createHeader(totalBytesWritten, sampleRate, if (channelConfig == AudioFormat.CHANNEL_IN_MONO) 1 else 2, 16)
-                    val currentPos = raf.filePointer
-                    raf.seek(0)
-                    raf.write(header)
-                    raf.seek(currentPos)
-                    raf.fd.sync() // Ensure last bits are durable
                 }
+            } catch (e: Exception) {
+                Log.e("WavRecorder", "Writer loop error", e)
+                onStorageError?.invoke(e)
             }
         }
     }

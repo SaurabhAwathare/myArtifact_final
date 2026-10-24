@@ -115,7 +115,7 @@ class PublishingWorker @AssistedInject constructor(
                 }
             }
             AcquisitionResult.LOCKED -> {
-                diagnosticLogger.info(
+                diagnosticLogger.debug(
                     DiagnosticCategory.PUBLISH, 
                     "PUBLISHING_OWNERSHIP_BLOCKED", 
                     mapOf(LogKeys.DRAFT_ID to draftId, "reason" to "Owned by other component")

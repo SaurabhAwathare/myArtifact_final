@@ -108,7 +108,7 @@ class PublishingOrchestrator @Inject constructor(
             Log.i("PublishingOrchestrator", "Audio processing in progress. Awaiting completion before upload...")
             ensureProcessingActive(draftId)
 
-            val processingResult: Result<ArtifactDraftEntity> = withTimeoutOrNull(15000L) {
+            val processingResult: Result<ArtifactDraftEntity> = withTimeoutOrNull(30000L) {
                 draftRepository.observeDrafts()
                     .map { list -> list.find { it.id == draftId } }
                     .filterNotNull()

@@ -35,7 +35,7 @@ interface EngagementDao {
         }
     }
 
-    @Query("SELECT * FROM artifact_engagement WHERE (syncState = 'PENDING' OR syncState = 'FAILED') AND userId = :userId")
+    @Query("SELECT * FROM artifact_engagement WHERE syncState = 'PENDING' AND userId = :userId")
     suspend fun getEngagementsRequiringSync(userId: String): List<ArtifactEngagement>
 
     @Query("UPDATE artifact_engagement SET syncState = :state, lastSyncAttempt = :timestamp, lastSyncError = :error, syncRetryCount = syncRetryCount + 1 WHERE artifactId = :artifactId AND userId = :userId")

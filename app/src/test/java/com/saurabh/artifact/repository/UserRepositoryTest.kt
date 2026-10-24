@@ -24,6 +24,8 @@ import com.saurabh.artifact.model.User
 import com.saurabh.artifact.worker.InteractionSyncWorker
 import dagger.Lazy
 import io.mockk.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.tasks.await
 import org.junit.Assert.assertEquals
@@ -1253,6 +1255,181 @@ class UserRepositoryTest {
 
         assertTrue(result.isFailure)
         verify(exactly = 0) { firestore.runTransaction<Unit>(any()) }
+    }
+
+    @Test
+    fun `streamUserProfile emits mapped user for existing public profile`() = runBlocking {
+        val personaId = "usr_ALICE"
+        val mockProfilesColl = mockk<CollectionReference>(relaxed = true)
+        val mockProfileDocRef = mockk<DocumentReference>(relaxed = true)
+        every { firestore.collection("profiles") } returns mockProfilesColl
+        every { mockProfilesColl.document(personaId) } returns mockProfileDocRef
+
+        val listenerSlot = slot<EventListener<DocumentSnapshot>>()
+        every { mockProfileDocRef.addSnapshotListener(capture(listenerSlot)) } returns mockk(relaxed = true)
+
+        var emittedUser: User? = null
+        val flow = repository.streamUserProfile(personaId)
+        val job = launch(Dispatchers.Unconfined) {
+            flow.collect { user ->
+                emittedUser = user
+            }
+        }
+
+        val snapshot = mockk<DocumentSnapshot>()
+        every { snapshot.exists() } returns true
+        every { snapshot.getString("name") } returns "Alice"
+        every { snapshot.getString("sigil") } returns "sigil_a"
+        every { snapshot.getString("sigilSeed") } returns "seed_a"
+        every { snapshot.getString("sigilColor") } returns "#FFD700"
+        every { snapshot.getLong(any()) } returns 5L
+
+        listenerSlot.captured.onEvent(snapshot, null)
+
+        assertNotNull(emittedUser)
+        assertEquals(personaId, emittedUser?.id)
+        assertEquals("Alice", emittedUser?.anonymousName)
+
+        job.cancel()
+
+        verify(exactly = 0) { firestore.collection("persona_mapping") }
+    }
+
+    @Test
+    fun `streamUserProfile emits null for missing public profile without reading persona_mapping or users`() = runBlocking {
+        val personaId = "usr_MISSING"
+        val mockProfilesColl = mockk<CollectionReference>(relaxed = true)
+        val mockProfileDocRef = mockk<DocumentReference>(relaxed = true)
+        every { firestore.collection("profiles") } returns mockProfilesColl
+        every { mockProfilesColl.document(personaId) } returns mockProfileDocRef
+
+        val listenerSlot = slot<EventListener<DocumentSnapshot>>()
+        every { mockProfileDocRef.addSnapshotListener(capture(listenerSlot)) } returns mockk(relaxed = true)
+
+        var emittedValue: User? = User(id = "sentinel")
+        val flow = repository.streamUserProfile(personaId)
+        val job = launch(Dispatchers.Unconfined) {
+            flow.collect { emittedValue = it }
+        }
+
+        val snapshot = mockk<DocumentSnapshot>()
+        every { snapshot.exists() } returns false
+
+        listenerSlot.captured.onEvent(snapshot, null)
+
+        assertEquals(null, emittedValue)
+        job.cancel()
+
+        verify(exactly = 0) { firestore.collection("persona_mapping") }
+    }
+
+    @Test
+    fun `streamUserProfile cleans up profile listener on cancellation`() = runBlocking {
+        val personaId = "usr_BOB"
+        val mockProfilesColl = mockk<CollectionReference>(relaxed = true)
+        val mockProfileDocRef = mockk<DocumentReference>(relaxed = true)
+        val mockRegistration = mockk<ListenerRegistration>(relaxed = true)
+
+        every { firestore.collection("profiles") } returns mockProfilesColl
+        every { mockProfilesColl.document(personaId) } returns mockProfileDocRef
+        every { mockProfileDocRef.addSnapshotListener(any()) } returns mockRegistration
+
+        val flow = repository.streamUserProfile(personaId)
+        val job = launch(Dispatchers.Unconfined) {
+            flow.collect {}
+        }
+
+        job.cancel()
+
+        verify(exactly = 1) { mockRegistration.remove() }
+    }
+
+    @Test
+    fun `getArtifactResonators resolves public profiles in order and omits missing profiles without querying persona_mapping`() = runBlocking {
+        val artifactId = "art123"
+
+        val mockReactionsColl = mockk<CollectionReference>(relaxed = true)
+        val mockQuery = mockk<Query>(relaxed = true)
+        val reactionSnapshot = mockk<QuerySnapshot>()
+        
+        val doc1 = mockk<QueryDocumentSnapshot>()
+        val doc2 = mockk<QueryDocumentSnapshot>()
+        val doc3 = mockk<QueryDocumentSnapshot>()
+
+        every { doc1.getString("authorAnonymousId") } returns "usr_1"
+        every { doc2.getString("authorAnonymousId") } returns "usr_2"
+        every { doc3.getString("authorAnonymousId") } returns "usr_3"
+        every { reactionSnapshot.documents } returns listOf(doc1, doc2, doc3)
+        every { reactionSnapshot.isEmpty } returns false
+
+        every { firestore.collection("artifact_reactions") } returns mockReactionsColl
+        every { mockReactionsColl.whereEqualTo("artifactId", artifactId) } returns mockQuery
+        every { mockQuery.orderBy("createdAt", Query.Direction.DESCENDING) } returns mockQuery
+        every { mockQuery.limit(20L) } returns mockQuery
+
+        val reactionGetTask = mockk<Task<QuerySnapshot>>(relaxed = true)
+        every { mockQuery.get() } returns reactionGetTask
+        coEvery { reactionGetTask.await() } returns reactionSnapshot
+
+        val mockProfilesColl = mockk<CollectionReference>(relaxed = true)
+        val mockProfileWhereQuery = mockk<Query>(relaxed = true)
+        val profilesSnapshot = mockk<QuerySnapshot>()
+
+        val profileDoc1 = mockk<QueryDocumentSnapshot>(relaxed = true)
+        every { profileDoc1.id } returns "usr_1"
+        every { profileDoc1.getString("name") } returns "User One"
+
+        val profileDoc3 = mockk<QueryDocumentSnapshot>(relaxed = true)
+        every { profileDoc3.id } returns "usr_3"
+        every { profileDoc3.getString("name") } returns "User Three"
+
+        // usr_2 is missing from profilesSnapshot
+        every { profilesSnapshot.documents } returns listOf(profileDoc1, profileDoc3)
+
+        every { firestore.collection("profiles") } returns mockProfilesColl
+        every { mockProfilesColl.whereIn(any<FieldPath>(), listOf("usr_1", "usr_2", "usr_3")) } returns mockProfileWhereQuery
+
+        val profilesGetTask = mockk<Task<QuerySnapshot>>(relaxed = true)
+        every { mockProfileWhereQuery.get() } returns profilesGetTask
+        coEvery { profilesGetTask.await() } returns profilesSnapshot
+
+        val result = repository.getArtifactResonators(artifactId)
+
+        assertTrue(result.isSuccess)
+        val (users, lastVisible) = result.getOrThrow()
+
+        assertEquals(2, users.size)
+        assertEquals("usr_1", users[0].anonymousId)
+        assertEquals("usr_3", users[1].anonymousId)
+        assertEquals(doc3, lastVisible)
+
+        verify(exactly = 0) { firestore.collection("persona_mapping") }
+    }
+
+    @Test
+    fun `getArtifactResonators supports pagination with lastVisible cursor`() = runBlocking {
+        val artifactId = "art123"
+        val cursorDoc = mockk<DocumentSnapshot>()
+
+        val mockReactionsColl = mockk<CollectionReference>(relaxed = true)
+        val mockQuery = mockk<Query>(relaxed = true)
+        val emptySnapshot = mockk<QuerySnapshot>()
+        every { emptySnapshot.isEmpty } returns true
+
+        every { firestore.collection("artifact_reactions") } returns mockReactionsColl
+        every { mockReactionsColl.whereEqualTo("artifactId", artifactId) } returns mockQuery
+        every { mockQuery.orderBy("createdAt", Query.Direction.DESCENDING) } returns mockQuery
+        every { mockQuery.limit(20L) } returns mockQuery
+        every { mockQuery.startAfter(cursorDoc) } returns mockQuery
+
+        val task = mockk<Task<QuerySnapshot>>(relaxed = true)
+        every { mockQuery.get() } returns task
+        coEvery { task.await() } returns emptySnapshot
+
+        val result = repository.getArtifactResonators(artifactId, lastVisible = cursorDoc)
+
+        assertTrue(result.isSuccess)
+        verify { mockQuery.startAfter(cursorDoc) }
     }
 }
 

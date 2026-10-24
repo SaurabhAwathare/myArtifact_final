@@ -1,6 +1,7 @@
 package com.saurabh.artifact.repository
 
 import android.net.Uri
+import android.util.Log
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
@@ -1075,7 +1076,9 @@ class ArtifactRepository @Inject constructor(
                     mimeType = draft.mimeType,
                     title = trimmedTitle,
                     emotion = draft.emotion
-                )
+                ).onFailure { e ->
+                    Log.w("ArtifactRepository", "Failed to sync manifest for draft ${draft.id}", e)
+                }
             }
 
             // Sync with local ArtifactEntity cache

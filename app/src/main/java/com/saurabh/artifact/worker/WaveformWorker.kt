@@ -31,8 +31,14 @@ class WaveformWorker @AssistedInject constructor(
         startupCoordinator.awaitComponent(com.saurabh.artifact.startup.StartupComponent.DATABASE)
 
         val draftId = inputData.getString(KEY_DRAFT_ID) ?: return@withContext Result.failure()
-        val userId = authRepository.currentUserId
+        var userId = authRepository.currentUserId
         
+        if (userId.isEmpty()) {
+            val draft = draftDao.get().internalGetDraftByIdAgnostic(draftId)
+            if (draft != null) {
+                userId = draft.userId
+            }
+        }
         if (userId.isEmpty()) return@withContext Result.failure()
 
         try {
@@ -51,17 +57,25 @@ class WaveformWorker @AssistedInject constructor(
             // High-fidelity extraction from PCM
             val waveformData = WaveformProcessor.extractFromPcm(rawFile, targetSize = 100)
             
+            if (isStopped) return@withContext Result.failure()
+
             // Targeted update: Save waveform and set processing state to Idle (even if empty list)
             draftDao.get().updateWaveformResult(draftId, userId, waveformData)
             
             Result.success()
         } catch (e: Exception) {
             if (e is CancellationException) throw e
-            Result.retry()
+            if (runAttemptCount >= 3) {
+                updateSubState(draftId, userId, null, e.message ?: "Waveform generation failed after retries")
+                Result.failure()
+            } else {
+                Result.retry()
+            }
         }
     }
 
     private suspend fun updateSubState(id: String, userId: String, stage: ProcessingStage?, error: String? = null) {
+        if (isStopped) return
         val newProcessing = when {
             error != null -> ProcessingStatus.Failed
             stage != null -> ProcessingStatus.Active(stage)

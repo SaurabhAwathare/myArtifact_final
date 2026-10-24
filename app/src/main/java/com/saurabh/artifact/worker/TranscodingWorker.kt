@@ -46,8 +46,14 @@ class TranscodingWorker @AssistedInject constructor(
         startupCoordinator.awaitComponent(com.saurabh.artifact.startup.StartupComponent.DATABASE)
 
         val draftId = inputData.getString(AudioNormalizationWorker.KEY_DRAFT_ID) ?: return@withContext Result.failure()
-        val userId = authRepository.currentUserId
+        var userId = authRepository.currentUserId
         
+        if (userId.isEmpty()) {
+            val draft = draftDao.get().internalGetDraftByIdAgnostic(draftId)
+            if (draft != null) {
+                userId = draft.userId
+            }
+        }
         if (userId.isEmpty()) return@withContext Result.failure()
 
         diagnosticLogger.info(DiagnosticCategory.RECORDING, "TRANSCODING_STARTED", mapOf(LogKeys.DRAFT_ID to draftId))
@@ -138,7 +144,7 @@ class TranscodingWorker @AssistedInject constructor(
                     mimeType = finalMimeType,
                     title = draft.title,
                     emotion = draft.emotion
-                )
+                ).getOrThrow()
 
                 diagnosticLogger.info(DiagnosticCategory.RECORDING, "TRANSCODING_SUCCESS", mapOf(LogKeys.DRAFT_ID to draftId))
                 Result.success()
@@ -150,7 +156,12 @@ class TranscodingWorker @AssistedInject constructor(
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
             diagnosticLogger.error(DiagnosticCategory.RECORDING, "TRANSCODING_FAILED", mapOf(LogKeys.DRAFT_ID to draftId), e)
-            Result.retry()
+            if (runAttemptCount >= 3) {
+                updateDraftStatus(draftId, userId, null, e.message ?: "Transcoding failed after retries")
+                Result.failure()
+            } else {
+                Result.retry()
+            }
         }
     }
 
@@ -179,6 +190,7 @@ class TranscodingWorker @AssistedInject constructor(
     }
 
     private suspend fun updateDraftStatus(id: String, userId: String, stage: ProcessingStage?, error: String? = null) {
+        if (isStopped) return
         val newProcessing = when {
             error != null -> ProcessingStatus.Failed
             stage != null -> ProcessingStatus.Active(stage)

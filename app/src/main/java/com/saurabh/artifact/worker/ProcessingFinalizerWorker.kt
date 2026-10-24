@@ -8,6 +8,7 @@ import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
+import com.saurabh.artifact.model.ProcessingStatus
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.RecordingRepository
 import dagger.Lazy
@@ -36,8 +37,14 @@ class ProcessingFinalizerWorker @AssistedInject constructor(
         startupCoordinator.awaitComponent(com.saurabh.artifact.startup.StartupComponent.DATABASE)
 
         val draftId = inputData.getString(KEY_DRAFT_ID) ?: return@withContext Result.failure()
-        val userId = authRepository.currentUserId
+        var userId = authRepository.currentUserId
         
+        if (userId.isEmpty()) {
+            val draft = draftDao.get().internalGetDraftByIdAgnostic(draftId)
+            if (draft != null) {
+                userId = draft.userId
+            }
+        }
         if (userId.isEmpty()) return@withContext Result.failure()
 
         diagnosticLogger.info(DiagnosticCategory.WORKMANAGER, "PROCESSING_FINALIZATION_STARTED", mapOf(LogKeys.DRAFT_ID to draftId))
@@ -45,6 +52,8 @@ class ProcessingFinalizerWorker @AssistedInject constructor(
         try {
             // 1. Verify draft exists; if draft was deleted during processing, exit cleanly
             draftDao.get().getDraftById(draftId, userId) ?: return@withContext Result.success()
+
+            if (isStopped) return@withContext Result.failure()
 
             // 2. Targeted finalization update (sets ProcessingStatus.Idle while preserving current lifecycle)
             recordingRepository.finalizeProcessing(draftId).getOrThrow()
@@ -54,7 +63,14 @@ class ProcessingFinalizerWorker @AssistedInject constructor(
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             diagnosticLogger.error(DiagnosticCategory.WORKMANAGER, "PROCESSING_FINALIZATION_FAILED", mapOf(LogKeys.DRAFT_ID to draftId), e)
-            Result.retry()
+            if (runAttemptCount >= 3) {
+                if (!isStopped) {
+                    draftDao.get().updateProcessingStatus(draftId, userId, ProcessingStatus.Failed)
+                }
+                Result.failure()
+            } else {
+                Result.retry()
+            }
         }
     }
 

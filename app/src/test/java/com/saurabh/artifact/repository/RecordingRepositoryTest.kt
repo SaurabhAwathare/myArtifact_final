@@ -23,6 +23,7 @@ import org.junit.Test
 import java.io.File
 import dagger.Lazy
 import kotlinx.coroutines.flow.flowOf
+import java.io.IOException
 import kotlin.Result as KResult
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -252,5 +253,32 @@ class RecordingRepositoryTest {
         coVerify(exactly = 1) { publishingOrchestrator.ensureProcessingActive(orphanedId) }
 
         tempWav.delete()
+    }
+
+    @Test
+    fun `createDraft should fail when writeManifest fails`() = runTest {
+        val draftId = "failed_manifest_draft"
+        val expectedError = IOException("Disk full or permission denied")
+        every {
+            localDraftManager.writeManifest(
+                draftId = draftId,
+                userId = TEST_USER_ID,
+                createdAt = any(),
+                mimeType = any(),
+                title = any(),
+                emotion = any(),
+                emotions = any(),
+                promptId = any()
+            )
+        } returns KResult.failure(expectedError)
+
+        val result = repository.createDraft(
+            id = draftId,
+            path = "/tmp/test.wav",
+            durationMs = 0
+        )
+
+        assert(result.isFailure)
+        coVerify(exactly = 0) { draftDao.insert(any()) }
     }
 }
