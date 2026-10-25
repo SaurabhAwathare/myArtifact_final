@@ -12,6 +12,8 @@ import androidx.media3.datasource.TransferListener
 import androidx.media3.datasource.cache.CacheDataSource
 import com.saurabh.artifact.diagnostics.ArtifactLogger
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.security.AppCheckTokenProvider
+import com.saurabh.artifact.security.DefaultAppCheckTokenProvider
 import android.os.SystemClock
 
 /**
@@ -20,12 +22,14 @@ import android.os.SystemClock
  */
 @OptIn(UnstableApi::class)
 class SmartDataSourceFactory(
-    private val context: Context
+    private val context: Context,
+    tokenProvider: AppCheckTokenProvider = DefaultAppCheckTokenProvider(),
 ) : DataSource.Factory {
 
     private val baseHttpFactory = DefaultHttpDataSource.Factory()
+    private val appCheckHttpFactory = AppCheckHttpDataSource.Factory(baseHttpFactory, tokenProvider)
     private val instrumentedHttpFactory = DataSource.Factory {
-        DiagnosticDataSource(baseHttpFactory.createDataSource(), "HTTP")
+        DiagnosticDataSource(appCheckHttpFactory.createDataSource(), "HTTP")
     }
     private val defaultDataSourceFactory = DefaultDataSource.Factory(context, instrumentedHttpFactory)
     private val encryptedDataSourceFactory = EncryptedFileDataSource.Factory(context)

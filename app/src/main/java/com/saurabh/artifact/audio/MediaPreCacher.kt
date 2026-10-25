@@ -5,11 +5,13 @@ import android.util.Log
 import androidx.annotation.OptIn
 import androidx.core.net.toUri
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.CacheWriter
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
+import com.saurabh.artifact.security.AppCheckTokenProvider
+import com.saurabh.artifact.security.DefaultAppCheckTokenProvider
 import com.saurabh.artifact.util.CoroutineExceptionHandlerUtils
 import kotlinx.coroutines.*
 import java.util.concurrent.ConcurrentHashMap
@@ -31,7 +33,11 @@ object MediaPreCacher {
      * Starts a background job to cache the given URL.
      * If a job is already running for this URL, it does nothing.
      */
-    fun preCache(context: Context, url: String) {
+    fun preCache(
+        context: Context,
+        url: String,
+        tokenProvider: AppCheckTokenProvider = DefaultAppCheckTokenProvider()
+    ) {
         if (url.isBlank()) return
         if (activeJobs.containsKey(url)) return
 
@@ -40,10 +46,13 @@ object MediaPreCacher {
                 val cache = MediaCache.getInstance(context)
                 val dataSpec = DataSpec(url.toUri())
                 
+                val baseHttpFactory = DefaultHttpDataSource.Factory()
+                val appCheckHttpFactory = AppCheckHttpDataSource.Factory(baseHttpFactory, tokenProvider)
+
                 // Create a CacheDataSource that writes to our SimpleCache
                 val dataSource = CacheDataSource.Factory()
                     .setCache(cache)
-                    .setUpstreamDataSourceFactory(DefaultHttpDataSource.Factory())
+                    .setUpstreamDataSourceFactory(appCheckHttpFactory)
                     .setCacheKeyFactory(ArtifactCacheKeyFactory)
                     .createDataSource()
                 

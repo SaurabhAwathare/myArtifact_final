@@ -39,8 +39,21 @@ class FCMService : FirebaseMessagingService() {
         val artifactId = data["artifactId"]
         val userId = data["userId"]
         val recipientId = data["recipientId"]
-        val notificationType = data["notificationType"]
-        val channelId = data["channelId"] ?: NotificationHelper.CHANNEL_ID_INTERACTIONS
+        val notificationType = data["notificationType"] ?: data["type"]
+        val channelId = when {
+            data["type"] == "CRITICAL_MODERATION_ALERT" || data["notificationType"] == "CRITICAL_MODERATION_ALERT" -> {
+                NotificationHelper.CHANNEL_ID_CRITICAL_ALERTS
+            }
+            !data["channelId"].isNullOrBlank() -> {
+                data["channelId"]!!
+            }
+            !remoteMessage.notification?.channelId.isNullOrBlank() -> {
+                remoteMessage.notification!!.channelId!!
+            }
+            else -> {
+                NotificationHelper.CHANNEL_ID_INTERACTIONS
+            }
+        }
 
         // 1. Handle Notification Payload (Foreground or explicit notification block)
         remoteMessage.notification?.let { notification ->
@@ -64,8 +77,8 @@ class FCMService : FirebaseMessagingService() {
 
         // 2. Handle Data Payload (Fallback for data-only messages)
         if (data.isNotEmpty()) {
-            val title = data["title"] ?: "New Interaction"
-            val message = data["message"] ?: "Someone sent you a reaction!"
+            val title = data["title"] ?: if (data["type"] == "CRITICAL_MODERATION_ALERT") "Critical Safety Alert" else "New Interaction"
+            val message = data["message"] ?: data["body"] ?: "Someone sent you a reaction!"
             
             serviceScope.launch {
                 NotificationHelper.showInteractionNotification(

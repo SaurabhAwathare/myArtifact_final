@@ -173,4 +173,82 @@ describe("Admin Privilege Escalation", () => {
       alice.firestore().collection("artifacts").doc("art1").collection("comments").doc("com1").delete()
     );
   });
+
+  it("admin_alerts: should allow an admin to read admin_alerts", async () => {
+    const admin_uid = "admin_alerts_reader";
+
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      await db.collection("users").doc(admin_uid).collection("private").doc("settings").set({
+        isAdmin: true
+      });
+      await db.collection("admin_alerts").doc("report_art1").set({
+        alertId: "report_art1",
+        reason: "CHILD_SAFETY",
+        severity: "CRITICAL"
+      });
+    });
+
+    const adminUser = testEnv.authenticatedContext(admin_uid);
+    await assertSucceeds(
+      adminUser.firestore().collection("admin_alerts").doc("report_art1").get()
+    );
+  });
+
+  it("admin_alerts: should deny non-admin users from reading admin_alerts", async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      await db.collection("admin_alerts").doc("report_art1").set({
+        alertId: "report_art1",
+        reason: "CHILD_SAFETY"
+      });
+    });
+
+    const bob = testEnv.authenticatedContext("bob");
+    await assertFails(
+      bob.firestore().collection("admin_alerts").doc("report_art1").get()
+    );
+  });
+
+  it("admin_alerts: should deny unauthenticated clients from reading admin_alerts", async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      await db.collection("admin_alerts").doc("report_art1").set({
+        alertId: "report_art1",
+        reason: "CHILD_SAFETY"
+      });
+    });
+
+    const unauth = testEnv.unauthenticatedContext();
+    await assertFails(
+      unauth.firestore().collection("admin_alerts").doc("report_art1").get()
+    );
+  });
+
+  it("admin_alerts: should deny all client writes to admin_alerts (for both admins and regular users)", async () => {
+    const admin_uid = "admin_alerts_writer";
+
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      await db.collection("users").doc(admin_uid).collection("private").doc("settings").set({
+        isAdmin: true
+      });
+    });
+
+    const adminUser = testEnv.authenticatedContext(admin_uid);
+    await assertFails(
+      adminUser.firestore().collection("admin_alerts").doc("report_art1").set({
+        alertId: "report_art1",
+        reason: "CHILD_SAFETY"
+      })
+    );
+
+    const bob = testEnv.authenticatedContext("bob");
+    await assertFails(
+      bob.firestore().collection("admin_alerts").doc("report_art1").set({
+        alertId: "report_art1",
+        reason: "CHILD_SAFETY"
+      })
+    );
+  });
 });

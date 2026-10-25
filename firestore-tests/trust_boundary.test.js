@@ -30,6 +30,7 @@ describe("Trust Boundary Hardening", () => {
   });
 
   async function setupFixtures(db, { users = [], artifacts = [], engagements = [], registryEntries = [] }) {
+    await db.collection("system").doc("config").set({ publishingEnabled: true });
     for (const u of users) {
       await db.collection("users").doc(u.uid).set({
         identityMetadata: { identityResetVersion: 0 },

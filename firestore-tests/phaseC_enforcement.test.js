@@ -34,6 +34,7 @@ describe("Phase C: Firestore Rules Authorization Policy Verification", () => {
   const sessionAlice = "session_alice_123";
 
   async function setupAlice(db) {
+    await db.collection("system").doc("config").set({ publishingEnabled: true });
     await db.collection("users").doc(aliceId).set({
       anonymousId: "alice_anon",
       anonymousName: "Alice",

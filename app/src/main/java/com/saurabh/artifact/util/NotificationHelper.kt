@@ -70,6 +70,10 @@ object NotificationHelper {
     const val CHANNEL_NAME_PLAYBACK = "Playback"
     const val CHANNEL_DESC_PLAYBACK = "Controls and status for your listening experience."
 
+    const val CHANNEL_ID_CRITICAL_ALERTS = "critical_alerts"
+    const val CHANNEL_NAME_CRITICAL_ALERTS = "Safety Alerts"
+    const val CHANNEL_DESC_CRITICAL_ALERTS = "Critical notifications regarding content moderation and safety."
+
     const val UPLOAD_NOTIFICATION_ID = 3001
     const val REMINDER_NOTIFICATION_ID = 4001
 
@@ -136,9 +140,18 @@ object NotificationHelper {
                 description = CHANNEL_DESC_PLAYBACK
                 setShowBadge(false)
             }
+
+            // Create Critical Alerts Channel (IMPORTANCE_HIGH)
+            val criticalAlertsChannel = NotificationChannel(
+                CHANNEL_ID_CRITICAL_ALERTS,
+                CHANNEL_NAME_CRITICAL_ALERTS,
+                NotificationManager.IMPORTANCE_HIGH,
+            ).apply {
+                description = CHANNEL_DESC_CRITICAL_ALERTS
+            }
             
             notificationManager.createNotificationChannels(
-                listOf(interactionsChannel, resonancesChannel, remindersChannel, uploadsChannel, exportsChannel, playbackChannel)
+                listOf(interactionsChannel, resonancesChannel, remindersChannel, uploadsChannel, exportsChannel, playbackChannel, criticalAlertsChannel)
             )
         }
     }
@@ -367,14 +380,26 @@ object NotificationHelper {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
+            val priority = if (channelId == CHANNEL_ID_CRITICAL_ALERTS) {
+                NotificationCompat.PRIORITY_HIGH
+            } else {
+                NotificationCompat.PRIORITY_DEFAULT
+            }
+
+            val category = if (channelId == CHANNEL_ID_CRITICAL_ALERTS) {
+                NotificationCompat.CATEGORY_ALARM
+            } else {
+                NotificationCompat.CATEGORY_SOCIAL
+            }
+
             val notification = NotificationCompat.Builder(context, channelId)
                 .setContentTitle(title)
                 .setContentText(message)
                 .setSmallIcon(R.mipmap.ic_launcher)
                 .setAutoCancel(true)
                 .setContentIntent(pendingIntent)
-                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-                .setCategory(NotificationCompat.CATEGORY_SOCIAL)
+                .setPriority(priority)
+                .setCategory(category)
                 .build()
 
             NotificationManagerCompat.from(context).notify(requestCode, notification)

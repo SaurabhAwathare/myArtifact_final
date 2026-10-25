@@ -1730,6 +1730,29 @@ export const onReportWrite = functions.firestore
         }, {merge: true});
       }
 
+      // 7.5. Atomic Critical Admin Alert Creation (CHILD_SAFETY)
+      if (afterData && afterData.reason === "CHILD_SAFETY") {
+        const alertRef = db.collection("admin_alerts").doc(`report_${reportId}`);
+        const alertDoc = await transaction.get(alertRef);
+        if (!alertDoc.exists) {
+          transaction.set(alertRef, {
+            alertId: `report_${reportId}`,
+            reportId: reportId,
+            artifactId: artifactId,
+            reason: "CHILD_SAFETY",
+            severity: "CRITICAL",
+            createdAt: FieldValue.serverTimestamp(),
+            dispatchState: "PENDING",
+            dispatchAttempts: 0,
+            lastAttemptAt: null,
+            acknowledged: false,
+            acknowledgedBy: null,
+            acknowledgedAt: null,
+          });
+          logger.info(`[MODERATION] Atomic admin alert created | ReportID=${reportId}`);
+        }
+      }
+
       // 8. Finalize Idempotency
       transaction.set(idempotencyRef, {
         status: "SUCCESS",
@@ -3112,4 +3135,424 @@ export const claimFirstDevice = functions.https.onCall(claimFirstDeviceHandler);
  * Explicit Session Transfer Callable Function.
  */
 export const transferActiveSession = functions.https.onCall(transferActiveSessionHandler);
+
+/**
+ * Authoritatively dispatches critical moderation push notifications to authorized admins.
+ * Implements bounded retries, safe FCM token cleanup, and privacy-minimal payloads.
+ */
+export const CLAIM_TIMEOUT_MS = 5 * 60 * 1000;
+
+/**
+ * Verifies that a settings document path matches canonical `users/{uid}/private/settings`.
+ */
+export function isCanonicalAdminSettingsPath(path: string): boolean {
+  const parts = path.split("/");
+  return (
+    parts.length === 4 &&
+    parts[0] === "users" &&
+    parts[2] === "private" &&
+    parts[3] === "settings" &&
+    parts[1].trim().length > 0
+  );
+}
+
+/**
+ * Authoritatively dispatches critical moderation push notifications to authorized admins.
+ * Implements bounded retries, safe FCM token cleanup, privacy-minimal payloads,
+ * atomic claim transactions, canonical path validation, and missing-token recovery.
+ */
+export async function dispatchAdminAlert(
+  db: admin.firestore.Firestore,
+  alertId: string,
+  alertData?: any
+): Promise<void> {
+  const alertRef = db.collection("admin_alerts").doc(alertId);
+  const claimId = `claim_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+  // 1. Atomic Firestore Transaction to Claim Alert
+  const claimResult = await db.runTransaction(async (transaction) => {
+    const alertSnap = await transaction.get(alertRef);
+    if (!alertSnap.exists) {
+      return null;
+    }
+
+    const data = alertSnap.data() || {};
+    const currentState = data.dispatchState || "PENDING";
+    const currentAttempts = typeof data.dispatchAttempts === "number" ? data.dispatchAttempts : 0;
+
+    if (currentAttempts >= 3) {
+      if (currentState !== "EXHAUSTED") {
+        transaction.update(alertRef, {
+          dispatchState: "EXHAUSTED",
+          lastAttemptAt: FieldValue.serverTimestamp(),
+          failureReason: "MAX_RETRIES_EXCEEDED",
+        });
+      }
+      return null;
+    }
+
+    const nowMillis = Date.now();
+    let canClaim = false;
+
+    if (["PENDING", "FAILED", "NO_RECIPIENT"].includes(currentState)) {
+      canClaim = true;
+    } else if (currentState === "CLAIMED") {
+      const claimedAt = data.claimedAt;
+      let claimedTimeMillis = 0;
+      if (claimedAt && typeof claimedAt.toMillis === "function") {
+        claimedTimeMillis = claimedAt.toMillis();
+      } else if (claimedAt instanceof Date) {
+        claimedTimeMillis = claimedAt.getTime();
+      } else if (typeof claimedAt === "number") {
+        claimedTimeMillis = claimedAt;
+      }
+
+      if (claimedTimeMillis > 0 && (nowMillis - claimedTimeMillis) > CLAIM_TIMEOUT_MS) {
+        canClaim = true;
+        logger.warn(`[ADMIN_ALERT] Recovering abandoned claim | AlertID=${alertId} | StaleClaimId=${data.claimId}`);
+      }
+    }
+
+    if (!canClaim) {
+      return null;
+    }
+
+    transaction.update(alertRef, {
+      dispatchState: "CLAIMED",
+      claimedAt: FieldValue.serverTimestamp(),
+      claimId: claimId,
+      lastAttemptAt: FieldValue.serverTimestamp(),
+    });
+
+    return {
+      alertData: data,
+      currentAttempts,
+      claimId,
+    };
+  });
+
+  if (!claimResult) {
+    return; // Cannot claim: already claimed, exhausted, or not found
+  }
+
+  const { currentAttempts } = claimResult;
+  const effectiveAlertData = alertData || claimResult.alertData || {};
+
+  // 2. Fetch authorized admin settings (Authoritative & Canonical Path Check)
+  const adminSettingsSnap = await db
+    .collectionGroup("settings")
+    .where("isAdmin", "==", true)
+    .get();
+
+  const recipients: { ref: admin.firestore.DocumentReference; token: string }[] = [];
+  adminSettingsSnap.forEach((doc) => {
+    const data = doc.data();
+    if (
+      isCanonicalAdminSettingsPath(doc.ref.path) &&
+      data &&
+      data.isAdmin === true &&
+      typeof data.fcmToken === "string" &&
+      data.fcmToken.trim().length > 0
+    ) {
+      recipients.push({ ref: doc.ref, token: data.fcmToken.trim() });
+    }
+  });
+
+  if (recipients.length === 0) {
+    logger.warn(`[ADMIN_ALERT] No valid admin FCM tokens found | AlertID=${alertId}`);
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(alertRef);
+      if (snap.exists && snap.data()?.claimId === claimId) {
+        tx.update(alertRef, {
+          dispatchState: "NO_RECIPIENT",
+          lastAttemptAt: FieldValue.serverTimestamp(),
+          failureReason: "NO_VALID_RECIPIENT_TOKENS",
+        });
+      }
+    });
+    return;
+  }
+
+  const tokens = recipients.map((r) => r.token);
+  // Privacy-Minimal Payload (No reporter identity, report text, audio URLs, emails, or auth tokens)
+  const payload: admin.messaging.MulticastMessage = {
+    tokens: tokens,
+    notification: {
+      title: "Critical Moderation Alert",
+      body: "A critical safety report requires immediate attention.",
+    },
+    data: {
+      alertId: alertId,
+      reportId: effectiveAlertData.reportId || "",
+      artifactId: effectiveAlertData.artifactId || "",
+      severity: effectiveAlertData.severity || "CRITICAL",
+      type: "CRITICAL_MODERATION_ALERT",
+    },
+    android: {
+      priority: "high",
+      notification: {
+        channelId: "critical_alerts",
+        priority: "max",
+      },
+    },
+  };
+
+  try {
+    const response = await admin.messaging().sendEachForMulticast(payload);
+    let successCount = 0;
+    const invalidTokenErrorCodes = [
+      "messaging/registration-token-not-registered",
+      "messaging/invalid-registration-token",
+    ];
+
+    const cleanupPromises: Promise<any>[] = [];
+
+    response.responses.forEach((res, index) => {
+      if (res.success) {
+        successCount++;
+      } else if (res.error) {
+        const errorCode = res.error.code;
+        if (invalidTokenErrorCodes.includes(errorCode) && isCanonicalAdminSettingsPath(recipients[index].ref.path)) {
+          logger.warn(
+            `[ADMIN_ALERT] Deleting invalid FCM token for admin doc: ${recipients[index].ref.path}`
+          );
+          cleanupPromises.push(
+            recipients[index].ref.update({
+              fcmToken: FieldValue.delete(),
+            }).catch((err) => {
+              logger.error("[ADMIN_ALERT] Failed to delete invalid token", err);
+            })
+          );
+        } else {
+          logger.warn(
+            `[ADMIN_ALERT] FCM send failed for token (transient) | Code=${errorCode}`
+          );
+        }
+      }
+    });
+
+    await Promise.all(cleanupPromises);
+
+    const newAttempts = currentAttempts + 1;
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(alertRef);
+      if (!snap.exists) return;
+      const data = snap.data() || {};
+      if (data.claimId === claimId) {
+        if (successCount > 0) {
+          tx.update(alertRef, {
+            dispatchState: "DISPATCHED",
+            dispatchAttempts: newAttempts,
+            lastAttemptAt: FieldValue.serverTimestamp(),
+            dispatchedAt: FieldValue.serverTimestamp(),
+          });
+          logger.info(`[ADMIN_ALERT] Alert dispatched successfully | AlertID=${alertId} | Successes=${successCount}`);
+        } else {
+          const nextState = newAttempts >= 3 ? "EXHAUSTED" : "FAILED";
+          tx.update(alertRef, {
+            dispatchState: nextState,
+            dispatchAttempts: newAttempts,
+            lastAttemptAt: FieldValue.serverTimestamp(),
+            ...(nextState === "EXHAUSTED" ? { failureReason: "FCM_DELIVERY_FAILED_ALL_RECIPIENTS" } : {}),
+          });
+          logger.warn(`[ADMIN_ALERT] All FCM sends failed | AlertID=${alertId} | Attempts=${newAttempts}`);
+        }
+      }
+    });
+  } catch (error: any) {
+    logger.error(`[ADMIN_ALERT] Exception during FCM dispatch | AlertID=${alertId}`, error);
+    const newAttempts = currentAttempts + 1;
+    const nextState = newAttempts >= 3 ? "EXHAUSTED" : "FAILED";
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(alertRef);
+      if (!snap.exists) return;
+      const data = snap.data() || {};
+      if (data.claimId === claimId) {
+        tx.update(alertRef, {
+          dispatchState: nextState,
+          dispatchAttempts: newAttempts,
+          lastAttemptAt: FieldValue.serverTimestamp(),
+          ...(nextState === "EXHAUSTED" ? { failureReason: "FCM_DISPATCH_EXCEPTION" } : {}),
+        });
+      }
+    });
+  }
+}
+
+/**
+ * Dedicated trigger on creation of a critical admin alert.
+ * Uses .onCreate to guarantee single execution per document without re-entrant trigger loops.
+ */
+export const onAdminAlertCreate = functions.firestore
+  .document("admin_alerts/{alertId}")
+  .onCreate(async (snapshot, context) => {
+    const alertData = snapshot.data();
+    if (!alertData || alertData.dispatchState !== "PENDING") {
+      return null;
+    }
+    const alertId = context.params.alertId;
+    await dispatchAdminAlert(admin.firestore(), alertId, alertData);
+    return null;
+  });
+
+/**
+ * Scheduled sweep to recover pending, failed, no-recipient, or abandoned admin alerts.
+ * Runs every 15 minutes and retries dispatches with bounded attempts (< 3).
+ */
+export const sweepPendingAdminAlerts = functions.pubsub
+  .schedule("every 15 minutes")
+  .onRun(async () => {
+    const db = admin.firestore();
+    const snap = await db
+      .collection("admin_alerts")
+      .where("dispatchState", "in", ["PENDING", "FAILED", "NO_RECIPIENT", "CLAIMED"])
+      .get();
+
+    for (const doc of snap.docs) {
+      await dispatchAdminAlert(db, doc.id, doc.data());
+    }
+    return null;
+  });
+
+/**
+ * Lists critical admin safety alerts for authorized administrators.
+ * Returns minimal privacy-safe metadata, excluding sensitive user or report content.
+ */
+export const listAdminAlerts = functions.https.onCall(
+  async (data: any, context: functions.https.CallableContext) => {
+    if (!context.auth) {
+      throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
+    }
+
+    const callerUid = context.auth.uid;
+    const db = admin.firestore();
+
+    const adminSettings = await db
+      .collection("users")
+      .doc(callerUid)
+      .collection("private")
+      .doc("settings")
+      .get();
+
+    if (adminSettings.data()?.isAdmin !== true) {
+      logger.warn(`[ADMIN_ALERT_REVIEW] Unauthorized listAdminAlerts attempt | CallerID=${callerUid}`);
+      throw new functions.https.HttpsError("permission-denied", "Unauthorized: Admin access required.");
+    }
+
+    const includeAcknowledged = data?.all === true || data?.includeAcknowledged === true;
+    let query: admin.firestore.Query = db.collection("admin_alerts");
+    if (!includeAcknowledged) {
+      query = query.where("acknowledged", "==", false);
+    }
+
+    const snap = await query.get();
+
+    const alerts = snap.docs.map((doc) => {
+      const d = doc.data() || {};
+      return {
+        alertId: doc.id,
+        reportId: d.reportId || null,
+        artifactId: d.artifactId || null,
+        reason: d.reason || null,
+        severity: d.severity || null,
+        createdAt: d.createdAt?.toDate ? d.createdAt.toDate().toISOString() : d.createdAt || null,
+        dispatchState: d.dispatchState || null,
+        acknowledged: d.acknowledged === true,
+        acknowledgedBy: d.acknowledgedBy || null,
+        acknowledgedAt: d.acknowledgedAt?.toDate ? d.acknowledgedAt.toDate().toISOString() : d.acknowledgedAt || null,
+      };
+    });
+
+    return { alerts };
+  }
+);
+
+/**
+ * Acknowledges a critical admin safety alert by an authorized administrator.
+ * Performs atomic transaction updating admin_alerts and logging to moderation_audit_logs.
+ * Idempotent request handling preserves original acknowledgement identity & timestamp.
+ */
+export const acknowledgeAdminAlert = functions.https.onCall(
+  async (data: any, context: functions.https.CallableContext) => {
+    if (!context.auth) {
+      throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
+    }
+
+    const callerUid = context.auth.uid;
+    const alertId = data?.alertId;
+
+    if (!alertId || typeof alertId !== "string" || !alertId.trim()) {
+      throw new functions.https.HttpsError("invalid-argument", "Valid alertId is required.");
+    }
+
+    const db = admin.firestore();
+
+    const adminSettings = await db
+      .collection("users")
+      .doc(callerUid)
+      .collection("private")
+      .doc("settings")
+      .get();
+
+    if (adminSettings.data()?.isAdmin !== true) {
+      logger.warn(`[ADMIN_ALERT_REVIEW] Unauthorized acknowledgeAdminAlert attempt | CallerID=${callerUid} | AlertID=${alertId}`);
+      throw new functions.https.HttpsError("permission-denied", "Unauthorized: Admin access required.");
+    }
+
+    const alertRef = db.collection("admin_alerts").doc(alertId);
+
+    const result = await db.runTransaction(async (transaction) => {
+      const alertSnap = await transaction.get(alertRef);
+      if (!alertSnap.exists) {
+        throw new functions.https.HttpsError("not-found", `Alert with ID ${alertId} not found.`);
+      }
+
+      const alertData = alertSnap.data() || {};
+
+      if (alertData.acknowledged === true) {
+        return {
+          success: true,
+          alreadyAcknowledged: true,
+          alertId: alertId,
+          acknowledgedBy: alertData.acknowledgedBy,
+          acknowledgedAt: alertData.acknowledgedAt?.toDate
+            ? alertData.acknowledgedAt.toDate().toISOString()
+            : alertData.acknowledgedAt || null,
+        };
+      }
+
+      const now = FieldValue.serverTimestamp();
+
+      transaction.update(alertRef, {
+        acknowledged: true,
+        acknowledgedBy: callerUid,
+        acknowledgedAt: now,
+      });
+
+      const auditRef = db.collection("moderation_audit_logs").doc();
+      transaction.set(auditRef, {
+        action: "ACKNOWLEDGE_ADMIN_ALERT",
+        alertId: alertId,
+        reportId: alertData.reportId || null,
+        artifactId: alertData.artifactId || null,
+        acknowledgedBy: callerUid,
+        timestamp: now,
+      });
+
+      return {
+        success: true,
+        alreadyAcknowledged: false,
+        alertId: alertId,
+        acknowledgedBy: callerUid,
+        acknowledgedAt: new Date().toISOString(),
+      };
+    });
+
+    logger.info(`[ADMIN_ALERT_REVIEW] Alert acknowledged | AlertID=${alertId} | AdminID=${callerUid} | AlreadyAck=${result.alreadyAcknowledged}`);
+
+    return result;
+  }
+);
+
+
 

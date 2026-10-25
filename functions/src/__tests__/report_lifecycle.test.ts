@@ -171,7 +171,7 @@ describe("Report Lifecycle (v2) - Incremental", () => {
       expect(transaction.delete).toHaveBeenCalled();
     });
 
-    it("should apply CHILD_SAFETY override regardless of count", async () => {
+    it("should apply CHILD_SAFETY override regardless of count and atomically create admin_alert", async () => {
       const wrapped = testEnv.wrap(myFunctions.onReportWrite);
 
       const after = {
@@ -179,6 +179,70 @@ describe("Report Lifecycle (v2) - Incremental", () => {
           artifactId,
           reporterId,
           reason: "CHILD_SAFETY"
+        }),
+        exists: true
+      };
+
+      const change = {
+        before: { exists: false, data: () => null } as any,
+        after: after as any
+      };
+
+      const artifactRefMock = { path: `artifacts/${artifactId}` };
+
+      const transaction = {
+        get: jest.fn((ref: any) => {
+          if (ref === artifactRefMock) {
+            return Promise.resolve({ exists: true, data: () => ({ reportCount: 0, recommendationState: "ACTIVE" }) });
+          }
+          return Promise.resolve({ exists: false }); // idempotencyRef and alertRef return exists: false
+        }),
+        set: jest.fn(),
+        update: jest.fn(),
+        delete: jest.fn(),
+      };
+
+      // Mock db.collection("artifacts").doc(artifactId) to return artifactRefMock
+      const originalDoc = mockCollection.doc;
+      mockCollection.doc.mockImplementation((path: string) => {
+        if (path === artifactId) return artifactRefMock;
+        return mockDoc;
+      });
+
+      (db.runTransaction as any).mockImplementation(async (cb: any) => cb(transaction));
+
+      await wrapped(change as any, { params: { reportId }, eventId: "event_cs_1" });
+
+      mockCollection.doc = originalDoc;
+
+      expect(transaction.update).toHaveBeenCalledWith(artifactRefMock, expect.objectContaining({
+        recommendationState: "SUPPRESSED"
+      }));
+
+      // Verify atomic admin alert creation
+      expect(transaction.set).toHaveBeenCalledWith(
+        mockDoc,
+        expect.objectContaining({
+          alertId: `report_${reportId}`,
+          reportId: reportId,
+          artifactId: artifactId,
+          reason: "CHILD_SAFETY",
+          severity: "CRITICAL",
+          dispatchState: "PENDING",
+          dispatchAttempts: 0,
+          acknowledged: false,
+        })
+      );
+    });
+
+    it("should not create admin_alert for non-CHILD_SAFETY reports", async () => {
+      const wrapped = testEnv.wrap(myFunctions.onReportWrite);
+
+      const after = {
+        data: () => ({
+          artifactId,
+          reporterId,
+          reason: "SPAM"
         }),
         exists: true
       };
@@ -201,11 +265,13 @@ describe("Report Lifecycle (v2) - Incremental", () => {
       };
       (db.runTransaction as any).mockImplementation(async (cb: any) => cb(transaction));
 
-      await wrapped(change as any, { params: { reportId }, eventId: "event_cs_1" });
+      await wrapped(change as any, { params: { reportId }, eventId: "event_spam_1" });
 
-      expect(transaction.update).toHaveBeenCalledWith(mockDoc, expect.objectContaining({
-        recommendationState: "SUPPRESSED"
-      }));
+      // Should not set any alert document with reason CHILD_SAFETY
+      const alertSetCalls = (transaction.set as jest.Mock).mock.calls.filter((call: any) =>
+        call[1] && call[1].reason === "CHILD_SAFETY"
+      );
+      expect(alertSetCalls.length).toBe(0);
     });
   });
 
