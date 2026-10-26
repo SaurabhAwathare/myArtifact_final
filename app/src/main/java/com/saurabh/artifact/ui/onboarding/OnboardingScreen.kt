@@ -15,7 +15,6 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -40,7 +39,7 @@ import com.saurabh.artifact.R
 import com.saurabh.artifact.ui.splash.AnimatedWaveform
 import com.saurabh.artifact.ui.theme.GoldAura500
 import com.saurabh.artifact.ui.theme.Obsidian950
-import com.saurabh.artifact.ui.components.AuraLogo
+import com.saurabh.artifact.ui.components.HumanALogo
 import androidx.compose.ui.tooling.preview.Preview
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import kotlinx.coroutines.launch
@@ -152,7 +151,7 @@ fun OnboardingPage2() {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        AuraLogo(
+        HumanALogo(
             size = 100.dp,
             isPulsing = false // Static focus for identity concept
         )

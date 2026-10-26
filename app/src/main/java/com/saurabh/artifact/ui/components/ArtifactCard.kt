@@ -58,6 +58,7 @@ import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.ArtifactReactionCounts
 import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.model.ResolvedCreatorIdentity
+import com.saurabh.artifact.util.ArtifactTitleFormatter
 import com.saurabh.artifact.model.User
 import com.saurabh.artifact.ui.components.motion.PressableScale
 import com.saurabh.artifact.ui.feed.HydrationLevel
@@ -114,7 +115,13 @@ fun ArtifactCard(
         }
     }
 
-    val displayTitle = remember(artifact.title) { artifact.title.ifEmpty { "A quiet moment shared..." } }
+    val displayTitle = remember(artifact.title, artifact.episodeNumber) {
+        ArtifactTitleFormatter.formatTitle(
+            title = artifact.title,
+            episodeNumber = artifact.episodeNumber,
+            fallbackTitle = "A quiet moment shared..."
+        )
+    }
     
     val displayEmotionWithEmoji = remember(artifact.emotion) {
         val emotionEnum = com.saurabh.artifact.model.Emotion.entries.find { 
@@ -505,8 +512,16 @@ private fun LightweightArtifactCard(
                 Spacer(modifier = Modifier.height(Spacing.Medium))
             }
 
+            val displayTitle = remember(artifact.title, artifact.episodeNumber) {
+                ArtifactTitleFormatter.formatTitle(
+                    title = artifact.title,
+                    episodeNumber = artifact.episodeNumber,
+                    fallbackTitle = "A quiet moment shared..."
+                )
+            }
+
             Text(
-                text = artifact.title.ifEmpty { "A quiet moment shared..." },
+                text = displayTitle,
                 style = ArtifactTheme.typography.bodyLarge,
                 color = ArtifactTheme.colors.onSurfaceMain.copy(alpha = 0.7f),
                 maxLines = 1, // Minimize text traversal

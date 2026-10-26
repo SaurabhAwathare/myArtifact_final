@@ -56,6 +56,10 @@
     <string name="login_tagline">Pure expression. Private identity.</string>
     <string name="login_continue_google">Continue with Google</string>
     <string name="login_privacy_note">Your identity stays private through generated nicknames.</string>
+    <string name="session_conflict_title">Active Session on Another Device</string>
+    <string name="session_conflict_description">Your account is currently active on %s. Would you like to transfer the active session to this device?</string>
+    <string name="action_transfer_session">Transfer session to this device</string>
+    <string name="action_sign_out">Sign out</string>
 
     <!-- Onboarding -->
     <string name="onboarding_safe_space_title">A safe space for your authentic self.</string>

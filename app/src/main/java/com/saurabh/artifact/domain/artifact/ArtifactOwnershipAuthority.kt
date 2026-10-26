@@ -36,14 +36,15 @@ class ArtifactOwnershipAuthority @Inject constructor(
     }
 
     /**
-     * Checks if a specific user is the owner of the given artifact.
+     * Checks if a specific user is the owner of the given artifact, returning a Result
+     * so callers can distinguish a confirmed non-owner from a lookup failure or exception.
      *
      * @param artifactId The ID of the artifact to check.
      * @param userId The ID of the user to check against.
-     * @return True if the user is the owner, false otherwise.
+     * @return Result containing true if owner, false if confirmed non-owner, or failure if lookup failed.
      */
-    suspend fun isOwner(artifactId: String, userId: String): Boolean {
-        if (userId.isBlank()) return false
+    suspend fun isOwnerResult(artifactId: String, userId: String): Result<Boolean> {
+        if (userId.isBlank()) return Result.success(false)
         val currentUserId = userRepository.getCurrentUserId()
         val currentAnonId = authRepository.currentAnonymousId
         val result = artifactRepository.getArtifactById(artifactId)
@@ -51,6 +52,17 @@ class ArtifactOwnershipAuthority @Inject constructor(
         return result.map { artifact ->
             (artifact.userId.isNotEmpty() && artifact.userId == userId) ||
             (userId == currentUserId && artifact.author.anonymousId.isNotEmpty() && currentAnonId.isNotEmpty() && artifact.author.anonymousId == currentAnonId)
-        }.getOrDefault(false)
+        }
+    }
+
+    /**
+     * Checks if a specific user is the owner of the given artifact.
+     *
+     * @param artifactId The ID of the artifact to check.
+     * @param userId The ID of the user to check against.
+     * @return True if the user is the owner, false otherwise.
+     */
+    suspend fun isOwner(artifactId: String, userId: String): Boolean {
+        return isOwnerResult(artifactId, userId).getOrDefault(false)
     }
 }

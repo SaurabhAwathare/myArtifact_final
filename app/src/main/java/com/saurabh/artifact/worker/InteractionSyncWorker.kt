@@ -22,16 +22,22 @@ import com.saurabh.artifact.model.ReactionType
 import com.saurabh.artifact.model.SyncState
 import com.saurabh.artifact.repository.ArtifactLibraryRepository
 import com.saurabh.artifact.repository.ArtifactRepository
+import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.EngagementRepository
 import com.saurabh.artifact.repository.FirestoreEngagementRepository
 import com.saurabh.artifact.repository.ReactionRepository
 import com.saurabh.artifact.repository.UserRepository
 import com.saurabh.artifact.startup.StartupCoordinator
+import dagger.Lazy
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
 import java.util.concurrent.TimeUnit
 
 @HiltWorker
@@ -47,10 +53,110 @@ class InteractionSyncWorker @AssistedInject constructor(
     private val commentRepository: com.saurabh.artifact.repository.CommentRepository,
     private val userRepository: UserRepository,
     private val startupCoordinator: StartupCoordinator,
-    private val errorClassifier: InteractionErrorClassifier
+    private val errorClassifier: InteractionErrorClassifier,
+    private val authRepository: Lazy<AuthRepository>,
+    private val userSessionManager: Lazy<UserSessionManager>
 ) : CoroutineWorker(appContext, workerParams) {
 
-    private val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+    private val json = Json { ignoreUnknownKeys = true }
+
+    private suspend fun ensureSessionReady(currentUserId: String): Boolean {
+        val user = FirebaseAuth.getInstance().currentUser ?: return false
+        val authRepo = try {
+            authRepository.get()
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            null
+        } ?: return false
+
+        val sessionMgr = try {
+            userSessionManager.get()
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            null
+        } ?: return false
+
+        val localSessionId = try {
+            sessionMgr.localSessionId.firstOrNull()
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            null
+        }
+
+        if (localSessionId.isNullOrEmpty()) {
+            ArtifactLogger.w(
+                DiagnosticCategory.SYNC,
+                "SESSION_LOCAL_ID_MISSING",
+                mapOf("userId" to currentUserId)
+            )
+            return false
+        }
+
+        var tokenResult = try {
+            user.getIdToken(false).await()
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            ArtifactLogger.w(
+                DiagnosticCategory.SYNC,
+                "SESSION_TOKEN_FETCH_FAILED",
+                mapOf("userId" to currentUserId, "error" to (e.message ?: ""))
+            )
+            return false
+        }
+
+        var tokenClaim = tokenResult?.claims?.get("activeSessionId") as? String
+
+        if (tokenClaim == localSessionId) {
+            return true
+        }
+
+        ArtifactLogger.i(
+            DiagnosticCategory.SYNC,
+            "SESSION_TOKEN_STALE_REFRESHING",
+            mapOf("tokenClaim" to (tokenClaim ?: "null"), "localSessionId" to localSessionId)
+        )
+
+        val refreshSuccess = try {
+            authRepo.refreshSession().isSuccess
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            ArtifactLogger.w(
+                DiagnosticCategory.SYNC,
+                "SESSION_TOKEN_REFRESH_FAILED",
+                mapOf("userId" to currentUserId, "error" to (e.message ?: ""))
+            )
+            false
+        }
+
+        if (!refreshSuccess) {
+            return false
+        }
+
+        tokenResult = try {
+            user.getIdToken(false).await()
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            ArtifactLogger.w(
+                DiagnosticCategory.SYNC,
+                "SESSION_TOKEN_POST_REFRESH_FETCH_FAILED",
+                mapOf("userId" to currentUserId, "error" to (e.message ?: ""))
+            )
+            return false
+        }
+
+        tokenClaim = tokenResult?.claims?.get("activeSessionId") as? String
+
+        if (tokenClaim != localSessionId) {
+            ArtifactLogger.w(
+                DiagnosticCategory.SYNC,
+                "SESSION_TOKEN_STALE_AFTER_REFRESH",
+                mapOf("tokenClaim" to (tokenClaim ?: "null"), "localSessionId" to localSessionId)
+            )
+            return false
+        }
+
+        return true
+    }
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         // WORKER LOCK: Ensure database encryption is ready before proceeding
@@ -59,6 +165,15 @@ class InteractionSyncWorker @AssistedInject constructor(
         val currentUserId = FirebaseAuth.getInstance().currentUser?.uid ?: return@withContext Result.failure()
         ArtifactLogger.i(DiagnosticCategory.WORKER, "SYNC_STARTED", mapOf("worker" to "InteractionSyncWorker", "uid" to currentUserId))
         
+        if (!ensureSessionReady(currentUserId)) {
+            ArtifactLogger.w(
+                DiagnosticCategory.WORKER,
+                "SYNC_RETRY_SESSION_NOT_READY",
+                mapOf("worker" to "InteractionSyncWorker", "uid" to currentUserId)
+            )
+            return@withContext Result.retry()
+        }
+
         // 0. Reclaim any records stuck in SYNCING state from a previous interrupted process
         val reclaimedCount = engagementRepository.reclaimOrphanedSyncs()
         if (reclaimedCount > 0) {

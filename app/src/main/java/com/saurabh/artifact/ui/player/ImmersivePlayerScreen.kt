@@ -34,6 +34,7 @@ import com.saurabh.artifact.ui.components.EmotionTagsGroup
 import com.saurabh.artifact.ui.player.components.*
 import com.saurabh.artifact.ui.theme.GoldAura400
 import com.saurabh.artifact.ui.theme.Obsidian950
+import com.saurabh.artifact.util.ArtifactTitleFormatter
 import com.saurabh.artifact.ui.player.components.ReviewInteractionLayer
 import kotlin.math.roundToInt
 
@@ -247,7 +248,9 @@ fun ImmersivePlayerScreen(
             ) {
                 // Identity Block (Title & Creator) - Prominent & Left-aligned
                 if (!showTranscript) {
-                    val title = playableArtifact?.title ?: artifact?.title ?: "Untitled"
+                    val rawTitle = playableArtifact?.title ?: artifact?.title
+                    val episodeNum = playableArtifact?.episodeNumber ?: artifact?.episodeNumber
+                    val title = ArtifactTitleFormatter.formatTitle(rawTitle, episodeNum, fallbackTitle = "Artifact")
                     
                     Column(
                         modifier = Modifier

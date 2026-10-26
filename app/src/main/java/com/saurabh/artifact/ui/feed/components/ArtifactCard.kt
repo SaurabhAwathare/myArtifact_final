@@ -54,6 +54,7 @@ import com.saurabh.artifact.ui.components.ArtifactSigil
 import com.saurabh.artifact.ui.theme.GoldAura500
 import com.saurabh.artifact.ui.theme.Obsidian900
 import com.saurabh.artifact.ui.util.FeedbackUtils
+import com.saurabh.artifact.util.ArtifactTitleFormatter
 import com.saurabh.artifact.util.TimeUtils
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
@@ -143,8 +144,16 @@ fun ArtifactCard(
             Spacer(modifier = Modifier.height(20.dp))
 
             // Middle: Title & Waveform
+            val displayTitle = remember(artifact.title, artifact.episodeNumber) {
+                ArtifactTitleFormatter.formatTitle(
+                    title = artifact.title,
+                    episodeNumber = artifact.episodeNumber,
+                    fallbackTitle = "A quiet moment shared..."
+                )
+            }
+
             Text(
-                text = artifact.title.ifEmpty { "A quiet moment shared..." },
+                text = displayTitle,
                 style = MaterialTheme.typography.headlineSmall,
                 color = if (isPlaying) GoldAura500 else Color.White
             )

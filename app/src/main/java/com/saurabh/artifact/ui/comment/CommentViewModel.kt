@@ -44,6 +44,7 @@ import com.saurabh.artifact.data.local.DeadLetterInteractionEntity
 import com.saurabh.artifact.data.local.InteractionType
 import com.saurabh.artifact.data.remote.model.CommentPayload
 import com.saurabh.artifact.model.CommentStatus
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
 
@@ -490,44 +491,78 @@ class CommentViewModel @Inject constructor(
      */
     fun submitComment(text: String) {
         android.util.Log.d("CommentVM", "submitComment: text=$text, artifactId=$artifactId")
-        if (artifactId.isEmpty() || _uiState.value.isSubmitting) return
+        if (artifactId.isEmpty()) return
+
+        var admitted = false
+        _uiState.update { currentState ->
+            if (currentState.isSubmitting) {
+                admitted = false
+                currentState
+            } else {
+                admitted = true
+                currentState.copy(isSubmitting = true, submissionError = null)
+            }
+        }
+
+        if (!admitted) return
+
+        val currentUnlockState = _uiState.value.unlockState
+        if (!isOwner && currentUnlockState != CommentUnlockState.UNLOCKED) {
+            _uiState.update { it.copy(isSubmitting = false) }
+            diagnosticLogger.warn(
+                DiagnosticCategory.COMMENT,
+                "COMMENT_SUBMISSION_REJECTED_LOCKED",
+                mapOf(LogKeys.ARTIFACT_ID to artifactId, "unlockState" to currentUnlockState.name, "isOwner" to isOwner)
+            )
+            viewModelScope.launch {
+                _events.emit(CommentUiEvent.SubmissionFailed("Comments are locked until listening is complete."))
+            }
+            return
+        }
 
         viewModelScope.launch {
-            _uiState.update { it.copy(isSubmitting = true, submissionError = null) }
+            try {
+                val requestUid = currentUid
+                addCommentUseCase(artifactId, text)
+                    .onSuccess { newComment ->
+                        if (currentUid != requestUid) {
+                            diagnosticLogger.warn(DiagnosticCategory.COMMENT, "STALE_SUBMISSION_REJECTED", mapOf("reason" to "uid_mismatch"))
+                            _uiState.update { it.copy(isSubmitting = false) }
+                            return@launch
+                        }
 
-            val requestUid = currentUid
-            addCommentUseCase(artifactId, text)
-                .onSuccess { newComment ->
-                    if (currentUid != requestUid) {
-                        diagnosticLogger.warn(DiagnosticCategory.COMMENT, "STALE_SUBMISSION_REJECTED", mapOf("reason" to "uid_mismatch"))
-                        return@launch
+                        Log.d("CommentVM", "submitComment success: id=${newComment.id}, artifactId=$artifactId")
+                        // Opting for refreshing or merging? 
+                        // To ensure consistency with Firestore ordering, merging at the top for immediate feedback
+                        _uiState.update { 
+                            it.copy(
+                                comments = (listOf(newComment) + it.comments).distinctBy { comment -> comment.id },
+                                isSubmitting = false
+                            )
+                        }
+                        resolveIdentitiesForComments(listOf(newComment))
+                        _events.emit(CommentUiEvent.CommentSubmitted)
                     }
-
-                    android.util.Log.d("CommentVM", "submitComment success: id=${newComment.id}, artifactId=$artifactId")
-                    // Opting for refreshing or merging? 
-                    // To ensure consistency with Firestore ordering, merging at the top for immediate feedback
-                    _uiState.update { 
-                        it.copy(
-                            comments = (listOf(newComment) + it.comments).distinctBy { comment -> comment.id },
-                            isSubmitting = false
-                        )
+                    .onFailure { error ->
+                        if (currentUid != requestUid) {
+                            _uiState.update { it.copy(isSubmitting = false) }
+                            return@launch
+                        }
+                        val appError = AppError.from(error)
+                        Log.e("CommentVM", "submitComment failed: artifactId=$artifactId, error=${appError.technicalMessage}", error)
+                        
+                        _uiState.update { 
+                            it.copy(
+                                isSubmitting = false,
+                                submissionError = appError
+                            )
+                        }
+                        _events.emit(CommentUiEvent.SubmissionFailed(appError.technicalMessage))
                     }
-                    resolveIdentitiesForComments(listOf(newComment))
-                    _events.emit(CommentUiEvent.CommentSubmitted)
-                }
-                .onFailure { error ->
-                    if (currentUid != requestUid) return@launch
-                    val appError = AppError.from(error)
-                    android.util.Log.e("CommentVM", "submitComment failed: artifactId=$artifactId, error=${appError.technicalMessage}", error)
-                    
-                    _uiState.update { 
-                        it.copy(
-                            isSubmitting = false,
-                            submissionError = appError
-                        )
-                    }
-                    _events.emit(CommentUiEvent.SubmissionFailed(appError.technicalMessage))
-                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isSubmitting = false) }
+                if (e is CancellationException) throw e
+            }
         }
     }
 

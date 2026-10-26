@@ -35,7 +35,7 @@ import androidx.compose.ui.zIndex
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.ui.components.ArtifactCard
 import com.saurabh.artifact.ui.components.AmbientUploadBar
-import com.saurabh.artifact.ui.components.EmberLogo
+import com.saurabh.artifact.ui.components.HumanALogo
 import com.saurabh.artifact.ui.components.CrisisSupportCard
 import com.saurabh.artifact.ui.components.EmotionList
 import com.saurabh.artifact.ui.components.state.EmptyFeedState
@@ -583,7 +583,7 @@ fun BreathBreakItem(modifier: Modifier = Modifier) {
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            EmberLogo(size = 12.dp, isPulsing = true)
+            HumanALogo(size = 24.dp, isPulsing = true)
             Spacer(Modifier.height(12.dp))
             Text(
                 "take a breath",

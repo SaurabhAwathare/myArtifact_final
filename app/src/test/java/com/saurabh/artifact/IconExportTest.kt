@@ -2,6 +2,7 @@ package com.saurabh.artifact
 
 import android.app.Application
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -26,21 +27,18 @@ class IconExportTest {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         
         val size = 512
+        val backgroundColor = ContextCompat.getColor(context, R.color.launcher_background)
+        assert(backgroundColor == Color.parseColor("#050505")) {
+            "Launcher background color must be #050505, but was ${String.format("#%06X", 0xFFFFFF and backgroundColor)}"
+        }
+
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
-
-        // 1. Draw Background
-        // We know from inspection it's @color/obsidian_950 (#0F0F0F)
-        val backgroundColor = ContextCompat.getColor(context, R.color.obsidian_950)
         canvas.drawColor(backgroundColor)
 
-        // 2. Draw Foreground
         val foreground = ContextCompat.getDrawable(context, R.drawable.ic_launcher_foreground)
         requireNotNull(foreground) { "Foreground drawable not found" }
 
-        // Adaptive icon foregrounds are designed for a 108x108 viewport
-        // where the "safe zone" is the center. 
-        // For a Play Store icon, we want the full 512x512 to match the adaptive icon's layers.
         foreground.setBounds(0, 0, size, size)
         foreground.draw(canvas)
 

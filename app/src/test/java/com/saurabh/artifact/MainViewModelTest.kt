@@ -87,7 +87,7 @@ class MainViewModelTest {
         terminalErrorFlow.value = null
         every { authRepository.currentUser } returns testAuthFlow
         every { authRepository.currentUserId } answers { testAuthFlow.value?.uid ?: "" }
-        coEvery { authRepository.awaitAuthRestoration() } returns Unit
+        coEvery { authRepository.awaitAuthRestoration() } returns true
         every { authRepository.isRestored } returns MutableStateFlow(true)
         every { observeStealthModeUseCase.invoke() } returns flowOf(false)
         every { startupCoordinator.stage } returns MutableStateFlow(com.saurabh.artifact.startup.StartupStage.ARRIVAL)

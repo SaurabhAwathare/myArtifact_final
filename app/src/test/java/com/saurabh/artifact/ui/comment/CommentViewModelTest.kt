@@ -75,7 +75,7 @@ class CommentViewModelTest {
         coEvery { getCommentsUseCase(any(), any(), any()) } returns Result.success(
             PaginatedComments(emptyList(), null),
         )
-        coEvery { ownershipAuthority.isCurrentUserOwner(any()) } returns false
+        coEvery { ownershipAuthority.isCurrentUserOwner(any()) } returns true
         coEvery { userRepository.resolveCreatorProfilesBatch(any()) } returns emptyMap()
         every { engagementRepository.observeEngagementEvidence(any()) } returns flowOf(null)
         every { authRepository.currentUser } returns currentUserFlow
@@ -344,8 +344,87 @@ class CommentViewModelTest {
     }
 
     @Test
+    fun `submitComment when non owner and locked is rejected with SubmissionFailed`() = runTest {
+        val artifactId = "locked-artifact"
+        coEvery { ownershipAuthority.isCurrentUserOwner(artifactId) } returns false
+        every { engagementRepository.observeEngagementEvidence(artifactId) } returns flowOf(null)
+
+        viewModel.initialize(artifactId, forceRefresh = true)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val events = mutableListOf<CommentUiEvent>()
+        val job = launch { viewModel.events.collect { events.add(it) } }
+
+        viewModel.submitComment("Attempt locked comment")
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(1, events.size)
+        Assert.assertTrue(events[0] is CommentUiEvent.SubmissionFailed)
+        val failureEvent = events[0] as CommentUiEvent.SubmissionFailed
+        assertEquals("Comments are locked until listening is complete.", failureEvent.error)
+
+        job.cancel()
+    }
+
+    @Test
+    fun `submitComment when non owner and unlocked is allowed`() = runTest {
+        val artifactId = "unlocked-artifact"
+        coEvery { ownershipAuthority.isCurrentUserOwner(artifactId) } returns false
+        
+        val unlockedEvidence = EngagementEvidence(
+            artifactId = artifactId,
+            versionTag = "v1",
+            durationMs = 10000L,
+            unlockStatus = UnlockStatus(isCommentUnlocked = true)
+        )
+        every { engagementRepository.observeEngagementEvidence(artifactId) } returns flowOf(unlockedEvidence)
+
+        val newComment = Comment(id = "comment-101", artifactId = artifactId, text = "Valid comment")
+        coEvery { addCommentUseCase(artifactId, "Valid comment") } returns Result.success(newComment)
+
+        viewModel.initialize(artifactId, forceRefresh = true)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val events = mutableListOf<CommentUiEvent>()
+        val job = launch { viewModel.events.collect { events.add(it) } }
+
+        viewModel.submitComment("Valid comment")
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(1, events.size)
+        Assert.assertTrue(events[0] is CommentUiEvent.CommentSubmitted)
+
+        job.cancel()
+    }
+
+    @Test
+    fun `submitComment when owner is allowed regardless of engagement evidence`() = runTest {
+        val artifactId = "owned-artifact"
+        coEvery { ownershipAuthority.isCurrentUserOwner(artifactId) } returns true
+        every { engagementRepository.observeEngagementEvidence(artifactId) } returns flowOf(null)
+
+        val newComment = Comment(id = "comment-owner", artifactId = artifactId, text = "Owner comment")
+        coEvery { addCommentUseCase(artifactId, "Owner comment") } returns Result.success(newComment)
+
+        viewModel.initialize(artifactId, forceRefresh = true)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val events = mutableListOf<CommentUiEvent>()
+        val job = launch { viewModel.events.collect { events.add(it) } }
+
+        viewModel.submitComment("Owner comment")
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(1, events.size)
+        Assert.assertTrue(events[0] is CommentUiEvent.CommentSubmitted)
+
+        job.cancel()
+    }
+
+    @Test
     fun `synced incomplete evidence with authoritative remote locked results in LOCKED`() = runTest {
         val artifactId = "incomplete-artifact"
+        coEvery { ownershipAuthority.isCurrentUserOwner(artifactId) } returns false
         val evidence = EngagementEvidence(
             artifactId = artifactId,
             versionTag = "v1",
@@ -367,6 +446,7 @@ class CommentViewModelTest {
     @Test
     fun `pending verification before remote result results in VERIFYING`() = runTest {
         val artifactId = "pending-artifact"
+        coEvery { ownershipAuthority.isCurrentUserOwner(artifactId) } returns false
         val evidence = EngagementEvidence(
             artifactId = artifactId,
             versionTag = "v1",
@@ -388,6 +468,7 @@ class CommentViewModelTest {
     @Test
     fun `authoritative remote unlocked results in UNLOCKED`() = runTest {
         val artifactId = "unlocked-artifact"
+        coEvery { ownershipAuthority.isCurrentUserOwner(artifactId) } returns false
         val evidence = EngagementEvidence(
             artifactId = artifactId,
             versionTag = "v1",
@@ -409,6 +490,7 @@ class CommentViewModelTest {
     @Test
     fun `no 30 second timeout when backend explicitly confirmed locked`() = runTest {
         val artifactId = "explicit-locked-artifact"
+        coEvery { ownershipAuthority.isCurrentUserOwner(artifactId) } returns false
         val evidence = EngagementEvidence(
             artifactId = artifactId,
             versionTag = "v1",
@@ -662,6 +744,8 @@ class CommentViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         viewModel.submitComment("First comment")
+        testDispatcher.scheduler.advanceUntilIdle()
+
         viewModel.submitComment("Second comment")
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -869,5 +953,68 @@ class CommentViewModelTest {
 
         verify { deadLetterInteractionDao.observeDeadLettersForArtifact("art-A", "user-123", InteractionType.COMMENT) }
         verify { deadLetterInteractionDao.observeDeadLettersForArtifact("art-B", "user-123", InteractionType.COMMENT) }
+    }
+
+    @Test
+    fun `two rapid repeated submitComment calls invoke addCommentUseCase at most once`() = runTest {
+        val artifactId = "unlocked-artifact"
+        coEvery { ownershipAuthority.isCurrentUserOwner(artifactId) } returns false
+        
+        val unlockedEvidence = EngagementEvidence(
+            artifactId = artifactId,
+            versionTag = "v1",
+            durationMs = 10000L,
+            unlockStatus = UnlockStatus(isCommentUnlocked = true)
+        )
+        every { engagementRepository.observeEngagementEvidence(artifactId) } returns flowOf(unlockedEvidence)
+
+        val newComment = Comment(id = "comment-rapid", artifactId = artifactId, text = "Rapid comment")
+        coEvery { addCommentUseCase(artifactId, "Rapid comment") } coAnswers {
+            delay(500)
+            Result.success(newComment)
+        }
+
+        viewModel.initialize(artifactId, forceRefresh = true)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // Synchronously call submitComment twice in rapid succession
+        viewModel.submitComment("Rapid comment")
+        viewModel.submitComment("Rapid comment")
+
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 1) { addCommentUseCase(artifactId, "Rapid comment") }
+    }
+
+    @Test
+    fun `submission exception resets submission guard`() = runTest {
+        val artifactId = "unlocked-artifact"
+        coEvery { ownershipAuthority.isCurrentUserOwner(artifactId) } returns false
+        
+        val unlockedEvidence = EngagementEvidence(
+            artifactId = artifactId,
+            versionTag = "v1",
+            durationMs = 10000L,
+            unlockStatus = UnlockStatus(isCommentUnlocked = true)
+        )
+        every { engagementRepository.observeEngagementEvidence(artifactId) } returns flowOf(unlockedEvidence)
+
+        coEvery { addCommentUseCase(artifactId, "Fail first") } returns Result.failure(RuntimeException("Network error"))
+        
+        val newComment = Comment(id = "comment-retry", artifactId = artifactId, text = "Succeed second")
+        coEvery { addCommentUseCase(artifactId, "Succeed second") } returns Result.success(newComment)
+
+        viewModel.initialize(artifactId, forceRefresh = true)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.submitComment("Fail first")
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(false, viewModel.uiState.value.isSubmitting)
+
+        viewModel.submitComment("Succeed second")
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(1, viewModel.uiState.value.comments.size)
     }
 }

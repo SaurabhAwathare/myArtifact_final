@@ -5,12 +5,16 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Source
 import com.saurabh.artifact.data.local.InteractionAction
 import com.saurabh.artifact.data.local.InteractionType
+import com.saurabh.artifact.data.local.PendingInteractionDao
+import com.saurabh.artifact.data.local.PendingInteractionEntity
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.diagnostics.ArtifactLogger
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.LogKeys
+import com.saurabh.artifact.domain.artifact.ArtifactOwnershipAuthority
 import com.saurabh.artifact.worker.InteractionSyncWorker
 import dagger.Lazy
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -24,7 +28,8 @@ import javax.inject.Singleton
 class ReactionRepository @Inject constructor(
     @param:dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context,
     private val firestore: FirebaseFirestore,
-    private val pendingInteractionDao: Lazy<com.saurabh.artifact.data.local.PendingInteractionDao>
+    private val pendingInteractionDao: Lazy<PendingInteractionDao>,
+    private val ownershipAuthority: Lazy<ArtifactOwnershipAuthority>? = null
 ) {
 
     private val debounceMap = java.util.concurrent.ConcurrentHashMap<String, Long>()
@@ -39,6 +44,33 @@ class ReactionRepository @Inject constructor(
         userId: String,
         type: ReactionType
     ): Result<Unit> = withContext(Dispatchers.IO) {
+        val ownershipResult = try {
+            ownershipAuthority?.get()?.isOwnerResult(artifactId, userId)
+                ?: Result.failure(IllegalStateException("Ownership authority unavailable"))
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            Result.failure(e)
+        }
+
+        if (ownershipResult.isFailure) {
+            val error = ownershipResult.exceptionOrNull() ?: Exception("Ownership lookup failed")
+            ArtifactLogger.w(
+                DiagnosticCategory.RESONANCE,
+                "REACTION_OWNERSHIP_CHECK_FAILED",
+                mapOf(LogKeys.ARTIFACT_ID to artifactId, LogKeys.USER_ID to userId, "error" to (error.message ?: ""))
+            )
+            return@withContext Result.failure(error)
+        }
+
+        if (ownershipResult.getOrDefault(false)) {
+            ArtifactLogger.w(
+                DiagnosticCategory.RESONANCE,
+                "REACTION_REJECTED_OWNED_ARTIFACT",
+                mapOf(LogKeys.ARTIFACT_ID to artifactId, LogKeys.USER_ID to userId)
+            )
+            return@withContext Result.failure(IllegalArgumentException("Cannot react to your own artifact"))
+        }
+
         try {
             val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
                 userId = userId,
@@ -57,6 +89,7 @@ class ReactionRepository @Inject constructor(
             )
             Result.success(Unit)
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             ArtifactLogger.e(
                 DiagnosticCategory.RESONANCE, 
                 "REACTION_ENQUEUE_FAILED", 
@@ -93,6 +126,7 @@ class ReactionRepository @Inject constructor(
             )
             Result.success(Unit)
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             ArtifactLogger.e(
                 DiagnosticCategory.RESONANCE, 
                 "REACTION_REMOVAL_ENQUEUE_FAILED", 
@@ -143,6 +177,7 @@ class ReactionRepository @Inject constructor(
 
             Result.success(Unit)
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Result.failure(e)
         }
     }
@@ -171,6 +206,7 @@ class ReactionRepository @Inject constructor(
             pulseRef.delete().await()
             Result.success(Unit)
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Result.failure(e)
         }
     }
@@ -229,7 +265,6 @@ class ReactionRepository @Inject constructor(
             ArtifactLogger.d(DiagnosticCategory.RESONANCE, "REACTION_TOGGLE_DEBOUNCED", mapOf(LogKeys.ARTIFACT_ID to artifactId))
             return@withContext Result.success(Unit)
         }
-        debounceMap[artifactId] = now
 
         try {
             // Check existing pending interaction in local room DB first for immediate offline toggles
@@ -243,10 +278,43 @@ class ReactionRepository @Inject constructor(
                 val pulseDoc = try {
                     pulseRef.get(Source.CACHE).await()
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     pulseRef.get().await()
                 }
                 !pulseDoc.exists()
             }
+
+            if (willAdd) {
+                val ownershipResult = try {
+                    ownershipAuthority?.get()?.isOwnerResult(artifactId, userId)
+                        ?: Result.failure(IllegalStateException("Ownership authority unavailable"))
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                    Result.failure(e)
+                }
+
+                if (ownershipResult.isFailure) {
+                    val error = ownershipResult.exceptionOrNull() ?: Exception("Ownership lookup failed")
+                    ArtifactLogger.w(
+                        DiagnosticCategory.RESONANCE,
+                        "REACTION_TOGGLE_OWNERSHIP_CHECK_FAILED",
+                        mapOf(LogKeys.ARTIFACT_ID to artifactId, LogKeys.USER_ID to userId, "error" to (error.message ?: ""))
+                    )
+                    return@withContext Result.failure(error)
+                }
+
+                if (ownershipResult.getOrDefault(false)) {
+                    ArtifactLogger.w(
+                        DiagnosticCategory.RESONANCE,
+                        "REACTION_REJECTED_OWNED_ARTIFACT",
+                        mapOf(LogKeys.ARTIFACT_ID to artifactId, LogKeys.USER_ID to userId)
+                    )
+                    return@withContext Result.failure(IllegalArgumentException("Cannot react to your own artifact"))
+                }
+            }
+
+            // Update debounce map timestamp ONLY after validation passes
+            debounceMap[artifactId] = now
 
             // 1. Record pending interaction for sync
             val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
@@ -267,18 +335,38 @@ class ReactionRepository @Inject constructor(
             // 3. Optimistic success
             Result.success(Unit)
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             // Fallback for offline if cache miss and network fails: record pending intent
             if (ArtifactRepository.isTransientError(e)) {
-                val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
+                val ownershipResult = try {
+                    ownershipAuthority?.get()?.isOwnerResult(artifactId, userId)
+                        ?: Result.failure(IllegalStateException("Ownership authority unavailable"))
+                } catch (ex: Exception) {
+                    if (ex is CancellationException) throw ex
+                    Result.failure(ex)
+                }
+
+                if (ownershipResult.isFailure) {
+                    val error = ownershipResult.exceptionOrNull() ?: e
+                    return@withContext Result.failure(error)
+                }
+
+                if (ownershipResult.getOrDefault(false)) {
+                    return@withContext Result.failure(IllegalArgumentException("Cannot react to your own artifact"))
+                }
+
+                debounceMap[artifactId] = now
+
+                val pending = PendingInteractionEntity(
                     userId = userId,
                     artifactId = artifactId,
-                    interactionType = com.saurabh.artifact.data.local.InteractionType.REACTION,
+                    interactionType = InteractionType.REACTION,
                     action = InteractionAction.ADD,
                     metadata = type.id
                 )
                 pendingInteractionDao.get().deleteByType(artifactId, userId, InteractionType.REACTION)
                 pendingInteractionDao.get().insert(pending)
-                com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
+                InteractionSyncWorker.enqueue(context)
                 Result.success(Unit)
             } else {
                 ArtifactLogger.e(

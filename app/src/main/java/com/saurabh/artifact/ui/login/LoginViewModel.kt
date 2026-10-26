@@ -16,6 +16,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import java.util.UUID
 import javax.inject.Inject
 
 @HiltViewModel
@@ -96,6 +97,31 @@ class LoginViewModel @Inject constructor(
                 diagnosticLogger.error(DiagnosticCategory.AUTH, "PROFILE_REGISTRATION_FAILED", throwable = result.exception)
                 _loginState.value = LoginState.Error(ErrorMessageMapper.map(result.exception))
             }
+        }
+    }
+
+    fun transferActiveSession() {
+        if (authRepository.currentUser.value != null) {
+            _loginState.value = LoginState.Loading
+            viewModelScope.launch {
+                val deviceName = Build.MODEL ?: "Android Device"
+                val correlationId = UUID.randomUUID().toString()
+                authRepository.transferActiveSession(deviceName, correlationId)
+                    .onSuccess {
+                        completeLoginWithSessionGate()
+                    }
+                    .onFailure { e ->
+                        diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGIN_TRANSFER_SESSION_FAILED", throwable = e)
+                        _loginState.value = LoginState.Error(ErrorMessageMapper.map(e))
+                    }
+            }
+        }
+    }
+
+    fun signOut() {
+        viewModelScope.launch {
+            authRepository.signOut()
+            _loginState.value = LoginState.Idle
         }
     }
 

@@ -27,6 +27,7 @@ import com.saurabh.artifact.ui.components.WaveformContext
 import com.saurabh.artifact.ui.player.components.ModerationBanner
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.theme.Spacing
+import com.saurabh.artifact.util.ArtifactTitleFormatter
 import java.text.SimpleDateFormat
 
 /**
@@ -90,6 +91,14 @@ fun ProfileArtifactCard(
                 )
             }
 
+            val displayTitle = remember(artifact.title, artifact.episodeNumber) {
+                ArtifactTitleFormatter.formatTitle(
+                    title = artifact.title,
+                    episodeNumber = artifact.episodeNumber,
+                    fallbackTitle = "Untitled Moment"
+                )
+            }
+
             // Top: Title, Date and Management Menu
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -98,7 +107,7 @@ fun ProfileArtifactCard(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = artifact.title.ifEmpty { "Untitled Moment" },
+                        text = displayTitle,
                         style = ArtifactTheme.typography.bodyLarge,
                         fontWeight = FontWeight.SemiBold,
                         color = ArtifactTheme.colors.onSurfaceMain,

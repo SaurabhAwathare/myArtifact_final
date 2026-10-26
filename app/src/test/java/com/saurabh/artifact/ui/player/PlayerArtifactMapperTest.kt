@@ -25,7 +25,8 @@ class PlayerArtifactMapperTest {
             id = "test-id",
             title = "Test Title",
             isPublic = true,
-            status = ArtifactStatus.ACTIVE
+            status = ArtifactStatus.ACTIVE,
+            episodeNumber = 42L
         )
 
         val playerArtifact = artifact.toPlayerArtifact()
@@ -33,5 +34,20 @@ class PlayerArtifactMapperTest {
         assertEquals("test-id", playerArtifact.id)
         assertEquals("Test Title", playerArtifact.title)
         assertEquals(true, playerArtifact.isPublic)
+        assertEquals(42L, playerArtifact.episodeNumber)
+    }
+
+    @Test
+    fun `toPlayerArtifact should preserve null episodeNumber`() {
+        val artifact = Artifact(
+            id = "test-id",
+            title = "Test Title",
+            episodeNumber = null,
+            status = ArtifactStatus.ACTIVE
+        )
+
+        val playerArtifact = artifact.toPlayerArtifact()
+
+        assertEquals(null, playerArtifact.episodeNumber)
     }
 }

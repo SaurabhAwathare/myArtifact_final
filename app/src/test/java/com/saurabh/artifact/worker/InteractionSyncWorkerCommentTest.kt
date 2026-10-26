@@ -78,7 +78,9 @@ class InteractionSyncWorkerCommentTest {
             commentRepository,
             userRepository,
             startupCoordinator,
-            errorClassifier
+            errorClassifier,
+            Lazy { mockk<AuthRepository>(relaxed = true) },
+            Lazy { mockk<UserSessionManager>(relaxed = true) }
         )
     }
 

@@ -19,6 +19,7 @@ fun Artifact.toPlayerArtifact(): PlayerArtifact {
         transcript = transcript,
         recommendationState = recommendationState,
         isPublic = isPublic,
-        isDraft = isDraft
+        isDraft = isDraft,
+        episodeNumber = episodeNumber
     )
 }

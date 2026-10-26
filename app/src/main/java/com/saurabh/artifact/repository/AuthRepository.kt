@@ -90,8 +90,11 @@ class AuthRepository @Inject constructor(
     private val _isRestored = MutableStateFlow(false)
     val isRestored: StateFlow<Boolean> = _isRestored.asStateFlow()
 
-    suspend fun awaitAuthRestoration() {
-        _isRestored.first { it }
+    suspend fun awaitAuthRestoration(timeoutMs: Long = 5_000L): Boolean {
+        if (_isRestored.value) return true
+        return withTimeoutOrNull(timeoutMs) {
+            _isRestored.first { it }
+        } ?: false
     }
 
     private val _userData = MutableStateFlow<User?>(null)
