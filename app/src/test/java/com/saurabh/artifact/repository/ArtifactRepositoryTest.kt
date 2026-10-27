@@ -9,6 +9,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.FieldPath
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.QuerySnapshot
@@ -589,4 +590,62 @@ class ArtifactRepositoryTest {
         // Verify root query was NOT executed
         verify(exactly = 0) { firestore.collection("artifacts").whereEqualTo("userId", any()) }
     }
+
+    @Test
+    fun `getArtifactStats with empty artifactIds should return empty map immediately`() = runBlocking {
+        val result = repository.getArtifactStats(emptyList())
+        assertEquals(emptyMap<String, ArtifactStats>(), result)
+        verify(exactly = 0) { firestore.collection("artifact_stats") }
+    }
+
+    @Test
+    fun `getArtifactStats with valid artifactIds should execute whereIn query and map stats`() = runBlocking {
+        val artifactId = "art_1001"
+        val collectionRef = mockk<CollectionReference>(relaxed = true)
+        every { firestore.collection("artifact_stats") } returns collectionRef
+
+        val query = mockk<Query>(relaxed = true)
+        every { collectionRef.whereIn(FieldPath.documentId(), listOf(artifactId)) } returns query
+
+        val getTask = mockk<Task<QuerySnapshot>>(relaxed = true)
+        every { query.get() } returns getTask
+
+        val docSnapshot = mockk<DocumentSnapshot>(relaxed = true)
+        every { docSnapshot.id } returns artifactId
+        val expectedStats = ArtifactStats(uniqueListeners = 5, matureListeners = 3)
+        every { docSnapshot.toObject(ArtifactStats::class.java) } returns expectedStats
+
+        val querySnapshot = mockk<QuerySnapshot>(relaxed = true)
+        every { querySnapshot.documents } returns listOf(docSnapshot)
+
+        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        coEvery { getTask.await() } returns querySnapshot
+
+        val result = repository.getArtifactStats(listOf(artifactId))
+
+        assertEquals(1, result.size)
+        assertEquals(expectedStats, result[artifactId])
+    }
+
+    @Test
+    fun `getArtifactStats when Firestore query fails should log STATS_FETCH_FAILED and return empty map`() = runBlocking {
+        val artifactId = "art_1002"
+        val collectionRef = mockk<CollectionReference>(relaxed = true)
+        every { firestore.collection("artifact_stats") } returns collectionRef
+
+        val query = mockk<Query>(relaxed = true)
+        every { collectionRef.whereIn(FieldPath.documentId(), listOf(artifactId)) } returns query
+
+        val getTask = mockk<Task<QuerySnapshot>>(relaxed = true)
+        every { query.get() } returns getTask
+
+        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        coEvery { getTask.await() } throws Exception("PERMISSION_DENIED: App Check token invalid")
+
+        val result = repository.getArtifactStats(listOf(artifactId))
+
+        assertEquals(emptyMap<String, ArtifactStats>(), result)
+        verify { diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "STATS_FETCH_FAILED", mapOf("count" to 1), any()) }
+    }
 }
+
