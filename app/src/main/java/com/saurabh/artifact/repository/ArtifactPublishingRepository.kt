@@ -136,25 +136,6 @@ class ArtifactPublishingRepository @Inject constructor(
                 )
 
                 try {
-                    // Check if file is already completely uploaded in Firebase Storage
-                    // This handles cases where a previous attempt successfully transferred the file
-                    // but failed during download URL retrieval, preventing unnecessary re-uploads.
-                    if (currentRetry > 0 || currentSessionUri != null) {
-                        val existingUrl = try {
-                            fileRef.downloadUrl.await().toString()
-                        } catch (_: Exception) {
-                            null
-                        }
-                        if (existingUrl != null) {
-                            diagnosticLogger.info(
-                                DiagnosticCategory.STORAGE,
-                                "UPLOAD_ALREADY_COMPLETED_RECOVERED_URL",
-                                mapOf(LogKeys.DRAFT_ID to workingDraft.id)
-                            )
-                            return@withContext Result.success(existingUrl)
-                        }
-                    }
-
                     val uploadTask = if (currentSessionUri != null) {
                         fileRef.putFile(tempFile.toUri(), metadata, currentSessionUri.toUri())
                     } else {
@@ -195,11 +176,7 @@ class ArtifactPublishingRepository @Inject constructor(
                         }
                     }
 
-                    // HARDENING: Retrieve downloadUrl from snapshot storage reference with bounded retry logic
-                    val downloadUrl = retryDownloadUrlFetch(taskSnapshot.storage)
-                        ?: throw Exception("Upload succeeded but URL retrieval timed out.")
-
-                    return@withContext Result.success(downloadUrl)
+                    return@withContext Result.success(taskSnapshot.storage.path)
 
                 } catch (e: Exception) {
                     // Phase 8: Reliability - Ensure cancellation is never swallowed and active Firebase task is cleaned up
@@ -298,21 +275,6 @@ class ArtifactPublishingRepository @Inject constructor(
 
     companion object {
         private const val CURRENT_UPLOAD_FORMAT_VERSION = 2
-    }
-
-    /**
-     * Hardening: Specifically retries the download URL fetch to handle eventual consistency.
-     */
-    private suspend fun retryDownloadUrlFetch(ref: com.google.firebase.storage.StorageReference): String? {
-        repeat(5) { attempt ->
-            try {
-                return ref.downloadUrl.await().toString()
-            } catch (_: Exception) {
-                diagnosticLogger.warn(DiagnosticCategory.STORAGE, "DOWNLOAD_URL_FETCH_RETRYING", mapOf("attempt" to attempt + 1))
-                delay((attempt + 1).seconds)
-            }
-        }
-        return null
     }
 
     suspend fun reserveEpisode(draftId: String): Result<Long> = withContext(Dispatchers.IO) {

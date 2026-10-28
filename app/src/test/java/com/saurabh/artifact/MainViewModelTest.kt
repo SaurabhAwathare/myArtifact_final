@@ -29,6 +29,7 @@ import com.saurabh.artifact.repository.SessionState
 import com.saurabh.artifact.repository.TransferResult
 import com.saurabh.artifact.startup.SecurityStatus
 import com.saurabh.artifact.security.PreloadResult
+import com.saurabh.artifact.util.OnboardingManager
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -60,6 +61,7 @@ class MainViewModelTest {
     private val intent = mockk<Intent>(relaxed = true)
     private val fakeLogger = FakeDiagnosticLogger()
     private val savedStateHandle = SavedStateHandle()
+    private val onboardingManager = mockk<OnboardingManager>(relaxed = true)
 
     private val testAuthFlow = MutableStateFlow<com.google.firebase.auth.FirebaseUser?>(null)
     private val owningUidFlow = MutableStateFlow<String?>(null)
@@ -116,6 +118,8 @@ class MainViewModelTest {
             startupCoordinator.awaitComponent(any())
         } returns Unit
 
+        every { onboardingManager.isMnemonicSaved(any()) } returns flowOf(true)
+
         viewModel = MainViewModel(
             authRepository,
             getInitialDestinationUseCase,
@@ -128,7 +132,8 @@ class MainViewModelTest {
             observeStealthModeUseCase,
             startupCoordinator,
             savedStateHandle,
-            fakeLogger
+            fakeLogger,
+            onboardingManager = onboardingManager
         )
     }
 
@@ -199,12 +204,46 @@ class MainViewModelTest {
         testAuthFlow.value = user
         coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
         coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
+        every { onboardingManager.isMnemonicSaved("user123") } returns flowOf(true)
 
         viewModel.start()
         advanceUntilIdle()
 
         verify { startupCoordinator.emitReadiness(StartupComponent.AUTH) }
         verify { StartupMetrics.onAuthReady() }
+        assertEquals(AppStartupState.Ready(startDestination = Home, securityStatus = SecurityStatus.PENDING), viewModel.startupState.value)
+    }
+
+    @Test
+    fun `existing user with incomplete onboarding routes to MnemonicReveal`() = runTest {
+        val user = mockk<FirebaseUser> { every { uid } returns "user123" }
+        every { authRepository.currentUserId } returns "user123"
+        testAuthFlow.value = user
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
+        coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
+        every { onboardingManager.isMnemonicSaved("user123") } returns flowOf(false)
+
+        viewModel.start()
+        advanceUntilIdle()
+
+        verify { startupCoordinator.emitReadiness(StartupComponent.AUTH) }
+        assertEquals(AppStartupState.Ready(startDestination = MnemonicReveal(), securityStatus = SecurityStatus.PENDING), viewModel.startupState.value)
+    }
+
+    @Test
+    fun `existing user with incomplete onboarding and session gate conflict sets SessionConflict state`() = runTest {
+        val user = mockk<FirebaseUser> { every { uid } returns "user123" }
+        every { authRepository.currentUserId } returns "user123"
+        testAuthFlow.value = user
+        coEvery { getInitialDestinationUseCase() } returns InitialDestination.AUTHENTICATED
+        coEvery { registrationCoordinator.ensureProfileExists() } returns RegistrationResult.SuccessExistingUser
+        every { onboardingManager.isMnemonicSaved("user123") } returns flowOf(false)
+        coEvery { authRepository.resolveSessionGate(any()) } returns SessionGateResult.Conflict("Device_B")
+
+        viewModel.start()
+        advanceUntilIdle()
+
+        assertEquals(AppStartupState.SessionConflict("Device_B"), viewModel.startupState.value)
     }
 
     @Test

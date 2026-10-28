@@ -14,6 +14,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.saurabh.artifact.security.MnemonicGenerator
 import com.saurabh.artifact.ui.components.base.AppButton
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.theme.GoldAura500
@@ -32,6 +33,7 @@ fun MnemonicRevealScreen(
     val setupError by viewModel.setupError.collectAsStateWithLifecycle()
     
     var hasConfirmed by remember { mutableStateOf(false) }
+    var showRestoreDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         containerColor = Obsidian950
@@ -73,7 +75,22 @@ fun MnemonicRevealScreen(
                 WordGrid(words = words)
             }
 
-            Spacer(modifier = Modifier.height(48.dp))
+            Spacer(modifier = Modifier.height(24.dp))
+
+            TextButton(
+                onClick = { showRestoreDialog = true },
+                enabled = !isProcessing,
+                modifier = Modifier.padding(vertical = 4.dp)
+            ) {
+                Text(
+                    text = "Already have a recovery phrase from another device? Restore phrase",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = GoldAura500,
+                    textAlign = TextAlign.Center
+                )
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
 
             if (!isExistingPhrase) {
                 Row(
@@ -125,6 +142,99 @@ fun MnemonicRevealScreen(
                     .padding(bottom = 24.dp)
             )
         }
+    }
+
+    if (showRestoreDialog) {
+        var inputPhrase by remember { mutableStateOf("") }
+        var localError by remember { mutableStateOf<String?>(null) }
+
+        AlertDialog(
+            onDismissRequest = {
+                if (!isProcessing) showRestoreDialog = false
+            },
+            containerColor = Obsidian800,
+            title = {
+                Text(
+                    text = "Restore Recovery Phrase",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = GoldAura500
+                )
+            },
+            text = {
+                Column {
+                    Text(
+                        text = "Enter your 12-word recovery phrase from your existing device:",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = ArtifactTheme.colors.onSurfaceMuted,
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    )
+
+                    OutlinedTextField(
+                        value = inputPhrase,
+                        onValueChange = {
+                            inputPhrase = it
+                            localError = null
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Recovery Phrase") },
+                        placeholder = { Text("Enter 12 words separated by spaces...") },
+                        minLines = 3,
+                        enabled = !isProcessing,
+                        isError = localError != null || setupError != null,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = GoldAura500,
+                            unfocusedBorderColor = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.3f),
+                            focusedLabelColor = GoldAura500
+                        )
+                    )
+
+                    if (localError != null) {
+                        Text(
+                            text = localError!!,
+                            color = ArtifactTheme.colors.softError,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    } else if (setupError != null) {
+                        Text(
+                            text = setupError!!,
+                            color = ArtifactTheme.colors.softError,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                AppButton(
+                    text = if (isProcessing) "Restoring..." else "Restore Phrase",
+                    onClick = {
+                        val trimmed = inputPhrase.trim()
+                        val wordList = trimmed.split("\\s+".toRegex()).filter { it.isNotBlank() }
+                        if (wordList.size != 12 || !MnemonicGenerator.validateMnemonic(wordList)) {
+                            localError = "Please enter a valid 12-word recovery phrase."
+                        } else {
+                            viewModel.restoreExistingPhrase(trimmed) {
+                                showRestoreDialog = false
+                                onComplete()
+                            }
+                        }
+                    },
+                    enabled = inputPhrase.isNotBlank() && !isProcessing
+                )
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showRestoreDialog = false },
+                    enabled = !isProcessing
+                ) {
+                    Text(
+                        text = "Cancel",
+                        color = ArtifactTheme.colors.onSurfaceMuted
+                    )
+                }
+            }
+        )
     }
 }
 

@@ -209,7 +209,7 @@ class MnemonicRevealViewModelTest {
 
     @Test
     fun `restoreExistingPhrase validates phrase and updates status to Completed`() = runTest {
-        val testPhrase = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu"
+        val testPhrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
         every { databaseManager.isRecoverySetupForUser(any()) } returns flowOf(true)
         coEvery { backupManager.getRecoveryPhrase(any()) } returns null
         coEvery { databaseManager.validateRecoveryPhrase(any(), testPhrase) } returns true
@@ -233,6 +233,103 @@ class MnemonicRevealViewModelTest {
         coVerify { backupManager.saveMnemonic("user_123", testPhrase) }
         coVerify { onboardingManager.setMnemonicSaved("user_123", true) }
         assertEquals(RecoveryStatus.Completed, viewModel.recoveryStatus.value)
+    }
+
+    @Test
+    fun `restoreExistingPhrase with invalid BIP-39 phrase sets error and does not call setMnemonicSaved or onSuccess`() = runTest {
+        val invalidPhrase = "invalid word list with not twelve valid BIP39 words"
+
+        val viewModel = MnemonicRevealViewModel(
+            backupManager,
+            databaseManager,
+            onboardingManager,
+            diagnosticLogger,
+            authRepository
+        )
+        testScheduler.runCurrent()
+
+        var successCalled = false
+        viewModel.restoreExistingPhrase(invalidPhrase) { successCalled = true }
+        testScheduler.runCurrent()
+
+        assertFalse(successCalled)
+        assertTrue(viewModel.setupError.value?.contains("Invalid recovery phrase") == true)
+        coVerify(exactly = 0) { onboardingManager.setMnemonicSaved(any<String>(), any()) }
+    }
+
+    @Test
+    fun `restoreExistingPhrase when no local wrapper exists creates wrapper, saves mnemonic, and marks completion`() = runTest {
+        val validPhrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+        every { databaseManager.isRecoverySetupForUser(any()) } returns flowOf(false)
+        coEvery { databaseManager.createRecoveryWrapper(any(), validPhrase) } returns Result.success(Unit)
+
+        val viewModel = MnemonicRevealViewModel(
+            backupManager,
+            databaseManager,
+            onboardingManager,
+            diagnosticLogger,
+            authRepository
+        )
+        testScheduler.runCurrent()
+
+        var successCalled = false
+        viewModel.restoreExistingPhrase(validPhrase) { successCalled = true }
+        testScheduler.runCurrent()
+
+        assertTrue(successCalled)
+        coVerify { databaseManager.createRecoveryWrapper("user_123", validPhrase) }
+        coVerify { backupManager.saveMnemonic("user_123", validPhrase) }
+        coVerify { onboardingManager.setMnemonicSaved("user_123", true) }
+        assertEquals(RecoveryStatus.Completed, viewModel.recoveryStatus.value)
+    }
+
+    @Test
+    fun `restoreExistingPhrase when local wrapper exists and phrase does not match returns error and does NOT overwrite wrapper`() = runTest {
+        val validPhrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+        every { databaseManager.isRecoverySetupForUser(any()) } returns flowOf(true)
+        coEvery { databaseManager.validateRecoveryPhrase(any(), validPhrase) } returns false
+
+        val viewModel = MnemonicRevealViewModel(
+            backupManager,
+            databaseManager,
+            onboardingManager,
+            diagnosticLogger,
+            authRepository
+        )
+        testScheduler.runCurrent()
+
+        var successCalled = false
+        viewModel.restoreExistingPhrase(validPhrase) { successCalled = true }
+        testScheduler.runCurrent()
+
+        assertFalse(successCalled)
+        assertTrue(viewModel.setupError.value?.contains("does not match") == true)
+        coVerify(exactly = 0) { databaseManager.createRecoveryWrapper(any(), any()) }
+        coVerify(exactly = 0) { onboardingManager.setMnemonicSaved(any<String>(), any()) }
+    }
+
+    @Test
+    fun `restoreExistingPhrase when wrapper creation fails leaves onboarding incomplete`() = runTest {
+        val validPhrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+        every { databaseManager.isRecoverySetupForUser(any()) } returns flowOf(false)
+        coEvery { databaseManager.createRecoveryWrapper(any(), validPhrase) } returns Result.failure(Exception("Disk write error"))
+
+        val viewModel = MnemonicRevealViewModel(
+            backupManager,
+            databaseManager,
+            onboardingManager,
+            diagnosticLogger,
+            authRepository
+        )
+        testScheduler.runCurrent()
+
+        var successCalled = false
+        viewModel.restoreExistingPhrase(validPhrase) { successCalled = true }
+        testScheduler.runCurrent()
+
+        assertFalse(successCalled)
+        assertTrue(viewModel.setupError.value?.contains("Disk write error") == true)
+        coVerify(exactly = 0) { onboardingManager.setMnemonicSaved(any<String>(), any()) }
     }
 
     @Test

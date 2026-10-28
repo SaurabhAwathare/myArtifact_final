@@ -102,33 +102,77 @@ class MnemonicRevealViewModel @Inject constructor(
     }
 
     fun restoreExistingPhrase(inputPhrase: String, onSuccess: () -> Unit) {
+        val trimmed = inputPhrase.trim()
+        val words = trimmed.split("\\s+".toRegex()).filter { it.isNotBlank() }
+
+        if (words.size != 12 || !MnemonicGenerator.validateMnemonic(words)) {
+            val err = "Invalid recovery phrase. Please enter a valid 12-word BIP-39 phrase."
+            _setupError.value = err
+            _recoveryStatus.value = RecoveryStatus.Error(err)
+            return
+        }
+
         viewModelScope.launch {
             _isProcessing.value = true
             _setupError.value = null
             try {
                 val uid = currentUid
-                val isValid = databaseEncryptionManager.validateRecoveryPhrase(uid, inputPhrase)
-                if (isValid) {
-                    if (uid != null) {
-                        backupEncryptionManager.saveMnemonic(uid, inputPhrase)
-                        onboardingManager.setMnemonicSaved(uid, true)
+                val isWrapperPresent = databaseEncryptionManager.isRecoverySetupForUser(uid).first()
+                if (isWrapperPresent) {
+                    val isValid = databaseEncryptionManager.validateRecoveryPhrase(uid, trimmed)
+                    if (isValid) {
+                        if (uid != null) {
+                            backupEncryptionManager.saveMnemonic(uid, trimmed)
+                            onboardingManager.setMnemonicSaved(uid, true)
+                        } else {
+                            backupEncryptionManager.saveMnemonic(trimmed)
+                            onboardingManager.setMnemonicSaved(true)
+                        }
+                        _mnemonicWords.value = words
+                        _isExistingPhrase.value = true
+                        _recoveryStatus.value = RecoveryStatus.Completed
+                        diagnosticLogger.info(DiagnosticCategory.SECURITY, "MNEMONIC_RESTORE_EXISTING_WRAPPER_SUCCESS")
+                        onSuccess()
                     } else {
-                        backupEncryptionManager.saveMnemonic(inputPhrase)
-                        onboardingManager.setMnemonicSaved(true)
+                        val err = "Entered recovery phrase does not match local database recovery setup."
+                        _setupError.value = err
+                        _recoveryStatus.value = RecoveryStatus.Error(err)
+                        diagnosticLogger.warn(DiagnosticCategory.SECURITY, "MNEMONIC_RESTORE_WRAPPER_MISMATCH")
                     }
-                    _mnemonicWords.value = inputPhrase.trim().split("\\s+".toRegex())
-                    _isExistingPhrase.value = true
-                    _recoveryStatus.value = RecoveryStatus.Completed
-                    onSuccess()
                 } else {
-                    val err = "Entered recovery phrase does not match local database recovery setup."
-                    _setupError.value = err
-                    _recoveryStatus.value = RecoveryStatus.Error(err)
+                    val wrapperResult = if (uid != null) {
+                        databaseEncryptionManager.createRecoveryWrapper(uid, trimmed)
+                    } else {
+                        databaseEncryptionManager.createRecoveryWrapper(trimmed)
+                    }
+
+                    wrapperResult
+                        .onSuccess {
+                            if (uid != null) {
+                                backupEncryptionManager.saveMnemonic(uid, trimmed)
+                                onboardingManager.setMnemonicSaved(uid, true)
+                            } else {
+                                backupEncryptionManager.saveMnemonic(trimmed)
+                                onboardingManager.setMnemonicSaved(true)
+                            }
+                            _mnemonicWords.value = words
+                            _isExistingPhrase.value = true
+                            _recoveryStatus.value = RecoveryStatus.Completed
+                            diagnosticLogger.info(DiagnosticCategory.SECURITY, "MNEMONIC_RESTORE_NEW_WRAPPER_SUCCESS")
+                            onSuccess()
+                        }
+                        .onFailure { e ->
+                            val err = "Failed to create recovery setup: ${e.message}"
+                            _setupError.value = err
+                            _recoveryStatus.value = RecoveryStatus.Error(err)
+                            diagnosticLogger.error(DiagnosticCategory.SECURITY, "MNEMONIC_RESTORE_WRAPPER_FAILED", throwable = e)
+                        }
                 }
             } catch (e: Exception) {
                 val err = "An unexpected error occurred during phrase restoration: ${e.message}"
                 _setupError.value = err
                 _recoveryStatus.value = RecoveryStatus.Error(err)
+                diagnosticLogger.error(DiagnosticCategory.SECURITY, "MNEMONIC_RESTORE_FATAL", throwable = e)
             } finally {
                 _isProcessing.value = false
             }

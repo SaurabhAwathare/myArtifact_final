@@ -3,8 +3,13 @@ package com.saurabh.artifact.ui.recovery
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.security.DatabaseEncryptionManager
 import io.mockk.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -15,11 +20,18 @@ class MnemonicRestoreViewModelTest {
 
     private val encryptionManager = mockk<DatabaseEncryptionManager>(relaxed = true)
     private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
+    private val testDispatcher = StandardTestDispatcher()
     private lateinit var viewModel: MnemonicRestoreViewModel
 
     @Before
     fun setup() {
+        Dispatchers.setMain(testDispatcher)
         viewModel = MnemonicRestoreViewModel(encryptionManager, diagnosticLogger)
+    }
+
+    @After
+    fun tearDown() {
+        Dispatchers.resetMain()
     }
 
     @Test
@@ -30,6 +42,7 @@ class MnemonicRestoreViewModelTest {
         
         var successCalled = false
         viewModel.attemptRecovery { successCalled = true }
+        testScheduler.runCurrent()
         
         assertEquals(RecoveryUiState.Success, viewModel.uiState.value)
         assertTrue(successCalled)
@@ -42,6 +55,7 @@ class MnemonicRestoreViewModelTest {
         
         viewModel.onMnemonicChange("wrong phrase")
         viewModel.attemptRecovery {}
+        testScheduler.runCurrent()
         
         assertTrue(viewModel.uiState.value is RecoveryUiState.Error)
     }
@@ -50,6 +64,7 @@ class MnemonicRestoreViewModelTest {
     fun `startFresh calls encryptionManager and onConfirm`() = runTest {
         var confirmCalled = false
         viewModel.startFresh { confirmCalled = true }
+        testScheduler.runCurrent()
         
         coVerify { encryptionManager.generateAndStoreNewPassphrase() }
         assertTrue(confirmCalled)

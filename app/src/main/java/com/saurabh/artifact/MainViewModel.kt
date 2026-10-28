@@ -20,6 +20,7 @@ import com.saurabh.artifact.startup.StartupCoordinator
 import com.saurabh.artifact.startup.SecurityStatus
 import com.saurabh.artifact.startup.StartupMetrics
 import com.saurabh.artifact.security.PreloadResult
+import com.saurabh.artifact.util.OnboardingManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -80,6 +81,7 @@ class MainViewModel @Inject constructor(
     private val diagnosticLogger: DiagnosticLogger,
     private val appCheckStateTracker: Lazy<AppCheckStateTracker>? = null,
     private val draftRepository: Lazy<DraftRepository>? = null,
+    private val onboardingManager: OnboardingManager? = null
 ) : ViewModel() {
 
     companion object {
@@ -571,8 +573,17 @@ class MainViewModel @Inject constructor(
                 _startupState.value = AppStartupState.Registering
                 
                 val profileResult = registrationCoordinator.ensureProfileExists()
+                val currentUid = authRepository.currentUserId
+                val isOnboardingComplete = if (currentUid.isNotEmpty() && onboardingManager != null) {
+                    onboardingManager.isMnemonicSaved(currentUid).first()
+                } else {
+                    true
+                }
+
                 val targetDestination = when (profileResult) {
-                    RegistrationResult.SuccessExistingUser -> Home
+                    RegistrationResult.SuccessExistingUser -> {
+                        if (isOnboardingComplete) Home else MnemonicReveal()
+                    }
                     RegistrationResult.SuccessNewUser -> IdentityReveal
                     is RegistrationResult.Failure -> {
                         diagnosticLogger.error(DiagnosticCategory.STARTUP, "STARTUP_REGISTRATION_FAILED", throwable = profileResult.exception)

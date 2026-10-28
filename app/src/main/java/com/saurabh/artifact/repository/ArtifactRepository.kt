@@ -946,22 +946,6 @@ class ArtifactRepository @Inject constructor(
     ): Result<String> = publishingRepository.get().finalizePublish(draft)
 
     /**
-     * Hardening: Specifically retries the download URL fetch to handle eventual consistency.
-     * Legacy: Kept for uploadTranscript support.
-     */
-    private suspend fun retryDownloadUrlFetch(ref: com.google.firebase.storage.StorageReference): String? {
-        repeat(5) { attempt ->
-            try {
-                return ref.downloadUrl.await().toString()
-            } catch (_: Exception) {
-                diagnosticLogger.warn(DiagnosticCategory.STORAGE, "DOWNLOAD_URL_FETCH_RETRYING", mapOf("attempt" to attempt + 1))
-                delay((attempt + 1).seconds)
-            }
-        }
-        return null
-    }
-
-    /**
      * LEGACY COMPATIBILITY: Uploads a transcript to Firebase Storage.
      * Remove after legacy transcript support is retired.
      */
@@ -983,10 +967,7 @@ class ArtifactRepository @Inject constructor(
             
             fileRef.putBytes(transcriptJson.toByteArray(), metadata).await()
             
-            val downloadUrl = retryDownloadUrlFetch(fileRef)
-                ?: return@withContext Result.failure(Exception("Transcript uploaded but download URL fetch failed."))
-                
-            Result.success(downloadUrl)
+            Result.success(fileRef.path)
         } catch (e: Exception) {
             val extraParams = mutableMapOf<String, Any>(
                 LogKeys.DRAFT_ID to draftId,
