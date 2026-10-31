@@ -76,6 +76,11 @@ class IdentityViewModel @Inject constructor(
     private val _uiState = MutableStateFlow<IdentityUiState>(IdentityUiState.Idle)
     val uiState: StateFlow<IdentityUiState> = _uiState.asStateFlow()
 
+    private val _showConfirmationDialog = MutableStateFlow(false)
+    val showConfirmationDialog: StateFlow<Boolean> = _showConfirmationDialog.asStateFlow()
+
+    private var pendingOnSuccess: (() -> Unit)? = null
+
     val isSaveEnabled: StateFlow<Boolean> = combine(
         _selectedCandidate,
         hasSigilChanged,
@@ -110,6 +115,15 @@ class IdentityViewModel @Inject constructor(
                     _initialSigilConfig.value = config
                 }
                 _sigilConfig.value = config
+            }
+        }
+
+        viewModelScope.launch {
+            changeSeverity.collect { severity ->
+                if (severity != IdentityProtectionPolicy.ChangeSeverity.REQUIRE_CONFIRMATION) {
+                    _showConfirmationDialog.value = false
+                    pendingOnSuccess = null
+                }
             }
         }
 
@@ -184,23 +198,65 @@ class IdentityViewModel @Inject constructor(
     }
 
     fun refreshCandidates() {
+        dismissConfirmationDialog()
         _selectedCandidate.value = null
         loadCandidateBatch()
     }
 
     fun selectCandidate(name: String) {
+        if (_selectedCandidate.value != name) {
+            dismissConfirmationDialog()
+        }
         _selectedCandidate.value = name
     }
 
     fun saveIdentity(onSuccess: () -> Unit) {
+        requestSave(onSuccess)
+    }
+
+    fun requestSave(onSuccess: () -> Unit) {
+        if (_uiState.value is IdentityUiState.Loading) return
+
         val candidate = _selectedCandidate.value
         val sigilChanged = hasSigilChanged.value
 
         if (candidate.isNullOrEmpty() && !sigilChanged) return
 
-        viewModelScope.launch {
-            _uiState.value = IdentityUiState.Loading
+        if (changeSeverity.value == IdentityProtectionPolicy.ChangeSeverity.REQUIRE_CONFIRMATION) {
+            pendingOnSuccess = onSuccess
+            _showConfirmationDialog.value = true
+        } else {
+            executeSave(onSuccess)
+        }
+    }
 
+    fun confirmSave(onSuccess: (() -> Unit)? = null) {
+        if (_uiState.value is IdentityUiState.Loading) return
+        val callback = onSuccess ?: pendingOnSuccess
+        _showConfirmationDialog.value = false
+        pendingOnSuccess = null
+        executeSave(callback)
+    }
+
+    fun dismissConfirmationDialog() {
+        _showConfirmationDialog.value = false
+        pendingOnSuccess = null
+    }
+
+    fun cancelConfirmation() {
+        dismissConfirmationDialog()
+    }
+
+    private fun executeSave(onSuccess: (() -> Unit)?) {
+        val candidate = _selectedCandidate.value
+        val sigilChanged = hasSigilChanged.value
+
+        if (candidate.isNullOrEmpty() && !sigilChanged) return
+        if (_uiState.value is IdentityUiState.Loading) return
+
+        _uiState.value = IdentityUiState.Loading
+
+        viewModelScope.launch {
             val newCandidate = if (!candidate.isNullOrEmpty()) {
                 if (!UsernameGenerator.isValid(candidate)) {
                     _uiState.value = IdentityUiState.Idle
@@ -215,9 +271,13 @@ class IdentityViewModel @Inject constructor(
                 .onSuccess {
                     _initialSigilConfig.value = _sigilConfig.value
                     _uiState.value = IdentityUiState.Idle
-                    onSuccess()
+                    _showConfirmationDialog.value = false
+                    pendingOnSuccess = null
+                    onSuccess?.invoke()
                 }
                 .onFailure { e ->
+                    _showConfirmationDialog.value = false
+                    pendingOnSuccess = null
                     diagnosticLogger.error(DiagnosticCategory.PROFILE, "IDENTITY_SAVE_FAILED", throwable = e)
                     if (e is AppError.UsernameTaken) {
                         _selectedCandidate.value = null

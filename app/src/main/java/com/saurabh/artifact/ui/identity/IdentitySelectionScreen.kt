@@ -18,6 +18,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -29,6 +30,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -67,6 +69,7 @@ fun IdentitySelectionScreen(
     val changeSeverity by viewModel.changeSeverity.collectAsStateWithLifecycle()
     val userProfile by viewModel.userProfile.collectAsStateWithLifecycle()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val showConfirmationDialog by viewModel.showConfirmationDialog.collectAsStateWithLifecycle()
     
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
@@ -281,6 +284,40 @@ fun IdentitySelectionScreen(
             }
 
             Spacer(modifier = Modifier.height(32.dp))
+        }
+
+        if (showConfirmationDialog) {
+            AlertDialog(
+                onDismissRequest = { viewModel.dismissConfirmationDialog() },
+                title = {
+                    Text(
+                        text = "Confirm Identity Change",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                text = {
+                    Text(
+                        text = "Frequent identity changes detected. Changing your identity frequently may affect recognition and continuity within the community. Are you sure you want to save this change?",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = { viewModel.confirmSave(onComplete) }
+                    ) {
+                        Text("Continue", fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = { viewModel.dismissConfirmationDialog() }
+                    ) {
+                        Text("Cancel")
+                    }
+                }
+            )
         }
     }
 }

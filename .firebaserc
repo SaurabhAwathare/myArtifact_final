@@ -1,5 +1,7 @@
 {
   "projects": {
-    "default": "myartifact-555e3"
+    "default": "myartifact-555e3",
+    "production": "myartifact-555e3",
+    "staging": "myartifact-staging"
   }
 }
