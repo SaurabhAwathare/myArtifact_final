@@ -1,5 +1,5 @@
 import { describe, it, expect } from "@jest/globals";
-import { validateCoverage } from "../util/validation/coverage";
+import { validateCoverage, coverageToBase64 } from "../util/validation/coverage";
 
 describe("Coverage Validation", () => {
   const durationMs = 60000; // 60 seconds
@@ -72,6 +72,105 @@ describe("Coverage Validation", () => {
 
       const result = validateCoverage(durationMs, buffer, true);
       expect(result.totalSegments).toBe(12); // V1 behavior
+    });
+  });
+
+  describe("coverageToBase64 Serialization Helper", () => {
+    it("1. should convert a Node.js Buffer to the correct Base64 string", () => {
+      const buffer = Buffer.from([0xDE, 0xAD, 0xBE, 0xEF]);
+      const result = coverageToBase64(buffer);
+      expect(result).toBe("3q2+7w==");
+    });
+
+    it("2. should ensure the Base64 result decodes to the exact original bytes", () => {
+      const originalBytes = [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF];
+      const buffer = Buffer.from(originalBytes);
+      const base64 = coverageToBase64(buffer);
+      const decodedBuffer = Buffer.from(base64, "base64");
+      expect(decodedBuffer.equals(buffer)).toBe(true);
+      expect(Array.from(decodedBuffer)).toEqual(originalBytes);
+    });
+
+    it("3. should handle an empty Buffer correctly", () => {
+      const emptyBuffer = Buffer.alloc(0);
+      const result = coverageToBase64(emptyBuffer);
+      expect(result).toBe("");
+    });
+
+    it("4. should handle Uint8Array correctly if supported", () => {
+      const uint8Array = new Uint8Array([0xDE, 0xAD, 0xBE, 0xEF]);
+      const result = coverageToBase64(uint8Array);
+      expect(result).toBe("3q2+7w==");
+    });
+
+    it("5. should return empty string for null and undefined", () => {
+      expect(coverageToBase64(null)).toBe("");
+      expect(coverageToBase64(undefined)).toBe("");
+    });
+
+    it("6. should handle Firestore Blob/Bytes objects with verified toBase64 or toBuffer methods", () => {
+      const fakeBytesWithToBase64 = {
+        toBase64: () => "3q2+7w==",
+      };
+      expect(coverageToBase64(fakeBytesWithToBase64)).toBe("3q2+7w==");
+
+      const fakeBytesWithToBuffer = {
+        toBuffer: () => Buffer.from([0xDE, 0xAD, 0xBE, 0xEF]),
+      };
+      expect(coverageToBase64(fakeBytesWithToBuffer)).toBe("3q2+7w==");
+    });
+
+    it("7. should throw TypeError for unsupported values rather than returning empty string", () => {
+      expect(() => coverageToBase64(12345)).toThrow(TypeError);
+      expect(() => coverageToBase64("raw_string")).toThrow(TypeError);
+      expect(() => coverageToBase64({ unknownProperty: "abc" })).toThrow(TypeError);
+      expect(() => coverageToBase64(true)).toThrow(TypeError);
+      expect(() => coverageToBase64([1, 2, 3])).toThrow(TypeError);
+    });
+
+    it("8. should detect genuinely different coverage bytes in before/after comparison", () => {
+      const beforeBuffer = Buffer.from([0x01, 0x02]);
+      const afterBuffer = Buffer.from([0x01, 0x03]);
+      const beforeBase64 = coverageToBase64(beforeBuffer);
+      const afterBase64 = coverageToBase64(afterBuffer);
+      expect(beforeBase64 !== afterBase64).toBe(true);
+    });
+
+    it("9. should ensure identical coverage bytes remain identical after conversion", () => {
+      const buf1 = Buffer.from([0xFF, 0x00, 0xAA, 0x55]);
+      const buf2 = Buffer.from([0xFF, 0x00, 0xAA, 0x55]);
+      const base64_1 = coverageToBase64(buf1);
+      const base64_2 = coverageToBase64(buf2);
+      expect(base64_1).toBe(base64_2);
+      expect(base64_1 === base64_2).toBe(true);
+    });
+
+    it("10. Regression test: Node.js Firebase Admin SDK returns Firestore bytes as Buffer", () => {
+      // Firebase Admin SDK returns Firestore bytes as Node Buffer instances.
+      // Calling .toBase64() directly on a Node Buffer caused `TypeError: before.coverage.toBase64 is not a function`.
+      const adminSdkFirestoreBytesBuffer = Buffer.from([0xFF, 0x0F]); // 12 bits set
+
+      // Verify Buffer does NOT have toBase64 method
+      expect((adminSdkFirestoreBytesBuffer as any).toBase64).toBeUndefined();
+
+      // Verify coverageToBase64 converts it cleanly without throwing TypeError
+      const serialized = coverageToBase64(adminSdkFirestoreBytesBuffer);
+      expect(serialized).toBe("/w8=");
+
+      // Verify idempotency evaluation when before and after documents have equal or different Admin SDK Buffers
+      const beforeData = { coverage: adminSdkFirestoreBytesBuffer };
+      const afterDataIdentical = { coverage: Buffer.from([0xFF, 0x0F]) };
+      const afterDataModified = { coverage: Buffer.from([0xFF, 0x1F]) };
+
+      const beforeBase64 = coverageToBase64(beforeData.coverage);
+      const afterIdenticalBase64 = coverageToBase64(afterDataIdentical.coverage);
+      const afterModifiedBase64 = coverageToBase64(afterDataModified.coverage);
+
+      // Identical coverage -> no change detected
+      expect(beforeBase64 !== afterIdenticalBase64).toBe(false);
+
+      // Modified coverage -> change detected
+      expect(beforeBase64 !== afterModifiedBase64).toBe(true);
     });
   });
 });

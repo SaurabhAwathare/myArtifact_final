@@ -3,7 +3,7 @@ import * as admin from "firebase-admin";
 import {FieldValue} from "firebase-admin/firestore";
 import {withIdempotency} from "./util/idempotency";
 import {logger} from "./util/logger";
-import {validateCoverage} from "./util/validation/coverage";
+import {validateCoverage, coverageToBase64} from "./util/validation/coverage";
 import {getPolicy} from "./util/validation/policy";
 import {VALIDATION_VERSION, UnlockReason} from "./util/validation/constants";
 import {ModerationConfig} from "./util/moderation/config";
@@ -1377,6 +1377,58 @@ async function scaleResonanceCleanup(
 }
 
 /**
+ * Safely parses and normalizes a potential Timestamp signal into a string key ("seconds.nanoseconds" or "millis").
+ * Returns null if absent or invalid.
+ */
+export function parseTimestampKey(val: any): string | null {
+  if (val === null || val === undefined) return null;
+
+  if (typeof val === "object") {
+    // 1. Standard Firestore Timestamp object with seconds and nanoseconds
+    if (
+      typeof val.seconds === "number" &&
+      !isNaN(val.seconds) &&
+      typeof val.nanoseconds === "number" &&
+      !isNaN(val.nanoseconds)
+    ) {
+      return `${val.seconds}.${val.nanoseconds}`;
+    }
+    // 2. Internal private properties (_seconds, _nanoseconds) used by some SDK serializations
+    if (
+      typeof val._seconds === "number" &&
+      !isNaN(val._seconds) &&
+      typeof val._nanoseconds === "number" &&
+      !isNaN(val._nanoseconds)
+    ) {
+      return `${val._seconds}.${val._nanoseconds}`;
+    }
+    // 3. Timestamp or Date object with toMillis()
+    if (typeof val.toMillis === "function") {
+      try {
+        const millis = val.toMillis();
+        if (typeof millis === "number" && !isNaN(millis)) {
+          return `${millis}`;
+        }
+      } catch (_) {
+        // Fall through
+      }
+    }
+    // 4. JS Date object
+    if (val instanceof Date) {
+      const millis = val.getTime();
+      if (!isNaN(millis)) {
+        return `${millis}`;
+      }
+    }
+  } else if (typeof val === "number" && !isNaN(val) && val > 0) {
+    // 5. Positive numeric timestamp in millis
+    return `${val}`;
+  }
+
+  return null;
+}
+
+/**
  * Authoritative backend validator for the "Listen Before You Respond" feature.
  * Triggers when a user's engagement record is updated.
  */
@@ -1389,14 +1441,21 @@ export const onEngagementUpdated = functions.firestore
     if (!after) return null; // Deletion handled by onUserDeleted or onArtifactCleanup
 
     // 1. Loop Prevention & Idempotency
-    // We only process if coverage or hasReachedEnd changed.
-    // This prevents infinite loops from our own internal milestone/unlock updates.
-    const beforeCoverage = before?.coverage?.toBase64() || "";
-    const afterCoverage = after.coverage?.toBase64() || "";
+    // We only process if coverage, hasReachedEnd, or an administrative reprocessRequestedAt signal changed.
+    const beforeCoverage = coverageToBase64(before?.coverage);
+    const afterCoverage = coverageToBase64(after?.coverage);
     const coverageChanged = beforeCoverage !== afterCoverage;
-    const endChanged = (before?.hasReachedEnd || false) !== (after.hasReachedEnd || false);
+    const endChanged = (before?.hasReachedEnd || false) !== (after?.hasReachedEnd || false);
 
-    if (!coverageChanged && !endChanged) {
+    const beforeReprocessKey = parseTimestampKey(before?.reprocessRequestedAt);
+    const afterReprocessKey = parseTimestampKey(after?.reprocessRequestedAt);
+    const isNewReprocessRequest = afterReprocessKey !== null && beforeReprocessKey !== afterReprocessKey;
+
+    if (after?.reprocessRequestedAt !== undefined && after?.reprocessRequestedAt !== null && afterReprocessKey === null) {
+      logger.warn(`[UNLOCK] Invalid reprocessRequestedAt signal | UserID=${context.params.uid} | ArtID=${context.params.artifactId}`);
+    }
+
+    if (!coverageChanged && !endChanged && !isNewReprocessRequest) {
       return null;
     }
 
@@ -1413,6 +1472,9 @@ export const onEngagementUpdated = functions.firestore
       const artifactDoc = await db.collection("artifacts").doc(artifactId).get();
       if (!artifactDoc.exists) {
         logger.warn(`[UNLOCK] Artifact missing | ArtifactID=${artifactId} | UserID=${uid}`);
+        if (isNewReprocessRequest) {
+          await change.after.ref.update({ reprocessRequestedAt: FieldValue.delete() });
+        }
         return null;
       }
 
@@ -1421,6 +1483,9 @@ export const onEngagementUpdated = functions.firestore
 
       if (!durationMs || durationMs <= 0) {
         logger.error(`[UNLOCK] Invalid duration | ArtifactID=${artifactId} | Duration=${durationMs}`);
+        if (isNewReprocessRequest) {
+          await change.after.ref.update({ reprocessRequestedAt: FieldValue.delete() });
+        }
         return null;
       }
 
@@ -1431,6 +1496,9 @@ export const onEngagementUpdated = functions.firestore
 
       if (!coverageBuffer) {
         logger.warn(`[UNLOCK] Missing coverage | ArtifactID=${artifactId} | UserID=${uid}`);
+        if (isNewReprocessRequest) {
+          await change.after.ref.update({ reprocessRequestedAt: FieldValue.delete() });
+        }
         return null;
       }
 
@@ -1470,6 +1538,9 @@ export const onEngagementUpdated = functions.firestore
       // Sanity Check: Malformed bitset
       if (result.cardinality > result.totalSegments + 8) { // Small buffer for byte alignment
         logger.error(`[UNLOCK] Malformed BitSet | Cardinality=${result.cardinality} | Max=${result.totalSegments}`);
+        if (isNewReprocessRequest) {
+          await change.after.ref.update({ reprocessRequestedAt: FieldValue.delete() });
+        }
         return null;
       }
 
@@ -1484,13 +1555,17 @@ export const onEngagementUpdated = functions.firestore
 
       const shouldUnlock = !after.isCommentUnlocked && result.isValid;
 
-      if (newlyReached.length > 0 || shouldUnlock) {
+      if (newlyReached.length > 0 || shouldUnlock || isNewReprocessRequest) {
         const batch = db.batch();
         const engagementRef = change.after.ref;
 
         const engagementUpdates: any = {
           updatedAt: FieldValue.serverTimestamp()
         };
+
+        if (isNewReprocessRequest || after.reprocessRequestedAt !== undefined) {
+          engagementUpdates.reprocessRequestedAt = FieldValue.delete();
+        }
 
         if (newlyReached.length > 0) {
           engagementUpdates.milestonesReached = FieldValue.arrayUnion(...newlyReached);
@@ -1559,6 +1634,9 @@ export const onEngagementUpdated = functions.firestore
 
         if (newlyReached.length > 0) {
           logger.info(`[STATS] Milestones updated | ArtifactID=${artifactId} | New=${newlyReached}`);
+        }
+        if (isNewReprocessRequest) {
+          logger.info(`[REPROCESS] Signal acknowledged and removed | UserID=${uid} | ArtifactID=${artifactId}`);
         }
       }
 

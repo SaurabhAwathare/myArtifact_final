@@ -164,6 +164,20 @@ describe("Phase 3: Engagement and Comment Authorization", () => {
         unlockTimestamp: Date.now()
       })
     );
+
+    // Create & update attempt with backend-protected reprocessRequestedAt
+    await assertFails(
+      engagementRef.set({
+        artifactId: artifactId,
+        reprocessRequestedAt: new Date()
+      })
+    );
+
+    await assertFails(
+      engagementRef.update({
+        reprocessRequestedAt: new Date()
+      })
+    );
   });
 
   // --- CASE 6: CROSS-USER ACCESS ---
