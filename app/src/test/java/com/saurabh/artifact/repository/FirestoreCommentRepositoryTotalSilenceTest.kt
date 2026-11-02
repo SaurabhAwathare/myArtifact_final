@@ -4,6 +4,7 @@ import android.content.Context
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.*
+import com.saurabh.artifact.data.local.DeadLetterInteractionDao
 import com.saurabh.artifact.data.local.IgnoredUserDao
 import com.saurabh.artifact.data.local.InteractionAction
 import com.saurabh.artifact.data.local.InteractionType
@@ -31,6 +32,7 @@ class FirestoreCommentRepositoryTotalSilenceTest {
     private val firestore = mockk<FirebaseFirestore>()
     private val ignoredUserDao = mockk<IgnoredUserDao>()
     private val pendingInteractionDao = mockk<PendingInteractionDao>()
+    private val deadLetterInteractionDao = mockk<DeadLetterInteractionDao>()
     private val authRepository = mockk<AuthRepository>()
     private val diagnosticLogger = mockk<DiagnosticLogger>(relaxed = true)
 
@@ -48,6 +50,7 @@ class FirestoreCommentRepositoryTotalSilenceTest {
             firestore,
             { ignoredUserDao },
             { pendingInteractionDao },
+            { deadLetterInteractionDao },
             authRepository,
             diagnosticLogger
         )

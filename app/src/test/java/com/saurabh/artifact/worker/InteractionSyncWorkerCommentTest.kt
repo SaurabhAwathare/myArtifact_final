@@ -3,8 +3,10 @@ package com.saurabh.artifact.worker
 import android.content.Context
 import androidx.work.ListenableWorker
 import androidx.work.WorkerParameters
+import com.google.android.gms.tasks.Tasks
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.auth.GetTokenResult
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.saurabh.artifact.data.local.*
 import com.saurabh.artifact.data.remote.model.CommentPayload
@@ -17,6 +19,7 @@ import dagger.Lazy
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -41,10 +44,11 @@ class InteractionSyncWorkerCommentTest {
     private val artifactLibraryRepository: ArtifactLibraryRepository = mockk()
     private val engagementRepository: EngagementRepository = mockk(relaxed = true)
     private val firestoreEngagementRepository: FirestoreEngagementRepository = mockk()
-    private val commentRepository: CommentRepository = mockk()
+    private val commentRepository: CommentRepository = mockk(relaxed = true)
     private val userRepository: UserRepository = mockk()
     private val startupCoordinator: StartupCoordinator = mockk(relaxed = true)
     private val appCheckStateTracker: AppCheckStateTracker = mockk()
+    private val userSessionManager: UserSessionManager = mockk(relaxed = true)
 
     private lateinit var errorClassifier: InteractionErrorClassifier
     private lateinit var worker: InteractionSyncWorker
@@ -59,9 +63,14 @@ class InteractionSyncWorkerCommentTest {
         mockkStatic(FirebaseAuth::class)
         val auth = mockk<FirebaseAuth>()
         val user = mockk<FirebaseUser>()
+        val tokenResult = mockk<GetTokenResult>()
+
         every { FirebaseAuth.getInstance() } returns auth
         every { auth.currentUser } returns user
         every { user.uid } returns "test-user"
+        every { tokenResult.claims } returns mapOf("activeSessionId" to "test-session")
+        coEvery { user.getIdToken(any()) } returns Tasks.forResult(tokenResult)
+        every { userSessionManager.localSessionId } returns flowOf("test-session")
 
         coEvery { appCheckStateTracker.probeHealth() } returns AppCheckHealthResult.Healthy(mockk(relaxed = true))
         errorClassifier = InteractionErrorClassifier(appCheckStateTracker)
@@ -80,12 +89,12 @@ class InteractionSyncWorkerCommentTest {
             startupCoordinator,
             errorClassifier,
             Lazy { mockk<AuthRepository>(relaxed = true) },
-            Lazy { mockk<UserSessionManager>(relaxed = true) }
+            Lazy { userSessionManager }
         )
     }
 
     @Test
-    fun `processInteraction with COMMENT uses stable ID from metadata`() = runTest {
+    fun `processInteraction with COMMENT uses stable ID from metadata and retains record for observation`() = runTest {
         val commentId = UUID.randomUUID().toString()
         val artifactId = "art-1"
         val comment = Comment(id = commentId, artifactId = artifactId, text = "Hello")
@@ -101,20 +110,20 @@ class InteractionSyncWorkerCommentTest {
 
         val pendingList = mutableListOf(interaction)
         coEvery { pendingInteractionDao.getPendingForUser("test-user") } answers { pendingList.toList() }
-        coEvery { pendingInteractionDao.delete(any()) } answers {
-            val deletedItem = firstArg<PendingInteractionEntity>()
-            pendingList.removeAll { it.id == deletedItem.id }
-        }
 
         coEvery { commentRepository.createComment(any()) } returns Result.success(comment)
+        coEvery { commentRepository.observeIntentStatus(any(), any(), any()) } returns Unit
         
         val result = worker.doWork()
         
         assertEquals(ListenableWorker.Result.success(), result)
         
-        // Verify same comment with same ID was passed to repository
+        // Verify same comment with same ID was submitted as private intent
         coVerify { commentRepository.createComment(match { it.id == commentId && it.text == "Hello" }) }
-        coVerify { pendingInteractionDao.delete(interaction) }
+        // Verify record was marked intentSubmitted and updated in Room
+        coVerify { pendingInteractionDao.insert(match { it.metadata?.contains("\"intentSubmitted\":true") == true }) }
+        // Verify snapshot observation was initiated
+        coVerify { commentRepository.observeIntentStatus("test-user", commentId, artifactId) }
     }
 
     @Test
@@ -133,22 +142,15 @@ class InteractionSyncWorkerCommentTest {
 
         val pendingList = mutableListOf(interaction)
         coEvery { pendingInteractionDao.getPendingForUser("test-user") } answers { pendingList.toList() }
-        coEvery { pendingInteractionDao.delete(any()) } answers {
-            val deletedItem = firstArg<PendingInteractionEntity>()
-            pendingList.removeAll { it.id == deletedItem.id }
-        }
 
-        // Simulate Firestore Permission Denied (Listening threshold not met yet)
         val lockedError = FirebaseFirestoreException("Locked", FirebaseFirestoreException.Code.PERMISSION_DENIED)
 
         coEvery { commentRepository.createComment(any()) } returns Result.failure(lockedError)
         
         val result = worker.doWork()
         
-        // Should return retry to allow backend verification to catch up
         assertEquals(ListenableWorker.Result.retry(), result)
         
-        // Verify interaction was updated with the error and retry count incremented
         coVerify { 
             pendingInteractionDao.insert(match { 
                 it.lastError == "Locked" && it.retryCount == 1 
@@ -189,13 +191,19 @@ class InteractionSyncWorkerCommentTest {
     }
 
     @Test
-    fun `account switching - worker fails if UID mismatch`() = runTest {
+    fun `account switching - worker succeeds with empty queue when UID mismatch`() = runTest {
         val auth = FirebaseAuth.getInstance()
-        every { auth.currentUser?.uid } returns "different-user"
+        val differentUser = mockk<FirebaseUser>()
+        val tokenResult = mockk<GetTokenResult>()
+        every { differentUser.uid } returns "different-user"
+        every { tokenResult.claims } returns mapOf("activeSessionId" to "different-session")
+        coEvery { differentUser.getIdToken(any()) } returns Tasks.forResult(tokenResult)
+        every { auth.currentUser } returns differentUser
+        every { userSessionManager.localSessionId } returns flowOf("different-session")
         
         val result = worker.doWork()
         
-        assertEquals(ListenableWorker.Result.success(), result) // success because queue for B is empty
+        assertEquals(ListenableWorker.Result.success(), result)
         coVerify(exactly = 0) { commentRepository.createComment(any()) }
     }
 }

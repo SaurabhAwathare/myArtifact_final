@@ -7,7 +7,7 @@ import {validateCoverage, coverageToBase64} from "./util/validation/coverage";
 import {getPolicy} from "./util/validation/policy";
 import {VALIDATION_VERSION, UnlockReason} from "./util/validation/constants";
 import {ModerationConfig} from "./util/moderation/config";
-import {checkRateLimit} from "./util/moderation/rateLimit";
+import {checkRateLimit, checkRateLimitTx} from "./util/moderation/rateLimit";
 import {
   claimFirstDeviceHandler,
   transferActiveSessionHandler,
@@ -1924,70 +1924,385 @@ export const onPrivateFeedbackWrite = functions.firestore
   });
 
 /**
- * Authoritatively handles comment creation intents.
- * Implements R070: Comment Rate Limiting.
+ * Unified single-transaction processor for comment intents.
+ * Authoritatively handles authorization, rate-limiting, public comment creation,
+ * atomic commentCount aggregation, deterministic notification staging, and intent status transitions.
  */
-export const onCommentIntentCreated = functions.firestore
-  .document("users/{uid}/private/intents/comments/{commentId}")
-  .onCreate(async (snapshot, context) => {
-    const uid = context.params.uid;
-    const commentId = context.params.commentId;
-    const data = snapshot.data();
+export async function processCommentIntentTx(
+  uid: string,
+  commentId: string,
+  nowMs: number = Date.now()
+): Promise<void> {
+  const db = admin.firestore();
+  const intentRef = db.collection("users").doc(uid)
+    .collection("private").doc("intents")
+    .collection("comments").doc(commentId);
 
-    if (!data) return null;
+  await db.runTransaction(async (transaction) => {
+    // -----------------------------------------------------------------
+    // 1. TRANSACTION READS (MUST ALL BE COMPLETED BEFORE ANY WRITE!)
+    // -----------------------------------------------------------------
 
-    const idempotencyKey = `comment_intent_${uid}_${commentId}`;
+    // Read 1: Intent Document
+    const intentSnap = await transaction.get(intentRef);
+    if (!intentSnap.exists) {
+      logger.warn(`[COMMENT_INTENT] Intent document missing | UID=${uid} | CommentID=${commentId}`);
+      return;
+    }
+    const intentData = intentSnap.data() || {};
+    const currentStatus = intentData.status;
 
-    // R070: Comment Rate Limit
-    const rateLimit = await checkRateLimit(uid, {
-      maxCapacity: 10,
-      refillRatePerMinute: 5,
-      windowName: "comment",
-    });
-
-    if (!rateLimit.allowed) {
-      logger.warn(`[COMMENT] Rate limit exceeded for UID=${uid}`);
-      return null;
+    // Terminal states check
+    if (
+      currentStatus === "PROCESSED" ||
+      currentStatus === "REJECTED_NOT_FOUND" ||
+      currentStatus === "REJECTED_UNAUTHORIZED" ||
+      currentStatus === "REJECTED_INVALID"
+    ) {
+      logger.info(`[COMMENT_INTENT] Terminal state (${currentStatus}) - no-op | UID=${uid} | CommentID=${commentId}`);
+      return;
     }
 
-    return withIdempotency(idempotencyKey, async () => {
-      const db = admin.firestore();
-      const artifactId = data.artifactId;
-      if (!artifactId) return;
+    const artifactId = intentData.artifactId;
+    if (!artifactId) {
+      logger.error(`[COMMENT_INTENT] Missing artifactId | UID=${uid} | CommentID=${commentId}`);
+      transaction.update(intentRef, {
+        status: "REJECTED_INVALID",
+        rejectionReason: "Missing artifactId",
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      return;
+    }
 
-      // 1. Authoritative Unlock Check (Integrity)
-      const artifactDoc = await db.collection("artifacts").doc(artifactId).get();
-      if (!artifactDoc.exists) return;
-      const artifactData = artifactDoc.data()!;
-      const isOwner = artifactData.userId === uid;
+    // Read 2: Artifact Document
+    const artifactRef = db.collection("artifacts").doc(artifactId);
+    const artifactSnap = await transaction.get(artifactRef);
+    const artifactData = artifactSnap.exists ? artifactSnap.data()! : null;
 
+    // Read 3: Engagement Document (if non-owner)
+    let isOwner = false;
+    let engagementSnap: admin.firestore.DocumentSnapshot | null = null;
+    if (artifactData) {
+      isOwner = artifactData.userId === uid;
       if (!isOwner) {
-        const engagementDoc = await db.collection("users").doc(uid)
-          .collection("engagement").doc(artifactId).get();
+        const engagementRef = db.collection("users").doc(uid)
+          .collection("engagement").doc(artifactId);
+        engagementSnap = await transaction.get(engagementRef);
+      }
+    }
 
-        if (!engagementDoc.exists || !engagementDoc.data()?.isCommentUnlocked) {
-          logger.error(`[COMMENT] Unauthorized attempt (LOCKED) | UID=${uid} | ArtID=${artifactId}`);
-          return;
-        }
+    // Read 4: Public Comment Document
+    const commentRef = artifactRef.collection("comments").doc(commentId);
+    const commentSnap = await transaction.get(commentRef);
+
+    // Read 5: Notification Document (Deterministic path: notifications/comment_notif_${commentId})
+    const notificationRef = db.collection("notifications").doc(`comment_notif_${commentId}`);
+    const notificationSnap = await transaction.get(notificationRef);
+
+    // Read 6: Owner Identity Mapping, Owner Ignore List, Owner Settings
+    let ownerId: string | null = null;
+    let ownerMappingSnap: admin.firestore.DocumentSnapshot | null = null;
+    let ignoreSnap: admin.firestore.DocumentSnapshot | null = null;
+    let settingsSnap: admin.firestore.DocumentSnapshot | null = null;
+
+    if (artifactData) {
+      if (artifactData.userId) {
+        ownerId = artifactData.userId;
+      } else if (artifactData.author?.anonymousId) {
+        const ownerMappingRef = db.collection("persona_mapping").doc(artifactData.author.anonymousId);
+        ownerMappingSnap = await transaction.get(ownerMappingRef);
+        ownerId = ownerMappingSnap.exists ? (ownerMappingSnap.data()?.userId || null) : null;
       }
 
-      // 2. Create the Public Comment
-      const commentRef = db.collection("artifacts").doc(artifactId)
-        .collection("comments").doc(commentId);
+      if (ownerId && ownerId !== uid) {
+        const ignoreRef = db.collection("users").doc(ownerId)
+          .collection("private").doc("ignored_users")
+          .collection("users").doc(uid);
+        ignoreSnap = await transaction.get(ignoreRef);
 
-      const commentData = {
-        ...data,
-        identityVersion: data.identityVersion !== undefined ? data.identityVersion : 0,
-        identityPropagationVersion: data.identityPropagationVersion !== undefined ? data.identityPropagationVersion : (data.identityVersion || 0),
-        createdAt: FieldValue.serverTimestamp(),
+        const settingsRef = db.collection("users").doc(ownerId)
+          .collection("private").doc("settings");
+        settingsSnap = await transaction.get(settingsRef);
+      }
+    }
+
+    // -----------------------------------------------------------------
+    // 2. AUTHORIZATION & ARTIFACT VALIDATION (Before Rate Limiter)
+    // -----------------------------------------------------------------
+
+    // Check A: Artifact Existence
+    if (!artifactSnap.exists || !artifactData) {
+      logger.warn(`[COMMENT_INTENT] Artifact missing (${artifactId}) -> REJECTED_NOT_FOUND | UID=${uid}`);
+      transaction.update(intentRef, {
+        status: "REJECTED_NOT_FOUND",
+        rejectionReason: "Artifact does not exist",
         updatedAt: FieldValue.serverTimestamp(),
-        status: "ACTIVE",
-      };
+      });
+      return;
+    }
 
-      await commentRef.set(commentData);
-      logger.info(`[COMMENT] Successfully created comment ${commentId} for ArtID=${artifactId}`);
+    // Check B: Ownership / Engagement Unlock
+    if (!isOwner) {
+      const isUnlocked = engagementSnap?.exists && engagementSnap.data()?.isCommentUnlocked === true;
+      if (!isUnlocked) {
+        logger.error(`[COMMENT_INTENT] Unauthorized (LOCKED) | UID=${uid} | ArtID=${artifactId}`);
+        transaction.update(intentRef, {
+          status: "REJECTED_UNAUTHORIZED",
+          rejectionReason: "Comment not unlocked for listener",
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        return;
+      }
+    }
+
+    // Check C: Existing Public Comment Identity Reconciliation (Idempotency & Conflict Check)
+    if (commentSnap.exists) {
+      const commentData = commentSnap.data() || {};
+      const intentAnonId = intentData.authorAnonymousId || intentData.author?.anonymousId;
+      const commentAnonId = commentData.authorAnonymousId || commentData.author?.anonymousId;
+
+      let hasConflict = false;
+      let conflictReason = "";
+
+      // 1. Artifact identity check
+      if (commentData.artifactId && commentData.artifactId !== artifactId) {
+        hasConflict = true;
+        conflictReason = `Artifact ID mismatch: expected ${artifactId}, got ${commentData.artifactId}`;
+      }
+
+      // 2. Authenticated commenter identity check
+      if (!hasConflict && commentData.creatorId && commentData.creatorId !== uid) {
+        hasConflict = true;
+        conflictReason = `Creator ID mismatch: expected ${uid}, got ${commentData.creatorId}`;
+      }
+      if (!hasConflict && commentData.userId && commentData.userId !== uid && intentData.userId && commentData.userId !== intentData.userId) {
+        hasConflict = true;
+        conflictReason = `User ID mismatch: expected ${uid}, got ${commentData.userId}`;
+      }
+
+      // 3. Anonymous author identity check
+      if (!hasConflict && intentAnonId && commentAnonId && intentAnonId !== commentAnonId) {
+        hasConflict = true;
+        conflictReason = `Anonymous author ID mismatch: expected ${intentAnonId}, got ${commentAnonId}`;
+      }
+
+      if (hasConflict) {
+        logger.error(`[COMMENT_IDENTITY_CONFLICT] Existing comment ${commentId} conflicts with intent | UID=${uid} | Reason=${conflictReason}`);
+        transaction.update(intentRef, {
+          status: "REJECTED_INVALID",
+          rejectionReason: conflictReason,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        return;
+      }
+
+      // Check for positive commenter identity evidence (creatorId, userId, or matching authorAnonymousId).
+      // Content fields (text) or container fields (artifactId) do not establish commenter identity.
+      const hasIdentityMatch = !!(
+        (commentData.creatorId && commentData.creatorId === uid) ||
+        (commentData.userId && (commentData.userId === uid || (intentData.userId && commentData.userId === intentData.userId))) ||
+        (intentAnonId && commentAnonId && intentAnonId === commentAnonId)
+      );
+
+      if (!hasIdentityMatch) {
+        logger.error(`[COMMENT_IDENTITY_AMBIGUOUS] Existing comment ${commentId} lacks sufficient identity evidence | UID=${uid}`);
+        transaction.update(intentRef, {
+          status: "REJECTED_INVALID",
+          rejectionReason: "Insufficient identity evidence on existing comment",
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        return;
+      }
+
+      // Matching comment -> Idempotent success
+      logger.info(`[COMMENT_INTENT] Existing comment ${commentId} matches intent identity | UID=${uid}`);
+      if (currentStatus !== "PROCESSED") {
+        transaction.update(intentRef, {
+          status: "PROCESSED",
+          tokenConsumed: intentData.tokenConsumed ?? false,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      }
+      return;
+    }
+
+    // Historical Anomaly Check: If intent is marked PROCESSED but public comment is missing
+    if (currentStatus === "PROCESSED" && !commentSnap.exists) {
+      logger.error(`[COMMENT_ANOMALY] Intent PROCESSED but public comment missing | UID=${uid} | CommentID=${commentId} | ArtID=${artifactId}`);
+      return;
+    }
+
+    // -----------------------------------------------------------------
+    // 3. TRANSACTIONAL RATE LIMITER (Reads moderation_stats & stages write)
+    // -----------------------------------------------------------------
+    const rateLimit = await checkRateLimitTx(
+      transaction,
+      uid,
+      { maxCapacity: 10, refillRatePerMinute: 5, windowName: "comment" },
+      nowMs
+    );
+
+    if (!rateLimit.allowed) {
+      logger.warn(`[COMMENT_INTENT] Rate limit exceeded for UID=${uid} | Wait=${rateLimit.waitTimeMs}ms`);
+      const updateData: any = {
+        status: "RATE_LIMITED",
+        rateLimitResetAt: rateLimit.rateLimitResetAt,
+        waitTimeMs: rateLimit.waitTimeMs,
+        updatedAt: FieldValue.serverTimestamp(),
+      };
+      if (intentData.clientRetryRequestedAt !== undefined) {
+        updateData.lastConsumedRetryAt = intentData.clientRetryRequestedAt;
+      }
+      transaction.update(intentRef, updateData);
+      return;
+    }
+
+    // -----------------------------------------------------------------
+    // 4. ATOMIC STAGED WRITES (Committed together with rate token write)
+    // -----------------------------------------------------------------
+
+    // A. Build Public Comment Payload
+    const commentPayload: any = {
+      ...intentData,
+      identityVersion: intentData.identityVersion !== undefined ? intentData.identityVersion : 0,
+      identityPropagationVersion: intentData.identityPropagationVersion !== undefined ? intentData.identityPropagationVersion : (intentData.identityVersion || 0),
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+      status: "ACTIVE",
+    };
+    // Strip intent control fields from public comment schema
+    delete commentPayload.clientRetryRequestedAt;
+    delete commentPayload.lastConsumedRetryAt;
+    delete commentPayload.rejectionReason;
+    delete commentPayload.rateLimitResetAt;
+    delete commentPayload.waitTimeMs;
+
+    transaction.set(commentRef, commentPayload);
+    logger.info(`[COMMENT_INTENT] Created public comment ${commentId} for ArtID=${artifactId}`);
+
+    // B. Increment commentCount on Artifact
+    transaction.update(artifactRef, {
+      commentCount: FieldValue.increment(1),
     });
+    logger.info(`[AGGREGATE] commentCount incremented | ArtifactID=${artifactId} | CommentID=${commentId}`);
+
+    // C. Mark Idempotency key for onCommentCreated fallback
+    const idempotencyKeyRef = db.collection("idempotency_keys").doc(`comment_inc_${commentId}`);
+    transaction.set(idempotencyKeyRef, {
+      status: "SUCCESS",
+      result: null,
+      completedAt: FieldValue.serverTimestamp(),
+    });
+
+    // D. Update Intent Document to PROCESSED
+    const intentUpdate: any = {
+      status: "PROCESSED",
+      tokenConsumed: true,
+      processedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    };
+    if (intentData.clientRetryRequestedAt !== undefined) {
+      intentUpdate.lastConsumedRetryAt = intentData.clientRetryRequestedAt;
+    }
+    transaction.update(intentRef, intentUpdate);
+
+    // E. Create Notification (Deterministic ID: notifications/comment_notif_${commentId})
+    if (ownerId && ownerId !== uid) {
+      const isPrivate = artifactData.isPublic === false;
+      const isIgnored = ignoreSnap?.exists === true;
+      const notificationsDisabled = settingsSnap?.data()?.notificationsEnabled === false;
+      const notificationAlreadyExists = notificationSnap.exists;
+
+      if (isPrivate) {
+        logger.info(`[NOTIFICATION] Suppressed for private artifact | ArtifactID=${artifactId}`);
+      } else if (isIgnored) {
+        logger.info(`[COMMENT_NOTIF] Suppressed due to ignore | Recipient=${ownerId} | Sender=${uid}`);
+      } else if (notificationsDisabled) {
+        logger.info(`[NOTIFICATION] Suppressed by user preference | UserID=${ownerId}`);
+      } else if (notificationAlreadyExists) {
+        logger.info(`[NOTIFICATION] Notification already exists | CommentID=${commentId}`);
+      } else {
+        const actorAnonId = intentData.authorAnonymousId || intentData.author?.anonymousId || "";
+        transaction.set(notificationRef, {
+          userId: ownerId,
+          actorId: actorAnonId,
+          followerId: actorAnonId,
+          message: `COMMENT|${artifactData.title || "Unknown Artifact"}`,
+          artifactId: artifactId,
+          type: "COMMENT",
+          createdAt: FieldValue.serverTimestamp(),
+          isRead: false,
+        });
+        logger.info(`[NOTIFICATION] Created deterministically for owner ${ownerId} | ArtifactID=${artifactId}`);
+      }
+    }
   });
+}
+
+/**
+ * Core handler logic for comment intent onWrite trigger.
+ */
+export async function handleCommentIntentWrite(change: any, context: any) {
+  const uid = context.params.uid;
+  const commentId = context.params.commentId;
+
+  const beforeData = change.before.exists ? change.before.data() : null;
+  const afterData = change.after.exists ? change.after.data() : null;
+
+  // 1. Ignore document deletions
+  if (!afterData) return null;
+
+  // 2. Initial Submission
+  if (!change.before.exists) {
+    const status = afterData.status || "PENDING";
+    if (
+      status === "PROCESSED" ||
+      status === "REJECTED_NOT_FOUND" ||
+      status === "REJECTED_UNAUTHORIZED" ||
+      status === "REJECTED_INVALID"
+    ) {
+      logger.info(`[COMMENT_TRIGGER] Initial document in terminal state (${status}) - skipping`);
+      return null;
+    }
+    return processCommentIntentTx(uid, commentId);
+  }
+
+  // 3. Authorized Retry Check
+  const prevStatus = beforeData?.status;
+  const isRateLimited = prevStatus === "RATE_LIMITED";
+  const newRetryReq = afterData.clientRetryRequestedAt;
+  const oldRetryReq = beforeData?.clientRetryRequestedAt;
+  const lastConsumed = afterData.lastConsumedRetryAt || 0;
+
+  const isRetryRequested = (
+    isRateLimited &&
+    typeof newRetryReq === "number" &&
+    (typeof oldRetryReq !== "number" || newRetryReq > oldRetryReq) &&
+    newRetryReq > lastConsumed
+  );
+
+  if (isRetryRequested) {
+    logger.info(`[COMMENT_TRIGGER] Authorized retry requested | UID=${uid} | CommentID=${commentId} | RetryAt=${newRetryReq}`);
+    return processCommentIntentTx(uid, commentId);
+  }
+
+  // Skip backend-generated status updates or unhandled field modifications
+  return null;
+}
+
+/**
+ * Authoritatively handles comment creation intents using an onWrite trigger.
+ * Processes initial PENDING submissions and authorized client retries.
+ * Implements single-transaction atomic comment processing & R070 Rate Limiting.
+ */
+export const onCommentIntentWritten = functions
+  .runWith({ failurePolicy: true })
+  .firestore
+  .document("users/{uid}/private/intents/comments/{commentId}")
+  .onWrite(handleCommentIntentWrite);
+
+/** Backward compatibility alias */
+export const onCommentIntentCreated = onCommentIntentWritten;
 
 /**
  * Authoritatively handles comment aggregation when a new comment is created.

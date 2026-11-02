@@ -59,4 +59,29 @@ interface CommentRepository {
         artifactId: String,
         commentId: String
     ): Result<Unit>
+
+    /**
+     * Observes single document snapshot for a private comment intent.
+     */
+    suspend fun observeIntentStatus(userId: String, commentId: String, artifactId: String)
+
+    /**
+     * Sends an authorized client retry request for a RATE_LIMITED comment intent.
+     */
+    suspend fun requestCommentRetry(userId: String, commentId: String): Result<Unit>
+
+    /**
+     * Scans and synchronizes unconfirmed or rate-limited pending comment intents.
+     */
+    suspend fun syncPendingCommentIntents(userId: String)
+
+    /**
+     * Stops single document snapshot observation for a specific comment intent.
+     */
+    fun stopIntentObservation(commentId: String)
+
+    /**
+     * Stops all active comment intent snapshot listeners.
+     */
+    fun stopAllIntentObservations()
 }

@@ -17,6 +17,7 @@ import com.saurabh.artifact.diagnostics.ArtifactLogger
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.data.local.*
 import com.saurabh.artifact.data.remote.model.CommentPayload
+import com.saurabh.artifact.domain.auth.SessionConstants
 import com.saurabh.artifact.model.Comment
 import com.saurabh.artifact.model.ReactionType
 import com.saurabh.artifact.model.SyncState
@@ -191,17 +192,32 @@ class InteractionSyncWorker @AssistedInject constructor(
             isRetryRequired = true
         }
 
+        // 1B. Reconcile/Recover Pending Comment Intents
+        try {
+            commentRepository.syncPendingCommentIntents(currentUserId)
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            ArtifactLogger.w(
+                DiagnosticCategory.SYNC,
+                "COMMENT_INTENT_SYNC_RECOVERY_ERROR",
+                mapOf("userId" to currentUserId, "error" to (e.message ?: ""))
+            )
+        }
+
         // 2. Collapse duplicate/redundant interaction events before processing
         var hasInteractionTransientFailure = false
         val workerId = id.toString()
+        val processedInBatch = mutableSetOf<Long>()
 
         while (!isStopped) {
             collapseEvents(currentUserId)
 
             val pending = pendingInteractionDao.get().getPendingForUser(currentUserId)
-            if (pending.isEmpty()) break
+            val unprocessed = pending.filter { !processedInBatch.contains(it.id) }
+            if (unprocessed.isEmpty()) break
 
-            for (interaction in pending) {
+            for (interaction in unprocessed) {
+                processedInBatch.add(interaction.id)
                 // R090: Logout/Account-Switch Boundary Guard
                 // We verify three levels of integrity before each write:
                 // 1. Worker not cancelled
@@ -227,7 +243,9 @@ class InteractionSyncWorker @AssistedInject constructor(
                 val result = processInteraction(processingInteraction, currentUserId)
                 if (result.isSuccess) {
                     ArtifactLogger.logInteraction(processingInteraction, "SUCCESS")
-                    pendingInteractionDao.get().delete(interaction)
+                    if (interaction.interactionType != InteractionType.COMMENT) {
+                        pendingInteractionDao.get().delete(interaction)
+                    }
                 } else {
                     val error = result.exceptionOrNull() ?: Exception("Unknown error")
                     val classification = errorClassifier.classify(
@@ -482,13 +500,32 @@ class InteractionSyncWorker @AssistedInject constructor(
                 }
                 InteractionType.COMMENT -> {
                     val commentJson = interaction.metadata ?: throw Exception("Comment metadata missing")
-                    val comment = try {
-                        val payload = json.decodeFromString(CommentPayload.serializer(), commentJson)
-                        payload.toDomain()
-                    } catch (e: Exception) {
-                        json.decodeFromString<Comment>(commentJson)
+                    val payload = try {
+                        json.decodeFromString(CommentPayload.serializer(), commentJson)
+                    } catch (_: Exception) {
+                        null
                     }
-                    commentRepository.createComment(comment).map { Unit }
+
+                    val comment = payload?.toDomain() ?: json.decodeFromString<Comment>(commentJson)
+
+                    if (payload?.intentSubmitted == true) {
+                        commentRepository.observeIntentStatus(userId, comment.id, comment.artifactId)
+                        KResult.success(Unit)
+                    } else {
+                        val createResult = commentRepository.createComment(comment)
+                        if (createResult.isSuccess) {
+                            val updatedPayload = (payload ?: CommentPayload.fromDomain(comment)).copy(
+                                intentSubmitted = true,
+                                intentStatus = "PENDING"
+                            )
+                            val updatedJson = json.encodeToString(CommentPayload.serializer(), updatedPayload)
+                            pendingInteractionDao.get().insert(interaction.copy(metadata = updatedJson))
+                            commentRepository.observeIntentStatus(userId, comment.id, comment.artifactId)
+                            KResult.success(Unit)
+                        } else {
+                            KResult.failure(createResult.exceptionOrNull() ?: Exception("Comment submission failed"))
+                        }
+                    }
                 }
                 else -> throw Exception("Unknown interaction type: ${interaction.interactionType}")
             }
@@ -519,6 +556,27 @@ class InteractionSyncWorker @AssistedInject constructor(
             WorkManager.getInstance(context).enqueueUniqueWork(
                 TAG,
                 ExistingWorkPolicy.KEEP,
+                request,
+            )
+        }
+
+        fun enqueueDelayed(context: Context, delayMs: Long) {
+            val initialDelayMs = maxOf(0L, delayMs)
+            val constraints = Constraints.Builder()
+                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .build()
+
+            val request = OneTimeWorkRequestBuilder<InteractionSyncWorker>()
+                .setConstraints(constraints)
+                .setInitialDelay(initialDelayMs, TimeUnit.MILLISECONDS)
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+                .addTag(TAG)
+                .addTag(SessionConstants.TAG_USER_SESSION_WORK)
+                .build()
+
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                "${TAG}_DELAYED_${System.currentTimeMillis()}",
+                ExistingWorkPolicy.REPLACE,
                 request,
             )
         }

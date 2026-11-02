@@ -1,42 +1,57 @@
 package com.saurabh.artifact.repository
 
+import android.content.Context
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
+import com.saurabh.artifact.data.local.DeadLetterInteractionDao
+import com.saurabh.artifact.data.local.DeadLetterInteractionEntity
+import com.saurabh.artifact.data.local.IgnoredUserDao
+import com.saurabh.artifact.data.local.InteractionAction
+import com.saurabh.artifact.data.local.InteractionType
+import com.saurabh.artifact.data.local.PendingInteractionDao
+import com.saurabh.artifact.data.local.PendingInteractionEntity
 import com.saurabh.artifact.data.remote.model.CommentDto
+import com.saurabh.artifact.data.remote.model.CommentPayload
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
+import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.Comment
 import com.saurabh.artifact.model.CommentStatus
 import com.saurabh.artifact.model.toDomain
 import com.saurabh.artifact.model.toDto
 import com.saurabh.artifact.util.CommentConstants
-import com.saurabh.artifact.data.local.InteractionAction
-import com.saurabh.artifact.data.local.InteractionType
-import com.saurabh.artifact.data.local.PendingInteractionEntity
-import com.saurabh.artifact.data.remote.model.CommentPayload
-import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.worker.InteractionSyncWorker
+import dagger.Lazy
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class FirestoreCommentRepository @Inject constructor(
-    @param:dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context,
+    @param:ApplicationContext private val context: Context,
     private val firestore: FirebaseFirestore,
-    private val ignoredUserDao: dagger.Lazy<com.saurabh.artifact.data.local.IgnoredUserDao>,
-    private val pendingInteractionDao: dagger.Lazy<com.saurabh.artifact.data.local.PendingInteractionDao>,
+    private val ignoredUserDao: Lazy<IgnoredUserDao>,
+    private val pendingInteractionDao: Lazy<PendingInteractionDao>,
+    private val deadLetterInteractionDao: Lazy<DeadLetterInteractionDao>,
     private val authRepository: AuthRepository,
     private val diagnosticLogger: DiagnosticLogger
 ) : CommentRepository {
 
-    private val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+    private val json = Json { ignoreUnknownKeys = true }
+    private val activeIntentListeners = ConcurrentHashMap<String, ListenerRegistration>()
+    private val repositoryScope = CoroutineScope(Dispatchers.IO)
 
     override suspend fun getComments(
         artifactId: String,
@@ -100,8 +115,6 @@ class FirestoreCommentRepository @Inject constructor(
                 mapOf(LogKeys.ARTIFACT_ID to comment.artifactId)
             )
             
-            // R070 FIX: Write to the private intent collection instead of public artifacts.
-            // This enables server-side rate limiting and authoritative unlock validation.
             val intentRef = firestore.collection("users").document(currentUserId)
                 .collection("private").document("intents")
                 .collection("comments").document(if (comment.id.isNotEmpty()) comment.id else UUID.randomUUID().toString())
@@ -123,7 +136,7 @@ class FirestoreCommentRepository @Inject constructor(
             diagnosticLogger.error(
                 DiagnosticCategory.COMMENT,
                 "COMMENT_INTENT_SUBMIT_FAILED",
-                mapOf(com.saurabh.artifact.diagnostics.LogKeys.ARTIFACT_ID to comment.artifactId),
+                mapOf(LogKeys.ARTIFACT_ID to comment.artifactId),
                 e
             )
             Result.failure(AppError.from(e))
@@ -137,28 +150,28 @@ class FirestoreCommentRepository @Inject constructor(
         try {
             val payload = CommentPayload.fromDomain(comment)
             val commentJson = json.encodeToString(CommentPayload.serializer(), payload)
-            val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
+            val pending = PendingInteractionEntity(
                 userId = currentUserId,
                 artifactId = comment.artifactId,
-                interactionType = com.saurabh.artifact.data.local.InteractionType.COMMENT,
-                action = com.saurabh.artifact.data.local.InteractionAction.ADD,
+                interactionType = InteractionType.COMMENT,
+                action = InteractionAction.ADD,
                 metadata = commentJson
             )
             
             pendingInteractionDao.get().insert(pending)
-            com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
+            InteractionSyncWorker.enqueue(context)
             
             diagnosticLogger.info(
                 DiagnosticCategory.COMMENT, 
                 "COMMENT_QUEUED_LOCALLY", 
-                mapOf(com.saurabh.artifact.diagnostics.LogKeys.ARTIFACT_ID to comment.artifactId, "commentId" to comment.id)
+                mapOf(LogKeys.ARTIFACT_ID to comment.artifactId, "commentId" to comment.id)
             )
             Result.success(Unit)
         } catch (e: Exception) {
             diagnosticLogger.error(
                 DiagnosticCategory.COMMENT,
                 "COMMENT_ENQUEUE_FAILED",
-                mapOf(com.saurabh.artifact.diagnostics.LogKeys.ARTIFACT_ID to comment.artifactId),
+                mapOf(LogKeys.ARTIFACT_ID to comment.artifactId),
                 e
             )
             Result.failure(AppError.from(e))
@@ -185,6 +198,313 @@ class FirestoreCommentRepository @Inject constructor(
                 e
             )
             Result.failure(AppError.from(e))
+        }
+    }
+
+    override suspend fun observeIntentStatus(userId: String, commentId: String, artifactId: String) {
+        if (userId.isEmpty() || commentId.isEmpty()) return
+        
+        if (activeIntentListeners.containsKey(commentId)) return
+
+        val currentAuthUid = authRepository.currentUserId
+        if (currentAuthUid != userId) return
+
+        val docRef = firestore.collection("users").document(userId)
+            .collection("private").document("intents")
+            .collection("comments").document(commentId)
+
+        val listenerRegistration = docRef.addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                diagnosticLogger.warn(
+                    DiagnosticCategory.COMMENT,
+                    "COMMENT_INTENT_LISTEN_ERROR",
+                    mapOf("commentId" to commentId, "error" to (error.message ?: ""))
+                )
+                return@addSnapshotListener
+            }
+
+            if (snapshot == null || !snapshot.exists()) {
+                diagnosticLogger.warn(
+                    DiagnosticCategory.COMMENT,
+                    "COMMENT_INTENT_DOC_MISSING",
+                    mapOf("commentId" to commentId)
+                )
+                return@addSnapshotListener
+            }
+
+            val status = snapshot.getString("status") ?: "PENDING"
+            
+            repositoryScope.launch {
+                handleIntentSnapshotUpdate(userId, commentId, artifactId, status, snapshot)
+            }
+        }
+
+        activeIntentListeners[commentId] = listenerRegistration
+    }
+
+    private suspend fun handleIntentSnapshotUpdate(
+        userId: String,
+        commentId: String,
+        artifactId: String,
+        status: String,
+        snapshot: DocumentSnapshot
+    ) {
+        if (authRepository.currentUserId != userId) {
+            stopIntentObservation(commentId)
+            return
+        }
+
+        val pendingInteractions = pendingInteractionDao.get().getPendingByType(
+            artifactId = artifactId,
+            userId = userId,
+            type = InteractionType.COMMENT
+        )
+
+        val matchingInteraction = pendingInteractions.firstOrNull { interaction ->
+            try {
+                val payload = json.decodeFromString(CommentPayload.serializer(), interaction.metadata ?: "")
+                payload.id == commentId
+            } catch (_: Exception) {
+                false
+            }
+        }
+
+        when (status) {
+            "PROCESSED" -> {
+                diagnosticLogger.info(
+                    DiagnosticCategory.COMMENT,
+                    "COMMENT_INTENT_PROCESSED_SUCCESS",
+                    mapOf("commentId" to commentId, "artifactId" to artifactId)
+                )
+                stopIntentObservation(commentId)
+                if (matchingInteraction != null) {
+                    pendingInteractionDao.get().delete(matchingInteraction)
+                }
+            }
+
+            "RATE_LIMITED" -> {
+                val rateLimitResetAt = snapshot.getLong("rateLimitResetAt")
+                val lastConsumed = snapshot.getLong("lastConsumedRetryAt")
+                val waitTimeMs = snapshot.getLong("waitTimeMs") ?: 0L
+
+                diagnosticLogger.warn(
+                    DiagnosticCategory.COMMENT,
+                    "COMMENT_INTENT_RATE_LIMITED",
+                    mapOf("commentId" to commentId, "resetAt" to (rateLimitResetAt ?: 0L), "waitTimeMs" to waitTimeMs)
+                )
+
+                if (matchingInteraction != null) {
+                    try {
+                        val payload = json.decodeFromString(CommentPayload.serializer(), matchingInteraction.metadata ?: "")
+                        val updatedPayload = payload.copy(
+                            intentSubmitted = true,
+                            intentStatus = "RATE_LIMITED",
+                            rateLimitResetAtMs = rateLimitResetAt,
+                            lastConsumedRetryAtMs = lastConsumed
+                        )
+                        val updatedJson = json.encodeToString(CommentPayload.serializer(), updatedPayload)
+                        val updatedInteraction = matchingInteraction.copy(
+                            metadata = updatedJson,
+                            lastError = "RATE_LIMITED: wait $waitTimeMs ms"
+                        )
+                        pendingInteractionDao.get().insert(updatedInteraction)
+                    } catch (e: Exception) {
+                        diagnosticLogger.error(
+                            DiagnosticCategory.COMMENT,
+                            "COMMENT_INTENT_PAYLOAD_UPDATE_FAILED",
+                            mapOf("commentId" to commentId),
+                            e
+                        )
+                    }
+                }
+
+                if (rateLimitResetAt != null && rateLimitResetAt > 0) {
+                    val delayMs = maxOf(0L, rateLimitResetAt - System.currentTimeMillis())
+                    InteractionSyncWorker.enqueueDelayed(context, delayMs)
+                }
+            }
+
+            "REJECTED_NOT_FOUND", "REJECTED_UNAUTHORIZED", "REJECTED_INVALID" -> {
+                val rejectionReason = snapshot.getString("rejectionReason") ?: "Comment intent rejected: $status"
+                diagnosticLogger.error(
+                    DiagnosticCategory.COMMENT,
+                    "COMMENT_INTENT_TERMINAL_REJECTION",
+                    mapOf("commentId" to commentId, "status" to status, "reason" to rejectionReason),
+                    null
+                )
+                stopIntentObservation(commentId)
+
+                if (matchingInteraction != null) {
+                    val dlqEntry = DeadLetterInteractionEntity(
+                        userId = userId,
+                        originalId = matchingInteraction.id,
+                        artifactId = artifactId,
+                        interactionType = InteractionType.COMMENT,
+                        action = matchingInteraction.action,
+                        metadata = matchingInteraction.metadata,
+                        createdAt = matchingInteraction.createdAt,
+                        correlationId = matchingInteraction.correlationId,
+                        failureReason = rejectionReason,
+                        failureType = status,
+                        retryCount = matchingInteraction.retryCount
+                    )
+                    deadLetterInteractionDao.get().moveToDeadLetter(dlqEntry, matchingInteraction)
+                }
+            }
+
+            "PENDING" -> {
+                if (matchingInteraction != null) {
+                    try {
+                        val payload = json.decodeFromString(CommentPayload.serializer(), matchingInteraction.metadata ?: "")
+                        if (!payload.intentSubmitted || payload.intentStatus != "PENDING") {
+                            val updatedPayload = payload.copy(
+                                intentSubmitted = true,
+                                intentStatus = "PENDING"
+                            )
+                            val updatedJson = json.encodeToString(CommentPayload.serializer(), updatedPayload)
+                            pendingInteractionDao.get().insert(matchingInteraction.copy(metadata = updatedJson))
+                        }
+                    } catch (_: Exception) {}
+                }
+            }
+        }
+    }
+
+    override suspend fun requestCommentRetry(userId: String, commentId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        if (userId.isEmpty() || commentId.isEmpty()) return@withContext Result.failure(AppError.Unauthenticated())
+
+        val currentAuthUid = authRepository.currentUserId
+        if (currentAuthUid != userId) return@withContext Result.failure(AppError.Unauthenticated("Auth UID mismatch"))
+
+        try {
+            val docRef = firestore.collection("users").document(userId)
+                .collection("private").document("intents")
+                .collection("comments").document(commentId)
+
+            val snapshot = docRef.get().await()
+            if (!snapshot.exists()) {
+                return@withContext Result.failure(AppError.NotFound("CommentIntent", commentId))
+            }
+
+            val status = snapshot.getString("status")
+            if (status != "RATE_LIMITED") {
+                diagnosticLogger.info(
+                    DiagnosticCategory.COMMENT,
+                    "COMMENT_RETRY_SKIPPED_NOT_RATE_LIMITED",
+                    mapOf("commentId" to commentId, "status" to (status ?: "null"))
+                )
+                return@withContext Result.success(Unit)
+            }
+
+            val oldClientRetry = snapshot.getLong("clientRetryRequestedAt")
+            val lastConsumed = snapshot.getLong("lastConsumedRetryAt")
+            val rateLimitResetAt = snapshot.getLong("rateLimitResetAt")
+
+            val retryTimestamp = calculateClientRetryTimestamp(
+                rateLimitResetAt = rateLimitResetAt,
+                oldClientRetry = oldClientRetry,
+                lastConsumed = lastConsumed
+            )
+
+            docRef.update("clientRetryRequestedAt", retryTimestamp).await()
+
+            diagnosticLogger.info(
+                DiagnosticCategory.COMMENT,
+                "COMMENT_RETRY_REQUESTED_SUCCESS",
+                mapOf("commentId" to commentId, "retryTimestamp" to retryTimestamp)
+            )
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            diagnosticLogger.error(
+                DiagnosticCategory.COMMENT,
+                "COMMENT_RETRY_REQUEST_FAILED",
+                mapOf("commentId" to commentId),
+                e
+            )
+            Result.failure(AppError.from(e))
+        }
+    }
+
+    override suspend fun syncPendingCommentIntents(userId: String) = withContext(Dispatchers.IO) {
+        if (userId.isEmpty() || authRepository.currentUserId != userId) return@withContext
+
+        val pending = pendingInteractionDao.get().getPendingForUser(userId)
+        val commentInteractions = pending.filter { it.interactionType == InteractionType.COMMENT }
+
+        for (interaction in commentInteractions) {
+            val commentJson = interaction.metadata ?: continue
+            val payload = try {
+                json.decodeFromString(CommentPayload.serializer(), commentJson)
+            } catch (_: Exception) {
+                continue
+            }
+
+            val commentId = payload.id
+            if (commentId.isEmpty()) continue
+
+            val docRef = firestore.collection("users").document(userId)
+                .collection("private").document("intents")
+                .collection("comments").document(commentId)
+
+            val snapshot = try {
+                docRef.get().await()
+            } catch (e: Exception) {
+                null
+            }
+
+            if (snapshot == null || !snapshot.exists()) {
+                val comment = payload.toDomain()
+                val createResult = createComment(comment)
+                if (createResult.isSuccess) {
+                    val updatedPayload = payload.copy(intentSubmitted = true, intentStatus = "PENDING")
+                    val updatedJson = json.encodeToString(CommentPayload.serializer(), updatedPayload)
+                    pendingInteractionDao.get().insert(interaction.copy(metadata = updatedJson))
+                    observeIntentStatus(userId, commentId, interaction.artifactId)
+                }
+            } else {
+                val status = snapshot.getString("status") ?: "PENDING"
+                handleIntentSnapshotUpdate(userId, commentId, interaction.artifactId, status, snapshot)
+                if (status == "PENDING" || status == "RATE_LIMITED") {
+                    observeIntentStatus(userId, commentId, interaction.artifactId)
+                    if (status == "RATE_LIMITED") {
+                        val rateLimitResetAt = snapshot.getLong("rateLimitResetAt")
+                        if (rateLimitResetAt != null && System.currentTimeMillis() >= rateLimitResetAt) {
+                            requestCommentRetry(userId, commentId)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    override fun stopIntentObservation(commentId: String) {
+        activeIntentListeners.remove(commentId)?.remove()
+    }
+
+    override fun stopAllIntentObservations() {
+        val iterator = activeIntentListeners.entries.iterator()
+        while (iterator.hasNext()) {
+            val entry = iterator.next()
+            entry.value.remove()
+            iterator.remove()
+        }
+    }
+
+    companion object {
+        fun calculateClientRetryTimestamp(
+            rateLimitResetAt: Long?,
+            oldClientRetry: Long?,
+            lastConsumed: Long?,
+            localNowMs: Long = System.currentTimeMillis()
+        ): Long {
+            val prevMax = maxOf(oldClientRetry ?: 0L, lastConsumed ?: 0L)
+            val candidate = maxOf(localNowMs, prevMax + 1L)
+            return if (rateLimitResetAt != null && rateLimitResetAt > prevMax && candidate > rateLimitResetAt) {
+                rateLimitResetAt
+            } else {
+                candidate
+            }
         }
     }
 }

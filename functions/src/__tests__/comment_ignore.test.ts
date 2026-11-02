@@ -77,7 +77,7 @@ describe("onCommentCreated Ignore Check", () => {
     const wrapped = testEnv.wrap(myFunctions.onCommentCreated);
 
     const snapshot = {
-      data: () => ({ status: "ACTIVE", text: "Hello", creatorId: commenterId }),
+      data: () => ({ status: "ACTIVE", text: "Hello", authorAnonymousId: "anonB", creatorId: commenterId }),
       exists: true
     } as any;
 
@@ -112,6 +112,15 @@ describe("onCommentCreated Ignore Check", () => {
     };
 
     mockFirestore.collection.mockImplementation((name: string) => {
+      if (name === "persona_mapping") {
+        return {
+          doc: jest.fn(() => ({
+            get: jest.fn().mockImplementation(() => Promise.resolve({
+              data: () => ({ userId: commenterId }),
+            }))
+          }))
+        };
+      }
       if (name === "users") {
         return {
           doc: jest.fn((id: string) => {
@@ -151,7 +160,7 @@ describe("onCommentCreated Ignore Check", () => {
     const wrapped = testEnv.wrap(myFunctions.onCommentCreated);
 
     const snapshot = {
-      data: () => ({ status: "ACTIVE", text: "Hello", creatorId: commenterId }),
+      data: () => ({ status: "ACTIVE", text: "Hello", authorAnonymousId: "anonB", creatorId: commenterId }),
       exists: true
     } as any;
 
@@ -186,6 +195,15 @@ describe("onCommentCreated Ignore Check", () => {
     };
 
     mockFirestore.collection.mockImplementation((name: string) => {
+      if (name === "persona_mapping") {
+        return {
+          doc: jest.fn((id: string) => ({
+            get: jest.fn().mockImplementation(() => Promise.resolve({
+              data: () => ({ userId: id === "ownerAnon" ? ownerId : commenterId }),
+            }))
+          }))
+        };
+      }
       if (name === "users") {
         return {
           doc: jest.fn((id: string) => {
@@ -199,7 +217,7 @@ describe("onCommentCreated Ignore Check", () => {
           doc: jest.fn(() => ({
             get: jest.fn().mockImplementation(() => Promise.resolve({
               exists: true,
-              data: () => ({ isPublic: true, userId: ownerId, title: "My Art" })
+              data: () => ({ isPublic: true, userId: ownerId, author: { anonymousId: "ownerAnon" }, title: "My Art" })
             })),
             update: jest.fn(() => Promise.resolve({})),
           }))
