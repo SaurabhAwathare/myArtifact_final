@@ -28,8 +28,26 @@ abstract class DeadLetterInteractionDao {
     @Query("SELECT * FROM dead_letter_interactions ORDER BY failedAt DESC")
     abstract suspend fun getAll(): List<DeadLetterInteractionEntity>
 
+    @Query("SELECT * FROM dead_letter_interactions WHERE userId = :userId AND interactionType = :interactionType ORDER BY failedAt ASC")
+    abstract suspend fun getDeadLettersForUser(
+        userId: String,
+        interactionType: String = InteractionType.COMMENT
+    ): List<DeadLetterInteractionEntity>
+
     @Query("DELETE FROM dead_letter_interactions WHERE id = :id")
     abstract suspend fun deleteById(id: Long)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract suspend fun insertPending(pending: PendingInteractionEntity)
+
+    @Transaction
+    open suspend fun recoverToPending(
+        pending: PendingInteractionEntity,
+        deadLetterId: Long
+    ) {
+        insertPending(pending)
+        deleteById(deadLetterId)
+    }
 
     @Query("SELECT * FROM dead_letter_interactions WHERE artifactId = :artifactId AND userId = :userId AND interactionType = :interactionType ORDER BY failedAt DESC")
     abstract fun observeDeadLettersForArtifact(

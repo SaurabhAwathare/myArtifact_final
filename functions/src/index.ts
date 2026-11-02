@@ -2301,12 +2301,10 @@ export const onCommentIntentWritten = functions
   .document("users/{uid}/private/intents/comments/{commentId}")
   .onWrite(handleCommentIntentWrite);
 
-/** Backward compatibility alias */
-export const onCommentIntentCreated = onCommentIntentWritten;
 
 /**
  * Authoritatively handles comment aggregation when a new comment is created.
- * Wrapped with withIdempotency to prevent duplicate increments on retry.
+ * Fully transactional single-batch execution with read-before-write guarantee and deterministic notifications.
  */
 export const onCommentCreated = functions.firestore
   .document("artifacts/{artifactId}/comments/{commentId}")
@@ -2317,84 +2315,114 @@ export const onCommentCreated = functions.firestore
 
     if (!data || data.status === "DELETED") return null;
 
-    return withIdempotency(`comment_inc_${commentId}`, async () => {
-      const db = admin.firestore();
-      const artifactRef = db.collection("artifacts").doc(artifactId);
+    const db = admin.firestore();
+    const idempotencyKeyRef = db.collection("idempotency_keys").doc(`comment_inc_${commentId}`);
+    const artifactRef = db.collection("artifacts").doc(artifactId);
+    const notificationRef = db.collection("notifications").doc(`comment_notif_${commentId}`);
 
-      // Fetch Artifact to get ownerId and verify visibility
-      const artifactDoc = await artifactRef.get();
-      if (!artifactDoc.exists) return;
-      const artifactData = artifactDoc.data()!;
+    return db.runTransaction(async (transaction) => {
+      // -----------------------------------------------------------------
+      // 1. TRANSACTION READS (MUST ALL BE COMPLETED BEFORE ANY WRITE!)
+      // -----------------------------------------------------------------
 
-      // Resolve Artifact Creator's Firebase Auth UID via author.anonymousId -> persona_mapping
+      // Read 1: Idempotency Key
+      const keySnap = await transaction.get(idempotencyKeyRef);
+      if (keySnap?.exists && keySnap.data()?.status === "SUCCESS") {
+        logger.info(`Idempotency: Key comment_inc_${commentId} already succeeded. Returning cached result.`);
+        return null;
+      }
+
+      // Read 2: Artifact Document
+      const artifactSnap = await transaction.get(artifactRef);
+      if (!artifactSnap?.exists) {
+        logger.warn(`[ON_COMMENT_CREATED] Artifact missing (${artifactId}) | CommentID=${commentId}`);
+        return null;
+      }
+      const artifactData = artifactSnap.data()!;
+
+      // Read 3: Notification Document (Deterministic path: notifications/comment_notif_${commentId})
+      const notificationSnap = await transaction.get(notificationRef);
+
+      // Read 4 & 5: Persona Mappings for Owner and Commenter
+      let ownerId: string | null = artifactData.userId || null;
       const artifactAuthorAnonId = artifactData.author?.anonymousId;
-      let ownerId: string | null = null;
-      if (artifactAuthorAnonId) {
-        const ownerMappingDoc = await db.collection("persona_mapping").doc(artifactAuthorAnonId).get();
-        ownerId = ownerMappingDoc.data()?.userId || null;
-        if (!ownerId) {
-          const ownerUserQuery = await db.collection("users").where("anonymousId", "==", artifactAuthorAnonId).limit(1).get();
-          if (!ownerUserQuery.empty) {
-            ownerId = ownerUserQuery.docs[0].id;
-          }
-        }
+      if (!ownerId && artifactAuthorAnonId) {
+        const ownerMappingRef = db.collection("persona_mapping").doc(artifactAuthorAnonId);
+        const ownerMappingSnap = await transaction.get(ownerMappingRef);
+        ownerId = ownerMappingSnap?.exists ? (ownerMappingSnap.data()?.userId || null) : null;
       }
 
-      const actorAnonId = data.authorAnonymousId;
-      let commenterId: string | null = null;
-      if (actorAnonId) {
-        const commenterMappingDoc = await db.collection("persona_mapping").doc(actorAnonId).get();
-        commenterId = commenterMappingDoc.data()?.userId || null;
+      const actorAnonId = data.authorAnonymousId || data.author?.anonymousId || "";
+      let commenterId: string | null = data.creatorId || data.userId || null;
+      if (!commenterId && actorAnonId) {
+        const commenterMappingRef = db.collection("persona_mapping").doc(actorAnonId);
+        const commenterMappingSnap = await transaction.get(commenterMappingRef);
+        commenterId = commenterMappingSnap?.exists ? (commenterMappingSnap.data()?.userId || null) : null;
       }
 
-      if (!artifactData.isPublic && ownerId && ownerId !== commenterId) {
-        logger.info(`[NOTIFICATION] Suppressed for private artifact | ArtifactID=${artifactId}`);
-        return;
+      // Read 6 & 7: Ignore list and Settings if commenter is not owner
+      let ignoreSnap: admin.firestore.DocumentSnapshot | null = null;
+      let settingsSnap: admin.firestore.DocumentSnapshot | null = null;
+
+      if (ownerId && commenterId && ownerId !== commenterId) {
+        const ignoreRef = db.collection("users").doc(ownerId)
+          .collection("private").doc("ignored_users")
+          .collection("users").doc(commenterId);
+        ignoreSnap = await transaction.get(ignoreRef);
+
+        const settingsRef = db.collection("users").doc(ownerId)
+          .collection("private").doc("settings");
+        settingsSnap = await transaction.get(settingsRef);
       }
 
-      await artifactRef.update({
+      // -----------------------------------------------------------------
+      // 2. TRANSACTION WRITES (COMPLETED ATOMICALLY)
+      // -----------------------------------------------------------------
+
+      // A. Increment commentCount on Artifact
+      transaction.update(artifactRef, {
         commentCount: FieldValue.increment(1),
       });
       logger.info(`[AGGREGATE] commentCount incremented | ArtifactID=${artifactId} | CommentID=${commentId}`);
 
-      // 3. Create Notification if commenter is not the owner
+      // B. Mark Idempotency key as SUCCESS
+      transaction.set(idempotencyKeyRef, {
+        status: "SUCCESS",
+        result: null,
+        completedAt: FieldValue.serverTimestamp(),
+      });
+
+      // C. Create Notification (Deterministic ID: notifications/comment_notif_${commentId})
       if (ownerId && commenterId && ownerId !== commenterId) {
-        // Silent Ignore Boundary Check (Phase 6.3.1 Remediation)
-        const ignoreDoc = await db.collection("users").doc(ownerId)
-          .collection("private").doc("ignored_users")
-          .collection("users").doc(commenterId)
-          .get();
+        const isPrivate = artifactData.isPublic === false;
+        const isIgnored = ignoreSnap?.exists === true;
+        const notificationsDisabled = settingsSnap?.data()?.notificationsEnabled === false;
+        const notificationAlreadyExists = notificationSnap.exists;
 
-        if (ignoreDoc.exists) {
+        if (isPrivate) {
+          logger.info(`[NOTIFICATION] Suppressed for private artifact | ArtifactID=${artifactId}`);
+        } else if (isIgnored) {
           logger.info(`[COMMENT_NOTIF] Suppressed due to ignore | Recipient=${ownerId} | Sender=${commenterId}`);
-          return;
-        }
-
-        // Authoritative Preference Check
-        const userSettingsDoc = await db.collection("users").doc(ownerId)
-          .collection("private").doc("settings")
-          .get();
-
-        const settings = userSettingsDoc.data();
-        if (settings?.notificationsEnabled === false) {
+        } else if (notificationsDisabled) {
           logger.info(`[NOTIFICATION] Suppressed by user preference | UserID=${ownerId}`);
-          return;
+        } else if (notificationAlreadyExists) {
+          logger.info(`[NOTIFICATION] Notification already exists | CommentID=${commentId}`);
+        } else {
+          transaction.set(notificationRef, {
+            userId: ownerId,
+            actorId: actorAnonId,
+            followerId: actorAnonId,
+            message: `COMMENT|${artifactData.title || "Unknown Artifact"}`,
+            artifactId: artifactId,
+            type: "COMMENT",
+            createdAt: FieldValue.serverTimestamp(),
+            isRead: false,
+          });
+          logger.info(`[NOTIFICATION] Created for owner ${ownerId} | ArtifactID=${artifactId}`);
         }
-
-        // Create Notification (Sanitized actorId/followerId)
-        // Verified: actorAnonId is pulled from the comment itself, ensuring persona-bound identity.
-        await db.collection("notifications").add({
-          userId: ownerId,
-          actorId: actorAnonId,
-          followerId: actorAnonId,
-          message: `COMMENT|${artifactData.title || "Unknown Artifact"}`,
-          artifactId: artifactId,
-          type: "COMMENT",
-          createdAt: FieldValue.serverTimestamp(),
-          isRead: false,
-        });
-        logger.info(`[NOTIFICATION] Created for owner ${ownerId} | ArtifactID=${artifactId}`);
       }
+
+      return null;
     });
   });
 

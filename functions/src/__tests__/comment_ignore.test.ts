@@ -6,7 +6,7 @@ const testEnv = functionsTest();
 
 // Mock Firestore
 const mockDoc: any = {
-  get: jest.fn(),
+  get: jest.fn(() => Promise.resolve({ exists: false, data: () => null })),
   set: jest.fn(() => Promise.resolve({})),
   update: jest.fn(() => Promise.resolve({})),
   delete: jest.fn(() => Promise.resolve({})),
@@ -18,21 +18,44 @@ const mockCollection: any = {
   doc: jest.fn(() => mockDoc),
   where: jest.fn().mockReturnThis(),
   limit: jest.fn().mockReturnThis(),
-  get: jest.fn(),
+  get: jest.fn(() => Promise.resolve({ empty: true, size: 0, docs: [] })),
   add: jest.fn(() => Promise.resolve({ id: "new_id" })),
 };
 
 mockDoc.collection.mockReturnValue(mockCollection);
 
+let transactionSetCalls: any[] = [];
+let transactionUpdateCalls: any[] = [];
+
 const mockFirestore: any = {
   collection: jest.fn(() => mockCollection),
   doc: jest.fn(() => mockDoc),
-  runTransaction: jest.fn(async (cb: any) => cb({
-    get: jest.fn(),
-    set: jest.fn(),
-    update: jest.fn(),
-    delete: jest.fn(),
-  })),
+  runTransaction: jest.fn(async (cb: any) => {
+    transactionSetCalls = [];
+    transactionUpdateCalls = [];
+    const transaction = {
+      get: jest.fn(async (docRef: any) => {
+        if (docRef && typeof docRef.get === "function") {
+          return docRef.get();
+        }
+        return { exists: false, data: () => null };
+      }),
+      set: jest.fn((docRef: any, data: any) => {
+        transactionSetCalls.push({ docRef, data });
+        if (docRef && typeof docRef.set === "function") {
+          docRef.set(data);
+        }
+      }),
+      update: jest.fn((docRef: any, data: any) => {
+        transactionUpdateCalls.push({ docRef, data });
+        if (docRef && typeof docRef.update === "function") {
+          docRef.update(data);
+        }
+      }),
+      delete: jest.fn(),
+    };
+    return cb(transaction);
+  }),
 };
 
 jest.mock("firebase-admin", () => {
@@ -55,14 +78,11 @@ jest.mock("firebase-admin", () => {
   };
 });
 
-// Mock withIdempotency to just run the callback
-jest.mock("../util/idempotency", () => ({
-  withIdempotency: jest.fn((key, cb: any) => cb()),
-}));
-
 describe("onCommentCreated Ignore Check", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    transactionSetCalls = [];
+    transactionUpdateCalls = [];
   });
 
   afterAll(() => {
@@ -116,6 +136,7 @@ describe("onCommentCreated Ignore Check", () => {
         return {
           doc: jest.fn(() => ({
             get: jest.fn().mockImplementation(() => Promise.resolve({
+              exists: true,
               data: () => ({ userId: commenterId }),
             }))
           }))
@@ -140,7 +161,14 @@ describe("onCommentCreated Ignore Check", () => {
           }))
         };
       }
-      if (name === "notifications") return mockCollection;
+      if (name === "idempotency_keys" || name === "notifications") {
+        return {
+          doc: jest.fn((id: string) => ({
+            get: jest.fn().mockImplementation(() => Promise.resolve({ exists: false, data: () => null })),
+            set: jest.fn(),
+          }))
+        };
+      }
       return mockCollection;
     });
 
@@ -148,8 +176,9 @@ describe("onCommentCreated Ignore Check", () => {
       params: { artifactId, commentId },
     });
 
-    // Should NOT have added a notification
-    expect(mockCollection.add).not.toHaveBeenCalled();
+    // Notification set call should NOT be present for notifications
+    const notifCall = transactionSetCalls.find(c => c.data?.type === "COMMENT");
+    expect(notifCall).toBeUndefined();
   });
 
   it("should create notification if commenter is NOT ignored", async () => {
@@ -199,6 +228,7 @@ describe("onCommentCreated Ignore Check", () => {
         return {
           doc: jest.fn((id: string) => ({
             get: jest.fn().mockImplementation(() => Promise.resolve({
+              exists: true,
               data: () => ({ userId: id === "ownerAnon" ? ownerId : commenterId }),
             }))
           }))
@@ -223,7 +253,14 @@ describe("onCommentCreated Ignore Check", () => {
           }))
         };
       }
-      if (name === "notifications") return mockCollection;
+      if (name === "idempotency_keys" || name === "notifications") {
+        return {
+          doc: jest.fn((id: string) => ({
+            get: jest.fn().mockImplementation(() => Promise.resolve({ exists: false, data: () => null })),
+            set: jest.fn(),
+          }))
+        };
+      }
       return mockCollection;
     });
 
@@ -231,8 +268,10 @@ describe("onCommentCreated Ignore Check", () => {
       params: { artifactId, commentId },
     });
 
-    // Should have added a notification
-    expect(mockCollection.add).toHaveBeenCalledWith(expect.objectContaining({
+    // Should have staged notification creation in transaction
+    const notifCall = transactionSetCalls.find(c => c.data?.type === "COMMENT");
+    expect(notifCall).toBeDefined();
+    expect(notifCall.data).toEqual(expect.objectContaining({
       userId: ownerId,
       type: "COMMENT"
     }));

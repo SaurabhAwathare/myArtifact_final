@@ -76,6 +76,11 @@ interface CommentRepository {
     suspend fun syncPendingCommentIntents(userId: String)
 
     /**
+     * Recovers eligible comment DLQ records back into pending_interactions.
+     */
+    suspend fun recoverEligibleDeadLetters(userId: String): Result<Int>
+
+    /**
      * Stops single document snapshot observation for a specific comment intent.
      */
     fun stopIntentObservation(commentId: String)

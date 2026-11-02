@@ -426,8 +426,111 @@ class FirestoreCommentRepository @Inject constructor(
         }
     }
 
+    override suspend fun recoverEligibleDeadLetters(userId: String): Result<Int> = withContext(Dispatchers.IO) {
+        if (userId.isEmpty() || authRepository.currentUserId != userId) {
+            return@withContext Result.failure(AppError.Unauthenticated())
+        }
+
+        try {
+            val deadLetters = deadLetterInteractionDao.get().getDeadLettersForUser(userId, InteractionType.COMMENT)
+            var recoveredCount = 0
+
+            for (dl in deadLetters) {
+                // 1. Interaction type check
+                if (dl.interactionType != InteractionType.COMMENT) continue
+
+                // 2. Failure classification check - must be transient retry limit exceeded
+                if (dl.failureType != "RETRY_LIMIT_EXCEEDED") continue
+
+                // 3. User ID & artifact ID validation
+                if (dl.userId.isBlank() || dl.userId != userId || dl.artifactId.isBlank()) continue
+
+                // 4. Payload integrity validation
+                val metadata = dl.metadata
+                if (metadata.isNullOrBlank()) continue
+
+                val payload = try {
+                    json.decodeFromString(CommentPayload.serializer(), metadata)
+                } catch (_: Exception) {
+                    continue
+                }
+
+                if (payload.id.isBlank() || payload.artifactId.isBlank() || payload.text.isBlank()) continue
+                if (payload.artifactId != dl.artifactId) continue
+                if (payload.author.anonymousId.isBlank()) continue
+
+                // 5. Duplicate check in pending_interactions
+                val existingPending = pendingInteractionDao.get().getPendingForUser(userId)
+                val duplicatePending = existingPending.firstOrNull { pending ->
+                    if (pending.interactionType != InteractionType.COMMENT) return@firstOrNull false
+                    val pendingPayload = try {
+                        json.decodeFromString(CommentPayload.serializer(), pending.metadata ?: "")
+                    } catch (_: Exception) {
+                        null
+                    }
+                    pendingPayload?.id == payload.id
+                }
+
+                if (duplicatePending != null) {
+                    // Safe resolution: pending already exists, remove duplicate DLQ entry atomically
+                    deadLetterInteractionDao.get().deleteById(dl.id)
+                    diagnosticLogger.info(
+                        DiagnosticCategory.COMMENT,
+                        "COMMENT_DLQ_DUPLICATE_REMOVED",
+                        mapOf("commentId" to payload.id, "dlqId" to dl.id.toString())
+                    )
+                    continue
+                }
+
+                // 6. Reconstruct pending interaction with reset retry state
+                val reconstructedPending = PendingInteractionEntity(
+                    userId = dl.userId,
+                    artifactId = dl.artifactId,
+                    interactionType = InteractionType.COMMENT,
+                    action = dl.action.ifBlank { InteractionAction.ADD },
+                    metadata = dl.metadata,
+                    createdAt = dl.createdAt,
+                    correlationId = dl.correlationId.ifBlank { UUID.randomUUID().toString() },
+                    workerId = null,
+                    retryCount = 0,
+                    lastError = null
+                )
+
+                // 7. Atomic transfer: insert pending and delete DLQ inside Room transaction
+                deadLetterInteractionDao.get().recoverToPending(reconstructedPending, dl.id)
+                recoveredCount++
+
+                diagnosticLogger.info(
+                    DiagnosticCategory.COMMENT,
+                    "COMMENT_DLQ_RECOVERED_TO_PENDING",
+                    mapOf("commentId" to payload.id, "dlqId" to dl.id.toString(), "artifactId" to dl.artifactId)
+                )
+            }
+
+            Result.success(recoveredCount)
+        } catch (e: Exception) {
+            diagnosticLogger.error(
+                DiagnosticCategory.COMMENT,
+                "COMMENT_DLQ_RECOVERY_FAILED",
+                mapOf("userId" to userId),
+                e
+            )
+            Result.failure(AppError.from(e))
+        }
+    }
+
     override suspend fun syncPendingCommentIntents(userId: String) = withContext(Dispatchers.IO) {
         if (userId.isEmpty() || authRepository.currentUserId != userId) return@withContext
+
+        try {
+            recoverEligibleDeadLetters(userId)
+        } catch (e: Exception) {
+            diagnosticLogger.warn(
+                DiagnosticCategory.COMMENT,
+                "COMMENT_DLQ_RECOVERY_BEFORE_SYNC_FAILED",
+                mapOf("userId" to userId, "error" to (e.message ?: ""))
+            )
+        }
 
         val pending = pendingInteractionDao.get().getPendingForUser(userId)
         val commentInteractions = pending.filter { it.interactionType == InteractionType.COMMENT }

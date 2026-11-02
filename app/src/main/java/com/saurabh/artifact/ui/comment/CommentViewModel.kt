@@ -249,8 +249,24 @@ class CommentViewModel @Inject constructor(
         }
     }
 
+    private var lastObservedDeadLetters: List<DeadLetterInteractionEntity> = emptyList()
+
     private suspend fun reconcileDeadLetters(deadLetters: List<DeadLetterInteractionEntity>) {
-        if (deadLetters.isEmpty()) return
+        lastObservedDeadLetters = deadLetters
+        val activeDlqCommentIds = deadLetters.mapNotNull { dl ->
+            val metadata = dl.metadata
+            if (metadata.isNullOrBlank()) null
+            else {
+                try {
+                    json.decodeFromString(CommentPayload.serializer(), metadata).id
+                } catch (_: Exception) {
+                    null
+                }
+            }
+        }.filter { it.isNotBlank() }.toSet()
+
+        val currentDlqRowIds = deadLetters.map { it.id }.toSet()
+        processedDeadLetterIds.retainAll(currentDlqRowIds)
 
         val newlyDiscoveredFailures = mutableListOf<String>()
 
@@ -295,6 +311,20 @@ class CommentViewModel @Inject constructor(
                 val failureReason = dl.failureReason ?: "Comment submission failed permanently."
                 newlyDiscoveredFailures.add(failureReason)
             }
+        }
+
+        // Synchronize comment status with active DLQ set (FAILED for DLQ records, ACTIVE for recovered records)
+        _uiState.update { currentState ->
+            val updatedComments = currentState.comments.map { comment ->
+                if (activeDlqCommentIds.contains(comment.id)) {
+                    comment.copy(status = CommentStatus.FAILED)
+                } else if (comment.status == CommentStatus.FAILED) {
+                    comment.copy(status = CommentStatus.ACTIVE)
+                } else {
+                    comment
+                }
+            }
+            currentState.copy(comments = updatedComments)
         }
 
         for (reason in newlyDiscoveredFailures) {
@@ -390,6 +420,7 @@ class CommentViewModel @Inject constructor(
                             hasMorePages = paginatedComments.lastVisible != null
                         )
                     }
+                    reconcileDeadLetters(lastObservedDeadLetters)
                     resolveIdentitiesForComments(paginatedComments.comments)
                 }
                 .onFailure { error ->
@@ -432,6 +463,7 @@ class CommentViewModel @Inject constructor(
                             hasMorePages = paginatedComments.lastVisible != null
                         )
                     }
+                    reconcileDeadLetters(lastObservedDeadLetters)
                     resolveIdentitiesForComments(paginatedComments.comments)
                 }
                 .onFailure { error ->
@@ -470,6 +502,7 @@ class CommentViewModel @Inject constructor(
                             hasMorePages = paginatedComments.lastVisible != null
                         )
                     }
+                    reconcileDeadLetters(lastObservedDeadLetters)
                     resolveIdentitiesForComments(paginatedComments.comments)
                 }
                 .onFailure { error ->
