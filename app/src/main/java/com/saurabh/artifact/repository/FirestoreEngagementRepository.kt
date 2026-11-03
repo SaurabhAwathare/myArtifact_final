@@ -127,7 +127,6 @@ class FirestoreEngagementRepository @Inject constructor(
                 "lastPositionMs" to evidence.lastPositionMs,
                 "furthestPositionMs" to evidence.furthestPositionMs,
                 "hasReachedEnd" to evidence.hasReachedEnd,
-                "engagementState" to mapOf("unlocked" to false),
                 "reviewTrackingVersion" to evidence.reviewTrackingVersion.value,
                 "segmentSizeMs" to evidence.segmentSizeMs,
                 "updatedAt" to com.google.firebase.Timestamp.now()

@@ -1,17 +1,23 @@
 package com.saurabh.artifact.ui.notifications
 
 import com.saurabh.artifact.model.NotificationItem
+import com.saurabh.artifact.model.User
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.NotificationRepository
 import com.saurabh.artifact.repository.UserRepository
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.*
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -63,6 +69,7 @@ class NotificationActorAttributionTest {
         ignoredUsersFlow.value = setOf(ignoredActorId)
         
         val viewModel = NotificationViewModel(notificationRepository, authRepository, userRepository)
+        backgroundScope.launch { viewModel.uiState.collect {} }
         advanceUntilIdle()
         
         val uiState = viewModel.uiState.value
@@ -82,6 +89,7 @@ class NotificationActorAttributionTest {
         ignoredUsersFlow.value = setOf("some-actor")
         
         val viewModel = NotificationViewModel(notificationRepository, authRepository, userRepository)
+        backgroundScope.launch { viewModel.uiState.collect {} }
         advanceUntilIdle()
         
         val uiState = viewModel.uiState.value
@@ -101,6 +109,7 @@ class NotificationActorAttributionTest {
         ignoredUsersFlow.value = setOf(actorId)
         
         val viewModel = NotificationViewModel(notificationRepository, authRepository, userRepository)
+        backgroundScope.launch { viewModel.uiState.collect {} }
         advanceUntilIdle()
         
         assertTrue("Should be hidden when ignored", viewModel.uiState.value.items.isEmpty())
@@ -131,6 +140,7 @@ class NotificationActorAttributionTest {
         coEvery { notificationRepository.getNotificationsPage(currentUserId, any(), lastDoc1) } returns Result.success(page2 to null)
         
         val viewModel = NotificationViewModel(notificationRepository, authRepository, userRepository)
+        backgroundScope.launch { viewModel.uiState.collect {} }
         advanceUntilIdle()
         
         assertEquals(1, viewModel.uiState.value.items.size) // Only item 2
@@ -142,5 +152,127 @@ class NotificationActorAttributionTest {
         assertEquals(2, finalItems.size) // Item 2 and Item 4
         assertTrue(finalItems.any { it.id == "2" })
         assertTrue(finalItems.any { it.id == "4" })
+    }
+
+    @Test
+    fun `notifications should emit immediately without waiting for actor profile resolution`() = runTest {
+        val pendingActorId = "usr_pending"
+        val notifications = listOf(
+            NotificationItem(id = "notif_1", actorId = pendingActorId, message = "COMMENT|Artifact Title")
+        )
+
+        val unrespondingProfileFlow = MutableSharedFlow<User?>()
+        every { userRepository.streamUserProfile(pendingActorId) } returns unrespondingProfileFlow
+
+        liveNotificationsFlow.value = notifications to null
+
+        val viewModel = NotificationViewModel(notificationRepository, authRepository, userRepository)
+        backgroundScope.launch { viewModel.uiState.collect {} }
+        advanceUntilIdle()
+
+        val uiState = viewModel.uiState.value
+        assertEquals("Items should emit immediately", 1, uiState.items.size)
+        assertEquals("notif_1", uiState.items[0].id)
+        assertNull("Actor profile map should be empty prior to profile stream emission", uiState.actorProfiles[pendingActorId])
+    }
+
+    @Test
+    fun `actor profile emission should dynamically enrich existing notification presentation`() = runTest {
+        val actorId = "usr_rich"
+        val notifications = listOf(
+            NotificationItem(id = "notif_2", actorId = actorId, message = "RESONANCE|1")
+        )
+
+        val profileFlow = MutableStateFlow<User?>(null)
+        every { userRepository.streamUserProfile(actorId) } returns profileFlow
+
+        liveNotificationsFlow.value = notifications to null
+
+        val viewModel = NotificationViewModel(notificationRepository, authRepository, userRepository)
+        backgroundScope.launch { viewModel.uiState.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(1, viewModel.uiState.value.items.size)
+        assertNull(viewModel.uiState.value.actorProfiles[actorId])
+
+        profileFlow.value = User(id = actorId, anonymousName = "Cosmic Traveler", anonymousSigil = "✦")
+        advanceUntilIdle()
+
+        val updatedProfiles = viewModel.uiState.value.actorProfiles
+        assertNotNull(updatedProfiles[actorId])
+        assertEquals("Cosmic Traveler", updatedProfiles[actorId]?.anonymousName)
+    }
+
+    @Test
+    fun `missing profile should not prevent notification from remaining visible`() = runTest {
+        val missingActorId = "usr_missing"
+        val notifications = listOf(
+            NotificationItem(id = "notif_3", actorId = missingActorId, message = "NEW_ARTIFACT|Mystic Echoes")
+        )
+
+        every { userRepository.streamUserProfile(missingActorId) } returns flowOf(null)
+
+        liveNotificationsFlow.value = notifications to null
+
+        val viewModel = NotificationViewModel(notificationRepository, authRepository, userRepository)
+        backgroundScope.launch { viewModel.uiState.collect {} }
+        advanceUntilIdle()
+
+        val uiState = viewModel.uiState.value
+        assertEquals("Notification must remain visible even if profile is missing", 1, uiState.items.size)
+        assertEquals("notif_3", uiState.items[0].id)
+        assertNull("Missing profile produces null/absent profile entry", uiState.actorProfiles[missingActorId])
+    }
+
+    @Test
+    fun `multiple actor profiles should resolve non-blockingly as each stream emits`() = runTest {
+        val actorA = "usr_fast"
+        val actorB = "usr_slow"
+        val notifications = listOf(
+            NotificationItem(id = "notif_A", actorId = actorA, message = "PRESENCE_RESONATED"),
+            NotificationItem(id = "notif_B", actorId = actorB, message = "USERNAME_UPDATED|Nova")
+        )
+
+        val flowA = MutableStateFlow<User?>(null)
+        val flowB = MutableStateFlow<User?>(null)
+
+        every { userRepository.streamUserProfile(actorA) } returns flowA
+        every { userRepository.streamUserProfile(actorB) } returns flowB
+
+        liveNotificationsFlow.value = notifications to null
+
+        val viewModel = NotificationViewModel(notificationRepository, authRepository, userRepository)
+        backgroundScope.launch { viewModel.uiState.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(2, viewModel.uiState.value.items.size)
+
+        flowA.value = User(id = actorA, anonymousName = "Fast User")
+        advanceUntilIdle()
+
+        assertEquals("Fast User", viewModel.uiState.value.actorProfiles[actorA]?.anonymousName)
+        assertNull(viewModel.uiState.value.actorProfiles[actorB])
+
+        flowB.value = User(id = actorB, anonymousName = "Slow User")
+        advanceUntilIdle()
+
+        assertEquals("Slow User", viewModel.uiState.value.actorProfiles[actorB]?.anonymousName)
+    }
+
+    @Test
+    fun `liveHeadFlow should share single upstream subscription to notification repository`() = runTest {
+        val notifications = listOf(
+            NotificationItem(id = "notif_share", actorId = "usr_share", message = "COMMENT|Shared Test")
+        )
+
+        every { userRepository.streamUserProfile("usr_share") } returns flowOf(null)
+        liveNotificationsFlow.value = notifications to null
+
+        val viewModel = NotificationViewModel(notificationRepository, authRepository, userRepository)
+
+        backgroundScope.launch { viewModel.uiState.collect {} }
+        advanceUntilIdle()
+
+        verify(exactly = 1) { notificationRepository.listenNotifications(currentUserId, 20) }
     }
 }

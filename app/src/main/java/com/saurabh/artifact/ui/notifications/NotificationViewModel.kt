@@ -49,6 +49,11 @@ class NotificationViewModel @Inject constructor(
                 flowOf(emptyList<NotificationItem>() to null)
             }
         }
+        .shareIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            replay = 1
+        )
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private val actorProfilesFlow: Flow<Map<String, User>> = liveHeadFlow
@@ -58,7 +63,9 @@ class NotificationViewModel @Inject constructor(
                 flowOf(emptyMap())
             } else {
                 combine(actorIds.map { actorId ->
-                    userRepository.streamUserProfile(actorId).map { profile -> actorId to profile }
+                    userRepository.streamUserProfile(actorId)
+                        .onStart { emit(null) }
+                        .map { profile -> actorId to profile }
                 }) { pairs ->
                     pairs.mapNotNull { (id, user) -> if (user != null) id to user else null }.toMap()
                 }
