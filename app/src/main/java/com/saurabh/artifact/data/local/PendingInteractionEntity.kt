@@ -1,9 +1,15 @@
 package com.saurabh.artifact.data.local
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
-@Entity(tableName = "pending_interactions")
+@Entity(
+    tableName = "pending_interactions",
+    indices = [
+        Index(value = ["correlationId"], unique = true)
+    ]
+)
 data class PendingInteractionEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val userId: String,

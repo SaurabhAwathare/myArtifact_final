@@ -205,6 +205,31 @@ object DatabaseMigrations {
             db.execSQL("ALTER TABLE artifact_drafts ADD COLUMN promptId TEXT DEFAULT NULL")
         }
     }
+
+    /**
+     * Migration 75 -> 76: DLQ Recovery Concurrency Protection.
+     * Creates a UNIQUE index on 'correlationId' in 'pending_interactions' table to prevent
+     * concurrent recovery operations from creating duplicate pending interactions.
+     * Backfills any missing/blank correlationIds on pre-existing records with random UUIDs.
+     */
+    val MIGRATION_75_76 = object : Migration(75, 76) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                UPDATE pending_interactions 
+                SET correlationId = (hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)), 2) || '-a' || substr(hex(randomblob(2)), 2) || '-' || hex(randomblob(6)))
+                WHERE correlationId IS NULL OR correlationId = ''
+                """.trimIndent()
+            )
+
+            db.execSQL(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS `index_pending_interactions_correlationId` 
+                ON `pending_interactions` (`correlationId`)
+                """.trimIndent()
+            )
+        }
+    }
     
     val ALL_MIGRATIONS = arrayOf<Migration>(
         MIGRATION_60_61,
@@ -214,6 +239,7 @@ object DatabaseMigrations {
         MIGRATION_68_69,
         MIGRATION_69_70,
         MIGRATION_73_74,
-        MIGRATION_74_75
+        MIGRATION_74_75,
+        MIGRATION_75_76
     )
 }

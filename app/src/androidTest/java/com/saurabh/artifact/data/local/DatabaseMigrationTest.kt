@@ -368,11 +368,42 @@ class DatabaseMigrationTest {
     }
 
     /**
-     * Verifies the full migration chain from baseline Version 60 to Version 74.
+     * Verifies MIGRATION_75_76 adds unique index on correlationId in pending_interactions.
      */
     @Test
     @Throws(IOException::class)
-    fun migrateAll_60_to_74() {
+    fun migrate75To76_isolated() {
+        helper.createDatabase(TEST_DB, 75).apply {
+            execSQL("INSERT INTO pending_interactions (id, userId, artifactId, interactionType, action, metadata, createdAt, correlationId, workerId, retryCount, lastError) VALUES (1, 'u1', 'a1', 'COMMENT', 'ADD', '{}', 1000, 'corr_75', NULL, 0, NULL)")
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 76, true, DatabaseMigrations.MIGRATION_75_76)
+
+        val cursor = db.query("SELECT correlationId FROM pending_interactions WHERE id = 1")
+        assert(cursor.moveToFirst())
+        assertEquals("corr_75", cursor.getString(0))
+        cursor.close()
+
+        val indexCursor = db.query("PRAGMA index_list('pending_interactions')")
+        var indexFound = false
+        while (indexCursor.moveToNext()) {
+            val name = indexCursor.getString(indexCursor.getColumnIndexOrThrow("name"))
+            if (name == "index_pending_interactions_correlationId") {
+                indexFound = true
+                break
+            }
+        }
+        indexCursor.close()
+        assert(indexFound) { "Index index_pending_interactions_correlationId was not created on pending_interactions" }
+    }
+
+    /**
+     * Verifies the full migration chain from baseline Version 60 to Version 76.
+     */
+    @Test
+    @Throws(IOException::class)
+    fun migrateAll_60_to_76() {
         helper.createDatabase(TEST_DB, 60).apply {
             execSQL(
                 """
@@ -398,7 +429,7 @@ class DatabaseMigrationTest {
             close()
         }
 
-        val db = helper.runMigrationsAndValidate(TEST_DB, 74, true, *DatabaseMigrations.ALL_MIGRATIONS)
+        val db = helper.runMigrationsAndValidate(TEST_DB, 76, true, *DatabaseMigrations.ALL_MIGRATIONS)
 
         val draftCursor = db.query("SELECT * FROM artifact_drafts WHERE id = 'draft_60'")
         assert(draftCursor.moveToFirst())

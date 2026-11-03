@@ -7,12 +7,14 @@ import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
 import com.saurabh.artifact.data.local.DeadLetterInteractionDao
 import com.saurabh.artifact.data.local.DeadLetterInteractionEntity
+import com.saurabh.artifact.data.local.DlqRecoveryResult
 import com.saurabh.artifact.data.local.IgnoredUserDao
 import com.saurabh.artifact.data.local.InteractionAction
 import com.saurabh.artifact.data.local.InteractionType
 import com.saurabh.artifact.data.local.PendingInteractionDao
 import com.saurabh.artifact.data.local.PendingInteractionEntity
 import com.saurabh.artifact.data.remote.model.CommentDto
+import com.saurabh.artifact.data.remote.model.CommentIntentDto
 import com.saurabh.artifact.data.remote.model.CommentPayload
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
@@ -119,9 +121,7 @@ class FirestoreCommentRepository @Inject constructor(
                 .collection("private").document("intents")
                 .collection("comments").document(if (comment.id.isNotEmpty()) comment.id else UUID.randomUUID().toString())
 
-            val dto = comment.toDto().apply {
-                authorAnonymousId = comment.author.anonymousId
-            }
+            val dto = CommentIntentDto.fromDomain(comment)
 
             intentRef.set(dto).await()
             
@@ -432,7 +432,13 @@ class FirestoreCommentRepository @Inject constructor(
         }
 
         try {
-            val deadLetters = deadLetterInteractionDao.get().getDeadLettersForUser(userId, InteractionType.COMMENT)
+            val nowMs = System.currentTimeMillis()
+            val maxFailedAt = nowMs - CommentConstants.DLQ_RECOVERY_COOLDOWN_MS
+            val deadLetters = deadLetterInteractionDao.get().getEligibleDeadLettersForRecovery(
+                userId = userId,
+                interactionType = InteractionType.COMMENT,
+                maxFailedAt = maxFailedAt
+            )
             var recoveredCount = 0
 
             for (dl in deadLetters) {
@@ -442,10 +448,13 @@ class FirestoreCommentRepository @Inject constructor(
                 // 2. Failure classification check - must be transient retry limit exceeded
                 if (dl.failureType != "RETRY_LIMIT_EXCEEDED") continue
 
-                // 3. User ID & artifact ID validation
+                // 3. Recovery cooldown check - failedAt must be at least 15 minutes old
+                if (nowMs - dl.failedAt < CommentConstants.DLQ_RECOVERY_COOLDOWN_MS) continue
+
+                // 4. User ID & artifact ID validation
                 if (dl.userId.isBlank() || dl.userId != userId || dl.artifactId.isBlank()) continue
 
-                // 4. Payload integrity validation
+                // 5. Payload integrity validation
                 val metadata = dl.metadata
                 if (metadata.isNullOrBlank()) continue
 
@@ -459,7 +468,7 @@ class FirestoreCommentRepository @Inject constructor(
                 if (payload.artifactId != dl.artifactId) continue
                 if (payload.author.anonymousId.isBlank()) continue
 
-                // 5. Duplicate check in pending_interactions
+                // 6. Duplicate check by comment ID in pending_interactions for extra safety
                 val existingPending = pendingInteractionDao.get().getPendingForUser(userId)
                 val duplicatePending = existingPending.firstOrNull { pending ->
                     if (pending.interactionType != InteractionType.COMMENT) return@firstOrNull false
@@ -482,7 +491,7 @@ class FirestoreCommentRepository @Inject constructor(
                     continue
                 }
 
-                // 6. Reconstruct pending interaction with reset retry state
+                // 7. Reconstruct pending interaction with reset retry state
                 val reconstructedPending = PendingInteractionEntity(
                     userId = dl.userId,
                     artifactId = dl.artifactId,
@@ -496,15 +505,34 @@ class FirestoreCommentRepository @Inject constructor(
                     lastError = null
                 )
 
-                // 7. Atomic transfer: insert pending and delete DLQ inside Room transaction
-                deadLetterInteractionDao.get().recoverToPending(reconstructedPending, dl.id)
-                recoveredCount++
+                // 8. Authoritative atomic recovery transaction inside Room:
+                // Performs duplicate detection and DLQ deletion within the Room transaction
+                val recoveryResult = deadLetterInteractionDao.get().performAtomicRecovery(dl.id, reconstructedPending)
 
-                diagnosticLogger.info(
-                    DiagnosticCategory.COMMENT,
-                    "COMMENT_DLQ_RECOVERED_TO_PENDING",
-                    mapOf("commentId" to payload.id, "dlqId" to dl.id.toString(), "artifactId" to dl.artifactId)
-                )
+                when (recoveryResult) {
+                    DlqRecoveryResult.SUCCESS -> {
+                        recoveredCount++
+                        diagnosticLogger.info(
+                            DiagnosticCategory.COMMENT,
+                            "COMMENT_DLQ_RECOVERED_TO_PENDING",
+                            mapOf("commentId" to payload.id, "dlqId" to dl.id.toString(), "artifactId" to dl.artifactId)
+                        )
+                    }
+                    DlqRecoveryResult.DUPLICATE_REMOVED -> {
+                        diagnosticLogger.info(
+                            DiagnosticCategory.COMMENT,
+                            "COMMENT_DLQ_DUPLICATE_REMOVED",
+                            mapOf("commentId" to payload.id, "dlqId" to dl.id.toString())
+                        )
+                    }
+                    DlqRecoveryResult.NOT_FOUND_OR_ALREADY_PROCESSED -> {
+                        diagnosticLogger.info(
+                            DiagnosticCategory.COMMENT,
+                            "COMMENT_DLQ_ALREADY_PROCESSED",
+                            mapOf("commentId" to payload.id, "dlqId" to dl.id.toString())
+                        )
+                    }
+                }
             }
 
             Result.success(recoveredCount)

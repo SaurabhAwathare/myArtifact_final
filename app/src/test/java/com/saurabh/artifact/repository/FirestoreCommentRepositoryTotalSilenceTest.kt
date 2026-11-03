@@ -10,6 +10,7 @@ import com.saurabh.artifact.data.local.InteractionAction
 import com.saurabh.artifact.data.local.InteractionType
 import com.saurabh.artifact.data.local.PendingInteractionDao
 import com.saurabh.artifact.data.remote.model.CommentDto
+import com.saurabh.artifact.data.remote.model.CommentIntentDto
 import com.saurabh.artifact.data.remote.model.CommentPayload
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.model.AppError
@@ -136,7 +137,7 @@ class FirestoreCommentRepositoryTotalSilenceTest {
 
         assertTrue(result.isSuccess)
         assertEquals("comment-123", result.getOrThrow().id)
-        verify { mockCommentDoc.set(match { (it as CommentDto).text == "Hello world" && it.authorAnonymousId == "personaA" }) }
+        verify { mockCommentDoc.set(match { (it as CommentIntentDto).text == "Hello world" && it.authorAnonymousId == "personaA" && it.status == "PENDING" }) }
     }
 
     @Test
