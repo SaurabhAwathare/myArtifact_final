@@ -468,30 +468,7 @@ class FirestoreCommentRepository @Inject constructor(
                 if (payload.artifactId != dl.artifactId) continue
                 if (payload.author.anonymousId.isBlank()) continue
 
-                // 6. Duplicate check by comment ID in pending_interactions for extra safety
-                val existingPending = pendingInteractionDao.get().getPendingForUser(userId)
-                val duplicatePending = existingPending.firstOrNull { pending ->
-                    if (pending.interactionType != InteractionType.COMMENT) return@firstOrNull false
-                    val pendingPayload = try {
-                        json.decodeFromString(CommentPayload.serializer(), pending.metadata ?: "")
-                    } catch (_: Exception) {
-                        null
-                    }
-                    pendingPayload?.id == payload.id
-                }
-
-                if (duplicatePending != null) {
-                    // Safe resolution: pending already exists, remove duplicate DLQ entry atomically
-                    deadLetterInteractionDao.get().deleteById(dl.id)
-                    diagnosticLogger.info(
-                        DiagnosticCategory.COMMENT,
-                        "COMMENT_DLQ_DUPLICATE_REMOVED",
-                        mapOf("commentId" to payload.id, "dlqId" to dl.id.toString())
-                    )
-                    continue
-                }
-
-                // 7. Reconstruct pending interaction with reset retry state
+                // 6. Reconstruct pending interaction with reset retry state
                 val reconstructedPending = PendingInteractionEntity(
                     userId = dl.userId,
                     artifactId = dl.artifactId,
@@ -505,9 +482,9 @@ class FirestoreCommentRepository @Inject constructor(
                     lastError = null
                 )
 
-                // 8. Authoritative atomic recovery transaction inside Room:
-                // Performs duplicate detection and DLQ deletion within the Room transaction
-                val recoveryResult = deadLetterInteractionDao.get().performAtomicRecovery(dl.id, reconstructedPending)
+                // 7. Authoritative atomic recovery transaction inside Room:
+                // Performs duplicate detection, identity verification, and DLQ deletion within the Room transaction
+                val recoveryResult = deadLetterInteractionDao.get().performAtomicRecovery(userId, dl.id, reconstructedPending)
 
                 when (recoveryResult) {
                     DlqRecoveryResult.SUCCESS -> {
@@ -529,6 +506,20 @@ class FirestoreCommentRepository @Inject constructor(
                         diagnosticLogger.info(
                             DiagnosticCategory.COMMENT,
                             "COMMENT_DLQ_ALREADY_PROCESSED",
+                            mapOf("commentId" to payload.id, "dlqId" to dl.id.toString())
+                        )
+                    }
+                    DlqRecoveryResult.IDENTITY_MISMATCH -> {
+                        diagnosticLogger.warn(
+                            DiagnosticCategory.COMMENT,
+                            "COMMENT_DLQ_RECOVERY_IDENTITY_MISMATCH",
+                            mapOf("commentId" to payload.id, "dlqId" to dl.id.toString())
+                        )
+                    }
+                    DlqRecoveryResult.INVALID_PAYLOAD -> {
+                        diagnosticLogger.warn(
+                            DiagnosticCategory.COMMENT,
+                            "COMMENT_DLQ_RECOVERY_INVALID_PAYLOAD",
                             mapOf("commentId" to payload.id, "dlqId" to dl.id.toString())
                         )
                     }

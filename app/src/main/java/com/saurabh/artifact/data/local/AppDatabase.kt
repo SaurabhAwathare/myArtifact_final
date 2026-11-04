@@ -19,7 +19,7 @@ import androidx.room.TypeConverters
         IgnoredUserEntity::class,
         UserConsumedPromptEntity::class,
     ],
-    version = 76,
+    version = 77,
     autoMigrations = [
         AutoMigration(from = 64, to = 65),
         AutoMigration(from = 65, to = 66),
@@ -46,20 +46,19 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun userConsumedPromptDao(): UserConsumedPromptDao
 
     /**
-     * Clears all transient session, feed, and cache tables during logout,
-     * while explicitly preserving local draft metadata in [ArtifactDraftEntity] (`artifact_drafts`)
-     * and permanent account-scoped prompt consumption history in [UserConsumedPromptEntity] (`user_consumed_prompts`).
+     * Clears transient session, feed, and cache tables during logout,
+     * while explicitly preserving account-scoped offline interaction and local data tables:
+     * [PendingInteractionEntity] (`pending_interactions`), [DeadLetterInteractionEntity] (`dead_letter_interactions`),
+     * [ArtifactEngagement] (`artifact_engagement`), [ArtifactDraftEntity] (`artifact_drafts`),
+     * and [UserConsumedPromptEntity] (`user_consumed_prompts`).
      */
     open fun clearSessionTables() {
         runInTransaction {
             val db = openHelper.writableDatabase
             db.execSQL("DELETE FROM prompts")
-            db.execSQL("DELETE FROM artifact_engagement")
             db.execSQL("DELETE FROM artifacts")
             db.execSQL("DELETE FROM upload_tasks")
-            db.execSQL("DELETE FROM pending_interactions")
             db.execSQL("DELETE FROM current_user_profile")
-            db.execSQL("DELETE FROM dead_letter_interactions")
             db.execSQL("DELETE FROM reported_artifacts")
             db.execSQL("DELETE FROM ignored_users")
         }

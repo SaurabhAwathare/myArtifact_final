@@ -2,6 +2,7 @@ package com.saurabh.artifact.data.local
 
 import android.util.Log
 import com.saurabh.artifact.audio.RetentionPolicy
+import dagger.Lazy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -11,7 +12,7 @@ import javax.inject.Singleton
 class DatabaseMaintenanceManager @Inject constructor(
     private val database: dagger.Lazy<AppDatabase>,
     private val engagementDao: dagger.Lazy<EngagementDao>,
-    private val interactionDao: dagger.Lazy<PendingInteractionDao>,
+    private val deadLetterDao: Lazy<DeadLetterInteractionDao>,
     private val draftDao: dagger.Lazy<DraftDao>,
     private val authRepository: com.saurabh.artifact.repository.AuthRepository
 ) {
@@ -44,17 +45,19 @@ class DatabaseMaintenanceManager @Inject constructor(
             return
         }
 
-        // 1. Prune Engagement data
+        // 1. Prune Engagement data (60 days, UID-scoped)
         val engagementThreshold = now - (RetentionPolicy.ENGAGEMENT_RETENTION_DAYS * 24 * 60 * 60 * 1000L)
         engagementDao.get().deleteOldEngagements(engagementThreshold, userId)
         Log.d(TAG, "Pruned engagement data older than ${RetentionPolicy.ENGAGEMENT_RETENTION_DAYS} days for user")
 
-        // 2. Prune Pending Interactions
-        val interactionThreshold = now - (RetentionPolicy.INTERACTION_RETENTION_DAYS * 24 * 60 * 60 * 1000L)
-        interactionDao.get().deleteOldInteractions(interactionThreshold, userId)
-        Log.d(TAG, "Pruned interaction data older than ${RetentionPolicy.INTERACTION_RETENTION_DAYS} days for user")
+        // 2. Prune Terminal Permanent DLQ Failures (30 days, UID-scoped)
+        // Recoverable RETRY_LIMIT_EXCEEDED records are retained until recovery.
+        // Unsynchronized pending interactions are NEVER age-deleted.
+        val dlqThreshold = now - (RetentionPolicy.DEFAULT_RETENTION_DAYS * 24 * 60 * 60 * 1000L)
+        deadLetterDao.get().deleteOldPermanentDeadLetters(dlqThreshold, userId)
+        Log.d(TAG, "Pruned terminal permanent DLQ failures older than ${RetentionPolicy.DEFAULT_RETENTION_DAYS} days for user")
 
-        // 3. Prune Published Drafts (Metadata)
+        // 3. Prune Published Drafts Metadata (30 days, UID-scoped)
         val draftThreshold = now - (RetentionPolicy.DRAFT_RETENTION_DAYS * 24 * 60 * 60 * 1000L)
         draftDao.get().deleteOldPublishedDrafts(draftThreshold, userId)
         Log.d(TAG, "Pruned published draft metadata older than ${RetentionPolicy.DRAFT_RETENTION_DAYS} days for user")

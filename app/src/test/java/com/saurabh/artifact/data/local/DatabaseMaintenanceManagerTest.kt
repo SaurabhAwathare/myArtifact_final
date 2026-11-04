@@ -14,7 +14,7 @@ class DatabaseMaintenanceManagerTest {
 
     private val database = mockk<AppDatabase>()
     private val engagementDao = mockk<EngagementDao>(relaxed = true)
-    private val interactionDao = mockk<PendingInteractionDao>(relaxed = true)
+    private val deadLetterDao = mockk<DeadLetterInteractionDao>(relaxed = true)
     private val draftDao = mockk<DraftDao>(relaxed = true)
     private val authRepository = mockk<com.saurabh.artifact.repository.AuthRepository>(relaxed = true)
     private val openHelper = mockk<SupportSQLiteOpenHelper>()
@@ -37,7 +37,7 @@ class DatabaseMaintenanceManagerTest {
         manager = DatabaseMaintenanceManager(
             { database },
             { engagementDao },
-            { interactionDao },
+            { deadLetterDao },
             { draftDao },
             authRepository
         )
@@ -55,17 +55,17 @@ class DatabaseMaintenanceManagerTest {
         
         manager.runMaintenance()
 
-        // Verify Engagement pruning (60 days)
+        // Verify Engagement pruning (60 days, UID-scoped)
         val engagementThreshold = slot<Long>()
         coVerify { engagementDao.deleteOldEngagements(capture(engagementThreshold), userId) }
         assertWithinRange(engagementThreshold.captured, now - TimeUnit.DAYS.toMillis(60))
 
-        // Verify Interaction pruning (30 days)
-        val interactionThreshold = slot<Long>()
-        coVerify { interactionDao.deleteOldInteractions(capture(interactionThreshold), userId) }
-        assertWithinRange(interactionThreshold.captured, now - TimeUnit.DAYS.toMillis(30))
+        // Verify Terminal Permanent DLQ pruning (30 days, UID-scoped)
+        val dlqThreshold = slot<Long>()
+        coVerify { deadLetterDao.deleteOldPermanentDeadLetters(capture(dlqThreshold), userId) }
+        assertWithinRange(dlqThreshold.captured, now - TimeUnit.DAYS.toMillis(30))
 
-        // Verify Draft pruning (30 days)
+        // Verify Draft pruning (30 days, UID-scoped)
         val draftThreshold = slot<Long>()
         coVerify { draftDao.deleteOldPublishedDrafts(capture(draftThreshold), userId) }
         assertWithinRange(draftThreshold.captured, now - TimeUnit.DAYS.toMillis(30))

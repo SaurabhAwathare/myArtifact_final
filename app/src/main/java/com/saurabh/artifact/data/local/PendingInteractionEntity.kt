@@ -7,7 +7,7 @@ import androidx.room.PrimaryKey
 @Entity(
     tableName = "pending_interactions",
     indices = [
-        Index(value = ["correlationId"], unique = true)
+        Index(value = ["userId", "correlationId"], unique = true)
     ]
 )
 data class PendingInteractionEntity(

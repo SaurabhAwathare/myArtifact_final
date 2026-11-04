@@ -230,6 +230,24 @@ object DatabaseMigrations {
             )
         }
     }
+
+    /**
+     * Migration 76 -> 77: Composite Unique Correlation ID Index for DLQ Recovery.
+     * Replaces the single-column 'correlationId' unique index with a composite unique index
+     * on (userId, correlationId) in 'pending_interactions' to allow different UIDs to have
+     * distinct pending records while ensuring unique correlation IDs per UID.
+     */
+    val MIGRATION_76_77 = object : Migration(76, 77) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("DROP INDEX IF EXISTS `index_pending_interactions_correlationId`")
+            db.execSQL(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS `index_pending_interactions_userId_correlationId` 
+                ON `pending_interactions` (`userId`, `correlationId`)
+                """.trimIndent()
+            )
+        }
+    }
     
     val ALL_MIGRATIONS = arrayOf<Migration>(
         MIGRATION_60_61,
@@ -240,6 +258,7 @@ object DatabaseMigrations {
         MIGRATION_69_70,
         MIGRATION_73_74,
         MIGRATION_74_75,
-        MIGRATION_75_76
+        MIGRATION_75_76,
+        MIGRATION_76_77
     )
 }

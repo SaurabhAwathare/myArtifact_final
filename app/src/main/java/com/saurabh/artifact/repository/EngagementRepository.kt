@@ -52,28 +52,40 @@ class EngagementRepository @Inject constructor(
         }
     }
 
-    suspend fun getEngagementsRequiringSync(): List<EngagementEvidence> = withContext(Dispatchers.IO) {
-        val userId = authRepository.currentUserId
+    suspend fun getEngagementsRequiringSync(userId: String): List<EngagementEvidence> = withContext(Dispatchers.IO) {
         if (userId.isEmpty()) return@withContext emptyList()
         engagementDao.get().getEngagementsRequiringSync(userId).map { it.toDomain() }
     }
 
-    suspend fun reclaimOrphanedSyncs(): Int = withContext(Dispatchers.IO) {
-        val userId = authRepository.currentUserId
+    suspend fun getEngagementsRequiringSync(): List<EngagementEvidence> {
+        return getEngagementsRequiringSync(authRepository.currentUserId)
+    }
+
+    suspend fun reclaimOrphanedSyncs(userId: String): Int = withContext(Dispatchers.IO) {
         if (userId.isEmpty()) return@withContext 0
         engagementDao.get().reclaimOrphanedSyncs(userId)
     }
 
-    suspend fun updateSyncStatus(artifactId: String, state: SyncState, error: String? = null) = withContext(Dispatchers.IO) {
-        val userId = authRepository.currentUserId
+    suspend fun reclaimOrphanedSyncs(): Int {
+        return reclaimOrphanedSyncs(authRepository.currentUserId)
+    }
+
+    suspend fun updateSyncStatus(artifactId: String, userId: String, state: SyncState, error: String? = null) = withContext(Dispatchers.IO) {
         if (userId.isEmpty()) return@withContext
         engagementDao.get().updateSyncStatus(artifactId, userId, state, System.currentTimeMillis(), error)
     }
 
-    suspend fun markEngagementSynced(artifactId: String): Int = withContext(Dispatchers.IO) {
-        val userId = authRepository.currentUserId
+    suspend fun updateSyncStatus(artifactId: String, state: SyncState, error: String? = null) {
+        updateSyncStatus(artifactId, authRepository.currentUserId, state, error)
+    }
+
+    suspend fun markEngagementSynced(artifactId: String, userId: String): Int = withContext(Dispatchers.IO) {
         if (userId.isEmpty()) return@withContext 0
         engagementDao.get().markAsSynced(artifactId, userId, System.currentTimeMillis())
+    }
+
+    suspend fun markEngagementSynced(artifactId: String): Int {
+        return markEngagementSynced(artifactId, authRepository.currentUserId)
     }
 
     /**

@@ -8,6 +8,7 @@ import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.model.NotificationItem
 import com.saurabh.artifact.model.NotificationType
 import com.saurabh.artifact.diagnostics.LogKeys
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -17,6 +18,11 @@ import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
+
+data class BatchResult(
+    val successfulIds: List<String> = emptyList(),
+    val failedIds: List<String> = emptyList()
+)
 
 @Singleton
 class NotificationRepository @Inject constructor(
@@ -127,13 +133,44 @@ class NotificationRepository @Inject constructor(
                 .await()
             Result.success(Unit)
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Result.failure(e)
         }
     }
 
     /**
+     * Efficiently marks a explicit list of notification IDs as read in chunks of up to 500.
+     * Partial failures are tracked cleanly in BatchResult without throwing exceptions.
+     * CancellationException is propagated cleanly.
+     */
+    suspend fun markNotificationsAsRead(notificationIds: List<String>): BatchResult = withContext(Dispatchers.IO) {
+        if (notificationIds.isEmpty()) return@withContext BatchResult()
+
+        val successful = mutableListOf<String>()
+        val failed = mutableListOf<String>()
+
+        val chunks = notificationIds.chunked(500)
+        for (chunk in chunks) {
+            try {
+                firestore.runBatch { batch ->
+                    chunk.forEach { id ->
+                        batch.update(notificationsCollection.document(id), "isRead", true)
+                    }
+                }.await()
+                successful.addAll(chunk)
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                ArtifactLogger.e(DiagnosticCategory.APP, "NOTIF_BATCH_MARK_READ_FAILED", mapOf("chunkSize" to chunk.size), e)
+                failed.addAll(chunk)
+            }
+        }
+
+        BatchResult(successfulIds = successful, failedIds = failed)
+    }
+
+    /**
      * Efficiently marks all unread notifications for a user as read.
-     * Used to clear the awareness state when the user enters the notification center.
+     * Retained for explicit bulk actions if needed.
      */
     suspend fun markAllAsRead(userId: String): Result<Unit> = withContext(Dispatchers.IO) {
         return@withContext try {
@@ -152,6 +189,7 @@ class NotificationRepository @Inject constructor(
             }.await()
             Result.success(Unit)
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             ArtifactLogger.e(DiagnosticCategory.APP, "NOTIF_MARK_ALL_READ_FAILED", throwable = e)
             Result.failure(e)
         }

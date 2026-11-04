@@ -399,11 +399,11 @@ class DatabaseMigrationTest {
     }
 
     /**
-     * Verifies the full migration chain from baseline Version 60 to Version 76.
+     * Verifies the full migration chain from baseline Version 60 to Version 77.
      */
     @Test
     @Throws(IOException::class)
-    fun migrateAll_60_to_76() {
+    fun migrateAll_60_to_77() {
         helper.createDatabase(TEST_DB, 60).apply {
             execSQL(
                 """
@@ -429,11 +429,75 @@ class DatabaseMigrationTest {
             close()
         }
 
-        val db = helper.runMigrationsAndValidate(TEST_DB, 76, true, *DatabaseMigrations.ALL_MIGRATIONS)
+        val db = helper.runMigrationsAndValidate(TEST_DB, 77, true, *DatabaseMigrations.ALL_MIGRATIONS)
 
         val draftCursor = db.query("SELECT * FROM artifact_drafts WHERE id = 'draft_60'")
         assert(draftCursor.moveToFirst())
         assertEquals("user_60", draftCursor.getString(draftCursor.getColumnIndexOrThrow("userId")))
         draftCursor.close()
+    }
+
+    /**
+     * Verifies isolated migration from 76 to 77.
+     * Validates that composite unique index (userId, correlationId) allows same correlationId for different UIDs,
+     * rejects duplicate correlationId for same UID, and preserves pre-existing records.
+     */
+    @Test
+    @Throws(IOException::class)
+    fun migrate76To77_isolated() {
+        helper.createDatabase(TEST_DB, 76).apply {
+            execSQL(
+                """
+                INSERT INTO pending_interactions (
+                    id, userId, artifactId, interactionType, action, metadata, createdAt, correlationId, workerId, retryCount, lastError
+                ) VALUES (
+                    10, 'user_A', 'art_1', 'COMMENT', 'ADD', 'payload_1', 1000, 'corr_shared_123', NULL, 0, NULL
+                )
+                """.trimIndent()
+            )
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 77, true, DatabaseMigrations.MIGRATION_76_77)
+
+        // 1. Existing record remains intact
+        val cursor = db.query("SELECT * FROM pending_interactions WHERE id = 10")
+        assert(cursor.moveToFirst())
+        assertEquals("user_A", cursor.getString(cursor.getColumnIndexOrThrow("userId")))
+        assertEquals("corr_shared_123", cursor.getString(cursor.getColumnIndexOrThrow("correlationId")))
+        cursor.close()
+
+        // 2. Same correlationId for DIFFERENT userId succeeds
+        db.execSQL(
+            """
+            INSERT INTO pending_interactions (
+                userId, artifactId, interactionType, action, metadata, createdAt, correlationId, workerId, retryCount, lastError
+            ) VALUES (
+                'user_B', 'art_2', 'COMMENT', 'ADD', 'payload_2', 2000, 'corr_shared_123', NULL, 0, NULL
+            )
+            """.trimIndent()
+        )
+
+        val cursorUserB = db.query("SELECT * FROM pending_interactions WHERE userId = 'user_B'")
+        assert(cursorUserB.moveToFirst())
+        assertEquals("corr_shared_123", cursorUserB.getString(cursorUserB.getColumnIndexOrThrow("correlationId")))
+        cursorUserB.close()
+
+        // 3. Duplicate correlationId for SAME userId fails (UNIQUE constraint violation)
+        var duplicateFailed = false
+        try {
+            db.execSQL(
+                """
+                INSERT INTO pending_interactions (
+                    userId, artifactId, interactionType, action, metadata, createdAt, correlationId, workerId, retryCount, lastError
+                ) VALUES (
+                    'user_A', 'art_3', 'SAVE', 'ADD', 'payload_3', 3000, 'corr_shared_123', NULL, 0, NULL
+                )
+                """.trimIndent()
+            )
+        } catch (_: Exception) {
+            duplicateFailed = true
+        }
+        assert(duplicateFailed)
     }
 }

@@ -26,6 +26,6 @@ interface PendingInteractionDao {
     @Query("SELECT COUNT(*) FROM pending_interactions WHERE userId = :userId")
     fun getCount(userId: String): Flow<Int>
 
-    @Query("DELETE FROM pending_interactions WHERE createdAt < :timestamp AND userId = :userId")
-    suspend fun deleteOldInteractions(timestamp: Long, userId: String)
+    @Query("SELECT * FROM pending_interactions WHERE userId = :userId AND correlationId = :correlationId")
+    suspend fun getPendingByUserIdAndCorrelationId(userId: String, correlationId: String): PendingInteractionEntity?
 }

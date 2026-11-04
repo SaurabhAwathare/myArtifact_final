@@ -1,5 +1,6 @@
 package com.saurabh.artifact.ui.notifications
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -36,10 +38,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.core.os.ConfigurationCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -56,8 +60,38 @@ fun NotificationScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
-    LaunchedEffect(Unit) {
-        viewModel.clearAwareness()
+    val lazyListState = rememberLazyListState()
+    val visibilityTracker = remember { NotificationVisibilityTracker(dwellDurationMs = 500L) }
+
+    LaunchedEffect(lazyListState, uiState.items) {
+        snapshotFlow {
+            val layoutInfo = lazyListState.layoutInfo
+            val visibleItems = layoutInfo.visibleItemsInfo
+            val viewportStart = layoutInfo.viewportStartOffset
+            val viewportEnd = layoutInfo.viewportEndOffset
+
+            visibleItems.mapNotNull { itemInfo ->
+                val itemKey = itemInfo.key as? String ?: return@mapNotNull null
+                if (!itemKey.startsWith("notif_")) return@mapNotNull null
+                val notifId = itemKey.removePrefix("notif_")
+
+                val itemTop = itemInfo.offset
+                val itemBottom = itemInfo.offset + itemInfo.size
+
+                val visibleTop = maxOf(itemTop, viewportStart)
+                val visibleBottom = minOf(itemBottom, viewportEnd)
+                val visibleHeight = maxOf(0, visibleBottom - visibleTop)
+
+                val ratio = visibleHeight.toFloat() / itemInfo.size.toFloat()
+                if (ratio >= 0.5f) notifId else null
+            }.toSet()
+        }.collect { qualifyingIds ->
+            val now = System.currentTimeMillis()
+            val newlyDwelled = visibilityTracker.onViewportItemsChanged(qualifyingIds, now)
+            if (newlyDwelled.isNotEmpty()) {
+                viewModel.onNotificationsVisible(newlyDwelled.toList())
+            }
+        }
     }
 
     Scaffold(
@@ -112,13 +146,14 @@ fun NotificationScreen(
             }
         } else {
             LazyColumn(
+                state = lazyListState,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(uiState.items, key = { it.id }) { notification ->
+                items(uiState.items, key = { "notif_${it.id}" }) { notification ->
                     val index = uiState.items.indexOf(notification)
                     if (index >= uiState.items.size - 3 && uiState.hasMore && !uiState.isLoadingMore) {
                         LaunchedEffect(uiState.items.size) {
@@ -139,7 +174,7 @@ fun NotificationScreen(
                 }
 
                 if (uiState.isLoadingMore) {
-                    item {
+                    item(key = "loading_more") {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -184,14 +219,13 @@ fun NotificationCard(
         ),
         border = if (!notification.isRead) 
             null 
-        else 
-            androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+        else
+            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
     ) {
         Row(
             modifier = Modifier.padding(20.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Indicator for unread
             if (!notification.isRead) {
                 Box(
                     modifier = Modifier
@@ -206,7 +240,7 @@ fun NotificationCard(
                     text = NotificationMapper.mapToUiText(notification, actorName).asString(),
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = if (notification.isRead) FontWeight.Light else FontWeight.Normal,
-                    lineHeight = androidx.compose.ui.unit.TextUnit.Unspecified
+                    lineHeight = TextUnit.Unspecified
                 )
                 
                 Text(
@@ -220,8 +254,3 @@ fun NotificationCard(
         }
     }
 }
-
-// DELETE: private fun formatTimestamp(date: Date): String {
-//    val sdf = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault())
-//    return sdf.format(date)
-// }

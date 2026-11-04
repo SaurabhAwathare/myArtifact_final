@@ -147,6 +147,32 @@ class EngagementDaoMonotonicTest {
         assertEquals(SyncState.PENDING, requiringSync.first().syncState)
     }
 
+    @Test
+    fun `deleteOldEngagements only deletes SYNCED records and preserves PENDING, SYNCING, and FAILED`() = runBlocking {
+        val now = System.currentTimeMillis()
+        val oldTimestamp = now - 100_000L
+
+        val syncedOld = createEngagement("art_synced_old", isUnlocked = false).copy(lastUpdated = oldTimestamp, syncState = SyncState.SYNCED)
+        val pendingOld = createEngagement("art_pending_old", isUnlocked = false).copy(lastUpdated = oldTimestamp, syncState = SyncState.PENDING)
+        val syncingOld = createEngagement("art_syncing_old", isUnlocked = false).copy(lastUpdated = oldTimestamp, syncState = SyncState.SYNCING)
+        val failedOld = createEngagement("art_failed_old", isUnlocked = false).copy(lastUpdated = oldTimestamp, syncState = SyncState.FAILED)
+
+        dao.insertEngagement(syncedOld)
+        dao.insertEngagement(pendingOld)
+        dao.insertEngagement(syncingOld)
+        dao.insertEngagement(failedOld)
+
+        dao.deleteOldEngagements(now - 10_000L, "test_user")
+
+        // SYNCED old record should be deleted
+        assertNull(dao.getEngagement("art_synced_old", "test_user"))
+
+        // PENDING, SYNCING, FAILED records MUST be preserved
+        assertNotNull(dao.getEngagement("art_pending_old", "test_user"))
+        assertNotNull(dao.getEngagement("art_syncing_old", "test_user"))
+        assertNotNull(dao.getEngagement("art_failed_old", "test_user"))
+    }
+
     private fun createEngagement(
         id: String, 
         isUnlocked: Boolean, 

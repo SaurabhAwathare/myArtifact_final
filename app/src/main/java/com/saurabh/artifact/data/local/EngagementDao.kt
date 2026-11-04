@@ -75,6 +75,6 @@ interface EngagementDao {
     """)
     suspend fun updateUnlockStatus(artifactId: String, userId: String, isUnlocked: Boolean, timestamp: Long?, state: String, reason: String?, remoteUpdated: Long?): Int
 
-    @Query("DELETE FROM artifact_engagement WHERE lastUpdated < :timestamp AND userId = :userId")
+    @Query("DELETE FROM artifact_engagement WHERE lastUpdated < :timestamp AND userId = :userId AND syncState = 'SYNCED'")
     suspend fun deleteOldEngagements(timestamp: Long, userId: String)
 }

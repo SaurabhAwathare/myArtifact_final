@@ -176,7 +176,7 @@ class InteractionSyncWorker @AssistedInject constructor(
         }
 
         // 0. Reclaim any records stuck in SYNCING state from a previous interrupted process
-        val reclaimedCount = engagementRepository.reclaimOrphanedSyncs()
+        val reclaimedCount = engagementRepository.reclaimOrphanedSyncs(currentUserId)
         if (reclaimedCount > 0) {
             ArtifactLogger.w(
                 DiagnosticCategory.SYNC,
@@ -337,26 +337,41 @@ class InteractionSyncWorker @AssistedInject constructor(
      * or false if a retry is required due to transient network issues.
      */
     private suspend fun syncEngagement(userId: String): Boolean {
-        val pending = engagementRepository.getEngagementsRequiringSync()
-        
+        val authUidAtStart = FirebaseAuth.getInstance().currentUser?.uid
+        if (isStopped || authUidAtStart != userId) {
+            ArtifactLogger.w(
+                DiagnosticCategory.SYNC,
+                "ENGAGEMENT_SYNC_ABORTED_OWNERSHIP_CHANGE",
+                mapOf("workerUid" to userId, "authUid" to (authUidAtStart ?: "null"))
+            )
+            return false
+        }
 
-
+        val pending = engagementRepository.getEngagementsRequiringSync(userId)
         if (pending.isEmpty()) return true
 
         var hasTransientFailure = false
 
         for (evidence in pending) {
-
+            val authUidBeforeWrite = FirebaseAuth.getInstance().currentUser?.uid
+            if (isStopped || authUidBeforeWrite != userId) {
+                ArtifactLogger.w(
+                    DiagnosticCategory.SYNC,
+                    "ENGAGEMENT_SYNC_LOOP_TERMINATED_OWNERSHIP_CHANGE",
+                    mapOf("artifactId" to evidence.artifactId, "workerUid" to userId, "authUid" to (authUidBeforeWrite ?: "null"))
+                )
+                return false
+            }
 
             ArtifactLogger.i(DiagnosticCategory.SYNC, "ENGAGEMENT_SYNC_START", mapOf("artifactId" to evidence.artifactId))
             
-            engagementRepository.updateSyncStatus(evidence.artifactId, SyncState.SYNCING)
+            engagementRepository.updateSyncStatus(evidence.artifactId, userId, SyncState.SYNCING)
             
             val result = firestoreEngagementRepository.uploadEngagement(userId, evidence)
             
             if (result.isSuccess) {
                 ArtifactLogger.i(DiagnosticCategory.SYNC, "ENGAGEMENT_SYNC_SUCCESS", mapOf<String, Any>("artifactId" to evidence.artifactId))
-                val rows = engagementRepository.markEngagementSynced(evidence.artifactId)
+                val rows = engagementRepository.markEngagementSynced(evidence.artifactId, userId)
                 if (rows == 0) {
                     ArtifactLogger.i(
                         DiagnosticCategory.SYNC,
@@ -376,11 +391,11 @@ class InteractionSyncWorker @AssistedInject constructor(
                 
                 if (classification.isRetryable) {
                     ArtifactLogger.w(DiagnosticCategory.SYNC, "ENGAGEMENT_SYNC_TRANSIENT", mapOf<String, Any>("artifactId" to evidence.artifactId, "error" to (error.message ?: "unknown"), "classification" to classification.javaClass.simpleName))
-                    engagementRepository.updateSyncStatus(evidence.artifactId, SyncState.PENDING, error.message)
+                    engagementRepository.updateSyncStatus(evidence.artifactId, userId, SyncState.PENDING, error.message)
                     hasTransientFailure = true
                 } else {
                     ArtifactLogger.e(DiagnosticCategory.SYNC, "ENGAGEMENT_SYNC_PERMANENT", mapOf<String, Any>("artifactId" to evidence.artifactId, "error" to (error.message ?: "unknown"), "classification" to classification.javaClass.simpleName))
-                    engagementRepository.updateSyncStatus(evidence.artifactId, SyncState.FAILED, error.message)
+                    engagementRepository.updateSyncStatus(evidence.artifactId, userId, SyncState.FAILED, error.message)
                 }
             }
         }
