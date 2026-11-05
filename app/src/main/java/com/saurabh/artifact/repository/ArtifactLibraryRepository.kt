@@ -54,7 +54,7 @@ class ArtifactLibraryRepository @Inject constructor(
         try {
             diagnosticLogger.debug(DiagnosticCategory.RESONANCE, "ARTIFACT_SAVE_QUEUED", mapOf(LogKeys.ARTIFACT_ID to artifact.id))
             
-            // 1. Record pending interaction
+            // 1. Record pending interaction atomically
             val pending = PendingInteractionEntity(
                 userId = userId,
                 artifactId = artifact.id,
@@ -62,8 +62,7 @@ class ArtifactLibraryRepository @Inject constructor(
                 action = InteractionAction.ADD,
                 metadata = shelf
             )
-            pendingInteractionDao.get().deleteByType(artifact.id, userId, InteractionType.SAVE)
-            pendingInteractionDao.get().insert(pending)
+            pendingInteractionDao.get().replacePendingInteraction(pending)
 
             // 2. Trigger Sync Worker
             InteractionSyncWorker.enqueue(context)
@@ -83,15 +82,14 @@ class ArtifactLibraryRepository @Inject constructor(
         try {
             diagnosticLogger.debug(DiagnosticCategory.RESONANCE, "ARTIFACT_UNSAVE_QUEUED", mapOf(LogKeys.ARTIFACT_ID to artifactId))
             
-            // 1. Record pending interaction
+            // 1. Record pending interaction atomically
             val pending = PendingInteractionEntity(
                 userId = userId,
                 artifactId = artifactId,
                 interactionType = InteractionType.SAVE,
                 action = InteractionAction.REMOVE
             )
-            pendingInteractionDao.get().deleteByType(artifactId, userId, InteractionType.SAVE)
-            pendingInteractionDao.get().insert(pending)
+            pendingInteractionDao.get().replacePendingInteraction(pending)
 
             // 2. Trigger Sync Worker
             InteractionSyncWorker.enqueue(context)

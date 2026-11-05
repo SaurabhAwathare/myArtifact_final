@@ -192,14 +192,15 @@ class InteractionSyncWorker @AssistedInject constructor(
             isRetryRequired = true
         }
 
-        // 1B. Reconcile/Recover Pending Comment Intents
+        // 1B. Reconcile/Recover Pending Comment & Follow Intents
         try {
             commentRepository.syncPendingCommentIntents(currentUserId)
+            userRepository.syncPendingFollowIntents(currentUserId)
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             ArtifactLogger.w(
                 DiagnosticCategory.SYNC,
-                "COMMENT_INTENT_SYNC_RECOVERY_ERROR",
+                "INTENT_SYNC_RECOVERY_ERROR",
                 mapOf("userId" to currentUserId, "error" to (e.message ?: ""))
             )
         }
@@ -243,7 +244,9 @@ class InteractionSyncWorker @AssistedInject constructor(
                 val result = processInteraction(processingInteraction, currentUserId)
                 if (result.isSuccess) {
                     ArtifactLogger.logInteraction(processingInteraction, "SUCCESS")
-                    if (interaction.interactionType != InteractionType.COMMENT) {
+                    val isPendingIntentType = interaction.interactionType == InteractionType.COMMENT ||
+                        (interaction.interactionType == InteractionType.FOLLOW && interaction.action == InteractionAction.ADD)
+                    if (!isPendingIntentType) {
                         pendingInteractionDao.get().delete(interaction)
                     }
                 } else {
@@ -501,7 +504,11 @@ class InteractionSyncWorker @AssistedInject constructor(
                 InteractionType.FOLLOW -> {
                     val targetUserId = interaction.artifactId
                     if (interaction.action == InteractionAction.ADD) {
-                        userRepository.syncFollowToFirestore(userId, targetUserId)
+                        val syncResult = userRepository.syncFollowToFirestore(userId, targetUserId)
+                        if (syncResult.isSuccess) {
+                            userRepository.observeFollowIntentStatus(userId, targetUserId)
+                        }
+                        syncResult
                     } else {
                         userRepository.syncUnfollowFromFirestore(userId, targetUserId)
                     }
@@ -575,7 +582,22 @@ class InteractionSyncWorker @AssistedInject constructor(
             )
         }
 
-        fun enqueueDelayed(context: Context, delayMs: Long) {
+        fun getUniqueWorkName(userId: String? = null, targetId: String? = null, workKey: String? = null): String {
+            return when {
+                !workKey.isNullOrBlank() -> "${TAG}_DELAYED_${workKey}"
+                !userId.isNullOrBlank() && !targetId.isNullOrBlank() -> "FOLLOW_DELAYED_${userId}_${targetId}"
+                !targetId.isNullOrBlank() -> "${TAG}_DELAYED_${targetId}"
+                else -> "${TAG}_DELAYED"
+            }
+        }
+
+        fun enqueueDelayed(
+            context: Context,
+            delayMs: Long,
+            userId: String? = null,
+            targetId: String? = null,
+            workKey: String? = null
+        ) {
             val initialDelayMs = maxOf(0L, delayMs)
             val constraints = Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
@@ -589,11 +611,31 @@ class InteractionSyncWorker @AssistedInject constructor(
                 .addTag(SessionConstants.TAG_USER_SESSION_WORK)
                 .build()
 
+            val uniqueWorkName = getUniqueWorkName(userId, targetId, workKey)
+
             WorkManager.getInstance(context).enqueueUniqueWork(
-                "${TAG}_DELAYED_${System.currentTimeMillis()}",
+                uniqueWorkName,
                 ExistingWorkPolicy.REPLACE,
                 request,
             )
+        }
+
+        fun cancelDelayedWork(
+            context: Context,
+            userId: String? = null,
+            targetId: String? = null,
+            workKey: String? = null
+        ) {
+            val uniqueWorkName = getUniqueWorkName(userId, targetId, workKey)
+            try {
+                WorkManager.getInstance(context).cancelUniqueWork(uniqueWorkName)
+            } catch (e: Exception) {
+                ArtifactLogger.w(
+                    DiagnosticCategory.WORKER,
+                    "CANCEL_DELAYED_WORK_FAILED",
+                    mapOf("uniqueWorkName" to uniqueWorkName, "error" to (e.message ?: ""))
+                )
+            }
         }
     }
 }

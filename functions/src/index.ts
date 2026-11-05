@@ -7,7 +7,7 @@ import {validateCoverage, coverageToBase64} from "./util/validation/coverage";
 import {getPolicy} from "./util/validation/policy";
 import {VALIDATION_VERSION, UnlockReason} from "./util/validation/constants";
 import {ModerationConfig} from "./util/moderation/config";
-import {checkRateLimit, checkRateLimitTx} from "./util/moderation/rateLimit";
+import {checkRateLimitTx} from "./util/moderation/rateLimit";
 import {
   claimFirstDeviceHandler,
   transferActiveSessionHandler,
@@ -333,14 +333,15 @@ export const onReactionCreated = functions.firestore
     const db = admin.firestore();
     const eventId = context.eventId;
 
-    return withIdempotency(`react_inc_${eventId}`, async () => {
+    return withIdempotency(`react_inc_${eventId}`, async (transaction) => {
       logger.info(`[REACTION] Incrementing counts | ArtifactID=${artifactId} | Type=${typeId}`);
 
-      const batch = db.batch();
+      const artifactRef = db.collection("artifacts").doc(artifactId);
+      const artifactDoc = await transaction.get(artifactRef);
 
       // 1. Update Aggregate Document
       const aggregateRef = db.collection("artifact_reaction_counts").doc(artifactId);
-      batch.set(
+      transaction.set(
         aggregateRef,
         {
           totalCount: FieldValue.increment(1),
@@ -351,13 +352,13 @@ export const onReactionCreated = functions.firestore
       );
 
       // 2. Update Main Artifact Metadata
-      const artifactRef = db.collection("artifacts").doc(artifactId);
-      batch.update(artifactRef, {
-        reactionCount: FieldValue.increment(1),
-      });
+      if (artifactDoc.exists) {
+        transaction.update(artifactRef, {
+          reactionCount: FieldValue.increment(1),
+        });
+      }
 
-      await batch.commit();
-      logger.info(`[REACTION] Successfully updated counts | ArtifactID=${artifactId}`);
+      logger.info(`[REACTION] Successfully queued transactional count updates | ArtifactID=${artifactId}`);
     });
   });
 
@@ -375,14 +376,15 @@ export const onReactionDeleted = functions.firestore
     const db = admin.firestore();
     const eventId = context.eventId;
 
-    return withIdempotency(`react_dec_${eventId}`, async () => {
+    return withIdempotency(`react_dec_${eventId}`, async (transaction) => {
       logger.info(`[REACTION] Decrementing counts | ArtifactID=${artifactId} | Type=${typeId}`);
 
-      const batch = db.batch();
+      const artifactRef = db.collection("artifacts").doc(artifactId);
+      const artifactDoc = await transaction.get(artifactRef);
 
       // 1. Update Aggregate Document
       const aggregateRef = db.collection("artifact_reaction_counts").doc(artifactId);
-      batch.set(
+      transaction.set(
         aggregateRef,
         {
           totalCount: FieldValue.increment(-1),
@@ -393,158 +395,357 @@ export const onReactionDeleted = functions.firestore
       );
 
       // 2. Update Main Artifact Metadata
-      const artifactRef = db.collection("artifacts").doc(artifactId);
-      batch.update(artifactRef, {
-        reactionCount: FieldValue.increment(-1),
-      });
+      if (artifactDoc.exists) {
+        transaction.update(artifactRef, {
+          reactionCount: FieldValue.increment(-1),
+        });
+      }
 
-      await batch.commit();
-      logger.info(`[REACTION] Successfully decremented counts | ArtifactID=${artifactId}`);
+      logger.info(`[REACTION] Successfully queued transactional count decrements | ArtifactID=${artifactId}`);
     });
   });
 
 /**
- * Authoritatively handles follow/resonance intents.
+ * Processes follow intent within a single atomic Firestore transaction.
+ * Performs read-before-write transaction checks, transactional rate limiting (checkRateLimitTx),
+ * asymmetric relationship marker recovery, aggregate counter updates, and intent status transitions.
  */
-export const onFollowIntentCreated = functions.firestore
-  .document("users/{uid}/private/intents/follow/{targetAnonId}")
-  .onCreate(async (snapshot, context) => {
-    const uid = context.params.uid;
-    const targetAnonId = context.params.targetAnonId;
-    const data = snapshot.data();
+export async function processFollowIntentTx(
+  uid: string,
+  targetAnonId: string,
+  nowMs: number = Date.now()
+): Promise<void> {
+  const db = admin.firestore();
+  const intentRef = db.collection("users").doc(uid)
+    .collection("private").doc("intents")
+    .collection("follow").doc(targetAnonId);
 
-    if (!data || data.action !== "FOLLOW") return null;
+  // Pre-transaction resolution: Resolve target persona to recipient Firebase Auth UID
+  const mappingDoc = await db.collection("persona_mapping").doc(targetAnonId).get();
+  let finalTargetUserId: string | null = mappingDoc.data()?.userId || null;
 
-    const idempotencyKey = `follow_${uid}_${targetAnonId}_${data.timestamp?.seconds || "initial"}`;
+  if (!finalTargetUserId) {
+    const userQuery = await db.collection("users").where("anonymousId", "==", targetAnonId).limit(1).get();
+    if (!userQuery.empty) {
+      finalTargetUserId = userQuery.docs[0].id;
+    }
+  }
 
-    // R071: Follow Churn Rate Limit
-    const rateLimit = await checkRateLimit(uid, {
-      maxCapacity: 20,
-      refillRatePerMinute: 10,
-      windowName: "follow",
-    });
+  await db.runTransaction(async (transaction) => {
+    // -----------------------------------------------------------------
+    // 1. TRANSACTION READS (MUST ALL BE COMPLETED BEFORE ANY WRITE!)
+    // -----------------------------------------------------------------
 
-    if (!rateLimit.allowed) {
-      logger.warn(`[FOLLOW] Rate limit exceeded for UID=${uid}`);
-      return null;
+    // Read 1: Intent Document
+    const intentSnap = await transaction.get(intentRef);
+    if (!intentSnap.exists) {
+      logger.warn(`[FOLLOW_INTENT] Intent document missing | UID=${uid} | TargetAnonID=${targetAnonId}`);
+      return;
+    }
+    const intentData = intentSnap.data() || {};
+    const currentStatus = intentData.status;
+
+    // Terminal states check
+    if (
+      currentStatus === "PROCESSED" ||
+      currentStatus === "REJECTED_NOT_FOUND" ||
+      currentStatus === "REJECTED_INVALID"
+    ) {
+      logger.info(`[FOLLOW_INTENT] Terminal state (${currentStatus}) - no-op | UID=${uid} | TargetAnonID=${targetAnonId}`);
+      return;
     }
 
-    return withIdempotency(idempotencyKey, async () => {
-      const db = admin.firestore();
+    if (intentData.action && intentData.action !== "FOLLOW") {
+      logger.warn(`[FOLLOW_INTENT] Unhandled action (${intentData.action}) | UID=${uid} | TargetAnonID=${targetAnonId}`);
+      return;
+    }
 
-      // 1. Resolve recipient UID from anonymousId via private mapping
-      const mappingDoc = await db.collection("persona_mapping").doc(targetAnonId).get();
-      let finalTargetUserId = mappingDoc.data()?.userId;
+    // Read 2: Recipient Persona Resolution Verification
+    if (!finalTargetUserId) {
+      logger.error(`[FOLLOW_INTENT] Target persona not found: ${targetAnonId}`);
+      transaction.update(intentRef, {
+        status: "REJECTED_NOT_FOUND",
+        rejectionReason: `Target persona not found: ${targetAnonId}`,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      return;
+    }
 
-      if (!finalTargetUserId) {
-        // Fallback: search users collection
-        const userQuery = await db.collection("users").where("anonymousId", "==", targetAnonId).limit(1).get();
-        if (userQuery.empty) {
-          logger.error(`[FOLLOW] Target persona not found: ${targetAnonId}`);
-          return;
-        }
-        finalTargetUserId = userQuery.docs[0].id;
+    // Read 3: Follower User Profile
+    const currentUserRef = db.collection("users").doc(uid);
+    const actorSnap = await transaction.get(currentUserRef);
+    const actorData = actorSnap.exists ? actorSnap.data() : null;
+    const actorAnonId = actorData?.anonymousId || "unknown";
+
+    if (actorAnonId === "unknown") {
+      logger.error(`[FOLLOW_INTENT] Follower persona not found for UID: ${uid}`);
+      transaction.update(intentRef, {
+        status: "REJECTED_INVALID",
+        rejectionReason: `Follower persona not found for UID: ${uid}`,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      return;
+    }
+
+    // Read 4: Recipient User Profile
+    const targetUserRef = db.collection("users").doc(finalTargetUserId);
+    const targetUserSnap = await transaction.get(targetUserRef);
+    if (!targetUserSnap.exists) {
+      logger.error(`[FOLLOW_INTENT] Recipient user doc missing for UID: ${finalTargetUserId}`);
+      transaction.update(intentRef, {
+        status: "REJECTED_NOT_FOUND",
+        rejectionReason: `Recipient user missing: ${finalTargetUserId}`,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      return;
+    }
+
+    // Read 5 & 6: Relationship Markers (resonance_out and resonance_in)
+    const resonanceOutRef = currentUserRef.collection("resonance_out").doc(targetAnonId);
+    const resonanceInRef = targetUserRef.collection("resonance_in").doc(actorAnonId);
+    const outSnap = await transaction.get(resonanceOutRef);
+    const inSnap = await transaction.get(resonanceInRef);
+
+    // Read 7 & 8: Target Settings & Ignore List
+    const targetSettingsRef = db.collection("users").doc(finalTargetUserId)
+      .collection("private").doc("settings");
+    const targetSettingsSnap = await transaction.get(targetSettingsRef);
+
+    const ignoreRef = db.collection("users").doc(finalTargetUserId)
+      .collection("private").doc("ignored_users")
+      .collection("users").doc(uid);
+    const ignoreSnap = await transaction.get(ignoreRef);
+
+    // Read 9: Notification Document (Deterministic path: notifications/follow_notif_${uid}_${targetAnonId})
+    const notificationRef = db.collection("notifications").doc(`follow_notif_${uid}_${targetAnonId}`);
+    const notificationSnap = await transaction.get(notificationRef);
+
+    // -----------------------------------------------------------------
+    // 2. IDEMPOTENCY & ASYMMETRIC MARKER RECOVERY
+    // -----------------------------------------------------------------
+
+    // Case A: Both markers present -> Already complete
+    if (outSnap.exists && inSnap.exists) {
+      logger.info(`[FOLLOW_INTENT] Both markers exist - marking PROCESSED | UID=${uid} | Target=${finalTargetUserId}`);
+      const intentUpdate: any = {
+        status: "PROCESSED",
+        processedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      };
+      if (intentData.clientRetryRequestedAt !== undefined) {
+        intentUpdate.lastConsumedRetryAt = intentData.clientRetryRequestedAt;
       }
+      transaction.update(intentRef, intentUpdate);
+      return;
+    }
 
-      // 2. Resolve follower's own persona (Responsible Anonymity)
-      const actorDoc = await db.collection("users").doc(uid).get();
-      const actorData = actorDoc.data();
-      const actorAnonId = actorData?.anonymousId || "unknown";
-
-      if (actorAnonId === "unknown") {
-        logger.error(`[FOLLOW] Follower persona not found for UID: ${uid}`);
-        return;
-      }
-
-      const currentUserRef = db.collection("users").doc(uid);
-      const targetUserRef = db.collection("users").doc(finalTargetUserId);
-
-      const resonanceOutRef = currentUserRef.collection("resonance_out").doc(targetAnonId);
-      const resonanceInRef = targetUserRef.collection("resonance_in").doc(actorAnonId); // Sanitized: uses anonymousId
-
-      await db.runTransaction(async (transaction) => {
-        const outDoc = await transaction.get(resonanceOutRef);
-        if (outDoc.exists) {
-          logger.info(`Follow: ${uid} is already resonating with ${finalTargetUserId}`);
-          return;
-        }
-
-        const timestamp = FieldValue.serverTimestamp();
-
-        // 1. Create Markers
-        transaction.set(resonanceOutRef, {
-          targetAnonymousId: targetAnonId,
-          createdAt: timestamp
-        });
-        transaction.set(resonanceInRef, {
-          followerAnonymousId: actorAnonId,
-          createdAt: timestamp
-        });
-
-        // 2. Update Counters
-        transaction.update(currentUserRef, {
-          resonanceOutCount: FieldValue.increment(1),
-          followingCount: FieldValue.increment(1),
-        });
-        transaction.update(targetUserRef, {
-          resonanceInCount: FieldValue.increment(1),
-          followersCount: FieldValue.increment(1),
-        });
+    // Case B: Outgoing marker exists, incoming missing -> Repair incoming marker
+    if (outSnap.exists && !inSnap.exists) {
+      logger.warn(`[FOLLOW_INTENT] Asymmetric state (out exists, in missing) - repairing incoming marker | UID=${uid}`);
+      const timestamp = FieldValue.serverTimestamp();
+      transaction.set(resonanceInRef, {
+        followerAnonymousId: actorAnonId,
+        createdAt: timestamp,
+      });
+      transaction.update(targetUserRef, {
+        resonanceInCount: FieldValue.increment(1),
+        followersCount: FieldValue.increment(1),
       });
 
-      // 3. Authoritative Preference Check
-      const targetSettingsDoc = await db.collection("users").doc(finalTargetUserId)
-        .collection("private").doc("settings")
-        .get();
-
-      // Silent Ignore Boundary Check (Phase 6.3.1)
-      const ignoreDoc = await db.collection("users").doc(finalTargetUserId)
-        .collection("private").doc("ignored_users")
-        .collection("users").doc(uid)
-        .get();
-
-      if (ignoreDoc.exists) {
-        logger.info(`[FOLLOW_NOTIF] Suppressed due to ignore | Recipient=${finalTargetUserId} | Sender=${uid}`);
-        return;
+      const intentUpdate: any = {
+        status: "PROCESSED",
+        processedAt: timestamp,
+        updatedAt: timestamp,
+      };
+      if (intentData.clientRetryRequestedAt !== undefined) {
+        intentUpdate.lastConsumedRetryAt = intentData.clientRetryRequestedAt;
       }
+      transaction.update(intentRef, intentUpdate);
+      return;
+    }
 
-      if (targetSettingsDoc.data()?.notificationsEnabled !== false) {
-        // Create Notification (Sanitized actorId)
-        await admin.firestore().collection("notifications").add({
-          userId: finalTargetUserId,
-          actorId: actorAnonId,
-          followerId: actorAnonId,
-          message: "PRESENCE_RESONATED",
-          type: "FOLLOW",
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          isRead: false,
-        });
+    // Case C: Incoming marker exists, outgoing missing -> Repair outgoing marker
+    if (!outSnap.exists && inSnap.exists) {
+      logger.warn(`[FOLLOW_INTENT] Asymmetric state (in exists, out missing) - repairing outgoing marker | UID=${uid}`);
+      const timestamp = FieldValue.serverTimestamp();
+      transaction.set(resonanceOutRef, {
+        targetAnonymousId: targetAnonId,
+        createdAt: timestamp,
+      });
+      transaction.update(currentUserRef, {
+        resonanceOutCount: FieldValue.increment(1),
+        followingCount: FieldValue.increment(1),
+      });
+
+      const intentUpdate: any = {
+        status: "PROCESSED",
+        processedAt: timestamp,
+        updatedAt: timestamp,
+      };
+      if (intentData.clientRetryRequestedAt !== undefined) {
+        intentUpdate.lastConsumedRetryAt = intentData.clientRetryRequestedAt;
       }
+      transaction.update(intentRef, intentUpdate);
+      return;
+    }
 
-      logger.info(`FOLLOW_SUCCESS | Follower=${uid} | Target=${finalTargetUserId}`);
+    // -----------------------------------------------------------------
+    // 3. TRANSACTIONAL RATE LIMITER (Reads moderation_stats & stages write)
+    // -----------------------------------------------------------------
+    const rateLimit = await checkRateLimitTx(
+      transaction,
+      uid,
+      { maxCapacity: 20, refillRatePerMinute: 10, windowName: "follow" },
+      nowMs
+    );
+
+    if (!rateLimit.allowed) {
+      logger.warn(`[FOLLOW_INTENT] Rate limit exceeded for UID=${uid} | Wait=${rateLimit.waitTimeMs}ms`);
+      const updateData: any = {
+        status: "RATE_LIMITED",
+        rateLimitResetAt: rateLimit.rateLimitResetAt,
+        waitTimeMs: rateLimit.waitTimeMs,
+        updatedAt: FieldValue.serverTimestamp(),
+      };
+      if (intentData.clientRetryRequestedAt !== undefined) {
+        updateData.lastConsumedRetryAt = intentData.clientRetryRequestedAt;
+      }
+      transaction.update(intentRef, updateData);
+      return;
+    }
+
+    // -----------------------------------------------------------------
+    // 4. ATOMIC STAGED WRITES (Committed together with rate token write)
+    // -----------------------------------------------------------------
+    const timestamp = FieldValue.serverTimestamp();
+
+    // A. Create Markers
+    transaction.set(resonanceOutRef, {
+      targetAnonymousId: targetAnonId,
+      createdAt: timestamp,
     });
+    transaction.set(resonanceInRef, {
+      followerAnonymousId: actorAnonId,
+      createdAt: timestamp,
+    });
+
+    // B. Update Counters
+    transaction.update(currentUserRef, {
+      resonanceOutCount: FieldValue.increment(1),
+      followingCount: FieldValue.increment(1),
+    });
+    transaction.update(targetUserRef, {
+      resonanceInCount: FieldValue.increment(1),
+      followersCount: FieldValue.increment(1),
+    });
+
+    // C. Create Notification (Deterministic path)
+    const isIgnored = ignoreSnap?.exists === true;
+    const notificationsDisabled = targetSettingsSnap?.data()?.notificationsEnabled === false;
+    const notificationAlreadyExists = notificationSnap.exists;
+
+    if (isIgnored) {
+      logger.info(`[FOLLOW_NOTIF] Suppressed due to ignore | Recipient=${finalTargetUserId} | Sender=${uid}`);
+    } else if (notificationsDisabled) {
+      logger.info(`[FOLLOW_NOTIF] Suppressed by user preference | Recipient=${finalTargetUserId}`);
+    } else if (notificationAlreadyExists) {
+      logger.info(`[FOLLOW_NOTIF] Notification already exists | Recipient=${finalTargetUserId}`);
+    } else {
+      transaction.set(notificationRef, {
+        userId: finalTargetUserId,
+        actorId: actorAnonId,
+        followerId: actorAnonId,
+        message: "PRESENCE_RESONATED",
+        type: "FOLLOW",
+        createdAt: timestamp,
+        isRead: false,
+      });
+    }
+
+    // D. Update Intent Document to PROCESSED
+    const intentUpdate: any = {
+      status: "PROCESSED",
+      processedAt: timestamp,
+      updatedAt: timestamp,
+    };
+    if (intentData.clientRetryRequestedAt !== undefined) {
+      intentUpdate.lastConsumedRetryAt = intentData.clientRetryRequestedAt;
+    }
+    transaction.update(intentRef, intentUpdate);
+
+    logger.info(`FOLLOW_SUCCESS | Follower=${uid} | Target=${finalTargetUserId}`);
   });
+}
+
+/**
+ * Core handler logic for follow intent onWrite trigger.
+ */
+export async function handleFollowIntentWrite(change: any, context: any) {
+  const uid = context.params.uid;
+  const targetAnonId = context.params.targetAnonId;
+
+  const beforeData = change.before.exists ? change.before.data() : null;
+  const afterData = change.after.exists ? change.after.data() : null;
+
+  // 1. Ignore document deletions
+  if (!afterData) return null;
+
+  // 2. Initial Submission
+  if (!change.before.exists) {
+    const status = afterData.status || "PENDING";
+    if (
+      status === "PROCESSED" ||
+      status === "REJECTED_NOT_FOUND" ||
+      status === "REJECTED_INVALID"
+    ) {
+      logger.info(`[FOLLOW_TRIGGER] Initial document in terminal state (${status}) - skipping`);
+      return null;
+    }
+    return processFollowIntentTx(uid, targetAnonId);
+  }
+
+  // 3. Authorized Retry Check
+  const prevStatus = beforeData?.status;
+  const isRateLimited = prevStatus === "RATE_LIMITED";
+  const newRetryReq = afterData.clientRetryRequestedAt;
+  const oldRetryReq = beforeData?.clientRetryRequestedAt;
+  const lastConsumed = afterData.lastConsumedRetryAt || 0;
+
+  const isRetryRequested = (
+    isRateLimited &&
+    typeof newRetryReq === "number" &&
+    (typeof oldRetryReq !== "number" || newRetryReq > oldRetryReq) &&
+    newRetryReq > lastConsumed
+  );
+
+  if (isRetryRequested) {
+    logger.info(`[FOLLOW_TRIGGER] Authorized retry requested | UID=${uid} | TargetAnonID=${targetAnonId} | RetryAt=${newRetryReq}`);
+    return processFollowIntentTx(uid, targetAnonId);
+  }
+
+  // Skip backend-generated status updates or unhandled field modifications
+  return null;
+}
+
+/**
+ * Authoritatively handles follow creation and retries using an onWrite trigger.
+ */
+export const onFollowIntentWritten = functions
+  .runWith({ failurePolicy: true })
+  .firestore
+  .document("users/{uid}/private/intents/follow/{targetAnonId}")
+  .onWrite(handleFollowIntentWrite);
 
 /**
  * Handles unfollow intent.
  */
-export const onFollowIntentDeleted = functions.firestore
+export const onFollowIntentDeleted = functions
+  .runWith({ failurePolicy: true })
+  .firestore
   .document("users/{uid}/private/intents/follow/{targetAnonId}")
   .onDelete(async (snapshot, context) => {
     const uid = context.params.uid;
     const targetAnonId = context.params.targetAnonId;
-
-    // R071: Follow Churn Rate Limit
-    const rateLimit = await checkRateLimit(uid, {
-      maxCapacity: 20,
-      refillRatePerMinute: 10,
-      windowName: "follow",
-    });
-
-    if (!rateLimit.allowed) {
-      logger.warn(`[UNFOLLOW] Rate limit exceeded for UID=${uid}`);
-      return null;
-    }
 
     const db = admin.firestore();
 
@@ -554,13 +755,18 @@ export const onFollowIntentDeleted = functions.firestore
 
     if (!finalTargetUserId) {
       const userQuery = await db.collection("users").where("anonymousId", "==", targetAnonId).limit(1).get();
-      if (userQuery.empty) return;
+      if (userQuery.empty) {
+        throw new Error(`[UNFOLLOW_ERROR] Recipient identity cannot be resolved for targetAnonId=${targetAnonId}`);
+      }
       finalTargetUserId = userQuery.docs[0].id;
     }
 
     // 2. Resolve follower's persona (to find the resonance_in record)
     const actorDoc = await db.collection("users").doc(uid).get();
-    const actorAnonId = actorDoc.data()?.anonymousId || "unknown";
+    const actorAnonId = actorDoc.data()?.anonymousId;
+    if (!actorAnonId) {
+      throw new Error(`[UNFOLLOW_ERROR] Actor identity or anonymousId missing for UID=${uid}`);
+    }
 
     const currentUserRef = db.collection("users").doc(uid);
     const targetUserRef = db.collection("users").doc(finalTargetUserId);
@@ -569,22 +775,38 @@ export const onFollowIntentDeleted = functions.firestore
     const resonanceInRef = targetUserRef.collection("resonance_in").doc(actorAnonId);
 
     await db.runTransaction(async (transaction) => {
+      // Perform all reads before writes inside transaction
+      const currentUserDoc = await transaction.get(currentUserRef);
+      const targetUserDoc = await transaction.get(targetUserRef);
       const outDoc = await transaction.get(resonanceOutRef);
-      if (!outDoc.exists) return;
+      const inDoc = await transaction.get(resonanceInRef);
 
-      // 1. Delete Markers
-      transaction.delete(resonanceOutRef);
-      transaction.delete(resonanceInRef);
+      // Exit idempotently if neither marker exists
+      if (!outDoc.exists && !inDoc.exists) {
+        return;
+      }
 
-      // 2. Decrement Counters
-      transaction.update(currentUserRef, {
-        resonanceOutCount: FieldValue.increment(-1),
-        followingCount: FieldValue.increment(-1),
-      });
-      transaction.update(targetUserRef, {
-        resonanceInCount: FieldValue.increment(-1),
-        followersCount: FieldValue.increment(-1),
-      });
+      // Process resonance_out marker independently
+      if (outDoc.exists) {
+        transaction.delete(resonanceOutRef);
+        if (currentUserDoc.exists) {
+          transaction.update(currentUserRef, {
+            resonanceOutCount: FieldValue.increment(-1),
+            followingCount: FieldValue.increment(-1),
+          });
+        }
+      }
+
+      // Process resonance_in marker independently
+      if (inDoc.exists) {
+        transaction.delete(resonanceInRef);
+        if (targetUserDoc.exists) {
+          transaction.update(targetUserRef, {
+            resonanceInCount: FieldValue.increment(-1),
+            followersCount: FieldValue.increment(-1),
+          });
+        }
+      }
     });
 
     logger.info(`UNFOLLOW_SUCCESS | Follower=${uid} | Target=${finalTargetUserId}`);
@@ -2442,13 +2664,19 @@ export const onCommentUpdated = functions.firestore
 
     // Detect Soft Delete transition (ACTIVE -> DELETED)
     if (newData.status === "DELETED" && oldData.status !== "DELETED") {
-      return withIdempotency(`comment_dec_${commentId}_${context.eventId}`, async () => {
+      return withIdempotency(`comment_dec_${commentId}_${context.eventId}`, async (transaction) => {
         const db = admin.firestore();
         const artifactRef = db.collection("artifacts").doc(artifactId);
 
-        await artifactRef.update({
-          commentCount: FieldValue.increment(-1),
-        });
+        if (transaction) {
+          transaction.update(artifactRef, {
+            commentCount: FieldValue.increment(-1),
+          });
+        } else {
+          await artifactRef.update({
+            commentCount: FieldValue.increment(-1),
+          });
+        }
 
         logger.info(`[AGGREGATE] commentCount decremented | ArtifactID=${artifactId} | CommentID=${commentId}`);
       });
@@ -2471,13 +2699,19 @@ export const onPlayCreated = functions.firestore
     const artifactId = data.artifactId;
     const playId = context.params.playId;
 
-    return withIdempotency(playId, async () => {
+    return withIdempotency(playId, async (transaction) => {
       const db = admin.firestore();
       const artifactRef = db.collection("artifacts").doc(artifactId);
 
-      await artifactRef.update({
-        playCount: FieldValue.increment(1),
-      });
+      if (transaction) {
+        transaction.update(artifactRef, {
+          playCount: FieldValue.increment(1),
+        });
+      } else {
+        await artifactRef.update({
+          playCount: FieldValue.increment(1),
+        });
+      }
 
       logger.info(`[AGGREGATE] playCount incremented | ArtifactID=${artifactId} | PlayID=${playId}`);
     });

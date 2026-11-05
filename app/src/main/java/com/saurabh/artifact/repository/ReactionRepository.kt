@@ -79,8 +79,7 @@ class ReactionRepository @Inject constructor(
                 action = com.saurabh.artifact.data.local.InteractionAction.ADD,
                 metadata = type.id
             )
-            pendingInteractionDao.get().deleteByType(artifactId, userId, com.saurabh.artifact.data.local.InteractionType.REACTION)
-            pendingInteractionDao.get().insert(pending)
+            pendingInteractionDao.get().replacePendingInteraction(pending)
             InteractionSyncWorker.enqueue(context)
             ArtifactLogger.i(
                 DiagnosticCategory.RESONANCE, 
@@ -115,8 +114,7 @@ class ReactionRepository @Inject constructor(
                 interactionType = com.saurabh.artifact.data.local.InteractionType.REACTION,
                 action = com.saurabh.artifact.data.local.InteractionAction.REMOVE
             )
-            pendingInteractionDao.get().deleteByType(artifactId, userId, com.saurabh.artifact.data.local.InteractionType.REACTION)
-            pendingInteractionDao.get().insert(pending)
+            pendingInteractionDao.get().replacePendingInteraction(pending)
             com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
             
             ArtifactLogger.i(
@@ -313,10 +311,7 @@ class ReactionRepository @Inject constructor(
                 }
             }
 
-            // Update debounce map timestamp ONLY after validation passes
-            debounceMap[artifactId] = now
-
-            // 1. Record pending interaction for sync
+            // 1. Record pending interaction for sync atomically
             val pending = com.saurabh.artifact.data.local.PendingInteractionEntity(
                 userId = userId,
                 artifactId = artifactId,
@@ -325,14 +320,16 @@ class ReactionRepository @Inject constructor(
                 metadata = type.id
             )
             
-            // Clean up any existing pending reactions for this artifact to avoid redundant toggles
-            pendingInteractionDao.get().deleteByType(artifactId, userId, com.saurabh.artifact.data.local.InteractionType.REACTION)
-            pendingInteractionDao.get().insert(pending)
+            // Clean up any existing pending reactions for this artifact to avoid redundant toggles atomically
+            pendingInteractionDao.get().replacePendingInteraction(pending)
 
             // 2. Trigger Sync Worker
-            com.saurabh.artifact.worker.InteractionSyncWorker.enqueue(context)
+            InteractionSyncWorker.enqueue(context)
 
-            // 3. Optimistic success
+            // 3. Update debounce map timestamp ONLY after persistence succeeds
+            debounceMap[artifactId] = now
+
+            // 4. Optimistic success
             Result.success(Unit)
         } catch (e: Exception) {
             if (e is CancellationException) throw e
@@ -355,8 +352,6 @@ class ReactionRepository @Inject constructor(
                     return@withContext Result.failure(IllegalArgumentException("Cannot react to your own artifact"))
                 }
 
-                debounceMap[artifactId] = now
-
                 val pending = PendingInteractionEntity(
                     userId = userId,
                     artifactId = artifactId,
@@ -364,10 +359,24 @@ class ReactionRepository @Inject constructor(
                     action = InteractionAction.ADD,
                     metadata = type.id
                 )
-                pendingInteractionDao.get().deleteByType(artifactId, userId, InteractionType.REACTION)
-                pendingInteractionDao.get().insert(pending)
-                InteractionSyncWorker.enqueue(context)
-                Result.success(Unit)
+                try {
+                    pendingInteractionDao.get().replacePendingInteraction(pending)
+                    InteractionSyncWorker.enqueue(context)
+
+                    // Update debounce map timestamp ONLY after persistence succeeds
+                    debounceMap[artifactId] = now
+
+                    Result.success(Unit)
+                } catch (dbError: Exception) {
+                    if (dbError is CancellationException) throw dbError
+                    ArtifactLogger.e(
+                        DiagnosticCategory.RESONANCE,
+                        "REACTION_TOGGLE_FAILED",
+                        mapOf(LogKeys.ARTIFACT_ID to artifactId),
+                        dbError
+                    )
+                    Result.failure(dbError)
+                }
             } else {
                 ArtifactLogger.e(
                     DiagnosticCategory.RESONANCE,

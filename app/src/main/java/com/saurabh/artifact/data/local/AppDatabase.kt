@@ -19,7 +19,7 @@ import androidx.room.TypeConverters
         IgnoredUserEntity::class,
         UserConsumedPromptEntity::class,
     ],
-    version = 77,
+    version = 78,
     autoMigrations = [
         AutoMigration(from = 64, to = 65),
         AutoMigration(from = 65, to = 66),

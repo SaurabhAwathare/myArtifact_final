@@ -248,6 +248,22 @@ object DatabaseMigrations {
             )
         }
     }
+
+    /**
+     * Migration 77 -> 78: Composite Index on (userId, artifactId, interactionType).
+     * Adds index_pending_interactions_userId_artifactId_interactionType to optimize
+     * lookup and atomic replacement of pending interactions by user, artifact and type.
+     */
+    val MIGRATION_77_78 = object : Migration(77, 78) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE INDEX IF NOT EXISTS `index_pending_interactions_userId_artifactId_interactionType` 
+                ON `pending_interactions` (`userId`, `artifactId`, `interactionType`)
+                """.trimIndent()
+            )
+        }
+    }
     
     val ALL_MIGRATIONS = arrayOf<Migration>(
         MIGRATION_60_61,
@@ -259,6 +275,7 @@ object DatabaseMigrations {
         MIGRATION_73_74,
         MIGRATION_74_75,
         MIGRATION_75_76,
-        MIGRATION_76_77
+        MIGRATION_76_77,
+        MIGRATION_77_78
     )
 }

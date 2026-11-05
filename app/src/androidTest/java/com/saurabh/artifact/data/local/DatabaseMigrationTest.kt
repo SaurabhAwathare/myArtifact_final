@@ -399,11 +399,11 @@ class DatabaseMigrationTest {
     }
 
     /**
-     * Verifies the full migration chain from baseline Version 60 to Version 77.
+     * Verifies the full migration chain from baseline Version 60 to Version 78.
      */
     @Test
     @Throws(IOException::class)
-    fun migrateAll_60_to_77() {
+    fun migrateAll_60_to_78() {
         helper.createDatabase(TEST_DB, 60).apply {
             execSQL(
                 """
@@ -429,7 +429,7 @@ class DatabaseMigrationTest {
             close()
         }
 
-        val db = helper.runMigrationsAndValidate(TEST_DB, 77, true, *DatabaseMigrations.ALL_MIGRATIONS)
+        val db = helper.runMigrationsAndValidate(TEST_DB, 78, true, *DatabaseMigrations.ALL_MIGRATIONS)
 
         val draftCursor = db.query("SELECT * FROM artifact_drafts WHERE id = 'draft_60'")
         assert(draftCursor.moveToFirst())
@@ -499,5 +499,34 @@ class DatabaseMigrationTest {
             duplicateFailed = true
         }
         assert(duplicateFailed)
+    }
+
+    /**
+     * Verifies isolated migration from 77 to 78.
+     * Validates addition of index_pending_interactions_userId_artifactId_interactionType and preservation of data.
+     */
+    @Test
+    @Throws(IOException::class)
+    fun migrate77To78_isolated() {
+        helper.createDatabase(TEST_DB, 77).apply {
+            execSQL(
+                """
+                INSERT INTO pending_interactions (
+                    id, userId, artifactId, interactionType, action, metadata, createdAt, correlationId, workerId, retryCount, lastError
+                ) VALUES (
+                    20, 'user_A', 'art_1', 'REACTION', 'ADD', 'love', 1000, 'corr_77_1', NULL, 0, NULL
+                )
+                """.trimIndent()
+            )
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 78, true, DatabaseMigrations.MIGRATION_77_78)
+
+        val cursor = db.query("SELECT * FROM pending_interactions WHERE id = 20")
+        assert(cursor.moveToFirst())
+        assertEquals("user_A", cursor.getString(cursor.getColumnIndexOrThrow("userId")))
+        assertEquals("REACTION", cursor.getString(cursor.getColumnIndexOrThrow("interactionType")))
+        cursor.close()
     }
 }

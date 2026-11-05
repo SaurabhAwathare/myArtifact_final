@@ -5,10 +5,12 @@ import {logger} from "./logger";
 /**
  * Ensures that a task is only executed once for a given idempotency key.
  * Stores the result/status in a dedicated 'idempotency_keys' collection.
+ * Passes the transaction instance to the task so all side-effects and idempotency state
+ * are committed in a single atomic transaction.
  */
 export async function withIdempotency(
   key: string,
-  task: () => Promise<any>
+  task: (transaction: admin.firestore.Transaction) => Promise<any>
 ): Promise<any> {
   const db = admin.firestore();
   const keyRef = db.collection("idempotency_keys").doc(key);
@@ -28,27 +30,17 @@ export async function withIdempotency(
         }
       }
 
+      // Execute task within the transaction
+      const result = await task(transaction);
+
+      // Record SUCCESS within the SAME transaction
       transaction.set(keyRef, {
-        status: "PROCESSING",
-        startedAt: FieldValue.serverTimestamp(),
+        status: "SUCCESS",
+        result: result || null,
+        completedAt: FieldValue.serverTimestamp(),
       });
 
-      // Execute task
-      try {
-        const result = await task();
-
-        transaction.update(keyRef, {
-          status: "SUCCESS",
-          result: result || null,
-          completedAt: FieldValue.serverTimestamp(),
-        });
-
-        return result;
-      } catch (error) {
-        // Clear processing status on failure to allow retry
-        transaction.delete(keyRef);
-        throw error;
-      }
+      return result;
     });
   } catch (error) {
     logger.error(`Idempotency error for key ${key}:`, error);

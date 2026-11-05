@@ -10,6 +10,8 @@ import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.FieldPath
+import com.google.firebase.firestore.Source
+import kotlinx.coroutines.Job
 import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.User
 import com.saurabh.artifact.model.SigilConfig
@@ -52,6 +54,8 @@ import javax.inject.Singleton
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
+import com.saurabh.artifact.data.local.DeadLetterInteractionDao
+import com.saurabh.artifact.data.local.DeadLetterInteractionEntity
 import com.saurabh.artifact.data.local.InteractionAction
 import com.saurabh.artifact.data.local.InteractionType
 import com.saurabh.artifact.data.local.PendingInteractionEntity
@@ -62,6 +66,7 @@ import com.saurabh.artifact.worker.InteractionSyncWorker
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.Json
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
@@ -77,7 +82,8 @@ open class UserRepository @Inject constructor(
     private val ignoredUserDao: Lazy<com.saurabh.artifact.data.local.IgnoredUserDao>,
     private val diagnosticLogger: DiagnosticLogger,
     private val functions: Lazy<FirebaseFunctions> = Lazy { FirebaseFunctions.getInstance() },
-    private val authRepository: Lazy<AuthRepository>
+    private val authRepository: Lazy<AuthRepository>,
+    private val deadLetterInteractionDao: Lazy<DeadLetterInteractionDao> = Lazy { error("DeadLetterInteractionDao not provided") }
 ) {
     companion object {
         const val CREATOR_PROFILE_CACHE_TTL_MS: Long = 24 * 60 * 60 * 1000L // 24 hours
@@ -89,6 +95,44 @@ open class UserRepository @Inject constructor(
 
     private val activeRefreshesMutex = Mutex()
     private val activeRefreshes = mutableMapOf<String, Deferred<User?>>()
+    private val activeFollowIntentListeners = ConcurrentHashMap<String, ListenerRegistration>()
+    private val activeFollowRetryTimerJobs = ConcurrentHashMap<String, Job>()
+
+    private fun scheduleFollowRetryTimer(userId: String, targetAnonymousId: String, delayMs: Long) {
+        val key = "${userId}_$targetAnonymousId"
+        activeFollowRetryTimerJobs[key]?.cancel()
+        activeFollowRetryTimerJobs[key] = repositoryScope.launch {
+            delay(delayMs)
+            val pendingList = pendingInteractionDao.get().getPendingByType(
+                artifactId = targetAnonymousId,
+                userId = userId,
+                type = InteractionType.FOLLOW
+            )
+            val hasPendingAdd = pendingList.any { it.action == InteractionAction.ADD }
+            if (hasPendingAdd) {
+                val docRef = usersCollection.document(userId)
+                    .collection("private").document("intents")
+                    .collection("follow").document(targetAnonymousId)
+                val snapshot = try {
+                    docRef.get(Source.SERVER).await()
+                } catch (_: Exception) {
+                    try { docRef.get(Source.CACHE).await() } catch (_: Exception) { null }
+                }
+                if (snapshot != null && snapshot.exists() && snapshot.getString("status") == "RATE_LIMITED") {
+                    val rateLimitResetAt = snapshot.getLong("rateLimitResetAt") ?: 0L
+                    val lastRetryReq = snapshot.getLong("clientRetryRequestedAt") ?: 0L
+                    if (!snapshot.metadata.hasPendingWrites() && System.currentTimeMillis() >= rateLimitResetAt && lastRetryReq < rateLimitResetAt) {
+                        requestFollowRetry(userId, targetAnonymousId)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun cancelFollowRetryTimer(userId: String, targetAnonymousId: String) {
+        val key = "${userId}_$targetAnonymousId"
+        activeFollowRetryTimerJobs.remove(key)?.cancel()
+    }
 
     private val usersCollection = firestore.collection("users")
     private val usernamesCollection = firestore.collection("usernames")
@@ -988,8 +1032,7 @@ open class UserRepository @Inject constructor(
                 action = InteractionAction.ADD,
                 metadata = cId
             )
-            pendingInteractionDao.get().deleteByType(tId, cId, InteractionType.FOLLOW)
-            pendingInteractionDao.get().insert(pending)
+            pendingInteractionDao.get().replacePendingInteraction(pending)
             InteractionSyncWorker.enqueue(context)
             
             diagnosticLogger.info(DiagnosticCategory.RESONANCE, "FOLLOW_QUEUED", mapOf("targetUserId" to tId))
@@ -1013,6 +1056,10 @@ open class UserRepository @Inject constructor(
         if (cId == tId) return@withContext Result.failure(Exception("Cannot resonate with yourself"))
 
         try {
+            stopFollowIntentObservation(tId)
+            cancelFollowRetryTimer(cId, tId)
+            InteractionSyncWorker.cancelDelayedWork(context, cId, tId)
+
             val pending = PendingInteractionEntity(
                 userId = cId,
                 artifactId = tId,
@@ -1020,8 +1067,7 @@ open class UserRepository @Inject constructor(
                 action = InteractionAction.REMOVE,
                 metadata = cId
             )
-            pendingInteractionDao.get().deleteByType(tId, cId, InteractionType.FOLLOW)
-            pendingInteractionDao.get().insert(pending)
+            pendingInteractionDao.get().replacePendingInteraction(pending)
             InteractionSyncWorker.enqueue(context)
             
             diagnosticLogger.info(DiagnosticCategory.RESONANCE, "UNFOLLOW_QUEUED", mapOf("targetUserId" to tId))
@@ -1035,7 +1081,7 @@ open class UserRepository @Inject constructor(
     /**
      * Internal synchronization method for follow.
      * INTERNAL SYNC API: Intended exclusively for InteractionSyncWorker.
-     * Performs direct Firestore write without enqueuing.
+     * Performs direct Firestore write without enqueuing. Sets explicit status = PENDING.
      */
     internal suspend fun syncFollowToFirestore(currentUserId: String, targetAnonymousId: String): Result<Unit> = withContext(Dispatchers.IO) {
         val cId = currentUserId.trim()
@@ -1052,6 +1098,7 @@ open class UserRepository @Inject constructor(
             intentRef.set(mapOf(
                 "targetAnonymousId" to tId,
                 "action" to "FOLLOW",
+                "status" to "PENDING",
                 "timestamp" to FieldValue.serverTimestamp(),
                 "version" to 1
             )).await()
@@ -1061,6 +1108,277 @@ open class UserRepository @Inject constructor(
         } catch (e: Exception) {
             diagnosticLogger.error(DiagnosticCategory.RESONANCE, "FOLLOW_INTENT_FAILED", mapOf("targetAnonymousId" to tId), e)
             Result.failure(e)
+        }
+    }
+
+    open suspend fun observeFollowIntentStatus(userId: String, targetAnonymousId: String) {
+        if (userId.isEmpty() || targetAnonymousId.isEmpty()) return
+        if (activeFollowIntentListeners.containsKey(targetAnonymousId)) return
+
+        val currentAuthUid = authRepository.get().currentUserId
+        if (currentAuthUid != userId) return
+
+        val docRef = usersCollection.document(userId)
+            .collection("private").document("intents")
+            .collection("follow").document(targetAnonymousId)
+
+        val listenerRegistration = docRef.addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                diagnosticLogger.warn(
+                    DiagnosticCategory.RESONANCE,
+                    "FOLLOW_INTENT_LISTEN_ERROR",
+                    mapOf("targetAnonymousId" to targetAnonymousId, "error" to (error.message ?: ""))
+                )
+                return@addSnapshotListener
+            }
+
+            if (snapshot == null || !snapshot.exists()) {
+                diagnosticLogger.info(
+                    DiagnosticCategory.RESONANCE,
+                    "FOLLOW_INTENT_DOC_REMOVED",
+                    mapOf("targetAnonymousId" to targetAnonymousId)
+                )
+                stopFollowIntentObservation(targetAnonymousId)
+                cancelFollowRetryTimer(userId, targetAnonymousId)
+                InteractionSyncWorker.cancelDelayedWork(context, userId, targetAnonymousId)
+                return@addSnapshotListener
+            }
+
+            val status = snapshot.getString("status") ?: "PENDING"
+            repositoryScope.launch {
+                handleFollowIntentSnapshotUpdate(userId, targetAnonymousId, status, snapshot)
+            }
+        }
+
+        activeFollowIntentListeners[targetAnonymousId] = listenerRegistration
+    }
+
+    fun stopFollowIntentObservation(targetAnonymousId: String) {
+        activeFollowIntentListeners.remove(targetAnonymousId)?.remove()
+        activeFollowRetryTimerJobs.keys.filter { it.endsWith("_$targetAnonymousId") || it == targetAnonymousId }.forEach { k ->
+            activeFollowRetryTimerJobs.remove(k)?.cancel()
+        }
+    }
+
+    private suspend fun handleFollowIntentSnapshotUpdate(
+        userId: String,
+        targetAnonymousId: String,
+        status: String,
+        snapshot: DocumentSnapshot
+    ) {
+        if (authRepository.get().currentUserId != userId) {
+            stopFollowIntentObservation(targetAnonymousId)
+            cancelFollowRetryTimer(userId, targetAnonymousId)
+            return
+        }
+
+        val pendingList = pendingInteractionDao.get().getPendingByType(
+            artifactId = targetAnonymousId,
+            userId = userId,
+            type = InteractionType.FOLLOW
+        )
+
+        val matchingInteraction = pendingList.firstOrNull { it.action == InteractionAction.ADD }
+
+        when (status) {
+            "PROCESSED" -> {
+                diagnosticLogger.info(
+                    DiagnosticCategory.RESONANCE,
+                    "FOLLOW_INTENT_PROCESSED_SUCCESS",
+                    mapOf("targetAnonymousId" to targetAnonymousId)
+                )
+                stopFollowIntentObservation(targetAnonymousId)
+                cancelFollowRetryTimer(userId, targetAnonymousId)
+                InteractionSyncWorker.cancelDelayedWork(context, userId, targetAnonymousId)
+                if (matchingInteraction != null) {
+                    pendingInteractionDao.get().delete(matchingInteraction)
+                }
+            }
+
+            "RATE_LIMITED" -> {
+                val rateLimitResetAt = snapshot.getLong("rateLimitResetAt")
+                val waitTimeMs = snapshot.getLong("waitTimeMs") ?: 0L
+
+                diagnosticLogger.warn(
+                    DiagnosticCategory.RESONANCE,
+                    "FOLLOW_INTENT_RATE_LIMITED",
+                    mapOf("targetAnonymousId" to targetAnonymousId, "resetAt" to (rateLimitResetAt ?: 0L), "waitTimeMs" to waitTimeMs)
+                )
+
+                if (matchingInteraction != null) {
+                    val updatedInteraction = matchingInteraction.copy(
+                        lastError = "RATE_LIMITED: wait $waitTimeMs ms"
+                    )
+                    pendingInteractionDao.get().insert(updatedInteraction)
+                }
+
+                if (rateLimitResetAt != null && rateLimitResetAt > 0) {
+                    val delayMs = maxOf(0L, rateLimitResetAt - System.currentTimeMillis())
+                    InteractionSyncWorker.enqueueDelayed(context, delayMs, userId = userId, targetId = targetAnonymousId)
+                    if (delayMs > 0) {
+                        scheduleFollowRetryTimer(userId, targetAnonymousId, delayMs)
+                    } else {
+                        val lastRetryReq = snapshot.getLong("clientRetryRequestedAt") ?: 0L
+                        if (!snapshot.metadata.hasPendingWrites() && lastRetryReq < rateLimitResetAt) {
+                            requestFollowRetry(userId, targetAnonymousId)
+                        }
+                    }
+                }
+            }
+
+            "REJECTED_NOT_FOUND", "REJECTED_UNAUTHORIZED", "REJECTED_INVALID" -> {
+                val rejectionReason = snapshot.getString("rejectionReason") ?: "Follow intent rejected: $status"
+                diagnosticLogger.error(
+                    DiagnosticCategory.RESONANCE,
+                    "FOLLOW_INTENT_TERMINAL_REJECTION",
+                    mapOf("targetAnonymousId" to targetAnonymousId, "status" to status, "reason" to rejectionReason),
+                    null
+                )
+                stopFollowIntentObservation(targetAnonymousId)
+                cancelFollowRetryTimer(userId, targetAnonymousId)
+                InteractionSyncWorker.cancelDelayedWork(context, userId, targetAnonymousId)
+
+                if (matchingInteraction != null) {
+                    val dlqEntry = DeadLetterInteractionEntity(
+                        userId = userId,
+                        originalId = matchingInteraction.id,
+                        artifactId = targetAnonymousId,
+                        interactionType = InteractionType.FOLLOW,
+                        action = matchingInteraction.action,
+                        metadata = matchingInteraction.metadata,
+                        createdAt = matchingInteraction.createdAt,
+                        correlationId = matchingInteraction.correlationId,
+                        failureReason = rejectionReason,
+                        failureType = status,
+                        retryCount = matchingInteraction.retryCount
+                    )
+                    try {
+                        deadLetterInteractionDao.get().moveToDeadLetter(dlqEntry, matchingInteraction)
+                    } catch (_: Exception) {
+                        pendingInteractionDao.get().delete(matchingInteraction)
+                    }
+                }
+            }
+
+            "PENDING" -> {
+                // Awaiting backend processing
+            }
+        }
+    }
+
+    open suspend fun requestFollowRetry(userId: String, targetAnonymousId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        if (userId.isEmpty() || targetAnonymousId.isEmpty()) return@withContext Result.failure(AppError.Unauthenticated())
+
+        val currentAuthUid = authRepository.get().currentUserId
+        if (currentAuthUid != userId) return@withContext Result.failure(AppError.Unauthenticated("Auth UID mismatch"))
+
+        try {
+            val docRef = usersCollection.document(userId)
+                .collection("private").document("intents")
+                .collection("follow").document(targetAnonymousId)
+
+            val snapshot = try {
+                docRef.get(Source.SERVER).await()
+            } catch (_: Exception) {
+                try {
+                    docRef.get(Source.CACHE).await()
+                } catch (_: Exception) {
+                    null
+                }
+            }
+
+            if (snapshot == null || !snapshot.exists()) {
+                return@withContext Result.failure(AppError.NotFound("FollowIntent", targetAnonymousId))
+            }
+
+            val status = snapshot.getString("status")
+            if (status != "RATE_LIMITED") {
+                diagnosticLogger.info(
+                    DiagnosticCategory.RESONANCE,
+                    "FOLLOW_RETRY_SKIPPED_NOT_RATE_LIMITED",
+                    mapOf("targetAnonymousId" to targetAnonymousId, "status" to (status ?: "null"))
+                )
+                return@withContext Result.success(Unit)
+            }
+
+            val oldClientRetry = snapshot.getLong("clientRetryRequestedAt")
+            val lastConsumed = snapshot.getLong("lastConsumedRetryAt")
+            val rateLimitResetAt = snapshot.getLong("rateLimitResetAt")
+
+            val baseTime = rateLimitResetAt ?: System.currentTimeMillis()
+            val lastReq = maxOf(oldClientRetry ?: 0L, lastConsumed ?: 0L)
+            val retryTimestamp = maxOf(System.currentTimeMillis(), maxOf(baseTime, lastReq + 1L))
+
+            docRef.update("clientRetryRequestedAt", retryTimestamp).await()
+
+            diagnosticLogger.info(
+                DiagnosticCategory.RESONANCE,
+                "FOLLOW_RETRY_REQUESTED_SUCCESS",
+                mapOf("targetAnonymousId" to targetAnonymousId, "retryTimestamp" to retryTimestamp)
+            )
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            diagnosticLogger.error(
+                DiagnosticCategory.RESONANCE,
+                "FOLLOW_RETRY_REQUEST_FAILED",
+                mapOf("targetAnonymousId" to targetAnonymousId),
+                e
+            )
+            Result.failure(AppError.from(e))
+        }
+    }
+
+    open suspend fun syncPendingFollowIntents(userId: String) = withContext(Dispatchers.IO) {
+        if (userId.isEmpty()) return@withContext
+        val currentAuthUid = authRepository.get().currentUserId
+        if (currentAuthUid != userId) return@withContext
+
+        val pendingList = pendingInteractionDao.get().getPendingForUser(userId)
+        val pendingFollows = pendingList.filter {
+            it.interactionType == InteractionType.FOLLOW && it.action == InteractionAction.ADD
+        }
+
+        for (interaction in pendingFollows) {
+            val targetAnonId = interaction.artifactId
+            val docRef = usersCollection.document(userId)
+                .collection("private").document("intents")
+                .collection("follow").document(targetAnonId)
+
+            val snapshot = try {
+                docRef.get(Source.SERVER).await()
+            } catch (_: Exception) {
+                try {
+                    docRef.get(Source.CACHE).await()
+                } catch (_: Exception) {
+                    null
+                }
+            }
+
+            if (snapshot != null && snapshot.exists()) {
+                val status = snapshot.getString("status") ?: "PENDING"
+                if (status == "PROCESSED") {
+                    stopFollowIntentObservation(targetAnonId)
+                    cancelFollowRetryTimer(userId, targetAnonId)
+                    InteractionSyncWorker.cancelDelayedWork(context, userId, targetAnonId)
+                    pendingInteractionDao.get().delete(interaction)
+                } else if (status == "RATE_LIMITED") {
+                    val rateLimitResetAt = snapshot.getLong("rateLimitResetAt") ?: 0L
+                    val delayMs = maxOf(0L, rateLimitResetAt - System.currentTimeMillis())
+                    if (delayMs == 0L) {
+                        val lastRetryReq = snapshot.getLong("clientRetryRequestedAt") ?: 0L
+                        if (!snapshot.metadata.hasPendingWrites() && lastRetryReq < rateLimitResetAt) {
+                            requestFollowRetry(userId, targetAnonId)
+                        }
+                    } else {
+                        InteractionSyncWorker.enqueueDelayed(context, delayMs, userId = userId, targetId = targetAnonId)
+                        scheduleFollowRetryTimer(userId, targetAnonId, delayMs)
+                    }
+                    observeFollowIntentStatus(userId, targetAnonId)
+                } else if (status == "PENDING") {
+                    observeFollowIntentStatus(userId, targetAnonId)
+                }
+            }
         }
     }
 
@@ -1077,6 +1395,10 @@ open class UserRepository @Inject constructor(
         }
 
         try {
+            stopFollowIntentObservation(tId)
+            cancelFollowRetryTimer(cId, tId)
+            InteractionSyncWorker.cancelDelayedWork(context, cId, tId)
+
             val intentRef = usersCollection.document(cId)
                 .collection("private").document("intents")
                 .collection("follow").document(tId)

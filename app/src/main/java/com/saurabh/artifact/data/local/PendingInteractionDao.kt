@@ -28,4 +28,14 @@ interface PendingInteractionDao {
 
     @Query("SELECT * FROM pending_interactions WHERE userId = :userId AND correlationId = :correlationId")
     suspend fun getPendingByUserIdAndCorrelationId(userId: String, correlationId: String): PendingInteractionEntity?
+
+    /**
+     * Atomically replaces any existing pending interaction for the given user, artifact, and interaction type.
+     * Guarantees that delete-then-insert occurs within a single Room transaction.
+     */
+    @Transaction
+    suspend fun replacePendingInteraction(interaction: PendingInteractionEntity) {
+        deleteByType(interaction.artifactId, interaction.userId, interaction.interactionType)
+        insert(interaction)
+    }
 }

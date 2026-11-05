@@ -232,7 +232,20 @@ class GetPlayerContextUseCase @Inject constructor(
             }
         }
 
-        val followSyncStatusFlow = pendingInteractionsFlow.map { pending ->
+        val pendingFollowInteractionsFlow = userIdentityFlow.flatMapLatest { identity ->
+            val currentUid = identity.uid
+            val currentAnonId = identity.anonymousId
+            val isOwner = (artifact.userId.isNotEmpty() && currentUid != null && artifact.userId == currentUid) ||
+                    (artifact.author.anonymousId.isNotEmpty() && currentAnonId != null && artifact.author.anonymousId == currentAnonId)
+            val targetPersonaId = artifact.author.anonymousId
+            if (currentUid != null && targetPersonaId.isNotEmpty() && !isOwner) {
+                pendingInteractionDao.get().observePendingForArtifact(targetPersonaId, currentUid)
+            } else {
+                flowOf(emptyList())
+            }
+        }
+
+        val followSyncStatusFlow = pendingFollowInteractionsFlow.map { pending ->
             if (pending.any { it.interactionType == InteractionType.FOLLOW }) InteractionSyncStatus.PENDING else InteractionSyncStatus.SYNCED
         }
 
