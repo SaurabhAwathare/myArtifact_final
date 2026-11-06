@@ -264,6 +264,21 @@ object DatabaseMigrations {
             )
         }
     }
+
+    /**
+     * Migration 78 -> 79: Add OCC expectedBaseGeneration persistence to pending_interactions.
+     * Adds 'expectedBaseGeneration' (INTEGER NOT NULL DEFAULT 0) column to 'pending_interactions' table
+     * for SMGA optimistic concurrency control tracking.
+     * Invalidates legacy pending FOLLOW interactions that lack an authoritative generation to prevent
+     * legacy un-fenced operations from submitting fabricated OCC generations.
+     * All non-relationship pending interactions and unrelated tables are preserved.
+     */
+    val MIGRATION_78_79 = object : Migration(78, 79) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE pending_interactions ADD COLUMN expectedBaseGeneration INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("DELETE FROM pending_interactions WHERE interactionType = 'FOLLOW'")
+        }
+    }
     
     val ALL_MIGRATIONS = arrayOf<Migration>(
         MIGRATION_60_61,
@@ -276,6 +291,7 @@ object DatabaseMigrations {
         MIGRATION_74_75,
         MIGRATION_75_76,
         MIGRATION_76_77,
-        MIGRATION_77_78
+        MIGRATION_77_78,
+        MIGRATION_78_79
     )
 }

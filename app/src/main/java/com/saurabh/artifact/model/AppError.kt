@@ -69,6 +69,12 @@ sealed class AppError : Exception() {
         override val recoveryPath: RecoveryPath? = null,
     ) : AppError()
 
+    data class DataCorruption(
+        val details: String = "Corrupted data detected",
+        override val technicalMessage: String = "Data corruption: $details",
+        override val recoveryPath: RecoveryPath? = RecoveryPath.Support,
+    ) : AppError()
+
     data class ReauthenticationRequired(
         override val technicalMessage: String = "Recent login required for this operation",
         override val recoveryPath: RecoveryPath? = RecoveryPath.Reauthenticate,
@@ -77,6 +83,11 @@ sealed class AppError : Exception() {
     data class OwnershipMismatch(
         override val technicalMessage: String = "Ownership verification failed: This draft belongs to another account",
         override val recoveryPath: RecoveryPath? = null,
+    ) : AppError()
+
+    data class StaleBaseGeneration(
+        override val technicalMessage: String = "Operation rejected due to stale base generation",
+        override val recoveryPath: RecoveryPath? = RecoveryPath.Support,
     ) : AppError()
 
     companion object {
@@ -95,11 +106,23 @@ sealed class AppError : Exception() {
                         PermissionDenied(technicalMessage = msg)
                     }
                     com.google.firebase.firestore.FirebaseFirestoreException.Code.UNAVAILABLE -> NetworkFailure()
-                    else -> Unknown(e)
+                    else -> {
+                        if (e.message?.contains("REJECTED_STALE_BASE_GENERATION") == true || e.message?.contains("STALE_BASE_GENERATION") == true) {
+                            StaleBaseGeneration(technicalMessage = e.message ?: "Stale base generation")
+                        } else {
+                            Unknown(e)
+                        }
+                    }
                 }
             }
             is AppError -> e
-            else -> Unknown(e)
+            else -> {
+                if (e.message?.contains("REJECTED_STALE_BASE_GENERATION") == true || e.message?.contains("STALE_BASE_GENERATION") == true) {
+                    StaleBaseGeneration(technicalMessage = e.message ?: "Stale base generation")
+                } else {
+                    Unknown(e)
+                }
+            }
         }
     }
 }

@@ -399,11 +399,11 @@ class DatabaseMigrationTest {
     }
 
     /**
-     * Verifies the full migration chain from baseline Version 60 to Version 78.
+     * Verifies the full migration chain from baseline Version 60 to Version 79.
      */
     @Test
     @Throws(IOException::class)
-    fun migrateAll_60_to_78() {
+    fun migrateAll_60_to_79() {
         helper.createDatabase(TEST_DB, 60).apply {
             execSQL(
                 """
@@ -429,7 +429,7 @@ class DatabaseMigrationTest {
             close()
         }
 
-        val db = helper.runMigrationsAndValidate(TEST_DB, 78, true, *DatabaseMigrations.ALL_MIGRATIONS)
+        val db = helper.runMigrationsAndValidate(TEST_DB, 79, true, *DatabaseMigrations.ALL_MIGRATIONS)
 
         val draftCursor = db.query("SELECT * FROM artifact_drafts WHERE id = 'draft_60'")
         assert(draftCursor.moveToFirst())
@@ -528,5 +528,106 @@ class DatabaseMigrationTest {
         assertEquals("user_A", cursor.getString(cursor.getColumnIndexOrThrow("userId")))
         assertEquals("REACTION", cursor.getString(cursor.getColumnIndexOrThrow("interactionType")))
         cursor.close()
+    }
+
+    /**
+     * Verifies isolated migration from 78 to 79.
+     * Validates addition of expectedBaseGeneration column, invalidation of legacy FOLLOW/UNFOLLOW records
+     * without a recoverable generation, and full preservation of unrelated pending interactions and draft data.
+     */
+    @Test
+    @Throws(IOException::class)
+    fun migrate78To79_isolated() {
+        helper.createDatabase(TEST_DB, 78).apply {
+            // 1. Existing non-FOLLOW pending interaction
+            execSQL(
+                """
+                INSERT INTO pending_interactions (
+                    id, userId, artifactId, interactionType, action, metadata, createdAt, correlationId, workerId, retryCount, lastError
+                ) VALUES (
+                    30, 'user_A', 'art_1', 'REACTION', 'ADD', 'love', 1000, 'corr_78_react', NULL, 0, NULL
+                )
+                """.trimIndent()
+            )
+            // 2. Existing pending FOLLOW (ADD)
+            execSQL(
+                """
+                INSERT INTO pending_interactions (
+                    id, userId, artifactId, interactionType, action, metadata, createdAt, correlationId, workerId, retryCount, lastError
+                ) VALUES (
+                    31, 'user_A', 'target_user_B', 'FOLLOW', 'ADD', 'user_A', 1005, 'corr_78_follow_add', NULL, 0, NULL
+                )
+                """.trimIndent()
+            )
+            // 3. Existing pending FOLLOW (REMOVE)
+            execSQL(
+                """
+                INSERT INTO pending_interactions (
+                    id, userId, artifactId, interactionType, action, metadata, createdAt, correlationId, workerId, retryCount, lastError
+                ) VALUES (
+                    32, 'user_A', 'target_user_C', 'FOLLOW', 'REMOVE', 'user_A', 1010, 'corr_78_follow_remove', NULL, 0, NULL
+                )
+                """.trimIndent()
+            )
+            // 4. Unrelated draft table data
+            execSQL(
+                """
+                INSERT INTO artifact_drafts (
+                    id, userId, localAudioPath, isPublic, isListened, tags, 
+                    durationMs, createdAt, updatedAt, status, lifecycle, 
+                    uploadedBytes, totalBytes, uploadAttemptCount, isEncrypted, 
+                    reviewProgress, transcriptionState, lastCheckpointTimestamp, 
+                    durableBytes, isCorrupted, version, mimeType, amplitudeData,
+                    reviewCompleted, titleCompleted, emotionCompleted, approvalCompleted,
+                    lastRecoveryAttemptAt, isDismissed, cleanupRetryCount
+                ) VALUES (
+                    'draft_78', 'user_A', '/path/78', 1, 0, '[]', 
+                    0, 1000, 1000, 'LocalOnly', 'RECORDING', 
+                    0, 0, 0, 0, 
+                    0.0, 'IDLE', 1000, 
+                    0, 0, 1, 'audio/wav', '[]',
+                    0, 0, 0, 0,
+                    0, 0, 0
+                )
+                """.trimIndent()
+            )
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 79, true, DatabaseMigrations.MIGRATION_78_79)
+
+        // 1. Verify non-FOLLOW pending interaction is preserved with default expectedBaseGeneration = 0
+        val reactCursor = db.query("SELECT * FROM pending_interactions WHERE id = 30")
+        assert(reactCursor.moveToFirst())
+        assertEquals("user_A", reactCursor.getString(reactCursor.getColumnIndexOrThrow("userId")))
+        assertEquals("REACTION", reactCursor.getString(reactCursor.getColumnIndexOrThrow("interactionType")))
+        assertEquals(0L, reactCursor.getLong(reactCursor.getColumnIndexOrThrow("expectedBaseGeneration")))
+        reactCursor.close()
+
+        // 2. Verify legacy FOLLOW records (id 31, 32) without recoverable generation are invalidated/deleted
+        val followCursor = db.query("SELECT * FROM pending_interactions WHERE interactionType = 'FOLLOW'")
+        assert(!followCursor.moveToFirst()) { "Legacy pending FOLLOW records must be invalidated during migration 78->79" }
+        followCursor.close()
+
+        // 3. Verify unrelated artifact draft data remains intact
+        val draftCursor = db.query("SELECT * FROM artifact_drafts WHERE id = 'draft_78'")
+        assert(draftCursor.moveToFirst())
+        assertEquals("user_A", draftCursor.getString(draftCursor.getColumnIndexOrThrow("userId")))
+        draftCursor.close()
+
+        // 4. Verify insertion of new relationship operation with non-zero expectedBaseGeneration
+        db.execSQL(
+            """
+            INSERT INTO pending_interactions (
+                userId, artifactId, interactionType, action, metadata, expectedBaseGeneration, createdAt, correlationId, workerId, retryCount, lastError
+            ) VALUES (
+                'user_A', 'target_user_D', 'FOLLOW', 'ADD', 'user_A', 42, 2000, 'corr_79_new_follow', NULL, 0, NULL
+            )
+            """.trimIndent()
+        )
+        val newFollowCursor = db.query("SELECT * FROM pending_interactions WHERE correlationId = 'corr_79_new_follow'")
+        assert(newFollowCursor.moveToFirst())
+        assertEquals(42L, newFollowCursor.getLong(newFollowCursor.getColumnIndexOrThrow("expectedBaseGeneration")))
+        newFollowCursor.close()
     }
 }

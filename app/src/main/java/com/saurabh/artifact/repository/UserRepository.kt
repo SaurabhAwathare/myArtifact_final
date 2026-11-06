@@ -1013,10 +1013,82 @@ open class UserRepository @Inject constructor(
     }.catch { emit(null) }
 
     /**
+     * Fetches the authoritative relationship generation from the server canonical master document
+     * at `users/{actorUid}/relationships/{targetAnonId}`.
+     *
+     * Returns:
+     * - Success(generation) if the relationship document exists and has a valid non-negative integer generation.
+     * - Success(0L) if the relationship document does NOT exist (Case A initial generation).
+     * - Failure(DataCorruption) if the document exists but generation is missing, invalid type, negative, or unsupported numeric representation.
+     * - Failure(exception) if the server cannot be reached, network is unavailable, or auth fails.
+     */
+    suspend fun fetchAuthoritativeRelationshipGeneration(
+        actorUid: String,
+        targetAnonId: String
+    ): Result<Long> = withContext(Dispatchers.IO) {
+        val aId = actorUid.trim()
+        val tId = targetAnonId.trim()
+        if (aId.isBlank() || tId.isBlank()) {
+            return@withContext Result.failure(AppError.InvalidInput("User IDs cannot be blank"))
+        }
+        if (aId == tId) {
+            return@withContext Result.failure(AppError.InvalidInput("Cannot resonate with yourself"))
+        }
+
+        try {
+            val relDocRef = usersCollection.document(aId)
+                .collection("relationships")
+                .document(tId)
+            val snapshot = relDocRef.get(Source.SERVER).await()
+            if (!snapshot.exists()) {
+                Result.success(0L)
+            } else if (!snapshot.contains("generation") || snapshot.get("generation") == null) {
+                Result.failure(AppError.DataCorruption("Relationship document exists but generation field is missing"))
+            } else {
+                val rawVal = snapshot.get("generation")
+                when (rawVal) {
+                    is Number -> {
+                        val doubleVal = rawVal.toDouble()
+                        val longVal = rawVal.toLong()
+                        if (doubleVal != longVal.toDouble()) {
+                            Result.failure(
+                                AppError.DataCorruption("Relationship generation has unsupported numeric representation: $rawVal")
+                            )
+                        } else if (longVal < 0L) {
+                            Result.failure(
+                                AppError.DataCorruption("Relationship generation cannot be negative: $longVal")
+                            )
+                        } else {
+                            Result.success(longVal)
+                        }
+                    }
+                    else -> {
+                        Result.failure(
+                            AppError.DataCorruption("Relationship generation has invalid type: ${rawVal?.javaClass?.simpleName ?: "null"}")
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            diagnosticLogger.error(
+                DiagnosticCategory.RESONANCE,
+                "FETCH_RELATIONSHIP_GENERATION_FAILED",
+                mapOf("actorUid" to aId, "targetAnonId" to tId),
+                e
+            )
+            Result.failure(e)
+        }
+    }
+
+    /**
      * Establishes a resonance relationship between two presences atomically.
      * PUBLIC API: Used by ViewModels. Enqueues interaction if unified queue is enabled.
      */
-    suspend fun resonateWithUser(currentUserId: String, targetUserId: String): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun resonateWithUser(
+        currentUserId: String,
+        targetUserId: String,
+        expectedBaseGeneration: Long
+    ): Result<Unit> = withContext(Dispatchers.IO) {
         val cId = currentUserId.trim()
         val tId = targetUserId.trim()
         if (cId.isBlank() || tId.isBlank()) {
@@ -1030,12 +1102,13 @@ open class UserRepository @Inject constructor(
                 artifactId = tId, // Using artifactId field for targetUserId
                 interactionType = InteractionType.FOLLOW,
                 action = InteractionAction.ADD,
-                metadata = cId
+                metadata = cId,
+                expectedBaseGeneration = expectedBaseGeneration
             )
             pendingInteractionDao.get().replacePendingInteraction(pending)
             InteractionSyncWorker.enqueue(context)
             
-            diagnosticLogger.info(DiagnosticCategory.RESONANCE, "FOLLOW_QUEUED", mapOf("targetUserId" to tId))
+            diagnosticLogger.info(DiagnosticCategory.RESONANCE, "FOLLOW_QUEUED", mapOf("targetUserId" to tId, "expectedBaseGeneration" to expectedBaseGeneration))
             Result.success(Unit)
         } catch (e: Exception) {
             diagnosticLogger.error(DiagnosticCategory.RESONANCE, "FOLLOW_QUEUE_FAILED", mapOf("targetUserId" to tId), e)
@@ -1047,7 +1120,11 @@ open class UserRepository @Inject constructor(
      * Removes a resonance relationship between two presences atomically.
      * PUBLIC API: Used by ViewModels. Enqueues interaction if unified queue is enabled.
      */
-    suspend fun stopResonatingWithUser(currentUserId: String, targetUserId: String): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun stopResonatingWithUser(
+        currentUserId: String,
+        targetUserId: String,
+        expectedBaseGeneration: Long
+    ): Result<Unit> = withContext(Dispatchers.IO) {
         val cId = currentUserId.trim()
         val tId = targetUserId.trim()
         if (cId.isBlank() || tId.isBlank()) {
@@ -1065,12 +1142,13 @@ open class UserRepository @Inject constructor(
                 artifactId = tId,
                 interactionType = InteractionType.FOLLOW,
                 action = InteractionAction.REMOVE,
-                metadata = cId
+                metadata = cId,
+                expectedBaseGeneration = expectedBaseGeneration
             )
             pendingInteractionDao.get().replacePendingInteraction(pending)
             InteractionSyncWorker.enqueue(context)
             
-            diagnosticLogger.info(DiagnosticCategory.RESONANCE, "UNFOLLOW_QUEUED", mapOf("targetUserId" to tId))
+            diagnosticLogger.info(DiagnosticCategory.RESONANCE, "UNFOLLOW_QUEUED", mapOf("targetUserId" to tId, "expectedBaseGeneration" to expectedBaseGeneration))
             Result.success(Unit)
         } catch (e: Exception) {
             diagnosticLogger.error(DiagnosticCategory.RESONANCE, "UNFOLLOW_QUEUE_FAILED", mapOf("targetUserId" to tId), e)

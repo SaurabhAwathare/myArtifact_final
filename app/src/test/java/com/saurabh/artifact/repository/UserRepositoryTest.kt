@@ -17,6 +17,7 @@ import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.domain.IdentityProtectionPolicy
 import com.saurabh.artifact.domain.auth.RegistrationCoordinator
 import com.saurabh.artifact.domain.auth.RegistrationResult
+import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.model.SigilConfig
@@ -327,16 +328,16 @@ class UserRepositoryTest {
 
     @Test
     fun `resonateWithUser fails when currentUserId or targetUserId is blank`() = runBlocking {
-        val res1 = repository.resonateWithUser("", "target123")
+        val res1 = repository.resonateWithUser("", "target123", expectedBaseGeneration = 0L)
         assertTrue(res1.isFailure)
 
-        val res2 = repository.resonateWithUser("user123", "   ")
+        val res2 = repository.resonateWithUser("user123", "   ", expectedBaseGeneration = 0L)
         assertTrue(res2.isFailure)
     }
 
     @Test
     fun `resonateWithUser fails when currentUserId equals targetUserId`() = runBlocking {
-        val res = repository.resonateWithUser("user123", "user123")
+        val res = repository.resonateWithUser("user123", "user123", expectedBaseGeneration = 0L)
         assertTrue(res.isFailure)
         assertEquals("Cannot resonate with yourself", res.exceptionOrNull()?.message)
     }
@@ -347,29 +348,28 @@ class UserRepositoryTest {
         every { InteractionSyncWorker.enqueue(any()) } just Runs
 
         val capturedPending = slot<PendingInteractionEntity>()
-        coEvery { pendingInteractionDao.deleteByType("target123", "user123", InteractionType.FOLLOW) } just Runs
-        coEvery { pendingInteractionDao.insert(capture(capturedPending)) } just Runs
+        coEvery { pendingInteractionDao.replacePendingInteraction(capture(capturedPending)) } just Runs
 
-        val result = repository.resonateWithUser("  user123  ", "  target123  ")
+        val result = repository.resonateWithUser("  user123  ", "  target123  ", expectedBaseGeneration = 5L)
 
         assertTrue(result.isSuccess)
-        coVerify(exactly = 1) { pendingInteractionDao.deleteByType("target123", "user123", InteractionType.FOLLOW) }
-        coVerify(exactly = 1) { pendingInteractionDao.insert(any()) }
+        coVerify(exactly = 1) { pendingInteractionDao.replacePendingInteraction(any()) }
         verify(exactly = 1) { InteractionSyncWorker.enqueue(context) }
 
         assertEquals("user123", capturedPending.captured.userId)
         assertEquals("target123", capturedPending.captured.artifactId)
         assertEquals(InteractionType.FOLLOW, capturedPending.captured.interactionType)
         assertEquals(InteractionAction.ADD, capturedPending.captured.action)
+        assertEquals(5L, capturedPending.captured.expectedBaseGeneration)
 
         unmockkObject(InteractionSyncWorker.Companion)
     }
 
     @Test
     fun `resonateWithUser returns failure when DAO operation throws exception`() = runBlocking {
-        coEvery { pendingInteractionDao.deleteByType(any(), any(), any()) } throws RuntimeException("DB error")
+        coEvery { pendingInteractionDao.replacePendingInteraction(any()) } throws RuntimeException("DB error")
 
-        val result = repository.resonateWithUser("user123", "target123")
+        val result = repository.resonateWithUser("user123", "target123", expectedBaseGeneration = 0L)
 
         assertTrue(result.isFailure)
         assertEquals("DB error", result.exceptionOrNull()?.message)
@@ -377,16 +377,16 @@ class UserRepositoryTest {
 
     @Test
     fun `stopResonatingWithUser fails when currentUserId or targetUserId is blank`() = runBlocking {
-        val res1 = repository.stopResonatingWithUser("", "target123")
+        val res1 = repository.stopResonatingWithUser("", "target123", expectedBaseGeneration = 0L)
         assertTrue(res1.isFailure)
 
-        val res2 = repository.stopResonatingWithUser("user123", "   ")
+        val res2 = repository.stopResonatingWithUser("user123", "   ", expectedBaseGeneration = 0L)
         assertTrue(res2.isFailure)
     }
 
     @Test
     fun `stopResonatingWithUser fails when currentUserId equals targetUserId`() = runBlocking {
-        val res = repository.stopResonatingWithUser("user123", "user123")
+        val res = repository.stopResonatingWithUser("user123", "user123", expectedBaseGeneration = 0L)
         assertTrue(res.isFailure)
         assertEquals("Cannot resonate with yourself", res.exceptionOrNull()?.message)
     }
@@ -397,20 +397,19 @@ class UserRepositoryTest {
         every { InteractionSyncWorker.enqueue(any()) } just Runs
 
         val capturedPending = slot<PendingInteractionEntity>()
-        coEvery { pendingInteractionDao.deleteByType("target123", "user123", InteractionType.FOLLOW) } just Runs
-        coEvery { pendingInteractionDao.insert(capture(capturedPending)) } just Runs
+        coEvery { pendingInteractionDao.replacePendingInteraction(capture(capturedPending)) } just Runs
 
-        val result = repository.stopResonatingWithUser("user123", "target123")
+        val result = repository.stopResonatingWithUser("user123", "target123", expectedBaseGeneration = 7L)
 
         assertTrue(result.isSuccess)
-        coVerify(exactly = 1) { pendingInteractionDao.deleteByType("target123", "user123", InteractionType.FOLLOW) }
-        coVerify(exactly = 1) { pendingInteractionDao.insert(any()) }
+        coVerify(exactly = 1) { pendingInteractionDao.replacePendingInteraction(any()) }
         verify(exactly = 1) { InteractionSyncWorker.enqueue(context) }
 
         assertEquals("user123", capturedPending.captured.userId)
         assertEquals("target123", capturedPending.captured.artifactId)
         assertEquals(InteractionType.FOLLOW, capturedPending.captured.interactionType)
         assertEquals(InteractionAction.REMOVE, capturedPending.captured.action)
+        assertEquals(7L, capturedPending.captured.expectedBaseGeneration)
 
         unmockkObject(InteractionSyncWorker.Companion)
     }
@@ -1430,6 +1429,209 @@ class UserRepositoryTest {
 
         assertTrue(result.isSuccess)
         verify { mockQuery.startAfter(cursorDoc) }
+    }
+
+    @Test
+    fun `fetchAuthoritativeRelationshipGeneration returns 0L when relationship document does not exist`() = runBlocking {
+        val actorUid = "actor_1"
+        val targetAnonId = "target_1"
+        val userDoc = mockk<DocumentReference>(relaxed = true)
+        val relColl = mockk<CollectionReference>(relaxed = true)
+        val relDoc = mockk<DocumentReference>(relaxed = true)
+        val snapshot = mockk<DocumentSnapshot>()
+        val getTask = mockk<Task<DocumentSnapshot>>(relaxed = true)
+
+        every { mockColl.document(actorUid) } returns userDoc
+        every { userDoc.collection("relationships") } returns relColl
+        every { relColl.document(targetAnonId) } returns relDoc
+        every { relDoc.get(Source.SERVER) } returns getTask
+        coEvery { getTask.await() } returns snapshot
+        every { snapshot.exists() } returns false
+
+        val result = repository.fetchAuthoritativeRelationshipGeneration(actorUid, targetAnonId)
+
+        assertTrue(result.isSuccess)
+        assertEquals(0L, result.getOrThrow())
+    }
+
+    @Test
+    fun `fetchAuthoritativeRelationshipGeneration returns 0L when existing document has generation zero`() = runBlocking {
+        val actorUid = "actor_1"
+        val targetAnonId = "target_1"
+        val userDoc = mockk<DocumentReference>(relaxed = true)
+        val relColl = mockk<CollectionReference>(relaxed = true)
+        val relDoc = mockk<DocumentReference>(relaxed = true)
+        val snapshot = mockk<DocumentSnapshot>()
+        val getTask = mockk<Task<DocumentSnapshot>>(relaxed = true)
+
+        every { mockColl.document(actorUid) } returns userDoc
+        every { userDoc.collection("relationships") } returns relColl
+        every { relColl.document(targetAnonId) } returns relDoc
+        every { relDoc.get(Source.SERVER) } returns getTask
+        coEvery { getTask.await() } returns snapshot
+        every { snapshot.exists() } returns true
+        every { snapshot.contains("generation") } returns true
+        every { snapshot.get("generation") } returns 0L
+
+        val result = repository.fetchAuthoritativeRelationshipGeneration(actorUid, targetAnonId)
+
+        assertTrue(result.isSuccess)
+        assertEquals(0L, result.getOrThrow())
+    }
+
+    @Test
+    fun `fetchAuthoritativeRelationshipGeneration returns 5L when existing document has generation 5`() = runBlocking {
+        val actorUid = "actor_1"
+        val targetAnonId = "target_1"
+        val userDoc = mockk<DocumentReference>(relaxed = true)
+        val relColl = mockk<CollectionReference>(relaxed = true)
+        val relDoc = mockk<DocumentReference>(relaxed = true)
+        val snapshot = mockk<DocumentSnapshot>()
+        val getTask = mockk<Task<DocumentSnapshot>>(relaxed = true)
+
+        every { mockColl.document(actorUid) } returns userDoc
+        every { userDoc.collection("relationships") } returns relColl
+        every { relColl.document(targetAnonId) } returns relDoc
+        every { relDoc.get(Source.SERVER) } returns getTask
+        coEvery { getTask.await() } returns snapshot
+        every { snapshot.exists() } returns true
+        every { snapshot.contains("generation") } returns true
+        every { snapshot.get("generation") } returns 5L
+
+        val result = repository.fetchAuthoritativeRelationshipGeneration(actorUid, targetAnonId)
+
+        assertTrue(result.isSuccess)
+        assertEquals(5L, result.getOrThrow())
+    }
+
+    @Test
+    fun `fetchAuthoritativeRelationshipGeneration returns DataCorruption when existing document missing generation field`() = runBlocking {
+        val actorUid = "actor_1"
+        val targetAnonId = "target_1"
+        val userDoc = mockk<DocumentReference>(relaxed = true)
+        val relColl = mockk<CollectionReference>(relaxed = true)
+        val relDoc = mockk<DocumentReference>(relaxed = true)
+        val snapshot = mockk<DocumentSnapshot>()
+        val getTask = mockk<Task<DocumentSnapshot>>(relaxed = true)
+
+        every { mockColl.document(actorUid) } returns userDoc
+        every { userDoc.collection("relationships") } returns relColl
+        every { relColl.document(targetAnonId) } returns relDoc
+        every { relDoc.get(Source.SERVER) } returns getTask
+        coEvery { getTask.await() } returns snapshot
+        every { snapshot.exists() } returns true
+        every { snapshot.contains("generation") } returns false
+        every { snapshot.get("generation") } returns null
+
+        val result = repository.fetchAuthoritativeRelationshipGeneration(actorUid, targetAnonId)
+
+        assertTrue(result.isFailure)
+        val exc = result.exceptionOrNull()
+        assertTrue("Error must be AppError.DataCorruption", exc is AppError.DataCorruption)
+        assertTrue(exc?.message?.contains("generation field is missing") == true)
+    }
+
+    @Test
+    fun `fetchAuthoritativeRelationshipGeneration returns DataCorruption when existing document has string generation`() = runBlocking {
+        val actorUid = "actor_1"
+        val targetAnonId = "target_1"
+        val userDoc = mockk<DocumentReference>(relaxed = true)
+        val relColl = mockk<CollectionReference>(relaxed = true)
+        val relDoc = mockk<DocumentReference>(relaxed = true)
+        val snapshot = mockk<DocumentSnapshot>()
+        val getTask = mockk<Task<DocumentSnapshot>>(relaxed = true)
+
+        every { mockColl.document(actorUid) } returns userDoc
+        every { userDoc.collection("relationships") } returns relColl
+        every { relColl.document(targetAnonId) } returns relDoc
+        every { relDoc.get(Source.SERVER) } returns getTask
+        coEvery { getTask.await() } returns snapshot
+        every { snapshot.exists() } returns true
+        every { snapshot.contains("generation") } returns true
+        every { snapshot.get("generation") } returns "five"
+
+        val result = repository.fetchAuthoritativeRelationshipGeneration(actorUid, targetAnonId)
+
+        assertTrue(result.isFailure)
+        val exc = result.exceptionOrNull()
+        assertTrue("Error must be AppError.DataCorruption", exc is AppError.DataCorruption)
+        assertTrue(exc?.message?.contains("invalid type") == true)
+    }
+
+    @Test
+    fun `fetchAuthoritativeRelationshipGeneration returns DataCorruption when existing document has double generation 5_5`() = runBlocking {
+        val actorUid = "actor_1"
+        val targetAnonId = "target_1"
+        val userDoc = mockk<DocumentReference>(relaxed = true)
+        val relColl = mockk<CollectionReference>(relaxed = true)
+        val relDoc = mockk<DocumentReference>(relaxed = true)
+        val snapshot = mockk<DocumentSnapshot>()
+        val getTask = mockk<Task<DocumentSnapshot>>(relaxed = true)
+
+        every { mockColl.document(actorUid) } returns userDoc
+        every { userDoc.collection("relationships") } returns relColl
+        every { relColl.document(targetAnonId) } returns relDoc
+        every { relDoc.get(Source.SERVER) } returns getTask
+        coEvery { getTask.await() } returns snapshot
+        every { snapshot.exists() } returns true
+        every { snapshot.contains("generation") } returns true
+        every { snapshot.get("generation") } returns 5.5
+
+        val result = repository.fetchAuthoritativeRelationshipGeneration(actorUid, targetAnonId)
+
+        assertTrue(result.isFailure)
+        val exc = result.exceptionOrNull()
+        assertTrue("Error must be AppError.DataCorruption", exc is AppError.DataCorruption)
+        assertTrue(exc?.message?.contains("unsupported numeric representation") == true)
+    }
+
+    @Test
+    fun `fetchAuthoritativeRelationshipGeneration returns DataCorruption when existing document has negative generation`() = runBlocking {
+        val actorUid = "actor_1"
+        val targetAnonId = "target_1"
+        val userDoc = mockk<DocumentReference>(relaxed = true)
+        val relColl = mockk<CollectionReference>(relaxed = true)
+        val relDoc = mockk<DocumentReference>(relaxed = true)
+        val snapshot = mockk<DocumentSnapshot>()
+        val getTask = mockk<Task<DocumentSnapshot>>(relaxed = true)
+
+        every { mockColl.document(actorUid) } returns userDoc
+        every { userDoc.collection("relationships") } returns relColl
+        every { relColl.document(targetAnonId) } returns relDoc
+        every { relDoc.get(Source.SERVER) } returns getTask
+        coEvery { getTask.await() } returns snapshot
+        every { snapshot.exists() } returns true
+        every { snapshot.contains("generation") } returns true
+        every { snapshot.get("generation") } returns -1L
+
+        val result = repository.fetchAuthoritativeRelationshipGeneration(actorUid, targetAnonId)
+
+        assertTrue(result.isFailure)
+        val exc = result.exceptionOrNull()
+        assertTrue("Error must be AppError.DataCorruption", exc is AppError.DataCorruption)
+        assertTrue(exc?.message?.contains("cannot be negative") == true)
+    }
+
+    @Test
+    fun `fetchAuthoritativeRelationshipGeneration returns original failure when Firestore server read fails`() = runBlocking {
+        val actorUid = "actor_1"
+        val targetAnonId = "target_1"
+        val userDoc = mockk<DocumentReference>(relaxed = true)
+        val relColl = mockk<CollectionReference>(relaxed = true)
+        val relDoc = mockk<DocumentReference>(relaxed = true)
+        val getTask = mockk<Task<DocumentSnapshot>>(relaxed = true)
+        val firestoreError = FirebaseFirestoreException("Unavailable", FirebaseFirestoreException.Code.UNAVAILABLE)
+
+        every { mockColl.document(actorUid) } returns userDoc
+        every { userDoc.collection("relationships") } returns relColl
+        every { relColl.document(targetAnonId) } returns relDoc
+        every { relDoc.get(Source.SERVER) } returns getTask
+        coEvery { getTask.await() } throws firestoreError
+
+        val result = repository.fetchAuthoritativeRelationshipGeneration(actorUid, targetAnonId)
+
+        assertTrue(result.isFailure)
+        assertEquals(firestoreError, result.exceptionOrNull())
     }
 }
 

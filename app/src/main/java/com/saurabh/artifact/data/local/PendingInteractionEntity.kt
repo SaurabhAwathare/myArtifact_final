@@ -18,6 +18,7 @@ data class PendingInteractionEntity(
     val interactionType: String, // "REACTION", "SAVE", "FOLLOW"
     val action: String, // "ADD", "REMOVE"
     val metadata: String? = null, // e.g., the ReactionType ID or targetUserId
+    val expectedBaseGeneration: Long = 0L,
     val createdAt: Long = System.currentTimeMillis(),
     val correlationId: String = java.util.UUID.randomUUID().toString(),
     val workerId: String? = null,

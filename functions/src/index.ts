@@ -410,6 +410,307 @@ export const onReactionDeleted = functions.firestore
  * Performs read-before-write transaction checks, transactional rate limiting (checkRateLimitTx),
  * asymmetric relationship marker recovery, aggregate counter updates, and intent status transitions.
  */
+export interface ProcessFollowRequest {
+  targetAnonId: string;
+  operationId: string;
+  intentCreatedAtMs: number;
+  expectedBaseGeneration: number;
+}
+
+export interface ProcessFollowResult {
+  status:
+    | "SUCCESS"
+    | "DUPLICATE_SUCCESS"
+    | "ACCEPTED_ALREADY_ACTIVE"
+    | "REJECTED_STALE_BASE_GENERATION"
+    | "INVALID_BASE_GENERATION"
+    | "INVALID_INPUT"
+    | "REJECTED_EXPIRED_INTENT"
+    | "REJECTED_USER_MISSING"
+    | "REJECTED_SELF_ACTION"
+    | "REJECTED_IGNORED"
+    | "RATE_LIMITED"
+    | "TRANSIENT_INFRASTRUCTURE_FAILURE"
+    | "OPERATION_ID_PAYLOAD_MISMATCH";
+  generation: number;
+}
+
+/**
+ * Authoritative SMGA Follow Transaction Implementation.
+ * Enforces strict OCC validation, durable operation idempotency, atomic relationship state & projection updates,
+ * actor/target counter & sequence advancements, and notification outbox creation.
+ */
+export async function processFollowTx(
+  actorUid: string,
+  targetAnonId: string,
+  operationId: string,
+  intentCreatedAtMs: number,
+  expectedBaseGeneration: number = 0,
+  nowMs: number = Date.now()
+): Promise<ProcessFollowResult> {
+  // 1. Input Validation
+  if (!actorUid || typeof actorUid !== "string" || actorUid.trim() === "") {
+    return { status: "INVALID_INPUT", generation: 0 };
+  }
+  if (!targetAnonId || typeof targetAnonId !== "string" || targetAnonId.trim() === "") {
+    return { status: "INVALID_INPUT", generation: 0 };
+  }
+  if (!operationId || typeof operationId !== "string" || operationId.trim() === "") {
+    return { status: "INVALID_INPUT", generation: 0 };
+  }
+  if (typeof intentCreatedAtMs !== "number" || isNaN(intentCreatedAtMs) || intentCreatedAtMs <= 0) {
+    return { status: "INVALID_INPUT", generation: 0 };
+  }
+  if (typeof expectedBaseGeneration !== "number" || isNaN(expectedBaseGeneration) || expectedBaseGeneration < 0) {
+    return { status: "INVALID_INPUT", generation: 0 };
+  }
+
+  // Two-Sided Timestamp Sanity Bounds Check
+  if (intentCreatedAtMs > nowMs + 5 * 60 * 1000) {
+    return { status: "INVALID_INPUT", generation: 0 };
+  }
+  if (nowMs - intentCreatedAtMs > 90 * 24 * 60 * 60 * 1000) {
+    return { status: "REJECTED_EXPIRED_INTENT", generation: 0 };
+  }
+
+  const db = admin.firestore();
+
+  // 2. Pre-Transaction Resolution
+  let targetUid: string | null = null;
+  const mappingDoc = await db.collection("persona_mapping").doc(targetAnonId).get();
+  if (mappingDoc.exists) {
+    targetUid = mappingDoc.data()?.userId || null;
+  }
+  if (!targetUid) {
+    const userQuery = await db.collection("users").where("anonymousId", "==", targetAnonId).limit(1).get();
+    if (!userQuery.empty) {
+      targetUid = userQuery.docs[0].id;
+    }
+  }
+
+  const actorUserDocPre = await db.collection("users").doc(actorUid).get();
+  const actorAnonId: string | null = actorUserDocPre.exists ? (actorUserDocPre.data()?.anonymousId || null) : null;
+
+  // Account existence & self-follow checks
+  if (actorUid === targetUid || (actorAnonId && actorAnonId === targetAnonId)) {
+    return { status: "REJECTED_SELF_ACTION", generation: 0 };
+  }
+  if (!targetUid || !actorAnonId) {
+    return { status: "REJECTED_USER_MISSING", generation: 0 };
+  }
+
+  // Document References
+  const relMasterRef = db.collection("users").doc(actorUid).collection("relationships").doc(targetAnonId);
+  const opLedgerRef = relMasterRef.collection("operations").doc(operationId);
+  const actorUserRef = db.collection("users").doc(actorUid);
+  const targetUserRef = db.collection("users").doc(targetUid);
+  const resonanceOutRef = actorUserRef.collection("resonance_out").doc(targetAnonId);
+  const resonanceInRef = targetUserRef.collection("resonance_in").doc(actorAnonId);
+  const targetSettingsRef = targetUserRef.collection("private").doc("settings");
+  const targetIgnoreRef = targetUserRef.collection("private").doc("ignored_users").collection("users").doc(actorUid);
+
+  try {
+    return await db.runTransaction(async (transaction) => {
+      // -----------------------------------------------------------------
+      // PHASE 1: READ-BEFORE-WRITE
+      // -----------------------------------------------------------------
+      const opSnap = await transaction.get(opLedgerRef);
+      const relSnap = await transaction.get(relMasterRef);
+      const actorUserSnap = await transaction.get(actorUserRef);
+      const targetUserSnap = await transaction.get(targetUserRef);
+      const outSnap = await transaction.get(resonanceOutRef);
+      const inSnap = await transaction.get(resonanceInRef);
+      const settingsSnap = await transaction.get(targetSettingsRef);
+      const ignoreSnap = await transaction.get(targetIgnoreRef);
+
+      // -----------------------------------------------------------------
+      // PHASE 2: ACCOUNT EXISTENCE & INTEGRITY CHECK
+      // -----------------------------------------------------------------
+      if (!actorUserSnap.exists || !targetUserSnap.exists) {
+        return { status: "REJECTED_USER_MISSING", generation: 0 };
+      }
+
+      const relData = relSnap.exists ? relSnap.data() : null;
+      const currentGen: number = typeof relData?.generation === "number" ? relData.generation : 0;
+      const currentState: string = relData?.state || "INACTIVE";
+
+      // -----------------------------------------------------------------
+      // PHASE 3: DURABLE LEDGER LOOKUP (IDEMPOTENCY)
+      // -----------------------------------------------------------------
+      if (opSnap.exists) {
+        const opData = opSnap.data();
+        if (opData?.action !== "FOLLOW") {
+          return { status: "OPERATION_ID_PAYLOAD_MISMATCH", generation: currentGen };
+        }
+        return { status: "DUPLICATE_SUCCESS", generation: currentGen };
+      }
+
+      // -----------------------------------------------------------------
+      // PHASE 4: STRICT OCC GENERATION CHECK (BEFORE RATE LIMITING)
+      // -----------------------------------------------------------------
+      if (expectedBaseGeneration !== currentGen) {
+        if (expectedBaseGeneration < currentGen) {
+          return { status: "REJECTED_STALE_BASE_GENERATION", generation: currentGen };
+        } else {
+          return { status: "INVALID_BASE_GENERATION", generation: currentGen };
+        }
+      }
+
+      // -----------------------------------------------------------------
+      // PHASE 5: IGNORE & RATE LIMITING CHECK
+      // -----------------------------------------------------------------
+      if (ignoreSnap.exists) {
+        return { status: "REJECTED_IGNORED", generation: currentGen };
+      }
+
+      const rateLimitAllowed = await checkRateLimitTx(
+        transaction,
+        actorUid,
+        { maxCapacity: 20, refillRatePerMinute: 10, windowName: "follow" },
+        nowMs
+      );
+
+      if (!rateLimitAllowed.allowed) {
+        return { status: "RATE_LIMITED", generation: currentGen };
+      }
+
+      const ts = FieldValue.serverTimestamp();
+      const ttlExpireAt = new Date(nowMs + 90 * 24 * 60 * 60 * 1000);
+
+      // -----------------------------------------------------------------
+      // PHASE 6: SAME-STATE HANDLING (IDEMPOTENT REPAIR)
+      // -----------------------------------------------------------------
+      if (currentState === "ACTIVE") {
+        if (!outSnap.exists) {
+          transaction.set(resonanceOutRef, {
+            targetAnonymousId: targetAnonId,
+            status: "ACTIVE",
+            generation: currentGen,
+            operationId: operationId,
+            updatedAt: ts,
+          });
+        }
+        if (!inSnap.exists) {
+          transaction.set(resonanceInRef, {
+            followerAnonymousId: actorAnonId,
+            status: "ACTIVE",
+            generation: currentGen,
+            operationId: operationId,
+            updatedAt: ts,
+          });
+        }
+        transaction.set(opLedgerRef, {
+          operationId: operationId,
+          action: "FOLLOW",
+          status: "REPAIRED",
+          generation: currentGen,
+          expectedBaseGeneration: expectedBaseGeneration,
+          ttlExpireAt: ttlExpireAt,
+          executedAt: ts,
+        });
+        return { status: "ACCEPTED_ALREADY_ACTIVE", generation: currentGen };
+      }
+
+      // -----------------------------------------------------------------
+      // PHASE 7: ATOMIC STATE TRANSITION (INACTIVE -> ACTIVE)
+      // -----------------------------------------------------------------
+      const nextGen = currentGen + 1;
+      const notifRef = db.collection("notifications").doc(`follow_notif_${actorUid}_${targetAnonId}_gen_${nextGen}`);
+
+      // Write 1: Master Relationship Document
+      transaction.set(relMasterRef, {
+        targetAnonymousId: targetAnonId,
+        state: "ACTIVE",
+        generation: nextGen,
+        lastOperationId: operationId,
+        lastAction: "FOLLOW",
+        intentCreatedAt: intentCreatedAtMs,
+        stateUpdatedAt: ts,
+        createdAt: relSnap.exists ? (relData?.createdAt || ts) : ts,
+      });
+
+      // Write 2: Durable Operation Ledger Record (90d TTL)
+      transaction.set(opLedgerRef, {
+        operationId: operationId,
+        action: "FOLLOW",
+        status: "EXECUTED",
+        generation: nextGen,
+        expectedBaseGeneration: expectedBaseGeneration,
+        ttlExpireAt: ttlExpireAt,
+        executedAt: ts,
+      });
+
+      // Write 3 & 4: Outgoing & Incoming Projections
+      transaction.set(resonanceOutRef, {
+        targetAnonymousId: targetAnonId,
+        status: "ACTIVE",
+        generation: nextGen,
+        operationId: operationId,
+        updatedAt: ts,
+      });
+
+      transaction.set(resonanceInRef, {
+        followerAnonymousId: actorAnonId,
+        status: "ACTIVE",
+        generation: nextGen,
+        operationId: operationId,
+        updatedAt: ts,
+      });
+
+      // Write 5 & 6: Actor/Target Counters & Monotonic Mutation Sequence Increments (+1)
+      transaction.update(actorUserRef, {
+        resonanceOutCount: FieldValue.increment(1),
+        followingCount: FieldValue.increment(1),
+        relationshipMutationSeq: FieldValue.increment(1),
+      });
+
+      transaction.update(targetUserRef, {
+        resonanceInCount: FieldValue.increment(1),
+        followersCount: FieldValue.increment(1),
+        relationshipMutationSeq: FieldValue.increment(1),
+      });
+
+      // Write 7: Notification Outbox Record
+      if (settingsSnap.data()?.notificationsEnabled !== false) {
+        transaction.set(notifRef, {
+          userId: targetUid,
+          actorId: actorAnonId,
+          followerId: actorAnonId,
+          generation: nextGen,
+          message: "PRESENCE_RESONATED",
+          type: "FOLLOW",
+          createdAt: ts,
+          isRead: false,
+        });
+      }
+
+      return { status: "SUCCESS", generation: nextGen };
+    });
+  } catch (err: any) {
+    logger.error(`[PROCESS_FOLLOW_TX_ERROR] Actor=${actorUid} | Target=${targetAnonId} | Error=${err?.message || err}`);
+    return { status: "TRANSIENT_INFRASTRUCTURE_FAILURE", generation: 0 };
+  }
+}
+
+/**
+ * Callable Cloud Function: processFollow
+ * Authoritatively handles SMGA follow requests from authenticated clients.
+ */
+export const processFollow = functions.https.onCall(
+  async (data: any, context: functions.https.CallableContext): Promise<ProcessFollowResult> => {
+    if (!context.auth) {
+      throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
+    }
+    const actorUid = context.auth.uid;
+    const targetAnonId = data?.targetAnonId;
+    const operationId = data?.operationId;
+    const intentCreatedAtMs = data?.intentCreatedAtMs;
+    const expectedBaseGeneration = data?.expectedBaseGeneration ?? 0;
+
+    return await processFollowTx(actorUid, targetAnonId, operationId, intentCreatedAtMs, expectedBaseGeneration);
+  }
+);
+
 export async function processFollowIntentTx(
   uid: string,
   targetAnonId: string,

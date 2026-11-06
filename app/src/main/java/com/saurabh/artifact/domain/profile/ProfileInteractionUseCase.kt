@@ -12,11 +12,23 @@ class ProfileInteractionUseCase @Inject constructor(
     private val userRepository: UserRepository,
     private val cleanupManager: ArtifactCleanupManager
 ) {
-    suspend fun toggleResonance(currentUserId: String, targetUserId: String, wasResonating: Boolean): Result<Unit> {
-        return if (wasResonating) {
-            userRepository.stopResonatingWithUser(currentUserId, targetUserId)
+    suspend fun toggleResonance(
+        currentUserId: String,
+        targetUserId: String,
+        wasResonating: Boolean,
+        expectedBaseGeneration: Long? = null
+    ): Result<Unit> {
+        val expectedGen = if (expectedBaseGeneration != null) {
+            expectedBaseGeneration
         } else {
-            userRepository.resonateWithUser(currentUserId, targetUserId)
+            val genResult = userRepository.fetchAuthoritativeRelationshipGeneration(currentUserId, targetUserId)
+            genResult.getOrElse { return Result.failure(it) }
+        }
+
+        return if (wasResonating) {
+            userRepository.stopResonatingWithUser(currentUserId, targetUserId, expectedBaseGeneration = expectedGen)
+        } else {
+            userRepository.resonateWithUser(currentUserId, targetUserId, expectedBaseGeneration = expectedGen)
         }
     }
 
