@@ -279,7 +279,26 @@ object DatabaseMigrations {
             db.execSQL("DELETE FROM pending_interactions WHERE interactionType = 'FOLLOW'")
         }
     }
-    
+
+    /**
+     * Migration 79 -> 80: Durable Notification Presentation Deduplication.
+     * Creates 'displayed_notifications' table with primary key 'notificationId'
+     * and timestamp 'createdAt' for process-death safe FCM deduplication.
+     */
+    val MIGRATION_79_80 = object : Migration(79, 80) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `displayed_notifications` (
+                    `notificationId` TEXT NOT NULL,
+                    `createdAt` INTEGER NOT NULL,
+                    PRIMARY KEY(`notificationId`)
+                )
+                """.trimIndent()
+            )
+        }
+    }
+
     val ALL_MIGRATIONS = arrayOf<Migration>(
         MIGRATION_60_61,
         MIGRATION_61_62,
@@ -292,6 +311,7 @@ object DatabaseMigrations {
         MIGRATION_75_76,
         MIGRATION_76_77,
         MIGRATION_77_78,
-        MIGRATION_78_79
+        MIGRATION_78_79,
+        MIGRATION_79_80
     )
 }

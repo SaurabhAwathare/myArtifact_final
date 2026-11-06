@@ -39,9 +39,19 @@ class DatabaseMaintenanceManager @Inject constructor(
      */
     private suspend fun pruneOldData() {
         val now = System.currentTimeMillis()
+
+        // Prune Displayed Notification deduplication records (7 days retention, device-scoped)
+        // Room deduplication retention (7 days) intentionally exceeds maximum FCM Android TTL (6 days)
+        // so that any FCM message stored offline by FCM servers expires (max 6 days) before its deduplication
+        // entry is purged from the local Room database (7 days). This guarantees that redelivered or delayed
+        // offline FCM messages are safely suppressed upon device reconnection.
+        val notificationDeduplicationThreshold = now - (7 * 24 * 60 * 60 * 1000L)
+        val deletedCount = database.get().displayedNotificationDao().deleteExpired(notificationDeduplicationThreshold)
+        Log.d(TAG, "Pruned $deletedCount displayed notification deduplication records older than 7 days")
+
         val userId = authRepository.currentUserId
         if (userId.isEmpty()) {
-            Log.w(TAG, "Skipping data pruning: User unauthenticated")
+            Log.w(TAG, "Skipping user-scoped data pruning: User unauthenticated")
             return
         }
 

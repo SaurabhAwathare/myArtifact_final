@@ -16,6 +16,7 @@ class DatabaseMaintenanceManagerTest {
     private val engagementDao = mockk<EngagementDao>(relaxed = true)
     private val deadLetterDao = mockk<DeadLetterInteractionDao>(relaxed = true)
     private val draftDao = mockk<DraftDao>(relaxed = true)
+    private val displayedNotificationDao = mockk<DisplayedNotificationDao>(relaxed = true)
     private val authRepository = mockk<com.saurabh.artifact.repository.AuthRepository>(relaxed = true)
     private val openHelper = mockk<SupportSQLiteOpenHelper>()
     private val writableDb = mockk<SupportSQLiteDatabase>(relaxed = true)
@@ -31,6 +32,7 @@ class DatabaseMaintenanceManagerTest {
         every { Log.e(any(), any(), any()) } returns 0
 
         every { database.openHelper } returns openHelper
+        every { database.displayedNotificationDao() } returns displayedNotificationDao
         every { openHelper.writableDatabase } returns writableDb
         every { authRepository.currentUserId } returns "test_user"
         
@@ -54,6 +56,11 @@ class DatabaseMaintenanceManagerTest {
         val userId = "test_user"
         
         manager.runMaintenance()
+
+        // Verify Displayed Notifications pruning (7 days)
+        val notifThreshold = slot<Long>()
+        coVerify { displayedNotificationDao.deleteExpired(capture(notifThreshold)) }
+        assertWithinRange(notifThreshold.captured, now - TimeUnit.DAYS.toMillis(7))
 
         // Verify Engagement pruning (60 days, UID-scoped)
         val engagementThreshold = slot<Long>()

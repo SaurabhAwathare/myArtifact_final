@@ -15,8 +15,11 @@ import androidx.annotation.OptIn
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.work.ForegroundInfo
+import android.util.Log
 import com.saurabh.artifact.MainActivity
 import com.saurabh.artifact.R
+import com.saurabh.artifact.data.local.DisplayedNotificationDao
+import com.saurabh.artifact.data.local.DisplayedNotificationEntity
 import com.saurabh.artifact.repository.SettingsRepository
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
@@ -34,6 +37,16 @@ object NotificationHelper {
     @InstallIn(SingletonComponent::class)
     interface NotificationHelperEntryPoint {
         fun settingsRepository(): SettingsRepository
+        fun displayedNotificationDao(): DisplayedNotificationDao
+    }
+
+    private fun getDisplayedNotificationDao(context: Context): DisplayedNotificationDao? {
+        return try {
+            val entryPoint = EntryPointAccessors.fromApplication(context, NotificationHelperEntryPoint::class.java)
+            entryPoint.displayedNotificationDao()
+        } catch (_: Exception) {
+            null
+        }
     }
 
     private suspend fun isNotificationEnabled(context: Context): Boolean {
@@ -339,6 +352,7 @@ object NotificationHelper {
     /**
      * Shows a notification for social interactions (resonances, comments).
      * Includes artifact navigation when clicked.
+     * Performs atomic, process-death safe Room deduplication before presentation.
      */
     suspend fun showInteractionNotification(
         context: Context,
@@ -348,61 +362,108 @@ object NotificationHelper {
         userId: String? = null,
         recipientId: String? = null,
         notificationType: String? = null,
-        channelId: String = CHANNEL_ID_INTERACTIONS
-    ) {
-        if (!isNotificationEnabled(context)) return
+        channelId: String = CHANNEL_ID_INTERACTIONS,
+        notificationId: String? = null,
+        daoOverride: DisplayedNotificationDao? = null
+    ): Boolean {
+        if (!isNotificationEnabled(context)) return false
 
-        if (ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
-            val intent = Intent(context, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                if (artifactId != null) {
-                    putExtra("artifactId", artifactId)
-                }
-                if (userId != null) {
-                    putExtra("userId", userId)
-                }
-                if (recipientId != null) {
-                    putExtra("recipientId", recipientId)
-                }
-                if (notificationType != null) {
-                    putExtra("notificationType", notificationType)
-                }
-            }
-            
-            // Unique RequestCode to ensure intent data isn't overwritten for multiple notifications
-            // If it's a follow notification, use userId for requestCode uniqueness
-            val requestCode = artifactId?.hashCode() ?: userId?.hashCode() ?: System.currentTimeMillis().toInt()
-            
-            val pendingIntent = PendingIntent.getActivity(
-                context,
-                requestCode,
-                intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        val effectiveEventId = notificationId?.trim()?.takeIf { it.isNotEmpty() }
+            ?: if (!artifactId.isNullOrBlank() || !userId.isNullOrBlank()) {
+                "local_${artifactId ?: ""}_${userId ?: ""}_${notificationType ?: ""}"
+            } else null
+
+        if (effectiveEventId == null) {
+            Log.w("NotificationHelper", "Notification event ID is missing or invalid; suppressing presentation to prevent non-deduplicated display.")
+            return false
+        }
+
+        // Check notification permission BEFORE inserting ID into Room to prevent consuming IDs when permission is denied
+        if (!hasNotificationPermission(context)) {
+            Log.w("NotificationHelper", "POST_NOTIFICATIONS permission not granted; suppressing presentation without consuming deduplication ID: $effectiveEventId")
+            return false
+        }
+
+        val dao = daoOverride ?: getDisplayedNotificationDao(context)
+        if (dao == null) {
+            Log.e("NotificationHelper", "DisplayedNotificationDao unavailable; suppressing presentation to prevent non-deduplicated display.")
+            return false
+        }
+
+        val insertResult = try {
+            dao.insertDisplayedNotification(
+                DisplayedNotificationEntity(
+                    notificationId = effectiveEventId,
+                    createdAt = System.currentTimeMillis()
+                )
             )
+        } catch (e: Exception) {
+            Log.e("NotificationHelper", "Database failure during notification deduplication check for ID: $effectiveEventId", e)
+            -1L // Fail-safe: database error suppresses presentation rather than bypassing deduplication
+        }
 
-            val priority = if (channelId == CHANNEL_ID_CRITICAL_ALERTS) {
-                NotificationCompat.PRIORITY_HIGH
-            } else {
-                NotificationCompat.PRIORITY_DEFAULT
+        if (insertResult <= 0L) {
+            Log.i("NotificationHelper", "Duplicate notification event suppressed: $effectiveEventId")
+            return false
+        }
+
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            if (artifactId != null) {
+                putExtra("artifactId", artifactId)
             }
-
-            val category = if (channelId == CHANNEL_ID_CRITICAL_ALERTS) {
-                NotificationCompat.CATEGORY_ALARM
-            } else {
-                NotificationCompat.CATEGORY_SOCIAL
+            if (userId != null) {
+                putExtra("userId", userId)
             }
+            if (recipientId != null) {
+                putExtra("recipientId", recipientId)
+            }
+            if (notificationType != null) {
+                putExtra("notificationType", notificationType)
+            }
+            if (effectiveEventId.isNotEmpty()) {
+                putExtra("notificationId", effectiveEventId)
+            }
+        }
+        
+        val requestCode = effectiveEventId.hashCode()
+        
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            requestCode,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
 
-            val notification = NotificationCompat.Builder(context, channelId)
-                .setContentTitle(title)
-                .setContentText(message)
-                .setSmallIcon(R.drawable.ic_notification_small)
-                .setAutoCancel(true)
-                .setContentIntent(pendingIntent)
-                .setPriority(priority)
-                .setCategory(category)
-                .build()
+        val priority = if (channelId == CHANNEL_ID_CRITICAL_ALERTS) {
+            NotificationCompat.PRIORITY_HIGH
+        } else {
+            NotificationCompat.PRIORITY_DEFAULT
+        }
 
-            NotificationManagerCompat.from(context).notify(requestCode, notification)
+        val category = if (channelId == CHANNEL_ID_CRITICAL_ALERTS) {
+            NotificationCompat.CATEGORY_ALARM
+        } else {
+            NotificationCompat.CATEGORY_SOCIAL
+        }
+
+        val notification = NotificationCompat.Builder(context, channelId)
+            .setContentTitle(title)
+            .setContentText(message)
+            .setSmallIcon(R.drawable.ic_notification_small)
+            .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
+            .setContentIntent(pendingIntent)
+            .setPriority(priority)
+            .setCategory(category)
+            .build()
+
+        try {
+            NotificationManagerCompat.from(context).notify(effectiveEventId, requestCode, notification)
+            return true
+        } catch (e: SecurityException) {
+            Log.e("NotificationHelper", "SecurityException posting notification for $effectiveEventId", e)
+            return false
         }
     }
 

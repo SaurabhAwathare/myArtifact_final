@@ -18,8 +18,9 @@ import androidx.room.TypeConverters
         ReportedArtifactEntity::class,
         IgnoredUserEntity::class,
         UserConsumedPromptEntity::class,
+        DisplayedNotificationEntity::class,
     ],
-    version = 79,
+    version = 80,
     autoMigrations = [
         AutoMigration(from = 64, to = 65),
         AutoMigration(from = 65, to = 66),
@@ -44,6 +45,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun reportedArtifactDao(): ReportedArtifactDao
     abstract fun ignoredUserDao(): IgnoredUserDao
     abstract fun userConsumedPromptDao(): UserConsumedPromptDao
+    abstract fun displayedNotificationDao(): DisplayedNotificationDao
 
     /**
      * Clears transient session, feed, and cache tables during logout,

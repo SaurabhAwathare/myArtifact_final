@@ -14,6 +14,7 @@ import {
   assertActiveSession,
 } from "./session";
 import { resolveStorageBucket } from "./util/storage";
+import { processNotificationDelivery, recoverExpiredNotificationLeases } from "./notification_delivery";
 export { resolveStorageBucket };
 
 if (!admin.apps.length) {
@@ -433,6 +434,8 @@ export interface ProcessFollowResult {
     | "TRANSIENT_INFRASTRUCTURE_FAILURE"
     | "OPERATION_ID_PAYLOAD_MISMATCH";
   generation: number;
+  rateLimitResetAt?: number;
+  waitTimeMs?: number;
 }
 
 /**
@@ -469,13 +472,10 @@ export async function processFollowTx(
   if (intentCreatedAtMs > nowMs + 5 * 60 * 1000) {
     return { status: "INVALID_INPUT", generation: 0 };
   }
-  if (nowMs - intentCreatedAtMs > 90 * 24 * 60 * 60 * 1000) {
-    return { status: "REJECTED_EXPIRED_INTENT", generation: 0 };
-  }
 
   const db = admin.firestore();
 
-  // 2. Pre-Transaction Resolution
+  // 2. Pre-Transaction Resolution Attempt
   let targetUid: string | null = null;
   const mappingDoc = await db.collection("persona_mapping").doc(targetAnonId).get();
   if (mappingDoc.exists) {
@@ -491,63 +491,95 @@ export async function processFollowTx(
   const actorUserDocPre = await db.collection("users").doc(actorUid).get();
   const actorAnonId: string | null = actorUserDocPre.exists ? (actorUserDocPre.data()?.anonymousId || null) : null;
 
-  // Account existence & self-follow checks
-  if (actorUid === targetUid || (actorAnonId && actorAnonId === targetAnonId)) {
-    return { status: "REJECTED_SELF_ACTION", generation: 0 };
-  }
-  if (!targetUid || !actorAnonId) {
-    return { status: "REJECTED_USER_MISSING", generation: 0 };
-  }
-
-  // Document References
+  // Document References (Ledger path is canonical: users/{actorUid}/relationships/{targetAnonId}/operations/{operationId})
   const relMasterRef = db.collection("users").doc(actorUid).collection("relationships").doc(targetAnonId);
   const opLedgerRef = relMasterRef.collection("operations").doc(operationId);
-  const actorUserRef = db.collection("users").doc(actorUid);
-  const targetUserRef = db.collection("users").doc(targetUid);
-  const resonanceOutRef = actorUserRef.collection("resonance_out").doc(targetAnonId);
-  const resonanceInRef = targetUserRef.collection("resonance_in").doc(actorAnonId);
-  const targetSettingsRef = targetUserRef.collection("private").doc("settings");
-  const targetIgnoreRef = targetUserRef.collection("private").doc("ignored_users").collection("users").doc(actorUid);
 
   try {
     return await db.runTransaction(async (transaction) => {
       // -----------------------------------------------------------------
-      // PHASE 1: READ-BEFORE-WRITE
+      // PHASE 1: READ-BEFORE-WRITE (LEDGER FIRST)
       // -----------------------------------------------------------------
       const opSnap = await transaction.get(opLedgerRef);
       const relSnap = await transaction.get(relMasterRef);
-      const actorUserSnap = await transaction.get(actorUserRef);
-      const targetUserSnap = await transaction.get(targetUserRef);
-      const outSnap = await transaction.get(resonanceOutRef);
-      const inSnap = await transaction.get(resonanceInRef);
-      const settingsSnap = await transaction.get(targetSettingsRef);
-      const ignoreSnap = await transaction.get(targetIgnoreRef);
-
-      // -----------------------------------------------------------------
-      // PHASE 2: ACCOUNT EXISTENCE & INTEGRITY CHECK
-      // -----------------------------------------------------------------
-      if (!actorUserSnap.exists || !targetUserSnap.exists) {
-        return { status: "REJECTED_USER_MISSING", generation: 0 };
-      }
 
       const relData = relSnap.exists ? relSnap.data() : null;
       const currentGen: number = typeof relData?.generation === "number" ? relData.generation : 0;
       const currentState: string = relData?.state || "INACTIVE";
 
       // -----------------------------------------------------------------
-      // PHASE 3: DURABLE LEDGER LOOKUP (IDEMPOTENCY)
+      // PHASE 2: DURABLE LEDGER LOOKUP (IDEMPOTENCY & REPLAY PRECEDENCE)
       // -----------------------------------------------------------------
+      // An existing valid ledger record takes precedence over timestamp expiration,
+      // account existence, and current relationship generation/state.
       if (opSnap.exists) {
         const opData = opSnap.data();
         if (opData?.action !== "FOLLOW") {
           return { status: "OPERATION_ID_PAYLOAD_MISMATCH", generation: currentGen };
         }
-        return { status: "DUPLICATE_SUCCESS", generation: currentGen };
+        if (opData?.expectedBaseGeneration !== undefined && opData.expectedBaseGeneration !== expectedBaseGeneration) {
+          return { status: "OPERATION_ID_PAYLOAD_MISMATCH", generation: currentGen };
+        }
+        if (opData?.actorUid !== undefined && opData.actorUid !== actorUid) {
+          return { status: "OPERATION_ID_PAYLOAD_MISMATCH", generation: currentGen };
+        }
+        if (opData?.targetAnonId !== undefined && opData.targetAnonId !== targetAnonId) {
+          return { status: "OPERATION_ID_PAYLOAD_MISMATCH", generation: currentGen };
+        }
+        const recordedGen = typeof opData?.generation === "number" ? opData.generation : currentGen;
+        return { status: "DUPLICATE_SUCCESS", generation: recordedGen };
       }
 
       // -----------------------------------------------------------------
-      // PHASE 4: STRICT OCC GENERATION CHECK (BEFORE RATE LIMITING)
+      // PHASE 3: NEW OPERATION VALIDATIONS
       // -----------------------------------------------------------------
+
+      // 1. Timestamp Expiration Check for NEW operations
+      if (nowMs - intentCreatedAtMs > 90 * 24 * 60 * 60 * 1000) {
+        return { status: "REJECTED_EXPIRED_INTENT", generation: currentGen };
+      }
+
+      // 2. Account existence & self-follow checks
+      if (!targetUid || !actorAnonId) {
+        return { status: "REJECTED_USER_MISSING", generation: currentGen };
+      }
+      if (actorUid === targetUid || actorAnonId === targetAnonId) {
+        return { status: "REJECTED_SELF_ACTION", generation: currentGen };
+      }
+
+      const actorUserRef = db.collection("users").doc(actorUid);
+      const targetUserRef = db.collection("users").doc(targetUid);
+      const resonanceOutRef = actorUserRef.collection("resonance_out").doc(targetAnonId);
+      const resonanceInRef = targetUserRef.collection("resonance_in").doc(actorAnonId);
+      const targetSettingsRef = targetUserRef.collection("private").doc("settings");
+      const targetIgnoreRef = targetUserRef.collection("private").doc("ignored_users").collection("users").doc(actorUid);
+
+      const nextGen = currentGen + 1;
+      const notifRef = db.collection("notifications").doc(`follow_notif_${actorUid}_${targetAnonId}_gen_${nextGen}`);
+
+      const [
+        actorUserSnap,
+        targetUserSnap,
+        outSnap,
+        inSnap,
+        settingsSnap,
+        ignoreSnap,
+        notifSnap,
+      ] = await Promise.all([
+        transaction.get(actorUserRef),
+        transaction.get(targetUserRef),
+        transaction.get(resonanceOutRef),
+        transaction.get(resonanceInRef),
+        transaction.get(targetSettingsRef),
+        transaction.get(targetIgnoreRef),
+        transaction.get(notifRef),
+      ]);
+
+      if (!actorUserSnap.exists || !targetUserSnap.exists) {
+        return { status: "REJECTED_USER_MISSING", generation: currentGen };
+      }
+
+      // 3. Strict OCC Generation Check (BEFORE Rate Limiting)
       if (expectedBaseGeneration !== currentGen) {
         if (expectedBaseGeneration < currentGen) {
           return { status: "REJECTED_STALE_BASE_GENERATION", generation: currentGen };
@@ -556,9 +588,7 @@ export async function processFollowTx(
         }
       }
 
-      // -----------------------------------------------------------------
-      // PHASE 5: IGNORE & RATE LIMITING CHECK
-      // -----------------------------------------------------------------
+      // 4. Ignore & Rate Limiting Check
       if (ignoreSnap.exists) {
         return { status: "REJECTED_IGNORED", generation: currentGen };
       }
@@ -571,17 +601,26 @@ export async function processFollowTx(
       );
 
       if (!rateLimitAllowed.allowed) {
-        return { status: "RATE_LIMITED", generation: currentGen };
+        return {
+          status: "RATE_LIMITED",
+          generation: currentGen,
+          rateLimitResetAt: rateLimitAllowed.rateLimitResetAt,
+          waitTimeMs: rateLimitAllowed.waitTimeMs,
+        };
       }
 
       const ts = FieldValue.serverTimestamp();
       const ttlExpireAt = new Date(nowMs + 90 * 24 * 60 * 60 * 1000);
 
       // -----------------------------------------------------------------
-      // PHASE 6: SAME-STATE HANDLING (IDEMPOTENT REPAIR)
+      // PHASE 4: SAME-STATE HANDLING (ACTIVE BRANCH / PROJECTION REPAIR)
       // -----------------------------------------------------------------
       if (currentState === "ACTIVE") {
-        if (!outSnap.exists) {
+        const isOutMissing = !outSnap.exists;
+        const isInMissing = !inSnap.exists;
+        const needsRepair = isOutMissing || isInMissing;
+
+        if (isOutMissing) {
           transaction.set(resonanceOutRef, {
             targetAnonymousId: targetAnonId,
             status: "ACTIVE",
@@ -590,7 +629,7 @@ export async function processFollowTx(
             updatedAt: ts,
           });
         }
-        if (!inSnap.exists) {
+        if (isInMissing) {
           transaction.set(resonanceInRef, {
             followerAnonymousId: actorAnonId,
             status: "ACTIVE",
@@ -602,9 +641,11 @@ export async function processFollowTx(
         transaction.set(opLedgerRef, {
           operationId: operationId,
           action: "FOLLOW",
-          status: "REPAIRED",
+          status: needsRepair ? "REPAIRED" : "ALREADY_ACTIVE",
           generation: currentGen,
           expectedBaseGeneration: expectedBaseGeneration,
+          actorUid: actorUid,
+          targetAnonId: targetAnonId,
           ttlExpireAt: ttlExpireAt,
           executedAt: ts,
         });
@@ -612,10 +653,8 @@ export async function processFollowTx(
       }
 
       // -----------------------------------------------------------------
-      // PHASE 7: ATOMIC STATE TRANSITION (INACTIVE -> ACTIVE)
+      // PHASE 5: ATOMIC STATE TRANSITION (INACTIVE -> ACTIVE)
       // -----------------------------------------------------------------
-      const nextGen = currentGen + 1;
-      const notifRef = db.collection("notifications").doc(`follow_notif_${actorUid}_${targetAnonId}_gen_${nextGen}`);
 
       // Write 1: Master Relationship Document
       transaction.set(relMasterRef, {
@@ -636,6 +675,8 @@ export async function processFollowTx(
         status: "EXECUTED",
         generation: nextGen,
         expectedBaseGeneration: expectedBaseGeneration,
+        actorUid: actorUid,
+        targetAnonId: targetAnonId,
         ttlExpireAt: ttlExpireAt,
         executedAt: ts,
       });
@@ -670,8 +711,11 @@ export async function processFollowTx(
         relationshipMutationSeq: FieldValue.increment(1),
       });
 
-      // Write 7: Notification Outbox Record
-      if (settingsSnap.data()?.notificationsEnabled !== false) {
+      // Write 7: Notification Outbox Record (Generation-bound)
+      const notificationsEnabled = settingsSnap.data()?.notificationsEnabled !== false;
+      const notificationAlreadyExists = notifSnap.exists;
+
+      if (notificationsEnabled && !notificationAlreadyExists) {
         transaction.set(notifRef, {
           userId: targetUid,
           actorId: actorAnonId,
@@ -681,6 +725,7 @@ export async function processFollowTx(
           type: "FOLLOW",
           createdAt: ts,
           isRead: false,
+          deliveryStatus: "PENDING",
         });
       }
 
@@ -721,261 +766,151 @@ export async function processFollowIntentTx(
     .collection("private").doc("intents")
     .collection("follow").doc(targetAnonId);
 
-  // Pre-transaction resolution: Resolve target persona to recipient Firebase Auth UID
-  const mappingDoc = await db.collection("persona_mapping").doc(targetAnonId).get();
-  let finalTargetUserId: string | null = mappingDoc.data()?.userId || null;
+  // 1. Read Intent Document
+  const intentSnap = await intentRef.get();
+  if (!intentSnap.exists) {
+    logger.warn(`[FOLLOW_INTENT] Intent document missing | UID=${uid} | TargetAnonID=${targetAnonId}`);
+    return;
+  }
+  const intentData = intentSnap.data() || {};
+  const currentStatus = intentData.status;
 
-  if (!finalTargetUserId) {
-    const userQuery = await db.collection("users").where("anonymousId", "==", targetAnonId).limit(1).get();
-    if (!userQuery.empty) {
-      finalTargetUserId = userQuery.docs[0].id;
+  // Terminal states check
+  if (
+    currentStatus === "PROCESSED" ||
+    currentStatus === "REJECTED_NOT_FOUND" ||
+    currentStatus === "REJECTED_INVALID" ||
+    currentStatus === "REJECTED_STALE_LEGACY_INTENT"
+  ) {
+    logger.info(`[FOLLOW_INTENT] Terminal state (${currentStatus}) - no-op | UID=${uid} | TargetAnonID=${targetAnonId}`);
+    return;
+  }
+
+  if (intentData.action && intentData.action !== "FOLLOW") {
+    logger.warn(`[FOLLOW_INTENT] Unhandled action (${intentData.action}) | UID=${uid} | TargetAnonID=${targetAnonId}`);
+    return;
+  }
+
+  // 2. Establish Trustworthy Intent Creation Timestamp and Stable Operation ID
+  let intentCreatedAtMs: number | null = null;
+  if (typeof intentData.intentCreatedAtMs === "number" && !isNaN(intentData.intentCreatedAtMs) && intentData.intentCreatedAtMs > 0) {
+    intentCreatedAtMs = intentData.intentCreatedAtMs;
+  } else if (typeof intentData.createdAt === "number" && !isNaN(intentData.createdAt) && intentData.createdAt > 0) {
+    intentCreatedAtMs = intentData.createdAt;
+  } else if (intentData.createdAt && typeof intentData.createdAt.toMillis === "function") {
+    intentCreatedAtMs = intentData.createdAt.toMillis();
+  } else if (typeof intentData.createdAt === "string") {
+    const parsed = new Date(intentData.createdAt).getTime();
+    if (!isNaN(parsed) && parsed > 0) {
+      intentCreatedAtMs = parsed;
     }
   }
 
-  await db.runTransaction(async (transaction) => {
-    // -----------------------------------------------------------------
-    // 1. TRANSACTION READS (MUST ALL BE COMPLETED BEFORE ANY WRITE!)
-    // -----------------------------------------------------------------
+  if (!intentCreatedAtMs && intentSnap.createTime && typeof intentSnap.createTime.toMillis === "function") {
+    intentCreatedAtMs = intentSnap.createTime.toMillis();
+  }
 
-    // Read 1: Intent Document
-    const intentSnap = await transaction.get(intentRef);
-    if (!intentSnap.exists) {
-      logger.warn(`[FOLLOW_INTENT] Intent document missing | UID=${uid} | TargetAnonID=${targetAnonId}`);
-      return;
-    }
-    const intentData = intentSnap.data() || {};
-    const currentStatus = intentData.status;
-
-    // Terminal states check
-    if (
-      currentStatus === "PROCESSED" ||
-      currentStatus === "REJECTED_NOT_FOUND" ||
-      currentStatus === "REJECTED_INVALID"
-    ) {
-      logger.info(`[FOLLOW_INTENT] Terminal state (${currentStatus}) - no-op | UID=${uid} | TargetAnonID=${targetAnonId}`);
-      return;
-    }
-
-    if (intentData.action && intentData.action !== "FOLLOW") {
-      logger.warn(`[FOLLOW_INTENT] Unhandled action (${intentData.action}) | UID=${uid} | TargetAnonID=${targetAnonId}`);
-      return;
-    }
-
-    // Read 2: Recipient Persona Resolution Verification
-    if (!finalTargetUserId) {
-      logger.error(`[FOLLOW_INTENT] Target persona not found: ${targetAnonId}`);
-      transaction.update(intentRef, {
-        status: "REJECTED_NOT_FOUND",
-        rejectionReason: `Target persona not found: ${targetAnonId}`,
-        updatedAt: FieldValue.serverTimestamp(),
-      });
-      return;
-    }
-
-    // Read 3: Follower User Profile
-    const currentUserRef = db.collection("users").doc(uid);
-    const actorSnap = await transaction.get(currentUserRef);
-    const actorData = actorSnap.exists ? actorSnap.data() : null;
-    const actorAnonId = actorData?.anonymousId || "unknown";
-
-    if (actorAnonId === "unknown") {
-      logger.error(`[FOLLOW_INTENT] Follower persona not found for UID: ${uid}`);
-      transaction.update(intentRef, {
-        status: "REJECTED_INVALID",
-        rejectionReason: `Follower persona not found for UID: ${uid}`,
-        updatedAt: FieldValue.serverTimestamp(),
-      });
-      return;
-    }
-
-    // Read 4: Recipient User Profile
-    const targetUserRef = db.collection("users").doc(finalTargetUserId);
-    const targetUserSnap = await transaction.get(targetUserRef);
-    if (!targetUserSnap.exists) {
-      logger.error(`[FOLLOW_INTENT] Recipient user doc missing for UID: ${finalTargetUserId}`);
-      transaction.update(intentRef, {
-        status: "REJECTED_NOT_FOUND",
-        rejectionReason: `Recipient user missing: ${finalTargetUserId}`,
-        updatedAt: FieldValue.serverTimestamp(),
-      });
-      return;
-    }
-
-    // Read 5 & 6: Relationship Markers (resonance_out and resonance_in)
-    const resonanceOutRef = currentUserRef.collection("resonance_out").doc(targetAnonId);
-    const resonanceInRef = targetUserRef.collection("resonance_in").doc(actorAnonId);
-    const outSnap = await transaction.get(resonanceOutRef);
-    const inSnap = await transaction.get(resonanceInRef);
-
-    // Read 7 & 8: Target Settings & Ignore List
-    const targetSettingsRef = db.collection("users").doc(finalTargetUserId)
-      .collection("private").doc("settings");
-    const targetSettingsSnap = await transaction.get(targetSettingsRef);
-
-    const ignoreRef = db.collection("users").doc(finalTargetUserId)
-      .collection("private").doc("ignored_users")
-      .collection("users").doc(uid);
-    const ignoreSnap = await transaction.get(ignoreRef);
-
-    // Read 9: Notification Document (Deterministic path: notifications/follow_notif_${uid}_${targetAnonId})
-    const notificationRef = db.collection("notifications").doc(`follow_notif_${uid}_${targetAnonId}`);
-    const notificationSnap = await transaction.get(notificationRef);
-
-    // -----------------------------------------------------------------
-    // 2. IDEMPOTENCY & ASYMMETRIC MARKER RECOVERY
-    // -----------------------------------------------------------------
-
-    // Case A: Both markers present -> Already complete
-    if (outSnap.exists && inSnap.exists) {
-      logger.info(`[FOLLOW_INTENT] Both markers exist - marking PROCESSED | UID=${uid} | Target=${finalTargetUserId}`);
-      const intentUpdate: any = {
-        status: "PROCESSED",
-        processedAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-      };
-      if (intentData.clientRetryRequestedAt !== undefined) {
-        intentUpdate.lastConsumedRetryAt = intentData.clientRetryRequestedAt;
-      }
-      transaction.update(intentRef, intentUpdate);
-      return;
-    }
-
-    // Case B: Outgoing marker exists, incoming missing -> Repair incoming marker
-    if (outSnap.exists && !inSnap.exists) {
-      logger.warn(`[FOLLOW_INTENT] Asymmetric state (out exists, in missing) - repairing incoming marker | UID=${uid}`);
-      const timestamp = FieldValue.serverTimestamp();
-      transaction.set(resonanceInRef, {
-        followerAnonymousId: actorAnonId,
-        createdAt: timestamp,
-      });
-      transaction.update(targetUserRef, {
-        resonanceInCount: FieldValue.increment(1),
-        followersCount: FieldValue.increment(1),
-      });
-
-      const intentUpdate: any = {
-        status: "PROCESSED",
-        processedAt: timestamp,
-        updatedAt: timestamp,
-      };
-      if (intentData.clientRetryRequestedAt !== undefined) {
-        intentUpdate.lastConsumedRetryAt = intentData.clientRetryRequestedAt;
-      }
-      transaction.update(intentRef, intentUpdate);
-      return;
-    }
-
-    // Case C: Incoming marker exists, outgoing missing -> Repair outgoing marker
-    if (!outSnap.exists && inSnap.exists) {
-      logger.warn(`[FOLLOW_INTENT] Asymmetric state (in exists, out missing) - repairing outgoing marker | UID=${uid}`);
-      const timestamp = FieldValue.serverTimestamp();
-      transaction.set(resonanceOutRef, {
-        targetAnonymousId: targetAnonId,
-        createdAt: timestamp,
-      });
-      transaction.update(currentUserRef, {
-        resonanceOutCount: FieldValue.increment(1),
-        followingCount: FieldValue.increment(1),
-      });
-
-      const intentUpdate: any = {
-        status: "PROCESSED",
-        processedAt: timestamp,
-        updatedAt: timestamp,
-      };
-      if (intentData.clientRetryRequestedAt !== undefined) {
-        intentUpdate.lastConsumedRetryAt = intentData.clientRetryRequestedAt;
-      }
-      transaction.update(intentRef, intentUpdate);
-      return;
-    }
-
-    // -----------------------------------------------------------------
-    // 3. TRANSACTIONAL RATE LIMITER (Reads moderation_stats & stages write)
-    // -----------------------------------------------------------------
-    const rateLimit = await checkRateLimitTx(
-      transaction,
-      uid,
-      { maxCapacity: 20, refillRatePerMinute: 10, windowName: "follow" },
-      nowMs
-    );
-
-    if (!rateLimit.allowed) {
-      logger.warn(`[FOLLOW_INTENT] Rate limit exceeded for UID=${uid} | Wait=${rateLimit.waitTimeMs}ms`);
-      const updateData: any = {
-        status: "RATE_LIMITED",
-        rateLimitResetAt: rateLimit.rateLimitResetAt,
-        waitTimeMs: rateLimit.waitTimeMs,
-        updatedAt: FieldValue.serverTimestamp(),
-      };
-      if (intentData.clientRetryRequestedAt !== undefined) {
-        updateData.lastConsumedRetryAt = intentData.clientRetryRequestedAt;
-      }
-      transaction.update(intentRef, updateData);
-      return;
-    }
-
-    // -----------------------------------------------------------------
-    // 4. ATOMIC STAGED WRITES (Committed together with rate token write)
-    // -----------------------------------------------------------------
-    const timestamp = FieldValue.serverTimestamp();
-
-    // A. Create Markers
-    transaction.set(resonanceOutRef, {
-      targetAnonymousId: targetAnonId,
-      createdAt: timestamp,
-    });
-    transaction.set(resonanceInRef, {
-      followerAnonymousId: actorAnonId,
-      createdAt: timestamp,
-    });
-
-    // B. Update Counters
-    transaction.update(currentUserRef, {
-      resonanceOutCount: FieldValue.increment(1),
-      followingCount: FieldValue.increment(1),
-    });
-    transaction.update(targetUserRef, {
-      resonanceInCount: FieldValue.increment(1),
-      followersCount: FieldValue.increment(1),
-    });
-
-    // C. Create Notification (Deterministic path)
-    const isIgnored = ignoreSnap?.exists === true;
-    const notificationsDisabled = targetSettingsSnap?.data()?.notificationsEnabled === false;
-    const notificationAlreadyExists = notificationSnap.exists;
-
-    if (isIgnored) {
-      logger.info(`[FOLLOW_NOTIF] Suppressed due to ignore | Recipient=${finalTargetUserId} | Sender=${uid}`);
-    } else if (notificationsDisabled) {
-      logger.info(`[FOLLOW_NOTIF] Suppressed by user preference | Recipient=${finalTargetUserId}`);
-    } else if (notificationAlreadyExists) {
-      logger.info(`[FOLLOW_NOTIF] Notification already exists | Recipient=${finalTargetUserId}`);
-    } else {
-      transaction.set(notificationRef, {
-        userId: finalTargetUserId,
-        actorId: actorAnonId,
-        followerId: actorAnonId,
-        message: "PRESENCE_RESONATED",
-        type: "FOLLOW",
-        createdAt: timestamp,
-        isRead: false,
-      });
-    }
-
-    // D. Update Intent Document to PROCESSED
+  if (!intentCreatedAtMs || isNaN(intentCreatedAtMs) || intentCreatedAtMs <= 0) {
+    logger.error(`[FOLLOW_INTENT] Cannot establish safe intent creation identity | UID=${uid} | TargetAnonID=${targetAnonId}`);
     const intentUpdate: any = {
-      status: "PROCESSED",
-      processedAt: timestamp,
-      updatedAt: timestamp,
+      status: "REJECTED_INVALID",
+      rejectionReason: "Missing trustworthy creation timestamp/identity",
+      updatedAt: FieldValue.serverTimestamp(),
+    };
+    await intentRef.update(intentUpdate);
+    return;
+  }
+
+  let operationId: string;
+  if (typeof intentData.clientOperationId === "string" && intentData.clientOperationId.trim().length > 0) {
+    operationId = intentData.clientOperationId.trim();
+  } else {
+    operationId = `legacy_follow_${uid}_${targetAnonId}_${intentCreatedAtMs}`;
+  }
+
+  // 3. Read Current Master Relationship State
+  const relMasterRef = db.collection("users").doc(uid).collection("relationships").doc(targetAnonId);
+  const relSnap = await relMasterRef.get();
+  const relData = relSnap.exists ? relSnap.data() : null;
+  const currentGen: number = typeof relData?.generation === "number" ? relData.generation : 0;
+  const currentState: string = relData?.state || "INACTIVE";
+
+  // 4. Legacy Compatibility Rules
+  // Rule A: Inactive relationship at generation > 0 -> Mark as REJECTED_STALE_LEGACY_INTENT
+  if (currentState !== "ACTIVE" && currentGen > 0) {
+    logger.warn(`[FOLLOW_INTENT] Rejecting stale legacy intent for inactive relationship at gen ${currentGen} | UID=${uid} | Target=${targetAnonId}`);
+    const intentUpdate: any = {
+      status: "REJECTED_STALE_LEGACY_INTENT",
+      rejectionReason: `Legacy intent cannot reactivate relationship at generation ${currentGen}`,
+      updatedAt: FieldValue.serverTimestamp(),
     };
     if (intentData.clientRetryRequestedAt !== undefined) {
       intentUpdate.lastConsumedRetryAt = intentData.clientRetryRequestedAt;
     }
-    transaction.update(intentRef, intentUpdate);
+    await intentRef.update(intentUpdate);
+    return;
+  }
 
-    logger.info(`FOLLOW_SUCCESS | Follower=${uid} | Target=${finalTargetUserId}`);
-  });
+  // Rule B: Active relationship or Gen 0 Inactive -> Delegate to authoritative processFollowTx
+  const expectedBaseGen = currentState === "ACTIVE" ? currentGen : 0;
+  const res = await processFollowTx(uid, targetAnonId, operationId, intentCreatedAtMs, expectedBaseGen, nowMs);
+
+  // 5. Update Intent Document based on processFollowTx Result
+  if (res.status === "SUCCESS" || res.status === "DUPLICATE_SUCCESS" || res.status === "ACCEPTED_ALREADY_ACTIVE") {
+    const intentUpdate: any = {
+      status: "PROCESSED",
+      processedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    };
+    if (intentData.clientRetryRequestedAt !== undefined) {
+      intentUpdate.lastConsumedRetryAt = intentData.clientRetryRequestedAt;
+    }
+    await intentRef.update(intentUpdate);
+  } else if (res.status === "RATE_LIMITED") {
+    logger.warn(`[FOLLOW_INTENT] Rate limit exceeded for UID=${uid} | Wait=${res.waitTimeMs}ms`);
+    const intentUpdate: any = {
+      status: "RATE_LIMITED",
+      rateLimitResetAt: res.rateLimitResetAt || (nowMs + 60000),
+      waitTimeMs: res.waitTimeMs || 60000,
+      updatedAt: FieldValue.serverTimestamp(),
+    };
+    if (intentData.clientRetryRequestedAt !== undefined) {
+      intentUpdate.lastConsumedRetryAt = intentData.clientRetryRequestedAt;
+    }
+    await intentRef.update(intentUpdate);
+  } else if (res.status === "REJECTED_STALE_BASE_GENERATION" || res.status === "INVALID_BASE_GENERATION") {
+    const intentUpdate: any = {
+      status: "REJECTED_STALE_LEGACY_INTENT",
+      rejectionReason: `Base generation mismatch (${res.status})`,
+      updatedAt: FieldValue.serverTimestamp(),
+    };
+    if (intentData.clientRetryRequestedAt !== undefined) {
+      intentUpdate.lastConsumedRetryAt = intentData.clientRetryRequestedAt;
+    }
+    await intentRef.update(intentUpdate);
+  } else if (res.status === "REJECTED_USER_MISSING") {
+    await intentRef.update({
+      status: "REJECTED_NOT_FOUND",
+      rejectionReason: `Target persona or user missing: ${targetAnonId}`,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  } else if (res.status === "REJECTED_SELF_ACTION" || res.status === "INVALID_INPUT" || res.status === "REJECTED_EXPIRED_INTENT") {
+    await intentRef.update({
+      status: "REJECTED_INVALID",
+      rejectionReason: `Invalid legacy follow intent (${res.status})`,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  } else if (res.status === "REJECTED_IGNORED") {
+    const intentUpdate: any = {
+      status: "PROCESSED",
+      processedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    };
+    if (intentData.clientRetryRequestedAt !== undefined) {
+      intentUpdate.lastConsumedRetryAt = intentData.clientRetryRequestedAt;
+    }
+    await intentRef.update(intentUpdate);
+  }
 }
 
 /**
@@ -997,7 +932,8 @@ export async function handleFollowIntentWrite(change: any, context: any) {
     if (
       status === "PROCESSED" ||
       status === "REJECTED_NOT_FOUND" ||
-      status === "REJECTED_INVALID"
+      status === "REJECTED_INVALID" ||
+      status === "REJECTED_STALE_LEGACY_INTENT"
     ) {
       logger.info(`[FOLLOW_TRIGGER] Initial document in terminal state (${status}) - skipping`);
       return null;
@@ -1213,6 +1149,7 @@ export const onReactionIntentCreated = functions.firestore
             type: "RESONANCE",
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             isRead: false,
+            deliveryStatus: "PENDING",
           });
         }
       }
@@ -1270,6 +1207,7 @@ export const onArtifactCreated = functions.firestore
         type: "SYSTEM",
         createdAt: FieldValue.serverTimestamp(),
         isRead: false,
+        deliveryStatus: "PENDING",
       });
 
       logger.info(`Creation notification sent for artifact ${artifactId}`);
@@ -2755,6 +2693,7 @@ export async function processCommentIntentTx(
           type: "COMMENT",
           createdAt: FieldValue.serverTimestamp(),
           isRead: false,
+          deliveryStatus: "PENDING",
         });
         logger.info(`[NOTIFICATION] Created deterministically for owner ${ownerId} | ArtifactID=${artifactId}`);
       }
@@ -2940,6 +2879,7 @@ export const onCommentCreated = functions.firestore
             type: "COMMENT",
             createdAt: FieldValue.serverTimestamp(),
             isRead: false,
+            deliveryStatus: "PENDING",
           });
           logger.info(`[NOTIFICATION] Created for owner ${ownerId} | ArtifactID=${artifactId}`);
         }
@@ -3020,97 +2960,29 @@ export const onPlayCreated = functions.firestore
 
 /**
  * Triggers when a new notification document is created in Firestore.
- * Responsible for delivering the push notification via Firebase Cloud Messaging (FCM).
+ * Transactionally claims a delivery lease and delivers the push notification via FCM.
  */
 export const onNotificationCreated = functions.firestore
   .document("notifications/{notificationId}")
   .onCreate(async (snapshot, context) => {
-    const data = snapshot.data();
-    if (!data) return null;
-
-    const userId = data.userId;
-    if (!userId) return null;
-
+    const notificationId = context.params.notificationId;
     const db = admin.firestore();
+    await processNotificationDelivery(db, notificationId);
+    return null;
+  });
 
-    try {
-      // 1. Retrieve the recipient's FCM token from their private settings
-      const userSettingsDoc = await db.collection("users").doc(userId)
-        .collection("private").doc("settings")
-        .get();
-
-      const fcmToken = userSettingsDoc.data()?.fcmToken;
-
-      if (!fcmToken) {
-        logger.info(`[FCM] No token found for user ${userId} | NotificationID=${context.params.notificationId}`);
-        return null;
-      }
-
-      // 2. Map notification data to FCM payload
-      const parts = data.message.split("|");
-      const key = parts[0];
-
-      let title = "myArtifact";
-      let body = "New activity on your profile ✨";
-
-      if (key === "RESONANCE") {
-        title = "New Resonance";
-        body = "Someone resonated with your artifact 💬";
-      } else if (key === "COMMENT") {
-        const artifactTitle = parts[1] || "your artifact";
-        title = "New Comment";
-        body = `Someone shared a thought on "${artifactTitle}" 💬`;
-      } else if (key === "PRESENCE_RESONATED") {
-        title = "New Presence";
-        body = "Someone started following your journey ✨";
-      } else if (key === "NEW_ARTIFACT") {
-        title = "Artifact Published";
-        const artifactTitle = parts[1] || "Your artifact";
-        body = `"${artifactTitle}" is now live and resonating.`;
-      }
-
-      const message: admin.messaging.Message = {
-        token: fcmToken,
-        notification: {
-          title: title,
-          body: body,
-        },
-        data: {
-          artifactId: data.artifactId || "",
-          userId: data.actorId || data.followerId || "",
-          actorId: data.actorId || data.followerId || "",
-          recipientId: userId, // Internal Recipient Guard (Internal security field)
-          notificationType: data.type || "",
-          notificationId: context.params.notificationId,
-          channelId: key === "PRESENCE_RESONATED" ? "resonances_channel" : "interactions_channel",
-        },
-        android: {
-          priority: key === "PRESENCE_RESONATED" ? "normal" : "high",
-          notification: {
-            channelId: key === "PRESENCE_RESONATED" ? "resonances_channel" : "interactions_channel",
-            sound: key === "PRESENCE_RESONATED" ? undefined : "default",
-          }
-        }
-      };
-
-      // 3. Dispatch the message
-      if (process.env.FUNCTIONS_EMULATOR === "true") {
-        logger.info(`[FCM] Emulator mode active (FUNCTIONS_EMULATOR=true) - suppressing external FCM delivery for notification ${context.params.notificationId} (user ${userId})`);
-        return null;
-      }
-
-      const response = await admin.messaging().send(message);
-      logger.info(`[FCM] Successfully sent message: ${response} | UserID=${userId}`);
-
-      return null;
-    } catch (error: any) {
-      if (error.code === "messaging/registration-token-not-registered") {
-        logger.warn(`[FCM] Token expired or invalid for user ${userId}. Should be cleaned up.`);
-      } else {
-        logger.error(`[FCM] Fatal error sending push for user ${userId}:`, error);
-      }
-      return null;
-    }
+/**
+ * Scheduled recovery worker running every 5 minutes.
+ * Scans for stranded expired notification leases, retryable failures, or stale pending notifications,
+ * acquiring leases transactionally and driving delivery to completion.
+ */
+export const sweepExpiredNotificationLeases = functions.pubsub
+  .schedule("every 5 minutes")
+  .onRun(async () => {
+    const db = admin.firestore();
+    const stats = await recoverExpiredNotificationLeases(db);
+    logger.info(`[RECOVERY_SWEEP] Scanned=${stats.scannedCount} | Claimed=${stats.claimedCount} | Sent=${stats.sentCount} | Failed=${stats.failedCount}`);
+    return null;
   });
 
 /**
@@ -4230,26 +4102,25 @@ export async function dispatchAdminAlert(
   }
 
   const tokens = recipients.map((r) => r.token);
-  // Privacy-Minimal Payload (No reporter identity, report text, audio URLs, emails, or auth tokens)
+  // Privacy-Minimal Data-Only Payload (No reporter identity, report text, audio URLs, emails, or auth tokens)
   const payload: admin.messaging.MulticastMessage = {
     tokens: tokens,
-    notification: {
-      title: "Critical Moderation Alert",
-      body: "A critical safety report requires immediate attention.",
-    },
     data: {
       alertId: alertId,
+      notificationId: alertId,
       reportId: effectiveAlertData.reportId || "",
       artifactId: effectiveAlertData.artifactId || "",
       severity: effectiveAlertData.severity || "CRITICAL",
       type: "CRITICAL_MODERATION_ALERT",
+      notificationType: "CRITICAL_MODERATION_ALERT",
+      title: "Critical Moderation Alert",
+      body: "A critical safety report requires immediate attention.",
+      message: "A critical safety report requires immediate attention.",
+      channelId: "critical_alerts",
     },
     android: {
+      ttl: 6 * 24 * 60 * 60 * 1000, // 6 days in milliseconds (518,400,000 ms)
       priority: "high",
-      notification: {
-        channelId: "critical_alerts",
-        priority: "max",
-      },
     },
   };
 

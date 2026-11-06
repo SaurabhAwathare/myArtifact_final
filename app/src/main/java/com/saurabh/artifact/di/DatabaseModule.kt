@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import com.saurabh.artifact.data.local.AppDatabase
 import com.saurabh.artifact.data.local.DatabaseMigrations
+import com.saurabh.artifact.data.local.DisplayedNotificationDao
 import com.saurabh.artifact.data.local.DraftDao
 import com.saurabh.artifact.data.local.PromptDao
 import com.saurabh.artifact.data.local.UserConsumedPromptDao
@@ -87,5 +88,10 @@ object DatabaseModule {
     @Provides
     fun provideUserConsumedPromptDao(database: AppDatabase): UserConsumedPromptDao {
         return database.userConsumedPromptDao()
+    }
+
+    @Provides
+    fun provideDisplayedNotificationDao(database: AppDatabase): DisplayedNotificationDao {
+        return database.displayedNotificationDao()
     }
 }

@@ -10,7 +10,6 @@ import com.saurabh.artifact.util.NotificationHelper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 /**
@@ -19,11 +18,8 @@ import kotlinx.coroutines.launch
  */
 class FCMService : FirebaseMessagingService() {
 
-    private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-
-    override fun onDestroy() {
-        serviceScope.cancel()
-        super.onDestroy()
+    companion object {
+        private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     }
 
     override fun onNewToken(token: String) {
@@ -40,6 +36,7 @@ class FCMService : FirebaseMessagingService() {
         val userId = data["userId"]
         val recipientId = data["recipientId"]
         val notificationType = data["notificationType"] ?: data["type"]
+        val notificationId = data["notificationId"] ?: data["alertId"] ?: data["eventId"] ?: data["id"]
         val channelId = when {
             data["type"] == "CRITICAL_MODERATION_ALERT" || data["notificationType"] == "CRITICAL_MODERATION_ALERT" -> {
                 NotificationHelper.CHANNEL_ID_CRITICAL_ALERTS
@@ -55,7 +52,7 @@ class FCMService : FirebaseMessagingService() {
             }
         }
 
-        // 1. Handle Notification Payload (Foreground or explicit notification block)
+        // 1. Handle Legacy / Notification Payload (If explicit notification block is present)
         remoteMessage.notification?.let { notification ->
             val title = notification.title ?: "Artifact"
             val body = notification.body ?: "Someone engaged with your artifact 💬"
@@ -70,12 +67,13 @@ class FCMService : FirebaseMessagingService() {
                     recipientId = recipientId,
                     notificationType = notificationType,
                     channelId = channelId,
+                    notificationId = notificationId,
                 )
             }
             return // Prevent duplicate notification from data payload if both exist
         }
 
-        // 2. Handle Data Payload (Fallback for data-only messages)
+        // 2. Handle Data Payload (Standard data-only messages for foreground/background consistency)
         if (data.isNotEmpty()) {
             val title = data["title"] ?: if (data["type"] == "CRITICAL_MODERATION_ALERT") "Critical Safety Alert" else "New Interaction"
             val message = data["message"] ?: data["body"] ?: "Someone sent you a reaction!"
@@ -90,6 +88,7 @@ class FCMService : FirebaseMessagingService() {
                     recipientId = recipientId,
                     notificationType = notificationType,
                     channelId = channelId,
+                    notificationId = notificationId,
                 )
             }
         }

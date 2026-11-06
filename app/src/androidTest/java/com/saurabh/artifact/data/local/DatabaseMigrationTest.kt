@@ -399,11 +399,11 @@ class DatabaseMigrationTest {
     }
 
     /**
-     * Verifies the full migration chain from baseline Version 60 to Version 79.
+     * Verifies the full migration chain from baseline Version 60 to Version 80.
      */
     @Test
     @Throws(IOException::class)
-    fun migrateAll_60_to_79() {
+    fun migrateAll_60_to_80() {
         helper.createDatabase(TEST_DB, 60).apply {
             execSQL(
                 """
@@ -429,7 +429,7 @@ class DatabaseMigrationTest {
             close()
         }
 
-        val db = helper.runMigrationsAndValidate(TEST_DB, 79, true, *DatabaseMigrations.ALL_MIGRATIONS)
+        val db = helper.runMigrationsAndValidate(TEST_DB, 80, true, *DatabaseMigrations.ALL_MIGRATIONS)
 
         val draftCursor = db.query("SELECT * FROM artifact_drafts WHERE id = 'draft_60'")
         assert(draftCursor.moveToFirst())
@@ -629,5 +629,44 @@ class DatabaseMigrationTest {
         assert(newFollowCursor.moveToFirst())
         assertEquals(42L, newFollowCursor.getLong(newFollowCursor.getColumnIndexOrThrow("expectedBaseGeneration")))
         newFollowCursor.close()
+    }
+
+    /**
+     * Verifies isolated migration from 79 to 80.
+     * Validates creation of displayed_notifications table, insertion of notification deduplication records,
+     * and full preservation of existing pending interactions and draft data.
+     */
+    @Test
+    @Throws(IOException::class)
+    fun migrate79To80_isolated() {
+        helper.createDatabase(TEST_DB, 79).apply {
+            execSQL(
+                """
+                INSERT INTO pending_interactions (
+                    id, userId, artifactId, interactionType, action, metadata, expectedBaseGeneration, createdAt, correlationId, workerId, retryCount, lastError
+                ) VALUES (
+                    40, 'user_M', 'art_79', 'REACTION', 'ADD', 'like', 10, 1000, 'corr_79_dedup', NULL, 0, NULL
+                )
+                """.trimIndent()
+            )
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 80, true, DatabaseMigrations.MIGRATION_79_80)
+
+        // 1. Verify displayed_notifications table is created and operational
+        db.execSQL("INSERT INTO displayed_notifications (notificationId, createdAt) VALUES ('notif_mig_79_80', 1700000000000)")
+        val notifCursor = db.query("SELECT * FROM displayed_notifications WHERE notificationId = 'notif_mig_79_80'")
+        assert(notifCursor.moveToFirst())
+        assertEquals("notif_mig_79_80", notifCursor.getString(notifCursor.getColumnIndexOrThrow("notificationId")))
+        assertEquals(1700000000000L, notifCursor.getLong(notifCursor.getColumnIndexOrThrow("createdAt")))
+        notifCursor.close()
+
+        // 2. Verify pre-existing data in pending_interactions remains intact
+        val pendingCursor = db.query("SELECT * FROM pending_interactions WHERE id = 40")
+        assert(pendingCursor.moveToFirst())
+        assertEquals("user_M", pendingCursor.getString(pendingCursor.getColumnIndexOrThrow("userId")))
+        assertEquals("corr_79_dedup", pendingCursor.getString(pendingCursor.getColumnIndexOrThrow("correlationId")))
+        pendingCursor.close()
     }
 }
