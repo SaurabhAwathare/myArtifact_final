@@ -48,12 +48,18 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.saurabh.artifact.R
 import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.ArtifactReactionCounts
 import com.saurabh.artifact.model.AuthorSnapshot
@@ -99,8 +105,6 @@ fun ArtifactCard(
         return
     }
 
-    val isHydrated = hydrationLevel >= com.saurabh.artifact.ui.feed.HydrationLevel.METADATA
-
     var showOptionsSheet by remember { mutableStateOf(false) }
     var showWhySheet by remember { mutableStateOf(false) }
     val haptic = LocalHapticFeedback.current
@@ -139,8 +143,21 @@ fun ArtifactCard(
 
     val isPending = artifact.audioUrl.isEmpty() && artifact.status == com.saurabh.artifact.model.ArtifactStatus.PENDING_UPLOAD
 
-    val progress by remember(currentPosition, durationMs) {
-        derivedStateOf { if (durationMs > 0) currentPosition.toFloat() / durationMs else 0f }
+    val effectiveDurationMs = if (artifact.durationMs > 0) artifact.durationMs else durationMs
+
+    val progress by remember(currentPosition, effectiveDurationMs) {
+        derivedStateOf { if (effectiveDurationMs > 0) currentPosition.toFloat() / effectiveDurationMs else 0f }
+    }
+
+    val configuration = LocalConfiguration.current
+    val formattedDuration = remember(effectiveDurationMs, configuration) {
+        TimeUtils.formatCompactDurationMillis(effectiveDurationMs, configuration)
+    }
+
+    val playActionLabel = when {
+        isBuffering -> stringResource(R.string.cd_buffering_playback)
+        isPlaying -> stringResource(R.string.cd_pause_playback)
+        else -> stringResource(R.string.cd_play_artifact)
     }
 
     // Atmospheric Waveform Height Animation - GUARDED BY isPlaying and hydrationLevel
@@ -162,15 +179,11 @@ fun ArtifactCard(
         .fillMaxWidth()
         .clip(MaterialTheme.shapes.large)
         .background(ArtifactTheme.colors.surfaceHearth)
-        .let { 
-            if (isHydrated) {
-                it.border(
-                    width = 0.5.dp,
-                    color = ArtifactTheme.colors.waveformInactive.copy(alpha = 0.1f),
-                    shape = MaterialTheme.shapes.large
-                )
-            } else it
-        }
+        .border(
+            width = 1.dp,
+            color = ArtifactTheme.colors.surfaceGlow,
+            shape = MaterialTheme.shapes.large
+        )
 
     PressableScale(
         onClick = {
@@ -300,12 +313,13 @@ fun ArtifactCard(
 
                         IconButton(
                             onClick = { showOptionsSheet = true },
-                            modifier = Modifier.size(24.dp)
+                            modifier = Modifier.size(48.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Rounded.MoreVert,
-                                contentDescription = "Options",
-                                tint = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.4f)
+                                contentDescription = stringResource(R.string.cd_more_options),
+                                tint = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.4f),
+                                modifier = Modifier.size(24.dp)
                             )
                         }
                     }
@@ -314,7 +328,7 @@ fun ArtifactCard(
 
                     Text(
                         text = if (isHidden) "This reflection has been quieted." else displayTitle,
-                        style = ArtifactTheme.typography.bodyLarge,
+                        style = ArtifactTheme.typography.titleLarge,
                         color = if (isHidden) ArtifactTheme.colors.onSurfaceMuted else ArtifactTheme.colors.onSurfaceMain,
                         fontStyle = if (isHidden) FontStyle.Italic else FontStyle.Normal,
                         maxLines = 3,
@@ -322,9 +336,9 @@ fun ArtifactCard(
                     )
 
                     if (!isHidden) {
-                        if (hydrationLevel >= com.saurabh.artifact.ui.feed.HydrationLevel.ENRICHED) {
-                            Spacer(modifier = Modifier.height(Spacing.Large))
+                        Spacer(modifier = Modifier.height(Spacing.Large))
 
+                        if (hydrationLevel >= com.saurabh.artifact.ui.feed.HydrationLevel.ENRICHED) {
                             Box(
                                 contentAlignment = Alignment.CenterStart,
                                 modifier = Modifier.fillMaxWidth()
@@ -359,9 +373,12 @@ fun ArtifactCard(
                                             }
                                         },
                                         modifier = Modifier
-                                            .size(44.dp)
+                                            .size(48.dp)
                                             .clip(CircleShape)
                                             .background(ArtifactTheme.colors.waveformActive.copy(alpha = 0.08f))
+                                            .semantics {
+                                                contentDescription = playActionLabel
+                                            }
                                     ) {
                                         if (isBuffering) {
                                             CircularProgressIndicator(
@@ -391,6 +408,57 @@ fun ArtifactCard(
                                         isStatic = !isPlaying || hydrationLevel < com.saurabh.artifact.ui.feed.HydrationLevel.FULL,
                                         context = if (isPlaying) WaveformContext.Player else WaveformContext.Feed,
                                         id = artifact.id
+                                    )
+
+                                    if (formattedDuration != null) {
+                                        Spacer(modifier = Modifier.width(Spacing.Medium))
+                                        Text(
+                                            text = formattedDuration,
+                                            style = ArtifactTheme.typography.labelSmall,
+                                            color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.6f)
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            // METADATA level: structural parity placeholder (prevents card height collapse)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                val playLabel = stringResource(R.string.cd_play_artifact)
+                                IconButton(
+                                    onClick = onPlayClick,
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .clip(CircleShape)
+                                        .background(ArtifactTheme.colors.waveformActive.copy(alpha = 0.08f))
+                                        .semantics {
+                                            contentDescription = playLabel
+                                        }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.PlayArrow,
+                                        contentDescription = null,
+                                        tint = ArtifactTheme.colors.waveformActive.copy(alpha = 0.6f),
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.width(Spacing.Medium))
+
+                                StaticWaveformPlaceholder(
+                                    modifier = Modifier.weight(1f).height(40.dp),
+                                    context = WaveformContext.Feed,
+                                    id = artifact.id
+                                )
+
+                                if (formattedDuration != null) {
+                                    Spacer(modifier = Modifier.width(Spacing.Medium))
+                                    Text(
+                                        text = formattedDuration,
+                                        style = ArtifactTheme.typography.labelSmall,
+                                        color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.6f)
                                     )
                                 }
                             }
@@ -472,7 +540,8 @@ fun ArtifactCard(
 }
 
 /**
- * An extremely optimized, static-only version of the ArtifactCard for the first frame.
+ * An extremely optimized, static-only version of the ArtifactCard for the first frame (SHELL hydration).
+ * Maintains structural and height parity with hydrated states to prevent layout shifts.
  */
 @Composable
 private fun LightweightArtifactCard(
@@ -480,139 +549,256 @@ private fun LightweightArtifactCard(
     onPlayClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val displayTitle = remember(artifact.title, artifact.episodeNumber) {
+        ArtifactTitleFormatter.formatTitle(
+            title = artifact.title,
+            episodeNumber = artifact.episodeNumber,
+            fallbackTitle = "A quiet moment shared..."
+        )
+    }
+
+    val displayEmotionWithEmoji = remember(artifact.emotion) {
+        val emotionEnum = com.saurabh.artifact.model.Emotion.entries.find { 
+            it.label.equals(artifact.emotion, ignoreCase = true) || 
+            it.name.equals(artifact.emotion, ignoreCase = true) 
+        }
+        if (emotionEnum != null) {
+            "${emotionEnum.emoji} ${emotionEnum.label.lowercase()}"
+        } else ""
+    }
+
+    val resolvedIdentity = remember(artifact) {
+        ResolvedCreatorIdentity.resolve(artifact, null)
+    }
+
+    val configuration = LocalConfiguration.current
+    val effectiveDurationMs = artifact.durationMs
+    val formattedDuration = remember(effectiveDurationMs, configuration) {
+        TimeUtils.formatCompactDurationMillis(effectiveDurationMs, configuration)
+    }
+
     Box(
         modifier = modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.large)
             .background(ArtifactTheme.colors.surfaceHearth)
+            .border(
+                width = 1.dp,
+                color = ArtifactTheme.colors.surfaceGlow,
+                shape = MaterialTheme.shapes.large
+            )
             .padding(Spacing.Large)
     ) {
         Column {
-            val emotionLabel = remember(artifact.emotion) {
-                val emotionEnum = com.saurabh.artifact.model.Emotion.entries.find { 
-                    it.label.equals(artifact.emotion, ignoreCase = true) || 
-                    it.name.equals(artifact.emotion, ignoreCase = true) 
+            // Header Row: Sigil + Author Info + Emotion Chip + More Options reservation
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    ArtifactSigil(
+                        config = resolvedIdentity.sigilConfig,
+                        size = 32.dp,
+                        isStatic = true
+                    )
+                    
+                    Spacer(modifier = Modifier.width(Spacing.Medium))
+                    
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = resolvedIdentity.name,
+                                modifier = Modifier.weight(1f, fill = false),
+                                style = ArtifactTheme.typography.labelLarge.copy(
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 15.sp
+                                ),
+                                color = ArtifactTheme.colors.onSurfaceMain,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (resolvedIdentity.sigil.isNotEmpty()) {
+                                Text(
+                                    text = " · ",
+                                    style = ArtifactTheme.typography.labelMedium,
+                                    color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.5f)
+                                )
+                                Text(
+                                    text = resolvedIdentity.sigil,
+                                    style = ArtifactTheme.typography.labelSmall.copy(
+                                        fontWeight = FontWeight.Light
+                                    ),
+                                    color = ArtifactTheme.colors.onSurfaceMuted
+                                )
+                            }
+                        }
+                        Text(
+                            text = TimeUtils.getRelativeTime(artifact.createdAt),
+                            style = ArtifactTheme.typography.labelSmall,
+                            color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.6f)
+                        )
+                    }
+                    
+                    if (displayEmotionWithEmoji.isNotEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .padding(start = Spacing.Large)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(ArtifactTheme.colors.waveformActive.copy(alpha = 0.05f))
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = displayEmotionWithEmoji,
+                                style = ArtifactTheme.typography.labelSmall,
+                                color = ArtifactTheme.colors.waveformActive.copy(alpha = 0.8f)
+                            )
+                        }
+                    }
                 }
-                if (emotionEnum != null) {
-                    "${emotionEnum.emoji} ${emotionEnum.label.lowercase()}"
-                } else ""
-            }
 
-            if (emotionLabel.isNotEmpty()) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(ArtifactTheme.colors.waveformActive.copy(alpha = 0.2f)))
-                    Spacer(Modifier.width(Spacing.Small))
-                    Text(
-                        text = emotionLabel,
-                        style = ArtifactTheme.typography.labelLarge,
-                        color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.4f)
+                // 48dp target for layout reservation
+                Box(
+                    modifier = Modifier.size(48.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.MoreVert,
+                        contentDescription = null,
+                        tint = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.3f),
+                        modifier = Modifier.size(24.dp)
                     )
                 }
-
-                Spacer(modifier = Modifier.height(Spacing.Medium))
             }
 
-            val displayTitle = remember(artifact.title, artifact.episodeNumber) {
-                ArtifactTitleFormatter.formatTitle(
-                    title = artifact.title,
-                    episodeNumber = artifact.episodeNumber,
-                    fallbackTitle = "A quiet moment shared..."
-                )
-            }
+            Spacer(modifier = Modifier.height(Spacing.Medium))
 
+            // Title: maxLines = 3 ensures identical height reservation for multi-line titles
             Text(
                 text = displayTitle,
-                style = ArtifactTheme.typography.bodyLarge,
-                color = ArtifactTheme.colors.onSurfaceMain.copy(alpha = 0.7f),
-                maxLines = 1, // Minimize text traversal
+                style = ArtifactTheme.typography.titleLarge,
+                color = ArtifactTheme.colors.onSurfaceMain,
+                maxLines = 3,
                 overflow = TextOverflow.Ellipsis
             )
 
             Spacer(modifier = Modifier.height(Spacing.Large))
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                // Fixed Play Button (No state/animation)
-                Box(
+            // Playback Row: 48dp Play Button + 40dp Static Waveform + Duration
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                val playLabel = stringResource(R.string.cd_play_artifact)
+                IconButton(
+                    onClick = onPlayClick,
                     modifier = Modifier
-                        .size(40.dp)
+                        .size(48.dp)
                         .clip(CircleShape)
-                        .background(ArtifactTheme.colors.waveformActive.copy(alpha = 0.03f))
-                        .clickable(onClick = onPlayClick),
-                    contentAlignment = Alignment.Center
+                        .background(ArtifactTheme.colors.waveformActive.copy(alpha = 0.08f))
+                        .semantics {
+                            contentDescription = playLabel
+                        }
                 ) {
                     Icon(
-                        imageVector = Icons.Rounded.PlayArrow, 
-                        contentDescription = null, 
-                        tint = ArtifactTheme.colors.waveformActive.copy(alpha = 0.4f),
-                        modifier = Modifier.size(20.dp)
+                        imageVector = Icons.Rounded.PlayArrow,
+                        contentDescription = null,
+                        tint = ArtifactTheme.colors.waveformActive.copy(alpha = 0.6f),
+                        modifier = Modifier.size(24.dp)
                     )
                 }
 
                 Spacer(modifier = Modifier.width(Spacing.Medium))
 
-                // Placeholder Waveform (Static)
                 StaticWaveformPlaceholder(
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).height(40.dp),
                     context = WaveformContext.Feed,
                     id = artifact.id
                 )
+
+                if (formattedDuration != null) {
+                    Spacer(modifier = Modifier.width(Spacing.Medium))
+                    Text(
+                        text = formattedDuration,
+                        style = ArtifactTheme.typography.labelSmall,
+                        color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.6f)
+                    )
+                }
+            }
+
+            // Resonance Row parity when reactionCount > 0
+            if (artifact.reactionCount > 0) {
+                Spacer(modifier = Modifier.height(Spacing.ExtraSmall))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    ResonanceDisplay(
+                        counts = ArtifactReactionCounts(
+                            artifactId = artifact.id,
+                            totalCount = artifact.reactionCount,
+                            visibility = artifact.reactionVisibility
+                        ),
+                        isOwner = false,
+                        onClick = {}
+                    )
+                }
             }
         }
     }
 }
 
-// DELETE: private fun formatDuration(millis: Long): String {
-//    val totalSeconds = millis / 1000
-//    val mins = totalSeconds / 60
-//    val secs = totalSeconds % 60
-//    return "%d:%02d".format(mins, secs)
-// }
-
 @Preview(showBackground = true, backgroundColor = 0xFF050505, widthDp = 320)
 @Composable
 fun PreviewArtifactCardNarrow() {
-    ArtifactTheme {
-        val mockArtifact = Artifact(
-            id = "1",
-            userId = "user_1",
-            author = AuthorSnapshot(
-                name = "DeepThinker",
-                sigil = "◈"
-            ),
-            title = "Testing long username on narrow screen.",
-            audioUrl = "",
-            emotion = "Overwhelmed"
-        )
-        ArtifactCard(
-            artifact = mockArtifact,
-            isPlaying = false,
-            onPlayClick = {},
-            modifier = Modifier.padding(Spacing.Medium)
-        )
+    androidx.compose.runtime.CompositionLocalProvider(LocalStartupStage provides com.saurabh.artifact.startup.StartupStage.STABLE) {
+        ArtifactTheme {
+            val mockArtifact = Artifact(
+                id = "1",
+                userId = "user_1",
+                author = AuthorSnapshot(
+                    name = "DeepThinker",
+                    sigil = "◈"
+                ),
+                title = "Testing long username on narrow screen.",
+                audioUrl = "",
+                durationMs = 95000,
+                emotion = "Overwhelmed"
+            )
+            ArtifactCard(
+                artifact = mockArtifact,
+                isPlaying = false,
+                onPlayClick = {},
+                modifier = Modifier.padding(Spacing.Medium)
+            )
+        }
     }
 }
 
 @Preview(showBackground = true, backgroundColor = 0xFF050505)
 @Composable
 fun PreviewArtifactCardWorstCase() {
-    ArtifactTheme {
-        val mockArtifact = Artifact(
-            id = "1",
-            userId = "user_1",
-            author = AuthorSnapshot(
-                name = "DeepThinker",
-                sigil = "◈"
-            ),
-            title = "Worst case scenario with all elements present and very long content.",
-            audioUrl = "",
-            emotion = "Overwhelmed"
-        )
-        ArtifactCard(
-            artifact = mockArtifact,
-            isPlaying = false,
-            onPlayClick = {},
-            modifier = Modifier.padding(Spacing.Medium)
-        )
+    androidx.compose.runtime.CompositionLocalProvider(LocalStartupStage provides com.saurabh.artifact.startup.StartupStage.STABLE) {
+        ArtifactTheme {
+            val mockArtifact = Artifact(
+                id = "1",
+                userId = "user_1",
+                author = AuthorSnapshot(
+                    name = "DeepThinker",
+                    sigil = "◈"
+                ),
+                title = "Worst case scenario with all elements present and very long content.",
+                audioUrl = "",
+                durationMs = 102000,
+                emotion = "Overwhelmed"
+            )
+            ArtifactCard(
+                artifact = mockArtifact,
+                isPlaying = false,
+                onPlayClick = {},
+                modifier = Modifier.padding(Spacing.Medium)
+            )
+        }
     }
 }
 

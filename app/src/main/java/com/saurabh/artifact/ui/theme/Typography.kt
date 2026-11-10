@@ -50,6 +50,12 @@ val SafeTypography = Typography(
         fontSize = 24.sp,
         lineHeight = 32.sp
     ),
+    titleLarge = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 22.sp,
+        lineHeight = 28.sp
+    ),
     bodyLarge = TextStyle(
         fontFamily = FontFamily.Default,
         fontWeight = FontWeight.Normal,
@@ -100,6 +106,15 @@ val ArtifactTypography = Typography(
         fontWeight = FontWeight.SemiBold,
         fontSize = 24.sp,
         lineHeight = 32.sp
+    ),
+
+    // The "Reflection Title" - For artifact card titles and reflective moments
+    titleLarge = TextStyle(
+        fontFamily = InstrumentSerifFont,
+        fontWeight = FontWeight.Normal,
+        fontSize = 22.sp,
+        lineHeight = 28.sp,
+        letterSpacing = (-0.2).sp
     ),
 
     // The "Reflection" - For transcript reading (Generous line height)

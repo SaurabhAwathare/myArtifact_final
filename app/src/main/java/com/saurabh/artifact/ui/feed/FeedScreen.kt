@@ -3,6 +3,7 @@ package com.saurabh.artifact.ui.feed
 import android.content.Intent
 import androidx.core.net.toUri
 import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -30,7 +31,6 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.map
 import androidx.compose.ui.zIndex
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.ui.components.ArtifactCard
@@ -96,6 +96,17 @@ fun FeedScreen(
     val selectedEmotion by viewModel.selectedEmotion.collectAsStateWithLifecycle()
     val publishState by viewModel.currentPublishState.collectAsStateWithLifecycle()
 
+    val refreshState = recentArtifacts.loadState.refresh
+    var committedEmotion by remember { mutableStateOf(selectedEmotion) }
+
+    LaunchedEffect(refreshState, selectedEmotion) {
+        if (selectedEmotion != committedEmotion && refreshState !is LoadState.Loading) {
+            committedEmotion = selectedEmotion
+        }
+    }
+
+    val isTransitioning = selectedEmotion != committedEmotion
+
     val reflectionPrompt by viewModel.reflectionPrompt.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val hasNewContent by viewModel.hasNewContent.collectAsStateWithLifecycle()
@@ -159,7 +170,8 @@ fun FeedScreen(
         ) {
             FeedVibeHeader(
                 selectedEmotion = selectedEmotion,
-                onEmotionSelect = { viewModel.setEmotionFilter(it) }
+                onEmotionSelect = { viewModel.setEmotionFilter(it) },
+                isTransitioning = isTransitioning
             )
 
             AmbientUploadBar(
@@ -193,7 +205,8 @@ fun FeedScreen(
                         onAuthorClick = onAuthorClick,
                         onResonatorsCountClick = onResonatorsCountClick,
                         onNavigateToSecurity = onNavigateToSecurity,
-                        selectedEmotion = selectedEmotion
+                        selectedEmotion = selectedEmotion,
+                        committedEmotion = committedEmotion
                     )
                 }
 
@@ -287,7 +300,8 @@ private fun FeedTopBar(
 private fun FeedVibeHeader(
     selectedEmotion: String?,
     onEmotionSelect: (String?) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isTransitioning: Boolean = false
 ) {
     Column(modifier = modifier.padding(bottom = 8.dp)) {
         LazyRow(
@@ -313,6 +327,22 @@ private fun FeedVibeHeader(
                 )
             }
         }
+
+        // Subtle, non-disruptive loading indicator during emotion transition
+        AnimatedVisibility(
+            visible = isTransitioning,
+            enter = fadeIn(animationSpec = tween(200)),
+            exit = fadeOut(animationSpec = tween(200))
+        ) {
+            LinearProgressIndicator(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 4.dp)
+                    .height(2.dp),
+                color = Color(0xFFFFB84D), // Warm Amber
+                trackColor = Color.Transparent
+            )
+        }
     }
 }
 
@@ -330,24 +360,17 @@ private fun FeedContent(
     onNavigateToSecurity: () -> Unit,
     modifier: Modifier = Modifier,
     onResonatorsCountClick: (String) -> Unit = {},
-    selectedEmotion: String? = null
+    selectedEmotion: String? = null,
+    committedEmotion: String? = null
 ) {
     val currentArtifacts = artifacts
     val refreshState = currentArtifacts.loadState.refresh
 
-    var lastLoadedEmotion by remember { mutableStateOf<String?>(selectedEmotion) }
-
-    LaunchedEffect(refreshState, selectedEmotion) {
-        if (selectedEmotion != lastLoadedEmotion && refreshState !is LoadState.Loading) {
-            lastLoadedEmotion = selectedEmotion
-        }
-    }
-
-    val isStale = selectedEmotion != lastLoadedEmotion
-    val isLoading = isStale || (refreshState is LoadState.Loading && currentArtifacts.itemCount == 0) || (isRankedLoading && currentArtifacts.itemCount == 0)
-    val isError = !isStale && refreshState is LoadState.Error
-    val isEmpty = !isLoading && !isError && currentArtifacts.itemCount == 0
-    val showOverlay = isLoading || isError || isEmpty
+    val isTransitioning = selectedEmotion != committedEmotion
+    val isInitialLoading = (refreshState is LoadState.Loading || isRankedLoading) && currentArtifacts.itemCount == 0
+    val isError = refreshState is LoadState.Error && currentArtifacts.itemCount == 0
+    val isEmpty = !isTransitioning && refreshState !is LoadState.Loading && currentArtifacts.itemCount == 0
+    val showOverlay = isInitialLoading || isError || isEmpty
 
     val feedErrorClassification by produceState<FeedErrorClassification?>(
         initialValue = null,
@@ -377,12 +400,12 @@ private fun FeedContent(
                     stage = stage, 
                     onNavigateToRecord = onNavigateToRecord, 
                     onNavigateToSecurity = onNavigateToSecurity,
-                    selectedEmotion = selectedEmotion
+                    selectedEmotion = committedEmotion
                 )
             }
 
             items(
-                count = if (isStale) 0 else currentArtifacts.itemCount,
+                count = currentArtifacts.itemCount,
                 key = currentArtifacts.itemKey { it.id }
             ) { index ->
                 val item = currentArtifacts[index]
@@ -404,11 +427,11 @@ private fun FeedContent(
                 }
             }
 
-            if (!isStale && currentArtifacts.loadState.append is LoadState.Loading) {
+            if (currentArtifacts.loadState.append is LoadState.Loading) {
                 item(key = "loading_indicator") { LoadingIndicator() }
             }
 
-            if (!isStale && currentArtifacts.itemCount > 0) {
+            if (currentArtifacts.itemCount > 0) {
                 item(key = "drawn_signal") {
                     val context = LocalContext.current
                     LaunchedEffect(Unit) {
@@ -418,15 +441,15 @@ private fun FeedContent(
             }
         }
 
-        // Overlay loading, error, or empty states when the paging items are empty or stale.
-        // We use a background to mask the empty LazyColumn (which still contains the header).
+        // Overlay loading, error, or empty states when the paging items are empty.
+        // Preserves existing content during filter transitions without flashing skeleton.
         if (showOverlay) {
             FadeInContent(
                 visible = true,
                 modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
             ) {
                 when {
-                    isLoading -> {
+                    isInitialLoading -> {
                         FeedLoadingState(modifier = Modifier.fillMaxSize())
                     }
                     isError -> {
@@ -439,7 +462,7 @@ private fun FeedContent(
                     else -> {
                         EmptyFeedState(
                             onRecordClick = { onNavigateToRecord(null, null) },
-                            selectedEmotion = selectedEmotion
+                            selectedEmotion = committedEmotion
                         )
                     }
                 }
@@ -462,8 +485,7 @@ fun FeedHeader(
     val isPromptLoading by viewModel.isPromptLoading.collectAsStateWithLifecycle()
     val safetyLevel by viewModel.safetyLevel.collectAsStateWithLifecycle()
     val isCrisis by viewModel.isCrisis.collectAsStateWithLifecycle()
-    val feedState by viewModel.uiState.collectAsStateWithLifecycle()
-    val isMnemonicSaved = feedState.isMnemonicSaved
+    val isMnemonicSaved by viewModel.isMnemonicSaved.collectAsStateWithLifecycle()
     val context = LocalContext.current
     
     Column(
@@ -528,23 +550,26 @@ fun ArtifactItem(
         viewModel.getRecommendationReason(artifactId)
     }.collectAsStateWithLifecycle(initialValue = null)
 
-    val playingArtifact by viewModel.currentlyPlayingArtifact.collectAsStateWithLifecycle()
-    val isPlayingGlobal by viewModel.isPlaying.collectAsStateWithLifecycle()
-    val isBuffering by viewModel.audioPlayer.isBuffering.collectAsStateWithLifecycle()
+    val isPlaying by remember(viewModel, artifactId) {
+        viewModel.isArtifactPlaying(artifactId)
+    }.collectAsStateWithLifecycle(initialValue = false)
+
+    val isCurrentBuffering by remember(viewModel, artifactId) {
+        viewModel.isArtifactBuffering(artifactId)
+    }.collectAsStateWithLifecycle(initialValue = false)
+
     val hydrationLevel by remember(viewModel, artifactId) {
-        viewModel.uiState.map { it.hydrationLevels[artifactId] ?: HydrationLevel.SHELL }
+        viewModel.getHydrationLevel(artifactId)
     }.collectAsStateWithLifecycle(initialValue = HydrationLevel.SHELL)
-    
-    val isCurrent = playingArtifact?.id == artifactId
-    val isPlaying = isPlayingGlobal && isCurrent
-    val isCurrentBuffering = isBuffering && isCurrent
     
     val effectiveArtifact = artifact ?: feedArtifact?.artifact
     
     effectiveArtifact?.let { art ->
         val effectiveReason = reason ?: feedArtifact?.reason ?: com.saurabh.artifact.model.FeedRecommendationReason.DISCOVERY
-        val creatorProfile by viewModel.observeCreatorProfile(art.userId, art.author.anonymousId)
-            .collectAsState(initial = null)
+        val creatorProfileFlow = remember(art.userId, art.author.anonymousId) {
+            viewModel.observeCreatorProfile(art.userId, art.author.anonymousId)
+        }
+        val creatorProfile by creatorProfileFlow.collectAsStateWithLifecycle(initialValue = null)
 
         LaunchedEffect(Unit) {
             StartupMetrics.onFirstArtifactRendered()

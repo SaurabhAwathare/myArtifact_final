@@ -25,6 +25,33 @@ object TimeUtils {
     }
 
     /**
+     * Formats milliseconds into compact M:SS format (e.g., "1:42") or H:MM:SS format using the provided configuration for locale.
+     * Returns null if millis < 1000L to gracefully omit unavailable (<= 0), uncalculated, or sub-second durations.
+     */
+    fun formatCompactDurationMillis(millis: Long, configuration: Configuration): String? {
+        if (millis < 1000L) return null
+        val locale = ConfigurationCompat.getLocales(configuration)[0] ?: configuration.locales[0]
+        return formatCompactDurationMillis(millis, locale)
+    }
+
+    /**
+     * Formats milliseconds into compact M:SS format (e.g., "1:42") or H:MM:SS format using the provided locale.
+     * Returns null if millis < 1000L to gracefully omit unavailable (<= 0), uncalculated, or sub-second durations.
+     */
+    fun formatCompactDurationMillis(millis: Long, locale: Locale = Locale.getDefault()): String? {
+        if (millis < 1000L) return null
+        val totalSeconds = millis / 1000
+        val hours = totalSeconds / 3600
+        val mins = (totalSeconds % 3600) / 60
+        val secs = totalSeconds % 60
+        return if (hours > 0) {
+            String.format(locale, "%d:%02d:%02d", hours, mins, secs)
+        } else {
+            String.format(locale, "%d:%02d", mins, secs)
+        }
+    }
+
+    /**
      * Returns a simple relative time string (e.g., "2m ago", "1h ago").
      */
     fun getRelativeTime(timestamp: com.google.firebase.Timestamp): String {

@@ -152,6 +152,11 @@ class FeedViewModel @Inject constructor(
             }
         }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val isMnemonicSaved: StateFlow<Boolean> = isMnemonicSavedFlow
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
     private val _uiState = MutableStateFlow(FeedUiState())
     val uiState: StateFlow<FeedUiState> = combine(
         _uiState,
@@ -526,6 +531,28 @@ class FeedViewModel @Inject constructor(
 
     fun updateHydrationLevels(updates: Map<String, HydrationLevel>) {
         _uiState.update { it.copy(hydrationLevels = it.hydrationLevels + updates) }
+    }
+
+    fun getHydrationLevel(id: String): Flow<HydrationLevel> {
+        return _uiState.map { it.hydrationLevels[id] ?: HydrationLevel.SHELL }.distinctUntilChanged()
+    }
+
+    fun isArtifactPlaying(artifactId: String): Flow<Boolean> {
+        return combine(
+            currentlyPlayingArtifact,
+            isPlaying
+        ) { playingArtifact, isPlayingGlobal ->
+            isPlayingGlobal && playingArtifact?.id == artifactId
+        }.distinctUntilChanged()
+    }
+
+    fun isArtifactBuffering(artifactId: String): Flow<Boolean> {
+        return combine(
+            currentlyPlayingArtifact,
+            audioPlayer.isBuffering
+        ) { playingArtifact, isBuffering ->
+            isBuffering && playingArtifact?.id == artifactId
+        }.distinctUntilChanged()
     }
 
     fun getArtifactFlow(id: String): Flow<Artifact?> {

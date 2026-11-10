@@ -83,4 +83,11 @@
     <string name="username_advisory_default_body">Your username is visible to other Listeners. Avoid using your real name or other identifying information.</string>
     <string name="username_advisory_identifying_body">This username may reveal personal information. Consider choosing an anonymous persona.</string>
     <string name="username_blocking_title">Protective Guidance</string>
+
+    <!-- Accessibility Labels -->
+    <string name="cd_play_artifact">Play Artifact</string>
+    <string name="cd_pause_playback">Pause playback</string>
+    <string name="cd_buffering_playback">Buffering playback</string>
+    <string name="cd_more_options">More options</string>
+    <string name="cd_record_reflection">Record a voice reflection</string>
 </resources>

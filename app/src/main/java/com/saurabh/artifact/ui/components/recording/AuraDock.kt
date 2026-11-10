@@ -20,7 +20,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -34,10 +33,19 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.saurabh.artifact.R
 import com.saurabh.artifact.data.local.RecordingStatus
 import com.saurabh.artifact.ui.theme.ArtifactTheme
+import com.saurabh.artifact.ui.theme.GoldAura400
+import com.saurabh.artifact.ui.theme.GoldAura500
+import com.saurabh.artifact.ui.theme.Obsidian950
 import com.saurabh.artifact.ui.util.debouncedClick
 
 /**
@@ -65,7 +73,7 @@ fun AuraDock(
         else -> 5000                     // Calm idle
     }
 
-    val breathingScale by infiniteTransition.animateFloat(
+    val breathingScale = infiniteTransition.animateFloat(
         initialValue = 1f,
         targetValue = if (status == RecordingStatus.RECORDING) 1.04f else 1.02f,
         animationSpec = infiniteRepeatable(
@@ -75,7 +83,7 @@ fun AuraDock(
         label = "StableBreath"
     )
 
-    val glowAlpha by infiniteTransition.animateFloat(
+    val glowAlpha = infiniteTransition.animateFloat(
         initialValue = 0.15f,
         targetValue = if (status == RecordingStatus.RECORDING) 0.4f else 0.3f,
         animationSpec = infiniteRepeatable(
@@ -91,24 +99,33 @@ fun AuraDock(
         modifier = modifier
             .size(110.dp) // Slightly larger container for better glow diffusion
             .graphicsLayer { 
-                scaleX = breathingScale
-                scaleY = breathingScale 
+                val scale = breathingScale.value
+                scaleX = scale
+                scaleY = scale 
             }
     ) {
-        // Part 4, 7 & 8 — Glow & Atmosphere Governance
+        // Part 4, 7 & 8 — Glow & Atmosphere Governance: Phase-deferred drawing without expensive blur
         AuraGlow(
-            alpha = glowAlpha
+            alphaProvider = { glowAlpha.value }
         )
 
         // The Core Interaction Surface
+        val recordingDescription = stringResource(R.string.cd_record_reflection)
         Surface(
             shape = CircleShape,
-            color = Color(0xFFD96B5F),
+            color = GoldAura500,
             tonalElevation = 6.dp,
             modifier = Modifier
                 .size(72.dp) // Slightly larger
                 .clip(CircleShape)
-                .debouncedClick {
+                .semantics {
+                    contentDescription = recordingDescription
+                    role = Role.Button
+                }
+                .debouncedClick(
+                    onClickLabel = recordingDescription,
+                    role = Role.Button
+                ) {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     onInitiate()
                 }
@@ -123,26 +140,24 @@ fun AuraDock(
 
 @Composable
 private fun AuraGlow(
-    alpha: Float,
-    modifier: Modifier = Modifier
+    alphaProvider: () -> Float,
+    modifier: Modifier = Modifier,
+    color: Color = GoldAura400
 ) {
-    // Part 4 — Emotional Red Glow
-    val color = Color(0xFFD96B5F)
-    
     Canvas(
         modifier = modifier
             .fillMaxSize()
-            .blur(32.dp)
-            .graphicsLayer { this.alpha = alpha }
+            .graphicsLayer { this.alpha = alphaProvider() }
     ) {
         drawCircle(
             brush = Brush.radialGradient(
-                colors = listOf(
-                    color,
-                    Color.Transparent
-                ),
+                0.0f to color,
+                0.35f to color.copy(alpha = 0.7f),
+                0.65f to color.copy(alpha = 0.3f),
+                0.85f to color.copy(alpha = 0.08f),
+                1.0f to Color.Transparent,
                 center = center,
-                radius = size.minDimension / 2.2f
+                radius = size.minDimension / 2.0f
             )
         )
     }
@@ -161,7 +176,7 @@ private fun MicrophoneGlyph(
     )
 
     val coreColor by animateColorAsState(
-        targetValue = Color.White,
+        targetValue = Obsidian950,
         animationSpec = tween(600),
         label = "MicColor"
     )
