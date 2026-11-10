@@ -104,6 +104,7 @@ private val DarkColorScheme = darkColorScheme(
 @Composable
 fun ArtifactTheme(
     logger: DiagnosticLogger = NoOpDiagnosticLogger,
+    stage: StartupStage = StartupStage.STABLE,
     content: @Composable () -> Unit
 ) {
     // Artifact is a permanent dark-mode emotional experience.
@@ -122,10 +123,8 @@ fun ArtifactTheme(
         goldAura = GoldAura500
     )
 
-    // Typography used by Material components.
-    // We keep this stable (SafeTypography) to prevent Material component invalidations.
-    // High-level screens will use ArtifactTheme.typography for localized upgrades.
-    val typography = SafeTypography
+    // MaterialTheme receives ArtifactTypography when in STABLE stage
+    val typography = if (stage == StartupStage.STABLE) ArtifactTypography else SafeTypography
 
     val view = LocalView.current
     if (!view.isInEditMode) {
@@ -137,6 +136,7 @@ fun ArtifactTheme(
     }
 
     CompositionLocalProvider(
+        LocalStartupStage provides stage,
         LocalArtifactColors provides artifactColors,
         LocalEmotionalTokens provides EmotionalTokens(),
         LocalDiagnosticLogger provides logger

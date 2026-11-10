@@ -84,7 +84,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            ArtifactTheme(logger = diagnosticLogger) {
+            ArtifactTheme(logger = diagnosticLogger, stage = stage) {
                 AppRoot(
                     startupState = startupState,
                     stage = stage,

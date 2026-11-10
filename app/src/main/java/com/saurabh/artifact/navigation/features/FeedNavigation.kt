@@ -1,6 +1,8 @@
 package com.saurabh.artifact.navigation.features
 
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.composable
@@ -25,6 +27,7 @@ fun NavGraphBuilder.feedNavigation(
 
     composable<Home> {
         diagnosticLogger.debug(DiagnosticCategory.NAVIGATION, "NAVIGATE_TO_FEED", mapOf("source" to "Home"))
+        val recordingState by recordingSessionManager.sessionState.collectAsStateWithLifecycle()
         val onNavigateToProfile = remember(navController) {
             {
                 navController.navigate(Profile()) {
@@ -69,12 +72,14 @@ fun NavGraphBuilder.feedNavigation(
             },
             onNavigateToSecurity = {
                 navController.navigate(MnemonicReveal())
-            }
+            },
+            recordingStatus = recordingState.status
         )
     }
 
     composable<Feed> {
         diagnosticLogger.debug(DiagnosticCategory.NAVIGATION, "NAVIGATE_TO_FEED", mapOf("source" to "Feed"))
+        val recordingState by recordingSessionManager.sessionState.collectAsStateWithLifecycle()
         val onNavigateToProfile = remember(navController) {
             {
                 navController.navigate(Profile()) {
@@ -119,7 +124,8 @@ fun NavGraphBuilder.feedNavigation(
             },
             onNavigateToSecurity = {
                 navController.navigate(MnemonicReveal())
-            }
+            },
+            recordingStatus = recordingState.status
         )
     }
 

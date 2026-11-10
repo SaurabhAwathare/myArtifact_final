@@ -13,6 +13,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.saurabh.artifact.ui.theme.EmberGlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -30,6 +31,15 @@ fun AdvancedControlsSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val coroutineScope = rememberCoroutineScope()
     var isDismissing by remember { mutableStateOf(false) }
+    var actionExecuted by remember { mutableStateOf(false) }
+    var dismissExecuted by remember { mutableStateOf(false) }
+
+    fun safeDismiss() {
+        if (!dismissExecuted) {
+            dismissExecuted = true
+            onDismiss()
+        }
+    }
 
     fun dismissWithAction(action: () -> Unit) {
         if (isDismissing) return
@@ -37,9 +47,12 @@ fun AdvancedControlsSheet(
         coroutineScope.launch {
             try {
                 sheetState.hide()
+                if (isActive && !actionExecuted) {
+                    actionExecuted = true
+                    action()
+                }
             } finally {
-                action()
-                onDismiss()
+                safeDismiss()
             }
         }
     }
@@ -48,7 +61,7 @@ fun AdvancedControlsSheet(
         onDismissRequest = {
             if (!isDismissing) {
                 isDismissing = true
-                onDismiss()
+                safeDismiss()
             }
         },
         sheetState = sheetState,
@@ -114,9 +127,10 @@ fun AdvancedControlsSheet(
                 modifier = Modifier.padding(vertical = 12.dp),
             )
 
-            Row(
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 listOf(0, 15, 30, 45, 60).forEach { mins ->
                     FilterChip(

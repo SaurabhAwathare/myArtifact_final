@@ -63,19 +63,7 @@ fun GlobalOverlayHost(
     val recordingState by recordingSessionManager.sessionState.collectAsStateWithLifecycle()
 
     val totalOffset = remember(showOverlays, uiState.playerMode, recordingState.status) {
-        if (!showOverlays || uiState.playerMode == PlayerMode.FULLSCREEN) {
-            0.dp
-        } else {
-            val isPlayerVisible = uiState.playerMode == PlayerMode.MINI
-            val isRecorderVisible = recordingState.status == RecordingStatus.RECORDING || 
-                                   recordingState.status == RecordingStatus.PAUSED
-            
-            var offset = 0.dp
-            if (isPlayerVisible) offset += BottomOverlayConstants.MINI_PLAYER_HEIGHT
-            if (isRecorderVisible) offset += BottomOverlayConstants.MINI_RECORDER_OCCUPIED_HEIGHT
-            if (isPlayerVisible && isRecorderVisible) offset += BottomOverlayConstants.OVERLAY_SPACING
-            offset
-        }
+        calculateBottomOverlayOffset(showOverlays, uiState.playerMode, recordingState.status)
     }
 
     // Phase 12: Navigation Guard - Prevent circular loop during Studio transition
@@ -189,4 +177,23 @@ fun GlobalOverlayHost(
 fun isOverlayVisibleOnRoute(destination: NavDestination?): Boolean {
     if (destination == null) return false
     return ScreensWithoutOverlays.none { destination.hasRoute(it) }
+}
+
+fun calculateBottomOverlayOffset(
+    showOverlays: Boolean,
+    playerMode: PlayerMode,
+    recordingStatus: RecordingStatus
+): androidx.compose.ui.unit.Dp {
+    if (!showOverlays || playerMode == PlayerMode.FULLSCREEN) {
+        return 0.dp
+    }
+    val isPlayerVisible = playerMode == PlayerMode.MINI
+    val isRecorderVisible = recordingStatus == RecordingStatus.RECORDING || 
+                           recordingStatus == RecordingStatus.PAUSED
+    
+    var offset = 0.dp
+    if (isPlayerVisible) offset += BottomOverlayConstants.MINI_PLAYER_HEIGHT
+    if (isRecorderVisible) offset += BottomOverlayConstants.MINI_RECORDER_OCCUPIED_HEIGHT
+    if (isPlayerVisible && isRecorderVisible) offset += BottomOverlayConstants.OVERLAY_SPACING
+    return offset
 }

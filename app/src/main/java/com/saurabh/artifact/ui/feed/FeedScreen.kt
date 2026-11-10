@@ -48,6 +48,7 @@ import com.saurabh.artifact.ui.components.state.LoadingPlaceholder
 import com.saurabh.artifact.ui.theme.Spacing
 import com.saurabh.artifact.ui.components.recording.AuraDock
 import com.saurabh.artifact.ui.components.AppSnackbarHost
+import com.saurabh.artifact.data.local.RecordingStatus
 import com.saurabh.artifact.ui.util.LocalBottomOverlayOffset
 import com.saurabh.artifact.startup.StartupStage
 import com.saurabh.artifact.startup.StartupMetrics
@@ -83,6 +84,7 @@ fun FeedScreen(
     onAuthorClick: (String) -> Unit = {},
     onResonatorsCountClick: (String) -> Unit = {},
     onNavigateToSecurity: () -> Unit = {},
+    recordingStatus: RecordingStatus = RecordingStatus.IDLE,
     viewModel: FeedViewModel = hiltViewModel(),
 ) {
     val logger = ArtifactTheme.logger
@@ -156,8 +158,17 @@ fun FeedScreen(
         },
         snackbarHost = { AppSnackbarHost(snackbarHostState) },
         floatingActionButton = {
+            val isAuraDockVisible = recordingStatus in listOf(
+                RecordingStatus.IDLE,
+                RecordingStatus.RECORDING,
+                RecordingStatus.PAUSED,
+                RecordingStatus.PREPARING,
+                RecordingStatus.COUNTDOWN
+            )
             AuraDock(
                 onInitiate = { onNavigateToRecord(null, null) },
+                status = recordingStatus,
+                isVisible = isAuraDockVisible,
                 modifier = Modifier.padding(bottom = 16.dp)
             )
         },

@@ -142,19 +142,24 @@ private fun ResonateInteractionItem(
         label = "ScaleAnimation"
     )
 
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
         modifier = Modifier
-            .clip(RoundedCornerShape(16.dp))
-            .padding(horizontal = 4.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .background(
+                if (isResonated && showCount) activeColor.copy(alpha = 0.08f) else Color.Transparent
+            )
     ) {
-        // Icon Target (Toggle)
+        // 1. Heart Toggle Target (At least 48dp x 48dp)
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
-                .clip(RoundedCornerShape(12.dp))
-                .clickable {
+                .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .clickable(
+                    onClickLabel = "Resonate"
+                ) {
                     if (enabled) {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onResonateClick()
@@ -166,7 +171,6 @@ private fun ResonateInteractionItem(
                         )
                     }
                 }
-                .padding(8.dp)
         ) {
             Icon(
                 imageVector = if (isResonated) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
@@ -177,31 +181,30 @@ private fun ResonateInteractionItem(
                     .scale(scale)
             )
         }
-        
-        // Count Target (Navigation)
+
+        // 2. Resonators Count Target (At least 48dp x 48dp, non-overlapping)
         if (showCount) {
-            Text(
-                text = "$resonanceCount \u203A",
-                style = MaterialTheme.typography.labelSmall,
-                color = contentColor,
-                fontSize = 11.sp,
-                fontWeight = if (isResonated) FontWeight.Bold else FontWeight.Medium,
-                letterSpacing = 0.2.sp,
+            Box(
+                contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .offset(y = (-4).dp) // Bring closer to icon
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable { onCountClick() }
-                    .padding(horizontal = 8.dp, vertical = 2.dp)
-            )
-        } else {
-            // Perfectly centered heart if no count:
-            // We just don't add anything here, the heart in the Box above will be centered in the Column.
-            // And since we removed the label "Resonate", it stays centered.
-            // Wait, if I remove the label, the user might not know what the heart is?
-            // But the user said: "Hide the count when resonanceCount == 0... Do not display placeholder text"
-            // "keep the ❤️ icon perfectly centered"
-            
-            // I'll skip the label if no count.
+                    .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .clickable(
+                        onClickLabel = "View resonators"
+                    ) {
+                        onCountClick()
+                    }
+                    .padding(horizontal = 6.dp)
+            ) {
+                Text(
+                    text = "$resonanceCount \u203A",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = contentColor,
+                    fontSize = 11.sp,
+                    fontWeight = if (isResonated) FontWeight.Bold else FontWeight.Medium,
+                    letterSpacing = 0.2.sp
+                )
+            }
         }
     }
 }

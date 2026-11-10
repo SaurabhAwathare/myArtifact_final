@@ -67,11 +67,7 @@ fun AuraDock(
     
     // Part 6 — Motion Restraint: Diaphragmatic Breathing
     // Slower, deeper, more stable than previous implementation.
-    val breathingDuration = when (status) {
-        RecordingStatus.RECORDING -> 3000 // Deep focus
-        RecordingStatus.PAUSED -> 8000    // Suspended animation
-        else -> 5000                     // Calm idle
-    }
+    val breathingDuration = getAuraBreathingDuration(status)
 
     val breathingScale = infiniteTransition.animateFloat(
         initialValue = 1f,
@@ -266,3 +262,16 @@ fun PreviewAuraDockPaused() {
         }
     }
 }
+
+/**
+ * Breathing animation cycle duration (in ms) reflecting state-based motion restraint:
+ * - RECORDING: 3000ms (Deep focus)
+ * - PAUSED: 8000ms (Suspended animation)
+ * - IDLE/PREPARING/COUNTDOWN/other: 5000ms (Calm idle)
+ */
+fun getAuraBreathingDuration(status: RecordingStatus): Int = when (status) {
+    RecordingStatus.RECORDING -> 3000
+    RecordingStatus.PAUSED -> 8000
+    else -> 5000
+}
+

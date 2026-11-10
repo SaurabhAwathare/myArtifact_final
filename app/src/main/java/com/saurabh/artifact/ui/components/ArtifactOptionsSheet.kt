@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import com.saurabh.artifact.model.FeedRecommendationReason
 import com.saurabh.artifact.ui.theme.Spacing
 import com.saurabh.artifact.util.ShareEligibility
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -38,6 +39,15 @@ fun ArtifactOptionsSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val coroutineScope = rememberCoroutineScope()
     var isDismissing by remember { mutableStateOf(false) }
+    var actionExecuted by remember { mutableStateOf(false) }
+    var dismissExecuted by remember { mutableStateOf(false) }
+
+    fun safeDismiss() {
+        if (!dismissExecuted) {
+            dismissExecuted = true
+            onDismiss()
+        }
+    }
 
     fun dismissWithAction(action: () -> Unit) {
         if (isDismissing) return
@@ -45,9 +55,12 @@ fun ArtifactOptionsSheet(
         coroutineScope.launch {
             try {
                 sheetState.hide()
+                if (isActive && !actionExecuted) {
+                    actionExecuted = true
+                    action()
+                }
             } finally {
-                action()
-                onDismiss()
+                safeDismiss()
             }
         }
     }
@@ -56,7 +69,7 @@ fun ArtifactOptionsSheet(
         onDismissRequest = {
             if (!isDismissing) {
                 isDismissing = true
-                onDismiss()
+                safeDismiss()
             }
         },
         sheetState = sheetState,
