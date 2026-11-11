@@ -61,6 +61,17 @@ class DraftListViewModel @Inject constructor(
         .map { it?.id }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    val playbackProgress: StateFlow<Float> = combine(
+        currentlyPlayingDraftId,
+        audioPlayer.reviewProgress
+    ) { currentId, reviewState ->
+        if (currentId != null && reviewState.artifactId == currentId) {
+            reviewState.progress
+        } else {
+            0f
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0f)
+
     private val _events = MutableSharedFlow<DraftListUiEvent>()
     val events = _events.asSharedFlow()
 

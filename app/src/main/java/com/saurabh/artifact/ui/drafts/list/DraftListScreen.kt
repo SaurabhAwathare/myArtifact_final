@@ -51,6 +51,7 @@ fun DraftListScreen(
     val isPlaying by viewModel.isPlaying.collectAsState()
     val isBuffering by viewModel.isBuffering.collectAsState()
     val currentlyPlayingDraftId by viewModel.currentlyPlayingDraftId.collectAsState()
+    val playbackProgress by viewModel.playbackProgress.collectAsState()
 
     var draftToDelete by remember { mutableStateOf<DraftWithUpload?>(null) }
 
@@ -205,6 +206,7 @@ fun DraftListScreen(
                             draftWithUpload = draftWithUpload,
                             isPlaying = isCurrentDraft && isPlaying,
                             isBuffering = isCurrentDraft && isBuffering,
+                            playbackProgress = if (isCurrentDraft) playbackProgress else 0f,
                             onPlayPauseClick = { viewModel.playDraftAudio(draft) },
                             onClick = { viewModel.onDraftClicked(draftWithUpload) },
                             onEdit = { viewModel.onEditClicked(draft.id) },

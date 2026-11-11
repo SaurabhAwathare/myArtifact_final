@@ -211,14 +211,21 @@ interface DraftDao {
         markAsApproved(id, userId, draft.status, ArtifactLifecycle.READY_TO_PUBLISH)
     }
 
-    /** User-scoped: Mark as deleting with ownership enforcement. */
+    /** User-scoped: Mark as deleting with ownership enforcement and set localCleanupStatus atomically. */
     @Transaction
-    suspend fun markAsDeleting(id: String, userId: String) {
+    suspend fun markAsDeleting(id: String, userId: String, timestamp: Long = System.currentTimeMillis()) {
         val draft = getDraftById(id, userId) ?: return
-        if (draft.lifecycle != ArtifactLifecycle.DELETING) {
-            updateStatusAndLifecycle(id, userId, draft.status, ArtifactLifecycle.DELETING)
+        if (draft.lifecycle.canTransitionTo(ArtifactLifecycle.DELETING)) {
+            _markAsDeletingInternal(id, userId, draft.status, ArtifactLifecycle.DELETING, LocalCleanupStatus.PENDING, timestamp)
+        } else {
+            android.util.Log.w("DraftDao", "Blocked backward lifecycle transition: ${draft.lifecycle} -> DELETING")
         }
     }
+
+    /** User-scoped: Internal update for deleting state with ownership enforcement. */
+    @Query("UPDATE artifact_drafts SET status = :status, lifecycle = :lifecycle, localCleanupStatus = :cleanupStatus, updatedAt = :timestamp WHERE id = :id AND userId = :userId")
+    suspend fun _markAsDeletingInternal(id: String, userId: String, status: DraftStatus, lifecycle: ArtifactLifecycle, cleanupStatus: LocalCleanupStatus, timestamp: Long)
+
 
     /** User-scoped: Freeze snapshot for publishing with ownership enforcement. */
     @Query("UPDATE artifact_drafts SET frozenTranscriptJson = :transcriptJson, frozenAudioPath = :audioPath, approvalToken = :token, deviceFingerprint = :fingerprint, publishApprovalTimestamp = :timestamp, updatedAt = :timestamp WHERE id = :id AND userId = :userId")

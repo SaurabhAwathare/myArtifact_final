@@ -38,6 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.saurabh.artifact.data.local.RecordingStatus
+import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.util.TimeUtils
 
 @Composable
@@ -81,11 +82,17 @@ fun MiniRecorder(
                 label = "DotScale"
             )
 
+            val recordingIndicatorColor = if (status == RecordingStatus.PAUSED) {
+                ArtifactTheme.colors.recordingPaused
+            } else {
+                ArtifactTheme.colors.recordingActive
+            }
+
             Box(
                 modifier = Modifier
                     .size(10.dp)
                     .scale(dotScale)
-                    .background(Color(0xFFE91E63), CircleShape)
+                    .background(recordingIndicatorColor, CircleShape)
             )
 
             Column(verticalArrangement = Arrangement.Center) {
@@ -111,7 +118,7 @@ fun MiniRecorder(
             Text(
                 text = "RETURN",
                 style = MaterialTheme.typography.labelLarge,
-                color = Color(0xFFE91E63),
+                color = recordingIndicatorColor,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 1.sp
             )

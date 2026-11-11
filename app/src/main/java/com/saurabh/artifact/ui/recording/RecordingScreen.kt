@@ -5,7 +5,6 @@ import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -40,7 +39,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -69,6 +67,9 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -81,6 +82,7 @@ import com.saurabh.artifact.ui.components.AmbientWaveform
 import com.saurabh.artifact.ui.components.WaveformContext
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.theme.GoldAura500
+import com.saurabh.artifact.ui.theme.Obsidian800
 import com.saurabh.artifact.ui.theme.Obsidian900
 import com.saurabh.artifact.ui.theme.Obsidian950
 import com.saurabh.artifact.util.TimeUtils
@@ -95,6 +97,27 @@ fun RecordingScreen(
     val context = LocalContext.current
     val activity = context as? Activity
     val haptic = LocalHapticFeedback.current
+    val view = LocalView.current
+
+    var previousStatus by remember { mutableStateOf<RecordingStatus?>(null) }
+    LaunchedEffect(uiState.status) {
+        val prev = previousStatus
+        previousStatus = uiState.status
+        @Suppress("DEPRECATION")
+        if (prev != null && prev != uiState.status && !view.isInEditMode) {
+            when {
+                prev == RecordingStatus.IDLE && uiState.status == RecordingStatus.RECORDING -> {
+                    view.announceForAccessibility("Recording started")
+                }
+                prev == RecordingStatus.RECORDING && uiState.status == RecordingStatus.PAUSED -> {
+                    view.announceForAccessibility("Recording paused")
+                }
+                prev == RecordingStatus.PAUSED && uiState.status == RecordingStatus.RECORDING -> {
+                    view.announceForAccessibility("Recording resumed")
+                }
+            }
+        }
+    }
 
     var showRationaleDialog by remember { mutableStateOf(false) }
     var showPermanentDenialDialog by remember { mutableStateOf(false) }
@@ -102,11 +125,15 @@ fun RecordingScreen(
     // Best practice: Use rememberUpdatedState for callbacks used in side effects
     val currentOnFinished by rememberUpdatedState(onFinished)
     val currentOnBack by rememberUpdatedState(onBack)
+    val safeOnBack = {
+        if (uiState.status != RecordingStatus.PREPARING) {
+            currentOnBack()
+        }
+    }
 
     val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        val audioGranted = permissions[Manifest.permission.RECORD_AUDIO] ?: false
+        contract = ActivityResultContracts.RequestPermission()
+    ) { audioGranted ->
         if (audioGranted) {
             viewModel.startRecording()
         } else {
@@ -118,19 +145,15 @@ fun RecordingScreen(
     }
 
     val requestPermission = {
-        val permissions = mutableListOf(Manifest.permission.RECORD_AUDIO)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
-        }
-        
-        val allGranted = permissions.all {
-            ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
-        }
+        val hasAudioPermission = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
 
-        if (allGranted) {
+        if (hasAudioPermission) {
             viewModel.startRecording()
         } else {
-            permissionLauncher.launch(permissions.toTypedArray())
+            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
     
@@ -157,11 +180,7 @@ fun RecordingScreen(
                 TextButton(
                     onClick = {
                         showRationaleDialog = false
-                        val permissions = mutableListOf(Manifest.permission.RECORD_AUDIO)
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
-                        }
-                        permissionLauncher.launch(permissions.toTypedArray())
+                        permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                     },
                     colors = ButtonDefaults.textButtonColors(contentColor = GoldAura500)
                 ) {
@@ -229,7 +248,11 @@ fun RecordingScreen(
     }
 
     // Handle Back Press
-    BackHandler {
+    BackHandler(enabled = true) {
+        if (uiState.status == RecordingStatus.PREPARING) {
+            // Block system back navigation during recording finalization
+            return@BackHandler
+        }
         if (uiState.status == RecordingStatus.RECORDING || uiState.status == RecordingStatus.PAUSED) {
             currentOnBack() // Navigation continues in background
         } else {
@@ -259,10 +282,12 @@ fun RecordingScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        viewModel.cancelRecording()
-                        showDeleteConfirmation = false
-                        onBack()
+                        if (uiState.status != RecordingStatus.PREPARING) {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            viewModel.cancelRecording()
+                            showDeleteConfirmation = false
+                            currentOnBack()
+                        }
                     },
                     colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFE91E63))
                 ) {
@@ -432,11 +457,12 @@ fun RecordingScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.SpaceBetween
                 ) {
-                    // Live Waveform (Warm amber energy)
+                    // Live Waveform
                     AmbientWaveform(
                         amplitudes = uiState.amplitudes,
                         liveAmplitude = uiState.currentAmplitude,
                         progress = 0f, // Not used in SCROLL mode
+                        isPaused = (uiState.status == RecordingStatus.PAUSED),
                         samplingMode = com.saurabh.artifact.util.WaveformProcessor.SamplingMode.SCROLL,
                         context = WaveformContext.Recording,
                         modifier = Modifier
@@ -447,13 +473,25 @@ fun RecordingScreen(
 
                     // Live Timer
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        val timerDescription = buildString {
+                            append("Recording duration: ")
+                            val mins = uiState.durationSeconds / 60
+                            val secs = uiState.durationSeconds % 60
+                            if (mins > 0) {
+                                append("$mins ${if (mins == 1L) "minute" else "minutes"} ")
+                            }
+                            append("$secs ${if (secs == 1L) "second" else "seconds"}")
+                        }
                         Text(
                             text = TimeUtils.formatDuration(uiState.durationSeconds, LocalConfiguration.current),
                             style = MaterialTheme.typography.displaySmall.copy(
                                 fontWeight = FontWeight.ExtraLight,
                                 letterSpacing = 4.sp
                             ),
-                            color = Color.White.copy(alpha = 0.9f)
+                            color = Color.White.copy(alpha = 0.9f),
+                            modifier = Modifier.semantics {
+                                contentDescription = timerDescription
+                            }
                         )
                         
                         if (uiState.isStorageLow && uiState.error == null) {
@@ -498,7 +536,7 @@ fun RecordingScreen(
                                     }
                                     
                                     TextButton(
-                                        onClick = onBack,
+                                        onClick = safeOnBack,
                                         colors = ButtonDefaults.textButtonColors(contentColor = Color.White.copy(alpha = 0.4f))
                                     ) {
                                         Text("Exit")
@@ -514,14 +552,13 @@ fun RecordingScreen(
                     EnhancedRecordingControls(
                         status = uiState.status,
                         onPrimaryActionClick = {
-                            when (uiState.status) {
-                                RecordingStatus.RECORDING -> viewModel.stopRecording()
-                                RecordingStatus.PAUSED -> viewModel.resumeRecording()
-                                else -> requestPermission()
-                            }
+                            currentRequestPermission()
                         },
                         onPauseClick = {
-                            if (uiState.status == RecordingStatus.PAUSED) viewModel.resumeRecording() else viewModel.pauseRecording()
+                            viewModel.pauseRecording()
+                        },
+                        onResumeClick = {
+                            viewModel.resumeRecording()
                         },
                         onDeleteClick = {
                             showDeleteConfirmation = true
@@ -539,43 +576,57 @@ fun RecordingScreen(
 @Composable
 fun EnhancedRecordingControls(
     status: RecordingStatus,
-    onPrimaryActionClick: () -> Unit,
-    onPauseClick: () -> Unit,
-    onDeleteClick: () -> Unit,
-    onFinishClick: () -> Unit
+    onPrimaryActionClick: () -> Unit = {},
+    onPauseClick: () -> Unit = {},
+    onResumeClick: () -> Unit = onPauseClick,
+    onDeleteClick: () -> Unit = {},
+    onFinishClick: () -> Unit = {}
 ) {
     val haptic = LocalHapticFeedback.current
+
+    val isRecording = status == RecordingStatus.RECORDING
+    val isPaused = status == RecordingStatus.PAUSED
+    val isPreparing = status == RecordingStatus.PREPARING
+
+    // Controls enabled logic:
+    // When PREPARING, all three controls must be disabled.
+    // Left (Discard) & Right (Finish) are enabled only during active recording or paused recording.
+    // Center is enabled during active recording, paused recording, or idle/failed (to start).
+    val discardEnabled = !isPreparing && (isRecording || isPaused)
+    val finishEnabled = !isPreparing && (isRecording || isPaused)
+    val centerEnabled = !isPreparing && (isRecording || isPaused || status == RecordingStatus.IDLE || status == RecordingStatus.FAILED)
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 48.dp),
+            .padding(horizontal = 24.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center
+        horizontalArrangement = Arrangement.SpaceEvenly
     ) {
-        // Delete Button (Low emphasis)
+        // Left Control — Discard
         IconButton(
-            onClick = onDeleteClick,
+            onClick = {
+                if (discardEnabled) {
+                    onDeleteClick()
+                }
+            },
+            enabled = discardEnabled,
             modifier = Modifier.size(48.dp)
         ) {
             Icon(
                 imageVector = Icons.Default.Close,
-                contentDescription = "Cancel",
-                tint = Color.White.copy(alpha = 0.3f)
+                contentDescription = "Discard Recording",
+                tint = if (discardEnabled) Color.White.copy(alpha = 0.3f) else Color.White.copy(alpha = 0.12f)
             )
         }
 
-        Spacer(modifier = Modifier.weight(1f))
-
-        // Massive Glowing Mic Button
+        // Center Control — Massive Glowing Pause / Resume / Mic Button
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier.size(120.dp)
         ) {
-            val isRecording = status == RecordingStatus.RECORDING
-            val isPaused = status == RecordingStatus.PAUSED
             val infiniteTransition = rememberInfiniteTransition(label = "Heartbeat")
-            
+
             val pulseScale by infiniteTransition.animateFloat(
                 initialValue = 1f,
                 targetValue = if (isRecording) 1.15f else 1f,
@@ -596,50 +647,72 @@ fun EnhancedRecordingControls(
                 label = "Glow"
             )
 
+            val glowColor = if (isPaused) {
+                ArtifactTheme.colors.recordingPaused
+            } else {
+                ArtifactTheme.colors.recordingActive
+            }
+
             // Outer Glow
-            Box(
-                modifier = Modifier
-                    .size(100.dp)
-                    .scale(pulseScale)
-                    .background(
-                        brush = Brush.radialGradient(
-                            colors = listOf(
-                                Color(0xFFE91E63).copy(alpha = if (isPaused) glowAlpha * 0.5f else glowAlpha), // Deep rose/red glow
-                                Color.Transparent
-                            )
-                        ),
-                        shape = CircleShape
-                    )
-            )
+            if (isRecording || isPaused) {
+                Box(
+                    modifier = Modifier
+                        .size(100.dp)
+                        .scale(pulseScale)
+                        .background(
+                            brush = Brush.radialGradient(
+                                colors = listOf(
+                                    glowColor.copy(alpha = if (isPaused) glowAlpha * 0.5f else glowAlpha),
+                                    Color.Transparent
+                                )
+                            ),
+                            shape = CircleShape
+                        )
+                )
+            }
 
             // Inner Button
             Button(
                 onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onPrimaryActionClick()
+                    if (centerEnabled) {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        when (status) {
+                            RecordingStatus.RECORDING -> onPauseClick()
+                            RecordingStatus.PAUSED -> onResumeClick()
+                            else -> onPrimaryActionClick()
+                        }
+                    }
                 },
+                enabled = centerEnabled,
                 modifier = Modifier.size(80.dp),
                 shape = CircleShape,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = when {
-                        isRecording -> Color(0xFFE91E63)
-                        isPaused -> Color(0xFFE91E63).copy(alpha = 0.3f)
+                        isRecording -> ArtifactTheme.colors.recordingActive
+                        isPaused -> ArtifactTheme.colors.recordingPaused
                         else -> Color.White.copy(alpha = 0.1f)
                     },
-                    contentColor = Color.White
+                    contentColor = Color.White,
+                    disabledContainerColor = when {
+                        isRecording || isPaused || isPreparing -> ArtifactTheme.colors.recordingPaused.copy(alpha = 0.38f)
+                        else -> Color.White.copy(alpha = 0.05f)
+                    },
+                    disabledContentColor = Color.White.copy(alpha = 0.38f)
                 ),
                 contentPadding = PaddingValues(0.dp),
                 elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
             ) {
                 Icon(
                     imageVector = when {
-                        isRecording -> Icons.Default.Stop
+                        isRecording -> Icons.Default.Pause
                         isPaused -> Icons.Default.PlayArrow
+                        isPreparing -> Icons.Default.Pause
                         else -> Icons.Default.Mic
                     },
                     contentDescription = when {
-                        isRecording -> "Stop Recording"
+                        isRecording -> "Pause Recording"
                         isPaused -> "Resume Recording"
+                        isPreparing -> "Pause Recording"
                         else -> "Start Recording"
                     },
                     modifier = Modifier.size(32.dp)
@@ -647,22 +720,27 @@ fun EnhancedRecordingControls(
             }
         }
 
-        Spacer(modifier = Modifier.weight(1f))
-
-        // Finish/Pause Button (Subtle)
+        // Right Control — Finish
         IconButton(
             onClick = {
-                if (status != RecordingStatus.IDLE) {
+                if (finishEnabled) {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onFinishClick()
                 }
-                if (status == RecordingStatus.RECORDING) onPauseClick() else onFinishClick()
             },
-            modifier = Modifier.size(48.dp)
+            enabled = finishEnabled,
+            modifier = Modifier
+                .size(48.dp)
+                .background(
+                    color = if (finishEnabled) Obsidian800 else Obsidian800.copy(alpha = 0.38f),
+                    shape = CircleShape
+                )
         ) {
             Icon(
-                imageVector = if (status == RecordingStatus.RECORDING) Icons.Default.Pause else Icons.Default.Check,
-                contentDescription = "Action",
-                tint = Color.White.copy(alpha = if (status == RecordingStatus.IDLE) 0.1f else 0.6f)
+                imageVector = Icons.Default.Check,
+                contentDescription = "Finish Recording",
+                tint = if (finishEnabled) Color.White.copy(alpha = 0.9f) else Color.White.copy(alpha = 0.38f),
+                modifier = Modifier.size(24.dp)
             )
         }
     }

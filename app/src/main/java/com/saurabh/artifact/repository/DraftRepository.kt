@@ -62,7 +62,7 @@ class DraftRepository @Inject constructor(
             optimizedDraftFlow,
             userRepository.streamUserProfile(currentUserId)
         ) { draft, user ->
-            if (draft == null || user == null) {
+            if (draft == null || user == null || draft.lifecycle == ArtifactLifecycle.DELETING || draft.lifecycle == ArtifactLifecycle.DELETED) {
                 null
             } else {
                 val artifact = draftToArtifactMapper.map(

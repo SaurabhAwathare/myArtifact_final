@@ -8,6 +8,7 @@ import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.audio.PlaybackCoordinator
 import com.saurabh.artifact.audio.PlaybackType
+import com.saurabh.artifact.audio.ReviewState
 import com.saurabh.artifact.domain.IdentityScout
 import com.saurabh.artifact.domain.PublishArtifactUseCase
 import com.saurabh.artifact.domain.PublishingOrchestrator
@@ -28,6 +29,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import kotlin.time.Duration.Companion.milliseconds
 
 enum class StudioStep(val index: Int) {
     PROCESSING(-1),
@@ -51,6 +53,13 @@ enum class StudioStep(val index: Int) {
         }
     }
 }
+
+private data class ReviewAndPlayback(
+    val review: ReviewState,
+    val positionMs: Long,
+    val isPlaying: Boolean,
+    val speed: Float
+)
 
 data class StudioSessionState(
     val draftId: String? = null,
@@ -76,6 +85,7 @@ data class StudioSessionState(
     val playbackSpeed: Float = 1.0f,
     val currentPosition: Long = 0L,
     val durationMs: Long = 0L,
+    val playbackProgress: Float = 0f,
     val coveragePercent: Float = 0f,
     
     // Publication State (Local UI)
@@ -141,6 +151,14 @@ class PublishingStudioViewModel @Inject constructor(
                     }
                 }
             val reviewFlow = playbackCoordinator.reviewProgress
+            val reviewAndPlaybackFlow = combine(
+                reviewFlow,
+                playbackCoordinator.currentPosition.map { it.inWholeMilliseconds }.onStart { emit(0L) },
+                playbackCoordinator.isPlaying,
+                playbackCoordinator.playbackSpeed
+            ) { review, pos, isPlaying, speed ->
+                ReviewAndPlayback(review, pos, isPlaying, speed)
+            }
             val recoveryFlow = recordingRepository.observeRecoveryState(id, workManager)
             val isRecoverySetupFlow = onboardingManager.isMnemonicSaved(user.uid)
             val episodePreviewFlow: Flow<Long?> = combine(
@@ -161,14 +179,16 @@ class PublishingStudioViewModel @Inject constructor(
 
             val persistentStateFlow = combine(
                 draftFlow,
-                reviewFlow,
+                reviewAndPlaybackFlow,
                 recoveryFlow,
                 isRecoverySetupFlow,
                 localContextFlow
-            ) { draft, review, isRecovering, isRecoverySetup, localContext ->
+            ) { draft, reviewAndPlayback, isRecovering, isRecoverySetup, localContext ->
                 val (titleBuffer, ui, episodePreview) = localContext
                 val effectiveEmotions = if (draft.emotions.isNotEmpty()) draft.emotions else if (draft.emotion != null) listOf(draft.emotion) else emptyList()
-                
+                val actualPosition = if (draft.lifecycle == ArtifactLifecycle.REVIEW_REQUIRED) reviewAndPlayback.positionMs else 0L
+                val progress = if (draft.durationMs > 0) (actualPosition.toFloat() / draft.durationMs).coerceIn(0f, 1f) else 0f
+
                 StudioSessionState(
                     draftId = draft.id,
                     lifecycle = draft.lifecycle,
@@ -180,11 +200,12 @@ class PublishingStudioViewModel @Inject constructor(
                     title = titleBuffer ?: draft.title ?: "",
                     emotions = effectiveEmotions,
                     emotion = draft.emotion ?: effectiveEmotions.firstOrNull(),
-                    isPlaying = playbackCoordinator.isPlaying.value,
-                    playbackSpeed = playbackCoordinator.playbackSpeed.value,
-                    currentPosition = if (draft.lifecycle == ArtifactLifecycle.REVIEW_REQUIRED) review.furthestPositionMs else 0L,
+                    isPlaying = reviewAndPlayback.isPlaying,
+                    playbackSpeed = reviewAndPlayback.speed,
+                    currentPosition = actualPosition,
                     durationMs = draft.durationMs,
-                    coveragePercent = if (draft.lifecycle == ArtifactLifecycle.REVIEW_REQUIRED) review.coveragePercent else draft.reviewProgress,
+                    playbackProgress = progress,
+                    coveragePercent = if (draft.lifecycle == ArtifactLifecycle.REVIEW_REQUIRED) reviewAndPlayback.review.coveragePercent else draft.reviewProgress,
                     isPublishing = ui.isPublishing,
                     isSuccess = ui.isSuccess || draft.lifecycle == ArtifactLifecycle.PUBLISHED,
                     isQueuedOffline = ui.isQueuedOffline,
@@ -410,10 +431,19 @@ class PublishingStudioViewModel @Inject constructor(
 
     fun onPublishClick() {
         diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISH_CLICKED")
+        if (sessionState.value.isPublishing || _uiState.value.isPublishing) {
+            diagnosticLogger.warn(DiagnosticCategory.PUBLISH, "PUBLISH_ALREADY_IN_PROGRESS")
+            return
+        }
         val state = sessionState.value
         val title = state.title
         
         viewModelScope.launch {
+            if (sessionState.value.isPublishing || _uiState.value.isPublishing) {
+                diagnosticLogger.warn(DiagnosticCategory.PUBLISH, "PUBLISH_ALREADY_IN_PROGRESS")
+                return@launch
+            }
+
             val user = authRepository.currentUser.first()
             val realName = user?.displayName?.let { SecureString.fromString(it) }
             val email = user?.email?.let { SecureString.fromString(it) }
@@ -440,10 +470,18 @@ class PublishingStudioViewModel @Inject constructor(
 
     fun confirmPublishAnyway() {
         _uiState.update { it.copy(showPrivacyNudge = false) }
+        if (sessionState.value.isPublishing || _uiState.value.isPublishing) {
+            diagnosticLogger.warn(DiagnosticCategory.PUBLISH, "PUBLISH_ALREADY_IN_PROGRESS")
+            return
+        }
         performPublish()
     }
 
     private fun performPublish() {
+        if (sessionState.value.isPublishing || _uiState.value.isPublishing) {
+            diagnosticLogger.warn(DiagnosticCategory.PUBLISH, "PUBLISH_ALREADY_IN_PROGRESS")
+            return
+        }
         val state = sessionState.value
         val draftId = state.draftId ?: return
         
@@ -474,9 +512,9 @@ class PublishingStudioViewModel @Inject constructor(
         val userId = authRepository.currentUserId
         if (userId.isEmpty()) return
 
+        _uiState.update { it.copy(isPublishing = true, error = null) }
+
         viewModelScope.launch {
-            _uiState.update { it.copy(isPublishing = true, error = null) }
-            
             recordingRepository.getDraft(draftId).onSuccess { draft ->
                 publishArtifactUseCase(draft.id)
                     .onSuccess { result ->
@@ -512,8 +550,13 @@ class PublishingStudioViewModel @Inject constructor(
 
     fun seekTo(progress: Float) {
         viewModelScope.launch {
-            val dur = playbackCoordinator.duration.first()
-            playbackCoordinator.seekTo(dur * progress.toDouble())
+            val durationMs = sessionState.value.durationMs
+            if (durationMs > 0) {
+                playbackCoordinator.seekTo((durationMs * progress.toDouble()).toLong().milliseconds)
+            } else {
+                val dur = playbackCoordinator.duration.first()
+                playbackCoordinator.seekTo(dur * progress.toDouble())
+            }
         }
     }
 

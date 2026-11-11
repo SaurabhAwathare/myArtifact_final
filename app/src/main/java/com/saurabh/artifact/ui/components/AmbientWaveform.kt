@@ -18,7 +18,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.saurabh.artifact.ui.theme.ArtifactTheme
-import com.saurabh.artifact.ui.theme.GoldAura500
 import com.saurabh.artifact.ui.components.waveform.FeedWaveformRenderer
 import com.saurabh.artifact.ui.components.waveform.rememberFeedWaveform
 import com.saurabh.artifact.util.WaveformProcessor
@@ -52,7 +51,11 @@ fun AmbientWaveform(
         return
     }
 
-    val activeColor = if (context == WaveformContext.Recording) GoldAura500 else ArtifactTheme.colors.waveformActive
+    val activeColor = if (context == WaveformContext.Recording) {
+        if (isPaused) ArtifactTheme.colors.recordingPaused else ArtifactTheme.colors.recordingActive
+    } else {
+        ArtifactTheme.colors.waveformActive
+    }
     val inactiveColor = ArtifactTheme.colors.waveformInactive
     val emotionalTokens = ArtifactTheme.emotional
 
@@ -134,7 +137,7 @@ fun AmbientWaveform(
                     } else 0f
 
                     // Recording Glow Effect
-                    if (context == WaveformContext.Recording && animatedLiveAmplitude > 0.1f) {
+                    if (context == WaveformContext.Recording && !isPaused && animatedLiveAmplitude > 0.1f) {
                         drawCircle(
                             brush = Brush.radialGradient(
                                 colors = listOf(activeColor.copy(alpha = 0.15f * animatedLiveAmplitude), Color.Transparent),
@@ -152,7 +155,11 @@ fun AmbientWaveform(
                         
                         // If recording and it's the last bar, use the live amplitude
                         val height = if (context == WaveformContext.Recording && index == processedAmplitudes.size - 1) {
-                            (animatedLiveAmplitude * size.height * 0.8f).coerceAtLeast(4.dp.toPx())
+                            if (isPaused) {
+                                rawHeight
+                            } else {
+                                (animatedLiveAmplitude * size.height * 0.8f).coerceAtLeast(4.dp.toPx())
+                            }
                         } else if (isPaused) {
                             rawHeight * breathingScale
                         } else {

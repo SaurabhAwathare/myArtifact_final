@@ -1,98 +1,86 @@
 package com.saurabh.artifact.ui.recording.warning
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.saurabh.artifact.audio.RecordingSessionManager
 import com.saurabh.artifact.data.local.RecordingStatus
+import com.saurabh.artifact.util.StorageManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
 class PreRecordingViewModel @Inject constructor(
     private val recordingSessionManager: RecordingSessionManager,
-    private val storageManager: com.saurabh.artifact.util.StorageManager,
+    private val storageManager: StorageManager,
     private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
     companion object {
-        private const val KEY_RITUAL_END_TIME = "ritual_end_time"
-        private const val RITUAL_DURATION_SECONDS = 10
+        const val KEY_RITUAL_END_TIME = "ritual_end_time"
     }
 
-    // Flicker Prevention: Calculate initial remaining time from SavedStateHandle before UI binds
-    private fun getInitialRemainingSeconds(): Int {
-        val savedEndTime = savedStateHandle.get<Long>(KEY_RITUAL_END_TIME)
-        return if (savedEndTime != null) {
-            val remaining = ((savedEndTime - System.currentTimeMillis()) / 1000).toInt()
-            remaining.coerceAtLeast(0)
-        } else {
-            RITUAL_DURATION_SECONDS
+    private data class StorageCheck(val isLow: Boolean, val isCritical: Boolean)
+
+    private fun storageFlow(): Flow<StorageCheck> = flow {
+        while (true) {
+            val available = storageManager.availableStorageMb
+            val low = available < StorageManager.LOW_STORAGE_THRESHOLD_MB
+            val critical = !storageManager.isStorageAvailable()
+            emit(StorageCheck(isLow = low, isCritical = critical))
+            delay(5000)
         }
     }
 
     val uiState: StateFlow<PreRecordingWarningUiState> = combine(
         recordingSessionManager.sessionState,
         storageFlow()
-    ) { state, isStorageLow ->
+    ) { state, storageCheck ->
         PreRecordingWarningUiState(
             remainingSeconds = state.ritualRemainingSeconds,
-            // Include PREPARING to avoid dead-lock UI if user re-enters during 1.5s pacing
+            // Include PREPARING to avoid dead-lock UI if user re-enters during pacing
             isRecordingActive = state.status == RecordingStatus.RECORDING || 
                                state.status == RecordingStatus.PAUSED ||
                                state.status == RecordingStatus.PREPARING,
-            isStorageLow = isStorageLow || state.isStorageLow
+            isStorageLow = storageCheck.isLow || state.isStorageLow,
+            isStorageCritical = storageCheck.isCritical
         )
     }
     .stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
-        initialValue = PreRecordingWarningUiState(remainingSeconds = getInitialRemainingSeconds())
+        initialValue = PreRecordingWarningUiState(
+            remainingSeconds = 0,
+            isStorageLow = storageManager.availableStorageMb < StorageManager.LOW_STORAGE_THRESHOLD_MB,
+            isStorageCritical = !storageManager.isStorageAvailable()
+        )
     )
-
-    private fun storageFlow(): Flow<Boolean> = flow {
-        while (true) {
-            val low = storageManager.availableStorageMb < com.saurabh.artifact.util.StorageManager.LOW_STORAGE_THRESHOLD_MB
-            emit(low)
-            delay(5000) // Periodic check
-        }
-    }
 
     private val _eventFlow = MutableSharedFlow<PreRecordingWarningEvent>()
     val eventFlow = _eventFlow.asSharedFlow()
 
+    private var isNavigatingToRecord = false
+
     init {
-        restoreOrStartRitual()
+        // Stage 3.6.3a: The mandatory 10-second countdown is removed.
+        // Ensure any residual ritual state or saved countdown is cleared immediately.
+        savedStateHandle.remove<Long>(KEY_RITUAL_END_TIME)
+        recordingSessionManager.cancelRitual()
         observeRecordingState()
-        checkInitialStorage()
-    }
-
-    private fun checkInitialStorage() {
-        // Force a storage check update in the service if possible
-        // Actually, we can just check it here and update a local flag if needed, 
-        // but sessionState is the source of truth. 
-        // The service usually checks storage once started.
-    }
-
-    private fun restoreOrStartRitual() {
-        val savedEndTime = savedStateHandle.get<Long>(KEY_RITUAL_END_TIME)
-        val currentTime = System.currentTimeMillis()
-
-        if (savedEndTime != null) {
-            val remaining = ((savedEndTime - currentTime) / 1000).toInt()
-            if (remaining > 0) {
-                recordingSessionManager.startRitual(remaining)
-            } else {
-                recordingSessionManager.skipRitual()
-            }
-        } else {
-            val endTime = currentTime + (RITUAL_DURATION_SECONDS * 1000)
-            savedStateHandle[KEY_RITUAL_END_TIME] = endTime
-            recordingSessionManager.startRitual(RITUAL_DURATION_SECONDS)
-        }
     }
 
     private fun observeRecordingState() {
@@ -108,29 +96,60 @@ class PreRecordingViewModel @Inject constructor(
         }
     }
 
+    fun canBeginRecording(): Boolean {
+        val state = uiState.value
+        return !isNavigatingToRecord && !state.isStorageCritical && !state.isRecordingActive
+    }
+
+    fun onBeginRecording(onProceed: () -> Unit) {
+        if (!canBeginRecording()) return
+        isNavigatingToRecord = true
+        savedStateHandle.remove<Long>(KEY_RITUAL_END_TIME)
+        recordingSessionManager.skipRitual()
+        onProceed()
+    }
+
     fun cancel() {
         savedStateHandle.remove<Long>(KEY_RITUAL_END_TIME)
         recordingSessionManager.cancelRitual()
+        isNavigatingToRecord = false
     }
 
-    fun openStorageSettings(context: android.content.Context) {
-        val intent = android.content.Intent(android.provider.Settings.ACTION_INTERNAL_STORAGE_SETTINGS)
-        intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+    fun openStorageSettings(context: Context) {
+        val intent = Intent(Settings.ACTION_INTERNAL_STORAGE_SETTINGS).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
         try {
             context.startActivity(intent)
         } catch (e: Exception) {
-            // Fallback to general settings if specific one is not available
-            val fallbackIntent = android.content.Intent(android.provider.Settings.ACTION_SETTINGS)
-            fallbackIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            val fallbackIntent = Intent(Settings.ACTION_SETTINGS).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(fallbackIntent)
+        }
+    }
+
+    fun openAppSettings(context: Context) {
+        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+            data = Uri.fromParts("package", context.packageName, null)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        try {
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            val fallbackIntent = Intent(Settings.ACTION_SETTINGS).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
             context.startActivity(fallbackIntent)
         }
     }
 }
 
 data class PreRecordingWarningUiState(
-    val remainingSeconds: Int = 10,
+    val remainingSeconds: Int = 0,
     val isRecordingActive: Boolean = false,
-    val isStorageLow: Boolean = false
+    val isStorageLow: Boolean = false,
+    val isStorageCritical: Boolean = false
 )
 
 sealed class PreRecordingWarningEvent {

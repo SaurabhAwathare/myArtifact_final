@@ -71,12 +71,28 @@
     <string name="onboarding_skip">Skip</string>
 
     <!-- Pre-Recording Privacy Warning -->
+    <string name="action_begin_recording">Begin Recording</string>
+    <string name="pre_recording_headline">Before you record&#8230;</string>
+    <string name="pre_recording_subtext">Protect your safety and peace of mind.</string>
+    <string name="pre_recording_breathing_suggestion">Speak honestly. Take a deep breath. Protect yourself too.</string>
     <string name="pre_recording_warning_heading">Do not share:</string>
     <string name="pre_recording_warning_item_full_name">Your full name</string>
     <string name="pre_recording_warning_item_phone_number">Your phone number</string>
     <string name="pre_recording_warning_item_address">Your home or exact address</string>
     <string name="pre_recording_warning_item_workplace">Your workplace or employer details</string>
     <string name="pre_recording_warning_item_location">Your precise location</string>
+    <string name="permission_microphone_title">Microphone Access</string>
+    <string name="permission_microphone_body">To record your reflection and create an Artifact, we need access to your microphone. Your audio is processed locally and stays private.</string>
+    <string name="permission_microphone_permanent_title">Permission Required</string>
+    <string name="permission_microphone_permanent_body">It looks like microphone permissions are permanently disabled. Please enable them in Settings to record your Artifacts.</string>
+    <string name="action_grant_permission">Grant Access</string>
+    <string name="action_open_settings">Open Settings</string>
+    <string name="storage_warning_low_title">Storage is low</string>
+    <string name="storage_warning_low_body">Your recording may not be saved safely.</string>
+    <string name="storage_warning_critical_title">Storage is critically low</string>
+    <string name="storage_warning_critical_body">Free up space to begin recording.</string>
+    <string name="action_clean_up">Clean up</string>
+    <string name="cd_close_pre_recording">Close pre-recording guidance</string>
 
     <!-- Username Validation & Privacy Guidance -->
     <string name="username_advisory_title">Keep your identity anonymous</string>
@@ -90,4 +106,21 @@
     <string name="cd_buffering_playback">Buffering playback</string>
     <string name="cd_more_options">More options</string>
     <string name="cd_record_reflection">Record a voice reflection</string>
+
+    <!-- Post-Recording Decision Screen (Stage 3.6.3b) -->
+    <string name="post_recording_headline">Your recording is saved.</string>
+    <string name="post_recording_subtext">Would you like to review it now, or come back later from your Drafts?</string>
+    <string name="post_recording_durability_notice">Your recording is saved on this device. You can review it later from your Profile. Clearing app data or uninstalling Artifact may permanently delete locally stored drafts.</string>
+    <string name="post_recording_action_review">Review Now</string>
+    <string name="post_recording_action_save_later">Save for Later</string>
+    <string name="post_recording_action_discard">Discard Recording</string>
+    <string name="post_recording_discard_dialog_title">Discard this recording?</string>
+    <string name="post_recording_discard_dialog_message">This will permanently delete the locally saved recording. This action cannot be undone.</string>
+    <string name="post_recording_discard_dialog_action_keep">Keep Recording</string>
+    <string name="post_recording_discard_dialog_action_discard">Discard Recording</string>
+    <string name="post_recording_discard_error">Unable to schedule deletion. Please try again.</string>
+    <string name="cd_post_recording_saved_icon">Recording successfully saved</string>
+    <string name="cd_post_recording_review">Review recording now in Publishing Studio</string>
+    <string name="cd_post_recording_save_later">Save recording for later and return to Feed</string>
+    <string name="cd_post_recording_discard">Discard recording</string>
 </resources>

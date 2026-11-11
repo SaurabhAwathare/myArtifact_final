@@ -172,7 +172,7 @@ class ArtifactCleanupManager @Inject constructor(
 
         _deletingArtifactIds.value += draftId
         return try {
-            draftDao.get().updateLocalCleanupStatus(draftId, userId, LocalCleanupStatus.PENDING)
+            draftDao.get().markAsDeleting(draftId, userId)
             scheduleLocalCleanup(draftId, purgeRemote = false)
             ArtifactLogger.i(DiagnosticCategory.DRAFT, "DRAFT_LOCAL_DELETION_QUEUED", mapOf("draftId" to draftId))
             Result.success(Unit)

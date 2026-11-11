@@ -85,7 +85,8 @@ class TitleBufferTest {
         every { playbackCoordinator.currentArtifact } returns MutableStateFlow(null)
         every { recordingRepository.observeRecoveryState(any(), any()) } returns flowOf(false)
         every { databaseEncryptionManager.isRecoverySetup } returns MutableStateFlow(true)
-        every { onboardingManager.isMnemonicSaved } returns flowOf(true)
+        every { onboardingManager.isMnemonicSaved(any()) } returns flowOf(true)
+        every { playbackCoordinator.currentPosition } returns flowOf(0.milliseconds)
         coEvery { recordingRepository.updateDraftMetadata(any(), any(), any<List<Emotion>>()) } answers {
             val titleArg = secondArg<String?>()
             draftFlow.value = draftFlow.value?.copy(title = titleArg)
