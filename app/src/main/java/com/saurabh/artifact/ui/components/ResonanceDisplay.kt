@@ -15,6 +15,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.saurabh.artifact.model.ArtifactReactionCounts
 import com.saurabh.artifact.ui.theme.ArtifactTheme
@@ -40,19 +42,22 @@ fun ResonanceDisplay(
             modifier = modifier
                 .clip(MaterialTheme.shapes.small)
                 .clickable(enabled = true) { onClick() }
-                .padding(horizontal = 4.dp, vertical = 2.dp)
+                .padding(horizontal = 6.dp, vertical = 4.dp)
+                .semantics {
+                    contentDescription = finalSummary
+                }
         ) {
             Icon(
                 imageVector = Icons.Outlined.FavoriteBorder,
                 contentDescription = null,
-                tint = ArtifactTheme.colors.waveformActive.copy(alpha = 0.8f),
-                modifier = Modifier.size(15.dp)
+                tint = ArtifactTheme.colors.onSurfaceAura,
+                modifier = Modifier.size(14.dp)
             )
             Spacer(modifier = Modifier.width(4.dp))
             Text(
                 text = finalSummary,
                 style = ArtifactTheme.typography.labelSmall,
-                color = ArtifactTheme.colors.waveformActive.copy(alpha = 0.8f)
+                color = ArtifactTheme.colors.onSurfaceAura
             )
         }
     }

@@ -1,35 +1,44 @@
 package com.saurabh.artifact.ui.drafts.list
 
-import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.MicNone
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
-import com.saurabh.artifact.model.ArtifactLifecycle
-import com.saurabh.artifact.model.ProcessingStage
-import com.saurabh.artifact.model.ProcessingStatus
-import com.saurabh.artifact.model.SyncStatus
-import com.saurabh.artifact.model.progress
+import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.DraftWithUpload
-import com.saurabh.artifact.util.TimeUtils
-import java.text.SimpleDateFormat
-import java.util.*
+import com.saurabh.artifact.ui.drafts.components.DraftCard
+import com.saurabh.artifact.ui.drafts.components.PublishingDraftCard
+import com.saurabh.artifact.ui.theme.*
 
+/**
+ * Stage 3.4 — Standalone Draft List Presentation
+ *
+ * Provides a serene, focused overview of an Artifact creator's unpublished recordings
+ * and active publishing tasks. Aligned with the Artifact Design System:
+ * - Solid Obsidian950 (surfaceLoom) screen canvas
+ * - Unified 16dp CardShape containers with Obsidian800 surfaces and Obsidian700 borders
+ * - WCAG AA/AAA typography hierarchy in ReflectionWhite and MistGray
+ * - Non-destructive and destructive action semantic clarity
+ * - 48dp minimum interactive touch targets across all controls
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DraftListScreen(
@@ -39,6 +48,10 @@ fun DraftListScreen(
 ) {
     val drafts by viewModel.drafts.collectAsState()
     val publishingDrafts by viewModel.publishingDrafts.collectAsState()
+    val isPlaying by viewModel.isPlaying.collectAsState()
+    val isBuffering by viewModel.isBuffering.collectAsState()
+    val currentlyPlayingDraftId by viewModel.currentlyPlayingDraftId.collectAsState()
+
     var draftToDelete by remember { mutableStateOf<DraftWithUpload?>(null) }
 
     LaunchedEffect(viewModel.events) {
@@ -52,63 +65,150 @@ fun DraftListScreen(
     }
 
     Scaffold(
+        containerColor = ArtifactTheme.colors.surfaceLoom,
         topBar = {
             TopAppBar(
-                title = { Text("Local Drafts") },
+                title = {
+                    Text(
+                        text = "Local Drafts",
+                        style = ArtifactTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        color = ArtifactTheme.colors.onSurfaceMain
+                    )
+                },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    IconButton(
+                        onClick = onBack,
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Navigate back",
+                            tint = ArtifactTheme.colors.onSurfaceMain,
+                            modifier = Modifier.size(24.dp)
+                        )
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = ArtifactTheme.colors.surfaceLoom,
+                    titleContentColor = ArtifactTheme.colors.onSurfaceMain,
+                    navigationIconContentColor = ArtifactTheme.colors.onSurfaceMain
+                )
             )
         }
     ) { padding ->
         if (drafts.isEmpty() && publishingDrafts.isEmpty()) {
-            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                Text("No drafts found", style = MaterialTheme.typography.bodyLarge)
+            // Calm, reflective Empty State
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(Spacing.ExtraLarge),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(Spacing.Medium),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.Large)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(64.dp)
+                            .clip(CircleShape)
+                            .background(ArtifactTheme.colors.surfaceHearth)
+                            .border(1.dp, ArtifactTheme.colors.waveformInactive, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.MicNone,
+                            contentDescription = null,
+                            tint = ArtifactTheme.colors.onSurfaceMuted,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
+
+                    Text(
+                        text = "No Drafts Waiting",
+                        style = ArtifactTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        color = ArtifactTheme.colors.onSurfaceMain
+                    )
+
+                    Text(
+                        text = "Your unfinished recordings and reflections will rest here until you're ready to review or release them.",
+                        style = ArtifactTheme.typography.bodyMedium,
+                        color = ArtifactTheme.colors.onSurfaceMuted,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 22.sp
+                    )
+                }
             }
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                contentPadding = PaddingValues(Spacing.Medium),
+                verticalArrangement = Arrangement.spacedBy(Spacing.Medium)
             ) {
+                // Section: Active Publishing Tasks
                 if (publishingDrafts.isNotEmpty()) {
-                    item {
+                    item(key = "header_publishing") {
                         Text(
-                            "Publishing",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(bottom = 8.dp)
+                            text = "PUBLISHING",
+                            style = ArtifactTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.SemiBold,
+                                letterSpacing = 1.2.sp
+                            ),
+                            color = ArtifactTheme.colors.onSurfaceAura,
+                            modifier = Modifier.padding(bottom = Spacing.Small)
                         )
                     }
+
                     items(publishingDrafts, key = { "pub_${it.draft.id}" }) { draftWithUpload ->
-                        PublishingItem(
+                        PublishingDraftCard(
                             draftWithUpload = draftWithUpload,
                             onRetry = { viewModel.retryPublish(draftWithUpload) },
                             onCancel = { viewModel.cancelPublish(draftWithUpload) }
                         )
                     }
-                    item { Spacer(Modifier.height(8.dp)) }
-                    item { HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)) }
-                    item { Spacer(Modifier.height(8.dp)) }
-                }
 
-                if (drafts.isNotEmpty()) {
-                    item {
-                        Text(
-                            "Local Drafts",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(bottom = 8.dp)
+                    item(key = "divider_publishing") {
+                        HorizontalDivider(
+                            color = ArtifactTheme.colors.waveformInactive,
+                            modifier = Modifier.padding(vertical = Spacing.Small)
                         )
                     }
+                }
+
+                // Section: Local Drafts
+                if (drafts.isNotEmpty()) {
+                    item(key = "header_local_drafts") {
+                        Text(
+                            text = "LOCAL DRAFTS",
+                            style = ArtifactTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.SemiBold,
+                                letterSpacing = 1.2.sp
+                            ),
+                            color = ArtifactTheme.colors.onSurfaceMuted,
+                            modifier = Modifier.padding(bottom = Spacing.Small)
+                        )
+                    }
+
                     items(drafts, key = { it.draft.id }) { draftWithUpload ->
-                        DraftItem(
+                        val draft = draftWithUpload.draft
+                        val isCurrentDraft = currentlyPlayingDraftId == draft.id
+
+                        DraftCard(
                             draftWithUpload = draftWithUpload,
+                            isPlaying = isCurrentDraft && isPlaying,
+                            isBuffering = isCurrentDraft && isBuffering,
+                            onPlayPauseClick = { viewModel.playDraftAudio(draft) },
                             onClick = { viewModel.onDraftClicked(draftWithUpload) },
-                            onEdit = { viewModel.onEditClicked(draftWithUpload.draft.id) },
-                            onPublish = { viewModel.onPublishClicked(draftWithUpload.draft.id) },
+                            onEdit = { viewModel.onEditClicked(draft.id) },
+                            onPublish = { viewModel.onPublishClicked(draft.id) },
                             onDelete = {
                                 draftToDelete = draftWithUpload
                             },
@@ -119,25 +219,64 @@ fun DraftListScreen(
             }
         }
 
+        // Delete Draft Confirmation Dialog
         draftToDelete?.let { draftWithUpload ->
             AlertDialog(
                 onDismissRequest = { draftToDelete = null },
-                title = { Text("Delete Draft") },
-                text = { Text("Are you sure you want to delete this draft? The local recording will be permanently deleted from this device and cannot be recovered.") },
+                shape = ModalShape,
+                containerColor = ArtifactTheme.colors.surfaceHearth,
+                icon = {
+                    Icon(
+                        imageVector = Icons.Rounded.DeleteOutline,
+                        contentDescription = null,
+                        tint = ArtifactTheme.colors.actionDestructive,
+                        modifier = Modifier.size(28.dp)
+                    )
+                },
+                title = {
+                    Text(
+                        text = "Delete Draft",
+                        style = ArtifactTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        color = ArtifactTheme.colors.onSurfaceMain
+                    )
+                },
+                text = {
+                    Text(
+                        text = "Are you sure you want to delete this draft? The local recording will be permanently deleted from this device and cannot be recovered.",
+                        style = ArtifactTheme.typography.bodyMedium,
+                        color = ArtifactTheme.colors.onSurfaceMuted,
+                        lineHeight = 20.sp
+                    )
+                },
                 confirmButton = {
                     TextButton(
                         onClick = {
                             viewModel.deleteDraft(draftWithUpload)
                             draftToDelete = null
                         },
-                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                        modifier = Modifier.defaultMinSize(minHeight = 48.dp)
                     ) {
-                        Text("Delete")
+                        Text(
+                            text = "Delete",
+                            style = ArtifactTheme.typography.labelLarge.copy(
+                                fontWeight = FontWeight.SemiBold
+                            ),
+                            color = ArtifactTheme.colors.actionDestructive
+                        )
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { draftToDelete = null }) {
-                        Text("Cancel")
+                    TextButton(
+                        onClick = { draftToDelete = null },
+                        modifier = Modifier.defaultMinSize(minHeight = 48.dp)
+                    ) {
+                        Text(
+                            text = "Cancel",
+                            style = ArtifactTheme.typography.labelLarge,
+                            color = ArtifactTheme.colors.onSurfaceMuted
+                        )
                     }
                 }
             )
@@ -145,108 +284,25 @@ fun DraftListScreen(
     }
 }
 
+/**
+ * Backward compatibility alias delegating to [PublishingDraftCard].
+ */
 @Composable
 fun PublishingItem(
     draftWithUpload: DraftWithUpload,
     onRetry: () -> Unit,
     onCancel: () -> Unit
 ) {
-    val draft = draftWithUpload.draft
-    val task = draftWithUpload.uploadTask
-    
-    val syncStatus = task?.status ?: draft.status.publication
-    val progress = when (syncStatus) {
-        is SyncStatus.Uploading -> (task ?: draft).progress
-        else -> 0f
-    }
-    val isFailed = syncStatus is SyncStatus.Failed
-    val isFinalizing = syncStatus is SyncStatus.Finalizing
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-        )
-    ) {
-        Column(Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = draft.title?.ifBlank { "Publishing..." } ?: "Publishing...",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.weight(1f)
-                        )
-                        
-                        if (syncStatus is SyncStatus.Uploading) {
-                            Text(
-                                text = "${(progress * 100).toInt()}%",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                    }
-                    Text(
-                        text = when {
-                            isFailed -> "Upload failed"
-                            syncStatus is SyncStatus.WaitingForNetwork -> "Waiting for connection... 📡"
-                            isFinalizing -> "Finalizing reflection..."
-                            syncStatus is SyncStatus.Uploading -> "Releasing your voice..."
-                            else -> "Queued for upload..."
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = when {
-                            isFailed -> MaterialTheme.colorScheme.error
-                            syncStatus is SyncStatus.WaitingForNetwork -> MaterialTheme.colorScheme.primary
-                            else -> MaterialTheme.colorScheme.onSurfaceVariant
-                        }
-                    )
-                }
-
-                if (isFailed) {
-                    IconButton(onClick = onRetry) {
-                        Icon(Icons.Default.Refresh, "Retry", tint = MaterialTheme.colorScheme.primary)
-                    }
-                }
-                
-                IconButton(onClick = onCancel) {
-                    Icon(Icons.Default.Close, "Cancel", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            if (isFailed) {
-                LinearProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier.fillMaxWidth().clip(CircleShape),
-                    color = MaterialTheme.colorScheme.error,
-                    trackColor = MaterialTheme.colorScheme.error.copy(alpha = 0.1f)
-                )
-            } else if (isFinalizing) {
-                LinearProgressIndicator(
-                    modifier = Modifier.fillMaxWidth().clip(CircleShape),
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
-                )
-            } else {
-                LinearProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier.fillMaxWidth().clip(CircleShape),
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
-                )
-            }
-        }
-    }
+    PublishingDraftCard(
+        draftWithUpload = draftWithUpload,
+        onRetry = onRetry,
+        onCancel = onCancel
+    )
 }
 
+/**
+ * Backward compatibility alias delegating to [DraftCard].
+ */
 @Composable
 fun DraftItem(
     draftWithUpload: DraftWithUpload,
@@ -256,217 +312,130 @@ fun DraftItem(
     onDelete: () -> Unit,
     onRetryProcessing: () -> Unit
 ) {
-    val draft = draftWithUpload.draft
-    val configuration = LocalConfiguration.current
-    val locale = configuration.locales[0]
-    val date = SimpleDateFormat("MMM dd, yyyy HH:mm", locale).format(Date(draft.createdAt))
-    
-    val displayTitle = remember(draft.title, draft.createdAt, locale) {
-        if (!draft.title.isNullOrBlank()) {
-            draft.title
-        } else {
-            TimeUtils.formatDraftTitle(draft.createdAt, locale)
-        }
-    }
+    DraftCard(
+        draftWithUpload = draftWithUpload,
+        onClick = onClick,
+        onEdit = onEdit,
+        onPublish = onPublish,
+        onDelete = onDelete,
+        onRetryProcessing = onRetryProcessing
+    )
+}
 
-    var showMenu by remember { mutableStateOf(false) }
+// --- Previews ---
 
-    val isProcessing = draft.status.processing is ProcessingStatus.Active || 
-        draft.lifecycle == ArtifactLifecycle.PROCESSING
-    
-    val isFailed = draft.status.processing is ProcessingStatus.Failed
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(MaterialTheme.shapes.medium)
-            .clickable { if (isFailed) onRetryProcessing() else onClick() },
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-        )
-    ) {
-        Box {
-            if (isProcessing) {
-                ShimmerBackground()
-            }
-
-            Row(
-                modifier = Modifier.padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
+@Preview(name = "Draft List Screen - Populated")
+@Composable
+fun PreviewDraftListScreenPopulated() {
+    ArtifactTheme {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(ArtifactTheme.colors.surfaceLoom)
+        ) {
+            LazyColumn(
+                contentPadding = PaddingValues(Spacing.Medium),
+                verticalArrangement = Arrangement.spacedBy(Spacing.Medium)
             ) {
-                Column(Modifier.weight(1f)) {
+                item {
                     Text(
-                        text = displayTitle,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        text = "PUBLISHING",
+                        style = ArtifactTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 1.2.sp
+                        ),
+                        color = ArtifactTheme.colors.onSurfaceAura
                     )
-                    Text(
-                        text = if (draft.status.publication is SyncStatus.Recovering) {
-                            "Recovering artifact • $date"
-                        } else date,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (draft.status.publication is SyncStatus.Recovering) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                        }
-                    )
-                    
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        StatusBadge(draft)
-                        if (isFailed) {
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                text = "Tap to retry",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
                 }
 
-                if (isFailed) {
-                    IconButton(onClick = onRetryProcessing) {
-                        Icon(Icons.Default.Refresh, "Retry Processing", tint = MaterialTheme.colorScheme.primary)
-                    }
+                item {
+                    PublishingDraftCard(
+                        draftWithUpload = DraftWithUpload(
+                            draft = ArtifactDraftEntity(
+                                id = "pub_preview",
+                                userId = "user_preview",
+                                localAudioPath = "/path/to/audio.m4a",
+                                title = "Releasing Evening Reflection",
+                                uploadedBytes = 450000L,
+                                totalBytes = 1000000L,
+                                status = DraftStatus(publication = SyncStatus.Uploading)
+                            ),
+                            uploadTask = null
+                        ),
+                        onRetry = {},
+                        onCancel = {}
+                    )
                 }
 
-                Box {
-                    IconButton(onClick = { showMenu = true }) {
-                        Icon(
-                            imageVector = Icons.Default.MoreVert,
-                            contentDescription = "More Options",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    
-                    DropdownMenu(
-                        expanded = showMenu,
-                        onDismissRequest = { showMenu = false }
-                    ) {
-                        if (isFailed) {
-                            DropdownMenuItem(
-                                text = { Text("Retry Processing") },
-                                onClick = {
-                                    showMenu = false
-                                    onRetryProcessing()
-                                },
-                                leadingIcon = { Icon(Icons.Default.Refresh, null, tint = MaterialTheme.colorScheme.primary) }
-                            )
-                        }
-                        DropdownMenuItem(
-                            text = { Text("Continue Review") },
-                            onClick = {
-                                showMenu = false
-                                onClick()
-                            },
-                            leadingIcon = { Icon(Icons.Default.PlayArrow, null) }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Edit Draft") },
-                            onClick = {
-                                showMenu = false
-                                onEdit()
-                            },
-                            leadingIcon = { Icon(Icons.Default.Edit, null) }
-                        )
-                        DropdownMenuItem(
-                            text = { 
-                                val isReady = draft.lifecycle == ArtifactLifecycle.READY_TO_PUBLISH
-                                Text(if (isReady) "Publish Artifact" else "Review to Publish (${(draft.reviewProgress * 100).toInt()}%)") 
-                            },
-                            onClick = {
-                                showMenu = false
-                                onPublish()
-                            },
-                            leadingIcon = { 
-                                val isReady = draft.lifecycle == ArtifactLifecycle.READY_TO_PUBLISH
-                                Icon(if (isReady) Icons.Default.Publish else Icons.Default.Headset, null, tint = MaterialTheme.colorScheme.primary) 
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Delete Draft") },
-                            onClick = {
-                                showMenu = false
-                                onDelete()
-                            },
-                            leadingIcon = { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) }
-                        )
-                    }
+                item {
+                    HorizontalDivider(
+                        color = ArtifactTheme.colors.waveformInactive,
+                        modifier = Modifier.padding(vertical = Spacing.Small)
+                    )
+                }
+
+                item {
+                    Text(
+                        text = "LOCAL DRAFTS",
+                        style = ArtifactTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 1.2.sp
+                        ),
+                        color = ArtifactTheme.colors.onSurfaceMuted
+                    )
+                }
+
+                item {
+                    DraftCard(
+                        draftWithUpload = DraftWithUpload(
+                            draft = ArtifactDraftEntity(
+                                id = "draft_preview_1",
+                                userId = "user_preview",
+                                localAudioPath = "/path/to/audio.m4a",
+                                title = "Morning Reflections in Silence",
+                                durationMs = 45000L,
+                                createdAt = System.currentTimeMillis() - 7200000L,
+                                lifecycle = ArtifactLifecycle.REVIEW_REQUIRED,
+                                reviewProgress = 0.5f,
+                                emotion = Emotion.CALM,
+                                amplitudeData = listOf(0.3f, 0.5f, 0.8f, 0.4f, 0.6f, 0.9f, 0.3f)
+                            ),
+                            uploadTask = null
+                        ),
+                        onClick = {},
+                        onEdit = {},
+                        onPublish = {},
+                        onDelete = {},
+                        onRetryProcessing = {}
+                    )
+                }
+
+                item {
+                    DraftCard(
+                        draftWithUpload = DraftWithUpload(
+                            draft = ArtifactDraftEntity(
+                                id = "draft_preview_2",
+                                userId = "user_preview",
+                                localAudioPath = "/path/to/audio.m4a",
+                                title = "Thoughts on Impermanence",
+                                durationMs = 72000L,
+                                createdAt = System.currentTimeMillis() - 86400000L,
+                                lifecycle = ArtifactLifecycle.READY_TO_PUBLISH,
+                                isListened = true,
+                                reviewProgress = 1.0f,
+                                emotion = Emotion.GRATEFUL,
+                                amplitudeData = listOf(0.4f, 0.7f, 0.6f, 0.8f, 0.5f, 0.2f)
+                            ),
+                            uploadTask = null
+                        ),
+                        onClick = {},
+                        onEdit = {},
+                        onPublish = {},
+                        onDelete = {},
+                        onRetryProcessing = {}
+                    )
                 }
             }
         }
-    }
-}
-
-@Composable
-fun ShimmerBackground() {
-    val infiniteTransition = rememberInfiniteTransition(label = "shimmer")
-    val alpha by infiniteTransition.animateFloat(
-        initialValue = 0.05f,
-        targetValue = 0.15f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1500, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "alpha"
-    )
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.primary.copy(alpha = alpha))
-    )
-}
-
-@Composable
-fun StatusBadge(draft: ArtifactDraftEntity) {
-    val state = draft.status.processing
-    val syncStatus = draft.status.publication
-
-    val isProcessing = state is ProcessingStatus.Active || 
-        draft.lifecycle == ArtifactLifecycle.PROCESSING
-
-    val isInterrupted = syncStatus is SyncStatus.Recovering
-
-    val color = when {
-        isInterrupted -> MaterialTheme.colorScheme.primary
-        isProcessing -> MaterialTheme.colorScheme.secondary
-        state is ProcessingStatus.Failed -> MaterialTheme.colorScheme.error
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
-    
-    val text = when {
-        isInterrupted -> "🌙 Held Safely"
-        state is ProcessingStatus.Active -> {
-            when (state.stage) {
-                ProcessingStage.TRANSCODING -> "✨ Preparing audio..."
-                ProcessingStage.SAVING -> "✨ Saving..."
-                ProcessingStage.NORMALIZING -> "✨ Normalizing audio..."
-                ProcessingStage.TRANSCRIBING -> "✨ Transcribing using AI..."
-                ProcessingStage.WAVEFORM_GENERATION -> "✨ Generating waveform..."
-                ProcessingStage.SAFETY_CHECK -> "✨ Safety check..."
-                ProcessingStage.PRIVACY_SCANNING -> "✨ Privacy scan..."
-                else -> "✨ Enhancing..."
-            }
-        }
-        else -> if (state is ProcessingStatus.Failed) "❌ Error" 
-                else draft.lifecycle.name.replace("_", " ").lowercase()
-                    .replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }
-    }
-
-    Surface(
-        color = color.copy(alpha = 0.1f),
-        contentColor = color,
-        shape = MaterialTheme.shapes.small,
-        modifier = Modifier.padding(top = 4.dp)
-    ) {
-        Text(
-            text = text,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = if (isProcessing) FontWeight.Medium else FontWeight.Normal
-        )
     }
 }

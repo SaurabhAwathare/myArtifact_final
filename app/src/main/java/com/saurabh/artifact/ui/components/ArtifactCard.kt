@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Pause
@@ -69,6 +68,7 @@ import com.saurabh.artifact.model.User
 import com.saurabh.artifact.ui.components.motion.PressableScale
 import com.saurabh.artifact.ui.feed.HydrationLevel
 import com.saurabh.artifact.ui.theme.ArtifactTheme
+import com.saurabh.artifact.ui.theme.CardShape
 import com.saurabh.artifact.ui.theme.LocalStartupStage
 import com.saurabh.artifact.ui.theme.Spacing
 import com.saurabh.artifact.ui.util.FeedbackUtils
@@ -177,12 +177,12 @@ fun ArtifactCard(
     // Optimized Modifier Chain
     val cardModifier = modifier
         .fillMaxWidth()
-        .clip(MaterialTheme.shapes.large)
+        .clip(CardShape)
         .background(ArtifactTheme.colors.surfaceHearth)
         .border(
             width = 1.dp,
-            color = ArtifactTheme.colors.surfaceGlow,
-            shape = MaterialTheme.shapes.large
+            color = ArtifactTheme.colors.waveformInactive,
+            shape = CardShape
         )
 
     PressableScale(
@@ -198,20 +198,19 @@ fun ArtifactCard(
         modifier = cardModifier.alpha(if (isPending) 0.6f else 1f)
     ) {
             Box(modifier = Modifier.fillMaxWidth()) {
-                // Expensive Background Effect: ONLY if playing and FULL hydration
+                // Restrained Atmospheric Warmth: ONLY if playing and FULL hydration
                 if (isPlaying && !isHidden && hydrationLevel >= com.saurabh.artifact.ui.feed.HydrationLevel.FULL) {
                     val activeColor = ArtifactTheme.colors.waveformActive
-                    val radialGradient = remember(activeColor) {
+                    val radialWarmth = remember(activeColor) {
                         Brush.radialGradient(
-                            colors = listOf(activeColor, Color.Transparent),
-                            radius = 350f
+                            colors = listOf(activeColor.copy(alpha = 0.07f), Color.Transparent),
+                            radius = 450f
                         )
                     }
                     Box(
                         modifier = Modifier
                             .matchParentSize()
-                            .alpha(0.12f)
-                            .background(radialGradient)
+                            .background(radialWarmth)
                     )
                 }
 
@@ -222,9 +221,9 @@ fun ArtifactCard(
                     ) {
                         if (isHidden) {
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                                Icon(Icons.Rounded.VisibilityOff, null, tint = MaterialTheme.colorScheme.error)
+                                Icon(Icons.Rounded.VisibilityOff, null, tint = ArtifactTheme.colors.statusError)
                                 Spacer(Modifier.width(Spacing.Small))
-                                Text("Content Hidden", style = ArtifactTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
+                                Text("Content Hidden", style = ArtifactTheme.typography.labelMedium, color = ArtifactTheme.colors.statusError)
                             }
                         } else {
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
@@ -237,11 +236,8 @@ fun ArtifactCard(
                                     }
                                 )
                                 
-                                Spacer(modifier = Modifier.width(Spacing.Medium))
+                                Spacer(modifier = Modifier.width(12.dp))
                                 
-                                // The user metadata is the flexible region of the header.
-                                // It intentionally shrinks before the Emotion Chip so the
-                                // emotion remains fully visible on narrow screens.
                                 Column(modifier = Modifier.weight(1f)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(
@@ -251,8 +247,8 @@ fun ArtifactCard(
                                                 .clickable { 
                                                     if (resolvedIdentity.personaId.isNotBlank()) onAuthorClick(resolvedIdentity.personaId) 
                                                 },
-                                            style = ArtifactTheme.typography.labelLarge.copy(
-                                                fontWeight = FontWeight.SemiBold,
+                                            style = ArtifactTheme.typography.titleSmall.copy(
+                                                fontWeight = FontWeight.Medium,
                                                 fontSize = 15.sp
                                             ),
                                             color = ArtifactTheme.colors.onSurfaceMain,
@@ -263,50 +259,60 @@ fun ArtifactCard(
                                             Text(
                                                 text = " · ",
                                                 style = ArtifactTheme.typography.labelMedium,
-                                                color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.5f)
+                                                color = ArtifactTheme.colors.onSurfaceMuted
                                             )
                                             Text(
                                                 text = resolvedIdentity.sigil,
-                                                style = ArtifactTheme.typography.labelSmall.copy(
-                                                    fontWeight = FontWeight.Light
-                                                ),
+                                                style = ArtifactTheme.typography.labelSmall,
                                                 color = ArtifactTheme.colors.onSurfaceMuted
                                             )
                                         }
                                     }
-                                    Text(
-                                        text = TimeUtils.getRelativeTime(artifact.createdAt),
-                                        style = ArtifactTheme.typography.labelSmall,
-                                        color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.6f)
-                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = TimeUtils.getRelativeTime(artifact.createdAt),
+                                            style = ArtifactTheme.typography.labelSmall,
+                                            color = ArtifactTheme.colors.onSurfaceMuted,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        if (isPending) {
+                                            Spacer(modifier = Modifier.width(Spacing.Small))
+                                            Text(
+                                                text = "· Pending Upload...",
+                                                style = ArtifactTheme.typography.labelSmall.copy(
+                                                    fontStyle = FontStyle.Italic
+                                                ),
+                                                color = ArtifactTheme.colors.onSurfaceMuted,
+                                                maxLines = 1
+                                            )
+                                        }
+                                    }
                                 }
                                 
                                 if (displayEmotionWithEmoji.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.width(Spacing.Small))
                                     Box(
                                         modifier = Modifier
-                                            .padding(start = Spacing.Large) // Ensure gap from flexible content
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(ArtifactTheme.colors.waveformActive.copy(alpha = 0.05f))
-                                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                                            .clip(MaterialTheme.shapes.small)
+                                            .background(ArtifactTheme.colors.surfaceLoom)
+                                            .border(
+                                                width = 1.dp,
+                                                color = ArtifactTheme.colors.waveformInactive.copy(alpha = 0.5f),
+                                                shape = MaterialTheme.shapes.small
+                                            )
+                                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                                            .semantics {
+                                                contentDescription = "Emotion: ${artifact.emotion}"
+                                            }
                                     ) {
                                         Text(
                                             text = displayEmotionWithEmoji,
                                             style = ArtifactTheme.typography.labelSmall,
-                                            color = ArtifactTheme.colors.waveformActive.copy(alpha = 0.8f)
+                                            color = ArtifactTheme.colors.onSurfaceAura,
+                                            maxLines = 1
                                         )
                                     }
-                                }
-                                
-                                if (isPending) {
-                                    Spacer(modifier = Modifier.width(Spacing.Small))
-                                    Text(
-                                        text = "Pending Upload...",
-                                        style = ArtifactTheme.typography.labelSmall.copy(
-                                            fontStyle = FontStyle.Italic,
-                                            fontWeight = FontWeight.Medium
-                                        ),
-                                        color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.8f)
-                                    )
                                 }
                             }
                         }
@@ -318,7 +324,7 @@ fun ArtifactCard(
                             Icon(
                                 imageVector = Icons.Rounded.MoreVert,
                                 contentDescription = stringResource(R.string.cd_more_options),
-                                tint = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.4f),
+                                tint = ArtifactTheme.colors.onSurfaceMuted,
                                 modifier = Modifier.size(24.dp)
                             )
                         }
@@ -339,85 +345,69 @@ fun ArtifactCard(
                         Spacer(modifier = Modifier.height(Spacing.Large))
 
                         if (hydrationLevel >= com.saurabh.artifact.ui.feed.HydrationLevel.ENRICHED) {
-                            Box(
-                                contentAlignment = Alignment.CenterStart,
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                // Atmospheric Glow (Disabled blur in feed for performance)
-                                if (isPlaying && hydrationLevel >= com.saurabh.artifact.ui.feed.HydrationLevel.FULL) {
-                                    val activeColor = ArtifactTheme.colors.waveformActive
-                                    val glowGradient = remember(activeColor) {
-                                        Brush.horizontalGradient(
-                                            listOf(Color.Transparent, activeColor, Color.Transparent)
+                                IconButton(
+                                    onClick = {
+                                        if (isPending) {
+                                            FeedbackUtils.explainDisabledAction(context, haptic, "This reflection is still settling in the archive...")
+                                        } else {
+                                            onPlayClick()
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .clip(CircleShape)
+                                        .background(ArtifactTheme.colors.surfaceLoom)
+                                        .border(
+                                            width = 1.dp,
+                                            color = ArtifactTheme.colors.waveformInactive.copy(alpha = 0.6f),
+                                            shape = CircleShape
+                                        )
+                                        .semantics {
+                                            contentDescription = playActionLabel
+                                        }
+                                ) {
+                                    if (isBuffering) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(20.dp),
+                                            strokeWidth = 2.dp,
+                                            color = ArtifactTheme.colors.waveformActive
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                                            contentDescription = null,
+                                            tint = ArtifactTheme.colors.waveformActive,
+                                            modifier = Modifier.size(24.dp)
                                         )
                                     }
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(waveformHeight)
-                                            .alpha(0.1f)
-                                            .background(glowGradient)
-                                    )
                                 }
 
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    IconButton(
-                                        onClick = {
-                                            if (isPending) {
-                                                FeedbackUtils.explainDisabledAction(context, haptic, "This reflection is still settling in the archive...")
-                                            } else {
-                                                onPlayClick()
-                                            }
-                                        },
-                                        modifier = Modifier
-                                            .size(48.dp)
-                                            .clip(CircleShape)
-                                            .background(ArtifactTheme.colors.waveformActive.copy(alpha = 0.08f))
-                                            .semantics {
-                                                contentDescription = playActionLabel
-                                            }
-                                    ) {
-                                        if (isBuffering) {
-                                            CircularProgressIndicator(
-                                                modifier = Modifier.size(20.dp),
-                                                strokeWidth = 2.dp,
-                                                color = ArtifactTheme.colors.waveformActive
-                                            )
-                                        } else {
-                                            Icon(
-                                                imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                                                contentDescription = null,
-                                                tint = ArtifactTheme.colors.waveformActive,
-                                                modifier = Modifier.size(24.dp)
-                                            )
-                                        }
-                                    }
+                                Spacer(modifier = Modifier.width(Spacing.Medium))
 
+                                AmbientWaveform(
+                                    amplitudes = artifactDetail?.amplitudeData?.takeIf { it.isNotEmpty() }
+                                        ?: artifact.amplitudeData.takeIf { it.isNotEmpty() }
+                                        ?: listOf(0.4f, 0.6f, 0.5f, 0.8f, 0.3f, 0.7f, 0.5f, 0.4f, 0.6f, 0.9f, 0.5f, 0.4f),
+                                    progress = progress,
+                                    modifier = Modifier.weight(1f).height(waveformHeight),
+                                    isPaused = !isPlaying,
+                                    isStatic = !isPlaying || hydrationLevel < com.saurabh.artifact.ui.feed.HydrationLevel.FULL,
+                                    context = if (isPlaying) WaveformContext.Player else WaveformContext.Feed,
+                                    id = artifact.id
+                                )
+
+                                if (formattedDuration != null) {
                                     Spacer(modifier = Modifier.width(Spacing.Medium))
-
-                                    AmbientWaveform(
-                                        amplitudes = artifactDetail?.amplitudeData?.takeIf { it.isNotEmpty() }
-                                            ?: artifact.amplitudeData.takeIf { it.isNotEmpty() }
-                                            ?: listOf(0.4f, 0.6f, 0.5f, 0.8f, 0.3f, 0.7f, 0.5f, 0.4f, 0.6f, 0.9f, 0.5f, 0.4f),
-                                        progress = progress,
-                                        modifier = Modifier.weight(1f).height(waveformHeight),
-                                        isPaused = !isPlaying,
-                                        isStatic = !isPlaying || hydrationLevel < com.saurabh.artifact.ui.feed.HydrationLevel.FULL,
-                                        context = if (isPlaying) WaveformContext.Player else WaveformContext.Feed,
-                                        id = artifact.id
+                                    Text(
+                                        text = formattedDuration,
+                                        style = ArtifactTheme.typography.labelSmall,
+                                        color = ArtifactTheme.colors.onSurfaceMuted,
+                                        maxLines = 1
                                     )
-
-                                    if (formattedDuration != null) {
-                                        Spacer(modifier = Modifier.width(Spacing.Medium))
-                                        Text(
-                                            text = formattedDuration,
-                                            style = ArtifactTheme.typography.labelSmall,
-                                            color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.6f)
-                                        )
-                                    }
                                 }
                             }
                         } else {
@@ -432,7 +422,12 @@ fun ArtifactCard(
                                     modifier = Modifier
                                         .size(48.dp)
                                         .clip(CircleShape)
-                                        .background(ArtifactTheme.colors.waveformActive.copy(alpha = 0.08f))
+                                        .background(ArtifactTheme.colors.surfaceLoom)
+                                        .border(
+                                            width = 1.dp,
+                                            color = ArtifactTheme.colors.waveformInactive.copy(alpha = 0.6f),
+                                            shape = CircleShape
+                                        )
                                         .semantics {
                                             contentDescription = playLabel
                                         }
@@ -440,7 +435,7 @@ fun ArtifactCard(
                                     Icon(
                                         imageVector = Icons.Rounded.PlayArrow,
                                         contentDescription = null,
-                                        tint = ArtifactTheme.colors.waveformActive.copy(alpha = 0.6f),
+                                        tint = ArtifactTheme.colors.waveformActive,
                                         modifier = Modifier.size(24.dp)
                                     )
                                 }
@@ -458,7 +453,8 @@ fun ArtifactCard(
                                     Text(
                                         text = formattedDuration,
                                         style = ArtifactTheme.typography.labelSmall,
-                                        color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.6f)
+                                        color = ArtifactTheme.colors.onSurfaceMuted,
+                                        maxLines = 1
                                     )
                                 }
                             }
@@ -580,12 +576,12 @@ private fun LightweightArtifactCard(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .clip(MaterialTheme.shapes.large)
+            .clip(CardShape)
             .background(ArtifactTheme.colors.surfaceHearth)
             .border(
                 width = 1.dp,
-                color = ArtifactTheme.colors.surfaceGlow,
-                shape = MaterialTheme.shapes.large
+                color = ArtifactTheme.colors.waveformInactive,
+                shape = CardShape
             )
             .padding(Spacing.Large)
     ) {
@@ -602,15 +598,15 @@ private fun LightweightArtifactCard(
                         isStatic = true
                     )
                     
-                    Spacer(modifier = Modifier.width(Spacing.Medium))
+                    Spacer(modifier = Modifier.width(12.dp))
                     
                     Column(modifier = Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = resolvedIdentity.name,
                                 modifier = Modifier.weight(1f, fill = false),
-                                style = ArtifactTheme.typography.labelLarge.copy(
-                                    fontWeight = FontWeight.SemiBold,
+                                style = ArtifactTheme.typography.titleSmall.copy(
+                                    fontWeight = FontWeight.Medium,
                                     fontSize = 15.sp
                                 ),
                                 color = ArtifactTheme.colors.onSurfaceMain,
@@ -621,13 +617,11 @@ private fun LightweightArtifactCard(
                                 Text(
                                     text = " · ",
                                     style = ArtifactTheme.typography.labelMedium,
-                                    color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.5f)
+                                    color = ArtifactTheme.colors.onSurfaceMuted
                                 )
                                 Text(
                                     text = resolvedIdentity.sigil,
-                                    style = ArtifactTheme.typography.labelSmall.copy(
-                                        fontWeight = FontWeight.Light
-                                    ),
+                                    style = ArtifactTheme.typography.labelSmall,
                                     color = ArtifactTheme.colors.onSurfaceMuted
                                 )
                             }
@@ -635,22 +629,33 @@ private fun LightweightArtifactCard(
                         Text(
                             text = TimeUtils.getRelativeTime(artifact.createdAt),
                             style = ArtifactTheme.typography.labelSmall,
-                            color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.6f)
+                            color = ArtifactTheme.colors.onSurfaceMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                     
                     if (displayEmotionWithEmoji.isNotEmpty()) {
+                        Spacer(modifier = Modifier.width(Spacing.Small))
                         Box(
                             modifier = Modifier
-                                .padding(start = Spacing.Large)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(ArtifactTheme.colors.waveformActive.copy(alpha = 0.05f))
-                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                                .clip(MaterialTheme.shapes.small)
+                                .background(ArtifactTheme.colors.surfaceLoom)
+                                .border(
+                                    width = 1.dp,
+                                    color = ArtifactTheme.colors.waveformInactive.copy(alpha = 0.5f),
+                                    shape = MaterialTheme.shapes.small
+                                )
+                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                                .semantics {
+                                    contentDescription = "Emotion: ${artifact.emotion}"
+                                }
                         ) {
                             Text(
                                 text = displayEmotionWithEmoji,
                                 style = ArtifactTheme.typography.labelSmall,
-                                color = ArtifactTheme.colors.waveformActive.copy(alpha = 0.8f)
+                                color = ArtifactTheme.colors.onSurfaceAura,
+                                maxLines = 1
                             )
                         }
                     }
@@ -664,7 +669,7 @@ private fun LightweightArtifactCard(
                     Icon(
                         imageVector = Icons.Rounded.MoreVert,
                         contentDescription = null,
-                        tint = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.3f),
+                        tint = ArtifactTheme.colors.onSurfaceMuted,
                         modifier = Modifier.size(24.dp)
                     )
                 }
@@ -694,7 +699,12 @@ private fun LightweightArtifactCard(
                     modifier = Modifier
                         .size(48.dp)
                         .clip(CircleShape)
-                        .background(ArtifactTheme.colors.waveformActive.copy(alpha = 0.08f))
+                        .background(ArtifactTheme.colors.surfaceLoom)
+                        .border(
+                            width = 1.dp,
+                            color = ArtifactTheme.colors.waveformInactive.copy(alpha = 0.6f),
+                            shape = CircleShape
+                        )
                         .semantics {
                             contentDescription = playLabel
                         }
@@ -702,7 +712,7 @@ private fun LightweightArtifactCard(
                     Icon(
                         imageVector = Icons.Rounded.PlayArrow,
                         contentDescription = null,
-                        tint = ArtifactTheme.colors.waveformActive.copy(alpha = 0.6f),
+                        tint = ArtifactTheme.colors.waveformActive,
                         modifier = Modifier.size(24.dp)
                     )
                 }
@@ -720,7 +730,8 @@ private fun LightweightArtifactCard(
                     Text(
                         text = formattedDuration,
                         style = ArtifactTheme.typography.labelSmall,
-                        color = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.6f)
+                        color = ArtifactTheme.colors.onSurfaceMuted,
+                        maxLines = 1
                     )
                 }
             }

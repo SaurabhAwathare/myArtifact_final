@@ -4,7 +4,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material3.*
@@ -14,8 +13,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.tooling.preview.Preview
 import com.saurabh.artifact.ui.profile.models.DraftUiModel
 import com.saurabh.artifact.ui.theme.ArtifactTheme
+import com.saurabh.artifact.ui.theme.CardShape
+import com.saurabh.artifact.ui.theme.Spacing
 
 fun LazyListScope.draftSection(
     drafts: List<DraftUiModel>,
@@ -60,6 +62,15 @@ fun LazyListScope.draftSection(
     }
 }
 
+/**
+ * Informational banner reminding creators that their unpublished recordings are stored
+ * locally on their current device.
+ * Aligned with Stage 3.4 design system:
+ * - 16dp CardShape container
+ * - Solid Obsidian800 surface with Obsidian700 border
+ * - Golden Aura icon and action button
+ * - 48dp minimum interactive touch target
+ */
 @Composable
 fun DraftStorageWarningBanner(
     draftCount: Int,
@@ -68,12 +79,12 @@ fun DraftStorageWarningBanner(
 ) {
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        color = ArtifactTheme.colors.surfaceHearth.copy(alpha = 0.7f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
+        shape = CardShape,
+        color = ArtifactTheme.colors.surfaceHearth,
+        border = BorderStroke(1.dp, ArtifactTheme.colors.waveformInactive)
     ) {
         Column(
-            modifier = Modifier.padding(16.dp)
+            modifier = Modifier.padding(Spacing.Large)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -82,42 +93,55 @@ fun DraftStorageWarningBanner(
                 Icon(
                     imageVector = Icons.Rounded.Info,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = ArtifactTheme.colors.waveformActive,
                     modifier = Modifier.size(20.dp)
                 )
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(Spacing.Small))
                 Text(
                     text = "Your drafts are stored on this device",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
+                    style = ArtifactTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
                     color = ArtifactTheme.colors.onSurfaceMain
                 )
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(Spacing.Small))
 
             val draftCountText = if (draftCount == 1) "1 unpublished recording" else "$draftCount unpublished recordings"
             Text(
                 text = "You have $draftCountText. Uninstalling Artifact or clearing its app data may permanently delete them. To keep a backup, export your data in Settings and save the ZIP file somewhere safe before removing the app.",
-                style = MaterialTheme.typography.bodySmall,
+                style = ArtifactTheme.typography.bodySmall,
                 color = ArtifactTheme.colors.onSurfaceMuted,
-                lineHeight = 18.sp
+                lineHeight = 20.sp
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(Spacing.Small))
 
             TextButton(
                 onClick = onNavigateToSettings,
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                modifier = Modifier.align(Alignment.End)
+                modifier = Modifier
+                    .align(Alignment.End)
+                    .defaultMinSize(minHeight = 48.dp)
             ) {
                 Text(
                     text = "Export in Settings",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.primary
+                    style = ArtifactTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = ArtifactTheme.colors.waveformActive
                 )
             }
+        }
+    }
+}
+
+@Preview(name = "Draft Storage Warning Banner")
+@Composable
+fun PreviewDraftStorageWarningBanner() {
+    ArtifactTheme {
+        Box(modifier = Modifier.padding(16.dp)) {
+            DraftStorageWarningBanner(
+                draftCount = 3,
+                onNavigateToSettings = {}
+            )
         }
     }
 }

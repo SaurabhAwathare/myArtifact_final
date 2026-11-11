@@ -39,7 +39,12 @@ data class ArtifactColorScheme(
      */
     val waveformInactive: Color,
     val softError: Color,
-    val goldAura: Color
+    val goldAura: Color,
+    val recordingActive: Color = RecordingActive,
+    val recordingPaused: Color = RecordingPaused,
+    val actionDestructive: Color = ActionDestructive,
+    val statusError: Color = StatusError,
+    val statusWarning: Color = StatusWarning,
 )
 
 val LocalArtifactColors = staticCompositionLocalOf {
@@ -50,10 +55,15 @@ val LocalArtifactColors = staticCompositionLocalOf {
         onSurfaceMain = OnSurfaceMain,
         onSurfaceMuted = OnSurfaceMuted,
         onSurfaceAura = OnSurfaceAura,
-        waveformActive = GoldAura500,
-        waveformInactive = Obsidian700,
+        waveformActive = WaveformActive,
+        waveformInactive = WaveformInactive,
         softError = SoftError,
-        goldAura = GoldAura500
+        goldAura = GoldAura500,
+        recordingActive = RecordingActive,
+        recordingPaused = RecordingPaused,
+        actionDestructive = ActionDestructive,
+        statusError = StatusError,
+        statusWarning = StatusWarning,
     )
 }
 
@@ -97,7 +107,7 @@ private val DarkColorScheme = darkColorScheme(
     onBackground = ReflectionWhite,
     onSurface = ReflectionWhite,
     onSurfaceVariant = MistGray,
-    error = SoftError,
+    error = StatusError,
     outline = Obsidian700
 )
 
@@ -117,10 +127,15 @@ fun ArtifactTheme(
         onSurfaceMain = OnSurfaceMain,
         onSurfaceMuted = OnSurfaceMuted,
         onSurfaceAura = OnSurfaceAura,
-        waveformActive = GoldAura500,
-        waveformInactive = Obsidian700,
+        waveformActive = WaveformActive,
+        waveformInactive = WaveformInactive,
         softError = SoftError,
-        goldAura = GoldAura500
+        goldAura = GoldAura500,
+        recordingActive = RecordingActive,
+        recordingPaused = RecordingPaused,
+        actionDestructive = ActionDestructive,
+        statusError = StatusError,
+        statusWarning = StatusWarning,
     )
 
     // MaterialTheme receives ArtifactTypography when in STABLE stage

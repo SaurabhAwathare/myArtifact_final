@@ -34,7 +34,7 @@ fun ArtifactManagementBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = ArtifactTheme.colors.surfaceHearth,
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
         dragHandle = null
     ) {
         Column(
@@ -84,7 +84,7 @@ fun ArtifactManagementBottomSheet(
                 ManagementActionItem(
                     icon = Icons.Rounded.DeleteOutline,
                     label = if (isDraft) "Delete Draft" else "Delete Artifact",
-                    textColor = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
+                    textColor = ArtifactTheme.colors.actionDestructive,
                     onClick = {
                         onDeleteClick()
                         onDismiss()
@@ -161,7 +161,7 @@ fun RenameDialog(
                     isError = title.length > maxChars,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = ArtifactTheme.colors.waveformActive,
-                        unfocusedBorderColor = Color.White.copy(alpha = 0.1f),
+                        unfocusedBorderColor = ArtifactTheme.colors.waveformInactive,
                         focusedTextColor = ArtifactTheme.colors.onSurfaceMain,
                         unfocusedTextColor = ArtifactTheme.colors.onSurfaceMain,
                         errorBorderColor = MaterialTheme.colorScheme.error
@@ -188,12 +188,12 @@ fun RenameDialog(
                 enabled = isValid
             ) {
                 Text("Update", color = if (isValid) ArtifactTheme.colors.waveformActive 
-                                       else ArtifactTheme.colors.waveformActive.copy(alpha = 0.3f))
+                                       else ArtifactTheme.colors.waveformActive.copy(alpha = 0.38f))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel", color = Color.White.copy(alpha = 0.4f))
+                Text("Cancel", color = ArtifactTheme.colors.onSurfaceMuted)
             }
         }
     )
@@ -212,7 +212,7 @@ fun DeleteConfirmationDialog(
             Icon(
                 Icons.Rounded.DeleteOutline,
                 null,
-                tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
+                tint = ArtifactTheme.colors.actionDestructive
             )
         },
         title = {
@@ -235,12 +235,12 @@ fun DeleteConfirmationDialog(
         },
         confirmButton = {
             TextButton(onClick = onConfirm) {
-                Text("Delete", color = MaterialTheme.colorScheme.error)
+                Text("Delete", color = ArtifactTheme.colors.actionDestructive)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel", color = Color.White.copy(alpha = 0.4f))
+                Text("Cancel", color = ArtifactTheme.colors.onSurfaceMuted)
             }
         }
     )

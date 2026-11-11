@@ -12,19 +12,34 @@ import com.saurabh.artifact.R
  * Artifact "Humanist Intimacy" Typography System
  * 
  * Migrated to Local Bundled Fonts to ensure zero-latency startup and offline reliability.
- * 
- * Pairings:
- * - Instrument Serif: For titles, prompts, and "ancient-modern" character.
- * - Manrope: For body, transcripts, and UI clarity.
+ * As approved in Stage 2.2 / 3.1, Manrope is the sole active UI typography family.
+ *
+ * Bundled font resources:
+ * - manrope_regular.ttf (Weight 400 / Normal)
+ * - manrope_medium.ttf (Weight 500 / Medium)
+ *
+ * Weight Resolution Strategy:
+ * - Normal (400) -> manrope_regular.ttf
+ * - Medium (500) -> manrope_medium.ttf
+ * - SemiBold (600) -> Fallback to Medium (500)
+ * - Bold (700) -> Fallback to Medium (500)
  */
-
-val InstrumentSerifFont = FontFamily(
-    Font(R.font.instrument_serif_regular, FontWeight.Normal)
-)
 
 val ManropeFont = FontFamily(
     Font(R.font.manrope_regular, FontWeight.Normal),
-    Font(R.font.manrope_medium, FontWeight.Medium)
+    Font(R.font.manrope_medium, FontWeight.Medium),
+)
+
+/**
+ * Instrument Serif is retired from active UI typography in Stage 3.1.
+ * Retained for reference without active UI usage.
+ */
+@Deprecated(
+    message = "Instrument Serif is retired from active UI typography in Stage 3.1. Use ManropeFont instead.",
+    level = DeprecationLevel.WARNING,
+)
+val InstrumentSerifFont = FontFamily(
+    Font(R.font.instrument_serif_regular, FontWeight.Normal),
 )
 
 /**
@@ -87,34 +102,66 @@ val SafeTypography = Typography(
 val ArtifactTypography = Typography(
     // The "Voice" - For artifact titles and high-impact reflection
     displayLarge = TextStyle(
-        fontFamily = InstrumentSerifFont,
+        fontFamily = ManropeFont,
         fontWeight = FontWeight.Normal,
         fontSize = 32.sp,
         lineHeight = 40.sp,
         letterSpacing = (-0.5).sp
     ),
     displayMedium = TextStyle(
-        fontFamily = InstrumentSerifFont,
+        fontFamily = ManropeFont,
         fontWeight = FontWeight.Normal,
         fontSize = 28.sp,
         lineHeight = 36.sp
     ),
-    
-    // The "Headline" - For section headers
-    headlineMedium = TextStyle(
-        fontFamily = InstrumentSerifFont,
-        fontWeight = FontWeight.SemiBold,
+    displaySmall = TextStyle(
+        fontFamily = ManropeFont,
+        fontWeight = FontWeight.Normal,
         fontSize = 24.sp,
         lineHeight = 32.sp
+    ),
+    
+    // The "Headline" - For section headers
+    headlineLarge = TextStyle(
+        fontFamily = ManropeFont,
+        fontWeight = FontWeight.Medium,
+        fontSize = 28.sp,
+        lineHeight = 36.sp
+    ),
+    headlineMedium = TextStyle(
+        fontFamily = ManropeFont,
+        fontWeight = FontWeight.Medium,
+        fontSize = 24.sp,
+        lineHeight = 32.sp
+    ),
+    headlineSmall = TextStyle(
+        fontFamily = ManropeFont,
+        fontWeight = FontWeight.Medium,
+        fontSize = 20.sp,
+        lineHeight = 28.sp
     ),
 
     // The "Reflection Title" - For artifact card titles and reflective moments
     titleLarge = TextStyle(
-        fontFamily = InstrumentSerifFont,
+        fontFamily = ManropeFont,
         fontWeight = FontWeight.Normal,
         fontSize = 22.sp,
         lineHeight = 28.sp,
         letterSpacing = (-0.2).sp
+    ),
+    titleMedium = TextStyle(
+        fontFamily = ManropeFont,
+        fontWeight = FontWeight.Medium,
+        fontSize = 16.sp,
+        lineHeight = 24.sp,
+        letterSpacing = 0.15.sp
+    ),
+    titleSmall = TextStyle(
+        fontFamily = ManropeFont,
+        fontWeight = FontWeight.Medium,
+        fontSize = 14.sp,
+        lineHeight = 20.sp,
+        letterSpacing = 0.1.sp
     ),
 
     // The "Reflection" - For transcript reading (Generous line height)
@@ -132,8 +179,22 @@ val ArtifactTypography = Typography(
         lineHeight = 26.sp,
         letterSpacing = 0.25.sp
     ),
+    bodySmall = TextStyle(
+        fontFamily = ManropeFont,
+        fontWeight = FontWeight.Normal,
+        fontSize = 14.sp,
+        lineHeight = 20.sp,
+        letterSpacing = 0.25.sp
+    ),
 
     // The "Whisper" - For metadata and low-priority labels
+    labelLarge = TextStyle(
+        fontFamily = ManropeFont,
+        fontWeight = FontWeight.Medium,
+        fontSize = 14.sp,
+        lineHeight = 20.sp,
+        letterSpacing = 0.5.sp
+    ),
     labelMedium = TextStyle(
         fontFamily = ManropeFont,
         fontWeight = FontWeight.Medium,

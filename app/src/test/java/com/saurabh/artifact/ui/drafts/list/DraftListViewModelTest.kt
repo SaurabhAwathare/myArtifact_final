@@ -35,6 +35,9 @@ class DraftListViewModelTest {
     fun setup() {
         Dispatchers.setMain(testDispatcher)
         every { authRepository.currentUser } returns MutableStateFlow(null)
+        every { audioPlayer.currentArtifact } returns MutableStateFlow(null)
+        every { audioPlayer.isPlaying } returns MutableStateFlow(false)
+        every { audioPlayer.isBuffering } returns MutableStateFlow(false)
         
         viewModel = DraftListViewModel(
             recordingRepository,
@@ -76,5 +79,44 @@ class DraftListViewModelTest {
         viewModel.onDraftClicked(draftWithUpload)
 
         coVerify { publishingOrchestrator.startProcessing(draftId) }
+    }
+
+    @Test
+    fun `playDraftAudio when not currently playing should start draft preview`() = runTest {
+        val draftId = "draft-preview-456"
+        val draft = mockk<ArtifactDraftEntity>(relaxed = true) {
+            every { id } returns draftId
+        }
+
+        viewModel.playDraftAudio(draft)
+
+        verify { audioPlayer.playDraftPreview(draftId) }
+        verify(exactly = 0) { audioPlayer.togglePlayPause() }
+    }
+
+    @Test
+    fun `playDraftAudio when already playing should toggle play pause`() = runTest {
+        val draftId = "draft-preview-playing"
+        val mockArtifact = mockk<com.saurabh.artifact.model.Artifact>(relaxed = true) {
+            every { id } returns draftId
+        }
+        every { audioPlayer.currentArtifact } returns MutableStateFlow(mockArtifact)
+
+        val playingVm = DraftListViewModel(
+            recordingRepository,
+            draftRepository,
+            publishingOrchestrator,
+            authRepository,
+            cleanupManager,
+            audioPlayer
+        )
+
+        val draft = mockk<ArtifactDraftEntity>(relaxed = true) {
+            every { id } returns draftId
+        }
+
+        playingVm.playDraftAudio(draft)
+
+        verify { audioPlayer.togglePlayPause() }
     }
 }

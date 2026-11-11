@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.saurabh.artifact.audio.ArtifactCleanupManager
 import com.saurabh.artifact.audio.PlaybackCoordinator
+import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.domain.PublishingOrchestrator
 import com.saurabh.artifact.repository.DraftRepository
 import com.saurabh.artifact.repository.DraftWithUpload
@@ -28,7 +29,7 @@ class DraftListViewModel @Inject constructor(
     private val publishingOrchestrator: PublishingOrchestrator,
     authRepository: com.saurabh.artifact.repository.AuthRepository,
     private val cleanupManager: ArtifactCleanupManager,
-    audioPlayer: PlaybackCoordinator
+    private val audioPlayer: PlaybackCoordinator
 ) : ViewModel() {
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -54,6 +55,11 @@ class DraftListViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val isPlaying = audioPlayer.isPlaying
+    val isBuffering = audioPlayer.isBuffering
+
+    val currentlyPlayingDraftId: StateFlow<String?> = audioPlayer.currentArtifact
+        .map { it?.id }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     private val _events = MutableSharedFlow<DraftListUiEvent>()
     val events = _events.asSharedFlow()
@@ -107,6 +113,14 @@ class DraftListViewModel @Inject constructor(
         val draft = draftWithUpload.draft
         viewModelScope.launch {
             publishingOrchestrator.startProcessing(draft.id)
+        }
+    }
+
+    fun playDraftAudio(draft: ArtifactDraftEntity) {
+        if (audioPlayer.currentArtifact.value?.id == draft.id) {
+            audioPlayer.togglePlayPause()
+        } else {
+            audioPlayer.playDraftPreview(draft.id)
         }
     }
 
