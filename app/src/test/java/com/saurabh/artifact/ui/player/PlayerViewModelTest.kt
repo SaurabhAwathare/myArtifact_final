@@ -360,4 +360,74 @@ class PlayerViewModelTest {
         // Should only be called ONCE
         verify(exactly = 1) { playbackCoordinator.playArtifact(match { it.id == artifactId }, any(), any(), any()) }
     }
+
+    @Test
+    fun `toggleResonanceConnection calls playerInteractionUseCase when valid artifact present`() = runTest {
+        val artifact = Artifact(
+            id = "art1",
+            userId = "other_user",
+            author = com.saurabh.artifact.model.AuthorSnapshot(anonymousId = "creator_anon_1")
+        )
+        val currentArtifactFlow = MutableStateFlow<Artifact?>(artifact)
+        every { playbackCoordinator.currentArtifact } returns currentArtifactFlow
+        coEvery {
+            playerInteractionUseCase.toggleResonanceConnection("user123", "creator_anon_1", false)
+        } returns Result.success(Unit)
+
+        val newViewModel = PlayerViewModel(
+            savedStateHandle, playbackCoordinator, authRepository, { reactionUseCase }, 
+            { playerInteractionUseCase }, getPlayerContextUseCase, { playableArtifactRepository }, 
+            reviewSessionManager, { deleteArtifactUseCase }, 
+            publishingPolicy, diagnosticLogger
+        )
+        backgroundScope.launch {
+            newViewModel.uiState.collect {}
+        }
+        advanceUntilIdle()
+        advanceTimeBy(6000)
+
+        newViewModel.toggleResonanceConnection()
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) {
+            playerInteractionUseCase.toggleResonanceConnection("user123", "creator_anon_1", false)
+        }
+    }
+
+    @Test
+    fun `toggleResonanceConnection reports error on failure`() = runTest {
+        val artifact = Artifact(
+            id = "art1",
+            userId = "other_user",
+            author = com.saurabh.artifact.model.AuthorSnapshot(anonymousId = "creator_anon_1")
+        )
+        val currentArtifactFlow = MutableStateFlow<Artifact?>(artifact)
+        every { playbackCoordinator.currentArtifact } returns currentArtifactFlow
+        val error = com.saurabh.artifact.model.AppError.NetworkFailure()
+        coEvery {
+            playerInteractionUseCase.toggleResonanceConnection("user123", "creator_anon_1", false)
+        } returns Result.failure(error)
+
+        val newViewModel = PlayerViewModel(
+            savedStateHandle, playbackCoordinator, authRepository, { reactionUseCase }, 
+            { playerInteractionUseCase }, getPlayerContextUseCase, { playableArtifactRepository }, 
+            reviewSessionManager, { deleteArtifactUseCase }, 
+            publishingPolicy, diagnosticLogger
+        )
+        backgroundScope.launch {
+            newViewModel.uiState.collect {}
+        }
+        val errors = mutableListOf<String>()
+        val collectJob = launch {
+            newViewModel.interactionError.collect { errors.add(it) }
+        }
+        advanceUntilIdle()
+        advanceTimeBy(6000)
+
+        newViewModel.toggleResonanceConnection()
+        advanceUntilIdle()
+
+        Assert.assertTrue(errors.contains("Connection lost. Please check your network."))
+        collectJob.cancel()
+    }
 }

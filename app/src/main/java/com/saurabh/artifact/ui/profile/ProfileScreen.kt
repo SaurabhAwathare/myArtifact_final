@@ -8,6 +8,7 @@ import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -21,6 +22,8 @@ import com.saurabh.artifact.ui.profile.components.draftSection
 import com.saurabh.artifact.ui.profile.components.userArtifactsList
 import com.saurabh.artifact.ui.components.AppSnackbarHost
 import com.saurabh.artifact.ui.components.base.AppEmptyState
+import com.saurabh.artifact.ui.theme.ArtifactTheme
+import com.saurabh.artifact.ui.theme.Spacing
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -167,18 +170,23 @@ fun ProfileScreen(
                             containerColor = Color.Transparent,
                             contentColor = MaterialTheme.colorScheme.primary,
                             divider = {},
-                            modifier = Modifier.padding(horizontal = 4.dp)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp)
+                                .padding(top = Spacing.Small, bottom = Spacing.Small)
                         ) {
                             visibleTabs.forEach { tab ->
                                 Tab(
                                     selected = uiState.selectedTab == tab,
                                     onClick = { viewModel.selectTab(tab) },
+                                    selectedContentColor = MaterialTheme.colorScheme.primary,
+                                    unselectedContentColor = ArtifactTheme.colors.onSurfaceMuted,
                                     text = { 
                                         Text(
                                             tab.title,
                                             style = MaterialTheme.typography.titleSmall,
                                             fontWeight = if (uiState.selectedTab == tab) FontWeight.Bold else FontWeight.Normal,
-                                            modifier = Modifier.padding(vertical = 8.dp)
+                                            modifier = Modifier.padding(vertical = Spacing.Small)
                                         ) 
                                     }
                                 )
@@ -268,6 +276,25 @@ fun ProfileScreen(
                                             onNavigateToArtifactResonators(artifact.id, true)
                                         }
                                     )
+                                }
+
+                                if (uiState.localDrafts.isEmpty() && uiState.cloudDrafts.isEmpty()) {
+                                    item {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 64.dp, horizontal = 32.dp),
+                                            contentAlignment = androidx.compose.ui.Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = "No drafts waiting to be shared.",
+                                                style = ArtifactTheme.typography.bodyLarge,
+                                                color = ArtifactTheme.colors.onSurfaceMuted,
+                                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                                modifier = Modifier.alpha(0.6f)
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }

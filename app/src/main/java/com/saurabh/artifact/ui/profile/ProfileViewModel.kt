@@ -437,17 +437,20 @@ class ProfileViewModel @Inject constructor(
 
         viewModelScope.launch {
             _isActionLoading.value = true
-            profileInteractionUseCase.toggleResonance(currentId, targetPersonaId, uiState.value.isResonating)
-                .onSuccess {
-                    _message.value = if (uiState.value.isResonating) 
-                        UiText.StringResource(R.string.unfollowed) 
-                    else 
-                        UiText.StringResource(R.string.now_following)
-                }
-                .onFailure { e ->
-                    _message.value = ErrorMessageMapper.map(e)
-                }
-            _isActionLoading.value = false
+            try {
+                profileInteractionUseCase.toggleResonance(currentId, targetPersonaId, uiState.value.isResonating)
+                    .onSuccess {
+                        _message.value = if (uiState.value.isResonating) 
+                            UiText.StringResource(R.string.unfollowed) 
+                        else 
+                            UiText.StringResource(R.string.now_following)
+                    }
+                    .onFailure { e ->
+                        _message.value = ErrorMessageMapper.map(e)
+                    }
+            } finally {
+                _isActionLoading.value = false
+            }
         }
     }
 
