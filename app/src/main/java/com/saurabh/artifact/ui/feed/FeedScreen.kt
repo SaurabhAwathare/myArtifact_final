@@ -26,6 +26,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.paging.compose.collectAsLazyPagingItems
@@ -42,6 +43,7 @@ import com.saurabh.artifact.ui.components.state.EmptyFeedState
 import com.saurabh.artifact.ui.components.state.FeedErrorState
 import com.saurabh.artifact.domain.feed.FeedErrorClassification
 import com.saurabh.artifact.ui.components.ReflectionPromptCard
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import com.saurabh.artifact.ui.components.motion.FadeInContent
 import com.saurabh.artifact.ui.components.state.LoadingPlaceholder
@@ -72,6 +74,28 @@ import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
 import kotlin.time.Duration.Companion.milliseconds
 
+/**
+ * Determines AuraDock visibility on the Feed screen.
+ * MiniRecorder is the sole persistent recording entry point during RECORDING and PAUSED states.
+ * AuraDock is only visible during non-recording entry states: IDLE, PREPARING, and COUNTDOWN.
+ */
+fun isAuraDockVisible(recordingStatus: RecordingStatus): Boolean = recordingStatus in listOf(
+    RecordingStatus.IDLE,
+    RecordingStatus.PREPARING,
+    RecordingStatus.COUNTDOWN,
+)
+
+/**
+ * Calculates the bottom content padding for the Feed LazyColumn.
+ * When AuraDock is visible, 120dp padding clears the dock.
+ * When AuraDock is hidden (RECORDING, PAUSED, etc.), 20dp baseline padding is used.
+ */
+fun calculateFeedBottomPadding(recordingStatus: RecordingStatus): Dp =
+    if (isAuraDockVisible(recordingStatus)) {
+        120.dp
+    } else {
+        20.dp
+    }
 
 @OptIn(ExperimentalMaterial3Api::class, kotlinx.coroutines.FlowPreview::class, ExperimentalFoundationApi::class)
 @Composable
@@ -86,6 +110,7 @@ fun FeedScreen(
     onNavigateToSecurity: () -> Unit = {},
     recordingStatus: RecordingStatus = RecordingStatus.IDLE,
     viewModel: FeedViewModel = hiltViewModel(),
+    listState: LazyListState = rememberLazyListState(),
 ) {
     val logger = ArtifactTheme.logger
     logger.trace(DiagnosticCategory.FEED, "FEED_SCREEN_COMPOSITION")
@@ -112,7 +137,6 @@ fun FeedScreen(
     val reflectionPrompt by viewModel.reflectionPrompt.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val hasNewContent by viewModel.hasNewContent.collectAsStateWithLifecycle()
-    val listState = rememberLazyListState()
 
     // New Viewport-aware Hydration Logic
     ViewportCoordinator(state = listState, viewModel = viewModel)
@@ -158,13 +182,7 @@ fun FeedScreen(
         },
         snackbarHost = { AppSnackbarHost(snackbarHostState) },
         floatingActionButton = {
-            val isAuraDockVisible = recordingStatus in listOf(
-                RecordingStatus.IDLE,
-                RecordingStatus.RECORDING,
-                RecordingStatus.PAUSED,
-                RecordingStatus.PREPARING,
-                RecordingStatus.COUNTDOWN
-            )
+            val isAuraDockVisible = isAuraDockVisible(recordingStatus)
             AuraDock(
                 onInitiate = { onNavigateToRecord(null, null) },
                 status = recordingStatus,
@@ -217,7 +235,8 @@ fun FeedScreen(
                         onResonatorsCountClick = onResonatorsCountClick,
                         onNavigateToSecurity = onNavigateToSecurity,
                         selectedEmotion = selectedEmotion,
-                        committedEmotion = committedEmotion
+                        committedEmotion = committedEmotion,
+                        recordingStatus = recordingStatus
                     )
                 }
 
@@ -358,10 +377,10 @@ private fun FeedVibeHeader(
 }
 
 @Composable
-private fun FeedContent(
+internal fun FeedContent(
     artifacts: LazyPagingItems<FeedDisplayItem>,
     isRankedLoading: Boolean,
-    listState: androidx.compose.foundation.lazy.LazyListState,
+    listState: LazyListState,
     viewModel: FeedViewModel,
     reflectionPrompt: ReflectionPrompt?,
     stage: StartupStage,
@@ -372,7 +391,8 @@ private fun FeedContent(
     modifier: Modifier = Modifier,
     onResonatorsCountClick: (String) -> Unit = {},
     selectedEmotion: String? = null,
-    committedEmotion: String? = null
+    committedEmotion: String? = null,
+    recordingStatus: RecordingStatus = RecordingStatus.IDLE
 ) {
     val currentArtifacts = artifacts
     val refreshState = currentArtifacts.loadState.refresh
@@ -395,13 +415,15 @@ private fun FeedContent(
         }
     }
 
+    val bottomPadding = calculateFeedBottomPadding(recordingStatus)
+
     Box(modifier = modifier) {
         // ALWAYS keep LazyColumn in composition tree to preserve scroll restoration anchor.
         // Even if empty, the Paging library will soon populate it from Room if SKIP_INITIAL_REFRESH was used.
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(20.dp, 0.dp, 20.dp, 120.dp),
+            contentPadding = PaddingValues(20.dp, 0.dp, 20.dp, bottomPadding),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
             item(key = "header") {

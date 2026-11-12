@@ -150,34 +150,38 @@ fun ProfileScreen(
                     }
 
                     item {
+                        val visibleTabs = remember(uiState.isSelf) {
+                            if (uiState.isSelf) {
+                                listOf(ProfileTab.PUBLISHED, ProfileTab.DRAFTS, ProfileTab.SAVED)
+                            } else {
+                                listOf(ProfileTab.PUBLISHED)
+                            }
+                        }
+                        val selectedTabIndex = remember(visibleTabs, uiState.selectedTab) {
+                            val index = visibleTabs.indexOf(uiState.selectedTab)
+                            if (index in visibleTabs.indices) index else 0
+                        }
+
                         SecondaryTabRow(
-                            selectedTabIndex = uiState.selectedTab.ordinal,
+                            selectedTabIndex = selectedTabIndex,
                             containerColor = Color.Transparent,
                             contentColor = MaterialTheme.colorScheme.primary,
                             divider = {},
                             modifier = Modifier.padding(horizontal = 4.dp)
                         ) {
-                            ProfileTab.entries.forEach { tab ->
-                                val isTabVisible = when (tab) {
-                                    ProfileTab.PUBLISHED -> true
-                                    ProfileTab.DRAFTS -> uiState.isSelf
-                                    ProfileTab.SAVED -> uiState.isSelf
-                                }
-                                
-                                if (isTabVisible) {
-                                    Tab(
-                                        selected = uiState.selectedTab == tab,
-                                        onClick = { viewModel.selectTab(tab) },
-                                        text = { 
-                                            Text(
-                                                tab.title,
-                                                style = MaterialTheme.typography.titleSmall,
-                                                fontWeight = if (uiState.selectedTab == tab) FontWeight.Bold else FontWeight.Normal,
-                                                modifier = Modifier.padding(vertical = 8.dp)
-                                            ) 
-                                        }
-                                    )
-                                }
+                            visibleTabs.forEach { tab ->
+                                Tab(
+                                    selected = uiState.selectedTab == tab,
+                                    onClick = { viewModel.selectTab(tab) },
+                                    text = { 
+                                        Text(
+                                            tab.title,
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = if (uiState.selectedTab == tab) FontWeight.Bold else FontWeight.Normal,
+                                            modifier = Modifier.padding(vertical = 8.dp)
+                                        ) 
+                                    }
+                                )
                             }
                         }
                     }

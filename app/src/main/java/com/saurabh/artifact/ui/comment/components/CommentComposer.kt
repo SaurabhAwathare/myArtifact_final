@@ -59,9 +59,9 @@ fun CommentComposer(
 
         MindfulTextField(
             value = text,
-            onValueChange = onTextChanged,
+            onValueChange = if (isUnlocked && !isSubmitting) onTextChanged else { _ -> },
             placeholder = if (isUnlocked) "Add a thoughtful response..." else "Listen before you respond",
-            enabled = true, // Forced for testing
+            enabled = isUnlocked && !isSubmitting,
             modifier = Modifier.fillMaxWidth()
         )
         
@@ -69,7 +69,11 @@ fun CommentComposer(
         
         AppButton(
             text = "Respond",
-            onClick = onSubmit,
+            onClick = {
+                if (isUnlocked && !isSubmitting && text.isNotBlank()) {
+                    onSubmit()
+                }
+            },
             isLoading = isSubmitting,
             enabled = isUnlocked && text.isNotBlank() && !isSubmitting,
             modifier = Modifier.fillMaxWidth()

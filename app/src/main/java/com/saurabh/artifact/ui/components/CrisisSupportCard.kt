@@ -9,8 +9,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.saurabh.artifact.R
 
 @Composable
 fun CrisisSupportCard(
@@ -79,7 +81,7 @@ fun CrisisSupportCard(
                         contentColor = MaterialTheme.colorScheme.onErrorContainer
                     )
                 ) {
-                    Text("Continue writing")
+                    Text(stringResource(R.string.action_return_to_reflection))
                 }
             }
         }

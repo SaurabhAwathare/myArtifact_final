@@ -33,6 +33,7 @@
     <string name="action_retry">Retry</string>
     <string name="action_reauthenticate">Log In</string>
     <string name="action_support">Support</string>
+    <string name="action_return_to_reflection">Return to reflection</string>
 
     <!-- Notification Messages -->
     <string name="notification_new_artifact">You published a new artifact: %s ✨</string>

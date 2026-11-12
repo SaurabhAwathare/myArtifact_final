@@ -48,6 +48,8 @@ fun NavGraphBuilder.profileNavigation(
 
     composable<Profile> { backStackEntry ->
         val profile = backStackEntry.toRoute<Profile>()
+        backStackEntry.savedStateHandle["userId"] = profile.userId
+        backStackEntry.savedStateHandle["personaId"] = profile.personaId
         diagnosticLogger.debug(DiagnosticCategory.NAVIGATION, "NAVIGATE_TO_PROFILE", mapOf("targetUserId" to (profile.userId ?: "self")))
         ProfileScreen(
             onBack = onBack,

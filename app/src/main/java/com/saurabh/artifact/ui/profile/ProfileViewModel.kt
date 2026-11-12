@@ -96,7 +96,7 @@ private data class PlaybackState(
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class ProfileViewModel @Inject constructor(
-    savedStateHandle: SavedStateHandle,
+    private val savedStateHandle: SavedStateHandle,
     private val authRepository: AuthRepository,
     private val artifactRepository: ArtifactRepository,
     private val userRepository: UserRepository,
@@ -119,9 +119,9 @@ class ProfileViewModel @Inject constructor(
     val currentUserId: String? get() = authRepository.currentUser.value?.uid
     val savedIds = savedArtifactManager.savedIds
 
-    private val profileRoute = savedStateHandle.toRoute<Profile>()
-    private val _targetUserId = MutableStateFlow<String?>(profileRoute.userId)
-    private val _targetPersonaId = MutableStateFlow<String?>(profileRoute.personaId)
+    private val profileRoute = runCatching { savedStateHandle.toRoute<Profile>() }.getOrNull()
+    private val _targetUserId = savedStateHandle.getStateFlow<String?>("userId", profileRoute?.userId)
+    private val _targetPersonaId = savedStateHandle.getStateFlow<String?>("personaId", profileRoute?.personaId)
     
     private val _selectedTab = MutableStateFlow(ProfileTab.PUBLISHED)
     private val _logoutState = MutableStateFlow<LogoutState>(LogoutState.Idle)
@@ -318,13 +318,19 @@ class ProfileViewModel @Inject constructor(
 
         val isLoading = data == null
 
+        val effectiveSelectedTab = if (isActuallySelf) {
+            content.selectedTab
+        } else {
+            ProfileTab.PUBLISHED
+        }
+
         ProfileUiState(
             userProfile = data?.userProfile,
             sigilConfig = content.sigilConfig,
             isSelf = isActuallySelf,
             isResonating = data?.isResonating ?: false,
             isIgnored = data?.isIgnored ?: false,
-            selectedTab = content.selectedTab,
+            selectedTab = effectiveSelectedTab,
             publishedArtifacts = content.mappedPublishedArtifacts,
             cloudDrafts = content.mappedCloudDrafts,
             localDrafts = content.mappedLocalDrafts,
@@ -343,12 +349,6 @@ class ProfileViewModel @Inject constructor(
             isError = content.isError
         )
     }.catch { e ->
-        _message.value = ErrorMessageMapper.map(e)
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5.seconds),
-        initialValue = ProfileUiState(),
-    ).catch { e ->
         _message.value = ErrorMessageMapper.map(e)
     }.stateIn(
         scope = viewModelScope,
@@ -416,7 +416,15 @@ class ProfileViewModel @Inject constructor(
     }
 
     fun selectTab(tab: ProfileTab) {
+        if (!uiState.value.isSelf && tab != ProfileTab.PUBLISHED) {
+            return
+        }
         _selectedTab.value = tab
+    }
+
+    fun setTarget(userId: String?, personaId: String?) {
+        savedStateHandle["userId"] = userId
+        savedStateHandle["personaId"] = personaId
     }
 
     fun toggleResonance() {
