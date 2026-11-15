@@ -69,21 +69,26 @@ class NotificationViewModel @Inject constructor(
         )
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    private val actorProfilesFlow: Flow<Map<String, User>> = liveHeadFlow
-        .flatMapLatest { (liveItems, _) ->
-            val actorIds = liveItems.mapNotNull { it.actorId }.filter { it.startsWith("usr_") }.distinct()
-            if (actorIds.isEmpty()) {
-                flowOf(emptyMap())
-            } else {
-                combine(actorIds.map { actorId ->
-                    userRepository.streamUserProfile(actorId)
-                        .onStart { emit(null) }
-                        .map { profile -> actorId to profile }
-                }) { pairs ->
-                    pairs.mapNotNull { (id, user) -> if (user != null) id to user else null }.toMap()
-                }
+    private val actorProfilesFlow: Flow<Map<String, User>> = combine(
+        liveHeadFlow,
+        _additionalItems
+    ) { (liveItems, _), additional ->
+        (liveItems + additional).mapNotNull { it.actorId ?: it.followerId.takeIf { f -> f.isNotBlank() } }
+            .filter { it.startsWith("usr_") }
+            .distinct()
+    }.flatMapLatest { actorIds ->
+        if (actorIds.isEmpty()) {
+            flowOf(emptyMap())
+        } else {
+            combine(actorIds.map { actorId ->
+                userRepository.streamUserProfile(actorId)
+                    .onStart { emit(null) }
+                    .map { profile -> actorId to profile }
+            }) { pairs ->
+                pairs.mapNotNull { (id, user) -> if (user != null) id to user else null }.toMap()
             }
         }
+    }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private val baseItemsFlow = combine(

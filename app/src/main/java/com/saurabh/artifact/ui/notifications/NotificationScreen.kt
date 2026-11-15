@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -42,13 +43,21 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.os.ConfigurationCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.saurabh.artifact.model.NotificationItem
+import com.saurabh.artifact.model.SigilConfig
+import com.saurabh.artifact.ui.components.ArtifactSigil
+import com.saurabh.artifact.ui.theme.ArtifactTheme
+import com.saurabh.artifact.ui.theme.Spacing
 import com.saurabh.artifact.ui.util.NotificationMapper
+import com.saurabh.artifact.ui.util.NotificationPresentation
 import java.text.SimpleDateFormat
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -150,8 +159,8 @@ fun NotificationScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                contentPadding = PaddingValues(Spacing.Medium),
+                verticalArrangement = Arrangement.spacedBy(Spacing.Small)
             ) {
                 items(uiState.items, key = { "notif_${it.id}" }) { notification ->
                     val index = uiState.items.indexOf(notification)
@@ -161,11 +170,17 @@ fun NotificationScreen(
                         }
                     }
 
-                    val actorProfile = notification.actorId?.let { uiState.actorProfiles[it] }
+                    val actorId = notification.actorId ?: notification.followerId.takeIf { it.isNotBlank() }
+                    val actorProfile = actorId?.let { uiState.actorProfiles[it] }
+
+                    val actorSigilConfig = actorProfile?.sigilConfig?.takeIf { it.seed.isNotBlank() }
+                        ?: actorProfile?.sigilSeed?.takeIf { it.isNotBlank() }?.let { SigilConfig(seed = it) }
+                        ?: actorProfile?.anonymousId?.takeIf { it.isNotBlank() }?.let { SigilConfig(seed = it) }
 
                     NotificationCard(
                         notification = notification,
                         actorName = actorProfile?.anonymousName,
+                        actorSigilConfig = actorSigilConfig,
                         onClick = {
                             viewModel.markAsRead(notification.id)
                             onNotificationClick(notification)
@@ -178,7 +193,7 @@ fun NotificationScreen(
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(16.dp),
+                                .padding(Spacing.Medium),
                             contentAlignment = Alignment.Center
                         ) {
                             CircularProgressIndicator(
@@ -197,7 +212,9 @@ fun NotificationScreen(
 @Composable
 fun NotificationCard(
     notification: NotificationItem,
+    modifier: Modifier = Modifier,
     actorName: String? = null,
+    actorSigilConfig: SigilConfig? = null,
     onClick: () -> Unit
 ) {
     val configuration = LocalConfiguration.current
@@ -206,49 +223,152 @@ fun NotificationCard(
         SimpleDateFormat("MMM d, h:mm a", locale)
     }
 
+    val presentation = remember(notification, actorName) {
+        NotificationMapper.mapToPresentation(notification, actorName)
+    }
+
+    val unreadBorder = BorderStroke(1.dp, ArtifactTheme.colors.goldAura.copy(alpha = 0.35f))
+    val readBorder = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .clickable { onClick() },
-        shape = RoundedCornerShape(24.dp),
+            .defaultMinSize(minHeight = 56.dp)
+            .clickable(
+                onClickLabel = "Open notification",
+                role = Role.Button
+            ) { onClick() }
+            .semantics {
+                contentDescription = if (notification.isRead) "Read notification" else "Unread notification"
+            },
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (notification.isRead) 
                 MaterialTheme.colorScheme.surface
             else 
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.1f)
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
         ),
-        border = if (!notification.isRead) 
-            null 
-        else
-            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+        border = if (notification.isRead) readBorder else unreadBorder
     ) {
         Row(
-            modifier = Modifier.padding(20.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Spacing.Medium, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (!notification.isRead) {
-                Box(
-                    modifier = Modifier
-                        .size(6.dp)
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.6f), CircleShape)
-                )
-                Spacer(modifier = Modifier.width(16.dp))
-            }
+            NotificationLeadingIcon(
+                presentation = presentation,
+                actorSigilConfig = actorSigilConfig
+            )
+
+            Spacer(modifier = Modifier.width(Spacing.Medium))
 
             Column(modifier = Modifier.weight(1f)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = presentation.title.asString(),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = if (notification.isRead) FontWeight.Normal else FontWeight.SemiBold,
+                        color = if (notification.isRead)
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f)
+                        else
+                            MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+
+                    Spacer(modifier = Modifier.width(Spacing.Small))
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = dateFormatter.format(notification.createdAt.toDate()),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            fontWeight = FontWeight.Light
+                        )
+
+                        if (!notification.isRead) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .background(ArtifactTheme.colors.goldAura, CircleShape)
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
                 Text(
-                    text = NotificationMapper.mapToUiText(notification, actorName).asString(),
-                    style = MaterialTheme.typography.bodyLarge,
+                    text = presentation.subtitle.asString(),
+                    style = MaterialTheme.typography.bodyMedium,
                     fontWeight = if (notification.isRead) FontWeight.Light else FontWeight.Normal,
-                    lineHeight = TextUnit.Unspecified
+                    color = if (notification.isRead)
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
+                    else
+                        MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = MaterialTheme.typography.bodyMedium.lineHeight
                 )
-                
-                Text(
-                    text = dateFormatter.format(notification.createdAt.toDate()),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                    modifier = Modifier.padding(top = 6.dp),
-                    fontWeight = FontWeight.Light
+            }
+        }
+    }
+}
+
+@Composable
+private fun NotificationLeadingIcon(
+    presentation: NotificationPresentation,
+    actorSigilConfig: SigilConfig?,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier.size(44.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        if (actorSigilConfig != null && actorSigilConfig.seed.isNotBlank()) {
+            ArtifactSigil(
+                config = actorSigilConfig,
+                size = 40.dp,
+                isStatic = true
+            )
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .size(18.dp)
+                    .background(MaterialTheme.colorScheme.surface, CircleShape)
+                    .padding(2.dp)
+                    .background(ArtifactTheme.colors.surfaceHearth, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = presentation.eventIcon,
+                    contentDescription = presentation.eventDescription,
+                    modifier = Modifier.size(10.dp),
+                    tint = ArtifactTheme.colors.goldAura
+                )
+            }
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(12.dp)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = presentation.eventIcon,
+                    contentDescription = presentation.eventDescription,
+                    modifier = Modifier.size(20.dp),
+                    tint = ArtifactTheme.colors.goldAura
                 )
             }
         }

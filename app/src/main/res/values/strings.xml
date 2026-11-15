@@ -39,9 +39,29 @@
     <string name="notification_new_artifact">You published a new artifact: %s ✨</string>
     <string name="notification_identity_refreshed">You have shed your old presence and emerged as %1$s · %2$s 🎭</string>
     <string name="notification_presence_resonated">Someone has started following your journey ✨</string>
+    <string name="notification_presence_resonated_with_actor">%s started following your journey ✨</string>
     <string name="notification_sigil_updated">You updated your sigil 🎨</string>
     <string name="notification_username_updated">You updated your username to %s ✨</string>
     <string name="notification_comment_received">Someone shared a thought on \"%s\" 💬</string>
+    <string name="notification_comment_received_with_actor">%1$s shared a thought on \"%2$s\" 💬</string>
+    <string name="notification_comment_title">New Thought</string>
+    <string name="notification_resonance_title">Resonance</string>
+    <string name="notification_follow_title">Connection</string>
+    <string name="notification_system_title">Notice</string>
+    <string name="notification_system_new_artifact_title">Artifact Published</string>
+    <string name="notification_system_identity_title">Identity Refreshed</string>
+    <string name="notification_system_profile_title">Profile Updated</string>
+    <string name="notification_system_sigil_title">Sigil Updated</string>
+    <string name="notification_anonymous_actor">Someone</string>
+    <string name="notification_comment_desc">Shared a thought on \"%s\" 💬</string>
+    <string name="notification_comment_desc_generic">Shared a thought on your artifact 💬</string>
+    <string name="notification_follow_desc">Started following your journey ✨</string>
+    <string name="cd_notification_type_comment">Comment notification</string>
+    <string name="cd_notification_type_resonance">Resonance notification</string>
+    <string name="cd_notification_type_follow">Follow notification</string>
+    <string name="cd_notification_type_system">System notification</string>
+    <string name="cd_notification_unread">Unread notification</string>
+    <string name="cd_notification_read">Read notification</string>
 
     <!-- Legal -->
     <string name="privacy_policy">Privacy Policy</string>
