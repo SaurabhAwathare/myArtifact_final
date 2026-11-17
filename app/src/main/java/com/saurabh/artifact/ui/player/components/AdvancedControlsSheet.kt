@@ -3,7 +3,6 @@ package com.saurabh.artifact.ui.player.components
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.VolumeOff
@@ -12,7 +11,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.saurabh.artifact.ui.theme.EmberGlow
+import com.saurabh.artifact.ui.theme.GoldAura400
+import com.saurabh.artifact.ui.theme.ModalShape
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -65,7 +65,7 @@ fun AdvancedControlsSheet(
             }
         },
         sheetState = sheetState,
-        shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+        shape = ModalShape,
         dragHandle = { BottomSheetDefaults.DragHandle() },
         containerColor = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.onSurface,
@@ -93,7 +93,7 @@ fun AdvancedControlsSheet(
                     Switch(
                         checked = isSilenceSkipEnabled,
                         onCheckedChange = onSilenceSkipToggle,
-                        colors = SwitchDefaults.colors(checkedThumbColor = EmberGlow),
+                        colors = SwitchDefaults.colors(checkedThumbColor = GoldAura400),
                     )
                 },
             )
@@ -147,7 +147,7 @@ fun AdvancedControlsSheet(
                 Text(
                     text = "Timer active: ${mins}:${secs.toString().padStart(2, '0')} remaining",
                     style = MaterialTheme.typography.bodySmall,
-                    color = EmberGlow,
+                    color = GoldAura400,
                     modifier = Modifier.padding(top = 8.dp),
                 )
             }

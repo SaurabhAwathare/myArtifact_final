@@ -20,7 +20,8 @@ import androidx.compose.ui.unit.dp
 import com.saurabh.artifact.model.ResolvedCreatorIdentity
 import com.saurabh.artifact.ui.components.ArtifactSigil
 import com.saurabh.artifact.ui.player.PlayerUiState
-import com.saurabh.artifact.ui.theme.EmberGlow
+import com.saurabh.artifact.ui.theme.CardShape
+import com.saurabh.artifact.ui.theme.GoldAura400
 
 @Composable
 fun MiniPlayer(
@@ -38,7 +39,7 @@ fun MiniPlayer(
             .height(88.dp)
             .padding(horizontal = 12.dp, vertical = 8.dp)
             .clickable { onExpand() },
-        shape = RoundedCornerShape(24.dp),
+        shape = CardShape,
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
         tonalElevation = 8.dp,
         border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
@@ -90,13 +91,13 @@ fun MiniPlayer(
                                 Icons.Rounded.Timer,
                                 contentDescription = null,
                                 modifier = Modifier.size(12.dp),
-                                tint = EmberGlow.copy(alpha = 0.7f)
+                                tint = GoldAura400.copy(alpha = 0.7f)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = "${minutes}m",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = EmberGlow.copy(alpha = 0.7f)
+                                color = GoldAura400.copy(alpha = 0.7f)
                             )
                         }
                     }
@@ -115,18 +116,18 @@ fun MiniPlayer(
             
             IconButton(
                 onClick = onTogglePlay,
-                colors = IconButtonDefaults.iconButtonColors(contentColor = EmberGlow)
+                colors = IconButtonDefaults.iconButtonColors(contentColor = GoldAura400)
             ) {
                 if (uiState.isBuffering) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(24.dp),
                         strokeWidth = 2.dp,
-                        color = EmberGlow
+                        color = GoldAura400
                     )
                 } else {
                     Icon(
                         imageVector = if (uiState.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                        contentDescription = "Play/Pause",
+                        contentDescription = if (uiState.isPlaying) "Pause" else "Play",
                         modifier = Modifier.size(32.dp)
                     )
                 }

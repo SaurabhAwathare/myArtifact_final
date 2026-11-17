@@ -19,6 +19,7 @@ import com.saurabh.artifact.util.SecureString
 import com.saurabh.artifact.R
 import com.saurabh.artifact.domain.auth.CleanupEventKey
 import com.saurabh.artifact.data.local.UserSessionManager
+import com.saurabh.artifact.model.SigilConfig
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -33,6 +34,20 @@ sealed class SettingsUiEvent {
 }
 
 data class AccountInfo(val realName: SecureString, val email: SecureString)
+
+sealed interface AnonymousIdentityState {
+    data object Loading : AnonymousIdentityState
+    data class Success(
+        val anonymousName: String,
+        val anonymousSigil: String?,
+        val sigilConfig: SigilConfig
+    ) : AnonymousIdentityState
+    data class Fallback(
+        val anonymousName: String = "Quiet Presence",
+        val anonymousSigil: String? = null,
+        val sigilConfig: SigilConfig = SigilConfig(seed = "fallback")
+    ) : AnonymousIdentityState
+}
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
@@ -56,6 +71,39 @@ class SettingsViewModel @Inject constructor(
     val accountInfo = authRepository.privateSettings
         .map { it?.let { p -> AccountInfo(p.secureRealName, p.secureEmail) } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    /**
+     * Authoritative anonymous identity flow.
+     * Combines the local DataStore session manager SSOT with remote Firestore user updates.
+     * Emits Loading initially to avoid displaying fabricated fallback data before persistence resolves.
+     */
+    val anonymousIdentity: StateFlow<AnonymousIdentityState> = combine(
+        sessionManager.userProfile,
+        authRepository.userData
+    ) { profile, firestoreUser ->
+        val rawName = firestoreUser?.anonymousName?.ifBlank { null }
+            ?: profile.username.ifBlank { null }
+        val rawSigil = firestoreUser?.anonymousSigil?.ifBlank { null }
+            ?: profile.sigil.ifBlank { null }
+        val config = firestoreUser?.sigilConfig?.takeIf { it != SigilConfig() }
+            ?: profile.sigilConfig
+
+        if (rawName == null && rawSigil == null) {
+            AnonymousIdentityState.Fallback()
+        } else {
+            AnonymousIdentityState.Success(
+                anonymousName = rawName ?: "Quiet Presence",
+                anonymousSigil = rawSigil,
+                sigilConfig = config
+            )
+        }
+    }.catch {
+        emit(AnonymousIdentityState.Fallback())
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = AnonymousIdentityState.Loading
+    )
 
     val uiState: StateFlow<UserSettings> = repository.userSettings
         .stateIn(

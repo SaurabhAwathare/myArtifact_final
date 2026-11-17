@@ -85,7 +85,9 @@ fun NavGraphBuilder.profileNavigation(
     composable<Settings> {
         SettingsScreen(
             onBackClick = onBack,
-            onLogoutSuccess = onLogout
+            onLogoutSuccess = onLogout,
+            onNavigateToIdentity = onNavigateToIdentity,
+            onNavigateToSigilRitual = onNavigateToSigilRitual
         )
     }
 

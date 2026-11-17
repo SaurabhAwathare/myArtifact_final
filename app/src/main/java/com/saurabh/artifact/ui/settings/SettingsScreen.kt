@@ -8,24 +8,29 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Logout
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.DeleteForever
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material.icons.filled.Gavel
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.Logout
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.DeleteForever
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Gavel
+import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Shield
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -34,13 +39,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import com.saurabh.artifact.ui.components.AppSnackbarHost
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -56,27 +59,31 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import kotlin.time.Duration.Companion.seconds
 import androidx.fragment.app.FragmentActivity
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.saurabh.artifact.R
 import com.saurabh.artifact.auth.CredentialResult
-import com.saurabh.artifact.security.ExportProgress
+import com.saurabh.artifact.ui.components.AppSnackbarHost
 import com.saurabh.artifact.ui.components.NotificationRationaleDialog
+import com.saurabh.artifact.ui.theme.ModalShape
 import com.saurabh.artifact.ui.util.LocalBottomOverlayOffset
 import com.saurabh.artifact.ui.util.UiText
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlin.time.Duration.Companion.seconds
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     onBackClick: () -> Unit,
     onLogoutSuccess: () -> Unit,
+    onNavigateToIdentity: () -> Unit = {},
+    onNavigateToSigilRitual: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val anonymousIdentity by viewModel.anonymousIdentity.collectAsStateWithLifecycle()
     val accountInfo by viewModel.accountInfo.collectAsStateWithLifecycle()
     val isAnonymous by viewModel.isAnonymous.collectAsStateWithLifecycle()
     val isDeleting by viewModel.isDeleting.collectAsStateWithLifecycle()
@@ -167,7 +174,7 @@ fun SettingsScreen(
                 title = { Text("Settings") },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
                     }
                 }
             )
@@ -181,37 +188,54 @@ fun SettingsScreen(
                     .padding(padding)
                     .verticalScroll(rememberScrollState())
             ) {
-                accountInfo?.let { info ->
-                    SettingsSection(title = "Account") {
+                // Section 1 — Identity & Account
+                SettingsSection(title = "Identity & Account") {
+                    SettingsIdentityItem(
+                        state = anonymousIdentity,
+                        onEditIdentity = onNavigateToIdentity,
+                        onEditSigil = onNavigateToSigilRitual
+                    )
+
+                    accountInfo?.let { info ->
                         SettingsInfoItem(
                             title = info.realName.toUnsecureString(),
                             subtitle = info.email.toUnsecureString(),
-                            icon = Icons.Default.Person,
-                            modifier = Modifier.clickable {
-                                viewModel.copyEmailToClipboard(context)
-                            },
+                            icon = Icons.Rounded.Person,
                             trailingContent = {
-                                Surface(
-                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
-                                    shape = RoundedCornerShape(8.dp)
-                                ) {
-                                    Text(
-                                        text = "Private to you",
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Text(
+                                            text = "Private to you",
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    IconButton(
+                                        onClick = { viewModel.copyEmailToClipboard(context) }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.ContentCopy,
+                                            contentDescription = "Copy email",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
                                 }
                             }
                         )
                     }
                 }
 
-                SettingsSection(title = "Privacy") {
+                // Section 2 — Notifications & Rituals
+                SettingsSection(title = "Notifications & Rituals") {
                     SettingsSwitch(
                         title = "Notifications",
                         subtitle = "Stay connected with reflections",
-                        icon = Icons.Default.Notifications,
+                        icon = Icons.Rounded.Notifications,
                         checked = uiState.notificationsEnabled,
                         onCheckedChange = { enabled ->
                             handleNotificationToggle(enabled) { viewModel.updateNotifications(it) }
@@ -220,55 +244,65 @@ fun SettingsScreen(
                     SettingsSwitch(
                         title = "Smart Reminders",
                         subtitle = "Gentle nudges for your ritual",
-                        icon = Icons.Default.Schedule,
+                        icon = Icons.Rounded.Schedule,
                         checked = uiState.smartRemindersEnabled,
                         onCheckedChange = { enabled ->
                             handleNotificationToggle(enabled) { viewModel.updateSmartReminders(it) }
                         }
                     )
+                }
+
+                // Section 3 — Privacy & Safety
+                SettingsSection(title = "Privacy & Safety") {
                     SettingsSwitch(
                         title = "Stealth Mode",
                         subtitle = "Hide application content from screenshots and system previews",
-                        icon = Icons.Default.Shield,
+                        icon = Icons.Rounded.Shield,
                         checked = uiState.stealthModeEnabled,
                         onCheckedChange = { viewModel.updateStealthMode(it) }
                     )
                     SettingsSwitch(
                         title = "Personalize My Feed",
                         subtitle = "Improve recommendations based on your listening behavior. Interaction data stays on your device.",
-                        icon = Icons.Default.Person,
+                        icon = Icons.Rounded.Tune,
                         checked = uiState.dataCollectionConsent,
                         onCheckedChange = { viewModel.updateDataCollection(it) }
                     )
                 }
 
-                SettingsSection(title = "Data") {
+                // Section 4 — Data Management
+                SettingsSection(title = "Data Management") {
                     SettingsClickable(
                         title = "Export Data",
                         subtitle = if (isExporting) 
                             "Export currently in progress. Track in notifications." 
                         else 
                             "Export your personal reflections and recordings as a portable archive",
-                        icon = Icons.Default.Download,
+                        icon = Icons.Rounded.Download,
                         enabled = !isExporting,
                         onClick = { showExportConfirmation = true }
                     )
                     SettingsClickable(
-                        title = "Logout",
-                        subtitle = "Sign out of your account",
-                        icon = Icons.AutoMirrored.Filled.Logout,
-                        onClick = { showLogoutConfirmation = true }
-                    )
-                    SettingsClickable(
                         title = "Delete Account",
                         subtitle = "Permanently remove your traces",
-                        icon = Icons.Default.DeleteForever,
+                        icon = Icons.Rounded.DeleteForever,
                         textColor = MaterialTheme.colorScheme.error,
                         onClick = { showDeleteConfirmation = true }
                     )
                 }
 
-                SettingsSection(title = "Legal") {
+                // Section 5 — Account & Session
+                SettingsSection(title = "Account & Session") {
+                    SettingsClickable(
+                        title = "Logout",
+                        subtitle = "Sign out of your session on this device",
+                        icon = Icons.AutoMirrored.Rounded.Logout,
+                        onClick = { showLogoutConfirmation = true }
+                    )
+                }
+
+                // Section 6 — Legal
+                SettingsSection(title = "Legal", showDivider = false) {
                     val uriHandler = LocalUriHandler.current
                     val privacyUrl = stringResource(R.string.privacy_policy_url)
                     val termsUrl = stringResource(R.string.terms_of_service_url)
@@ -276,7 +310,8 @@ fun SettingsScreen(
                     SettingsClickable(
                         title = stringResource(R.string.privacy_policy),
                         subtitle = "How we protect your presence",
-                        icon = Icons.Default.Shield,
+                        icon = Icons.Rounded.Shield,
+                        trailingIcon = Icons.AutoMirrored.Rounded.OpenInNew,
                         onClick = {
                             try {
                                 uriHandler.openUri(privacyUrl)
@@ -287,7 +322,8 @@ fun SettingsScreen(
                     SettingsClickable(
                         title = stringResource(R.string.terms_of_service),
                         subtitle = "Guidelines for our sanctuary",
-                        icon = Icons.Default.Gavel,
+                        icon = Icons.Rounded.Gavel,
+                        trailingIcon = Icons.AutoMirrored.Rounded.OpenInNew,
                         onClick = {
                             try {
                                 uriHandler.openUri(termsUrl)
@@ -295,6 +331,12 @@ fun SettingsScreen(
                             }
                         }
                     )
+                }
+
+                // Clearance for active floating overlays (MiniPlayer / MiniRecorder)
+                val bottomOverlayOffset = LocalBottomOverlayOffset.current
+                if (bottomOverlayOffset > 0.dp) {
+                    Spacer(modifier = Modifier.height(bottomOverlayOffset))
                 }
             }
             
@@ -317,6 +359,7 @@ fun SettingsScreen(
                 showDeleteConfirmation = false 
                 viewModel.updateDeletionConfirmation("")
             },
+            shape = ModalShape,
             title = { Text("Delete Account permanently?") },
             text = { 
                 Column {
@@ -378,6 +421,7 @@ fun SettingsScreen(
     if (showReauthenticationDialog) {
         AlertDialog(
             onDismissRequest = { showReauthenticationDialog = false },
+            shape = ModalShape,
             title = { Text("Verify your identity") },
             text = { 
                 Text(
@@ -396,7 +440,7 @@ fun SettingsScreen(
                                 val result = viewModel.credentialHelper.getGoogleCredential(
                                     context = context,
                                     serverClientId = serverClientId,
-                                    filterByAuthorizedAccounts = false // For re-auth, we might want to allow choosing again
+                                    filterByAuthorizedAccounts = false
                                 )
                                 when (result) {
                                     is CredentialResult.Success -> {
@@ -429,6 +473,7 @@ fun SettingsScreen(
 
         AlertDialog(
             onDismissRequest = { showLogoutConfirmation = false },
+            shape = ModalShape,
             title = { Text(if (draftCount > 0) "Unfinished Drafts" else "Logout?") },
             text = { 
                 Column {
@@ -468,6 +513,7 @@ fun SettingsScreen(
     if (showExportConfirmation) {
         AlertDialog(
             onDismissRequest = { showExportConfirmation = false },
+            shape = ModalShape,
             title = { Text("Export Data?") },
             text = { Text("Do you really want to export all your artifacts and recordings? This will create a ZIP archive that can be opened on any device.") },
             confirmButton = {

@@ -1,5 +1,6 @@
 package com.saurabh.artifact.ui.player.components
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -136,11 +137,21 @@ private fun ResonateInteractionItem(
         if (syncStatus == InteractionSyncStatus.PENDING) Color.White.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.45f)
     }
 
-    val scale by animateFloatAsState(
-        targetValue = if (isResonated && syncStatus == InteractionSyncStatus.SYNCED) 1.15f else 1.0f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
-        label = "ScaleAnimation"
+    val animatedContentColor by animateColorAsState(
+        targetValue = contentColor,
+        animationSpec = tween(durationMillis = 200, easing = LinearOutSlowInEasing),
+        label = "ResonateTintAnimation"
     )
+
+    val resonateContentDescription = if (!enabled) {
+        "You cannot resonate with your own reflection"
+    } else if (syncStatus == InteractionSyncStatus.PENDING) {
+        "Resonating..."
+    } else if (isResonated) {
+        "Resonated with this reflection"
+    } else {
+        "Resonate with this reflection"
+    }
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -151,14 +162,14 @@ private fun ResonateInteractionItem(
                 if (isResonated && showCount) activeColor.copy(alpha = 0.08f) else Color.Transparent
             )
     ) {
-        // 1. Heart Toggle Target (At least 48dp x 48dp)
+        // 1. Resonate GraphicEq Toggle Target (At least 48dp x 48dp)
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
                 .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
                 .clip(RoundedCornerShape(16.dp))
                 .clickable(
-                    onClickLabel = "Resonate"
+                    onClickLabel = resonateContentDescription
                 ) {
                     if (enabled) {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -173,12 +184,10 @@ private fun ResonateInteractionItem(
                 }
         ) {
             Icon(
-                imageVector = if (isResonated) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                contentDescription = "Resonate",
-                tint = contentColor,
-                modifier = Modifier
-                    .size(26.dp)
-                    .scale(scale)
+                imageVector = Icons.Rounded.GraphicEq,
+                contentDescription = resonateContentDescription,
+                tint = animatedContentColor,
+                modifier = Modifier.size(26.dp)
             )
         }
 
@@ -199,7 +208,7 @@ private fun ResonateInteractionItem(
                 Text(
                     text = "$resonanceCount \u203A",
                     style = MaterialTheme.typography.labelSmall,
-                    color = contentColor,
+                    color = animatedContentColor,
                     fontSize = 11.sp,
                     fontWeight = if (isResonated) FontWeight.Bold else FontWeight.Medium,
                     letterSpacing = 0.2.sp

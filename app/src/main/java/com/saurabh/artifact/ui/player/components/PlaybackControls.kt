@@ -37,7 +37,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.saurabh.artifact.ui.theme.EmberGlow
+import com.saurabh.artifact.ui.theme.GoldAura400
 
 @Composable
 fun PlaybackControls(
@@ -88,7 +88,7 @@ fun PlaybackControls(
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     shape = CircleShape,
-                    color = EmberGlow.copy(alpha = pulseAlpha)
+                    color = GoldAura400.copy(alpha = pulseAlpha)
                 ) {}
             }
 
@@ -107,7 +107,7 @@ fun PlaybackControls(
                         imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                         contentDescription = if (isPlaying) "Pause" else "Play",
                         modifier = Modifier.size(40.dp),
-                        tint = if (isPlaying) Color.White else EmberGlow
+                        tint = if (isPlaying) Color.White else GoldAura400
                     )
                 }
             }
@@ -148,7 +148,7 @@ fun PlaybackSpeedSelector(
             TextButton(
                 onClick = { onSpeedSelected(speed) },
                 colors = ButtonDefaults.textButtonColors(
-                    contentColor = if (isSelected) EmberGlow else Color.White.copy(alpha = 0.5f)
+                    contentColor = if (isSelected) GoldAura400 else Color.White.copy(alpha = 0.5f)
                 )
             ) {
                 Text(

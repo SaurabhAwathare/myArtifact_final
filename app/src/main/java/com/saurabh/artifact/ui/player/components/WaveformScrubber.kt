@@ -21,8 +21,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import com.saurabh.artifact.ui.components.AmbientWaveform
 import com.saurabh.artifact.ui.components.WaveformContext
-
-import com.saurabh.artifact.ui.theme.EmberGlow
+import com.saurabh.artifact.ui.theme.GoldAura400
 
 /**
  * WaveformScrubber - A cinematic, interactive waveform for seeking.
@@ -105,7 +104,7 @@ fun WaveformScrubber(
                 )
                 
                 drawCircle(
-                    color = EmberGlow,
+                    color = GoldAura400,
                     radius = 6.dp.toPx(),
                     center = Offset(playheadX, size.height / 2f)
                 )

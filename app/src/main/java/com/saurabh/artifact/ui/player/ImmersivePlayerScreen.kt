@@ -19,6 +19,11 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -32,7 +37,9 @@ import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.model.ResolvedCreatorIdentity
 import com.saurabh.artifact.ui.components.EmotionTagsGroup
 import com.saurabh.artifact.ui.player.components.*
+import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.theme.GoldAura400
+import com.saurabh.artifact.ui.theme.ModalShape
 import com.saurabh.artifact.ui.theme.Obsidian950
 import com.saurabh.artifact.util.ArtifactTitleFormatter
 import com.saurabh.artifact.ui.player.components.ReviewInteractionLayer
@@ -90,7 +97,7 @@ fun ImmersivePlayerScreen(
                         showDeleteConfirm = false
                         onDeleteClick()
                     },
-                    colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFE91E63))
+                    colors = ButtonDefaults.textButtonColors(contentColor = ArtifactTheme.colors.actionDestructive)
                 ) {
                     Text("Delete")
                 }
@@ -100,7 +107,8 @@ fun ImmersivePlayerScreen(
                     Text("Cancel", color = Color.White.copy(alpha = 0.5f))
                 }
             },
-            containerColor = Color(0xFF1A0808)
+            shape = ModalShape,
+            containerColor = ArtifactTheme.colors.surfaceHearth
         )
     }
 
@@ -359,6 +367,16 @@ fun ImmersivePlayerScreen(
                         letterSpacing = 0.5.sp
                     )
                 }
+
+                if (!isVerifiedDraft && !uiState.isOwner) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    ListeningCoverageIndicator(
+                        coveragePercent = uiState.coveragePercent,
+                        isThresholdMet = uiState.isThresholdMet,
+                        isPlaybackEnded = uiState.isPlaybackEnded,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             }
 
             // 5. Playback Controls
@@ -499,6 +517,132 @@ private fun PlayerHeader(
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * Separate Listening Coverage Indicator.
+ * Displays cumulative listening coverage and policy requirements without conflating playback position.
+ */
+@Composable
+fun ListeningCoverageIndicator(
+    coveragePercent: Float,
+    isThresholdMet: Boolean,
+    isPlaybackEnded: Boolean,
+    modifier: Modifier = Modifier,
+    isCommentUnlocked: Boolean = false,
+    isVerificationPending: Boolean = false
+) {
+    if (isCommentUnlocked) {
+        Row(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp)
+                .semantics(mergeDescendants = true) {
+                    contentDescription = "Conversation unlocked"
+                },
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Check,
+                contentDescription = null,
+                tint = GoldAura400,
+                modifier = Modifier.size(14.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = "Conversation unlocked",
+                style = MaterialTheme.typography.labelSmall,
+                color = GoldAura400,
+                fontSize = 11.sp,
+                letterSpacing = 0.2.sp
+            )
+        }
+    } else if (isThresholdMet) {
+        Column(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp)
+                .semantics(mergeDescendants = true) {
+                    contentDescription = if (isVerificationPending) {
+                        "Listening requirement completed. Your listening evidence is being verified."
+                    } else {
+                        "Listening requirement completed"
+                    }
+                },
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Check,
+                    contentDescription = null,
+                    tint = GoldAura400,
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "Listening requirement completed",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = GoldAura400,
+                    fontSize = 11.sp,
+                    letterSpacing = 0.2.sp
+                )
+            }
+            if (isVerificationPending) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "Your listening evidence is being verified.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White.copy(alpha = 0.6f),
+                    fontSize = 10.sp,
+                    letterSpacing = 0.2.sp
+                )
+            }
+        }
+    } else {
+        val clampedCoverage = coveragePercent.coerceIn(0f, 1f)
+        val percentageInt = (clampedCoverage * 100).toInt()
+        val endConditionText = if (isPlaybackEnded) "end reached" else "full listen required"
+        val statusText = "Listening: $percentageInt% • 95% & $endConditionText to comment"
+        val accessibilityEndText = if (isPlaybackEnded) "end reached" else "full listen required"
+        val accessibilityText = "Listening coverage $percentageInt percent, 95 percent and $accessibilityEndText to comment"
+
+        Column(
+            modifier = modifier
+                .fillMaxWidth()
+                .semantics(mergeDescendants = true) {
+                    progressBarRangeInfo = ProgressBarRangeInfo(
+                        current = clampedCoverage,
+                        range = 0f..1f,
+                        steps = 0
+                    )
+                    contentDescription = accessibilityText
+                    stateDescription = "$percentageInt%"
+                },
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            LinearProgressIndicator(
+                progress = { clampedCoverage },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(2.dp)
+                    .clip(RoundedCornerShape(1.dp)),
+                color = GoldAura400.copy(alpha = 0.6f),
+                trackColor = Color.White.copy(alpha = 0.08f),
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = statusText,
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.White.copy(alpha = 0.6f),
+                fontSize = 11.sp,
+                letterSpacing = 0.2.sp
+            )
         }
     }
 }
