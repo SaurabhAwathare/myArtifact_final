@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.*
 import com.saurabh.artifact.model.UserProfile
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
 import java.io.IOException
@@ -18,7 +19,7 @@ class UserSessionManager @Inject constructor(
     @Named("sessionDataStore") private val dataStore: DataStore<Preferences>,
     private val blockStoreManager: BlockStoreManager,
 ) {
-    private object PreferencesKeys {
+    internal object PreferencesKeys {
         val OWNING_UID = stringPreferencesKey("owning_uid")
         val ANONYMOUS_ID = stringPreferencesKey("anonymous_id")
         val SIGIL_SEED = stringPreferencesKey("sigil_seed")
@@ -34,6 +35,8 @@ class UserSessionManager @Inject constructor(
         val IS_LOGGING_OUT = booleanPreferencesKey("is_logging_out")
         val LOCAL_SESSION_ID = stringPreferencesKey("local_session_id")
     }
+
+    internal val rawPreferences: Flow<Preferences> = dataStore.data
 
     /**
      * Exposes the local active session ID assigned to this device.
@@ -57,6 +60,10 @@ class UserSessionManager @Inject constructor(
      */
     val owningUid: Flow<String?> = dataStore.data
         .map { preferences -> preferences[PreferencesKeys.OWNING_UID] }
+
+    suspend fun getOwningUid(): String? {
+        return dataStore.data.map { it[PreferencesKeys.OWNING_UID] }.first()
+    }
 
     /**
      * Retrieves the current anonymous profile. 
@@ -144,9 +151,15 @@ class UserSessionManager @Inject constructor(
 
     /**
      * Updates the user's sigil configuration.
+     * Guaranteed not to modify DataStore if expectedUid is provided and does not match OWNING_UID.
      */
-    suspend fun updateSigilConfig(config: com.saurabh.artifact.model.SigilConfig) {
+    suspend fun updateSigilConfig(config: com.saurabh.artifact.model.SigilConfig, expectedUid: String? = null) {
+        if (expectedUid != null && expectedUid.isBlank()) return
         dataStore.edit { preferences ->
+            val currentOwner = preferences[PreferencesKeys.OWNING_UID]
+            if (expectedUid != null && currentOwner != expectedUid) {
+                return@edit
+            }
             preferences[PreferencesKeys.SIGIL_CONFIG_JSON] = Json.encodeToString(config)
             preferences[PreferencesKeys.SIGIL_SEED] = config.seed
         }
@@ -154,30 +167,106 @@ class UserSessionManager @Inject constructor(
 
     /**
      * Updates the user's identity username.
+     * Guaranteed not to modify DataStore if expectedUid is provided and does not match OWNING_UID.
      */
-    suspend fun updateUsername(username: String) {
+    suspend fun updateUsername(username: String, expectedUid: String? = null) {
+        if (expectedUid != null && expectedUid.isBlank()) return
         dataStore.edit { preferences ->
+            val currentOwner = preferences[PreferencesKeys.OWNING_UID]
+            if (expectedUid != null && currentOwner != expectedUid) {
+                return@edit
+            }
             preferences[PreferencesKeys.USERNAME] = username
         }
     }
 
     /**
      * Synchronizes local DataStore with a remote User profile from Firestore.
+     * Enforces account ownership, rejects stale or mismatched synchronizations,
+     * and atomically synchronizes identity fields while cleaning unconfigured values.
      */
-    suspend fun syncFromRemote(user: com.saurabh.artifact.model.User) {
+    suspend fun syncFromRemote(user: com.saurabh.artifact.model.User, expectedUid: String? = null) {
+        if (user.id.isBlank()) return
+        if (expectedUid != null && (expectedUid.isBlank() || expectedUid != user.id)) return
+
         dataStore.edit { preferences ->
-            preferences[PreferencesKeys.OWNING_UID] = user.id
-            preferences[PreferencesKeys.ANONYMOUS_ID] = user.anonymousId
-            preferences[PreferencesKeys.USERNAME] = user.anonymousName
-            preferences[PreferencesKeys.SIGIL] = user.anonymousSigil
-            if (user.sigilSeed.isNotEmpty()) {
-                preferences[PreferencesKeys.SIGIL_SEED] = user.sigilSeed
+            val currentOwner = preferences[PreferencesKeys.OWNING_UID]
+            if (expectedUid != null && currentOwner != null && currentOwner != expectedUid) {
+                return@edit
             }
-            preferences[PreferencesKeys.SIGIL_COLOR] = user.sigilColor
-            preferences[PreferencesKeys.SIGIL_CONFIG_JSON] = Json.encodeToString(user.sigilConfig)
+            if (currentOwner != null && currentOwner != user.id) {
+                return@edit
+            }
+
+            preferences[PreferencesKeys.OWNING_UID] = user.id
+
+            if (user.anonymousId.isNotBlank()) {
+                preferences[PreferencesKeys.ANONYMOUS_ID] = user.anonymousId
+            } else {
+                preferences.remove(PreferencesKeys.ANONYMOUS_ID)
+            }
+
+            if (user.anonymousName.isNotBlank()) {
+                preferences[PreferencesKeys.USERNAME] = user.anonymousName
+            } else {
+                preferences.remove(PreferencesKeys.USERNAME)
+            }
+
+            if (user.anonymousSigil.isNotBlank()) {
+                preferences[PreferencesKeys.SIGIL] = user.anonymousSigil
+            } else {
+                preferences.remove(PreferencesKeys.SIGIL)
+            }
+
+            if (user.sigilSeed.isNotBlank()) {
+                preferences[PreferencesKeys.SIGIL_SEED] = user.sigilSeed
+            } else {
+                preferences.remove(PreferencesKeys.SIGIL_SEED)
+            }
+
+            val effectiveSeed = user.sigilConfig.seed.ifBlank { user.sigilSeed }
+            val isSigilConfigured = user.anonymousSigil.isNotBlank() && effectiveSeed.isNotBlank()
+
+            if (isSigilConfigured) {
+                val configuredConfig = user.sigilConfig.copy(seed = effectiveSeed)
+                preferences[PreferencesKeys.SIGIL_CONFIG_JSON] = Json.encodeToString(configuredConfig)
+                if (user.sigilColor.isNotBlank()) {
+                    preferences[PreferencesKeys.SIGIL_COLOR] = user.sigilColor
+                } else {
+                    preferences[PreferencesKeys.SIGIL_COLOR] = "#FFD700"
+                }
+            } else {
+                preferences.remove(PreferencesKeys.SIGIL_CONFIG_JSON)
+                preferences.remove(PreferencesKeys.SIGIL_COLOR)
+            }
+
             preferences[PreferencesKeys.IS_ANONYMOUS] = user.isAnonymous
             preferences[PreferencesKeys.RESONANCE_IN] = user.resonanceInCount
             preferences[PreferencesKeys.RESONANCE_OUT] = user.resonanceOutCount
+        }
+    }
+
+    /**
+     * Clears cached identity and profile fields for a specific account.
+     * Leaves operational session state (session ID, draft ID, prompt ID, logout flag) untouched.
+     * Does NOT invoke BlockStoreManager.clear().
+     */
+    suspend fun clearIdentityCache(expectedUid: String) {
+        if (expectedUid.isBlank()) return
+        dataStore.edit { preferences ->
+            val currentOwner = preferences[PreferencesKeys.OWNING_UID]
+            if (currentOwner == expectedUid) {
+                preferences.remove(PreferencesKeys.OWNING_UID)
+                preferences.remove(PreferencesKeys.ANONYMOUS_ID)
+                preferences.remove(PreferencesKeys.USERNAME)
+                preferences.remove(PreferencesKeys.SIGIL)
+                preferences.remove(PreferencesKeys.SIGIL_SEED)
+                preferences.remove(PreferencesKeys.SIGIL_COLOR)
+                preferences.remove(PreferencesKeys.SIGIL_CONFIG_JSON)
+                preferences.remove(PreferencesKeys.IS_ANONYMOUS)
+                preferences.remove(PreferencesKeys.RESONANCE_IN)
+                preferences.remove(PreferencesKeys.RESONANCE_OUT)
+            }
         }
     }
 

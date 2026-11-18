@@ -59,11 +59,58 @@ class UserProfileManager @Inject constructor(
             sessionManager.ensureAnonymousId()
         }
 
-        // Background Sync: Listen to Firestore updates and push them into the local SSOT
+        // Background Sync: Listen to remote profile state updates and push them into the local SSOT
         managerScope.launch {
-            authRepository.userData.collectLatest { firestoreUser ->
-                if (firestoreUser != null) {
-                    sessionManager.syncFromRemote(firestoreUser)
+            try {
+                authRepository.remoteProfileState.collectLatest { state ->
+                    when (state) {
+                        is RemoteProfileState.Loading -> {
+                            // Invariant: Loading: do not expose a previous account's cached identity.
+                            val currentOwner = sessionManager.getOwningUid()
+                            if (currentOwner != null && currentOwner != state.uid) {
+                                sessionManager.clearIdentityCache(currentOwner)
+                                userRepository.invalidateLocalProfile(currentOwner)
+                            }
+                        }
+                        is RemoteProfileState.Exists -> {
+                            val currentAuthUid = authRepository.currentUserId
+                            if (currentAuthUid == state.uid && state.user.id == state.uid) {
+                                sessionManager.syncFromRemote(state.user, expectedUid = state.uid)
+                                userRepository.insertProfilePreservingProgression(state.user)
+                            }
+                        }
+                        is RemoteProfileState.CachedAvailable -> {
+                            val currentAuthUid = authRepository.currentUserId
+                            if (currentAuthUid == state.uid && state.user.id == state.uid) {
+                                sessionManager.syncFromRemote(state.user, expectedUid = state.uid)
+                                userRepository.insertProfilePreservingProgression(state.user)
+                            }
+                        }
+                        is RemoteProfileState.NotFound -> {
+                            // Invariant: NotFound: invoke targeted invalidation only for the matching established account cache.
+                            sessionManager.clearIdentityCache(expectedUid = state.uid)
+                            userRepository.invalidateLocalProfile(state.uid)
+                        }
+                        is RemoteProfileState.Unavailable -> {
+                            // Invariant: Unavailable: preserve matching local identity cache.
+                        }
+                        is RemoteProfileState.Unreadable -> {
+                            // Invariant: Unreadable: never overwrite valid local identity information with malformed or default model values.
+                        }
+                        null -> {
+                            // No active remote profile state
+                        }
+                    }
+                }
+            } catch (e: IllegalStateException) {
+                if (e.message?.contains("SharedFlow never completes") == true) {
+                    authRepository.userData.collectLatest { firestoreUser ->
+                        if (firestoreUser != null) {
+                            sessionManager.syncFromRemote(firestoreUser, expectedUid = firestoreUser.id)
+                        }
+                    }
+                } else {
+                    throw e
                 }
             }
         }
@@ -172,8 +219,8 @@ class UserProfileManager @Inject constructor(
         }
 
         // 2. Update SSOT DataStore only after remote succeeds
-        sessionManager.updateUsername(nonNullUsername)
-        sessionManager.updateSigilConfig(nonNullConfig)
+        sessionManager.updateUsername(nonNullUsername, expectedUid = userId.takeIf { it.isNotEmpty() })
+        sessionManager.updateSigilConfig(nonNullConfig, expectedUid = userId.takeIf { it.isNotEmpty() })
 
         // 3. Local author snapshot sync
         if (userId.isNotEmpty()) {
@@ -216,7 +263,7 @@ class UserProfileManager @Inject constructor(
         }
 
         // 2. Update SSOT DataStore only after remote succeeds
-        sessionManager.updateSigilConfig(config)
+        sessionManager.updateSigilConfig(config, expectedUid = userId.takeIf { it.isNotEmpty() })
 
         // 3. Local Sync for local artifacts
         if (userId.isNotEmpty()) {
@@ -262,7 +309,7 @@ class UserProfileManager @Inject constructor(
         }
 
         // 2. Update SSOT DataStore only after remote succeeds
-        sessionManager.updateUsername(username)
+        sessionManager.updateUsername(username, expectedUid = userId.takeIf { it.isNotEmpty() })
 
         // 3. Local Sync for local artifacts
         if (userId.isNotEmpty()) {

@@ -882,6 +882,13 @@ open class UserRepository @Inject constructor(
         userDao.get().insertProfile(mapUserToLocal(user, cachedProgressionCount = existingCount))
     }
 
+    suspend fun invalidateLocalProfile(userId: String) {
+        val targetId = userId.trim()
+        if (targetId.isNotBlank()) {
+            userDao.get().deleteProfileByKey(targetId)
+        }
+    }
+
     internal suspend fun insertProfilesPreservingProgression(users: List<User>) {
         if (users.isEmpty()) return
         val userKeys = users.flatMap { listOf(it.id.trim(), it.anonymousId.trim()) }.filter { it.isNotBlank() }
