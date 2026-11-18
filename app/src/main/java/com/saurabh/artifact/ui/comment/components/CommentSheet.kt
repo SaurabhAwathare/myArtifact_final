@@ -6,6 +6,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.saurabh.artifact.model.Comment
@@ -72,18 +73,31 @@ fun CommentSheet(
         }
     }
 
+    val density = LocalDensity.current
+    val isImeVisible = WindowInsets.ime.getBottom(density) > 0
+    val bottomInsetPadding = if (isImeVisible) {
+        0.dp
+    } else {
+        WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         modifier = modifier,
         dragHandle = { BottomSheetDefaults.DragHandle() },
-        containerColor = MaterialTheme.colorScheme.surface
+        containerColor = MaterialTheme.colorScheme.surface,
+        contentWindowInsets = {
+            BottomSheetDefaults.windowInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
+        }
     ) {
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.85f)
+        ) {
             Column(
-                modifier = Modifier
-                    .fillMaxHeight(0.85f)
-                    .fillMaxWidth()
+                modifier = Modifier.fillMaxSize()
             ) {
                 // Header
                 Text(
@@ -135,7 +149,7 @@ fun CommentSheet(
                     onRetryUnlock = onRetryUnlock,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .navigationBarsPadding()
+                        .padding(bottom = bottomInsetPadding)
                 )
             }
 
@@ -144,7 +158,7 @@ fun CommentSheet(
                 hostState = snackbarHostState,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 120.dp) // Offset above composer
+                    .padding(bottom = 120.dp + bottomInsetPadding) // Offset above composer
             )
         }
     }

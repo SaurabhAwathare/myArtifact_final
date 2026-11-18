@@ -8,7 +8,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
@@ -82,6 +84,7 @@ fun ImmersivePlayerScreen(
     
     // Gesture State for swipe-down to collapse
     var offsetY by remember { mutableFloatStateOf(0f) }
+    val scrollState = rememberScrollState()
 
     // Phase 4: Harden Draft Detection (Unified Logic)
     val isVerifiedDraft = artifact?.isDraft == true
@@ -126,9 +129,11 @@ fun ImmersivePlayerScreen(
                 detectVerticalDragGestures(
                     onDragStart = { /* Optional haptic */ },
                     onVerticalDrag = { change, dragAmount ->
-                        change.consume()
-                        // Only allow downward drag
-                        offsetY = (offsetY + dragAmount).coerceAtLeast(0f)
+                        // Only intercept when dragging downwards at the top of scroll or while already dragged
+                        if ((offsetY > 0f) || (scrollState.value == 0 && dragAmount > 0f)) {
+                            change.consume()
+                            offsetY = (offsetY + dragAmount).coerceAtLeast(0f)
+                        }
                     },
                     onDragEnd = {
                         if (offsetY > 300f) {
@@ -149,291 +154,326 @@ fun ImmersivePlayerScreen(
             modifier = Modifier.fillMaxSize()
         )
 
-        Column(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
                 .navigationBarsPadding()
-                .padding(horizontal = 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // 2. Header (Phase 1 Refinement: Extracted for isolation)
-            PlayerHeader(
-                artifact = artifact,
-                showTranscript = showTranscript,
-                isVerifiedDraft = isVerifiedDraft,
-                onCollapse = onCollapse,
-                onToggleTranscript = { showTranscript = !showTranscript },
-                onMoreClick = onMoreClick,
-                modifier = Modifier.padding(top = 8.dp, bottom = 16.dp)
-            )
+            val availableHeight = maxHeight
+            val availableWidth = maxWidth
+            val isCompactWidth = availableWidth < 360.dp
+            val isCompactHeight = availableHeight < 640.dp
 
-            // 2.5 Moderation Transparency (Creator Only)
-            if (uiState.isOwner) {
-                ModerationBanner(
-                    recommendationState = uiState.recommendationState,
-                    modifier = Modifier.padding(bottom = 16.dp)
-                )
+            val horizontalPadding = if (isCompactWidth) 16.dp else 24.dp
+            val verticalSpacing = when {
+                availableHeight < 640.dp -> 4.dp
+                availableHeight < 800.dp -> 8.dp
+                else -> 12.dp
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            val presenceDimension = when {
+                availableHeight < 560.dp -> 90.dp
+                availableHeight < 660.dp -> 140.dp
+                availableHeight < 760.dp -> 190.dp
+                availableHeight < 860.dp -> 240.dp
+                else -> 280.dp
+            }.coerceAtMost(availableWidth * 0.70f)
 
-            // 3. Presence Area
-            Box(
+            val sigilDimension = (presenceDimension * (200f / 280f)).coerceAtLeast(64.dp)
+
+            Column(
                 modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-                contentAlignment = Alignment.Center
+                    .fillMaxSize()
+                    .padding(horizontal = horizontalPadding)
+                    .verticalScroll(scrollState),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                AnimatedContent(
-                    targetState = showTranscript,
-                    transitionSpec = {
-                        fadeIn(animationSpec = tween(500)) togetherWith fadeOut(animationSpec = tween(500))
-                    },
-                    label = "TranscriptTransition"
-                ) { isShowingTranscript ->
-                    if (isShowingTranscript) {
-                        TranscriptOverlay(
-                            segments = artifact?.transcript ?: emptyList(),
-                            currentPosition = uiState.currentPosition,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    } else {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            val emotion = playableArtifact?.emotion ?: artifact?.emotion ?: ""
-                            
-                            if (isVerifiedDraft) {
-                                EmotionalAudioSurface(
-                                    emotion = emotion,
-                                    isPlaying = uiState.isPlaying,
-                                    modifier = Modifier
-                                        .size(280.dp)
-                                )
-                            } else {
-                                Box(
-                                    modifier = Modifier.size(280.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    // Keep a subtle emotional glow behind the sigil
+                // 2. Header (Phase 1 Refinement: Extracted for isolation)
+                PlayerHeader(
+                    artifact = artifact,
+                    showTranscript = showTranscript,
+                    isVerifiedDraft = isVerifiedDraft,
+                    onCollapse = onCollapse,
+                    onToggleTranscript = { showTranscript = !showTranscript },
+                    onMoreClick = onMoreClick,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
+                )
+
+                // 2.5 Moderation Transparency (Creator Only)
+                if (uiState.isOwner) {
+                    ModerationBanner(
+                        recommendationState = uiState.recommendationState,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(verticalSpacing))
+
+                // 3. Presence Area (Constraint-aware Adaptive Sizing)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(presenceDimension),
+                    contentAlignment = Alignment.Center
+                ) {
+                    AnimatedContent(
+                        targetState = showTranscript,
+                        transitionSpec = {
+                            fadeIn(animationSpec = tween(500)) togetherWith fadeOut(animationSpec = tween(500))
+                        },
+                        label = "TranscriptTransition"
+                    ) { isShowingTranscript ->
+                        if (isShowingTranscript) {
+                            TranscriptOverlay(
+                                segments = artifact?.transcript ?: emptyList(),
+                                currentPosition = uiState.currentPosition,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                val emotion = playableArtifact?.emotion ?: artifact?.emotion ?: ""
+                                
+                                if (isVerifiedDraft) {
                                     EmotionalAudioSurface(
                                         emotion = emotion,
                                         isPlaying = uiState.isPlaying,
-                                        modifier = Modifier.fillMaxSize().alpha(0.3f)
+                                        modifier = Modifier.size(presenceDimension)
                                     )
-                                    
-                                    val sigilConfig = artifact?.author?.sigilConfig 
-                                        ?: com.saurabh.artifact.model.SigilConfig(seed = playableArtifact?.sigilSeed ?: "")
+                                } else {
+                                    Box(
+                                        modifier = Modifier.size(presenceDimension),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        // Keep a subtle emotional glow behind the sigil
+                                        EmotionalAudioSurface(
+                                            emotion = emotion,
+                                            isPlaying = uiState.isPlaying,
+                                            modifier = Modifier.fillMaxSize().alpha(0.3f)
+                                        )
                                         
-                                    // Use Player-safe sigil seed if author.sigilSeed is empty
-                                    val safeSigilConfig = sigilConfig.copy(
-                                        seed = sigilConfig.seed.ifEmpty { 
-                                            playableArtifact?.sigilSeed?.ifEmpty { artifact?.id } ?: artifact?.id ?: "" 
-                                        }
-                                    )
+                                        val sigilConfig = artifact?.author?.sigilConfig 
+                                            ?: com.saurabh.artifact.model.SigilConfig(seed = playableArtifact?.sigilSeed ?: "")
+                                            
+                                        // Use Player-safe sigil seed if author.sigilSeed is empty
+                                        val safeSigilConfig = sigilConfig.copy(
+                                            seed = sigilConfig.seed.ifEmpty { 
+                                                playableArtifact?.sigilSeed?.ifEmpty { artifact?.id } ?: artifact?.id ?: "" 
+                                            }
+                                        )
 
-                                    com.saurabh.artifact.ui.components.ArtifactSigil(
-                                        config = safeSigilConfig,
-                                        size = 200.dp,
-                                        modifier = Modifier.clickable { 
-                                            onAuthorClick(uiState.internalOwnerId) 
-                                        }
-                                    )
+                                        com.saurabh.artifact.ui.components.ArtifactSigil(
+                                            config = safeSigilConfig,
+                                            size = sigilDimension,
+                                            modifier = Modifier.clickable { 
+                                                onAuthorClick(uiState.internalOwnerId) 
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
                 }
-            }
 
-            // 4. Waveform Scrubber & Timeline
-            Column(
-                modifier = Modifier
-                    .padding(vertical = 24.dp)
-                    .zIndex(5f)
-            ) {
-                // Identity Block (Title & Creator) - Prominent & Left-aligned
-                if (!showTranscript) {
-                    val rawTitle = playableArtifact?.title ?: artifact?.title
-                    val episodeNum = playableArtifact?.episodeNumber ?: artifact?.episodeNumber
-                    val title = ArtifactTitleFormatter.formatTitle(rawTitle, episodeNum, fallbackTitle = "Artifact")
-                    
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 24.dp),
-                        horizontalAlignment = Alignment.Start
-                    ) {
-                        Text(
-                            text = title,
-                            style = MaterialTheme.typography.headlineMedium.copy(
-                                fontWeight = FontWeight.ExtraBold,
-                                letterSpacing = (-0.5).sp
-                            ),
-                            color = Color.White,
-                            textAlign = TextAlign.Start,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        
-                        Spacer(modifier = Modifier.height(4.dp))
-                        
-                        if (isVerifiedDraft) {
-                            Text(
-                                text = "Private Draft",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = Color(0xFFFFB74D).copy(alpha = 0.7f),
-                                fontWeight = FontWeight.Light,
-                                letterSpacing = 1.sp
-                            )
-                        } else {
-                            val authorName = playableArtifact?.authorName?.ifEmpty { null }
-                                ?: artifact?.author?.name?.ifEmpty { null }
-                                ?: ResolvedCreatorIdentity.NEUTRAL_NAME
-                            val authorSigil = playableArtifact?.authorSigil?.ifEmpty { null }
-                                ?: artifact?.author?.sigil ?: ""
-                            
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.clickable { onAuthorClick(uiState.internalOwnerId) }
-                            ) {
-                                Text(
-                                    text = authorName,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = Color.White.copy(alpha = 0.7f),
-                                    fontWeight = FontWeight.Bold
-                                )
-                                if (authorSigil.isNotEmpty()) {
-                                    Text(
-                                        text = " · ",
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = Color.White.copy(alpha = 0.3f)
-                                    )
-                                    Text(
-                                        text = authorSigil,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = Color.White.copy(alpha = 0.5f),
-                                        fontWeight = FontWeight.Light
-                                    )
-                                }
-                            }
-                        }
-
-                        val emotionsToDisplay = playableArtifact?.effectiveEmotions?.ifEmpty { 
-                            listOfNotNull(playableArtifact.emotion.ifBlank { null }) 
-                        } ?: artifact?.effectiveEmotions ?: emptyList()
-                        if (emotionsToDisplay.isNotEmpty()) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            EmotionTagsGroup(emotions = emotionsToDisplay)
-                        }
-                    }
-                }
-
-                val amplitudes = playableArtifact?.originalDraft?.amplitudeData 
-                    ?: artifact?.amplitudeData 
-                    ?: emptyList()
-                    
-                WaveformScrubber(
-                    amplitudes = amplitudes,
-                    progress = uiState.playbackProgress,
-                    isPaused = !uiState.isPlaying,
-                    onSeek = onSeek,
-                    onScrubbing = onScrubbing,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-                
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                // 4. Waveform Scrubber & Timeline
+                Column(
+                    modifier = Modifier
+                        .padding(top = verticalSpacing, bottom = 2.dp)
+                        .zIndex(5f)
                 ) {
-                    val config = androidx.compose.ui.platform.LocalConfiguration.current
-                    
-                    Text(
-                        text = com.saurabh.artifact.util.TimeUtils.formatDurationMillis(uiState.currentPosition, config),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.copy(alpha = 0.5f),
-                        letterSpacing = 0.5.sp
-                    )
-                    
-                    Text(
-                        text = com.saurabh.artifact.util.TimeUtils.formatDurationMillis(uiState.durationMs, config),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.copy(alpha = 0.5f),
-                        letterSpacing = 0.5.sp
-                    )
-                }
+                    // Identity Block (Title & Creator) - Prominent & Left-aligned
+                    if (!showTranscript) {
+                        val rawTitle = playableArtifact?.title ?: artifact?.title
+                        val episodeNum = playableArtifact?.episodeNumber ?: artifact?.episodeNumber
+                        val title = ArtifactTitleFormatter.formatTitle(rawTitle, episodeNum, fallbackTitle = "Artifact")
+                        
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = if (isCompactHeight) 6.dp else 12.dp),
+                            horizontalAlignment = Alignment.Start
+                        ) {
+                            val titleStyle = if (isCompactHeight) {
+                                MaterialTheme.typography.titleLarge.copy(
+                                    fontWeight = FontWeight.ExtraBold,
+                                    letterSpacing = (-0.5).sp
+                                )
+                            } else {
+                                MaterialTheme.typography.headlineMedium.copy(
+                                    fontWeight = FontWeight.ExtraBold,
+                                    letterSpacing = (-0.5).sp
+                                )
+                            }
 
-                if (!isVerifiedDraft && !uiState.isOwner) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    ListeningCoverageIndicator(
-                        coveragePercent = uiState.coveragePercent,
-                        isThresholdMet = uiState.isThresholdMet,
-                        isPlaybackEnded = uiState.isPlaybackEnded,
+                            Text(
+                                text = title,
+                                style = titleStyle,
+                                color = Color.White,
+                                textAlign = TextAlign.Start,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            
+                            Spacer(modifier = Modifier.height(2.dp))
+                            
+                            if (isVerifiedDraft) {
+                                Text(
+                                    text = "Private Draft",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Color(0xFFFFB74D).copy(alpha = 0.7f),
+                                    fontWeight = FontWeight.Light,
+                                    letterSpacing = 1.sp
+                                )
+                            } else {
+                                val authorName = playableArtifact?.authorName?.ifEmpty { null }
+                                    ?: artifact?.author?.name?.ifEmpty { null }
+                                    ?: ResolvedCreatorIdentity.NEUTRAL_NAME
+                                val authorSigil = playableArtifact?.authorSigil?.ifEmpty { null }
+                                    ?: artifact?.author?.sigil ?: ""
+                                
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.clickable { onAuthorClick(uiState.internalOwnerId) }
+                                ) {
+                                    Text(
+                                        text = authorName,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = Color.White.copy(alpha = 0.7f),
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    if (authorSigil.isNotEmpty()) {
+                                        Text(
+                                            text = " · ",
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            color = Color.White.copy(alpha = 0.3f)
+                                        )
+                                        Text(
+                                            text = authorSigil,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = Color.White.copy(alpha = 0.5f),
+                                            fontWeight = FontWeight.Light
+                                        )
+                                    }
+                                }
+                            }
+
+                            val emotionsToDisplay = playableArtifact?.effectiveEmotions?.ifEmpty { 
+                                listOfNotNull(playableArtifact.emotion.ifBlank { null }) 
+                            } ?: artifact?.effectiveEmotions ?: emptyList()
+                            if (emotionsToDisplay.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                EmotionTagsGroup(emotions = emotionsToDisplay)
+                            }
+                        }
+                    }
+
+                    val amplitudes = playableArtifact?.originalDraft?.amplitudeData 
+                        ?: artifact?.amplitudeData 
+                        ?: emptyList()
+                        
+                    WaveformScrubber(
+                        amplitudes = amplitudes,
+                        progress = uiState.playbackProgress,
+                        isPaused = !uiState.isPlaying,
+                        onSeek = onSeek,
+                        onScrubbing = onScrubbing,
                         modifier = Modifier.fillMaxWidth()
                     )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val config = androidx.compose.ui.platform.LocalConfiguration.current
+                        
+                        Text(
+                            text = com.saurabh.artifact.util.TimeUtils.formatDurationMillis(uiState.currentPosition, config),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White.copy(alpha = 0.5f),
+                            letterSpacing = 0.5.sp
+                        )
+                        
+                        Text(
+                            text = com.saurabh.artifact.util.TimeUtils.formatDurationMillis(uiState.durationMs, config),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White.copy(alpha = 0.5f),
+                            letterSpacing = 0.5.sp
+                        )
+                    }
+
+                    if (!isVerifiedDraft && !uiState.isOwner) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        ListeningCoverageIndicator(
+                            coveragePercent = uiState.coveragePercent,
+                            isThresholdMet = uiState.isThresholdMet,
+                            isPlaybackEnded = uiState.isPlaybackEnded,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                 }
-            }
 
-            // 5. Playback Controls
-            PlaybackControls(
-                isPlaying = uiState.isPlaying,
-                onTogglePlay = onTogglePlayback,
-                onRewind = onRewind,
-                onForward = onForward
-            )
+                Spacer(modifier = Modifier.height(verticalSpacing))
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // 6. Interaction Layer (Phase 5: Protect Draft Actions)
-            if (isVerifiedDraft) {
-                ReviewInteractionLayer(
-                    state = reviewInteractionState,
-                    onEditClick = onEditClick,
-                    onPublishClick = onPublishClick,
-                    onDeleteClick = { showDeleteConfirm = true }
+                // 5. Playback Controls & Speed Selector (Primary Playback Control Area)
+                PlaybackControls(
+                    isPlaying = uiState.isPlaying,
+                    onTogglePlay = onTogglePlayback,
+                    onRewind = onRewind,
+                    onForward = onForward
                 )
-            } else {
-                PlayerInteractionBar(
-                    isResonated = uiState.isResonated,
-                    resonanceSyncStatus = uiState.resonanceSyncStatus,
-                    selectedReactionType = uiState.selectedReactionType,
-                    onResonateClick = onResonateClick,
-                    resonanceCount = uiState.resonanceCount,
-                    canShowResonators = uiState.canShowResonators,
-                    onResonatorsCountClick = {
-                        artifact?.id?.let { id -> onResonatorsCountClick(id) }
-                    },
-                    isResonating = uiState.isResonating,
-                    followSyncStatus = uiState.followSyncStatus,
-                    onResonateConnectionClick = onResonateConnectionClick,
-                    isSaved = uiState.isSaved,
-                    saveSyncStatus = uiState.saveSyncStatus,
-                    onSaveClick = onSaveClick,
-                    onCommentClick = onCommentClick,
-                    isCommentEnabled = uiState.isThresholdMet,
-                    commentDisabledReason = if (!uiState.isThresholdMet) "Listen to at least 95% of this Artifact before joining the conversation." else null,
-                    isOwner = uiState.isOwner,
-                    showResonance = !uiState.isOwner,
-                    showSave = !uiState.isOwner
+
+                Spacer(modifier = Modifier.height(if (isCompactHeight) 2.dp else 4.dp))
+
+                PlaybackSpeedSelector(
+                    currentSpeed = uiState.playbackSpeed,
+                    onSpeedSelected = onSpeedChange
                 )
+
+                Spacer(modifier = Modifier.height(verticalSpacing))
+
+                // 6. Interaction Layer (Phase 5: Protect Draft Actions)
+                if (isVerifiedDraft) {
+                    ReviewInteractionLayer(
+                        state = reviewInteractionState,
+                        onEditClick = onEditClick,
+                        onPublishClick = onPublishClick,
+                        onDeleteClick = { showDeleteConfirm = true }
+                    )
+                } else {
+                    PlayerInteractionBar(
+                        isResonated = uiState.isResonated,
+                        resonanceSyncStatus = uiState.resonanceSyncStatus,
+                        selectedReactionType = uiState.selectedReactionType,
+                        onResonateClick = onResonateClick,
+                        resonanceCount = uiState.resonanceCount,
+                        canShowResonators = uiState.canShowResonators,
+                        onResonatorsCountClick = {
+                            artifact?.id?.let { id -> onResonatorsCountClick(id) }
+                        },
+                        isResonating = uiState.isResonating,
+                        followSyncStatus = uiState.followSyncStatus,
+                        onResonateConnectionClick = onResonateConnectionClick,
+                        isSaved = uiState.isSaved,
+                        saveSyncStatus = uiState.saveSyncStatus,
+                        onSaveClick = onSaveClick,
+                        onCommentClick = onCommentClick,
+                        isCommentEnabled = uiState.isThresholdMet,
+                        commentDisabledReason = if (!uiState.isThresholdMet) "Listen to at least 95% of this Artifact before joining the conversation." else null,
+                        isOwner = uiState.isOwner,
+                        showResonance = !uiState.isOwner,
+                        showSave = !uiState.isOwner
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(if (isCompactHeight) 6.dp else 12.dp))
             }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            PlaybackSpeedSelector(
-                currentSpeed = uiState.playbackSpeed,
-                onSpeedSelected = onSpeedChange
-            )
-
-            Spacer(modifier = Modifier.height(32.dp))
-
-            // Ensure padding even if no context action bar
-            Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }

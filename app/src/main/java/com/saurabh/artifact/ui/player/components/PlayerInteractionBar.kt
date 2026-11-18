@@ -6,8 +6,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
@@ -23,6 +21,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.saurabh.artifact.model.ReactionType
@@ -32,7 +31,7 @@ import com.saurabh.artifact.ui.util.FeedbackUtils
 
 /**
  * PlayerInteractionBar - A cinematic, emotionally intentional row of actions.
- * Updated with synchronization awareness and improved touch targets.
+ * Updated with responsive layout, improved typography legibility, and guaranteed touch targets.
  */
 @Composable
 fun PlayerInteractionBar(
@@ -61,9 +60,9 @@ fun PlayerInteractionBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 12.dp)
+                .padding(vertical = 4.dp)
                 .background(Color.White.copy(alpha = 0.03f), RoundedCornerShape(24.dp))
-                .padding(vertical = 8.dp),
+                .padding(horizontal = 4.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -187,7 +186,7 @@ private fun ResonateInteractionItem(
                 imageVector = Icons.Rounded.GraphicEq,
                 contentDescription = resonateContentDescription,
                 tint = animatedContentColor,
-                modifier = Modifier.size(26.dp)
+                modifier = Modifier.size(28.dp)
             )
         }
 
@@ -209,7 +208,7 @@ private fun ResonateInteractionItem(
                     text = "$resonanceCount \u203A",
                     style = MaterialTheme.typography.labelSmall,
                     color = animatedContentColor,
-                    fontSize = 11.sp,
+                    fontSize = 12.sp,
                     fontWeight = if (isResonated) FontWeight.Bold else FontWeight.Medium,
                     letterSpacing = 0.2.sp
                 )
@@ -232,7 +231,7 @@ private fun InteractionItem(
     activeColor: Color = Color.White
 ) {
     val haptic = LocalHapticFeedback.current
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
     
     val contentColor = if (!enabled && !loading) {
         Color.White.copy(alpha = 0.12f)
@@ -258,14 +257,15 @@ private fun InteractionItem(
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     onClick()
                 } else if (disabledReason != null) {
-                    com.saurabh.artifact.ui.util.FeedbackUtils.explainDisabledAction(
+                    FeedbackUtils.explainDisabledAction(
                         context,
                         haptic,
                         disabledReason
                     )
                 }
             }
-            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+            .padding(horizontal = 6.dp, vertical = 4.dp)
     ) {
         Box(contentAlignment = Alignment.Center) {
             Icon(
@@ -273,7 +273,7 @@ private fun InteractionItem(
                 contentDescription = label,
                 tint = contentColor,
                 modifier = Modifier
-                    .size(26.dp)
+                    .size(28.dp)
                     .scale(scale)
                     .alpha(if (loading) 0.3f else 1.0f)
             )
@@ -287,7 +287,7 @@ private fun InteractionItem(
             }
         }
         
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(4.dp))
         
         // Show count if > 0, otherwise show label
         val displayText = if ((count != null) && (count > 0)) {
@@ -300,9 +300,11 @@ private fun InteractionItem(
             text = displayText,
             style = MaterialTheme.typography.labelSmall,
             color = contentColor,
-            fontSize = 10.sp,
+            fontSize = 11.5.sp,
             fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
-            letterSpacing = 0.2.sp
+            letterSpacing = 0.2.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }

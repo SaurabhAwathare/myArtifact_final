@@ -8,13 +8,14 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Forward10
@@ -34,11 +35,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.saurabh.artifact.ui.theme.GoldAura400
 
+@android.annotation.SuppressLint("ConfigurationScreenWidthHeight")
 @Composable
 fun PlaybackControls(
     isPlaying: Boolean,
@@ -48,6 +52,14 @@ fun PlaybackControls(
     modifier: Modifier = Modifier
 ) {
     val haptic = LocalHapticFeedback.current
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val density = LocalDensity.current
+    val windowInfo = LocalWindowInfo.current
+    val isCompact = with(density) {
+        val widthDp = windowInfo.containerSize.width.toDp().takeIf { it > 0.dp } ?: configuration.screenWidthDp.dp
+        val heightDp = windowInfo.containerSize.height.toDp().takeIf { it > 0.dp } ?: configuration.screenHeightDp.dp
+        widthDp < 360.dp || heightDp < 640.dp
+    }
 
     val infiniteTransition = rememberInfiniteTransition(label = "PlayButtonPulse")
     val pulseAlpha by infiniteTransition.animateFloat(
@@ -60,15 +72,24 @@ fun PlaybackControls(
         label = "PulseAlpha"
     )
 
+    val outerRippleSize = if (isCompact) 72.dp else 96.dp
+    val centralButtonSize = if (isCompact) 60.dp else 72.dp
+    val playIconSize = if (isCompact) 32.dp else 40.dp
+
     Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Center,
+        modifier = modifier
+            .fillMaxWidth()
+            .widthIn(max = 380.dp),
+        horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        IconButton(onClick = {
-            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-            onRewind()
-        }) {
+        IconButton(
+            onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                onRewind()
+            },
+            modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+        ) {
             Icon(
                 Icons.Rounded.Replay10,
                 contentDescription = "Rewind 10s",
@@ -77,11 +98,9 @@ fun PlaybackControls(
             )
         }
 
-        Spacer(modifier = Modifier.width(40.dp))
-
         Box(
             contentAlignment = Alignment.Center,
-            modifier = Modifier.size(96.dp)
+            modifier = Modifier.size(outerRippleSize)
         ) {
             // Breathing Ripple
             if (isPlaying) {
@@ -93,7 +112,7 @@ fun PlaybackControls(
             }
 
             Surface(
-                modifier = Modifier.size(72.dp),
+                modifier = Modifier.size(centralButtonSize),
                 shape = CircleShape,
                 color = Color.White.copy(alpha = 0.08f),
                 onClick = {
@@ -106,19 +125,20 @@ fun PlaybackControls(
                     Icon(
                         imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                         contentDescription = if (isPlaying) "Pause" else "Play",
-                        modifier = Modifier.size(40.dp),
+                        modifier = Modifier.size(playIconSize),
                         tint = if (isPlaying) Color.White else GoldAura400
                     )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.width(40.dp))
-
-        IconButton(onClick = {
-            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-            onForward()
-        }) {
+        IconButton(
+            onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                onForward()
+            },
+            modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+        ) {
             Icon(
                 Icons.Rounded.Forward10,
                 contentDescription = "Forward 10s",
@@ -147,13 +167,15 @@ fun PlaybackSpeedSelector(
             
             TextButton(
                 onClick = { onSpeedSelected(speed) },
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 44.dp),
                 colors = ButtonDefaults.textButtonColors(
                     contentColor = if (isSelected) GoldAura400 else Color.White.copy(alpha = 0.5f)
                 )
             ) {
                 Text(
                     text = "${speed}x",
-                    style = MaterialTheme.typography.labelLarge,
+                    style = MaterialTheme.typography.labelMedium,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                 )
             }
@@ -162,7 +184,7 @@ fun PlaybackSpeedSelector(
                 Text(
                     text = "•",
                     color = Color.White.copy(alpha = 0.2f),
-                    modifier = Modifier.padding(horizontal = 4.dp)
+                    modifier = Modifier.padding(horizontal = 2.dp)
                 )
             }
         }

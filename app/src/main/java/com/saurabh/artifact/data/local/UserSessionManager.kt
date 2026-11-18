@@ -151,13 +151,16 @@ class UserSessionManager @Inject constructor(
 
     /**
      * Updates the user's sigil configuration.
-     * Guaranteed not to modify DataStore if expectedUid is provided and does not match OWNING_UID.
+     * Guaranteed not to modify DataStore if:
+     * - OWNING_UID is non-null and expectedUid does not match OWNING_UID (including null expectedUid)
+     * - OWNING_UID is null and expectedUid is non-null
+     * Does not establish or transfer cache ownership.
      */
     suspend fun updateSigilConfig(config: com.saurabh.artifact.model.SigilConfig, expectedUid: String? = null) {
         if (expectedUid != null && expectedUid.isBlank()) return
         dataStore.edit { preferences ->
-            val currentOwner = preferences[PreferencesKeys.OWNING_UID]
-            if (expectedUid != null && currentOwner != expectedUid) {
+            val currentOwner = preferences[PreferencesKeys.OWNING_UID]?.takeIf { it.isNotBlank() }
+            if (currentOwner != expectedUid) {
                 return@edit
             }
             preferences[PreferencesKeys.SIGIL_CONFIG_JSON] = Json.encodeToString(config)
@@ -167,13 +170,16 @@ class UserSessionManager @Inject constructor(
 
     /**
      * Updates the user's identity username.
-     * Guaranteed not to modify DataStore if expectedUid is provided and does not match OWNING_UID.
+     * Guaranteed not to modify DataStore if:
+     * - OWNING_UID is non-null and expectedUid does not match OWNING_UID (including null expectedUid)
+     * - OWNING_UID is null and expectedUid is non-null
+     * Does not establish or transfer cache ownership.
      */
     suspend fun updateUsername(username: String, expectedUid: String? = null) {
         if (expectedUid != null && expectedUid.isBlank()) return
         dataStore.edit { preferences ->
-            val currentOwner = preferences[PreferencesKeys.OWNING_UID]
-            if (expectedUid != null && currentOwner != expectedUid) {
+            val currentOwner = preferences[PreferencesKeys.OWNING_UID]?.takeIf { it.isNotBlank() }
+            if (currentOwner != expectedUid) {
                 return@edit
             }
             preferences[PreferencesKeys.USERNAME] = username

@@ -530,5 +530,228 @@ class UserSessionManagerTest {
         io.mockk.coVerify(exactly = 0) { blockStoreManager.clear() }
         io.mockk.coVerify(exactly = 0) { blockStoreManager.saveAnonymousId(any()) }
     }
+
+    @Test
+    fun `updateUsername with null expectedUid does not modify established account cache`() = runTest {
+        val (manager, _) = createManager("test_update_null_uid.preferences_pb")
+        val user = com.saurabh.artifact.model.User(id = "uid_established", anonymousId = "anon_1", anonymousName = "Initial")
+        manager.syncFromRemote(user)
+
+        // Attempt anonymous update without expectedUid
+        manager.updateUsername("Overwritten")
+
+        // Must retain original name
+        assertEquals("Initial", manager.userProfile.first().username)
+    }
+
+    @Test
+    fun `updateSigilConfig with null expectedUid does not modify established account cache`() = runTest {
+        val (manager, _) = createManager("test_sigil_null_uid.preferences_pb")
+        val user = com.saurabh.artifact.model.User(
+            id = "uid_established",
+            anonymousId = "anon_1",
+            sigilSeed = "seed_orig",
+            sigilConfig = SigilConfig(seed = "seed_orig", variant = SigilVariant.LIGHT)
+        )
+        manager.syncFromRemote(user)
+
+        // Attempt anonymous sigil update without expectedUid
+        manager.updateSigilConfig(SigilConfig(seed = "seed_hack", variant = SigilVariant.DARK))
+
+        // Must retain original config
+        assertEquals("seed_orig", manager.userProfile.first().sigilSeed)
+        assertEquals(SigilVariant.LIGHT, manager.userProfile.first().sigilConfig.variant)
+    }
+
+    @Test
+    fun `updateUsername with expectedUid when currentOwner is null rejects mutation and does not establish owner`() = runTest {
+        val (manager, _) = createManager("test_update_null_owner_rejects.preferences_pb")
+        org.junit.Assert.assertNull(manager.owningUid.first())
+
+        manager.updateUsername("New User", expectedUid = "uid_new")
+
+        // Must NOT establish owner and must NOT update username
+        org.junit.Assert.assertNull(manager.owningUid.first())
+        org.junit.Assert.assertNull(manager.rawPreferences.first()[UserSessionManager.PreferencesKeys.USERNAME])
+    }
+
+    @Test
+    fun `updateSigilConfig with expectedUid when currentOwner is null rejects mutation and does not establish owner`() = runTest {
+        val (manager, _) = createManager("test_sigil_null_owner_rejects.preferences_pb")
+        org.junit.Assert.assertNull(manager.owningUid.first())
+
+        val config = SigilConfig(seed = "seed_fresh", variant = SigilVariant.DARK)
+        manager.updateSigilConfig(config, expectedUid = "uid_new")
+
+        // Must NOT establish owner and must NOT update sigil config
+        org.junit.Assert.assertNull(manager.owningUid.first())
+        org.junit.Assert.assertNull(manager.rawPreferences.first()[UserSessionManager.PreferencesKeys.SIGIL_CONFIG_JSON])
+        org.junit.Assert.assertNull(manager.rawPreferences.first()[UserSessionManager.PreferencesKeys.SIGIL_SEED])
+    }
+
+    @Test
+    fun `updateUsername with null expectedUid and no owner updates username and preserves null owningUid`() = runTest {
+        val (manager, _) = createManager("test_update_null_uid_no_owner.preferences_pb")
+        org.junit.Assert.assertNull(manager.owningUid.first())
+
+        manager.updateUsername("Anon User")
+
+        org.junit.Assert.assertNull(manager.owningUid.first())
+        assertEquals("Anon User", manager.userProfile.first().username)
+    }
+
+    @Test
+    fun `updateSigilConfig with null expectedUid and no owner updates config and preserves null owningUid`() = runTest {
+        val (manager, _) = createManager("test_sigil_null_uid_no_owner.preferences_pb")
+        org.junit.Assert.assertNull(manager.owningUid.first())
+
+        val config = SigilConfig(seed = "anon_seed", variant = SigilVariant.DARK)
+        manager.updateSigilConfig(config)
+
+        org.junit.Assert.assertNull(manager.owningUid.first())
+        assertEquals("anon_seed", manager.userProfile.first().sigilSeed)
+        assertEquals(SigilVariant.DARK, manager.userProfile.first().sigilConfig.variant)
+    }
+
+    @Test
+    fun `updateUsername with matching expectedUid updates established account cache`() = runTest {
+        val (manager, _) = createManager("test_update_matching_uid.preferences_pb")
+        val user = com.saurabh.artifact.model.User(id = "uid_established", anonymousId = "anon_1", anonymousName = "Initial")
+        manager.syncFromRemote(user)
+
+        manager.updateUsername("Updated Authenticated", expectedUid = "uid_established")
+
+        assertEquals("uid_established", manager.owningUid.first())
+        assertEquals("Updated Authenticated", manager.userProfile.first().username)
+    }
+
+    @Test
+    fun `updateSigilConfig with matching expectedUid updates established account cache`() = runTest {
+        val (manager, _) = createManager("test_sigil_matching_uid.preferences_pb")
+        val user = com.saurabh.artifact.model.User(
+            id = "uid_established",
+            anonymousId = "anon_1",
+            sigilSeed = "seed_orig",
+            sigilConfig = SigilConfig(seed = "seed_orig", variant = SigilVariant.LIGHT)
+        )
+        manager.syncFromRemote(user)
+
+        val updatedConfig = SigilConfig(seed = "seed_updated", variant = SigilVariant.DARK)
+        manager.updateSigilConfig(updatedConfig, expectedUid = "uid_established")
+
+        assertEquals("uid_established", manager.owningUid.first())
+        assertEquals("seed_updated", manager.userProfile.first().sigilSeed)
+        assertEquals(SigilVariant.DARK, manager.userProfile.first().sigilConfig.variant)
+    }
+
+    @Test
+    fun `updateUsername with mismatched expectedUid does not modify established account cache`() = runTest {
+        val (manager, _) = createManager("test_update_mismatched_uid.preferences_pb")
+        val user = com.saurabh.artifact.model.User(id = "uid_established", anonymousId = "anon_1", anonymousName = "Initial")
+        manager.syncFromRemote(user)
+
+        manager.updateUsername("Hacked Name", expectedUid = "uid_other")
+
+        assertEquals("uid_established", manager.owningUid.first())
+        assertEquals("Initial", manager.userProfile.first().username)
+    }
+
+    @Test
+    fun `updateSigilConfig with mismatched expectedUid does not modify established account cache`() = runTest {
+        val (manager, _) = createManager("test_sigil_mismatched_uid.preferences_pb")
+        val user = com.saurabh.artifact.model.User(
+            id = "uid_established",
+            anonymousId = "anon_1",
+            sigilSeed = "seed_orig",
+            sigilConfig = SigilConfig(seed = "seed_orig", variant = SigilVariant.LIGHT)
+        )
+        manager.syncFromRemote(user)
+
+        manager.updateSigilConfig(SigilConfig(seed = "seed_hack", variant = SigilVariant.DARK), expectedUid = "uid_other")
+
+        assertEquals("uid_established", manager.owningUid.first())
+        assertEquals("seed_orig", manager.userProfile.first().sigilSeed)
+        assertEquals(SigilVariant.LIGHT, manager.userProfile.first().sigilConfig.variant)
+    }
+
+    @Test
+    fun `Account A attempting to mutate Account B identity is rejected`() = runTest {
+        val (manager, _) = createManager("test_account_a_vs_b.preferences_pb")
+        val userB = com.saurabh.artifact.model.User(
+            id = "uid_B",
+            anonymousId = "anon_B",
+            anonymousName = "Account B Name",
+            sigilSeed = "seed_B",
+            sigilConfig = SigilConfig(seed = "seed_B", variant = SigilVariant.LIGHT)
+        )
+        manager.syncFromRemote(userB)
+
+        // Account A tries to overwrite username and sigil config
+        manager.updateUsername("Account A Takeover", expectedUid = "uid_A")
+        manager.updateSigilConfig(SigilConfig(seed = "seed_A", variant = SigilVariant.DARK), expectedUid = "uid_A")
+
+        // Must remain Account B
+        assertEquals("uid_B", manager.owningUid.first())
+        assertEquals("Account B Name", manager.userProfile.first().username)
+        assertEquals("seed_B", manager.userProfile.first().sigilSeed)
+        assertEquals(SigilVariant.LIGHT, manager.userProfile.first().sigilConfig.variant)
+    }
+
+    @Test
+    fun `rejected identity mutations leave all unrelated DataStore keys unchanged`() = runTest {
+        val (manager, _) = createManager("test_rejected_keys_unchanged.preferences_pb")
+        val user = com.saurabh.artifact.model.User(
+            id = "uid_B",
+            anonymousId = "anon_B",
+            anonymousName = "Name B",
+            anonymousSigil = "▲",
+            sigilSeed = "seed_B",
+            sigilColor = "#FF0000",
+            sigilConfig = SigilConfig(seed = "seed_B", variant = SigilVariant.LIGHT),
+            isAnonymous = false,
+            resonanceInCount = 100L,
+            resonanceOutCount = 50L
+        )
+        manager.syncFromRemote(user)
+
+        // Set operational keys
+        manager.setLocalSessionId("session_123")
+        manager.setActiveDraftId("draft_456")
+        manager.setActivePromptId("prompt_789")
+        manager.setLoggingOut(true)
+
+        val beforePrefs = manager.rawPreferences.first().asMap()
+
+        // Attempt rejected mutations: null expectedUid and mismatched expectedUid
+        manager.updateUsername("Hacked Null", expectedUid = null)
+        manager.updateUsername("Hacked A", expectedUid = "uid_A")
+        manager.updateSigilConfig(SigilConfig(seed = "seed_hack", variant = SigilVariant.DARK), expectedUid = null)
+        manager.updateSigilConfig(SigilConfig(seed = "seed_hack", variant = SigilVariant.DARK), expectedUid = "uid_A")
+
+        val afterPrefs = manager.rawPreferences.first().asMap()
+
+        // All keys and values must be completely identical
+        assertEquals(beforePrefs.size, afterPrefs.size)
+        for ((key, value) in beforePrefs) {
+            assertEquals("Key ${key.name} must not be changed", value, afterPrefs[key])
+        }
+
+        // Verify key operational and identity properties individually
+        assertEquals("uid_B", manager.owningUid.first())
+        assertEquals("session_123", manager.localSessionId.first())
+        assertEquals("draft_456", manager.activeDraftId.first())
+        assertEquals("prompt_789", manager.activePromptId.first())
+        assertEquals(true, manager.isLoggingOut.first())
+        val profile = manager.userProfile.first()
+        assertEquals("anon_B", profile.anonymousId)
+        assertEquals("Name B", profile.username)
+        assertEquals("▲", profile.sigil)
+        assertEquals("seed_B", profile.sigilSeed)
+        assertEquals("#FF0000", profile.sigilColor)
+        assertEquals(SigilVariant.LIGHT, profile.sigilConfig.variant)
+        assertEquals(false, profile.isAnonymous)
+        assertEquals(100L, profile.resonanceInCount)
+        assertEquals(50L, profile.resonanceOutCount)
+    }
 }
 

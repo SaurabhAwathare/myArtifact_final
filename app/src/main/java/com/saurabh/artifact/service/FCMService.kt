@@ -7,20 +7,13 @@ import com.google.firebase.firestore.SetOptions
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import com.saurabh.artifact.util.NotificationHelper
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 
 /**
  * Service for receiving and handling Firebase Cloud Messaging events.
  * Responsible for token management and manual notification display for interactions.
  */
 class FCMService : FirebaseMessagingService() {
-
-    companion object {
-        private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    }
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
@@ -57,18 +50,22 @@ class FCMService : FirebaseMessagingService() {
             val title = notification.title ?: "Artifact"
             val body = notification.body ?: "Someone engaged with your artifact 💬"
             
-            serviceScope.launch {
-                NotificationHelper.showInteractionNotification(
-                    context = this@FCMService,
-                    title = title,
-                    message = body,
-                    artifactId = artifactId,
-                    userId = userId,
-                    recipientId = recipientId,
-                    notificationType = notificationType,
-                    channelId = channelId,
-                    notificationId = notificationId,
-                )
+            try {
+                runBlocking {
+                    NotificationHelper.showInteractionNotification(
+                        context = this@FCMService,
+                        title = title,
+                        message = body,
+                        artifactId = artifactId,
+                        userId = userId,
+                        recipientId = recipientId,
+                        notificationType = notificationType,
+                        channelId = channelId,
+                        notificationId = notificationId,
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e("FCMService", "Failed to present notification for legacy payload", e)
             }
             return // Prevent duplicate notification from data payload if both exist
         }
@@ -78,18 +75,22 @@ class FCMService : FirebaseMessagingService() {
             val title = data["title"] ?: if (data["type"] == "CRITICAL_MODERATION_ALERT") "Critical Safety Alert" else "New Interaction"
             val message = data["message"] ?: data["body"] ?: "Someone sent you a reaction!"
             
-            serviceScope.launch {
-                NotificationHelper.showInteractionNotification(
-                    context = this@FCMService,
-                    title = title,
-                    message = message,
-                    artifactId = artifactId,
-                    userId = userId,
-                    recipientId = recipientId,
-                    notificationType = notificationType,
-                    channelId = channelId,
-                    notificationId = notificationId,
-                )
+            try {
+                runBlocking {
+                    NotificationHelper.showInteractionNotification(
+                        context = this@FCMService,
+                        title = title,
+                        message = message,
+                        artifactId = artifactId,
+                        userId = userId,
+                        recipientId = recipientId,
+                        notificationType = notificationType,
+                        channelId = channelId,
+                        notificationId = notificationId,
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e("FCMService", "Failed to present notification for data payload", e)
             }
         }
     }

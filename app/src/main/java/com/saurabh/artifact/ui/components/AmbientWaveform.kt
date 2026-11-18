@@ -39,7 +39,8 @@ fun AmbientWaveform(
     liveAmplitude: Float? = null,
     samplingMode: WaveformProcessor.SamplingMode = WaveformProcessor.SamplingMode.COMPRESS,
     context: WaveformContext = WaveformContext.Player,
-    id: String = ""
+    id: String = "",
+    waveformHeight: androidx.compose.ui.unit.Dp? = null
 ) {
     if (isStatic && context == WaveformContext.Feed) {
         StaticWaveform(
@@ -113,10 +114,12 @@ fun AmbientWaveform(
         WaveformProcessor.process(amplitudes, context.barCount, samplingMode)
     }
 
+    val resolvedHeight = waveformHeight ?: context.height
+
     Canvas(
         modifier = modifier
             .fillMaxWidth()
-            .height(context.height)
+            .height(resolvedHeight)
             .graphicsLayer(alpha = 0.99f)
             .drawWithCache {
                 onDrawWithContent {

@@ -110,11 +110,30 @@ class IdentityViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
+            authRepository.currentUser.collectLatest {
+                _initialSigilConfig.value = null
+            }
+        }
+
+        viewModelScope.launch {
             userProfileManager.activeSigilConfig.collectLatest { config ->
                 if (_initialSigilConfig.value == null) {
                     _initialSigilConfig.value = config
                 }
                 _sigilConfig.value = config
+            }
+        }
+
+        viewModelScope.launch {
+            userProfile.collectLatest { profile ->
+                if (profile != null) {
+                    val config = profile.sigilConfig.takeIf { it != SigilConfig() }
+                        ?: if (profile.sigilSeed.isNotBlank()) SigilConfig(seed = profile.sigilSeed) else null
+                    if (config != null) {
+                        _sigilConfig.value = config
+                        _initialSigilConfig.value = config
+                    }
+                }
             }
         }
 

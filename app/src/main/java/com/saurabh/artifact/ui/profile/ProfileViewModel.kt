@@ -458,18 +458,24 @@ class ProfileViewModel @Inject constructor(
      * Toggles the "Silent Ignore" state for the target profile.
      */
     fun toggleIgnore() {
-        val targetId = _targetUserId.value ?: _targetPersonaId.value ?: return
+        val resolvedTargetId = uiState.value.userProfile?.anonymousId?.takeIf { it.startsWith("usr_") }
+            ?: _targetPersonaId.value?.takeIf { it.startsWith("usr_") }
+            ?: _targetUserId.value?.takeIf { it.startsWith("usr_") }
+            ?: _targetPersonaId.value
+            ?: _targetUserId.value
+            ?: return
+
         val currentId = currentUserId ?: return
-        if (targetId == currentId) return
+        if (resolvedTargetId == currentId) return
 
         val wasIgnored = uiState.value.isIgnored
 
         viewModelScope.launch {
             _isActionLoading.value = true
             if (wasIgnored) {
-                userRepository.unignoreUser(targetId)
+                userRepository.unignoreUser(resolvedTargetId)
             } else {
-                userRepository.ignoreUser(targetId)
+                userRepository.ignoreUser(resolvedTargetId)
             }
             _isActionLoading.value = false
         }

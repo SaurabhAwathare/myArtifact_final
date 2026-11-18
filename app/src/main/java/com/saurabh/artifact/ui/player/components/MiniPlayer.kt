@@ -36,7 +36,7 @@ fun MiniPlayer(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .height(88.dp)
+            .heightIn(min = 88.dp)
             .padding(horizontal = 12.dp, vertical = 8.dp)
             .clickable { onExpand() },
         shape = CardShape,
@@ -68,7 +68,7 @@ fun MiniPlayer(
                 Text(
                     text = artifact.title,
                     style = MaterialTheme.typography.labelLarge,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
@@ -116,6 +116,7 @@ fun MiniPlayer(
             
             IconButton(
                 onClick = onTogglePlay,
+                modifier = Modifier.size(48.dp),
                 colors = IconButtonDefaults.iconButtonColors(contentColor = GoldAura400)
             ) {
                 if (uiState.isBuffering) {

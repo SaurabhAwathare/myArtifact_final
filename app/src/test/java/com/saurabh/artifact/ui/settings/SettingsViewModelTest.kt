@@ -2,6 +2,7 @@ package com.saurabh.artifact.ui.settings
 
 import android.content.Context
 import android.net.Uri
+import com.google.firebase.auth.FirebaseUser
 import com.saurabh.artifact.auth.CredentialHelper
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
 import com.saurabh.artifact.data.local.UserSessionManager
@@ -17,6 +18,7 @@ import com.saurabh.artifact.model.UserPrivateSettings
 import com.saurabh.artifact.model.UserSettings
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.DraftRepository
+import com.saurabh.artifact.repository.RemoteProfileState
 import com.saurabh.artifact.repository.SettingsRepository
 import com.saurabh.artifact.security.ExportProgress
 import com.saurabh.artifact.security.ExportService
@@ -66,6 +68,9 @@ class SettingsViewModelTest {
     )
     private val userDataFlow = MutableStateFlow<User?>(null)
     private val privateSettingsFlow = MutableStateFlow<UserPrivateSettings?>(null)
+    private val currentUserFlow = MutableStateFlow<FirebaseUser?>(null)
+    private val remoteProfileStateFlow = MutableStateFlow<RemoteProfileState?>(null)
+    private val owningUidFlow = MutableStateFlow<String?>(null)
 
     private lateinit var viewModel: SettingsViewModel
     private val testDispatcher = UnconfinedTestDispatcher()
@@ -76,10 +81,12 @@ class SettingsViewModelTest {
         mockkObject(ExportService)
         every { ExportService.exportState } returns MutableStateFlow<ExportProgress?>(null)
         every { ExportService.start(any(), any()) } just runs
-        every { authRepository.currentUser } returns MutableStateFlow(null)
+        every { authRepository.currentUser } returns currentUserFlow
         every { authRepository.userData } returns userDataFlow
+        every { authRepository.remoteProfileState } returns remoteProfileStateFlow
         every { authRepository.privateSettings } returns privateSettingsFlow
         every { sessionManager.userProfile } returns userProfileFlow
+        every { sessionManager.owningUid } returns owningUidFlow
         every { sessionManager.localSessionId } returns MutableStateFlow("test_session_id")
         every { repository.userSettings } returns MutableStateFlow(UserSettings())
         every { draftRepository.observeDrafts() } returns MutableStateFlow(emptyList())

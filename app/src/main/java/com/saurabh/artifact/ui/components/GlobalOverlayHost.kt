@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -62,8 +64,24 @@ fun GlobalOverlayHost(
     val uiState by playerViewModel.uiState.collectAsStateWithLifecycle()
     val recordingState by recordingSessionManager.sessionState.collectAsStateWithLifecycle()
 
-    val totalOffset = remember(showOverlays, uiState.playerMode, recordingState.status) {
+    var measuredOverlayHeightPx by remember { mutableIntStateOf(0) }
+    val density = LocalDensity.current
+
+    LaunchedEffect(showOverlays, uiState.playerMode, recordingState.status) {
+        measuredOverlayHeightPx = 0
+    }
+
+    val staticOffset = remember(showOverlays, uiState.playerMode, recordingState.status) {
         calculateBottomOverlayOffset(showOverlays, uiState.playerMode, recordingState.status)
+    }
+
+    val totalOffset = remember(staticOffset, measuredOverlayHeightPx, density) {
+        if (staticOffset == 0.dp) {
+            0.dp
+        } else {
+            val measuredDp = with(density) { measuredOverlayHeightPx.toDp() }
+            if (measuredDp > staticOffset) measuredDp else staticOffset
+        }
     }
 
     // Phase 12: Navigation Guard - Prevent circular loop during Studio transition
@@ -135,6 +153,9 @@ fun GlobalOverlayHost(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .navigationBarsPadding()
+                        .onSizeChanged { size ->
+                            measuredOverlayHeightPx = size.height
+                        }
                         .zIndex(ZIndexTokens.MINI_OVERLAYS),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -182,7 +203,9 @@ fun isOverlayVisibleOnRoute(destination: NavDestination?): Boolean {
 fun calculateBottomOverlayOffset(
     showOverlays: Boolean,
     playerMode: PlayerMode,
-    recordingStatus: RecordingStatus
+    recordingStatus: RecordingStatus,
+    miniPlayerHeight: androidx.compose.ui.unit.Dp = BottomOverlayConstants.MINI_PLAYER_HEIGHT,
+    miniRecorderHeight: androidx.compose.ui.unit.Dp = BottomOverlayConstants.MINI_RECORDER_OCCUPIED_HEIGHT
 ): androidx.compose.ui.unit.Dp {
     if (!showOverlays || playerMode == PlayerMode.FULLSCREEN) {
         return 0.dp
@@ -192,8 +215,8 @@ fun calculateBottomOverlayOffset(
                            recordingStatus == RecordingStatus.PAUSED
     
     var offset = 0.dp
-    if (isPlayerVisible) offset += BottomOverlayConstants.MINI_PLAYER_HEIGHT
-    if (isRecorderVisible) offset += BottomOverlayConstants.MINI_RECORDER_OCCUPIED_HEIGHT
+    if (isPlayerVisible) offset += miniPlayerHeight
+    if (isRecorderVisible) offset += miniRecorderHeight
     if (isPlayerVisible && isRecorderVisible) offset += BottomOverlayConstants.OVERLAY_SPACING
     return offset
 }

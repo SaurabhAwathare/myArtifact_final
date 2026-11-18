@@ -1,6 +1,7 @@
 package com.saurabh.artifact.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -20,52 +21,54 @@ import com.saurabh.artifact.ui.theme.ArtifactTheme
 /**
  * PetalChip: A custom organic-shaped chip for filters.
  * Features one unique rounded corner to feel less "industrial".
+ * Displays clean text labels only with a restrained dark surface and subtle amber accent.
  */
 @Composable
 fun PetalChip(
     label: String,
     selected: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    emoji: String? = null
+    modifier: Modifier = Modifier
 ) {
+    val petalShape = RoundedCornerShape(
+        topStart = 16.dp,
+        topEnd = 4.dp, // The "Petal" tip
+        bottomEnd = 16.dp,
+        bottomStart = 16.dp
+    )
+
     val backgroundColor = if (selected) {
-        MaterialTheme.colorScheme.primary
+        ArtifactTheme.colors.surfaceHearth
     } else {
-        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
+    }
+
+    val borderColor = if (selected) {
+        ArtifactTheme.colors.goldAura.copy(alpha = 0.7f)
+    } else {
+        Color.Transparent
     }
 
     val textColor = if (selected) {
-        MaterialTheme.colorScheme.onPrimary
+        ArtifactTheme.colors.goldAura
     } else {
         MaterialTheme.colorScheme.onSurfaceVariant
     }
 
     Box(
         modifier = modifier
-            .clip(
-                RoundedCornerShape(
-                    topStart = 16.dp,
-                    topEnd = 4.dp, // The "Petal" tip
-                    bottomEnd = 16.dp,
-                    bottomStart = 16.dp
-                )
-            )
-            .background(backgroundColor)
+            .background(color = backgroundColor, shape = petalShape)
+            .border(width = 1.dp, color = borderColor, shape = petalShape)
+            .clip(petalShape)
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (emoji != null) {
-                Text(text = emoji, modifier = Modifier.padding(end = 4.dp))
-            }
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelMedium,
-                color = textColor
-            )
-        }
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = textColor
+        )
     }
 }
 

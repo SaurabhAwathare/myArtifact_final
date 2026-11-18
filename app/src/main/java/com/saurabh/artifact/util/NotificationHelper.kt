@@ -49,7 +49,11 @@ object NotificationHelper {
         }
     }
 
-    private suspend fun isNotificationEnabled(context: Context): Boolean {
+    private suspend fun isNotificationEnabled(
+        context: Context,
+        inAppNotificationsEnabledOverride: Boolean? = null,
+    ): Boolean {
+        if (inAppNotificationsEnabledOverride != null) return inAppNotificationsEnabledOverride
         return try {
             val entryPoint = EntryPointAccessors.fromApplication(context, NotificationHelperEntryPoint::class.java)
             val settingsRepository = entryPoint.settingsRepository()
@@ -352,7 +356,7 @@ object NotificationHelper {
     /**
      * Shows a notification for social interactions (resonances, comments).
      * Includes artifact navigation when clicked.
-     * Performs atomic, process-death safe Room deduplication before presentation.
+     * Follows the minimal validated architecture: Gate -> Check -> Post -> Commit.
      */
     suspend fun showInteractionNotification(
         context: Context,
@@ -364,9 +368,15 @@ object NotificationHelper {
         notificationType: String? = null,
         channelId: String = CHANNEL_ID_INTERACTIONS,
         notificationId: String? = null,
-        daoOverride: DisplayedNotificationDao? = null
+        daoOverride: DisplayedNotificationDao? = null,
+        inAppNotificationsEnabledOverride: Boolean? = null,
+        notifyOverride: ((tag: String, id: Int, notification: Notification) -> Unit)? = null
     ): Boolean {
-        if (!isNotificationEnabled(context)) return false
+        // A. Pre-flight gate
+        if (!isNotificationEnabled(context, inAppNotificationsEnabledOverride)) {
+            Log.w("NotificationHelper", "In-app notifications preference is disabled; suppressing presentation without consuming deduplication ID.")
+            return false
+        }
 
         val effectiveEventId = notificationId?.trim()?.takeIf { it.isNotEmpty() }
             ?: if (!artifactId.isNullOrBlank() || !userId.isNullOrBlank()) {
@@ -378,10 +388,38 @@ object NotificationHelper {
             return false
         }
 
-        // Check notification permission BEFORE inserting ID into Room to prevent consuming IDs when permission is denied
         if (!hasNotificationPermission(context)) {
             Log.w("NotificationHelper", "POST_NOTIFICATIONS permission not granted; suppressing presentation without consuming deduplication ID: $effectiveEventId")
             return false
+        }
+
+        val notificationManagerCompat = NotificationManagerCompat.from(context)
+        if (!notificationManagerCompat.areNotificationsEnabled()) {
+            Log.w("NotificationHelper", "System notifications are disabled; suppressing presentation without consuming deduplication ID: $effectiveEventId")
+            return false
+        }
+
+        var targetChannelId = channelId.trim().ifEmpty { CHANNEL_ID_INTERACTIONS }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            if (notificationManager != null) {
+                var channel = notificationManager.getNotificationChannel(targetChannelId)
+                if (channel == null && targetChannelId != CHANNEL_ID_INTERACTIONS) {
+                    targetChannelId = CHANNEL_ID_INTERACTIONS
+                    channel = notificationManager.getNotificationChannel(targetChannelId)
+                }
+                if (channel == null) {
+                    initNotificationChannels(context)
+                    channel = notificationManager.getNotificationChannel(targetChannelId)
+                }
+                if (channel == null || channel.importance == NotificationManager.IMPORTANCE_NONE) {
+                    Log.w(
+                        "NotificationHelper",
+                        "Notification channel $targetChannelId is unavailable or blocked (importance=${channel?.importance}); suppressing presentation without consuming deduplication ID: $effectiveEventId"
+                    )
+                    return false
+                }
+            }
         }
 
         val dao = daoOverride ?: getDisplayedNotificationDao(context)
@@ -390,23 +428,20 @@ object NotificationHelper {
             return false
         }
 
-        val insertResult = try {
-            dao.insertDisplayedNotification(
-                DisplayedNotificationEntity(
-                    notificationId = effectiveEventId,
-                    createdAt = System.currentTimeMillis()
-                )
-            )
+        // B. Historical deduplication check
+        val existingRecord = try {
+            dao.getById(effectiveEventId)
         } catch (e: Exception) {
-            Log.e("NotificationHelper", "Database failure during notification deduplication check for ID: $effectiveEventId", e)
-            -1L // Fail-safe: database error suppresses presentation rather than bypassing deduplication
+            Log.e("NotificationHelper", "Database failure during historical deduplication check for ID: $effectiveEventId", e)
+            return false // Fail-safe: database error suppresses presentation rather than bypassing deduplication
         }
 
-        if (insertResult <= 0L) {
+        if (existingRecord != null) {
             Log.i("NotificationHelper", "Duplicate notification event suppressed: $effectiveEventId")
             return false
         }
 
+        // C. Android notification presentation
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
             if (artifactId != null) {
@@ -425,9 +460,9 @@ object NotificationHelper {
                 putExtra("notificationId", effectiveEventId)
             }
         }
-        
+
         val requestCode = effectiveEventId.hashCode()
-        
+
         val pendingIntent = PendingIntent.getActivity(
             context,
             requestCode,
@@ -435,19 +470,19 @@ object NotificationHelper {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val priority = if (channelId == CHANNEL_ID_CRITICAL_ALERTS) {
+        val priority = if (targetChannelId == CHANNEL_ID_CRITICAL_ALERTS) {
             NotificationCompat.PRIORITY_HIGH
         } else {
             NotificationCompat.PRIORITY_DEFAULT
         }
 
-        val category = if (channelId == CHANNEL_ID_CRITICAL_ALERTS) {
+        val category = if (targetChannelId == CHANNEL_ID_CRITICAL_ALERTS) {
             NotificationCompat.CATEGORY_ALARM
         } else {
             NotificationCompat.CATEGORY_SOCIAL
         }
 
-        val notification = NotificationCompat.Builder(context, channelId)
+        val notification = NotificationCompat.Builder(context, targetChannelId)
             .setContentTitle(title)
             .setContentText(message)
             .setSmallIcon(R.drawable.ic_notification_small)
@@ -459,12 +494,45 @@ object NotificationHelper {
             .build()
 
         try {
-            NotificationManagerCompat.from(context).notify(effectiveEventId, requestCode, notification)
-            return true
+            if (notifyOverride != null) {
+                notifyOverride(effectiveEventId, requestCode, notification)
+            } else {
+                NotificationManagerCompat.from(context).notify(effectiveEventId, requestCode, notification)
+            }
         } catch (e: SecurityException) {
             Log.e("NotificationHelper", "SecurityException posting notification for $effectiveEventId", e)
             return false
+        } catch (e: Exception) {
+            Log.e("NotificationHelper", "Failed to post notification to Android for $effectiveEventId", e)
+            return false
         }
+
+        // D. Historical deduplication commit
+        val insertResult = try {
+            dao.insertDisplayedNotification(
+                DisplayedNotificationEntity(
+                    notificationId = effectiveEventId,
+                    createdAt = System.currentTimeMillis()
+                )
+            )
+        } catch (e: Exception) {
+            Log.e(
+                "NotificationHelper",
+                "Notification $effectiveEventId was successfully posted to Android NotificationManager, but Room historical deduplication commit failed with exception.",
+                e
+            )
+            return false
+        }
+
+        if (insertResult <= 0L) {
+            Log.w(
+                "NotificationHelper",
+                "Notification $effectiveEventId was successfully posted to Android NotificationManager, but Room historical deduplication commit was not inserted (result=$insertResult, likely concurrent duplicate insertion)."
+            )
+            return false
+        }
+
+        return true
     }
 
     fun getUploadForegroundInfo(context: Context, title: String, progress: Int): ForegroundInfo {

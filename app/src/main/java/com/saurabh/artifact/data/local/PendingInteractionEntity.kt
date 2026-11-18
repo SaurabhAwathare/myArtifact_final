@@ -32,6 +32,7 @@ object InteractionType {
     const val FOLLOW = "FOLLOW"
     const val ARTIFACT_COUNT = "ARTIFACT_COUNT"
     const val COMMENT = "COMMENT"
+    const val IGNORE = "IGNORE"
 }
 
 object InteractionAction {

@@ -1,6 +1,9 @@
 package com.saurabh.artifact
 
 import android.os.Build
+import android.content.Context
+import dagger.hilt.android.qualifiers.ApplicationContext
+import com.saurabh.artifact.worker.InteractionSyncWorker
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -81,7 +84,8 @@ class MainViewModel @Inject constructor(
     private val diagnosticLogger: DiagnosticLogger,
     private val appCheckStateTracker: Lazy<AppCheckStateTracker>? = null,
     private val draftRepository: Lazy<DraftRepository>? = null,
-    private val onboardingManager: OnboardingManager? = null
+    private val onboardingManager: OnboardingManager? = null,
+    @param:ApplicationContext private val context: Context? = null
 ) : ViewModel() {
 
     companion object {
@@ -166,6 +170,9 @@ class MainViewModel @Inject constructor(
             val isMismatched = uid != null && owningUid != null && owningUid != uid
             if (uid != null && !cleaning && !isMismatched) {
                 userProfileManager.initializeSafetySync(uid)
+                context?.let { ctx ->
+                    InteractionSyncWorker.enqueue(ctx)
+                }
             } else if (uid == null || isMismatched) {
                 userProfileManager.stopSafetySync()
             }
@@ -785,6 +792,11 @@ class MainViewModel @Inject constructor(
                 // Phase 6.10.1: Reactive Sync for Cross-Device Consistency
                 launch { visibilityFilter.syncIgnoredUsersFromRemote(uid, this).collect() }
                 launch { visibilityFilter.syncReportsFromRemote(uid, this).collect() }
+
+                // Drain pending interaction queue on authenticated startup
+                context?.let { ctx ->
+                    InteractionSyncWorker.enqueue(ctx)
+                }
             }
         }
     }

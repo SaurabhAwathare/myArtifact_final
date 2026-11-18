@@ -472,7 +472,8 @@ class InteractionSyncWorker @AssistedInject constructor(
         return type == InteractionType.SAVE || 
                type == InteractionType.REACTION || 
                type == InteractionType.FOLLOW ||
-               type == InteractionType.ARTIFACT_COUNT
+               type == InteractionType.ARTIFACT_COUNT ||
+               type == InteractionType.IGNORE
     }
 
     /**
@@ -518,6 +519,14 @@ class InteractionSyncWorker @AssistedInject constructor(
                         userRepository.incrementArtifactsCount(userId, interaction.artifactId)
                     } else {
                         userRepository.decrementArtifactsCount(userId, interaction.artifactId)
+                    }
+                }
+                InteractionType.IGNORE -> {
+                    val targetPersonaId = interaction.artifactId
+                    if (interaction.action == InteractionAction.ADD) {
+                        userRepository.syncIgnoreToFirestore(userId, targetPersonaId)
+                    } else {
+                        userRepository.syncUnignoreFromFirestore(userId, targetPersonaId)
                     }
                 }
                 InteractionType.COMMENT -> {

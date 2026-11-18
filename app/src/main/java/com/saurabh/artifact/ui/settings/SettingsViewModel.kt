@@ -20,6 +20,7 @@ import com.saurabh.artifact.R
 import com.saurabh.artifact.domain.auth.CleanupEventKey
 import com.saurabh.artifact.data.local.UserSessionManager
 import com.saurabh.artifact.model.SigilConfig
+import com.saurabh.artifact.repository.RemoteProfileState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -76,26 +77,107 @@ class SettingsViewModel @Inject constructor(
      * Authoritative anonymous identity flow.
      * Combines the local DataStore session manager SSOT with remote Firestore user updates.
      * Emits Loading initially to avoid displaying fabricated fallback data before persistence resolves.
+     * During account transitions, gates identity presentation so that an unowned anonymous record
+     * is not presented while an authenticated account's remote profile is unresolved.
      */
     val anonymousIdentity: StateFlow<AnonymousIdentityState> = combine(
+        authRepository.currentUser,
+        authRepository.userData,
+        authRepository.remoteProfileState,
         sessionManager.userProfile,
-        authRepository.userData
-    ) { profile, firestoreUser ->
-        val rawName = firestoreUser?.anonymousName?.ifBlank { null }
-            ?: profile.username.ifBlank { null }
-        val rawSigil = firestoreUser?.anonymousSigil?.ifBlank { null }
-            ?: profile.sigil.ifBlank { null }
-        val config = firestoreUser?.sigilConfig?.takeIf { it != SigilConfig() }
-            ?: profile.sigilConfig
+        sessionManager.owningUid
+    ) { currentUser, firestoreUser, remoteProfileState, profile, owningUid ->
+        val isAnon = currentUser == null || currentUser.isAnonymous
+        if (isAnon) {
+            // Anonymous session: preserve existing anonymous-session identity behaviour
+            val rawName = firestoreUser?.anonymousName?.ifBlank { null }
+                ?: profile.username.ifBlank { null }
+            val rawSigil = firestoreUser?.anonymousSigil?.ifBlank { null }
+                ?: profile.sigil.ifBlank { null }
+            val config = firestoreUser?.sigilConfig?.takeIf { it != SigilConfig() }
+                ?: profile.sigilConfig
 
-        if (rawName == null && rawSigil == null) {
-            AnonymousIdentityState.Fallback()
+            if (rawName == null && rawSigil == null) {
+                AnonymousIdentityState.Fallback()
+            } else {
+                AnonymousIdentityState.Success(
+                    anonymousName = rawName ?: "Quiet Presence",
+                    anonymousSigil = rawSigil,
+                    sigilConfig = config
+                )
+            }
         } else {
-            AnonymousIdentityState.Success(
-                anonymousName = rawName ?: "Quiet Presence",
-                anonymousSigil = rawSigil,
-                sigilConfig = config
-            )
+            // Non-anonymous authenticated account (e.g. Account B)
+            val authUid = currentUser.uid
+            if (firestoreUser != null && firestoreUser.id == authUid) {
+                val rawName = firestoreUser.anonymousName.ifBlank { null }
+                val rawSigil = firestoreUser.anonymousSigil.ifBlank { null }
+                val config = firestoreUser.sigilConfig.takeIf { it != SigilConfig() }
+                    ?: SigilConfig(seed = firestoreUser.sigilSeed.ifBlank { authUid })
+
+                if (rawName == null && rawSigil == null) {
+                    AnonymousIdentityState.Fallback()
+                } else {
+                    AnonymousIdentityState.Success(
+                        anonymousName = rawName ?: "Quiet Presence",
+                        anonymousSigil = rawSigil,
+                        sigilConfig = config
+                    )
+                }
+            } else if (remoteProfileState is RemoteProfileState.Exists && remoteProfileState.uid == authUid) {
+                val user = remoteProfileState.user
+                val rawName = user.anonymousName.ifBlank { null }
+                val rawSigil = user.anonymousSigil.ifBlank { null }
+                val config = user.sigilConfig.takeIf { it != SigilConfig() }
+                    ?: SigilConfig(seed = user.sigilSeed.ifBlank { authUid })
+
+                if (rawName == null && rawSigil == null) {
+                    AnonymousIdentityState.Fallback()
+                } else {
+                    AnonymousIdentityState.Success(
+                        anonymousName = rawName ?: "Quiet Presence",
+                        anonymousSigil = rawSigil,
+                        sigilConfig = config
+                    )
+                }
+            } else if (remoteProfileState is RemoteProfileState.CachedAvailable && remoteProfileState.uid == authUid) {
+                val user = remoteProfileState.user
+                val rawName = user.anonymousName.ifBlank { null }
+                val rawSigil = user.anonymousSigil.ifBlank { null }
+                val config = user.sigilConfig.takeIf { it != SigilConfig() }
+                    ?: SigilConfig(seed = user.sigilSeed.ifBlank { authUid })
+
+                if (rawName == null && rawSigil == null) {
+                    AnonymousIdentityState.Fallback()
+                } else {
+                    AnonymousIdentityState.Success(
+                        anonymousName = rawName ?: "Quiet Presence",
+                        anonymousSigil = rawSigil,
+                        sigilConfig = config
+                    )
+                }
+            } else if (owningUid == authUid) {
+                // Legitimate cached identity verified to belong to this authenticated account
+                val rawName = profile.username.ifBlank { null }
+                val rawSigil = profile.sigil.ifBlank { null }
+                val config = profile.sigilConfig
+
+                if (rawName == null && rawSigil == null) {
+                    AnonymousIdentityState.Fallback()
+                } else {
+                    AnonymousIdentityState.Success(
+                        anonymousName = rawName ?: "Quiet Presence",
+                        anonymousSigil = rawSigil,
+                        sigilConfig = config
+                    )
+                }
+            } else if (remoteProfileState is RemoteProfileState.NotFound && remoteProfileState.uid == authUid) {
+                // Legitimate unconfigured account (remote profile confirmed absent)
+                AnonymousIdentityState.Fallback()
+            } else {
+                // Authenticated account's identity is unresolved; must not fall back to unowned anonymous record
+                AnonymousIdentityState.Loading
+            }
         }
     }.catch {
         emit(AnonymousIdentityState.Fallback())

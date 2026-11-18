@@ -351,7 +351,6 @@ private fun FeedVibeHeader(
             items(EmotionList) { emotion ->
                 PetalChip(
                     label = emotion.label,
-                    emoji = emotion.emoji,
                     selected = selectedEmotion == emotion.label,
                     onClick = { onEmotionSelect(emotion.label) }
                 )

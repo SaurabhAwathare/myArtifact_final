@@ -13,9 +13,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -55,7 +54,7 @@ fun MiniRecorder(
     Surface(
         modifier = modifier
             .padding(16.dp)
-            .height(64.dp)
+            .heightIn(min = 64.dp)
             .fillMaxWidth(0.9f)
             .clip(RoundedCornerShape(32.dp))
             .clickable(onClick = onClick),
@@ -65,8 +64,7 @@ fun MiniRecorder(
     ) {
         Row(
             modifier = Modifier
-                .padding(horizontal = 24.dp)
-                .fillMaxHeight(),
+                .padding(horizontal = 24.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {

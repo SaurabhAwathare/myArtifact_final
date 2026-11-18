@@ -38,6 +38,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import androidx.room.withTransaction
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CoroutineScope
@@ -83,7 +85,8 @@ open class UserRepository @Inject constructor(
     private val diagnosticLogger: DiagnosticLogger,
     private val functions: Lazy<FirebaseFunctions> = Lazy { FirebaseFunctions.getInstance() },
     private val authRepository: Lazy<AuthRepository>,
-    private val deadLetterInteractionDao: Lazy<DeadLetterInteractionDao> = Lazy { error("DeadLetterInteractionDao not provided") }
+    private val deadLetterInteractionDao: Lazy<DeadLetterInteractionDao> = Lazy { error("DeadLetterInteractionDao not provided") },
+    private val appDatabase: Lazy<com.saurabh.artifact.data.local.AppDatabase> = Lazy { error("AppDatabase not provided") }
 ) {
     companion object {
         const val CREATOR_PROFILE_CACHE_TTL_MS: Long = 24 * 60 * 60 * 1000L // 24 hours
@@ -1940,59 +1943,230 @@ open class UserRepository @Inject constructor(
     }
 
     /**
-     * Privately ignores a Presence (Persona).
-     * Synchronizes to Firestore private collection and local Room cache.
-     * Use targetAnonymousId to align with Responsible Anonymity.
+     * Privately ignores a Presence (Persona) offline-first.
+     * Atomically records the local ignored state and replaces the IGNORE pending interaction within a Room transaction.
+     * Enqueues WorkManager only after the transaction commits.
      */
     suspend fun ignoreUser(targetAnonymousId: String): Result<Unit> = withContext(Dispatchers.IO) {
         val currentUserId = getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
-        
-        try {
-            // 1. Remote Write: Store the target persona ID in the user's private ignore list
-            usersCollection.document(currentUserId)
-                .collection("private").document("ignored_users")
-                .collection("users").document(targetAnonymousId)
-                .set(mapOf("ignoredAt" to FieldValue.serverTimestamp()))
-                .await()
+        val rawTarget = targetAnonymousId.trim()
+        if (rawTarget.isBlank()) {
+            return@withContext Result.failure(AppError.InvalidInput("Target ID cannot be blank"))
+        }
 
-            // 2. Local Write: Store persona ID in local Room (using 'userId' column for compatibility)
-            ignoredUserDao.get().insert(com.saurabh.artifact.data.local.IgnoredUserEntity(currentUserId, targetAnonymousId))
-            
-            diagnosticLogger.info(DiagnosticCategory.RESONANCE, "USER_IGNORED", mapOf("targetPersonaId" to targetAnonymousId))
+        // Canonical Persona ID resolution: must be or resolve to "usr_..."
+        val resolvedPersonaId = if (rawTarget.startsWith("usr_")) {
+            rawTarget
+        } else {
+            getCreatorProfile(rawTarget)?.anonymousId?.takeIf { it.startsWith("usr_") }
+        }
+
+        if (resolvedPersonaId.isNullOrBlank() || !resolvedPersonaId.startsWith("usr_")) {
+            diagnosticLogger.warn(DiagnosticCategory.RESONANCE, "USER_IGNORE_INVALID_TARGET", mapOf("target" to rawTarget))
+            return@withContext Result.failure(IllegalArgumentException("Invalid target: Must be or resolve to a canonical persona ID starting with 'usr_'"))
+        }
+
+        // Self-ignore guard
+        val currentPersonaId = userDao.get().getProfile(currentUserId)?.anonymousId
+        if (resolvedPersonaId == currentUserId || (currentPersonaId != null && resolvedPersonaId == currentPersonaId)) {
+            return@withContext Result.failure(IllegalArgumentException("Cannot ignore yourself"))
+        }
+
+        try {
+            // Atomic local persistence within Room transaction
+            appDatabase.get().withTransaction {
+                ignoredUserDao.get().insert(
+                    com.saurabh.artifact.data.local.IgnoredUserEntity(ownerUserId = currentUserId, userId = resolvedPersonaId)
+                )
+                val pending = PendingInteractionEntity(
+                    userId = currentUserId,
+                    artifactId = resolvedPersonaId,
+                    interactionType = InteractionType.IGNORE,
+                    action = InteractionAction.ADD,
+                    metadata = resolvedPersonaId
+                )
+                pendingInteractionDao.get().replacePendingInteraction(pending)
+            }
+
+            // Enqueue WorkManager ONLY after transaction commits
+            InteractionSyncWorker.enqueue(context)
+
+            diagnosticLogger.info(
+                DiagnosticCategory.RESONANCE,
+                "USER_IGNORED_LOCALLY",
+                mapOf("targetPersonaId" to resolvedPersonaId, "userId" to currentUserId)
+            )
             Result.success(Unit)
         } catch (e: Exception) {
-            diagnosticLogger.error(DiagnosticCategory.RESONANCE, "USER_IGNORE_FAILED", mapOf("targetPersonaId" to targetAnonymousId), e)
+            if (e is CancellationException) throw e
+            diagnosticLogger.error(
+                DiagnosticCategory.RESONANCE,
+                "USER_IGNORE_FAILED",
+                mapOf("targetPersonaId" to resolvedPersonaId),
+                e
+            )
             Result.failure(AppError.from(e))
         }
     }
 
     /**
-     * Removes an ignore relationship privately.
+     * Removes an ignore relationship privately offline-first.
+     * Atomically removes the local ignored state and replaces the IGNORE pending interaction within a Room transaction.
+     * Enqueues WorkManager only after the transaction commits.
      */
     suspend fun unignoreUser(targetAnonymousId: String): Result<Unit> = withContext(Dispatchers.IO) {
         val currentUserId = getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
+        val rawTarget = targetAnonymousId.trim()
+        if (rawTarget.isBlank()) {
+            return@withContext Result.failure(AppError.InvalidInput("Target ID cannot be blank"))
+        }
+
+        // Canonical Persona ID resolution: must be or resolve to "usr_..."
+        val resolvedPersonaId = if (rawTarget.startsWith("usr_")) {
+            rawTarget
+        } else {
+            getCreatorProfile(rawTarget)?.anonymousId?.takeIf { it.startsWith("usr_") }
+        }
+
+        if (resolvedPersonaId.isNullOrBlank() || !resolvedPersonaId.startsWith("usr_")) {
+            diagnosticLogger.warn(DiagnosticCategory.RESONANCE, "USER_UNIGNORE_INVALID_TARGET", mapOf("target" to rawTarget))
+            return@withContext Result.failure(IllegalArgumentException("Invalid target: Must be or resolve to a canonical persona ID starting with 'usr_'"))
+        }
 
         try {
-            // 1. Remote Delete
-            usersCollection.document(currentUserId)
+            // Atomic local persistence within Room transaction
+            appDatabase.get().withTransaction {
+                ignoredUserDao.get().delete(resolvedPersonaId, currentUserId)
+                val pending = PendingInteractionEntity(
+                    userId = currentUserId,
+                    artifactId = resolvedPersonaId,
+                    interactionType = InteractionType.IGNORE,
+                    action = InteractionAction.REMOVE,
+                    metadata = resolvedPersonaId
+                )
+                pendingInteractionDao.get().replacePendingInteraction(pending)
+            }
+
+            // Enqueue WorkManager ONLY after transaction commits
+            InteractionSyncWorker.enqueue(context)
+
+            diagnosticLogger.info(
+                DiagnosticCategory.RESONANCE,
+                "USER_UNIGNORED_LOCALLY",
+                mapOf("targetPersonaId" to resolvedPersonaId, "userId" to currentUserId)
+            )
+            Result.success(Unit)
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            diagnosticLogger.error(
+                DiagnosticCategory.RESONANCE,
+                "USER_UNIGNORE_FAILED",
+                mapOf("targetPersonaId" to resolvedPersonaId),
+                e
+            )
+            Result.failure(AppError.from(e))
+        }
+    }
+
+    /**
+     * Internal synchronization method for IGNORE (ADD).
+     * INTERNAL SYNC API: Intended exclusively for InteractionSyncWorker.
+     * Performs direct Firestore write without enqueuing.
+     */
+    internal suspend fun syncIgnoreToFirestore(userId: String, targetPersonaId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val uid = userId.trim()
+        val targetId = targetPersonaId.trim()
+        if (uid.isBlank() || targetId.isBlank()) {
+            return@withContext Result.failure(AppError.InvalidInput("User IDs cannot be blank"))
+        }
+
+        // Account-Switch Isolation Guard
+        val currentAuthUid = auth.currentUser?.uid ?: authRepository.get().currentUserId
+        if (currentAuthUid != uid) {
+            diagnosticLogger.warn(
+                DiagnosticCategory.SYNC,
+                "SYNC_IGNORE_ABORTED_OWNERSHIP_MISMATCH",
+                mapOf("targetPersonaId" to targetId, "workerUid" to uid, "currentAuthUid" to currentAuthUid)
+            )
+            return@withContext Result.failure(AppError.Unauthenticated())
+        }
+
+        try {
+            usersCollection.document(uid)
                 .collection("private").document("ignored_users")
-                .collection("users").document(targetAnonymousId)
+                .collection("users").document(targetId)
+                .set(mapOf("ignoredAt" to FieldValue.serverTimestamp()))
+                .await()
+
+            diagnosticLogger.info(
+                DiagnosticCategory.RESONANCE,
+                "USER_IGNORE_SYNCED_TO_FIRESTORE",
+                mapOf("targetPersonaId" to targetId, "userId" to uid)
+            )
+            Result.success(Unit)
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            diagnosticLogger.error(
+                DiagnosticCategory.RESONANCE,
+                "USER_IGNORE_SYNC_TO_FIRESTORE_FAILED",
+                mapOf("targetPersonaId" to targetId, "userId" to uid),
+                e
+            )
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Internal synchronization method for UNIGNORE (REMOVE).
+     * INTERNAL SYNC API: Intended exclusively for InteractionSyncWorker.
+     * Performs direct Firestore delete without enqueuing.
+     */
+    internal suspend fun syncUnignoreFromFirestore(userId: String, targetPersonaId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val uid = userId.trim()
+        val targetId = targetPersonaId.trim()
+        if (uid.isBlank() || targetId.isBlank()) {
+            return@withContext Result.failure(AppError.InvalidInput("User IDs cannot be blank"))
+        }
+
+        // Account-Switch Isolation Guard
+        val currentAuthUid = auth.currentUser?.uid ?: authRepository.get().currentUserId
+        if (currentAuthUid != uid) {
+            diagnosticLogger.warn(
+                DiagnosticCategory.SYNC,
+                "SYNC_UNIGNORE_ABORTED_OWNERSHIP_MISMATCH",
+                mapOf("targetPersonaId" to targetId, "workerUid" to uid, "currentAuthUid" to currentAuthUid)
+            )
+            return@withContext Result.failure(AppError.Unauthenticated())
+        }
+
+        try {
+            usersCollection.document(uid)
+                .collection("private").document("ignored_users")
+                .collection("users").document(targetId)
                 .delete()
                 .await()
 
-            // 2. Local Delete
-            ignoredUserDao.get().delete(targetAnonymousId, currentUserId)
-            
-            diagnosticLogger.info(DiagnosticCategory.RESONANCE, "USER_UNIGNORED", mapOf("targetPersonaId" to targetAnonymousId))
+            diagnosticLogger.info(
+                DiagnosticCategory.RESONANCE,
+                "USER_UNIGNORE_SYNCED_FROM_FIRESTORE",
+                mapOf("targetPersonaId" to targetId, "userId" to uid)
+            )
             Result.success(Unit)
         } catch (e: Exception) {
-            diagnosticLogger.error(DiagnosticCategory.RESONANCE, "USER_UNIGNORE_FAILED", mapOf("targetPersonaId" to targetAnonymousId), e)
-            Result.failure(AppError.from(e))
+            if (e is CancellationException) throw e
+            diagnosticLogger.error(
+                DiagnosticCategory.RESONANCE,
+                "USER_UNIGNORE_SYNC_FROM_FIRESTORE_FAILED",
+                mapOf("targetPersonaId" to targetId, "userId" to uid),
+                e
+            )
+            Result.failure(e)
         }
     }
 
     /**
      * Synchronizes the user's private ignore list from Firestore to Room.
+     * Accounts for pending local operations to avoid overwriting uncommitted offline changes.
      */
     suspend fun syncIgnoredUsers(): Result<Unit> = withContext(Dispatchers.IO) {
         val userId = getCurrentUserId() ?: return@withContext Result.failure(AppError.Unauthenticated())
@@ -2004,18 +2178,28 @@ open class UserRepository @Inject constructor(
                 .get()
                 .await()
 
-            val ignoredUserIds = snapshot.documents.map { it.id }
-            
-            // Atomic Refresh
-            val dao = ignoredUserDao.get()
-            dao.deleteAll(userId)
-            ignoredUserIds.forEach { targetId ->
-                dao.insert(com.saurabh.artifact.data.local.IgnoredUserEntity(userId, targetId))
+            val remoteIgnoredUserIds = snapshot.documents.map { it.id }.toSet()
+
+            // Atomic Refresh protecting pending operations
+            appDatabase.get().withTransaction {
+                val pendingIgnores = pendingInteractionDao.get().getPendingForUser(userId)
+                    .filter { it.interactionType == InteractionType.IGNORE }
+                val pendingAdds = pendingIgnores.filter { it.action == InteractionAction.ADD }.map { it.artifactId }.toSet()
+                val pendingRemoves = pendingIgnores.filter { it.action == InteractionAction.REMOVE }.map { it.artifactId }.toSet()
+
+                val effectiveIgnoredIds = (remoteIgnoredUserIds - pendingRemoves) + pendingAdds
+
+                val dao = ignoredUserDao.get()
+                dao.deleteAll(userId)
+                effectiveIgnoredIds.forEach { targetId ->
+                    dao.insert(com.saurabh.artifact.data.local.IgnoredUserEntity(userId, targetId))
+                }
             }
 
-            diagnosticLogger.info(DiagnosticCategory.RESONANCE, "IGNORED_USERS_SYNCED", mapOf("count" to ignoredUserIds.size))
+            diagnosticLogger.info(DiagnosticCategory.RESONANCE, "IGNORED_USERS_SYNCED", mapOf("count" to remoteIgnoredUserIds.size))
             Result.success(Unit)
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             diagnosticLogger.error(DiagnosticCategory.RESONANCE, "IGNORED_USERS_SYNC_FAILED", throwable = e)
             Result.failure(AppError.from(e))
         }

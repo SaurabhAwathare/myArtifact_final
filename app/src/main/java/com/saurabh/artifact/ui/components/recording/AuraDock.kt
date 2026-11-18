@@ -43,15 +43,12 @@ import androidx.compose.ui.unit.dp
 import com.saurabh.artifact.R
 import com.saurabh.artifact.data.local.RecordingStatus
 import com.saurabh.artifact.ui.theme.ArtifactTheme
-import com.saurabh.artifact.ui.theme.GoldAura400
-import com.saurabh.artifact.ui.theme.GoldAura500
-import com.saurabh.artifact.ui.theme.Obsidian950
 import com.saurabh.artifact.ui.util.debouncedClick
 
 /**
  * AuraDock: A refined voice-entry point designed for calm technology.
  * Transitioned from abstract ritual to clear, emotionally safe invitation.
- * Uses a single-gold system and stable motion governance.
+ * Uses recordingActive red system and stable motion governance.
  */
 @Composable
 fun AuraDock(
@@ -89,6 +86,12 @@ fun AuraDock(
         label = "AtmosphericGlow"
     )
 
+    val recordingColor = if (status == RecordingStatus.PAUSED) {
+        ArtifactTheme.colors.recordingPaused
+    } else {
+        ArtifactTheme.colors.recordingActive
+    }
+
     // Part 2 — Visual Hierarchy & Ritual Positioning
     Box(
         contentAlignment = Alignment.Center,
@@ -102,14 +105,15 @@ fun AuraDock(
     ) {
         // Part 4, 7 & 8 — Glow & Atmosphere Governance: Phase-deferred drawing without expensive blur
         AuraGlow(
-            alphaProvider = { glowAlpha.value }
+            alphaProvider = { glowAlpha.value },
+            color = recordingColor
         )
 
         // The Core Interaction Surface
         val recordingDescription = stringResource(R.string.cd_record_reflection)
         Surface(
             shape = CircleShape,
-            color = GoldAura500,
+            color = recordingColor,
             tonalElevation = 6.dp,
             modifier = Modifier
                 .size(72.dp) // Slightly larger
@@ -138,7 +142,7 @@ fun AuraDock(
 private fun AuraGlow(
     alphaProvider: () -> Float,
     modifier: Modifier = Modifier,
-    color: Color = GoldAura400
+    color: Color = ArtifactTheme.colors.recordingActive
 ) {
     Canvas(
         modifier = modifier
@@ -172,7 +176,7 @@ private fun MicrophoneGlyph(
     )
 
     val coreColor by animateColorAsState(
-        targetValue = Obsidian950,
+        targetValue = Color.White,
         animationSpec = tween(600),
         label = "MicColor"
     )

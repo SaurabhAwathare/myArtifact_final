@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.BasicTextField
@@ -53,7 +54,7 @@ fun MindfulTextField(
         label = "UnderlineColor"
     )
 
-    Box(modifier = modifier
+    Column(modifier = modifier
         .padding(vertical = 8.dp)
         .onGloballyPositioned { coordinates ->
             Log.d("COMMENT_FOCUS", "MindfulTextField: size=${coordinates.size}")
@@ -98,7 +99,7 @@ fun MindfulTextField(
         )
         
         HorizontalDivider(
-            modifier = Modifier.padding(top = 40.dp), // Adjust based on font size
+            modifier = Modifier.fillMaxWidth(),
             thickness = if (isFocused) 1.5.dp else 1.dp,
             color = underlineColor
         )

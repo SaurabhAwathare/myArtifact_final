@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -49,6 +50,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.saurabh.artifact.domain.IdentityProtectionPolicy
 import com.saurabh.artifact.ui.components.AppSnackbarHost
 import com.saurabh.artifact.ui.components.ArtifactSigil
+import com.saurabh.artifact.ui.components.state.LoadingPlaceholder
 import com.saurabh.artifact.ui.identity.components.CandidateSelector
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -114,13 +116,21 @@ fun IdentitySelectionScreen(
                 Box(
                     modifier = Modifier
                         .size(160.dp)
-                        .clickable { onEditSigil() },
+                        .clickable(enabled = userProfile != null) { onEditSigil() },
                     contentAlignment = Alignment.Center
                 ) {
-                    ArtifactSigil(
-                        config = sigilConfig,
-                        size = 140.dp
-                    )
+                    if (userProfile == null) {
+                        LoadingPlaceholder(
+                            height = 140.dp,
+                            width = Modifier.size(140.dp),
+                            shape = CircleShape
+                        )
+                    } else {
+                        ArtifactSigil(
+                            config = sigilConfig,
+                            size = 140.dp
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))

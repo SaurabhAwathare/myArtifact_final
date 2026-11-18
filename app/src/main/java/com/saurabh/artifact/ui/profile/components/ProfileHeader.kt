@@ -59,10 +59,10 @@ fun ProfileHeader(
             Box(
                 modifier = Modifier
                     .size(64.dp)
-                    .clickable(enabled = isSelf && !isLoading) { onEditClick() },
+                    .clickable(enabled = isSelf && !isLoading && user != null) { onEditClick() },
                 contentAlignment = Alignment.Center
             ) {
-                if (isLoading) {
+                if (isLoading || user == null) {
                     LoadingPlaceholder(
                         height = 64.dp,
                         width = Modifier.size(64.dp),
@@ -70,9 +70,10 @@ fun ProfileHeader(
                     )
                 } else {
                     val displayConfig = when {
-                        isSelf -> sigilConfig
-                        user != null -> user.sigilConfig
-                        else -> SigilConfig(seed = "fallback")
+                        user.sigilConfig != SigilConfig() -> user.sigilConfig
+                        user.sigilSeed.isNotBlank() -> SigilConfig(seed = user.sigilSeed)
+                        isSelf && sigilConfig != SigilConfig() -> sigilConfig
+                        else -> SigilConfig(seed = user.id.ifBlank { "fallback" })
                     }
 
                     ArtifactSigil(
@@ -89,7 +90,7 @@ fun ProfileHeader(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.Center
             ) {
-                if (isLoading) {
+                if (isLoading || user == null) {
                     LoadingPlaceholder(
                         height = 20.dp,
                         width = Modifier.width(120.dp),
@@ -103,7 +104,7 @@ fun ProfileHeader(
                     )
                 } else {
                     Text(
-                        text = user?.anonymousName ?: "quiet presence",
+                        text = user.anonymousName.ifBlank { "quiet presence" },
                         style = ArtifactTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = ArtifactTheme.colors.onSurfaceMain,
@@ -111,7 +112,7 @@ fun ProfileHeader(
                         overflow = TextOverflow.Ellipsis
                     )
 
-                    val handle = user?.anonymousSigil?.takeIf { it.isNotBlank() }
+                    val handle = user.anonymousSigil.takeIf { it.isNotBlank() }
                     if (handle != null) {
                         Spacer(modifier = Modifier.height(Spacing.ExtraSmall))
                         Text(
@@ -128,7 +129,7 @@ fun ProfileHeader(
                     Spacer(modifier = Modifier.height(Spacing.Small))
                     Button(
                         onClick = onResonateClick,
-                        enabled = !isLoading,
+                        enabled = !isLoading && user != null,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = if (isResonating) ArtifactTheme.colors.surfaceHearth else MaterialTheme.colorScheme.primary,
                             contentColor = if (isResonating) ArtifactTheme.colors.onSurfaceMain else MaterialTheme.colorScheme.onPrimary,
